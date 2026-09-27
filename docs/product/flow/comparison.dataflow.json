@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "TokenMax comparison flow",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "viewBox": [
+      1068,
+      560
+    ]
+  },
+  "stages": [
+    {
+      "label": "Describe"
+    },
+    {
+      "label": "Run three arms"
+    },
+    {
+      "label": "Record"
+    },
+    {
+      "label": "Measure"
+    },
+    {
+      "label": "Verdict"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "workflow",
+      "type": "frontend",
+      "label": "Decision + cases",
+      "sublabel": "typed question, 10+ cases",
+      "stage": 0,
+      "row": 1,
+      "tag": "written first"
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "What you do now",
+      "sublabel": "e.g. always Sonnet",
+      "stage": 1,
+      "row": 0,
+      "tag": "arm A"
+    },
+    {
+      "id": "rule",
+      "type": "backend",
+      "label": "A simple rule",
+      "sublabel": "written before labels",
+      "stage": 1,
+      "row": 1,
+      "tag": "arm B"
+    },
+    {
+      "id": "jev",
+      "type": "cloud",
+      "label": "Jev decides",
+      "sublabel": "answer maps to a model",
+      "stage": 1,
+      "row": 2,
+      "tag": "arm C"
+    },
+    {
+      "id": "runlog",
+      "type": "database",
+      "label": "Results CSV",
+      "sublabel": "row per case per arm",
+      "stage": 2,
+      "row": 1,
+      "tag": "tokens, cost"
+    },
+    {
+      "id": "labels",
+      "type": "security",
+      "label": "Kept or not",
+      "sublabel": "human, blind to arm",
+      "stage": 2,
+      "row": 2,
+      "tag": "accept / reject"
+    },
+    {
+      "id": "latency",
+      "type": "backend",
+      "label": "Tokens + spend",
+      "sublabel": "pick + model + fallback",
+      "stage": 3,
+      "row": 0
+    },
+    {
+      "id": "cpar",
+      "type": "backend",
+      "label": "Cost per kept",
+      "sublabel": "spend / kept",
+      "stage": 3,
+      "row": 1,
+      "tag": "headline"
+    },
+    {
+      "id": "accuracy",
+      "type": "backend",
+      "label": "Wins vs losses",
+      "sublabel": "per case, vs Jev",
+      "stage": 3,
+      "row": 2
+    },
+    {
+      "id": "verdict",
+      "type": "security",
+      "label": "Verdict",
+      "sublabel": "Jev / !Jev / not enough",
+      "stage": 4,
+      "row": 1,
+      "tag": "this test set only"
+    }
+  ],
+  "flows": [
+    {
+      "from": "workflow",
+      "to": "llm",
+      "label": "same cases",
+      "variant": "default",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "workflow",
+      "to": "rule",
+      "label": "cases",
+      "variant": "default",
+      "route": "straight",
+      "labelDx": 20
+    },
+    {
+      "from": "workflow",
+      "to": "jev",
+      "label": "same cases",
+      "variant": "emphasis",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "llm",
+      "to": "runlog",
+      "label": "output + usage",
+      "variant": "default",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "rule",
+      "to": "runlog",
+      "label": "output",
+      "variant": "default",
+      "route": "straight",
+      "labelDx": 22
+    },
+    {
+      "from": "jev",
+      "to": "runlog",
+      "label": "choice + usage",
+      "variant": "emphasis",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "runlog",
+      "to": "labels",
+      "label": "outputs to judge",
+      "variant": "dashed",
+      "route": "vertical-channel",
+      "labelDx": 40
+    },
+    {
+      "from": "runlog",
+      "to": "latency",
+      "label": "usage",
+      "variant": "default",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "runlog",
+      "to": "cpar",
+      "label": "spend",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelDx": 23
+    },
+    {
+      "from": "labels",
+      "to": "cpar",
+      "label": "accepted count",
+      "variant": "emphasis",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "labels",
+      "to": "accuracy",
+      "label": "labels",
+      "variant": "default",
+      "route": "straight",
+      "labelDx": 23
+    },
+    {
+      "from": "latency",
+      "to": "verdict",
+      "label": "spend",
+      "variant": "default",
+      "route": "vertical-channel"
+    },
+    {
+      "from": "cpar",
+      "to": "verdict",
+      "label": "cost",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelDx": 22
+    },
+    {
+      "from": "accuracy",
+      "to": "verdict",
+      "label": "quality",
+      "variant": "default",
+      "route": "vertical-channel"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Metric input sources",
+      "items": [
+        "Tokens: API usage fields per call",
+        "Spend: pick + triggered model + fallback; Jev $0.042/M input, models from one dated price table, rule 0",
+        "Kept answers and wins: human labels"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Labels",
+      "items": [
+        "Accept or reject each picked output, one written rule",
+        "Blind to which arm picked it",
+        "Jev may pre-fill; a person confirms"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Verdict (provisional)",
+      "items": [
+        "Under 10 labelled cases or no Jev rows: not enough evidence",
+        "Another arm keeps more, or keeps as many for less: don't use Jev",
+        "Jev cheapest per kept answer and keeps as many: use Jev"
+      ]
+    }
+  ]
+}

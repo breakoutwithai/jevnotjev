@@ -31,17 +31,17 @@
     {
       "id": "workflow",
       "type": "frontend",
-      "label": "Workflow + cases",
-      "sublabel": "one decision point",
+      "label": "Decision + cases",
+      "sublabel": "typed question, 10+ cases",
       "stage": 0,
       "row": 1,
-      "tag": "user supplied"
+      "tag": "written first"
     },
     {
       "id": "llm",
       "type": "external",
-      "label": "LLM only",
-      "sublabel": "current setup",
+      "label": "What you do now",
+      "sublabel": "e.g. always Sonnet",
       "stage": 1,
       "row": 0,
       "tag": "arm A"
@@ -49,8 +49,8 @@
     {
       "id": "rule",
       "type": "backend",
-      "label": "Simple baseline",
-      "sublabel": "rule or cheap model",
+      "label": "A simple rule",
+      "sublabel": "written before labels",
       "stage": 1,
       "row": 1,
       "tag": "arm B"
@@ -58,8 +58,8 @@
     {
       "id": "jev",
       "type": "cloud",
-      "label": "Jev routing",
-      "sublabel": "jev-1.13.0",
+      "label": "Jev decides",
+      "sublabel": "answer maps to a model",
       "stage": 1,
       "row": 2,
       "tag": "arm C"
@@ -67,34 +67,34 @@
     {
       "id": "runlog",
       "type": "database",
-      "label": "Run log",
-      "sublabel": "output per case per arm",
+      "label": "Results CSV",
+      "sublabel": "row per case per arm",
       "stage": 2,
       "row": 1,
-      "tag": "tokens, cost, ms"
+      "tag": "tokens, cost"
     },
     {
       "id": "labels",
       "type": "security",
-      "label": "Acceptance labels",
-      "sublabel": "accept or reject",
+      "label": "Kept or not",
+      "sublabel": "human, blind to arm",
       "stage": 2,
       "row": 2,
-      "tag": "human, Jev pre-grade"
+      "tag": "accept / reject"
     },
     {
       "id": "latency",
       "type": "backend",
-      "label": "Latency + tokens",
-      "sublabel": "per case, per arm",
+      "label": "Tokens + spend",
+      "sublabel": "pick + model + fallback",
       "stage": 3,
       "row": 0
     },
     {
       "id": "cpar",
       "type": "backend",
-      "label": "Cost per accepted",
-      "sublabel": "spend / accepted",
+      "label": "Cost per kept",
+      "sublabel": "spend / kept",
       "stage": 3,
       "row": 1,
       "tag": "headline"
@@ -102,8 +102,8 @@
     {
       "id": "accuracy",
       "type": "backend",
-      "label": "Accuracy",
-      "sublabel": "vs labels",
+      "label": "Wins vs losses",
+      "sublabel": "per case, vs Jev",
       "stage": 3,
       "row": 2
     },
@@ -173,7 +173,7 @@
     {
       "from": "runlog",
       "to": "latency",
-      "label": "ms, tokens",
+      "label": "usage",
       "variant": "default",
       "route": "vertical-channel"
     },
@@ -203,7 +203,7 @@
     {
       "from": "latency",
       "to": "verdict",
-      "label": "speed",
+      "label": "spend",
       "variant": "default",
       "route": "vertical-channel"
     },
@@ -228,27 +228,27 @@
       "dot": "cyan",
       "title": "Metric input sources",
       "items": [
-        "Latency: client wall clock around each call",
-        "Tokens: API usage fields (Jev usage.input_tokens; LLM usage)",
-        "Spend: Jev tokens x $0.042/M input, output free; LLM total_cost_usd"
+        "Tokens: API usage fields per call",
+        "Spend: pick + triggered model + fallback; Jev $0.042/M input, models from one dated price table, rule 0",
+        "Kept answers and wins: human labels"
       ]
     },
     {
       "dot": "emerald",
       "title": "Labels",
       "items": [
-        "Accept or reject per output, one written rule",
-        "Jev may pre-grade; a person checks a sample and every disagreement",
-        "Accepted count feeds cost per accepted result"
+        "Accept or reject each picked output, one written rule",
+        "Blind to which arm picked it",
+        "Jev may pre-fill; a person confirms"
       ]
     },
     {
       "dot": "amber",
-      "title": "Verdict rule",
+      "title": "Verdict (provisional)",
       "items": [
-        "Use Jev: cheaper per accepted result at equal or better accuracy",
-        "!Jev: an arm beats Jev on both",
-        "Not enough evidence: too few cases or labels"
+        "Under 10 labelled cases or no Jev rows: not enough evidence",
+        "Another arm keeps more, or keeps as many for less: don't use Jev",
+        "Jev cheapest per kept answer and keeps as many: use Jev"
       ]
     }
   ]

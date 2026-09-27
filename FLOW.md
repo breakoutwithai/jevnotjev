@@ -1,47 +1,57 @@
 # TokenMax: comparison flow
 
-TokenMax lets a builder compare one workflow across three approaches on their own test cases, and reports cost per accepted result with a cautious verdict: use Jev, don't use Jev (!Jev), or not enough evidence.
+Take 10 to 20 examples of one decision your workflow already makes. Record what your current setup, a simple rule and Jev each chose and what it cost, and mark which answers you would keep. TokenMax shows the cost per answer you would keep for each, with a cautious verdict (use Jev, don't use Jev, or not enough evidence) that holds for those examples only.
 
 Diagram: [docs/product/flow/comparison.html](docs/product/flow/comparison.html) (source: `comparison.dataflow.json`, rendered with archify).
 
 ## Scope (v1)
-- **Workflow:** one decision point with a fixed answer space. First one: routing a coding prompt to Haiku, Sonnet or Opus.
+- **Workflow:** one decision point with a fixed answer set, asked as a typed question. First one: "How hard is this coding prompt? trivial / ordinary / hard"; code maps the answer to Haiku, Sonnet or Opus. Jev is never asked "which model".
 - **User:** a builder who runs LLM calls in their workflow and wants to know if Jev can make some of those decisions cheaper without losing quality.
-- **Accepted result:** an output a person (or a checked Jev pre-grade) marks "accept" under one written rule: correct and complete enough to use without edits.
-- **Out of scope:** many workflows at once; production integrations; sensitive production data (synthetic or redacted cases only); claims beyond the user's own test set; pooling or sharing subscriptions.
+- **Accepted result:** an output a person marks "accept" under one written rule: correct and complete enough to use without edits. Labels are blind to which arm picked the output. A Jev pre-grade may pre-fill a label but a person confirms it.
+- **Out of scope:** many workflows at once; the tool calling any model; production integrations; sensitive data (synthetic or redacted cases only); claims beyond the user's own test set; pooling or sharing subscriptions.
 
 ## Journey
-1. Describe the workflow and the decision it makes.
-2. Add a small test set of cases.
-3. Run the same cases through the three arms.
-4. Label each output accept or reject.
-5. Read the metrics and the verdict.
+1. Describe the decision and its answer set.
+2. Write 10 or more test cases, and the simple rule, before seeing any results.
+3. Run the cases through the three arms outside the tool (a local runner script with your own keys, or by hand) and fill one results CSV.
+4. Label every output any arm picked: accept or reject.
+5. Load the CSV into the page and read the numbers and the verdict.
 
 ## The three arms
-| Arm | What runs | Inputs it needs |
-|---|---|---|
-| A. LLM only | the builder's current model call | the case, the builder's prompt, a model id |
-| B. Simple baseline | a rule or a cheap model | the case and the rule (e.g. prompt length, keyword list) |
-| C. Jev routing | Jev makes the decision, then the chosen path runs | the case, the question, the answer options (criteria) |
+| Arm | Portal name | What it does | Inputs it needs |
+|---|---|---|---|
+| A. What you do now | current LLM-only setup | what you do today at this decision, e.g. every prompt goes to Sonnet | the case, your prompt, your model |
+| B. A simple rule | a simple baseline | a rule written before labelling, e.g. under 400 characters goes to Haiku; default "always the cheapest model" | the case and the rule |
+| C. Jev decides | Jev routing | Jev answers the typed question; code maps the answer to a model; below a confidence cutoff fixed in advance, the case falls back to arm A's model | the case, the question, the answer set, the mapping, the cutoff |
+
+## Results file
+One CSV, one row per case per arm: `case_id, arm, picker, picker_tokens_in, picker_cost_usd, picked_model, model_tokens_in, model_tokens_out, model_cost_usd, jev_answer, jev_confidence, fallback, label, label_source, price_table_date`. Spec and sample file come on D04 and D06.
 
 ## Metrics and where each number comes from
 | Metric shown | Input source |
 |---|---|
-| Latency per case | client wall clock around each call |
-| Input and output tokens | the API's usage fields (Jev: `usage.input_tokens`, `usage.output_tokens`; Claude: `usage`) |
-| Spend | Jev: input tokens x $0.042 per million, output free; Claude: `total_cost_usd` from the CLI; rule: 0 |
-| Accepted count | acceptance labels (accept / reject per output) |
-| Cost per accepted result | spend / accepted count, per arm |
-| Accuracy | arm decisions compared with the acceptance labels |
-| Jev confidence | `answers.<question>.confidence` in the Jev response |
-| Verdict | cost per accepted result and accuracy across arms (rule below) |
+| Tokens | the API's usage fields per call (Jev: `usage.input_tokens`, `usage.output_tokens`; model providers: `usage`) |
+| Spend per case | picker cost + cost of the model call the pick triggers + any fallback call. Jev: input tokens x $0.042 per million, output free. Models: tokens x one dated list-price table. Rule: 0 |
+| Spend per arm | sum of spend per case over all cases |
+| Kept answers (accepted count) | human labels on each picked output |
+| Cost per kept answer | spend per arm / kept answers; "undefined" when an arm keeps none |
+| Wins and losses vs Jev | per case: Jev kept and the other arm not (win), or the reverse (loss), from the labels |
+| Jev answer and confidence | `answers.<question>.choice` and `.confidence` in the Jev response |
+| Latency | client wall clock around each call (shown, not used in the verdict) |
+| Label source and labelling time | counted from the file; reported, not added to spend |
+| Verdict | the rule below, applied to the numbers above |
 
-## Verdict rule
-- **Use Jev:** Jev's arm has the lowest cost per accepted result with accuracy equal to or better than the others.
-- **!Jev:** another arm beats Jev on both.
-- **Not enough evidence:** too few cases or labels to tell.
+## Verdict rule (provisional, D05 sets the numbers)
+In order, first match wins:
+1. **Not enough evidence** if there are no Jev rows, fewer than 10 labelled cases, any picked output unlabelled, or any cost missing.
+2. **Don't use Jev** if another arm keeps more answers than Jev, or costs less per kept answer while keeping at least as many.
+3. **Use Jev** if Jev has the lowest cost per kept answer and keeps at least as many answers as every other arm.
+4. **Not enough evidence** otherwise (for example Jev keeps more answers but costs more). Both numbers are shown.
 
-The verdict describes the builder's test set only, not production.
+The screen prints the rule that fired and the counts behind it. The verdict describes the builder's test set only, not production.
+
+## No Jev key
+You still get "what you do now" vs "a simple rule". The verdict says "not enough evidence: no Jev results", never "don't use Jev". With your consent we can run the Jev arm on your redacted cases and send back the rows.
 
 ## First measurement
-[docs/benchmarks/2026-09-27-grading-speed-cost.md](docs/benchmarks/2026-09-27-grading-speed-cost.md): the metric sources above, exercised on 90 synthetic items.
+[docs/benchmarks/2026-09-27-grading-speed-cost.md](docs/benchmarks/2026-09-27-grading-speed-cost.md): the token, cost and latency sources above, exercised on 90 synthetic items. It used Jev as a grader (a labelling aid), not as arm C.

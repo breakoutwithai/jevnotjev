@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/breakoutwithai/jevnotjev/format/record-v1.schema.json",
+  "title": "Jev!Jev eval record, format jnj-record/1",
+  "description": "One CSV row = one answerer's answer to one question about one test case. An empty CSV cell is read as null. See format/README.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format_version", "run_id", "prompt_version", "case_id", "case_input",
+    "question_id", "question", "answer_set", "answerer", "answerer_model",
+    "output", "confidence", "label", "label_source",
+    "tokens_in", "tokens_out", "cost_usd", "latency_ms"
+  ],
+  "properties": {
+    "format_version": { "const": "jnj-record/1" },
+    "run_id": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+    "prompt_version": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+    "case_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "case_input": { "type": "string", "minLength": 1, "maxLength": 8000 },
+    "question_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "question": { "type": "string", "minLength": 1 },
+    "answer_set": { "type": "string", "pattern": "^[^|]+(\\|[^|]+)+$", "description": "Allowed answers separated by |, at least two" },
+    "answerer": { "enum": ["jev", "rule", "llm", "human"] },
+    "answerer_model": { "type": "string", "minLength": 1, "description": "e.g. jev-1.13.0, a rule name, an LLM model id, a person's initials" },
+    "output": { "type": "string", "minLength": 1 },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "label": { "enum": ["accept", "reject", null] },
+    "label_source": { "enum": ["human", null] },
+    "tokens_in": { "type": ["integer", "null"], "minimum": 0 },
+    "tokens_out": { "type": ["integer", "null"], "minimum": 0 },
+    "cost_usd": { "type": ["number", "null"], "minimum": 0 },
+    "latency_ms": { "type": ["integer", "null"], "minimum": 0 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "label": { "type": "null" } } },
+      "then": { "properties": { "label_source": { "type": "null" } } },
+      "else": { "properties": { "label_source": { "type": "string" } } }
+    }
+  ]
+}

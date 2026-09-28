@@ -25,7 +25,7 @@ Diagram: [docs/product/flow/comparison.html](docs/product/flow/comparison.html) 
 | C. Jev decides | Jev routing | Jev answers the typed question; code maps the answer to a model; below a confidence cutoff fixed in advance, the case falls back to arm A's model | the case, the question, the answer set, the mapping, the cutoff |
 
 ## Results file
-One CSV, one row per case per arm: `case_id, arm, picker, picker_tokens_in, picker_cost_usd, picked_model, model_tokens_in, model_tokens_out, model_cost_usd, jev_answer, jev_confidence, fallback, label, label_source, price_table_date`. Spec and sample file come on D04 and D06.
+One CSV, one row per case per arm: `case_id, arm, picker, picker_tokens_in, picker_cost_usd, picked_model, model_tokens_in, model_tokens_out, model_cost_usd, jev_answer, jev_confidence, fallback, label, label_source, price_table_date`. Record format (any answerer: Jev, rule, LLM or person), schema, fictional sample and validator: [format/](format/README.md).
 
 ## Metrics and where each number comes from
 | Metric shown | Input source |

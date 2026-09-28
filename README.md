@@ -8,6 +8,7 @@ Built in public for the Early AI-dopters 30 Day Challenge. The day-30 goal is **
 |---|---|
 | [FLOW.md](FLOW.md) | Scope, journey, the three arms, and the source of every metric |
 | [docs/product/flow/comparison.html](docs/product/flow/comparison.html) | The comparison flow diagram |
+| [format/](format/README.md) | Eval record format: cases, answers, labels, cost; schema, sample, validator |
 | [docs/benchmarks/](docs/benchmarks/) | Measurements |
 | [docs/product/user-stories.md](docs/product/user-stories.md) | User journeys and stories |
 | [docs/product/use-cases/](docs/product/use-cases/) | Jev use cases to test |

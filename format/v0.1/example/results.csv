@@ -1,0 +1,10 @@
+format,run_id,case_id,arm,picker,picker_tokens_in,picker_cost_usd,picked_model,output,model_tokens_in,model_tokens_out,model_cost_usd,jev_answer,jev_confidence,fallback,label,label_source,price_table_date
+tokenmax-results/0.1,r1,c01,now,always model-large,,0,model-large,"Renamed tmp to total on lines 3, 7 and 11.",310,40,0.00153,,,false,accept,human,2026-09-27
+tokenmax-results/0.1,r1,c01,rule,under 400 characters goes to model-small,,0,model-small,"Renamed tmp to total on lines 3, 7 and 11.",310,38,0.00050,,,false,accept,human,2026-09-27
+tokenmax-results/0.1,r1,c01,jev,jev-1.13.0,118,0.00000496,model-small,"Renamed tmp to total on lines 3, 7 and 11.",310,38,0.00050,no,0.93,false,accept,human,2026-09-27
+tokenmax-results/0.1,r1,c02,now,always model-large,,0,model-large,"Store an idempotency key per event, check it before charging, retry with backoff up to 5 times.",295,210,,,,false,accept,human,2026-09-27
+tokenmax-results/0.1,r1,c02,rule,under 400 characters goes to model-small,,0,model-small,"Retry 3 times.",295,6,0.00031,,,false,reject,human,2026-09-27
+tokenmax-results/0.1,r1,c02,jev,jev-1.13.0,121,0.00000508,model-large,"Store an idempotency key per event, check it before charging, retry with backoff up to 5 times.",295,205,0.00396,yes,0.88,false,accept,human,2026-09-27
+tokenmax-results/0.1,r1,c03,now,always model-large,,0,model-large,"- Team met. - Blue picked for the logo. - No other decisions.",330,24,0.00135,,,false,accept,human,2026-09-27
+tokenmax-results/0.1,r1,c03,rule,under 400 characters goes to model-small,,0,model-small,"- Logo will be blue.",330,9,0.00035,,,false,,,2026-09-27
+tokenmax-results/0.1,r1,c03,jev,jev-1.13.0,125,0.00000525,model-large,"- Team met. - Blue picked for the logo. - No other decisions.",330,24,0.00135,no,0.54,true,accept,human,2026-09-27

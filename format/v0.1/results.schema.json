@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/breakoutwithai/jevnotjev/format/v0.1/results.schema.json",
+  "title": "TokenMax results row, format 0.1",
+  "description": "One row per case per arm per run. An empty CSV cell is null. A null cost or label is allowed; the validator reports it and the verdict becomes 'not enough evidence'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "run_id", "case_id", "arm", "picker", "picked_model", "output", "fallback", "price_table_date"],
+  "properties": {
+    "format": {"const": "tokenmax-results/0.1"},
+    "run_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"},
+    "case_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"},
+    "arm": {"enum": ["now", "rule", "jev"], "description": "now = what you do now, rule = a simple rule, jev = Jev decides"},
+    "picker": {"type": "string", "minLength": 1, "description": "what chose the model: your model name, the rule text, or the Jev model id"},
+    "picker_tokens_in": {"type": ["integer", "null"], "minimum": 0},
+    "picker_cost_usd": {"type": ["number", "null"], "minimum": 0},
+    "picked_model": {"type": "string", "minLength": 1},
+    "output": {"type": ["string", "null"], "description": "the picked model's answer; null only if the call failed"},
+    "model_tokens_in": {"type": ["integer", "null"], "minimum": 0},
+    "model_tokens_out": {"type": ["integer", "null"], "minimum": 0},
+    "model_cost_usd": {"type": ["number", "null"], "minimum": 0},
+    "jev_answer": {"type": ["string", "null"]},
+    "jev_confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "fallback": {"type": "boolean", "description": "true when Jev's confidence was under the cutoff and the case went to arm now's model"},
+    "label": {"enum": ["accept", "reject", null]},
+    "label_source": {"enum": ["human", "grader", null]},
+    "price_table_date": {"type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"arm": {"const": "jev"}}},
+      "then": {"required": ["jev_answer", "jev_confidence"], "properties": {"jev_answer": {"type": "string"}, "jev_confidence": {"type": "number"}}},
+      "else": {"properties": {"jev_answer": {"const": null}, "jev_confidence": {"const": null}, "fallback": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"label": {"enum": ["accept", "reject"]}}, "required": ["label"]},
+      "then": {"properties": {"label_source": {"enum": ["human", "grader"]}}, "required": ["label_source"]}
+    }
+  ]
+}

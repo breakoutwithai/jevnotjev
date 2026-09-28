@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/breakoutwithai/jevnotjev/format/v0.1/cases.schema.json",
+  "title": "TokenMax test case row, format 0.1",
+  "description": "One row per test case. Written, with the simple rule, before any result is seen.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "case_id", "decision", "input"],
+  "properties": {
+    "format": {"const": "tokenmax-cases/0.1"},
+    "case_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"},
+    "decision": {"type": "string", "minLength": 1, "description": "the decision point this case tests, same wording for every case of one workflow"},
+    "input": {"type": "string", "minLength": 1, "description": "the text the workflow receives; fictional or redacted, never real user data"},
+    "note": {"type": ["string", "null"]}
+  }
+}

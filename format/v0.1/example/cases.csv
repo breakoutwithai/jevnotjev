@@ -1,0 +1,4 @@
+format,case_id,decision,input,note
+tokenmax-cases/0.1,c01,Does this prompt need the large model?,"Rename the variable tmp to total in this 12-line function.",fictional
+tokenmax-cases/0.1,c02,Does this prompt need the large model?,"Design a retry policy for a payment webhook that must never charge twice.",fictional
+tokenmax-cases/0.1,c03,Does this prompt need the large model?,"Summarise this made-up meeting note in three bullets: the team picked blue for the logo.",fictional

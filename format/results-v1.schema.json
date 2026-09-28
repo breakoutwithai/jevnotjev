@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/breakoutwithai/jevnotjev/format/results-v1.schema.json",
+  "title": "TokenMax results row, format tokenmax-results/1",
+  "description": "One CSV row = one test case run through one arm. An empty CSV cell is read as null. See format/README.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format_version", "case_id", "case_input", "arm", "picker",
+    "picker_tokens_in", "picker_cost_usd", "picked_model",
+    "model_tokens_in", "model_tokens_out", "model_cost_usd", "output",
+    "jev_answer", "jev_confidence", "fallback",
+    "label", "label_source", "price_table_date"
+  ],
+  "properties": {
+    "format_version": { "const": "tokenmax-results/1" },
+    "case_id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "case_input": { "type": "string", "minLength": 1, "maxLength": 8000 },
+    "arm": { "enum": ["A", "B", "C"], "description": "A = what you do now, B = a simple rule, C = Jev decides" },
+    "picker": { "type": "string", "minLength": 1, "description": "What made the choice, e.g. current:always-sonnet, rule:len<60, jev" },
+    "picker_tokens_in": { "type": ["integer", "null"], "minimum": 0 },
+    "picker_cost_usd": { "type": ["number", "null"], "minimum": 0 },
+    "picked_model": { "type": "string", "minLength": 1 },
+    "model_tokens_in": { "type": ["integer", "null"], "minimum": 0 },
+    "model_tokens_out": { "type": ["integer", "null"], "minimum": 0 },
+    "model_cost_usd": { "type": ["number", "null"], "minimum": 0 },
+    "output": { "type": "string", "minLength": 1 },
+    "jev_answer": { "type": ["string", "null"], "minLength": 1 },
+    "jev_confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "fallback": { "type": ["boolean", "null"] },
+    "label": { "enum": ["accept", "reject", null] },
+    "label_source": { "enum": ["human", "pregrade_confirmed", null] },
+    "price_table_date": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "arm": { "const": "C" } } },
+      "then": {
+        "properties": {
+          "jev_answer": { "type": "string" },
+          "jev_confidence": { "type": "number" },
+          "fallback": { "type": "boolean" }
+        }
+      },
+      "else": {
+        "properties": {
+          "jev_answer": { "type": "null" },
+          "jev_confidence": { "type": "null" },
+          "fallback": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "label": { "type": "null" } } },
+      "then": { "properties": { "label_source": { "type": "null" } } },
+      "else": { "properties": { "label_source": { "type": "string" } } }
+    },
+    {
+      "if": { "properties": { "model_cost_usd": { "type": "number" } } },
+      "then": { "properties": { "price_table_date": { "type": "string" } } }
+    }
+  ]
+}

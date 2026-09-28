@@ -126,3 +126,50 @@ def test_missing_column_is_an_error(tmp_path):
 @pytest.mark.unit
 def test_empty_file_is_an_error(tmp_path):
     assert validate(write(tmp_path, []))[0] == ["file has no data rows"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("column,value", [("confidence", "nan"), ("cost_usd", "nan"), ("cost_usd", "inf"), ("tokens_in", "4_2")])
+def test_non_finite_or_odd_numbers_are_errors(tmp_path, column, value):
+    rows = read_example()
+    rows[0][column] = value
+    assert any(f"line 2: {column}" in e for e in errors_for(tmp_path, rows))
+
+
+@pytest.mark.unit
+def test_padded_label_is_an_error(tmp_path):
+    rows = read_example()
+    rows[0]["label"] = " accept "
+    assert any("line 2: label" in e for e in errors_for(tmp_path, rows))
+
+
+def write_raw(tmp_path, text):
+    path = tmp_path / "raw.csv"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def example_lines():
+    return EXAMPLE.read_text(encoding="utf-8").splitlines()
+
+
+@pytest.mark.unit
+def test_short_row_is_an_error(tmp_path):
+    header, first = example_lines()[:2]
+    short = first.rsplit(",", 4)[0]
+    errors = validate(write_raw(tmp_path, header + "\n" + short + "\n"))[0]
+    assert errors == ["line 2: row has fewer cells than the header"]
+
+
+@pytest.mark.unit
+def test_extra_cells_are_an_error(tmp_path):
+    header, first = example_lines()[:2]
+    errors = validate(write_raw(tmp_path, header + "\n" + first + ",junk,junk\n"))[0]
+    assert errors == ["line 2: row has more cells than the header"]
+
+
+@pytest.mark.unit
+def test_duplicate_header_is_an_error(tmp_path):
+    header, first = example_lines()[:2]
+    errors = validate(write_raw(tmp_path, header + ",run_id\n" + first + ",run-002\n"))[0]
+    assert errors[0] == "header: duplicate column names ['run_id']"

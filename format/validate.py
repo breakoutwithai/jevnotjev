@@ -6,6 +6,8 @@ Needs: pip install -r requirements.txt
 """
 import csv
 import json
+import math
+import re
 import sys
 from pathlib import Path
 
@@ -15,21 +17,20 @@ SCHEMA = json.loads(Path(__file__).with_name("record-v1.schema.json").read_text(
 COLUMNS = SCHEMA["required"]
 INTEGER_COLUMNS = {"tokens_in", "tokens_out", "latency_ms"}
 NUMBER_COLUMNS = {"confidence", "cost_usd"}
+INTEGER_TEXT = re.compile(r"^[0-9]+$")
+NUMBER_TEXT = re.compile(r"^[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?$")
 
 
 def parse_cell(column, raw):
     """Empty cell is null. A value that does not parse stays a string so the schema reports it."""
-    value = raw.strip()
-    if value == "":
+    if raw == "":
         return None
-    try:
-        if column in INTEGER_COLUMNS:
-            return int(value)
-        if column in NUMBER_COLUMNS:
-            return float(value)
-    except ValueError:
-        return value
-    return value
+    if column in INTEGER_COLUMNS and INTEGER_TEXT.match(raw):
+        return int(raw)
+    if column in NUMBER_COLUMNS and NUMBER_TEXT.match(raw):
+        number = float(raw)
+        return number if math.isfinite(number) else raw
+    return raw
 
 
 def read_rows(path):
@@ -37,6 +38,8 @@ def read_rows(path):
         reader = csv.DictReader(handle)
         header = reader.fieldnames or []
         errors = []
+        if len(set(header)) != len(header):
+            errors.append(f"header: duplicate column names {sorted({c for c in header if header.count(c) > 1})}")
         missing = [c for c in COLUMNS if c not in header]
         unknown = [c for c in header if c not in COLUMNS]
         if missing:
@@ -45,8 +48,14 @@ def read_rows(path):
             errors.append(f"header: unknown columns {unknown}")
         if errors:
             return errors, []
-        rows = [(line, {c: parse_cell(c, raw[c] or "") for c in COLUMNS}) for line, raw in enumerate(reader, start=2)]
-    return [], rows
+        rows = []
+        for raw in reader:
+            line = reader.line_num
+            if None in raw or None in raw.values():
+                errors.append(f"line {line}: row has {'more' if None in raw else 'fewer'} cells than the header")
+                continue
+            rows.append((line, {c: parse_cell(c, raw[c]) for c in COLUMNS}))
+    return errors, rows
 
 
 def validate(path):

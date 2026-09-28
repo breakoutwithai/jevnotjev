@@ -9,7 +9,7 @@ The one file TokenMax reads: a CSV with one row per test case per arm. You fill 
 | [validate.py](validate.py) | Checks a file against the schema plus the cross-row rules below |
 
 ```
-pip install jsonschema
+pip install -r requirements.txt
 python3 format/validate.py format/example-v1.csv
 ```
 ```

@@ -2,7 +2,7 @@
 
 Usage: python3 format/validate.py <results.csv>
 Exit 0 when the file is valid (gaps are reported, not errors); exit 1 on any error.
-Needs: pip install jsonschema
+Needs: pip install -r requirements.txt
 """
 import csv
 import json

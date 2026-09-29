@@ -1,6 +1,6 @@
 # TokenMax: comparison flow
 
-Take 10 to 20 examples of one decision your workflow already makes. Record what your current setup, a simple rule and Jev each chose and what it cost, and mark which answers you would keep. TokenMax shows the cost per answer you would keep for each, with a cautious verdict (use Jev, don't use Jev, or not enough evidence) that holds for those examples only.
+Take 30 or more examples of one decision your workflow already makes. Record what your current setup, a simple rule and Jev each chose and what it cost, and mark which answers you would keep. TokenMax shows the cost per answer you would keep for each, with a cautious verdict (use Jev, don't use Jev, or not enough evidence) that holds for those examples only.
 
 Diagram: [docs/product/flow/comparison.html](docs/product/flow/comparison.html) (source: `comparison.dataflow.json`, rendered with archify).
 
@@ -12,7 +12,7 @@ Diagram: [docs/product/flow/comparison.html](docs/product/flow/comparison.html) 
 
 ## Journey
 1. Describe the decision and its answer set.
-2. Write 10 or more test cases, and the simple rule, before seeing any results.
+2. Write 30 or more test cases, and the simple rule, before seeing any results.
 3. Run the cases through the three arms outside the tool (a local runner script with your own keys, or by hand) and fill one results CSV.
 4. Label every output any arm picked: accept or reject.
 5. Load the CSV into the page and read the numbers and the verdict.
@@ -43,8 +43,8 @@ One CSV, one row per case per arm: `case_id, arm, picker, picker_tokens_in, pick
 
 ## Verdict rule
 Full rules, formulas and edge cases: [docs/decision/verdict-rules.md](docs/decision/verdict-rules.md). In order, first match wins:
-1. **Not enough evidence** if there are no Jev or LLM rows, fewer than 30 paired labelled cases, or any Jev or LLM cost missing.
-2. **Don't use Jev** if the rule comes within 10 points of Jev's accept rate, Jev is clearly more than 10 points worse than the LLM, Jev keeps no answers while the LLM keeps some, or Jev clearly costs more per kept answer.
+1. **Not enough evidence** if there are no Jev or LLM rows, fewer than 30 paired labelled cases, Jev and the LLM both keep no answers, or a cost is missing on a paired Jev or LLM row.
+2. **Don't use Jev** if the rule comes within 10 points of Jev's accept rate (on 30 or more paired cases), Jev is clearly more than 10 points worse than the LLM, Jev keeps no answers while the LLM keeps some, or Jev clearly costs more per kept answer.
 3. **Use Jev** if Jev is not clearly more than 10 points worse than the LLM and costs at most 0.8x the LLM per kept answer, with the 95% bound below 1x.
 4. **Not enough evidence** otherwise. Both numbers are shown.
 

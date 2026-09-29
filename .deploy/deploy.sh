@@ -111,7 +111,7 @@ command -v curl >/dev/null || fail "curl not installed"
 
 if ! $DRY_RUN; then
     remote 'echo ok' >/dev/null 2>&1 \
-        || fail "Cannot SSH to ${SERVER}. Run ./.deploy/preflight.sh. Do NOT power-cycle, rebuild, or password-reset to recover."
+        || fail "Cannot SSH to ${SERVER}. Run ./.deploy/preflight.sh. Do NOT power-cycle, rebuild, or reset credentials to recover."
     path_state="$(deploy_path_state "$DEPLOY_PATH" "$RELEASES_ROOT")" \
         || fail "${DEPLOY_PATH} on the box is ${path_state}, not ABSENT or a symlink into ${RELEASES_ROOT}. Refusing to swap over something this script did not create."
     log_info "${DEPLOY_PATH}: ${path_state}"

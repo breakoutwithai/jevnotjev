@@ -23,7 +23,7 @@ echo
 
 [[ -f "$SSH_KEY" ]] || fail "SSH key not found: ${SSH_KEY}"
 remote 'echo ok' >/dev/null 2>&1 \
-    || fail "Cannot SSH to ${SERVER}. Check user, key and IP, then stop. Do NOT power-cycle, rebuild, or password-reset to recover."
+    || fail "Cannot SSH to ${SERVER}. Check user, key and IP, then stop. Do NOT power-cycle, rebuild, or reset credentials to recover."
 log_success "SSH works: $(remote 'hostname' 2>/dev/null)"
 
 blockers=0

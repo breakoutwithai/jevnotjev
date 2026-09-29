@@ -47,7 +47,7 @@ grep -Eq "^[[:space:]]*server_name[[:space:]]+${DOMAIN};" "$VHOST_SRC" \
 
 [[ -f "$SSH_KEY" ]] || fail "SSH key not found: ${SSH_KEY}"
 remote 'echo ok' >/dev/null 2>&1 \
-    || fail "Cannot SSH to ${SERVER}. Check user, key and IP, then stop. Do NOT power-cycle, rebuild, or password-reset."
+    || fail "Cannot SSH to ${SERVER}. Check user, key and IP, then stop. Do NOT power-cycle, rebuild, or reset credentials."
 log_success "SSH works"
 
 resolved="$( (dig +short "$DOMAIN" 2>/dev/null || true) | tail -1)"

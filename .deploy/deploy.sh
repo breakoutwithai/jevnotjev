@@ -135,9 +135,9 @@ if $ROLLBACK; then
     done < <(remote "ls -1dt ${RELEASES_ROOT}/*/ 2>/dev/null | xargs -n1 basename" 2>/dev/null)
     [[ "${#candidate_releases[@]}" -gt 0 ]] || fail "No releases found under ${RELEASES_ROOT}."
 
-    has_marker() { remote "test -f ${RELEASES_ROOT}/${1}/DEPLOYED_SHA" 2>/dev/null; }
+    has_marker() { release_is_verified "${RELEASES_ROOT}/${1}"; }
     target_release_name="$(select_rollback_target "$active_release" has_marker "${candidate_releases[@]}")" \
-        || fail "No other release under ${RELEASES_ROOT} has a DEPLOYED_SHA marker. Refusing to roll back to an unverifiable target."
+        || fail "No other release under ${RELEASES_ROOT} was verified by a completed deploy. Refusing to roll back to an unverifiable target."
 
     target_release_dir="${RELEASES_ROOT}/${target_release_name}"
     target_sha="$(remote "cat ${target_release_dir}/DEPLOYED_SHA 2>/dev/null || true" 2>/dev/null | tr -d '[:space:]')"
@@ -212,6 +212,9 @@ PREVIOUS_RELEASE=""
 PREVIOUS_SHA=""
 if ! $DRY_RUN; then
     PREVIOUS_RELEASE="$(live_release "$DEPLOY_PATH")"
+    # OURS means a live release exists; an empty answer is a dropped connection, not a first deploy.
+    [[ "$path_state" == "OURS" && -z "$PREVIOUS_RELEASE" ]] \
+        && fail "${DEPLOY_PATH} is live but its release could not be read. Nothing has been activated."
     [[ -n "$PREVIOUS_RELEASE" ]] && PREVIOUS_SHA="$(remote "cat ${PREVIOUS_RELEASE}/DEPLOYED_SHA 2>/dev/null || true" 2>/dev/null | tr -d '[:space:]')"
 fi
 ACTIVATED=false
@@ -270,6 +273,10 @@ if ! changed="$(neighbour_status_changes "$NEIGHBOURS_BEFORE" "$NEIGHBOURS_AFTER
     fail "A co-tenant's status changed during this deploy. Rolling back."
 fi
 log_success "All ${#NEIGHBOURS[@]} co-tenant(s) unchanged"
+# Only a release that passed every check above becomes a --rollback target (.verified is a
+# dotfile, so the vhost's dotfile deny keeps it off the web).
+remote "touch ${RELEASE_DIR}/.verified" \
+    || log_warn "Could not mark ${RELEASE_ID} verified; --rollback will not select it."
 
 # Verified on every axis. Only now is it safe to prune around this release.
 log_info "Pruning old releases (keeping ${KEEP_RELEASES}, protecting active + previous)..."

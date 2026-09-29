@@ -90,6 +90,11 @@ prune_release_list() {
     done
 }
 
+# release_is_verified - a release qualifies as a rollback target only if a deploy verified it
+# end to end (served SHA, every path, co-tenants unchanged). DEPLOYED_SHA alone is written
+# before activation, so a failed or half-staged release carries it too.
+release_is_verified() { remote "test -f ${1}/DEPLOYED_SHA && test -f ${1}/.verified" 2>/dev/null; }
+
 # select_rollback_target - newest release other than the active one that has a DEPLOYED_SHA
 # marker. has_marker_fn is a callback (name -> 0/1). Prints the name, or returns 1.
 select_rollback_target() {

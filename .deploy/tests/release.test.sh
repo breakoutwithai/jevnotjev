@@ -153,6 +153,17 @@ has_marker_none() { return 1; }
 select_rollback_target active has_marker_none x y >/dev/null 2>&1 \
     && nope "selected a target with no marker" || ok "--rollback refuses when no release has a marker"
 
+vroot="$(mktemp -d)"
+mkdir -p "$vroot/r3-failed" "$vroot/r2-good"
+echo sha3 > "$vroot/r3-failed/DEPLOYED_SHA"
+echo sha2 > "$vroot/r2-good/DEPLOYED_SHA"; touch "$vroot/r2-good/.verified"
+has_marker_v() { release_is_verified "$vroot/$1"; }
+sel="$(select_rollback_target r4-active has_marker_v r3-failed r2-good)"
+[[ "$sel" == r2-good ]] && ok "--rollback skips a newer release that never passed verification" || nope "selected '${sel}'"
+grep -q 'touch ${RELEASE_DIR}/.verified' "$D" && awk '/co-tenant\(s\) unchanged/{c=NR} /touch \$\{RELEASE_DIR\}\/\.verified/{t=NR} END{exit !(c && t>c)}' "$D" \
+    && ok ".verified is written only after the co-tenant check passes" || nope ".verified not written after co-tenant check"
+rm -rf "$vroot"
+
 echo
 echo "[T1] co-tenant enumeration + comparison"
 fixture_conf='

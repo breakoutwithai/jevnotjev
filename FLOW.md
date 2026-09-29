@@ -41,12 +41,12 @@ One CSV, one row per case per arm: `case_id, arm, picker, picker_tokens_in, pick
 | Label source and labelling time | counted from the file; reported, not added to spend |
 | Verdict | the rule below, applied to the numbers above |
 
-## Verdict rule (provisional, D05 sets the numbers)
-In order, first match wins:
-1. **Not enough evidence** if there are no Jev rows, fewer than 10 labelled cases, any picked output unlabelled, or any cost missing.
-2. **Don't use Jev** if another arm keeps more answers than Jev, or costs less per kept answer while keeping at least as many.
-3. **Use Jev** if Jev has the lowest cost per kept answer and keeps at least as many answers as every other arm.
-4. **Not enough evidence** otherwise (for example Jev keeps more answers but costs more). Both numbers are shown.
+## Verdict rule
+Full rules, formulas and edge cases: [docs/decision/verdict-rules.md](docs/decision/verdict-rules.md). In order, first match wins:
+1. **Not enough evidence** if there are no Jev or LLM rows, fewer than 30 paired labelled cases, or any Jev or LLM cost missing.
+2. **Don't use Jev** if the rule comes within 10 points of Jev's accept rate, Jev is clearly more than 10 points worse than the LLM, Jev keeps no answers while the LLM keeps some, or Jev clearly costs more per kept answer.
+3. **Use Jev** if Jev is not clearly more than 10 points worse than the LLM and costs at most 0.8x the LLM per kept answer, with the 95% bound below 1x.
+4. **Not enough evidence** otherwise. Both numbers are shown.
 
 The screen prints the rule that fired and the counts behind it. The verdict describes the builder's test set only, not production.
 

@@ -1,0 +1,774 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev!Jev: The Stage</title>
+<meta name="description" content="To Jev or not to Jev: a five-act play you scroll through. Compare one workflow decision across what you do now, a simple rule and Jev, and read a cautious verdict. Sample data.">
+<meta property="og:title" content="Jev!Jev: The Stage">
+<meta property="og:description" content="To Jev or not to Jev: a five-act play you scroll through.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://jevnotjev.breakoutwithai.com/">
+<meta property="og:image" content="https://jevnotjev.breakoutwithai.com/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;0,800;1,400;1,500;1,700&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #e8e5df;
+  --bg-2: #dcd7cf;
+  --ink: #1f0a0e;
+  --ink-soft: #4d3a3c;
+  --muted: #7a6a69;
+  --line: rgba(31, 10, 14, .16);
+  --curtain: #7b1424;
+  --curtain-hi: #a3263a;
+  --curtain-lo: #3e0710;
+  --brass: #8a5f10;
+  --brass-soft: rgba(138, 95, 16, .14);
+  --keep: #2f7a4d;
+  --cut: #b2382a;
+  --beam: rgba(255, 255, 255, .85);
+  --beam-2: rgba(255, 250, 238, .55);
+  --shadow: rgba(40, 10, 14, .10);
+  --serif: "Alegreya", "Iowan Old Style", Georgia, serif;
+  --sans: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12060a;
+    --bg-2: #1c080d;
+    --ink: #f2e9df;
+    --ink-soft: #d4c3b8;
+    --muted: #9c8580;
+    --line: rgba(242, 233, 223, .13);
+    --curtain: #6d0f1e;
+    --curtain-hi: #94203a;
+    --curtain-lo: #25040a;
+    --brass: #e0b04e;
+    --brass-soft: rgba(224, 176, 78, .14);
+    --keep: #86cf9f;
+    --cut: #f08470;
+    --beam: rgba(255, 231, 186, .16);
+    --beam-2: rgba(255, 220, 170, .07);
+    --shadow: rgba(0, 0, 0, .45);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12060a;
+  --bg-2: #1c080d;
+  --ink: #f2e9df;
+  --ink-soft: #d4c3b8;
+  --muted: #9c8580;
+  --line: rgba(242, 233, 223, .13);
+  --curtain: #6d0f1e;
+  --curtain-hi: #94203a;
+  --curtain-lo: #25040a;
+  --brass: #e0b04e;
+  --brass-soft: rgba(224, 176, 78, .14);
+  --keep: #86cf9f;
+  --cut: #f08470;
+  --beam: rgba(255, 231, 186, .16);
+  --beam-2: rgba(255, 220, 170, .07);
+  --shadow: rgba(0, 0, 0, .45);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; overflow-x: clip; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 19px;
+  line-height: 1.5;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+.num { font-family: var(--sans); font-variant-numeric: normal; }
+a { color: inherit; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
+
+/* ---------- House furniture ---------- */
+.proscenium {
+  position: absolute; inset: 0 0 auto 0; height: 100vh; min-height: 640px;
+  pointer-events: none; z-index: 0; overflow: hidden;
+}
+.drape {
+  position: absolute; top: 0; bottom: 0; width: 11vw; max-width: 170px;
+  background:
+    repeating-linear-gradient(90deg,
+      var(--curtain-lo) 0, var(--curtain) 14px, var(--curtain-hi) 24px, var(--curtain) 34px, var(--curtain-lo) 48px);
+  box-shadow: 0 0 60px var(--shadow);
+  transform-origin: top center;
+}
+.drape.l { left: 0; clip-path: polygon(0 0, 100% 0, 78% 55%, 40% 100%, 0 100%); }
+.drape.r { right: 0; clip-path: polygon(0 0, 100% 0, 100% 100%, 60% 100%, 22% 55%); }
+.valance {
+  position: absolute; top: 0; left: 0; right: 0; height: 58px;
+  background:
+    radial-gradient(ellipse 60px 34px at 60px 0, var(--curtain-hi), transparent 70%) 0 0 / 120px 58px repeat-x,
+    linear-gradient(var(--curtain-lo), var(--curtain));
+  -webkit-mask: radial-gradient(circle 62px at 60px -20px, #000 98%, transparent) 0 0 / 120px 58px repeat-x;
+          mask: radial-gradient(circle 62px at 60px -20px, #000 98%, transparent) 0 0 / 120px 58px repeat-x;
+}
+.beam {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 38% 70% at 44% 8%, var(--beam), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 44% 95%, var(--beam-2), transparent 70%);
+}
+.motion .drape.l { animation: sway 9s ease-in-out infinite alternate; }
+.motion .drape.r { animation: sway 11s ease-in-out infinite alternate-reverse; }
+@keyframes sway { from { transform: skewX(0deg); } to { transform: skewX(.8deg); } }
+
+.sample {
+  position: fixed; top: 14px; right: 16px; z-index: 30;
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase;
+  background: var(--bg); color: var(--brass);
+  border: 1px solid var(--brass); padding: 6px 10px;
+}
+.house-lights {
+  font-family: var(--sans); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  background: none; border: 0; border-left: 1px solid var(--line); padding: 0 0 0 10px; cursor: pointer; color: var(--ink-soft);
+}
+
+/* ---------- Acts ---------- */
+main { position: relative; z-index: 1; }
+.act {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(150px, 17vw) minmax(0, 1fr);
+  gap: 0 4vw;
+  padding: 18vh 5vw 14vh 0;
+  border-top: 1px solid var(--line);
+}
+.act:first-of-type { border-top: 0; padding-top: 84px; min-height: 100vh; }
+.slate {
+  position: relative;
+  border-right: 1px solid var(--line);
+  padding-left: 4vw;
+}
+.slate-in { position: sticky; top: 38vh; padding-right: 18px; }
+.slate .roman {
+  display: block; font-family: var(--serif); font-weight: 800; font-size: 64px; line-height: .9;
+  color: var(--brass); letter-spacing: -.02em;
+}
+.slate .act-word { display: block; font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .24em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.slate .scene { display: block; margin-top: 10px; font-style: italic; color: var(--ink-soft); font-size: 17px; line-height: 1.25; }
+.stage { min-width: 0; max-width: 1040px; }
+.stage-dir { font-style: italic; color: var(--muted); font-size: 17px; margin: 0 0 22px; }
+.stage-dir::before { content: "["; } .stage-dir::after { content: "]"; }
+
+.motion .reveal { opacity: 0; transform: translateY(28px); transition: opacity .9s ease, transform .9s cubic-bezier(.2,.7,.2,1); }
+.motion .reveal.in { opacity: 1; transform: none; }
+
+/* ---------- Act I ---------- */
+.prologue {
+  font-family: var(--sans); font-size: 12px; font-weight: 700; letter-spacing: .24em; text-transform: uppercase;
+  color: var(--curtain-hi); margin: 0 0 18px;
+}
+h1 {
+  font-weight: 800; font-size: clamp(44px, 6.6vw, 104px); line-height: .95; letter-spacing: -.025em;
+  margin: 0 0 12px; max-width: 13ch;
+}
+h1 em { font-weight: 500; color: var(--brass); }
+.byline { font-style: italic; color: var(--ink-soft); font-size: 20px; margin: 0 0 34px; max-width: 42ch; }
+.ask {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end; gap: 12px;
+  border-bottom: 2px solid var(--ink); padding-bottom: 8px; max-width: 820px;
+}
+.ask label { font-size: clamp(22px, 2.3vw, 32px); font-weight: 500; white-space: nowrap; padding-bottom: 3px; }
+.ask input {
+  min-width: 0; width: 100%; border: 0; background: transparent; outline: none;
+  font-size: clamp(22px, 2.3vw, 32px); font-style: italic; padding: 2px 0;
+}
+.ask input::placeholder { color: var(--muted); }
+.ask button, .btn {
+  font-family: var(--sans); font-size: 13px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase;
+  background: var(--ink); color: var(--bg); border: 0; padding: 12px 18px; cursor: pointer;
+}
+.cues { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 16px 0 0; padding: 0; list-style: none; max-width: 820px; }
+.cues button {
+  background: none; border: 0; padding: 2px 0; cursor: pointer; text-align: left;
+  font-family: var(--sans); font-size: 14px; color: var(--ink-soft);
+  border-bottom: 1px dotted var(--muted);
+}
+.cues button:hover { color: var(--brass); border-color: var(--brass); }
+.dialogue { margin: 34px 0 0; max-width: 760px; min-height: 170px; }
+.line { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 0 18px; margin: 0 0 12px; }
+.speaker { font-family: var(--sans); font-size: 12px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); padding-top: 7px; }
+.speaker.jev { color: var(--brass); }
+.spoken { font-size: 22px; line-height: 1.35; }
+.spoken strong { font-weight: 800; }
+.mark-yes { color: var(--keep); }
+.mark-no { color: var(--cut); }
+.mark-maybe { color: var(--brass); }
+.aside-note { font-size: 17px; font-style: italic; color: var(--ink-soft); }
+.motion .dialogue .line { animation: enter .6s both; }
+.motion .dialogue.still .line { animation: none; }
+.motion .dialogue .line:nth-child(2) { animation-delay: .25s; }
+.motion .dialogue .line:nth-child(3) { animation-delay: .5s; }
+@keyframes enter { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+.note { font-family: var(--sans); font-size: 12px; color: var(--muted); margin-top: 26px; max-width: 70ch; }
+
+/* ---------- Act II ---------- */
+.cast { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-top: 2px solid var(--ink); }
+.player { padding: 22px 22px 26px 0; border-right: 1px solid var(--line); position: relative; }
+.player + .player { padding-left: 22px; }
+.player:last-child { border-right: 0; }
+.player .letter { font-family: var(--sans); font-weight: 800; font-size: 88px; line-height: .85; letter-spacing: -.04em; }
+.player.c .letter { color: var(--brass); }
+.player h3 { font-size: 26px; margin: 12px 0 4px; line-height: 1.1; }
+.player .method { font-style: italic; color: var(--ink-soft); font-size: 17px; margin: 0 0 14px; }
+.picks { display: flex; gap: 3px; height: 10px; margin: 0 0 6px; }
+.picks span { display: block; height: 100%; }
+.picks .haiku { background: var(--muted); opacity: .55; }
+.picks .sonnet { background: var(--ink-soft); }
+.picks .opus { background: var(--brass); }
+.picks-legend { font-family: var(--sans); font-size: 12px; color: var(--muted); }
+.motion .player { opacity: 0; transform: translateX(-60px); transition: opacity .8s ease, transform .9s cubic-bezier(.2,.7,.2,1); }
+.motion .player:nth-child(2) { transition-delay: .2s; }
+.motion .player:nth-child(3) { transition-delay: .45s; transform: translateX(60px); }
+.motion .cast.in .player { opacity: 1; transform: none; }
+.player.c::after {
+  content: ""; position: absolute; inset: -40px -10px auto -10px; height: 220px; pointer-events: none;
+  background: radial-gradient(ellipse 60% 60% at 50% 0, var(--beam), transparent 70%);
+}
+
+/* ---------- Act III ---------- */
+.tally {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px;
+  background: var(--bg); padding: 14px 0 12px; border-bottom: 2px solid var(--ink);
+  font-family: var(--sans); font-size: 13px;
+}
+.tally .t-label { font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); font-size: 11px; }
+.tally b { font-size: 22px; font-weight: 800; margin-left: 4px; }
+.tally .tc b { color: var(--brass); }
+.tally .heard { margin-left: auto; color: var(--muted); }
+.docket { list-style: none; margin: 0; padding: 0; }
+.case {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) repeat(3, 92px) 150px;
+  gap: 0 14px; align-items: center;
+  padding: 14px 10px; border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.case.head { font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); padding-top: 10px; padding-bottom: 8px; }
+.case .cid { font-family: var(--sans); font-size: 13px; color: var(--muted); }
+.case .prompt { font-size: 19px; line-height: 1.25; }
+.truth { font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-left: 8px; white-space: nowrap; }
+.truth.hard { color: var(--curtain-hi); }
+.cell { font-family: var(--sans); font-size: 13px; line-height: 1.2; }
+.cell .model { display: block; color: var(--ink-soft); }
+.cell .lab { display: inline-block; font-weight: 700; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+.lab.accept { color: var(--keep); }
+.lab.reject { color: var(--cut); }
+.lab.accept::before { content: "\25CF  "; }
+.lab.reject::before { content: "\25CB  "; }
+.jev { font-family: var(--sans); font-size: 13px; }
+.jev .num { font-variant-numeric: normal; font-weight: 700; }
+.conf { display: block; height: 4px; background: var(--line); margin-top: 6px; position: relative; }
+.conf i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink-soft); }
+.conf::after { content: ""; position: absolute; left: 60%; top: -3px; bottom: -3px; width: 1px; background: var(--cut); }
+.case.wrong .conf i { background: var(--cut); }
+.fb { color: var(--brass); font-weight: 700; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.motion .case.row { opacity: .12; filter: saturate(0); transition: opacity .7s ease, filter .7s ease; }
+.motion .case.row.lit { opacity: 1; filter: none; }
+.case.spot {
+  background: radial-gradient(ellipse 70% 180% at 30% 50%, var(--brass-soft), transparent 75%);
+  border-top: 1px solid var(--brass); border-bottom: 1px solid var(--brass);
+  padding-top: 22px; padding-bottom: 22px;
+}
+.case.spot .prompt { font-size: 24px; font-weight: 700; }
+.case .monologue {
+  grid-column: 2 / -1; margin: 12px 0 0; font-style: italic; color: var(--ink-soft); font-size: 18px; max-width: 64ch;
+}
+.case .monologue b { font-style: normal; font-family: var(--sans); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--brass); margin-right: 8px; }
+.intermission { font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .24em; text-transform: uppercase; color: var(--muted); padding: 26px 10px 10px; }
+
+/* ---------- Act IV ---------- */
+.ledger { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 2px solid var(--ink); }
+.acct { padding: 22px 22px 8px 0; border-right: 1px solid var(--line); }
+.acct + .acct { padding-left: 22px; }
+.acct:last-child { border-right: 0; }
+.acct .who { font-family: var(--sans); font-size: 12px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.acct.c .who { color: var(--brass); }
+.fig { margin: 14px 0 0; }
+.fig dt { font-family: var(--sans); font-size: 12px; color: var(--muted); }
+.fig dd { margin: 0; font-family: var(--sans); font-weight: 800; font-size: clamp(30px, 3.6vw, 52px); line-height: 1.05; letter-spacing: -.02em; font-variant-numeric: normal; }
+.acct.c .fig dd.cpk { color: var(--brass); }
+.bar { height: 6px; background: var(--line); margin-top: 8px; }
+.bar i { display: block; height: 100%; background: var(--ink-soft); width: 0; transition: width 1.4s cubic-bezier(.2,.7,.2,1); }
+.acct.c .bar i { background: var(--brass); }
+.static .bar i, .ledger.in .bar i { width: var(--w); }
+.versus { margin: 36px 0 0; font-size: 22px; max-width: 46ch; }
+.versus strong { font-family: var(--sans); font-weight: 800; }
+.offstage { margin-top: 44px; border-top: 1px solid var(--line); padding-top: 16px; }
+.offstage h4 { font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+.bench { width: 100%; border-collapse: collapse; font-family: var(--sans); font-size: 14px; font-variant-numeric: normal; }
+.bench th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); }
+.bench td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line); }
+.bench td:first-child { font-weight: 700; }
+.bench tr.j td { color: var(--brass); }
+
+/* ---------- Act V ---------- */
+#act5 { overflow: hidden; }
+#act5::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 42% 75% at 55% 30%, var(--beam), transparent 70%);
+}
+.verdict-word {
+  font-weight: 800; font-size: clamp(64px, 11vw, 176px); line-height: .88; letter-spacing: -.035em; margin: 0;
+  display: inline-block; border-bottom: 10px solid var(--brass); padding-bottom: 8px;
+}
+.rule-line { font-family: var(--sans); font-size: 14px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--brass); margin: 22px 0 26px; }
+.because { list-style: none; padding: 0; margin: 0; max-width: 760px; border-top: 1px solid var(--line); }
+.because li { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.because .k { font-family: var(--sans); font-weight: 800; font-size: 26px; font-variant-numeric: normal; }
+.because .v { font-size: 19px; }
+.caveat { margin-top: 26px; font-style: italic; color: var(--ink-soft); max-width: 60ch; }
+.motion .verdict-word { clip-path: inset(0 100% 0 0); transition: clip-path 1.3s cubic-bezier(.7,0,.2,1); }
+.motion .in .verdict-word { clip-path: inset(0 0 0 0); }
+
+/* ---------- Curtain call ---------- */
+.call { background: linear-gradient(var(--bg), var(--bg-2)); padding-bottom: 22vh; }
+.dropzone {
+  position: relative;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: center;
+  border: 2px dashed var(--line); padding: 28px; max-width: 820px; cursor: pointer;
+  background: repeating-linear-gradient(90deg, transparent 0 22px, var(--brass-soft) 22px 23px);
+  transition: border-color .2s, background-color .2s;
+}
+.dropzone.over { border-color: var(--brass); background-color: var(--brass-soft); }
+.dropzone h3 { margin: 0 0 4px; font-size: 30px; line-height: 1.1; }
+.dropzone p { margin: 0; color: var(--ink-soft); font-style: italic; font-size: 17px; }
+.dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.dropzone.is-off { cursor: not-allowed; opacity: .55; }
+.ask input:disabled, .ask button:disabled { cursor: not-allowed; opacity: .5; }
+.soon { margin: 8px 0 0; font-family: var(--sans); font-size: 13px; color: var(--muted); }
+.drop-status { font-family: var(--sans); font-size: 13px; color: var(--brass); margin-top: 12px; min-height: 1.4em; max-width: 820px; }
+.repertoire { margin-top: 48px; }
+.repertoire h4 { font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+.repertoire ol { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 40px; }
+.repertoire li { break-inside: avoid; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.repertoire .uc { font-family: var(--sans); font-size: 11px; font-weight: 700; color: var(--brass); margin-right: 8px; }
+.repertoire .q { display: block; font-style: italic; color: var(--ink-soft); font-size: 16px; }
+.fin { margin: 64px 0 0; font-size: 13px; font-family: var(--sans); color: var(--muted); max-width: 70ch; }
+
+
+/* ---------- Narrow ---------- */
+@media (max-width: 900px) {
+  .case { grid-template-columns: 40px minmax(0, 1fr) repeat(3, 76px); }
+  .case .jev-col { grid-column: 2 / -1; margin-top: 8px; }
+  .case.head .jev-col { display: none; }
+}
+@media (max-width: 720px) {
+  body { font-size: 17px; }
+  .act { grid-template-columns: minmax(0, 1fr); padding: 48px 16px 80px; gap: 0; }
+  .act:first-of-type { padding-top: 64px; }
+  .slate { border-right: 0; position: sticky; top: 0; z-index: 8; background: var(--bg); margin: 0 -16px 20px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  .act:first-of-type .slate { position: static; background: transparent; }
+  .slate-in { position: static; display: flex; align-items: baseline; gap: 10px; padding: 0; }
+  .slate .roman { font-size: 26px; }
+  .slate .act-word { margin: 0; }
+  .slate .scene { margin: 0; font-size: 15px; }
+  .tally { top: 49px; }
+  .drape { width: 16px; }
+  .valance { height: 30px; }
+  .sample { top: 34px; right: 16px; font-size: 10px; }
+  .ask { grid-template-columns: minmax(0, 1fr) auto; }
+  .ask label { grid-column: 1 / -1; font-size: 20px; }
+  .ask input { font-size: 20px; }
+  .line { grid-template-columns: minmax(0, 1fr); }
+  .spoken { font-size: 19px; }
+  .cast, .ledger { grid-template-columns: minmax(0, 1fr); }
+  .player, .player + .player, .acct, .acct + .acct { padding: 18px 0; border-right: 0; border-bottom: 1px solid var(--line); }
+  .player .letter { font-size: 56px; }
+  .case { grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 14px 0; gap: 6px 10px; }
+  .case .cid, .case .prompt { grid-column: 1 / -1; }
+  .case .jev-col { grid-column: auto; margin-top: 0; }
+  .case.head { display: none; }
+  .cell::before { content: attr(data-arm); display: block; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .case .monologue { grid-column: 1 / -1; font-size: 16px; }
+  .tally .heard { margin-left: 0; }
+  .because li { grid-template-columns: 96px minmax(0, 1fr); }
+  .because .k { font-size: 20px; }
+  .verdict-word { border-bottom-width: 6px; }
+  .dropzone { grid-template-columns: minmax(0, 1fr); padding: 20px; }
+  .repertoire ol { columns: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+
+<div class="sample" role="note" id="sampleBadge"><span>Sample data</span><button class="house-lights" id="lights" type="button">House lights</button></div>
+
+<div class="proscenium" aria-hidden="true">
+  <div class="beam"></div>
+  <div class="drape l"></div>
+  <div class="drape r"></div>
+  <div class="valance"></div>
+</div>
+
+<main>
+
+<section class="act" id="act1" aria-labelledby="t1">
+  <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">I</span><span class="scene">The question</span></div></div>
+  <div class="stage">
+    <p class="prologue">Jev!Jev presents</p>
+    <h1 id="t1">To Jev or not to Jev: <em>that is the question</em></h1>
+    <p class="byline">A play in five short acts about one decision your workflow makes, three ways of making it, and twenty cases that judge them.</p>
+    <form class="ask" id="askForm" autocomplete="off">
+      <label for="askInput">Should I use Jev</label>
+      <input id="askInput" placeholder="to route support tickets?" disabled aria-describedby="askSoon">
+      <button type="submit" disabled>Ask</button>
+    </form>
+    <p class="soon" id="askSoon">Your own question opens when the live check ships. Try the examples below.</p>
+    <ul class="cues" id="cues" aria-label="Examples"></ul>
+    <div class="dialogue" id="dialogue" aria-live="polite"></div>
+    <p class="note" id="noteLine"></p>
+  </div>
+</section>
+
+<section class="act" id="act2" aria-labelledby="t2">
+  <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">II</span><span class="scene" id="t2">Enter the three players</span></div></div>
+  <div class="stage">
+    <p class="stage-dir" id="workflowDir"></p>
+    <div class="cast" id="cast"></div>
+  </div>
+</section>
+
+<section class="act" id="act3" aria-labelledby="t3">
+  <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">III</span><span class="scene" id="t3">The trial of twenty cases</span></div></div>
+  <div class="stage">
+    <p class="stage-dir">Each case is heard in turn. The confident mistakes take the stand first.</p>
+    <div class="tally" id="tally"></div>
+    <ol class="docket" id="docket"></ol>
+  </div>
+</section>
+
+<section class="act" id="act4" aria-labelledby="t4">
+  <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">IV</span><span class="scene" id="t4">The reckoning</span></div></div>
+  <div class="stage">
+    <p class="stage-dir">The bills are read aloud. Only kept answers count.</p>
+    <div class="ledger reveal" id="ledger"></div>
+    <p class="versus reveal" id="versus"></p>
+    <div class="offstage reveal">
+      <h4 id="benchTitle">Offstage: the benchmark</h4>
+      <table class="bench" id="bench"></table>
+    </div>
+  </div>
+</section>
+
+<section class="act" id="act5" aria-labelledby="t5">
+  <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">V</span><span class="scene">The verdict</span></div></div>
+  <div class="stage reveal" id="verdictStage">
+    <h2 class="verdict-word" id="t5"></h2>
+    <p class="rule-line" id="ruleLine"></p>
+    <ul class="because" id="because"></ul>
+    <p class="caveat" id="caveat"></p>
+  </div>
+</section>
+
+<section class="act call" id="call" aria-labelledby="t6">
+  <div class="slate"><div class="slate-in"><span class="act-word">Encore</span><span class="roman">&para;</span><span class="scene">Curtain call</span></div></div>
+  <div class="stage">
+    <p class="stage-dir">The house asks for another performance, with its own cast.</p>
+    <label class="dropzone is-off" id="dropzone" for="csv" aria-disabled="true">
+      <div>
+        <h3 id="t6">Load your own script (CSV)</h3>
+        <p>One row per case per arm. The file is read here in the browser and never leaves it.</p>
+      </div>
+      <span class="btn">Opens soon</span>
+      <input type="file" id="csv" accept=".csv,text/csv" disabled>
+    </label>
+    <p class="drop-status" id="dropStatus" aria-live="polite">Loading your own CSV opens when the loader ships. Until then the play runs on sample data.</p>
+    <div class="repertoire">
+      <h4>In repertoire: other questions Jev could play</h4>
+      <ol id="repertoire"></ol>
+    </div>
+    <p class="fin" id="fin"></p>
+  </div>
+</section>
+
+</main>
+
+<script src="data.js"></script>
+<script>
+(function () {
+  "use strict";
+  var J = window.JNJ;
+  var root = document.documentElement;
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!reduced && "IntersectionObserver" in window) root.classList.add("motion");
+  else root.classList.add("static");
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function usd(v, d) { return "$" + v.toFixed(d == null ? 4 : d); }
+  var ARMS = ["A", "B", "C"];
+  var ARM_NAME = { A: "What you do now", B: "A simple rule", C: "Jev decides" };
+  function armMethod(k) {
+    var s = J.meta.arms[k] || "";
+    var m = s.match(/\((.*)\)/);
+    return m ? m[1] : s;
+  }
+
+  /* House lights: theme toggle */
+  var lights = $("lights");
+  function darkNow() {
+    var t = root.getAttribute("data-theme");
+    if (t) return t === "dark";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function syncLights() { lights.textContent = darkNow() ? "House lights up" : "House lights down"; }
+  lights.addEventListener("click", function () { root.setAttribute("data-theme", darkNow() ? "light" : "dark"); syncLights(); });
+  syncLights();
+  $("sampleBadge").title = J.meta.note;
+
+  /* ---------- Act I ---------- */
+  var cues = $("cues");
+  J.ask_examples.forEach(function (ex) {
+    var li = document.createElement("li");
+    var b = document.createElement("button");
+    b.type = "button";
+    b.textContent = ex.q.replace(/^Should I use Jev /, "... ");
+    b.addEventListener("click", function () {
+      $("askInput").value = ex.q.replace(/^Should I use Jev /, "");
+      answer(ex.q, ex);
+    });
+    li.appendChild(b); cues.appendChild(li);
+  });
+
+  var STOP = { should: 1, i: 1, use: 1, jev: 1, to: 1, for: 1, my: 1, a: 1, the: 1, if: 1, of: 1, an: 1 };
+  function words(s) { return s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(function (w) { return w && !STOP[w]; }); }
+  function markClass(m) { return /not/i.test(m) ? "mark-no" : /could/i.test(m) ? "mark-yes" : "mark-maybe"; }
+
+  function cue(q) {
+    var qw = words(q), best = null, bestScore = 0;
+    J.ask_examples.forEach(function (ex) {
+      var ew = words(ex.q), s = 0;
+      qw.forEach(function (w) { if (ew.indexOf(w) >= 0) s++; });
+      if (s > bestScore) { bestScore = s; best = ex; }
+    });
+    if (best && bestScore >= 2) return best;
+    var t = q.toLowerCase();
+    if (/\b(write|writing|blog|essay|story|poem|draft|brainstorm|creative|compose|summar)/.test(t))
+      return { mark: "Jev probably not", why: "Open-ended output has no fixed answers to count", instead: "a yes / no question about the output" };
+    if (/\b(route|routing|classif|triage|sort|decide|check|detect|gate|flag|label|categor|whether|pick|choose|approve|continue|escalat)/.test(t))
+      return { mark: "Jev could help", why: "A fixed set of answers, text in, asked often", rule: "the simplest rule you can write" };
+    return { mark: "Not enough to go on", why: "Name the fixed answers this decision can take, then ask again" };
+  }
+
+  function answer(q, ex, first) {
+    if (!first) $("dialogue").classList.remove("still");
+    var r = ex || cue(q);
+    var html = '<div class="line"><span class="speaker">You</span><span class="spoken">' + esc(q) + '</span></div>' +
+      '<div class="line"><span class="speaker jev">Jev!Jev</span><span class="spoken"><strong class="' + markClass(r.mark) + '">' + esc(r.mark) + '.</strong> ' + esc(r.why) + '.</span></div>';
+    if (r.instead) html += '<div class="line"><span class="speaker">Aside</span><span class="spoken aside-note">Ask it this instead: &ldquo;' + esc(r.instead) + '&rdquo;</span></div>';
+    else if (r.rule) html += '<div class="line"><span class="speaker">Aside</span><span class="spoken aside-note">Put it on stage against a simple rule first: ' + esc(r.rule) + '. The trial below shows how.</span></div>';
+    $("dialogue").innerHTML = html;
+  }
+  $("askForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    if ($("askInput").disabled) return;
+    var v = $("askInput").value.trim();
+    if (!v) return;
+    answer("Should I use Jev " + v.replace(/\?*$/, "?"));
+  });
+  var opener = J.ask_examples[1] || J.ask_examples[0];
+  $("dialogue").classList.add("still");
+  answer(opener.q, opener, true);
+  $("noteLine").textContent = J.meta.note;
+
+  /* ---------- Act II ---------- */
+  $("workflowDir").textContent = "The decision on trial: " + J.meta.workflow + ".";
+  var cast = $("cast");
+  ARMS.forEach(function (k) {
+    var counts = { haiku: 0, sonnet: 0, opus: 0 };
+    J.cases.forEach(function (c) { counts[c.arms[k].picked] = (counts[c.arms[k].picked] || 0) + 1; });
+    var models = ["haiku", "sonnet", "opus"];
+    var bars = models.map(function (m) { return counts[m] ? '<span class="' + m + '" style="flex:' + counts[m] + '"></span>' : ""; }).join("");
+    var legend = models.filter(function (m) { return counts[m]; }).map(function (m) { return m[0].toUpperCase() + m.slice(1) + " " + counts[m]; }).join(" &middot; ");
+    var d = document.createElement("div");
+    d.className = "player " + k.toLowerCase();
+    d.innerHTML = '<div class="letter">' + k + '</div><h3>' + ARM_NAME[k] + '</h3><p class="method">' + esc(armMethod(k)) + '</p>' +
+      '<div class="picks" aria-hidden="true">' + bars + '</div><div class="picks-legend num">' + legend + ' of ' + J.cases.length + '</div>';
+    cast.appendChild(d);
+  });
+
+  /* ---------- Act III ---------- */
+  function wrong(c) { return c.arms.C.jev_answer !== c.true_difficulty; }
+  var mistakes = J.cases.filter(wrong).sort(function (a, b) { return b.arms.C.jev_confidence - a.arms.C.jev_confidence; });
+  var rest = J.cases.filter(function (c) { return !wrong(c); });
+  var spotlit = mistakes.filter(function (c) { return !c.arms.C.fallback; })[0];
+  var docket = $("docket");
+  docket.innerHTML = '<li class="case head" aria-hidden="true"><span>Case</span><span>Prompt</span><span>A now</span><span>B rule</span><span>C Jev</span><span class="jev-col">Jev said</span></li>';
+
+  function armCell(c, k) {
+    var a = c.arms[k];
+    return '<span class="cell" data-arm="' + k + '"><span class="model">' + a.picked + '</span><span class="lab ' + a.label + '">' + (a.label === "accept" ? "kept" : "rejected") + '</span></span>';
+  }
+  function row(c, extra) {
+    var C = c.arms.C, w = wrong(c);
+    var li = document.createElement("li");
+    li.className = "case row" + (w ? " wrong" : "") + (c === spotlit ? " spot" : "");
+    li.dataset.id = c.id;
+    var jev = '<span class="jev jev-col cell" data-arm="Jev said">' + esc(C.jev_answer) + ' <span class="num">' + C.jev_confidence.toFixed(2) + '</span>' +
+      (C.fallback ? ' <span class="fb">fell back</span>' : '') + '<span class="conf" title="0.60 fallback line"><i style="width:' + (C.jev_confidence * 100) + '%"></i></span></span>';
+    li.innerHTML = '<span class="cid">' + c.id + '</span><span class="prompt">' + esc(c.prompt) + '<span class="truth ' + c.true_difficulty + '">' + c.true_difficulty + '</span></span>' +
+      armCell(c, "A") + armCell(c, "B") + armCell(c, "C") + jev + (extra || "");
+    return li;
+  }
+  function monologue(c) {
+    var C = c.arms.C;
+    if (C.fallback) return '<p class="monologue"><b>Hesitation</b>Jev said ' + esc(C.jev_answer) + ' at ' + C.jev_confidence.toFixed(2) + ', under the 0.60 line, so it fell back to ' + esc(C.picked) + '. The case was ' + esc(c.true_difficulty) + '; still rejected.</p>';
+    return '<p class="monologue"><b>Spotlight</b>Jev said &ldquo;' + esc(C.jev_answer) + '&rdquo; with ' + C.jev_confidence.toFixed(2) + ' confidence. The case was ' + esc(c.true_difficulty) + '. Confident enough to skip the fallback, and wrong: ' + esc(C.picked) + ' was sent in and the answer was rejected.</p>';
+  }
+  mistakes.forEach(function (c) { docket.appendChild(row(c, monologue(c))); });
+  var im = document.createElement("li");
+  im.className = "intermission"; im.textContent = "The remaining " + rest.length + " cases";
+  docket.appendChild(im);
+  rest.forEach(function (c) { docket.appendChild(row(c)); });
+
+  var tally = $("tally");
+  var byId = {};
+  J.cases.forEach(function (c) { byId[c.id] = c; });
+  function renderTally() {
+    var lit = docket.querySelectorAll(root.classList.contains("motion") ? ".case.row.lit" : ".case.row");
+    var kept = { A: 0, B: 0, C: 0 };
+    Array.prototype.forEach.call(lit, function (li) {
+      var c = byId[li.dataset.id];
+      ARMS.forEach(function (k) { if (c.arms[k].label === "accept") kept[k]++; });
+    });
+    tally.innerHTML = '<span class="t-label">Kept so far</span>' +
+      ARMS.map(function (k) { return '<span class="t' + k.toLowerCase() + '">' + k + ' ' + ARM_NAME[k] + '<b class="num">' + kept[k] + '</b></span>'; }).join("") +
+      '<span class="heard num">' + lit.length + ' of ' + J.cases.length + ' heard</span>';
+  }
+  renderTally();
+
+  /* ---------- Act IV ---------- */
+  var S = J.summary;
+  var maxCpk = Math.max(S.A.cpk, S.B.cpk, S.C.cpk);
+  $("ledger").innerHTML = ARMS.map(function (k) {
+    var s = S[k];
+    return '<div class="acct ' + k.toLowerCase() + '"><div class="who">' + k + ' &middot; ' + ARM_NAME[k] + '</div>' +
+      '<dl class="fig"><dt>Spend</dt><dd class="count" data-to="' + s.spend + '" data-fmt="usd">' + usd(s.spend) + '</dd></dl>' +
+      '<dl class="fig"><dt>Kept answers</dt><dd class="count" data-to="' + s.kept + '" data-fmt="int" data-of="' + J.cases.length + '">' + s.kept + '/' + J.cases.length + '</dd></dl>' +
+      '<dl class="fig"><dt>Cost per kept answer</dt><dd class="count cpk" data-to="' + s.cpk + '" data-fmt="usd">' + usd(s.cpk) + '</dd></dl>' +
+      '<div class="bar" aria-hidden="true"><i style="--w:' + (s.cpk / maxCpk * 100).toFixed(1) + '%"></i></div></div>';
+  }).join("");
+  var V = J.jev_vs;
+  var saveVsA = (1 - S.C.cpk / S.A.cpk) * 100;
+  $("versus").innerHTML = 'Against what you do now, Jev won <strong>' + V.A.wins + '</strong> cases and lost <strong>' + V.A.losses + '</strong>. Against the simple rule, won <strong>' + V.B.wins + '</strong>, lost <strong>' + V.B.losses + '</strong>. Each kept answer costs <strong>' + saveVsA.toFixed(0) + '%</strong> less than today.';
+  var B = J.benchmark;
+  $("benchTitle").textContent = "Offstage: one call over the " + B.items + "-item benchmark";
+  var bh = '<thead><tr><th>Model</th><th>Seconds</th><th>Cost</th><th>Correct</th></tr></thead><tbody>';
+  Object.keys(B.one_call).forEach(function (m) {
+    var r = B.one_call[m];
+    bh += '<tr' + (m === "jev" ? ' class="j"' : '') + '><td>' + (m === "jev" ? "Jev" : m[0].toUpperCase() + m.slice(1)) + '</td><td>' + r.s.toFixed(1) + '</td><td>' + usd(r.usd) + '</td><td>' + r.correct + '/' + B.items + '</td></tr>';
+  });
+  $("bench").innerHTML = bh + '</tbody>';
+
+  function countUp(el) {
+    var to = parseFloat(el.dataset.to), fmt = el.dataset.fmt, of = el.dataset.of, t0 = null, dur = 1400;
+    function f(v) { return fmt === "int" ? Math.round(v) + (of ? "/" + of : "") : usd(v); }
+    function step(ts) {
+      if (!t0) t0 = ts;
+      var p = Math.min(1, (ts - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+      el.textContent = f(to * e);
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  /* ---------- Act V ---------- */
+  var vr = J.verdict.result;
+  var VWORD = { use_jev: "Use Jev", dont_use_jev: "Don't use Jev", not_enough_evidence: "Not enough evidence" };
+  $("t5").textContent = VWORD[vr] || vr.replace(/_/g, " ");
+  $("ruleLine").textContent = "Rule " + J.verdict.rule + " fired";
+  $("because").innerHTML =
+    '<li><span class="k num">' + S.C.kept + ' vs ' + S.A.kept + '</span><span class="v">answers kept by Jev against what you do now, out of ' + J.cases.length + '. The simple rule kept ' + S.B.kept + '.</span></li>' +
+    '<li><span class="k num">' + usd(S.C.cpk) + '</span><span class="v">per kept answer, against ' + usd(S.A.cpk) + ' today and ' + usd(S.B.cpk) + ' for the rule.</span></li>' +
+    '<li><span class="k num">' + V.A.wins + ' / ' + V.A.losses + '</span><span class="v">wins and losses against what you do now; ' + V.B.wins + ' / ' + V.B.losses + ' against the simple rule.</span></li>';
+  $("caveat").textContent = spotlit
+    ? "Not a clean sweep: " + spotlit.id + " (" + spotlit.prompt.toLowerCase() + ") was a confident mistake at " + spotlit.arms.C.jev_confidence.toFixed(2) + ". The verdict holds on twenty cases; run more before you bet the workflow on it."
+    : "The verdict holds on twenty cases; run more before you bet the workflow on it.";
+
+  /* ---------- Curtain call ---------- */
+  $("repertoire").innerHTML = J.use_cases.map(function (u) {
+    return '<li><span class="uc">' + esc(u[0]) + '</span>' + esc(u[1]) + '<span class="q">' + esc(u[2]) + '</span></li>';
+  }).join("");
+  $("fin").textContent = J.meta.note;
+  var dz = $("dropzone"), status = $("dropStatus");
+  function takeFile(f) {
+    if (!f || $("csv").disabled) return;
+    var rd = new FileReader();
+    rd.onload = function () {
+      var lines = String(rd.result).split(/\r?\n/).filter(function (l) { return l.trim(); });
+      status.textContent = "Read " + f.name + ": " + Math.max(0, lines.length - 1) + " data rows, " + (lines[0] ? lines[0].split(",").length : 0) + " columns. This prototype replays the sample cast; from the top.";
+      setTimeout(replay, 1200);
+    };
+    rd.readAsText(f);
+  }
+  $("csv").addEventListener("change", function (e) { takeFile(e.target.files[0]); });
+  ["dragenter", "dragover"].forEach(function (t) { dz.addEventListener(t, function (e) { e.preventDefault(); dz.classList.add("over"); }); });
+  ["dragleave", "drop"].forEach(function (t) { dz.addEventListener(t, function (e) { e.preventDefault(); dz.classList.remove("over"); }); });
+  dz.addEventListener("drop", function (e) { takeFile(e.dataTransfer.files[0]); });
+
+  /* ---------- Lighting cues (IntersectionObserver) ---------- */
+  var io, rowIo;
+  function arm() {
+    if (!root.classList.contains("motion")) {
+      document.querySelectorAll(".reveal, .cast, .ledger").forEach(function (el) { el.classList.add("in"); });
+      renderTally();
+      return;
+    }
+    io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        var el = en.target;
+        el.classList.add("in");
+        if (el.id === "ledger") el.querySelectorAll(".count").forEach(countUp);
+        io.unobserve(el);
+      });
+    }, { threshold: 0.2 });
+    document.querySelectorAll(".reveal, .cast").forEach(function (el) { io.observe(el); });
+
+    rowIo = new IntersectionObserver(function (entries) {
+      var changed = false;
+      entries.forEach(function (en) {
+        if (en.isIntersecting && !en.target.classList.contains("lit")) { en.target.classList.add("lit"); changed = true; rowIo.unobserve(en.target); }
+      });
+      if (changed) renderTally();
+    }, { rootMargin: "0px 0px -25% 0px", threshold: 0.5 });
+    docket.querySelectorAll(".case.row").forEach(function (el) { rowIo.observe(el); });
+  }
+  function replay() {
+    if (root.classList.contains("motion")) {
+      if (io) io.disconnect();
+      if (rowIo) rowIo.disconnect();
+      document.querySelectorAll(".in").forEach(function (el) { el.classList.remove("in"); });
+      docket.querySelectorAll(".lit").forEach(function (el) { el.classList.remove("lit"); });
+      renderTally();
+      setTimeout(arm, 900);
+    }
+    window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
+  }
+  arm();
+})();
+</script>
+</body>
+</html>

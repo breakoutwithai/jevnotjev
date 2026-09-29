@@ -75,7 +75,7 @@ The screen shows the rule that fired and every number behind it.
 |---|---|
 | An answerer has 0 accepted | `cost_per_accepted` shows "undefined (0 accepted)" with total spend. Its accept rate is shown with an upper bound of 3/n (rule of three: 0 of 30 means at most 10% at 95%). Jev at 0 with the LLM above 0: don't use Jev. Both at 0: not enough evidence, and the screen says neither answer is being accepted. |
 | Fewer than 30 paired cases | Not enough evidence. The screen shows the paired count and "add N more labelled cases". Rates and costs are still shown, marked "below minimum". |
-| A cost is missing | The file stays valid (format rule). A missing cost on a paired Jev or LLM row makes that answerer's cost `incomplete` and the verdict not enough evidence, because a cost ratio built on partial spend would look complete. A missing cost on an unlabelled row is not used and does not block the verdict. |
+| A cost is missing | The file stays valid (format rule). A missing cost on a paired Jev or LLM row makes that answerer's cost `incomplete` and the verdict not enough evidence, because a cost ratio built on partial spend would look complete. A missing cost on an unlabelled or unpaired row is not used and does not block the verdict. |
 | No rule rows, or fewer than 30 paired rule cases | The rule comparison is skipped and the screen says so; the verdict comes from Jev against the LLM. |
 | Labels missing on some rows | Those rows drop out of the pairing. If that takes the paired count below 30, rule 1 applies. |
 | The rule costs 0 | Its cost per accepted is 0, so it is never compared on cost. It is compared on accept rate only: if it comes within 10 points of Jev, the verdict is don't use Jev, because ordinary code does the job. |

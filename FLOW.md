@@ -5,7 +5,8 @@ Take 30 or more examples of one decision your workflow already makes. Record wha
 Diagram: [docs/product/flow/comparison.html](docs/product/flow/comparison.html) (source: `comparison.dataflow.json`, rendered with archify).
 
 ## Scope (v1)
-- **Workflow:** one decision point with a fixed answer set, asked as a typed question. First one: "How hard is this coding prompt? trivial / ordinary / hard"; code maps the answer to Haiku, Sonnet or Opus. Jev is never asked "which model".
+- **Workflow:** one decision point with a fixed answer set, asked as a typed question; code maps each answer to the next step. Jev is never asked "which model".
+- **Historical (superseded 2026-09-28):** the first example was "How hard is this coding prompt? trivial / ordinary / hard", with code mapping the answer to Haiku, Sonnet or Opus (the Claude Code prompt router). That router was dropped and is not a v1 requirement.
 - **User:** a builder who runs LLM calls in their workflow and wants to know if Jev can make some of those decisions cheaper without losing quality.
 - **Accepted result:** an output a person marks "accept" under one written rule: correct and complete enough to use without edits. Labels are blind to which arm picked the output. A Jev pre-grade may pre-fill a label but a person confirms it.
 - **Out of scope:** many workflows at once; the tool calling any model; production integrations; sensitive data (synthetic or redacted cases only); claims beyond the user's own test set; pooling or sharing subscriptions.

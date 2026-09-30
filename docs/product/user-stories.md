@@ -4,24 +4,24 @@ Journeys are in `user-journeys.md`. Each story traces to one journey step. v1 is
 
 ### US-01 See the one supported workflow before starting
 
-As a builder who hits Claude Code usage limits, I want to see which workflow Jev!Jev supports and what it compares, so that I know in one screen whether it fits my setup.
+As a builder who hits usage limits, I want to see which kind of decision Jev!Jev compares and how, so that I know in one screen whether it fits my setup.
 
 Journey step: J1.1
 
 - Given I open Jev!Jev for the first time
 - When the start page loads
-- Then it names the Claude Code prompt router workflow, the three approaches (LLM only, simple baseline, Jev routing), and what an accepted result means
-- And it asks for synthetic or redacted prompts, not production data
+- Then it names the one supported shape (one decision point with a fixed answer set), the three approaches (LLM only, simple baseline, Jev routing), and what an accepted result means
+- And it asks for synthetic or redacted cases, not production data
 
-### US-02 Add a small test set of prompts
+### US-02 Add a small test set of cases
 
-As a builder, I want to add a handful of prompts I would really send to Claude Code, so that the comparison runs on my own work rather than a generic benchmark.
+As a builder, I want to add a handful of cases my workflow really handles, so that the comparison runs on my own work rather than a generic benchmark.
 
 Journey step: J1.2
 
 - Given I am on the test set step
-- When I add prompts one by one or paste a list
-- Then each prompt is saved as a numbered test case I can edit or remove
+- When I add cases one by one or paste a list
+- Then each case is saved as a numbered test case I can edit or remove
 - And the page shows how many cases I have
 
 ### US-03 Supply results and costs in one documented format
@@ -32,7 +32,7 @@ Journey step: J1.3
 
 - Given the format is documented in this repo with an example file
 - When I upload a file that matches it
-- Then Jev!Jev shows, per test case, the model used, the answer and the cost for each of the three approaches
+- Then Jev!Jev shows, per test case, what each of the three approaches picked, the result and the cost
 - And the Jev routing rows include the Jev call cost
 
 - Given I upload a file that does not match the format
@@ -80,16 +80,18 @@ Journey step: J1.6
 - When the verdict is shown
 - Then it reads "don't use Jev" and names the approach that won
 
-### US-07 See router pick accuracy per prompt
+### US-07 See wins and losses against Jev per case
 
-As a builder, I want to see for each prompt whether Jev picked the cheapest model whose answer I accepted, so that I know how often the router gets the pick right, not just what it costs.
+As a builder, I want to see for each case whether Jev's result was accepted where another approach's was not, or the reverse, so that I know where Jev gains or loses, not just what it costs.
 
 Journey step: J2.3
 
-- Given each test case has labelled answers from Haiku, Sonnet and Opus
-- When I open the per-prompt view
-- Then each row shows Jev's pick, the cheapest accepted model, and whether they match
-- And the page shows the share of prompts where they match
+- Given every picked result in the test set is labelled
+- When I open the per-case view
+- Then each row shows each approach's pick, its label, and whether Jev won, lost or tied against each other approach
+- And the page shows the win and loss counts that feed the verdict
+
+Historical: US-07 was "See router pick accuracy per prompt" for the Claude Code prompt router (Haiku, Sonnet or Opus). That router was dropped on 2026-09-28; the story is superseded by the wins and losses above.
 
 ### US-08 Check whether confidence means a right pick
 
@@ -98,13 +100,13 @@ As a builder, I want to see Jev's confidence next to right and wrong picks, so t
 Journey step: J2.4
 
 - Given Jev's confidence is included for each pick
-- When I open the per-prompt view
+- When I open the per-case view
 - Then each row shows the confidence score
 - And wrong picks at high confidence are listed first
 
 ## Out of scope for v1
 
-- Any workflow other than the Claude Code prompt router.
+- More than one decision point at a time (`FLOW.md`, Scope). The earlier limit to the Claude Code prompt router is historical: that router was dropped on 2026-09-28.
 - Running models or calling Jev from inside Jev!Jev; v1 reads results the user supplies.
 - Live or streaming traffic; v1 works on a recorded test set.
 - Real production or sensitive data; cases should be synthetic or redacted.

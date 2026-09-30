@@ -16,6 +16,11 @@ export interface ConnectionSettings {
   connect_timeout?: number;
 }
 
+/** A connection string that cannot be used. The message never repeats the string or a part of it. */
+export class ConnectionError extends Error {
+  override readonly name = "ConnectionError";
+}
+
 type SslMode = NonNullable<ConnectionSettings["ssl"]>;
 
 function sslMode(value: string): SslMode {
@@ -28,12 +33,12 @@ function sslMode(value: string): SslMode {
     case "verify-full":
       return value;
     default:
-      throw new Error(`sslmode ${value} is not supported`);
+      throw new ConnectionError("sslmode value is not supported");
   }
 }
 
 function integer(key: string, value: string): number {
-  if (!/^[0-9]+$/.test(value)) throw new Error(`connection keyword ${key} must be an integer`);
+  if (!/^[0-9]+$/.test(value)) throw new ConnectionError(`connection keyword ${key} must be an integer`);
   return Number(value);
 }
 
@@ -50,7 +55,7 @@ function keywordPairs(conninfo: string): [string, string][] {
     let key = "";
     while (i < conninfo.length && !/[\s=]/.test(conninfo[i] ?? "")) key += conninfo[i++];
     skipSpace();
-    if (conninfo[i] !== "=") throw new Error(`missing "=" after "${key}" in connection string`);
+    if (conninfo[i] !== "=") throw new ConnectionError('a keyword without "=" in the connection string');
     i++;
     skipSpace();
     let value = "";
@@ -60,7 +65,7 @@ function keywordPairs(conninfo: string): [string, string][] {
         if (conninfo[i] === "\\") i++;
         value += conninfo[i++] ?? "";
       }
-      if (conninfo[i] !== "'") throw new Error("unterminated quoted value in connection string");
+      if (conninfo[i] !== "'") throw new ConnectionError("unterminated quoted value in the connection string");
       i++;
     } else {
       while (i < conninfo.length && !/\s/.test(conninfo[i] ?? "")) {
@@ -77,8 +82,20 @@ function keywordPairs(conninfo: string): [string, string][] {
  * The secret is never read from the string: postgres.js takes it from the PGPASSWORD environment variable.
  */
 export function parseConninfo(conninfo: string): ConnectionSettings {
-  if (/^postgres(ql)?:\/\//.test(conninfo)) {
-    const url = new URL(conninfo);
+  const scheme = /^postgres(ql)?:\/\//.exec(conninfo);
+  if (scheme !== null) {
+    // Before parsing: a URL parse error would carry the whole string, secret included.
+    const rest = conninfo.slice(scheme[0].length);
+    const at = rest.lastIndexOf("@");
+    if (at >= 0 && rest.slice(0, at).includes(":")) {
+      throw new ConnectionError("put the secret in PGPASSWORD, not in the connection string");
+    }
+    let url: URL;
+    try {
+      url = new URL(conninfo);
+    } catch {
+      throw new ConnectionError("the postgres:// connection string is not a valid URL");
+    }
     const settings: ConnectionSettings = {};
     const host = url.searchParams.get("host") ?? decodeURIComponent(url.hostname);
     if (host) settings.host = host;
@@ -86,9 +103,6 @@ export function parseConninfo(conninfo: string): ConnectionSettings {
     const database = decodeURIComponent(url.pathname.slice(1));
     if (database) settings.database = database;
     if (url.username) settings.user = decodeURIComponent(url.username);
-    if (/^postgres(ql)?:\/\/[^/@]*:[^/@]*@/.test(conninfo)) {
-      throw new Error("put the secret in PGPASSWORD, not in the connection string");
-    }
     const ssl = url.searchParams.get("sslmode");
     if (ssl) settings.ssl = sslMode(ssl);
     return settings;
@@ -115,7 +129,9 @@ export function parseConninfo(conninfo: string): ConnectionSettings {
         settings.connect_timeout = integer(key, value);
         break;
       default:
-        throw new Error(`connection keyword ${key} is not supported`);
+        throw new ConnectionError(
+          /^[a-z_]{1,32}$/.test(key) ? `connection keyword ${key} is not supported` : "unknown connection keyword",
+        );
     }
   }
   return settings;

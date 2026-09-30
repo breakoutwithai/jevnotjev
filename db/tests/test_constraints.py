@@ -60,8 +60,10 @@ def test_db_rejects_a_single_option_question(conn, make_workspace):
     workspace = make_workspace()
     ws = conn.execute("select id from jnj.workspace where slug = %s", (workspace,)).fetchone()[0]
     with pytest.raises(psycopg.errors.CheckViolation):
-        conn.execute("insert into jnj.question (workspace_id, prompt_version, question_id, question, answer_set)"
-                     " values (%s, 'v1', 'q1', 'Q?', 'yes')", (ws,))
+        conn.execute("insert into jnj.question (workspace_id, content_policy, prompt_version, question_id,"
+                     " question_sha256, question_length, answer_set)"
+                     " select id, content_policy, 'v1', 'q1', repeat('0', 64), 2, 'yes' from jnj.workspace"
+                     " where id = %s", (ws,))
 
 
 def with_cell(tmp_path, column, value, row=0):
@@ -72,7 +74,6 @@ def with_cell(tmp_path, column, value, row=0):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("column,value,expected", [
-    ("confidence", "1.00000000000000000001", Decimal("1.00000000000000000001")),
     ("confidence", "1e-400", Decimal("1e-400")),
     ("tokens_in", "3000000000", 3000000000),
     ("tokens_in", "9223372036854775807", 9223372036854775807),
@@ -88,7 +89,7 @@ def test_db_accepts_what_the_validator_accepts(conn, make_workspace, tmp_path, c
         f"select v.{column} from jnj.record_v1 v join jnj.workspace w on w.id = v.workspace_id"
         " where w.slug = %s order by v.source_line limit 1", (workspace,)).fetchone()[0]
     assert stored == expected and type(stored) is type(expected)
-    exported = list(csv.reader(io.StringIO(export_csv(conn, workspace).text)))
+    exported = list(csv.reader(io.StringIO(export_csv(conn, workspace, "run-001").text)))
     assert Decimal(exported[1][exported[0].index(column)]) == Decimal(value)
 
 

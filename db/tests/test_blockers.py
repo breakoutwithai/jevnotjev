@@ -9,7 +9,7 @@ import psycopg
 import pytest
 
 from export import export_csv
-from load import load_file
+from load import LoadError, load_file
 from support import D06, EXAMPLE, count, example_rows, write_csv
 from validate import validate
 
@@ -66,7 +66,7 @@ def with_answer_set(tmp_path, name, run_id, answer_set):
 def test_b2_reload_with_a_different_answer_set_fails(conn, make_workspace, tmp_path, changed):
     workspace = make_workspace()
     load_file(conn, workspace, with_answer_set(tmp_path, "a.csv", "run-1", "yes|no"))
-    with pytest.raises(psycopg.errors.RaiseException, match="answer_set"):
+    with pytest.raises(LoadError, match="answer_set"):
         load_file(conn, workspace, with_answer_set(tmp_path, "b.csv", "run-2", changed))
     stored = conn.execute(
         "select q.answer_set, string_agg(o.value, '|' order by o.position) from jnj.question q"
@@ -83,7 +83,7 @@ def test_b2_duplicate_value_in_answer_set_fails_instead_of_collapsing(conn, make
     path = with_answer_set(tmp_path, "dup.csv", "run-1", "yes|yes|no")
     assert validate(path)[0] == [], "the validator accepts yes|yes|no; the loader must not collapse it"
     workspace = make_workspace()
-    with pytest.raises(psycopg.errors.RaiseException, match="answer_set yes\\|yes\\|no repeats a value"):
+    with pytest.raises(LoadError, match="answer_set yes\\|yes\\|no repeats a value"):
         load_file(conn, workspace, path)
     assert count(conn, "question", workspace) == 0
 
@@ -94,8 +94,10 @@ def test_b2_db_rejects_a_question_whose_options_do_not_spell_its_answer_set(conn
     ws = conn.execute("select id from jnj.workspace where slug = %s", (workspace,)).fetchone()[0]
     with pytest.raises(psycopg.errors.CheckViolation, match="answer_set"):
         with conn.transaction():
-            q = conn.execute("insert into jnj.question (workspace_id, prompt_version, question_id, question, answer_set)"
-                             " values (%s, 'v1', 'q1', 'Q?', 'yes|yes|no') returning id", (ws,)).fetchone()[0]
+            q = conn.execute("insert into jnj.question (workspace_id, content_policy, prompt_version, question_id,"
+                             " question_sha256, question_length, answer_set)"
+                             " select id, content_policy, 'v1', 'q1', repeat('0', 64), 2, 'yes|yes|no'"
+                             " from jnj.workspace where id = %s returning id", (ws,)).fetchone()[0]
             conn.execute("insert into jnj.answer_option (workspace_id, question_pk, position, value)"
                          " values (%s, %s, 1, 'yes'), (%s, %s, 3, 'no')", (ws, q, ws, q))
     assert count(conn, "question", workspace) == 0
@@ -110,7 +112,7 @@ def test_b3_a_different_file_into_a_loaded_run_fails(conn, make_workspace, tmp_p
     header, rows = example_rows()
     for row in rows:
         row[header.index("prompt_version")] = "refund-q.v2"
-    with pytest.raises(psycopg.errors.RaiseException, match="run run-001 is already loaded from file"):
+    with pytest.raises(LoadError, match="run run-001 is already loaded from file"):
         load_file(conn, workspace, write_csv(tmp_path / "second.csv", header, rows))
     assert count(conn, "answer", workspace) == 9
 
@@ -121,9 +123,10 @@ def test_b3_answer_key_matches_the_validators_key_without_prompt_version(conn, m
     load_file(conn, workspace, EXAMPLE)
     ws, file_pk, run_pk, case_pk, _, qid = ids(conn, workspace)
     with conn.transaction():
-        q2 = conn.execute("insert into jnj.question (workspace_id, prompt_version, question_id, question, answer_set)"
-                          " values (%s, 'refund-q.v2', %s, 'Other wording?', 'yes|no') returning id",
-                          (ws, qid)).fetchone()[0]
+        q2 = conn.execute("insert into jnj.question (workspace_id, content_policy, prompt_version, question_id,"
+                          " question_sha256, question_length, answer_set)"
+                          " select id, content_policy, 'refund-q.v2', %s, repeat('0', 64), 14, 'yes|no'"
+                          " from jnj.workspace where id = %s returning id", (qid, ws)).fetchone()[0]
         conn.execute("insert into jnj.answer_option (workspace_id, question_pk, position, value)"
                      " values (%s, %s, 1, 'yes'), (%s, %s, 2, 'no')", (ws, q2, ws, q2))
     with pytest.raises(psycopg.errors.UniqueViolation, match="answer_run_pk_case_pk_question_id_answerer_kind_key"):
@@ -154,18 +157,15 @@ def test_b4_import_file_is_recorded_and_source_line_is_unique_per_file(conn, mak
 
 
 @pytest.mark.integration
-def test_b4_export_orders_by_file_then_line_and_can_scope_to_a_run(conn, make_workspace, tmp_path):
+def test_b4_export_is_one_run_in_source_line_order(conn, make_workspace, tmp_path):
     workspace = make_workspace()
     header, rows = example_rows()
     for row in rows:
         row[header.index("run_id")] = "run-000"
-    later = write_csv(tmp_path / "run-000.csv", header, rows)
+    later = write_csv(tmp_path / "run-000.csv", header, list(reversed(rows)))
     load_file(conn, workspace, EXAMPLE)
     load_file(conn, workspace, later)
-    lines = export_csv(conn, workspace).text.splitlines()
-    assert len(lines) == 19
-    assert [line.split(",")[1] for line in lines[1:]] == ["run-001"] * 9 + ["run-000"] * 9
-    only = export_csv(conn, workspace, run_ids=["run-000"]).text
+    only = export_csv(conn, workspace, "run-000").text
     assert only == later.read_text(encoding="utf-8").replace("1.8e-06", "0.0000018") \
         .replace("1.6e-06", "0.0000016").replace("1.9e-06", "0.0000019")
 
@@ -180,7 +180,7 @@ def test_b5_loader_role_can_create_a_workspace_load_and_export(conn):
         assert conn.execute("select current_user").fetchone()[0] == "jnj_loader"
         result = load_file(conn, slug, D06, create_workspace=True)
         assert (result.status, result.answers, result.labels) == ("loaded", 30, 29)
-        exported = export_csv(conn, slug)
+        exported = export_csv(conn, slug, "run-d06")
         assert len(exported.text.splitlines()) == 31
     finally:
         conn.execute("reset role")
@@ -247,8 +247,10 @@ def test_b6_a_workspace_holding_text_cannot_be_downgraded_to_restricted(conn, ma
 def test_b6_export_of_a_restricted_workspace_leaves_case_input_empty_and_says_so(conn, make_workspace):
     workspace = make_workspace("restricted")
     load_file(conn, workspace, EXAMPLE)
-    exported = export_csv(conn, workspace)
+    exported = export_csv(conn, workspace, "run-001")
     header, *rows = [line.split(",") for line in exported.text.splitlines()]
     assert {row[header.index("case_input")] for row in rows} == {""}
-    assert exported.notices == [f"case_input withheld: workspace {workspace} is content_policy=restricted;"
-                                " 3 cases keep only sha256 and length, so this export does not validate"]
+    assert {row[header.index("question")] for row in rows} == {""}
+    assert exported.notices == [f"case_input and question withheld: workspace {workspace} is"
+                                " content_policy=restricted; 3 cases and 1 questions keep only sha256 and length,"
+                                " so this export does not validate"]

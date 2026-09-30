@@ -13,17 +13,26 @@ create table jnj.workspace (
   unique (id, content_policy)
 );
 comment on column jnj.workspace.content_policy is
-  'synthetic: may hold raw case_input text (our own fixtures). restricted: case_input keeps only sha256 and length.';
+  'synthetic: may hold raw text (our own fixtures). restricted: case_input, question and file name keep only sha256 and length.';
 
 create table jnj.import_file (
   id bigint generated always as identity primary key,
-  workspace_id bigint not null references jnj.workspace,
+  workspace_id bigint not null,
+  content_policy text not null,
   purpose text not null check (purpose in ('records', 'labels')),
   file_sha256 text not null check (file_sha256 ~ '^[0-9a-f]{64}$'),
-  original_name text not null check (original_name <> '' and length(original_name) <= 255),
+  original_name_sha256 text not null check (original_name_sha256 ~ '^[0-9a-f]{64}$'),
+  original_name_length integer not null check (original_name_length between 1 and 255),
+  original_name text,
   loaded_at timestamptz not null default now(),
+  constraint original_name_only_when_synthetic check (
+    original_name is null
+    or (content_policy = 'synthetic'
+        and char_length(original_name) = original_name_length
+        and encode(sha256(convert_to(original_name, 'UTF8')), 'hex') = original_name_sha256)),
   unique (workspace_id, file_sha256),
-  unique (workspace_id, id)
+  unique (workspace_id, id),
+  foreign key (workspace_id, content_policy) references jnj.workspace (id, content_policy)
 );
 comment on table jnj.import_file is
   'One loaded CSV. A records file creates its runs; a labels file only adds missing labels to loaded answers.';
@@ -43,11 +52,20 @@ comment on table jnj.run is 'One run comes from exactly one records file.';
 
 create table jnj.question (
   id bigint generated always as identity primary key,
-  workspace_id bigint not null references jnj.workspace,
+  workspace_id bigint not null,
+  content_policy text not null,
   prompt_version text not null check (prompt_version ~ '^[A-Za-z0-9_.-]{1,64}$'),
   question_id text not null check (question_id ~ '^[A-Za-z0-9_-]{1,64}$'),
-  question text not null check (question <> ''),
+  question_sha256 text not null check (question_sha256 ~ '^[0-9a-f]{64}$'),
+  question_length integer not null check (question_length >= 1),
+  question text,
   answer_set text not null check (answer_set ~ '^[^|]+(\|[^|]+)+$'),
+  constraint question_only_when_synthetic check (
+    question is null
+    or (content_policy = 'synthetic'
+        and char_length(question) = question_length
+        and encode(sha256(convert_to(question, 'UTF8')), 'hex') = question_sha256)),
+  foreign key (workspace_id, content_policy) references jnj.workspace (id, content_policy),
   unique (workspace_id, prompt_version, question_id),
   unique (workspace_id, id),
   unique (workspace_id, id, question_id)
@@ -99,9 +117,8 @@ create table jnj.answer (
   answerer_kind text not null check (answerer_kind in ('jev', 'rule', 'llm', 'human')),
   answerer_model text not null check (answerer_model <> ''),
   output text not null,
-  -- the validator reads confidence as a float, so a value that rounds to 1 is accepted
-  confidence numeric check (
-    confidence >= 0 and case when confidence <= 1 then true else confidence::double precision <= 1 end),
+  -- exact: 1.00000000000000000001 is above 1 even though validate.py reads it as the float 1.0
+  confidence numeric check (confidence between 0 and 1),
   tokens_in bigint check (tokens_in >= 0),
   tokens_out bigint check (tokens_out >= 0),
   cost_usd numeric check (cost_usd >= 0),
@@ -192,7 +209,8 @@ select
   a.output, a.confidence, l.verdict as label, l.source as label_source,
   a.tokens_in, a.tokens_out, a.cost_usd, a.latency_ms,
   a.workspace_id, a.import_file_pk, a.source_line, a.id as answer_pk,
-  a.run_pk, a.case_pk, a.question_pk, c.case_input_sha256, c.case_input_length, l.labelled_at
+  a.run_pk, a.case_pk, a.question_pk, c.case_input_sha256, c.case_input_length,
+  q.question_sha256, q.question_length, l.labelled_at
 from jnj.answer a
 join jnj.run r on r.workspace_id = a.workspace_id and r.id = a.run_pk
 join jnj.question q on q.workspace_id = a.workspace_id and q.id = a.question_pk
@@ -223,13 +241,16 @@ begin
   select * into prior from jnj.import_file f where f.workspace_id = ws.id and f.file_sha256 = p_sha256;
   if found then
     if prior.purpose <> p_purpose then
-      raise exception 'file % was already loaded as a % file', p_name, prior.purpose;
+      raise exception 'file sha256 % was already loaded as a % file', left(p_sha256, 12), prior.purpose;
     end if;
     return query select 'unchanged'::text, 0::bigint, 0::bigint;
     return;
   end if;
-  insert into jnj.import_file (workspace_id, purpose, file_sha256, original_name)
-    values (ws.id, p_purpose, p_sha256, p_name) returning id into file_pk;
+  insert into jnj.import_file (workspace_id, content_policy, purpose, file_sha256,
+      original_name_sha256, original_name_length, original_name)
+    values (ws.id, ws.content_policy, p_purpose, p_sha256, encode(sha256(convert_to(p_name, 'UTF8')), 'hex'), char_length(p_name),
+      case when ws.content_policy = 'synthetic' then p_name end)
+    returning id into file_pk;
 
   if p_purpose = 'labels' then
     -- every row must be an answer already loaded, identical apart from the label
@@ -239,7 +260,7 @@ begin
         and v.question_id = s.question_id and v.answerer = s.answerer
       where v.answer_pk is null
          or not (v.format_version = s.format_version and v.prompt_version = s.prompt_version
-                 and v.question = s.question and v.answer_set = s.answer_set
+                 and v.question_sha256 = encode(sha256(convert_to(s.question, 'UTF8')), 'hex') and v.answer_set = s.answer_set
                  and v.case_input_sha256 = encode(sha256(convert_to(s.case_input, 'UTF8')), 'hex')
                  and v.answerer_model = s.answerer_model and v.output = s.output
                  and v.confidence is not distinct from nullif(s.confidence, '')::numeric
@@ -274,14 +295,14 @@ begin
   end if;
 
   -- one run = one file
-  select s.run_id, f.original_name, f.file_sha256 into bad
+  select s.run_id, f.file_sha256 into bad
     from (select distinct run_id from pg_temp.jnj_stage) s
     join jnj.run r on r.workspace_id = ws.id and r.run_id = s.run_id
     join jnj.import_file f on f.workspace_id = ws.id and f.id = r.import_file_pk
     order by s.run_id limit 1;
   if found then
-    raise exception 'run % is already loaded from file % (sha256 %); one run = one file: use a new run_id, or load labels as a labels file',
-      bad.run_id, bad.original_name, left(bad.file_sha256, 12);
+    raise exception 'run % is already loaded from file sha256 %; one run = one file: use a new run_id, or load labels as a labels file',
+      bad.run_id, left(bad.file_sha256, 12);
   end if;
   insert into jnj.run (workspace_id, import_file_pk, run_id, format_version)
     select distinct ws.id, file_pk, s.run_id, s.format_version from pg_temp.jnj_stage s;
@@ -294,20 +315,22 @@ begin
   if found then
     raise exception 'line %: answer_set % repeats a value; each allowed answer appears once', bad.line, bad.answer_set;
   end if;
-  select s.line, s.prompt_version, s.question_id, q.question as was_q, q.answer_set as was_set,
-         s.question as now_q, s.answer_set as now_set into bad
+  select s.line, s.prompt_version, s.question_id, q.answer_set as was_set, s.answer_set as now_set into bad
     from pg_temp.jnj_stage s
     join jnj.question q on q.workspace_id = ws.id and q.prompt_version = s.prompt_version
       and q.question_id = s.question_id
-    where q.question <> s.question or q.answer_set <> s.answer_set
+    where q.question_sha256 <> encode(sha256(convert_to(s.question, 'UTF8')), 'hex') or q.answer_set <> s.answer_set
     order by s.line limit 1;
   if found then
-    raise exception 'line %: question % under prompt_version % was loaded as (%, answer_set %), now (%, answer_set %); wording and answer_set are fixed per prompt_version, give the change a new prompt_version',
-      bad.line, bad.question_id, bad.prompt_version, bad.was_q, bad.was_set, bad.now_q, bad.now_set;
+    raise exception 'line %: question % under prompt_version % was loaded with different wording or answer_set (answer_set was %, now %); both are fixed per prompt_version, give the change a new prompt_version',
+      bad.line, bad.question_id, bad.prompt_version, bad.was_set, bad.now_set;
   end if;
   with added as (
-    insert into jnj.question (workspace_id, prompt_version, question_id, question, answer_set)
-      select distinct ws.id, s.prompt_version, s.question_id, s.question, s.answer_set
+    insert into jnj.question (workspace_id, content_policy, prompt_version, question_id,
+        question_sha256, question_length, question, answer_set)
+      select distinct ws.id, ws.content_policy, s.prompt_version, s.question_id,
+        encode(sha256(convert_to(s.question, 'UTF8')), 'hex'), char_length(s.question),
+        case when ws.content_policy = 'synthetic' then s.question end, s.answer_set
       from pg_temp.jnj_stage s
       where not exists (select 1 from jnj.question q where q.workspace_id = ws.id
                           and q.prompt_version = s.prompt_version and q.question_id = s.question_id)

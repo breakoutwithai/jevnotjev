@@ -28,6 +28,8 @@ NUMERIC_MAX_WEIGHT = 131071
 INTEGER_COLUMNS = ("tokens_in", "tokens_out", "latency_ms")
 NUMBER_COLUMNS = ("confidence", "cost_usd")
 PATTERN_COLUMNS = tuple(c for c in COLUMNS if "pattern" in SCHEMA["properties"][c] and c != "answer_set")
+WITHHELD_COLUMNS = ("case_input", "question")
+SCHEMA_ERROR = re.compile(r"^line (\d+): ([a-z_]+): ")
 
 
 class LoadError(Exception):
@@ -71,7 +73,9 @@ def storage_errors(rows):
             if not raw:
                 continue
             number = Decimal(raw)
-            if -number.as_tuple().exponent > NUMERIC_MAX_SCALE:
+            if column == "confidence" and number > 1:
+                errors.append(f"line {line}: confidence: {raw.strip()} is above 1")
+            elif -number.as_tuple().exponent > NUMERIC_MAX_SCALE:
                 errors.append(f"line {line}: {column}: {raw.strip()} has more than {NUMERIC_MAX_SCALE} "
                               "digits after the decimal point")
             elif number and number.adjusted() > NUMERIC_MAX_WEIGHT:
@@ -80,27 +84,51 @@ def storage_errors(rows):
     return errors
 
 
+def withhold_text(errors, rows):
+    """validate.py quotes a failing cell; never repeat case text or question text in an error."""
+    by_line = {line: row for line, row in rows}
+    safe = []
+    for message in errors:
+        match = SCHEMA_ERROR.match(message)
+        if match and match.group(2) in (*WITHHELD_COLUMNS, "row"):
+            line, column = int(match.group(1)), match.group(2)
+            value = by_line.get(line, {}).get(column)
+            length = f"length {len(value)}" if isinstance(value, str) else "value"
+            message = f"line {line}: {column}: {length} fails the schema (text withheld)"
+        safe.append(message)
+    return safe
+
+
 def ensure_workspace(conn, workspace):
     """Create a restricted workspace if it does not exist (the loader role may do this)."""
     if not re.fullmatch(r"[a-z0-9-]{1,64}", workspace):
         raise LoadError([f"workspace {workspace!r} must match [a-z0-9-]{{1,64}}"])
-    if conn.execute("select 1 from jnj.workspace where slug = %s", (workspace,)).fetchone() is None:
-        conn.execute("insert into jnj.workspace (slug) values (%s)", (workspace,))
+    conn.execute("insert into jnj.workspace (slug) values (%s) on conflict (slug) do nothing", (workspace,))
 
 
 def load_file(conn, workspace, path, purpose="records", create_workspace=False):
-    """Load one CSV into a workspace in one transaction. Returns a LoadResult; raises LoadError or psycopg.Error."""
+    """Load one CSV into a workspace in one transaction. Returns a LoadResult; raises LoadError.
+
+    No error names the file or repeats case text or question text.
+    """
     if purpose not in ("records", "labels"):
         raise ValueError(f"purpose must be records or labels, not {purpose!r}")
     path = Path(path)
-    errors, _gaps, _rows = validate(path)
+    errors, _gaps, parsed = validate(path)
     if errors:
-        raise LoadError(errors)
+        raise LoadError(withhold_text(errors, parsed))
     rows = read_raw(path)
     errors = storage_errors(rows)
     if errors:
         raise LoadError(errors)
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    try:
+        return _load(conn, workspace, path, rows, digest, purpose, create_workspace)
+    except psycopg.Error as error:
+        raise LoadError([error.diag.message_primary or type(error).__name__]) from None
+
+
+def _load(conn, workspace, path, rows, digest, purpose, create_workspace):
     with conn.transaction():
         if create_workspace:
             ensure_workspace(conn, workspace)
@@ -136,9 +164,6 @@ def main(argv=None):
     except LoadError as error:
         for message in error.messages:
             print(f"ERROR {message}", file=sys.stderr)
-        return 1
-    except psycopg.Error as error:
-        print(f"ERROR {error.diag.message_primary or error}", file=sys.stderr)
         return 1
     print(f"{result.status} answers={result.answers} labels={result.labels}")
     return 0

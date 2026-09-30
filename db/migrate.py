@@ -36,6 +36,15 @@ def migrate(conn, directory=MIGRATIONS):
         conn.execute(LEDGER)
         ledger = {n: (name, sha) for n, name, sha in conn.execute(
             "select number, name, sha256 from public.jnj_schema_migration")}
+        on_disk = {int(NAME.match(p.name).group(1)): p.name for p in files}
+        for number, (name, _sha) in sorted(ledger.items()):
+            if on_disk.get(number) != name:
+                raise RuntimeError(f"{name} was applied but is missing from {directory}")
+        latest = max(ledger, default=0)
+        for number, name in sorted(on_disk.items()):
+            if number not in ledger and number < latest:
+                raise RuntimeError(f"{name} is numbered below applied migration {latest:04d}; "
+                                   "renumber it above the latest")
         for path in files:
             number = int(NAME.match(path.name).group(1))
             sql = path.read_bytes()

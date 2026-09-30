@@ -2,7 +2,6 @@
 import datetime
 from decimal import Decimal
 
-import psycopg
 import pytest
 
 from export import export_csv
@@ -31,7 +30,7 @@ def test_d06_export_equals_source_after_crlf_to_lf(conn, make_workspace):
     workspace = make_workspace("synthetic")
     result = load_file(conn, workspace, D06)
     assert (result.status, result.answers, result.labels) == ("loaded", 30, 29)
-    assert export_csv(conn, workspace).text.encode("utf-8") == body
+    assert export_csv(conn, workspace, "run-d06").text.encode("utf-8") == body
 
 
 @pytest.mark.integration
@@ -39,7 +38,7 @@ def test_example_export_is_byte_identical_except_exponent_cells(conn, make_works
     workspace = make_workspace("synthetic")
     load_file(conn, workspace, EXAMPLE)
     source = EXAMPLE.read_text(encoding="utf-8")
-    exported = export_csv(conn, workspace).text
+    exported = export_csv(conn, workspace, "run-001").text
     respelled = numeric_only_differences(source, exported)
     assert respelled == [
         (2, "cost_usd", "1.8e-06", "0.0000018"),
@@ -54,11 +53,11 @@ def test_example_export_is_byte_identical_except_exponent_cells(conn, make_works
 def test_export_reload_export_is_a_fixed_point(conn, make_workspace, tmp_path):
     first_ws, second_ws = make_workspace("synthetic"), make_workspace("synthetic")
     load_file(conn, first_ws, EXAMPLE)
-    first = export_csv(conn, first_ws).text
+    first = export_csv(conn, first_ws, "run-001").text
     path = tmp_path / "exported.csv"
     path.write_text(first, encoding="utf-8")
     load_file(conn, second_ws, path)
-    assert export_csv(conn, second_ws).text == first
+    assert export_csv(conn, second_ws, "run-001").text == first
 
 
 @pytest.mark.integration
@@ -66,10 +65,10 @@ def test_reloading_the_identical_file_is_a_no_op(conn, make_workspace):
     workspace = make_workspace("synthetic")
     load_file(conn, workspace, D06)
     before = ({t: count(conn, t, workspace) for t in ("import_file", "run", "question", "test_case", "answer", "label")},
-              export_csv(conn, workspace).text)
+              export_csv(conn, workspace, "run-d06").text)
     result = load_file(conn, workspace, D06)
     after = ({t: count(conn, t, workspace) for t in ("import_file", "run", "question", "test_case", "answer", "label")},
-             export_csv(conn, workspace).text)
+             export_csv(conn, workspace, "run-d06").text)
     assert (result.status, result.answers, result.labels) == ("unchanged", 0, 0)
     assert after == before
     assert before[0] == {"import_file": 1, "run": 1, "question": 2, "test_case": 5, "answer": 30, "label": 29}
@@ -86,11 +85,11 @@ def test_labels_file_fills_a_missing_label_and_cannot_change_one(conn, make_work
     filled = load_file(conn, workspace, write_csv(tmp_path / "labels.csv", header, rows), purpose="labels")
     assert (filled.status, filled.answers, filled.labels) == ("loaded", 0, 1)
     assert count(conn, "label", workspace) == 9
-    exported = export_csv(conn, workspace).text.splitlines()
+    exported = export_csv(conn, workspace, "run-001").text.splitlines()
     assert exported[8].endswith(",no,,reject,human,115,3,0.00037,1750")
 
     rows[0][label] = "reject"
-    with pytest.raises(psycopg.errors.RaiseException, match="changing a label is rejected"):
+    with pytest.raises(LoadError, match="changing a label is rejected"):
         load_file(conn, workspace, write_csv(tmp_path / "relabel.csv", header, rows), purpose="labels")
     assert count(conn, "label", workspace) == 9
 
@@ -102,7 +101,7 @@ def test_labels_file_row_must_match_a_loaded_answer(conn, make_workspace, tmp_pa
     header, rows = example_rows()
     rows[7][header.index("output")] = "yes"
     rows[7][header.index("label")], rows[7][header.index("label_source")] = "reject", "human"
-    with pytest.raises(psycopg.errors.RaiseException, match="line 9: row does not match a loaded answer"):
+    with pytest.raises(LoadError, match="line 9: row does not match a loaded answer"):
         load_file(conn, workspace, write_csv(tmp_path / "labels.csv", header, rows), purpose="labels")
     assert count(conn, "label", workspace) == 8
 
@@ -128,7 +127,7 @@ def test_database_error_rolls_back_the_whole_file(conn, make_workspace, tmp_path
     # only the last row reuses the loaded prompt_version, with new wording: the DB catches it
     rows[-1][header.index("prompt_version")] = "refund-q.v1"
     rows[-1][header.index("question")] = "Is this a refund request?"
-    with pytest.raises(psycopg.errors.RaiseException, match="question q1 under prompt_version refund-q.v1"):
+    with pytest.raises(LoadError, match="question q1 under prompt_version refund-q.v1"):
         load_file(conn, workspace, write_csv(tmp_path / "reworded.csv", header, rows))
     assert {t: count(conn, t, workspace) for t in ("import_file", "run", "answer")} == \
         {"import_file": 1, "run": 1, "answer": 9}

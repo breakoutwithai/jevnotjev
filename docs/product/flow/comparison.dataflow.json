@@ -41,7 +41,7 @@
       "id": "llm",
       "type": "external",
       "label": "What you do now",
-      "sublabel": "e.g. always Sonnet",
+      "sublabel": "your LLM answers",
       "stage": 1,
       "row": 0,
       "tag": "arm A"
@@ -59,7 +59,7 @@
       "id": "jev",
       "type": "cloud",
       "label": "Jev decides",
-      "sublabel": "answer maps to a model",
+      "sublabel": "Jev answers",
       "stage": 1,
       "row": 2,
       "tag": "arm C"
@@ -67,7 +67,7 @@
     {
       "id": "runlog",
       "type": "database",
-      "label": "Results CSV",
+      "label": "jnj-record/1 CSV",
       "sublabel": "row per case per arm",
       "stage": 2,
       "row": 1,
@@ -86,7 +86,7 @@
       "id": "latency",
       "type": "backend",
       "label": "Tokens + spend",
-      "sublabel": "pick + model + fallback",
+      "sublabel": "cost per answer",
       "stage": 3,
       "row": 0
     },
@@ -229,7 +229,7 @@
       "title": "Metric input sources",
       "items": [
         "Tokens: API usage fields per call",
-        "Spend: pick + triggered model + fallback; Jev $0.042/M input, models from one dated price table, rule 0",
+        "Spend: cost of each answer; Jev $0.042/M input, LLM from one dated price table, rule 0",
         "Kept answers and wins: human labels"
       ]
     },
@@ -237,8 +237,8 @@
       "dot": "emerald",
       "title": "Labels",
       "items": [
-        "Accept or reject each picked output, one written rule",
-        "Blind to which arm picked it",
+        "Accept or reject each answer, one written rule",
+        "Blind to which arm answered",
         "Jev may pre-fill; a person confirms"
       ]
     },

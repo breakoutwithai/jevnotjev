@@ -26,7 +26,7 @@ Ambient assumption: a person labels an output in about 20 s under a written rule
 
 Labelling is 31% of the total at n=20 and 45% at n=50. Case writing is the second largest.
 Human labelling time is NOT measured anywhere: timing:53-54 says "Part B (human judgement): Not run. B1 and B10 need the operator and a stopwatch."
-Verdict rule needs at least 10 labelled cases (FLOW.md:46), so n=20 already clears the floor by 2x.
+At the time this was written the draft rule asked for at least 10 labelled cases, so n=20 cleared it by 2x. Superseded: the adopted minimum is 30 paired cases (`docs/decision/verdict-rules.md`).
 
 ## 2. Our measured timings
 | Fact | Value | Cite |

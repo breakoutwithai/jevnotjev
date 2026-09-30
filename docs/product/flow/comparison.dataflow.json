@@ -32,7 +32,7 @@
       "id": "workflow",
       "type": "frontend",
       "label": "Decision + cases",
-      "sublabel": "typed question, 10+ cases",
+      "sublabel": "typed question, 30+ cases",
       "stage": 0,
       "row": 1,
       "tag": "written first"

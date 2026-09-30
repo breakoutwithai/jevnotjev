@@ -6,7 +6,24 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
-const STACK_WORDS = /python|pytest|pip install|venv|requirements\.txt|\.py\b/i;
+const STACK_WORDS = new RegExp(
+  [
+    "python",
+    "pytest",
+    "\\bpip3?\\s+install",
+    "\\bpipx\\b",
+    "\\bpoetry\\b",
+    "\\buv\\s+(pip|sync|venv|run|add)\\b",
+    "\\bconda\\b",
+    "virtualenv",
+    "venv",
+    "requirements[\\w.-]*\\.txt",
+    "pyproject\\.toml",
+    "\\bpy\\s+-3",
+    "\\.py\\b",
+  ].join("|"),
+  "i",
+);
 // The two research scripts stay Python (#22): naming or running one of them is allowed.
 const RESEARCH_SCRIPT = /(python3 )?[\w./-]*\b(sim_min_n|newcombe_check)\.py\b/g;
 
@@ -46,6 +63,27 @@ describe("docs name the TypeScript and Bun stack", () => {
     expect(staleLines("docs/decision/newcombe_check.py and format/validate.py")).toHaveLength(1);
     expect(staleLines("docs/decision/hand_check.py")).toHaveLength(1);
     expect(staleLines("python3 docs/decision/sim_min_n.py; a Python helper")).toHaveLength(1);
+  });
+
+  // Each is a Python setup step a stale doc could carry; the matcher must flag every one.
+  const PLANTED = [
+    "pip3 install jsonschema psycopg",
+    "pip install -r requirements.txt",
+    "pip install -r requirements-dev.txt",
+    "pipx install ruff",
+    "poetry install",
+    "uv pip install jsonschema",
+    "uv sync",
+    "conda env create -f environment.yml",
+    "virtualenv env",
+    "python3 -m venv .venv",
+    "source .venv/bin/activate",
+    "py -3 validate",
+    "see pyproject.toml",
+    "pytest -m unit",
+  ];
+  test.each(PLANTED)("[unit] the matcher flags the planted step %p", (line) => {
+    expect(staleLines(line)).toHaveLength(1);
   });
 
   test("[unit] no tracked Markdown outside the allowlist names the Python stack", async () => {

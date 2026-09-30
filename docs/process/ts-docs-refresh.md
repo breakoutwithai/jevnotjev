@@ -35,7 +35,7 @@ Classes:
 | `docs/spec/tasks.md` | 26 | T0 marked done in #25, verified by `scripts/parity.sh` |
 | `docs/spec/tasks.md` | 27 | T1 gate runs `bun test` only |
 | `docs/spec/tasks.md` | 33 | T7 generator is `make.ts` |
-| `docs/spec/tasks.md` | 43 | T17 is `scripts/hand-check.ts` with a `bun test` title |
+| `docs/spec/tasks.md` | 43 | planned work, not code today: T17 re-planned as `scripts/hand-check.ts` in the gate, citing the #22 decision that supersedes `pipeline-review.md:149`; the Newcombe values in `docs/decision/newcombe_check.py` stay the oracle |
 | `docs/spec/tasks.md` | 66 | R5.h test file `scripts/hand-check.test.ts` |
 | `docs/spec/tasks.md` | 80 | `bun test` is the only runner |
 | `.gitignore` | 2 | `.venv/` removed: nothing creates it (`scripts/parity.sh` builds its venv in a temp dir) |
@@ -71,4 +71,4 @@ Also changed without a grep hit: `tasks.md:61` (R3.b test is `scripts/parity.sh`
 | `docs/research/2026-09-29-verdict-minimums/README.md` | 1 line | dated research |
 | `docs/research/2026-09-29-verdict-minimums/stats.md` | 2 lines | dated research |
 
-`docs/blog/` and `docs/benchmarks/` have no mention. No HISTORY file reads as current guidance, so none gets a note.
+`docs/blog/` and `docs/benchmarks/` have no mention. `pipeline-review.md` gets a dated note at the top, because `pipeline.md` sends readers to its response section and its T17 and T1 resolutions are superseded. No other HISTORY file reads as current guidance.

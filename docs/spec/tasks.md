@@ -2,7 +2,7 @@
 
 Tasks for [spec.md](spec.md) and [plan.md](plan.md) (#17), in challenge-route order. Each task is one PR through [the pipeline](../process/pipeline.md): RED tests first, named with the criterion id they prove.
 
-"Depends on" names the file and line that creates the dependency when that file exists today. When the dependency is on a file an earlier task creates, it names that task and the function or file it reads, since there is no line yet. A dependency that is only a shared topic is listed as "none". Test names are `bun test` titles that start with the criterion id (`R5.e ...`).
+"Depends on" names the file and line that creates the dependency when that file exists today. When the dependency is on a file an earlier task creates, it names that task and the function or file it reads, since there is no line yet. A dependency that is only a shared topic is listed as "none". Test names are `bun test` titles: the tier in brackets first, then the criterion id (`[unit] R5.e ...`). The table lists titles without the tier.
 
 Day 7 and day 8 oracle: `examples/d06-tiny/expected.md`. The numbers the tests assert:
 
@@ -23,8 +23,8 @@ In the rule-vs-Jev rows, a to d are counted with the rule as the first answerer 
 |---|---|---|---|---|---|---|
 | T0 | before 7 | R3.b | **done in #25** (#22): `package.json`, `tsconfig.json`, `src/format/`, `src/db/`, `scripts/parity.sh`, `scripts/parity.ts` | TypeScript on Bun; port the validator, loader, exporter and migrator; parity on every fixture; then remove the originals | none | `bash scripts/parity.sh`: 59 fixtures, 818 comparisons, 0 differences (quoted on #25) |
 | T1 | 7 | R17.d | `scripts/ci-check.sh` | Gate runs `bun test`, rebuilds `site/jnj.js`, prints `head=<sha> clean=<yes\|no>` and the test count; fails on a failure, a 0 count, a bundle diff, or a tracked test file that was not collected | T0: `bun test` exists from #25 | `R17.d gate fails on zero tests`, `R17.d gate fails on an uncollected test file` (`scripts/ci-check.test.ts`) |
-| T2 | 7 | R2.b, R2.d | `src/core/csv.ts` | Parse CSV text: quoted commas, doubled quotes, CRLF and LF; keep source line numbers | T0: `package.json` and `tsconfig.json` | `R2.b parses quoted comma, doubled quote and CRLF`, `R2.d d06 parses to 30 rows of 18 cells` (`csv.test.ts`) |
-| T3 | 7 | R4.a, R4.b, R4.d, R5.a, R5.b | `src/core/calc.ts` | Group by (`prompt_version`, `question_id`); per answerer rows, labelled, accepted, spend or `incomplete`, cost per accepted or `undefined` | T2: `calc.test.ts` reads `examples/d06-tiny/records.csv` through `parseCsv()` | `R4.a two prompt_versions of one question_id are two decision points`, `R4.b q1 and q2 are never pooled`, `R4.d human rows are counted and not in the verdict`, `R5.a d06 whole-file totals match expected.md:53-57`, `R5.b zero accepted gives undefined` |
+| T2 | 7 | R2.b, R2.d | `src/format/csv.ts` (exists from #25), `src/format/csv.test.ts` | Reuse `readRecords()`: quoted commas, doubled quotes, CRLF and LF, source line numbers in `CsvRecord.line`; add the criterion tests | T0: `src/format/csv.ts` | `R2.b parses quoted comma, doubled quote and CRLF`, `R2.d d06 parses to 30 rows of 18 cells` (`src/format/csv.test.ts`) |
+| T3 | 7 | R4.a, R4.b, R4.d, R5.a, R5.b | `src/core/calc.ts` | Group by (`prompt_version`, `question_id`); per answerer rows, labelled, accepted, spend or `incomplete`, cost per accepted or `undefined` | T2: `calc.test.ts` reads `examples/d06-tiny/records.csv` through `readRecords()` | `R4.a two prompt_versions of one question_id are two decision points`, `R4.b q1 and q2 are never pooled`, `R4.d human rows are counted and not in the verdict`, `R5.a d06 whole-file totals match expected.md:53-57`, `R5.b zero accepted gives undefined` |
 | T4 | 7 | R5.c, R5.d | `src/core/calc.ts` | Pairing by `case_id` on labelled rows inside one decision point; a, b, c, d, p1, p2, diff for Jev vs LLM and rule vs Jev | T3: pairing reads the groups `group()` returns | `R5.c q2 cv2 drops out, n=4`, `R5.d d06 a b c d match the oracle table` |
 | T5 | 7 | R5.e | `src/core/calc.ts` | Wilson interval and Newcombe method 10 per `verdict-rules.md:42-49` | T0: `src/format/validate.ts` (the TypeScript core that `src/core/calc.ts` sits beside and imports types from) | `R5.e Newcombe matches the 7 Table III rows` (rows from `docs/decision/newcombe_check.py:12-15`) |
 | T6 | 7 | R5.f, R5.g, R13.a | `src/core/calc.ts` | Cost ratio with 0 and infinity; 2,000 seeded paired resamples, both-zero redrawn; seed from the file's SHA-256 | T3: the ratio divides the two `cost_per_accepted` values T3 returns | `R5.f d06 q1 ratio 0.0125 and q2 0.01`, `R5.g both-zero resample is redrawn`, `R13.a same file gives identical interval twice` |
@@ -54,7 +54,7 @@ Counted per criterion, since a requirement with a task can still have criteria w
 |---|---|---|
 | R1.a to R1.e | T9 | `src/browser/start.test.ts` |
 | R2.a, R2.c | T12 | `src/browser/static.test.ts` |
-| R2.b, R2.d | T2 | `src/core/csv.test.ts` |
+| R2.b, R2.d | T2 | `src/format/csv.test.ts` |
 | R3.a, R3.d, R3.e | T11 | `src/format/validate.test.ts` |
 | R3.b | T0 (done, #25) | `scripts/parity.sh` |
 | R3.c | T12 | `src/core/pipeline.test.ts` |
@@ -76,3 +76,5 @@ Every task names its verifying test: 25 of 25.
 
 ## Test runner
 `bun test` is the only runner: #25 (T0, for #22) replaced the earlier one, which collected `format` at 5e80a84 and `format db` after PR 15, and removed the original validator and loader. `.deploy/tests/` (3 shell tests) is run by no gate. The two research scripts in `docs/decision/` are run by hand. T1 fails on any tracked test file `bun test` did not collect.
+
+Decision: #22 (operator, 2026-09-30: "The project default is TypeScript.") supersedes the T17 and T1 resolution in `pipeline-review.md:149`. The hand check (T17) is a TypeScript `bun test` in the gate; it stays independent because it is written from `verdict-rules.md` and does not import `src/core/`. The Newcombe reference values in `docs/decision/newcombe_check.py:12-15` (Table III of Newcombe 1998) remain the R5.e oracle; that research script stays as it is and is run by hand.

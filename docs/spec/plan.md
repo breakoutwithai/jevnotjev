@@ -10,7 +10,7 @@ The tests in `src/format/` are the reference for the validator. #25 (#22 steps 5
 ## Data flow
 ```
 file (picker or drop)                         R2.a
-  -> parseCsv(text)             -> rows[]      R2.b, R2.d
+  -> readRecords(text)          -> rows[]      R2.b, R2.d
   -> validate(rows)             -> {errors, gaps, records}   R3
        errors -> error view, nothing imported  R3.c, R12.a
   -> group(records)             -> decision points by (prompt_version, question_id)   R4
@@ -31,14 +31,14 @@ The browser never talks to the database. The exported CSV is an ordinary `jnj-re
 ## Modules
 | File | Owns | Used by | Tested by |
 |---|---|---|---|
-| `src/core/csv.ts` | CSV text to arrays of cells: quotes, doubled quotes, CRLF and LF, line numbers kept | browser, CLI | `src/core/csv.test.ts` |
+| `src/format/csv.ts` | CSV text to records: quotes, doubled quotes, CRLF and LF, line numbers kept (`readRecords`, `CsvRecord.line`; exists from #25) | browser, CLI | `src/format/csv.test.ts` |
 | `src/format/validate.ts` | #22 step 2: header, schema per row (`format/record-v1.schema.json`), cross-row rules, gaps, same messages as the original validator (done in #25) | browser, CLI | `src/format/validate.test.ts`, `scripts/parity.sh` (until parity is retired) |
 | `src/core/calc.ts` | grouping, per-answerer totals, pairing, a/b/c/d, Wilson, Newcombe method 10, cost ratio, seeded resampling | browser, CLI | `src/core/calc.test.ts` |
 | `src/core/verdict.ts` | the four rules of `verdict-rules.md:53-69` and the edge cases at `:73-84`; returns the rule that fired and the numbers it read | browser, CLI | `src/core/verdict.test.ts` |
 | `src/core/pipeline.ts` | `run(text) -> result[]`: csv, validate, group, calc, verdict in one call | browser, CLI | `src/core/pipeline.test.ts` |
 | `src/browser/view.ts` | result objects to escaped HTML strings: answerer table, verdict block, gaps, per-case rows | browser | `src/browser/view.test.ts` |
 | `src/browser/main.ts` | bundle entry: file input, drop zone, rendering the view strings | browser | by hand, screenshots (D4) |
-| `src/format/cli.ts` | command-line validator, `bun run validate <file>` (done in #25) | CLI | `src/format/validate.test.ts` |
+| `src/format/cli.ts` | command-line validator, `bun run validate <file>` (done in #25) | CLI | `src/format/cli.test.ts` |
 | `site/jnj.js` | built bundle, committed | page | gate rebuild check |
 | `site/data.js` | the router sample, removed; a UC11 CSV runs through `run()` instead (R11) | | |
 
@@ -61,6 +61,7 @@ The resampling uses a small seeded generator (mulberry32) whose seed is the firs
 
 ## Tests and the gate
 - `scripts/ci-check.sh` runs `bun test`, rebuilds `site/jnj.js` and fails on a diff, prints the head SHA and the test count, and fails when the run fails, the count is 0, or a tracked test file was not collected (R17.d). The two research scripts in `docs/decision/` are run by hand and are not in the gate.
+- Decision: #22 (operator, 2026-09-30: "The project default is TypeScript.") supersedes the T17 and T1 resolution in `pipeline-review.md:149`. The hand check (T17) is a TypeScript `bun test` in the gate; it stays independent because it is written from `verdict-rules.md` and does not import `src/core/`. The Newcombe reference values in `docs/decision/newcombe_check.py:12-15` (Table III of Newcombe 1998) remain the R5.e oracle; that research script stays as it is and is run by hand.
 - Today `bun test` collects every tracked `*.test.ts` (#25), and `.deploy/tests/` is run by no gate.
 - Oracles: `examples/d06-tiny/expected.md` for days 7 and 8; `docs/decision/newcombe_check.py:12-15` for the interval; a 30-plus-case fixture set for the verdict paths d06 cannot reach (`expected.md:91-92`).
 - Parity (R3.b): done in #25. `bash scripts/parity.sh` checks out the original validator, loader, exporter and migrator from be5f849 and compares them with the TypeScript port on 59 fixtures; its passing output is quoted on #25.

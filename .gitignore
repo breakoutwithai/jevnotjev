@@ -1,2 +1,4 @@
 node_modules/
+/labelled.csv
+/run-*.csv
 __pycache__/

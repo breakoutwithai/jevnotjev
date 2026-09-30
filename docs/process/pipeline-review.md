@@ -1,5 +1,7 @@
 # Adversarial review of the PR 21 change pipeline
 
+Note, 2026-10-01: a dated record. The T17 and T1 resolutions below (the research checks run by pytest in the gate) are superseded by #22; see the Test runner section of [tasks.md](../spec/tasks.md#test-runner).
+
 VERDICT: BLOCK 13 blocking (PR 21, head 5e80a84ffa9a20dc7ca96981804d87c56ff92c9f, round 1)
 
 ## Scope and independence

@@ -4,8 +4,8 @@ Scope for #16. The journey this specifies: a builder loads one `jnj-record/1` CS
 
 Sources this file restates rather than replaces: [FLOW.md](../../FLOW.md) (scope, arms, metric sources), [format/README.md](../../format/README.md) (the only column list), [verdict-rules.md](../decision/verdict-rules.md) (the only verdict rules), [user-journeys.md](../product/user-journeys.md), [user-stories.md](../product/user-stories.md). Where this file and one of those disagree, the source file wins and this file is corrected.
 
-## State on main (read at 3b5e66e)
-- `format/validate.py` validates a file in Python. `pytest.ini` collects `format` and `db`; `.deploy/tests/` is run by no gate. #22 plans the move to TypeScript on Bun.
+## State on main (read at 3b5e66e; the first line updated for #25)
+- `src/format/validate.ts` validates a file (TypeScript on Bun, #25 for #22; `bun run validate <file>`). `bun test` runs the tests; `.deploy/tests/` is run by no gate.
 - `site/index.html` is a static page. Its CSV handler (`site/index.html:716-724`) counts rows and columns, then replays the sample; it computes nothing from the file. The drop zone is disabled (`site/index.html:489-497`).
 - Every number and the verdict on the page come from `site/data.js`, which still holds the dropped prompt router sample (`site/data.js:4-8`, picks per Haiku / Sonnet / Opus read at `site/index.html:599-604`, verdict read at `site/index.html:698-702`). Tracked in #14.
 - PR 15 (Postgres store for `jnj-record/1`, `db/`) is merged (be5f849). The browser path does not depend on it.
@@ -15,7 +15,7 @@ Sources this file restates rather than replaces: [FLOW.md](../../FLOW.md) (scope
 - **should**: on the challenge route but the happy path works without it.
 - **later**: after day 18, or blocked on an open decision.
 
-Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test whose name carries the id (`test_R5e_...` in pytest, `R5.e ...` in a `bun test` title); see [pipeline.md](../process/pipeline.md#planned-traceability).
+Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test whose name carries the id (`[unit] R5.e ...`: a `bun test` title starts with the tier in brackets, then the id); see [pipeline.md](../process/pipeline.md#planned-traceability).
 
 ## Requirements
 
@@ -33,14 +33,14 @@ Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test
 - R2.d `examples/d06-tiny/records.csv` parses to 30 data rows with 18 columns.
 
 ### R3 Validate with the `jnj-record/1` rules (must)
-- R3.a Every rule in `format/validate.py` at 3b5e66e (header, per-row schema, output in `answer_set`, duplicate key, `case_input` consistency, question rewording within a `prompt_version`, empty file) has a browser equivalent.
-- R3.b Before `format/validate.py` is removed (#22), the TypeScript validator and `format/validate.py` agree on VALID or INVALID and on the error and gap counts for every file in a shared fixture set.
+- R3.a Every rule of the original validator at 3b5e66e, now `src/format/validate.ts` (header, per-row schema, output in `answer_set`, duplicate key, `case_input` consistency, question rewording within a `prompt_version`, empty file) has a browser equivalent.
+- R3.b Before the original validator is removed (#22), the TypeScript validator and the original agree on VALID or INVALID and on the error and gap counts for every file in a shared fixture set. Met in #25: `bash scripts/parity.sh`, 59 fixtures, 0 differences.
 - R3.c An invalid file shows its first error with line and field, and nothing from it is imported or shown as a result.
 - R3.d A missing `cost_usd` or `label` is listed as a gap and the file stays valid.
 - R3.e `examples/d06-tiny/records.csv` gives the equivalent of `VALID rows=30 cases=5 errors=0 gaps=2`, with gaps at line 21 (cost, cv5 q2 rule) and line 25 (label, cv2 q2 llm).
 
 ### R4 One verdict per decision point (must)
-- R4.a Rows are grouped by (`prompt_version`, `question_id`); each group is one decision point. `format/validate.py:87-90` lets a new `prompt_version` carry a different question and `answer_set`, so two versions of one `question_id` are two decision points. Inside one decision point, cases pair by `case_id` for that `question_id`, as `verdict-rules.md:17` defines; the two agree.
+- R4.a Rows are grouped by (`prompt_version`, `question_id`); each group is one decision point. `src/format/validate.ts:156-165` lets a new `prompt_version` carry a different question and `answer_set`, so two versions of one `question_id` are two decision points. Inside one decision point, cases pair by `case_id` for that `question_id`, as `verdict-rules.md:17` defines; the two agree.
 - R4.b Pairs, counts and verdicts are never pooled across decision points (the defect found in PR 10 round 1).
 - R4.c The result view lists every decision point in the file and shows one at a time.
 - R4.d Rows with `answerer = human` are counted and shown but not used in the verdict (`verdict-rules.md`, Terms, names only `jev`, `rule`, `llm`).
@@ -119,7 +119,7 @@ Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test
 - R17.d The gate prints the head SHA it ran on and fails on a failing test, a 0 test count, or a tracked test file it did not collect.
 
 ### R18 Store records in Postgres (later)
-- R18.a A file loaded with `db/load.py` and exported with `db/export.py` (PR 15, merged be5f849) loads in the browser with the same numbers as the original file.
+- R18.a A file loaded with `bun run load` and exported with `bun run export` (`src/db/`, the #25 port of PR 15) loads in the browser with the same numbers as the original file.
 
 ### R19 Ask your own question, keeping only a generalised question (later)
 - R19.a As #11: the raw question is never stored; only a generalised, scanned question the user chose to keep.

@@ -8,11 +8,11 @@ One row = one answerer's answer to one question about one test case.
 |---|---|
 | [record-v1.schema.json](record-v1.schema.json) | JSON Schema (draft 2020-12) for one row; an empty cell is read as null |
 | [example-v1.csv](example-v1.csv) | Fictional sample: 3 messages, 1 question, 3 answerers; one missing label, one missing cost |
-| [validate.py](validate.py) | Checks a file against the schema and the cross-row rules below |
+| [src/format/validate.ts](../src/format/validate.ts) | Checks a file against the schema and the cross-row rules below; no Node APIs, so the browser can import it. Command line: [src/format/cli.ts](../src/format/cli.ts) |
 
 ```
-pip install -r requirements.txt
-python3 format/validate.py format/example-v1.csv
+bun install
+bun run validate format/example-v1.csv
 ```
 ```
 GAP line 9: unlabelled (m02, q1, llm)

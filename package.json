@@ -1,0 +1,21 @@
+{
+  "name": "jevnotjev",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@latest",
+  "scripts": {
+    "validate": "bun src/format/cli.ts",
+    "migrate": "bun src/db/migrate-cli.ts",
+    "load": "bun src/db/load-cli.ts",
+    "export": "bun src/db/export-cli.ts",
+    "typecheck": "tsc --noEmit",
+    "parity": "bash scripts/parity.sh"
+  },
+  "dependencies": {
+    "postgres": "3.4.9"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "typescript": "7.0.2"
+  }
+}

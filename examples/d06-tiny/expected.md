@@ -48,7 +48,7 @@ A = accept, R = reject, - = unlabelled.
 Two planted gaps: the LLM row for cv2 q2 has no label, and the rule row for cv5 q2 has no cost.
 
 ## Per answerer, whole file
-Matches `python3 format/validate.py examples/d06-tiny/records.csv` (`cases=5` there counts CVs).
+Matches `bun run validate examples/d06-tiny/records.csv` (`cases=5` there counts CVs).
 
 | Answerer | Rows | Labelled | Accepted | Spend, all rows |
 |---|---|---|---|---|

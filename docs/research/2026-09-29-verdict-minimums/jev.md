@@ -20,7 +20,7 @@ Vendor: TypeSafe AI (docs.typesafe.ai). Endpoint `POST https://api.typesafe.ai/v
 | Model names | `jev-1.13.0` (current), `jev-latest` alias, `jev-preview` alias (same as latest today) | docs.typesafe.ai/models | published |
 | Errors | 401, 422, 429 (rate limit), 529 (overloaded); retry with exponential backoff | docs.typesafe.ai/api.md | published |
 | Max questions per call | no hard limit stated | docs.typesafe.ai/models | published (absence) |
-| Billed against a real invoice | never checked; our scripts hardcode the price | `~/.agents/skills/jev-not-jev/scripts/jnj_score.py:31` `PRICE_PER_M = 0.042  # BRIEF.md:9, UNVERIFIED against a bill` | UNVERIFIED |
+| Billed against a real invoice | never checked; our scripts hardcode the price at $0.042 per million input tokens | private scoring script (not published) | UNVERIFIED |
 | Third-party listings (OpenRouter, Requesty, Opper) | exist for Jev 1.13; prices not opened | web search 2026-09-29 result titles only | UNVERIFIED |
 
 ## 2. Our measured runs (all `jev-1.13.0`, response `model` field checked by the script)
@@ -45,7 +45,7 @@ Comparison arms, same items, same file (measured, `claude -p`, cost from `total_
 
 Derived by me from those rows (arithmetic, not new measurement): per item seq90, Jev $0.000017 vs Sonnet $0.001912 (about 112x cheaper) and Haiku $0.003772 (about 222x). Batch90 per item, Jev $0.000007 vs Haiku $0.000699 (about 100x). Accuracy at 90: Jev 80/90 = 88.9% (single calls) and 86/90 = 95.6% (batched); LLMs 83 to 88 of 90.
 
-Source B: D04 three-layer run, `docs/delivery/jev-runs/2026-09-28-d04/report.md` and `layer{1,2,3}-response.json`, script `scripts/jev_d04_layers.py:88-98` (cost line computed as input_tokens x 0.042 / 1e6).
+Source B: D04 three-layer run (private run record and script, not published; cost line computed as input_tokens x 0.042 / 1e6).
 
 | Call | Questions | Tokens in / out | Cost | Seconds |
 |---|---|---|---|---|
@@ -55,7 +55,7 @@ Source B: D04 three-layer run, `docs/delivery/jev-runs/2026-09-28-d04/report.md`
 
 Total $0.00013693 for 3 calls (sum of the three, mine). No labels: these are opinions on one D04 answer, not scored.
 
-How calls return usage: response JSON has `model`, `answers.<id>.{choice, confidence, probabilities}`, `usage.{input_tokens, output_tokens}` (layer1-response.json; docs /api.md agrees). The call helper is `call_jev` in `~/.agents/skills/jev-not-jev/scripts/jnj_score.py` (URL at line 29, POST at lines 124-134, timeout 60 s). Key comes from keychain via `read_key`; I did not run or read it.
+How calls return usage: response JSON has `model`, `answers.<id>.{choice, confidence, probabilities}`, `usage.{input_tokens, output_tokens}` (layer1-response.json; docs /api.md agrees). The call helper lives in a private script (not published).
 
 ## 3. Accuracy and calibration claims
 
@@ -88,7 +88,7 @@ Does confidence track correctness? Vendor: yes on one task (90% vs 40% across a 
 
 ## 5. Smallest live run that closes gaps 2, 3, 4 (proposal, not run)
 
-Script: extend `scripts/jev_d04_layers.py` pattern into `scripts/jev_difficulty_run.py` (dry-run flag first, same `call_jev`, model check, request and response saved).
+Script: a private run script (not published), dry-run flag first, model check, request and response saved.
 - Input: 30 coding prompts the operator has already labelled trivial / ordinary / hard (human labels, written before the run), plus a 400-character rule arm at zero spend.
 - Jev: 1 question (choice: trivial / ordinary / hard) per prompt, one call per prompt = 30 calls, then the same 30 repeated once = 60 calls total (gives repeat variance). Also 1 batched call of all 30 questions to test the 80 vs 86 gap.
 - Record per call: choice, confidence, probabilities, usage, wall seconds.

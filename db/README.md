@@ -16,15 +16,17 @@ Every command reads a libpq connection string from `JNJ_DATABASE_URL`: `key=valu
 
 ```
 bun install
+createdb -h /tmp -p 5432 jnj                                  # the database must exist; migrate creates the schema in it
 export JNJ_DATABASE_URL="host=/tmp port=5432 dbname=jnj"
-bun run migrate
+bun run migrate                                               # applied 0001_records.sql, applied 0002_loader_role.sql
 ```
 
 ## Load
 ```
 bun run load --create-workspace demo format/example-v1.csv    # loaded answers=9 labels=8
 bun run load demo format/example-v1.csv                       # unchanged answers=0 labels=0
-bun run load --labels demo labelled.csv                       # adds labels that were missing
+sed 's/,example-llm,no,,,,115,/,example-llm,no,,accept,human,115,/' format/example-v1.csv > labelled.csv
+bun run load --labels demo labelled.csv                       # loaded answers=0 labels=1: adds the missing label
 ```
 - The whole file loads or nothing does. No error message names the file or repeats case or question text.
 - Validator errors and values the database cannot store or refuses (an integer above 2^63-1, more than 16383 decimal places, a confidence above 1) are reported per line before any write.
@@ -50,9 +52,9 @@ bun run export demo --run run-001 > run-001.csv
 ## Tests
 ```
 bun test -t '\[integration\]'    # needs a local Postgres; JNJ_TEST_ADMIN_DSN, default host=/tmp port=5432 dbname=postgres
-bash scripts/parity.sh           # the Python originals (from git, commit be5f849) against this port, on every fixture
+bash scripts/parity.sh           # the pre-port originals (from git, commit be5f849) against this port; its header lists what it needs
 ```
-Each run creates `jnj_test_<hex>` on first use, migrates it and drops it `WITH (FORCE)` after the last test. The tests change no role: `jnj_loader` keeps every attribute false. [docs/process/py-to-ts-test-map.md](../docs/process/py-to-ts-test-map.md) maps each Python test to its TypeScript port.
+Each run creates `jnj_test_<hex>` on first use, migrates it and drops it `WITH (FORCE)` after the last test. The tests change no role: `jnj_loader` keeps every attribute false. [docs/process/py-to-ts-test-map.md](../docs/process/py-to-ts-test-map.md) maps each pre-port test to its TypeScript port.
 
 ## Next
 - Day 7 metrics: a new migration with views in schema `jnj_metrics` that read only `jnj.record_v1`.

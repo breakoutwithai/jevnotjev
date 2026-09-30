@@ -30,7 +30,7 @@ change(day_step):
         write_test(name contains criterion id)                   [planned, #18; 0 tests carry an id today]
         assert test is RED on base                               [run on some PRs; PR 10 added no test]
     implement(tasks)
-    run pytest                                                   [run; nothing checks the count]
+    run bun test                                                 [run; nothing checks the count]
     gate prints head=<sha> and counts; fails on 0 or uncollected [planned, T1]
     spec_check()                                                 [planned, #19, T20; no scripts/ folder yet]
 
@@ -89,7 +89,7 @@ The scan's term list was published once, in the PR 13 body and merge comment. It
 ## Planned traceability
 - Every acceptance criterion in [spec.md](../spec/spec.md) has an id, `R<n>.<letter>`.
 - Planned in #18 and #19: every test names the id it proves, and `scripts/spec-check.ts` reports each criterion as tested, untested or task open, failing on an untested must criterion or on 0 criteria checked. Neither exists yet; 0 criteria have a test today.
-- `pytest.ini` collects `format` and `db`; `.deploy/tests/` is run by nothing. #22 moves the code to TypeScript on Bun and replaces the runner.
+- `bun test` collects every tracked `*.test.ts` (#25 moved the code to TypeScript on Bun for #22); `.deploy/tests/` is run by nothing.
 
 ## Where the spec layer plugs in
 | Spec Kit step | File | Pipeline step | Issue |
@@ -105,5 +105,5 @@ The scan's term list was published once, in the PR 13 body and merge comment. It
 |---|---|---|---|
 | PR 10 (day 6 tiny dataset) | 1, at 158eb0d | Pairs were pooled across q1 and q2 (9 pairs), against the paired-case definition per question in `verdict-rules.md` | e97ea76: one verdict per question (q1 n=5, add 25; q2 n=4, add 26). Round 2 approved e97ea76; the merge went in at 0189a7c (B1). Now R4.b. |
 | PR 12 (router marked historical) | 1, at 092acd7 | B1: per-arm router text left in `FLOW.md` and the diagram source without a historical mark. B2: the contract test matched exact phrases only, so it passed with B1 present | 51f0eec: text and diagram corrected; the widened test was RED at 092acd7 (8 failures) and GREEN at 51f0eec. That test was never committed; T10 adds a committed one (R17.c). |
-| Postgres schema design (PR 15, merged be5f849) | design review | Six blockers: B1 cross-workspace foreign key hole; B2 silent answer-set rewrite on reload; B3 database keys looser than the validator's; B4 export order undefined; B5 missing schema USAGE grant for the loader role; B6 raw case text stored | Each has a named test in `db/tests/test_blockers.py`. The design review is not public, so the RED and GREEN claims rest on the PR body (review O2). |
+| Postgres schema design (PR 15, merged be5f849) | design review | Six blockers: B1 cross-workspace foreign key hole; B2 silent answer-set rewrite on reload; B3 database keys looser than the validator's; B4 export order undefined; B5 missing schema USAGE grant for the loader role; B6 raw case text stored | Each has a named test, now in `src/db/tests/blockers.test.ts` (#25). The design review is not public, so the RED and GREEN claims rest on the PR body (review O2). |
 | PR 21 (this PR) | 1, at 5e80a84 | 13 blocking, [pipeline-review.md](pipeline-review.md) | see the response section there |

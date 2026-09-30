@@ -32,4 +32,4 @@ bun test                  # all tiers; integration tests need a local Postgres, 
 bun test -t '\[unit\]'     # one tier: smoke, unit or integration
 bun run typecheck
 ```
-The research scripts in [docs/decision/](docs/decision/) stay Python (`python3 docs/decision/sim_min_n.py`, needs numpy).
+The two research scripts in [docs/decision/](docs/decision/) (the Newcombe check and the minimum-n simulation) are outside the Bun build; [verdict-rules.md](docs/decision/verdict-rules.md#evidence-behind-the-settings) says how to run them.

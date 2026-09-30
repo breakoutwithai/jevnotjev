@@ -2,8 +2,8 @@
 //
 // Usage: JNJ_DATABASE_URL=<dsn> bun src/db/export-cli.ts <workspace> --run <run_id> > records.csv
 
-import { MISSING_DSN, parseArgs, processIo, usageError, type Io } from "./cli.ts";
-import { connect } from "./connect.ts";
+import { MISSING_DSN, reportFailure, parseArgs, processIo, usageError, type Io } from "./cli.ts";
+import { connect, type Db } from "./connect.ts";
 import { ExportLookupError, exportCsv } from "./export.ts";
 
 const USAGE = "usage: bun src/db/export-cli.ts <workspace> --run <run_id>";
@@ -34,14 +34,19 @@ export async function main(
     io.err(MISSING_DSN);
     return 2;
   }
-  const sql = connect(dsn);
+  let sql: Db;
+  try {
+    sql = connect(dsn);
+  } catch (error) {
+    return reportFailure(io, error);
+  }
   try {
     const result = await exportCsv(sql, workspace, runId);
     for (const notice of result.notices) io.err(`NOTICE ${notice}`);
     io.write(result.text);
     return 0;
   } catch (error) {
-    if (!(error instanceof ExportLookupError)) throw error;
+    if (!(error instanceof ExportLookupError)) return reportFailure(io, error);
     io.err(`ERROR ${error.message}`);
     return 1;
   } finally {

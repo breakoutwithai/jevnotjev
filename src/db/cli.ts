@@ -1,6 +1,8 @@
 // Shared command-line plumbing for the db commands: argument parsing and the connection string.
 
+import postgres from "postgres";
 import type { Io } from "../format/cli.ts";
+import { ConnectionError } from "./connect.ts";
 
 export type { Io } from "../format/cli.ts";
 
@@ -49,4 +51,18 @@ export function processIo(): Io {
     out: (line) => process.stdout.write(line + "\n"),
     err: (line) => process.stderr.write(line + "\n"),
   };
+}
+
+/**
+ * One ERROR line for a failure the command does not report itself; exit 1. Database and connection
+ * errors print only their class and code, so no connection string, host detail or cell text is echoed.
+ */
+export function reportFailure(io: Io, error: unknown): number {
+  if (error instanceof ConnectionError) io.err(`ERROR ${error.message}`);
+  else if (error instanceof postgres.PostgresError) io.err(`ERROR database error ${error.code}`);
+  else {
+    const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+    io.err(`ERROR cannot reach the database${/^[A-Z_]{2,40}$/.test(code) ? ` (${code})` : ""}`);
+  }
+  return 1;
 }

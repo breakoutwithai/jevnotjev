@@ -2,8 +2,8 @@
 //
 // Usage: JNJ_DATABASE_URL=<dsn> bun src/db/load-cli.ts [--labels] [--create-workspace] <workspace> <record.csv>
 
-import { MISSING_DSN, parseArgs, processIo, usageError, type Io } from "./cli.ts";
-import { connect } from "./connect.ts";
+import { MISSING_DSN, reportFailure, parseArgs, processIo, usageError, type Io } from "./cli.ts";
+import { connect, type Db } from "./connect.ts";
 import { LoadError, loadFile } from "./load.ts";
 
 const USAGE = "usage: bun src/db/load-cli.ts [--labels] [--create-workspace] <workspace> <record.csv>";
@@ -25,7 +25,12 @@ export async function main(argv: readonly string[], io: Io, env: Readonly<Record
     io.err(MISSING_DSN);
     return 2;
   }
-  const sql = connect(dsn);
+  let sql: Db;
+  try {
+    sql = connect(dsn);
+  } catch (error) {
+    return reportFailure(io, error);
+  }
   try {
     const result = await loadFile(sql, workspace, path, {
       purpose: parsed.flags.has("labels") ? "labels" : "records",
@@ -34,7 +39,7 @@ export async function main(argv: readonly string[], io: Io, env: Readonly<Record
     io.out(`${result.status} answers=${result.answers} labels=${result.labels}`);
     return 0;
   } catch (error) {
-    if (!(error instanceof LoadError)) throw error;
+    if (!(error instanceof LoadError)) return reportFailure(io, error);
     for (const message of error.messages) io.err(`ERROR ${message}`);
     return 1;
   } finally {

@@ -129,9 +129,22 @@ Three phrases in B3 were reworded so the public scan passes: the tilde home-dire
 | B8 uncollected test folders | fixed in `tasks.md`, `plan.md` and R17.d: the gate fails on a tracked test file it did not collect (T1); runner replaced by #22 |
 | B9 evidence without a head SHA | open, #24 (template), T1 (gate prints the SHA) |
 | B10 grant and merger are the same account, main unprotected | open, #24; branch protection is the operator's call |
-| B11 dash rule claimed as enforced | text fixed in `pipeline.md` (no hook in this repo); 31 lines removed on main by PR 23; gate check open, #24 |
+| B11 dash rule claimed as enforced | text fixed in `pipeline.md` (no hook in this repo); 33 lines removed on main by PR 23; gate check open, #24 |
 | B12 one content PR per day | fixed in `pipeline.md`: stated as an aim, with the three merges on 2026-09-30 |
 | B13 grouping by prompt_version | fixed in `spec.md`: R4.a groups by `question_id` per `verdict-rules.md:17`; D8 added for a future change |
 | O5 wrong task reference | fixed in `spec.md` (T10) |
 | O6 state of main out of date | fixed in `spec.md` (read at 3b5e66e, PR 15 merged) |
 | O1 to O4, O7 | open, not addressed in this round |
+
+## Response to round 2 (at 0adf432, 5 blocking)
+| Finding | Status |
+|---|---|
+| N1 R4.a grouped by question_id only | fixed: R4.a, `plan.md` data flow and result object group by (`prompt_version`, `question_id`) and state how `verdict-rules.md:17` pairs inside one decision point; test `R4.a two prompt_versions of one question_id are two decision points` (T3); D8 restated |
+| N2 plan contradicts #22 | fixed: `plan.md` is TypeScript on Bun with a shared core in `src/`, a committed `bun build` bundle the gate re-checks, and `format/validate.py` removed after the parity check (T0, R3.b reworded); `pytest` kept only for `docs/decision` |
+| N3 T7 test named for R6.b but tested validity | fixed: T7's test is `R6.b each d08 rule-1 file gives not enough evidence naming its condition`, and T7 now names one file per rule-1 condition |
+| N4 misclassified PRs counted as two | fixed: `pipeline.md` counts three (PR 20, PR 23, PR 21) |
+| N5 PR 21 body stale | fixed: body refreshed; the `tasks.md` dependency rule now says a task-created file is cited by task and function, and T21 to T24 follow it |
+| Optional: diagram PNG shows the old text | added to #24 |
+| Optional: 31 dash lines | corrected to 33 (31 em, 2 en) |
+| Optional: T17 test file and runner | fixed: T17 lists `docs/decision/test_hand_check.py`; T1 runs `pytest docs/decision` |
+| Optional: weak R6.a test in T17 | removed; R6.a is proved by T8 and T15 |

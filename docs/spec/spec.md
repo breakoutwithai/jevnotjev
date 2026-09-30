@@ -15,7 +15,7 @@ Sources this file restates rather than replaces: [FLOW.md](../../FLOW.md) (scope
 - **should**: on the challenge route but the happy path works without it.
 - **later**: after day 18, or blocked on an open decision.
 
-Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test whose name carries the id (`test_R5e_...` in pytest, `R5.e ...` in a Node test title); see [pipeline.md](../process/pipeline.md#traceability).
+Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test whose name carries the id (`test_R5e_...` in pytest, `R5.e ...` in a `bun test` title); see [pipeline.md](../process/pipeline.md#planned-traceability).
 
 ## Requirements
 
@@ -33,14 +33,14 @@ Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test
 - R2.d `examples/d06-tiny/records.csv` parses to 30 data rows with 18 columns.
 
 ### R3 Validate with the `jnj-record/1` rules (must)
-- R3.a Every rule in `format/validate.py` (header, per-row schema, output in `answer_set`, duplicate key, `case_input` consistency, question rewording within a `prompt_version`, empty file) has a browser equivalent.
-- R3.b On a shared fixture set, the browser validator and `format/validate.py` agree on VALID or INVALID and on the error and gap counts for every file.
+- R3.a Every rule in `format/validate.py` at 3b5e66e (header, per-row schema, output in `answer_set`, duplicate key, `case_input` consistency, question rewording within a `prompt_version`, empty file) has a browser equivalent.
+- R3.b Before `format/validate.py` is removed (#22), the TypeScript validator and `format/validate.py` agree on VALID or INVALID and on the error and gap counts for every file in a shared fixture set.
 - R3.c An invalid file shows its first error with line and field, and nothing from it is imported or shown as a result.
 - R3.d A missing `cost_usd` or `label` is listed as a gap and the file stays valid.
 - R3.e `examples/d06-tiny/records.csv` gives the equivalent of `VALID rows=30 cases=5 errors=0 gaps=2`, with gaps at line 21 (cost, cv5 q2 rule) and line 25 (label, cv2 q2 llm).
 
 ### R4 One verdict per decision point (must)
-- R4.a Rows are grouped by `question_id`; each group is one decision point, as `verdict-rules.md:17` pairs by `case_id` and `question_id` only. A `question_id` asked under two `prompt_version`s in one file is one decision point (see D8).
+- R4.a Rows are grouped by (`prompt_version`, `question_id`); each group is one decision point. `format/validate.py:87-90` lets a new `prompt_version` carry a different question and `answer_set`, so two versions of one `question_id` are two decision points. Inside one decision point, cases pair by `case_id` for that `question_id`, as `verdict-rules.md:17` defines; the two agree.
 - R4.b Pairs, counts and verdicts are never pooled across decision points (the defect found in PR 10 round 1).
 - R4.c The result view lists every decision point in the file and shows one at a time.
 - R4.d Rows with `answerer = human` are counted and shown but not used in the verdict (`verdict-rules.md`, Terms, names only `jev`, `rule`, `llm`).
@@ -114,7 +114,7 @@ Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test
 
 ### R17 Traceability and completion check (should)
 - R17.a Every test name carries the criterion id it proves (#18).
-- R17.b `scripts/spec-check.py` lists every criterion with its tests, exits non-zero while any must criterion has no passing test, and fails when it checked 0 criteria (#19).
+- R17.b `scripts/spec-check.ts` lists every criterion with its tests, exits non-zero while any must criterion has no passing test, and fails when it checked 0 criteria (#19).
 - R17.c One test checks that the verdict wording in `user-stories.md`, the site and `verdict-rules.md` agree (#14 part 2, #19).
 - R17.d The gate prints the head SHA it ran on and fails on a failing test, a 0 test count, or a tracked test file it did not collect.
 
@@ -156,9 +156,9 @@ Mapped: 8 of 8. Excluded: 0.
 |---|---|---|---|
 | D1 | Where Postgres is hosted (#11) | operator | no hosted database; the browser path does not need one |
 | D2 | Name on the page and in docs: "TokenMax" or "UC11" for the CV example (PR 12 round-2 note O1) | operator | "UC11, CV against a job ad", with TokenMax as the flagship label |
-| D3 | Where metrics are computed canonically: browser JS, or SQL over `jnj.record_v1` as PR 15 defers to a `jnj_metrics` schema | operator | browser JS; any SQL version must reproduce the same fixtures |
-| D4 | Browser automation for the happy-path test (a headless browser adds a dependency) | operator | pipeline tested in Node without a DOM; the page is checked by hand with screenshots |
+| D3 | Where metrics are computed canonically: the shared TypeScript core, or SQL over `jnj.record_v1` as PR 15 defers to a `jnj_metrics` schema | operator | the TypeScript core; any SQL version must reproduce the same fixtures |
+| D4 | Browser automation for the happy-path test (a headless browser adds a dependency) | operator | pipeline tested with `bun test` without a DOM; the page is checked by hand with screenshots |
 | D5 | Whether in-page labelling (R15) moves into v1 | operator | later |
 | D6 | The 30-plus-case fixture for the "use Jev" and "don't use Jev" paths: synthetic, or a first real labelled UC11 set | operator | synthetic, generated by a script in the repo |
 | D7 | Whether `human` answerer rows get their own comparison | operator | shown, not compared (R4.d) |
-| D8 | Whether a new `prompt_version` starts a new decision point. That changes the pairing in `verdict-rules.md:17`, so it is a verdict-rule change and takes the full pipeline path | operator | no: R4.a follows verdict-rules.md |
+| D8 | Whether answers to two `prompt_version`s of one question may ever be compared in one verdict. That changes the pairing in `verdict-rules.md:17`, so it is a verdict-rule change and takes the full pipeline path | operator | no: each `prompt_version` is its own decision point (R4.a) |

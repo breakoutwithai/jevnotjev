@@ -72,7 +72,7 @@ content_change():                                                [run]
 ```
 
 - One content PR per day is an aim, not a rule: content PRs 13, 3 and 20 all merged on 2026-09-30.
-- A content PR that changes a requirement, a verdict rule, the research behind a rule, or a test oracle takes the code path. The author assigns the class and has got it wrong twice: PR 20 (research with a stale 10-case minimum and private paths, fixed by PR 23) and this PR 21, which adds requirements and so takes the code path.
+- A content PR that changes a requirement, a verdict rule, the research behind a rule, or a test oracle takes the code path. The author assigns the class and has got it wrong three times: PR 20 (research with a stale 10-case minimum and private paths); PR 23, which fixed PR 20 by changing `docs/research` (the research behind a rule, so code path) and merged with no review round; and this PR 21, which adds requirements and so takes the code path.
 
 ## Private term list
 The scan's term list was published once, in the PR 13 body and merge comment. It now lives outside this repo, and PR bodies and comments quote only the scan's verdict line, never the pattern.
@@ -84,11 +84,11 @@ The scan's term list was published once, in the PR 13 body and merge comment. It
 | B2 verdicts are the author's summaries | the 12 merged PRs have 0 GitHub reviews; every comment comes from the author's account; no comment names the reviewer's model; every reviewer so far is from the same model family as the author | post the reviewer's output verbatim, ending in `VERDICT: PASS <sha>` or `VERDICT: BLOCK <n> <sha>` with its model id; code PRs get one round from another vendor's model | open |
 | B9 evidence without a head SHA | the PR 3 merge comment and the PR 15 test table give counts with no SHA | an evidence comment template whose first line is the gate's `head=<sha>` output (T1) | open |
 | B10 grant and merger | author and merger are the same account; the merge grant was recorded privately and quoted only by the agent; `main` has no branch protection and 0 rulesets | the operator posts any grant on the PR from their own account; branch protection requiring one approval is the operator's call | open, operator's call |
-| B11 dash rule | the hook that blocks dashes is not in this repo, so a clone has no check; generated files bypassed it (31 lines in `comparison.html` at 26c9751, removed by PR 23) | a grep for U+2014 and U+2013 over tracked text files in the gate (T1) | open |
+| B11 dash rule | the hook that blocks dashes is not in this repo, so a clone has no check; generated files bypassed it (33 lines in `comparison.html` at 26c9751, 31 with an em dash and 2 with an en dash, removed by PR 23) | a grep for U+2014 and U+2013 over tracked text files in the gate (T1) | open |
 
 ## Planned traceability
 - Every acceptance criterion in [spec.md](../spec/spec.md) has an id, `R<n>.<letter>`.
-- Planned in #18 and #19: every test names the id it proves, and `scripts/spec-check.py` reports each criterion as tested, untested or task open, failing on an untested must criterion or on 0 criteria checked. Neither exists yet; 0 criteria have a test today.
+- Planned in #18 and #19: every test names the id it proves, and `scripts/spec-check.ts` reports each criterion as tested, untested or task open, failing on an untested must criterion or on 0 criteria checked. Neither exists yet; 0 criteria have a test today.
 - `pytest.ini` collects `format` and `db`; `.deploy/tests/` is run by nothing. #22 moves the code to TypeScript on Bun and replaces the runner.
 
 ## Where the spec layer plugs in
@@ -98,7 +98,7 @@ The scan's term list was published once, in the PR 13 body and merge comment. It
 | plan | `docs/spec/plan.md` | 2 | #17 |
 | tasks | `docs/spec/tasks.md` | 2 and 4 | #17 |
 | implement | the PR | 3 to 9 | |
-| check what remains | `scripts/spec-check.py` (planned) | 4, and after every merge | #18, #19 |
+| check what remains | `scripts/spec-check.ts` (planned) | 4, and after every merge | #18, #19 |
 
 ## Defects review has caught
 | Where | Round | Finding | Fix |

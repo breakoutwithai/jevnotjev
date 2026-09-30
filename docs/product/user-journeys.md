@@ -1,8 +1,8 @@
 Primary user: a solo builder who runs Claude Code on their own paid plan, keeps hitting usage limits, and wants to know whether letting Jev pick Haiku, Sonnet or Opus for each prompt gets more accepted answers from the same allowance, before trusting a router nobody has measured.
 
-# TokenMax user journeys (v1)
+# Jev!Jev user journeys (v1)
 
-TokenMax is a small web tool that compares one workflow across three approaches on the user's own test cases and reports cost per accepted result with a cautious verdict: use Jev, don't use Jev, or not enough evidence.
+Jev!Jev is a small web tool that compares one workflow across three approaches on the user's own test cases and reports cost per accepted result with a cautious verdict: use Jev, don't use Jev, or not enough evidence.
 
 ## The one workflow in v1
 
@@ -20,12 +20,12 @@ Cost per accepted result: total spend for an approach (model tokens plus any Jev
 
 ## Journey J1: from a set of prompts to a first verdict
 
-1. The user opens TokenMax and sees the one supported workflow, what it compares, and that cases should be synthetic or redacted.
+1. The user opens Jev!Jev and sees the one supported workflow, what it compares, and that cases should be synthetic or redacted.
 2. The user adds a small test set of prompts they would really send to Claude Code.
 3. The user supplies results and costs for the three approaches in the one documented file format.
 4. The user labels each answer accepted or not accepted.
-5. TokenMax shows cost per accepted result for each approach, side by side.
-6. TokenMax shows the verdict and states that it is evidence from this test set only, not a promise about production.
+5. Jev!Jev shows cost per accepted result for each approach, side by side.
+6. Jev!Jev shows the verdict and states that it is evidence from this test set only, not a promise about production.
 
 ## Journey J2: checking whether the router's picks can be trusted
 

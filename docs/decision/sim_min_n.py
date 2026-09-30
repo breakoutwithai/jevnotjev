@@ -1,4 +1,4 @@
-"""TokenMax minimum-evidence simulation (numpy + stdlib only). Seed fixed.
+"""Jev!Jev minimum-evidence simulation (numpy + stdlib only). Seed fixed.
 Part A: paired accept/reject decision rule, Newcombe paired Wilson interval and paired bootstrap.
 Part B: bootstrap CI width of cost per accepted result when costs differ 100x.
 ASSUMPTION (not from data): Jev and LLM outcomes on the same case are correlated via a

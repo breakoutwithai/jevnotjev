@@ -7,11 +7,11 @@ import { join } from "node:path";
 const ROOT = join(import.meta.dir, "..", "..");
 
 const STACK_WORDS = /python|pytest|pip install|venv|requirements\.txt|\.py\b/i;
-// A path to one of the kept research scripts is a reference, not a setup step.
-const RESEARCH_SCRIPT = /docs\/decision\/\w+\.py\b/g;
+// The two research scripts stay Python (#22): naming or running one of them is allowed.
+const RESEARCH_SCRIPT = /(python3 )?[\w./-]*\b(sim_min_n|newcombe_check)\.py\b/g;
 
-// Dated records and the Python research scripts, which stay Python (#22).
-const ALLOWED_PREFIXES = ["docs/research/", "docs/blog/", "docs/benchmarks/", "docs/decision/"];
+// Dated records.
+const ALLOWED_PREFIXES = ["docs/research/", "docs/blog/", "docs/benchmarks/"];
 const ALLOWED_FILES = new Set([
   "docs/process/pipeline-review.md",
   "docs/process/py-to-ts-test-map.md",
@@ -42,7 +42,10 @@ describe("docs name the TypeScript and Bun stack", () => {
       expect(staleLines(line)).toHaveLength(1);
     }
     expect(staleLines("bun test; see py-to-ts-test-map.md and docs/decision/newcombe_check.py:12-15")).toEqual([]);
+    expect(staleLines("run `python3 docs/decision/sim_min_n.py`, see [sim_min_n.py](sim_min_n.py)")).toEqual([]);
     expect(staleLines("docs/decision/newcombe_check.py and format/validate.py")).toHaveLength(1);
+    expect(staleLines("docs/decision/hand_check.py")).toHaveLength(1);
+    expect(staleLines("python3 docs/decision/sim_min_n.py; a Python helper")).toHaveLength(1);
   });
 
   test("[unit] no tracked Markdown outside the allowlist names the Python stack", async () => {

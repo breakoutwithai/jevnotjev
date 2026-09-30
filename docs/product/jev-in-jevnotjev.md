@@ -15,7 +15,7 @@ Source: community research page, captured 2026-09-26 (threads 17 to 26 September
 | Limits | Can still be wrong; one wrong answer carried 93% confidence. Accuracy on real messy data is not established |
 
 ## Where Jev could help this project
-Each use is a candidate, not a claim. Each gets the same test TokenMax gives users: Jev vs an LLM vs a simple rule, on labelled cases.
+Each use is a candidate, not a claim. Each gets the same test Jev!Jev gives users: Jev vs an LLM vs a simple rule, on labelled cases.
 
 | Stage | Decision Jev could make | Answer shape | Simple rule to beat |
 |---|---|---|---|

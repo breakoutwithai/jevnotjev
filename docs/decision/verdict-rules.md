@@ -1,6 +1,6 @@
 # Verdict rules (day 5)
 
-How TokenMax turns a labelled test file (`jnj-record/1`, see [format/README.md](../../format/README.md)) into one of three verdicts for one decision point: **use Jev**, **don't use Jev**, or **not enough evidence**.
+How Jev!Jev turns a labelled test file (`jnj-record/1`, see [format/README.md](../../format/README.md)) into one of three verdicts for one decision point: **use Jev**, **don't use Jev**, or **not enough evidence**.
 
 The verdict describes the builder's test set, not production.
 

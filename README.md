@@ -2,7 +2,7 @@
 
 Find where Jev fits a workflow, where it doesn't, and prove the difference.
 
-Built in public for the Early AI-dopters 30 Day Challenge. The day-30 goal is **TokenMax**: a small web tool that compares one workflow across an LLM-only setup, a simple baseline and Jev routing, and reports cost per accepted result with a verdict: use Jev, don't (!Jev), or not enough evidence.
+Built in public for the Early AI-dopters 30 Day Challenge. The day-30 goal is **Jev!Jev**: a small web tool, live at [jevnotjev.breakoutwithai.com](https://jevnotjev.breakoutwithai.com), that compares one decision in a workflow across an LLM-only setup, a simple baseline and Jev, and reports cost per accepted result with a verdict: use Jev, don't (!Jev), or not enough evidence. Its flagship use case is **TokenMax**: more accepted results from the same token budget. Other use cases show when to use Jev and when not to.
 
 | Doc | What |
 |---|---|

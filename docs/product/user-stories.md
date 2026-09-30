@@ -1,14 +1,14 @@
-# TokenMax user stories (v1)
+# Jev!Jev user stories (v1)
 
 Journeys are in `user-journeys.md`. Each story traces to one journey step. v1 is deliberately small and will grow day by day.
 
 ### US-01 See the one supported workflow before starting
 
-As a builder who hits Claude Code usage limits, I want to see which workflow TokenMax supports and what it compares, so that I know in one screen whether it fits my setup.
+As a builder who hits Claude Code usage limits, I want to see which workflow Jev!Jev supports and what it compares, so that I know in one screen whether it fits my setup.
 
 Journey step: J1.1
 
-- Given I open TokenMax for the first time
+- Given I open Jev!Jev for the first time
 - When the start page loads
 - Then it names the Claude Code prompt router workflow, the three approaches (LLM only, simple baseline, Jev routing), and what an accepted result means
 - And it asks for synthetic or redacted prompts, not production data
@@ -32,11 +32,11 @@ Journey step: J1.3
 
 - Given the format is documented in this repo with an example file
 - When I upload a file that matches it
-- Then TokenMax shows, per test case, the model used, the answer and the cost for each of the three approaches
+- Then Jev!Jev shows, per test case, the model used, the answer and the cost for each of the three approaches
 - And the Jev routing rows include the Jev call cost
 
 - Given I upload a file that does not match the format
-- When TokenMax reads it
+- When Jev!Jev reads it
 - Then it names the first row and field that failed and imports nothing
 
 ### US-04 Label each answer accepted or not
@@ -105,7 +105,7 @@ Journey step: J2.4
 ## Out of scope for v1
 
 - Any workflow other than the Claude Code prompt router.
-- Running models or calling Jev from inside TokenMax; v1 reads results the user supplies.
+- Running models or calling Jev from inside Jev!Jev; v1 reads results the user supplies.
 - Live or streaming traffic; v1 works on a recorded test set.
 - Real production or sensitive data; cases should be synthetic or redacted.
 - Pooling or sharing subscriptions between people.

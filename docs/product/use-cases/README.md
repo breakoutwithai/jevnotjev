@@ -1,6 +1,6 @@
 # Jev use cases from one agent delivery loop
 
-Source scenario: an AI coding agent takes a small client request through PR, checks, merge and deploy, reporting to one operator. It holds several separate use cases: each has its own user, its own data and its own test. Every one is a candidate, tested the TokenMax way: LLM only vs a simple rule vs Jev on labelled cases, verdict use Jev / don't / not enough evidence.
+Source scenario: an AI coding agent takes a small client request through PR, checks, merge and deploy, reporting to one operator. It holds several separate use cases: each has its own user, its own data and its own test. Every one is a candidate, tested the Jev!Jev way: LLM only vs a simple rule vs Jev on labelled cases, verdict use Jev / don't / not enough evidence.
 
 | ID | Use case | Who it serves | Decision | Answer shape | Data to label | Simple rule to beat |
 |---|---|---|---|---|---|---|

@@ -15,13 +15,13 @@ Source: community research page, captured 2026-09-26 (threads 17 to 26 September
 | Limits | Can still be wrong; one wrong answer carried 93% confidence. Accuracy on real messy data is not established |
 
 ## Where Jev could help this project
-Each use is a candidate, not a claim. Each gets the same test TokenMax gives users: Jev vs an LLM vs a simple rule, on labelled cases.
+Each use is a candidate, not a claim. Each gets the same test Jev!Jev gives users: Jev vs an LLM vs a simple rule, on labelled cases.
 
 | Stage | Decision Jev could make | Answer shape | Simple rule to beat |
 |---|---|---|---|
 | Design | Does this user story have testable acceptance criteria? | yes/no | regex for "Given / When / Then" |
 | Design | Which comparison arm does this input belong to? | one-of-3 | lookup table |
-| Building | Route each coding prompt to Haiku, Sonnet or Opus | one-of-3 | prompt length |
+| Building | Route each coding prompt to Haiku, Sonnet or Opus (historical: the prompt router was dropped 2026-09-28) | one-of-3 | prompt length |
 | Building | Is this commit message a real change or noise? | yes/no | diff size |
 | Functional testing | Does this output match the expected label? | yes/no | exact match |
 | Functional testing | Grade an answer against a 0/1/2 rubric | score | human label |
@@ -31,4 +31,4 @@ Each use is a candidate, not a claim. Each gets the same test TokenMax gives use
 | Serving others | Which of our docs answers this question? | one-of-N | search |
 
 ## First one to try
-Building: the prompt router, because it is the TokenMax workflow itself, so every run is also product evidence.
+Not chosen yet. Historical: the first pick was the prompt router, then described as "the TokenMax workflow itself". That router was dropped on 2026-09-28 and is superseded; it is not a current requirement. TokenMax is the flagship use case of Jev!Jev (more accepted results from the same token budget), not a router.

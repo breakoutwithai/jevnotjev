@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "dataflow",
   "meta": {
-    "title": "TokenMax comparison flow",
+    "title": "Jev!Jev comparison flow",
     "locale": "en",
     "quality_profile": "showcase",
     "viewBox": [
@@ -41,7 +41,7 @@
       "id": "llm",
       "type": "external",
       "label": "What you do now",
-      "sublabel": "e.g. always Sonnet",
+      "sublabel": "your LLM answers",
       "stage": 1,
       "row": 0,
       "tag": "arm A"
@@ -59,7 +59,7 @@
       "id": "jev",
       "type": "cloud",
       "label": "Jev decides",
-      "sublabel": "answer maps to a model",
+      "sublabel": "Jev answers",
       "stage": 1,
       "row": 2,
       "tag": "arm C"
@@ -67,7 +67,7 @@
     {
       "id": "runlog",
       "type": "database",
-      "label": "Results CSV",
+      "label": "jnj-record/1 CSV",
       "sublabel": "row per case per arm",
       "stage": 2,
       "row": 1,
@@ -86,7 +86,7 @@
       "id": "latency",
       "type": "backend",
       "label": "Tokens + spend",
-      "sublabel": "pick + model + fallback",
+      "sublabel": "cost per answer",
       "stage": 3,
       "row": 0
     },
@@ -229,7 +229,7 @@
       "title": "Metric input sources",
       "items": [
         "Tokens: API usage fields per call",
-        "Spend: pick + triggered model + fallback; Jev $0.042/M input, models from one dated price table, rule 0",
+        "Spend: cost of each answer; Jev $0.042/M input, LLM from one dated price table, rule 0",
         "Kept answers and wins: human labels"
       ]
     },
@@ -237,18 +237,18 @@
       "dot": "emerald",
       "title": "Labels",
       "items": [
-        "Accept or reject each picked output, one written rule",
-        "Blind to which arm picked it",
+        "Accept or reject each answer, one written rule",
+        "Blind to which arm answered",
         "Jev may pre-fill; a person confirms"
       ]
     },
     {
       "dot": "amber",
-      "title": "Verdict (provisional)",
+      "title": "Verdict",
       "items": [
-        "Under 10 labelled cases or no Jev rows: not enough evidence",
-        "Another arm keeps more, or keeps as many for less: don't use Jev",
-        "Jev cheapest per kept answer and keeps as many: use Jev"
+        "Under 30 paired labelled cases, no Jev rows, or a paired cost missing: not enough evidence",
+        "Free rule within 10 points of Jev, or Jev clearly 10+ points worse or dearer: don't use Jev",
+        "Jev within 10 points of the LLM and at most 0.8x its cost per kept answer: use Jev"
       ]
     }
   ]

@@ -10,7 +10,7 @@ TokenMax's flagship use case: check a CV against a job ad, one yes/no question p
 | q1: Does the CV show the person has built or run a product that pools AI subscriptions or tokens? | "Build our flagship Token Pot" |
 | q2: Does the CV show the person has built a usage dashboard or meter for a shared subscription? | "Develop a dashboard showing whose subscription is carrying the group project" |
 
-Each question is its own decision point, so each gets its own verdict (`docs/decision/verdict-rules.md`). A paired case is a `case_id` (a CV) where both answerers have a labelled row for that question. 5 CVs x 2 questions x 3 answerers = 30 rows.
+Each question is its own decision point, so each gets its own verdict (`FLOW.md`, one verdict per decision point; formulas in `docs/decision/verdict-rules.md`). A paired case is a `case_id` (a CV) where both answerers have a labelled row for that question. 5 CVs x 2 questions x 3 answerers = 30 rows.
 
 ## What is real and what is invented
 | Column | Source |
@@ -25,7 +25,7 @@ Each question is its own decision point, so each gets its own verdict (`docs/dec
 |---|---|---|---|
 | cv1 | no | no | Pooled frequent flyer accounts, not AI subscriptions |
 | cv2 | no | no | Cancels subscriptions; audits usage but built no meter |
-| cv3 | yes | yes | Launched Token Pot; built the "Who is carrying this project" dashboard, the ad's own wording |
+| cv3 | yes | yes | Launched Token Pot; built the "Who is carrying this project" dashboard, close to the ad's "whose subscription is carrying the group project" |
 | cv4 | no | no | Pooling keywords, no product built |
 | cv5 | no | no | Spreadsheet of money owed, and a meter only as an idea |
 
@@ -89,4 +89,4 @@ Cost ratio = **1/100 = 0.01**. a = 3, b = 0, c = 0, d = 1 (cv5). Jev minus LLM =
 **Verdict: not enough evidence.** Rule 1: 4 paired Jev and LLM cases, fewer than 30; "add 26 more labelled cases". The rule comparison is skipped (5 paired rule cases).
 
 ## Why so small
-The file is small on purpose, so every number above can be checked by eye. Neither question can reach a "use Jev" or "don't use Jev" verdict; a 30-case fixture for those paths is a separate file.
+The file is small on purpose, so every number above can be checked by eye. Neither question can reach a "use Jev" or "don't use Jev" verdict; those paths need a fixture of 30 or more cases, not written yet.

@@ -15,7 +15,7 @@
 
 The final choice comes from the mapping table, not from asking Jev "which stack". That keeps the reasoning visible, and follows the community guidance to decide the route in code.
 
-## How TokenMax tests it
+## How Jev!Jev tests this use case
 - Cases: 20 or more real project descriptions (with consent) or synthetic ones, each labelled by hand with the properties it needs and the stack a person would pick.
 - Arms: what you do now (ask an LLM "which stack should I use?"), a simple rule (keyword list plus the mapping table), Jev decides (Jev answers the property questions, then the mapping table).
 - Accepted result: a property answer the builder agrees with, and a final pick the builder would actually use.

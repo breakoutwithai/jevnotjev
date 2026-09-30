@@ -5,37 +5,42 @@ Take 30 or more examples of one decision your workflow already makes. Record wha
 Diagram: [docs/product/flow/comparison.html](docs/product/flow/comparison.html) (source: `comparison.dataflow.json`, rendered with archify).
 
 ## Scope (v1)
-- **Workflow:** one decision point with a fixed answer set, asked as a typed question. First one: "How hard is this coding prompt? trivial / ordinary / hard"; code maps the answer to Haiku, Sonnet or Opus. Jev is never asked "which model".
+- **Workflow:** one decision point with a fixed answer set, asked as a typed question; code maps each answer to the next step. Jev is never asked "which model".
+- **Historical (superseded 2026-09-28):** the first example was "How hard is this coding prompt? trivial / ordinary / hard", with code mapping the answer to Haiku, Sonnet or Opus (the Claude Code prompt router). That router was dropped and is not a v1 requirement.
 - **User:** a builder who runs LLM calls in their workflow and wants to know if Jev can make some of those decisions cheaper without losing quality.
-- **Accepted result:** an output a person marks "accept" under one written rule: correct and complete enough to use without edits. Labels are blind to which arm picked the output. A Jev pre-grade may pre-fill a label but a person confirms it.
+- **Accepted result:** an output a person marks "accept" under one written rule: correct and complete enough to use without edits. Labels are blind to which arm gave the answer. A Jev pre-grade may pre-fill a label but a person confirms it.
 - **Out of scope:** many workflows at once; the tool calling any model; production integrations; sensitive data (synthetic or redacted cases only); claims beyond the user's own test set; pooling or sharing subscriptions.
 
 ## Journey
 1. Describe the decision and its answer set.
 2. Write 30 or more test cases, and the simple rule, before seeing any results.
-3. Run the cases through the three arms outside the tool (a local runner script with your own keys, or by hand) and fill one results CSV.
-4. Label every output any arm picked: accept or reject.
+3. Ask the same typed question on every case to the three arms outside the tool (a local runner script with your own keys, or by hand) and fill one `jnj-record/1` CSV.
+4. Label every answer: accept or reject.
 5. Load the CSV into the page and read the numbers and the verdict.
 
 ## The three arms
-| Arm | Portal name | What it does | Inputs it needs |
-|---|---|---|---|
-| A. What you do now | current LLM-only setup | what you do today at this decision, e.g. every prompt goes to Sonnet | the case, your prompt, your model |
-| B. A simple rule | a simple baseline | a rule written before labelling, e.g. under 400 characters goes to Haiku; default "always the cheapest model" | the case and the rule |
-| C. Jev decides | Jev routing | Jev answers the typed question; code maps the answer to a model; below a confidence cutoff fixed in advance, the case falls back to arm A's model | the case, the question, the answer set, the mapping, the cutoff |
+Each arm answers the same typed question on the same case; code then acts on the answer the same way whichever arm gave it. Example: UC11, "Does the CV show the person has built a usage dashboard or meter for a shared subscription?" yes / no ([uc11](docs/product/use-cases/uc11-cv-vs-job-ad.md)).
+
+| Arm | Portal name | `answerer` | What it does | Inputs it needs |
+|---|---|---|---|---|
+| A. What you do now | current LLM-only setup | `llm` | your LLM answers the question, as you would today; e.g. it reads the CV and answers yes or no | the case, the question, the answer set, your prompt and model |
+| B. A simple rule | a simple baseline | `rule` | a rule written before labelling answers the question; e.g. keyword match `dashboard\|meter` | the case and the rule |
+| C. Jev decides | Jev routing | `jev` | Jev answers the question and gives a confidence | the case, the question, the answer set |
+
+Historical: arm examples were written for the Claude Code prompt router (every prompt to Sonnet; under 400 characters to Haiku; Jev's answer mapped to a model). That router was dropped on 2026-09-28 and these examples are superseded.
 
 ## Results file
-One CSV, one row per case per arm: `case_id, arm, picker, picker_tokens_in, picker_cost_usd, picked_model, model_tokens_in, model_tokens_out, model_cost_usd, jev_answer, jev_confidence, fallback, label, label_source, price_table_date`. Record format (any answerer: Jev, rule, LLM or person), schema, fictional sample and validator: [format/](format/README.md).
+One CSV in the `jnj-record/1` format, one row per answerer per question per case. Columns, schema, fictional sample and validator: [format/](format/README.md). That file is the only column list.
 
 ## Metrics and where each number comes from
 | Metric shown | Input source |
 |---|---|
 | Tokens | the API's usage fields per call (Jev: `usage.input_tokens`, `usage.output_tokens`; model providers: `usage`) |
-| Spend per case | picker cost + cost of the model call the pick triggers + any fallback call. Jev: input tokens x $0.042 per million, output free. Models: tokens x one dated list-price table. Rule: 0 |
+| Spend per case | `cost_usd` of that arm's answer. Jev: input tokens x $0.042 per million, output free. LLM: tokens x one dated list-price table. Rule: 0 |
 | Spend per arm | sum of spend per case over all cases |
-| Kept answers (accepted count) | human labels on each picked output |
+| Kept answers (accepted count) | human labels on each answer |
 | Cost per kept answer | spend per arm / kept answers; "undefined" when an arm keeps none |
-| Wins and losses vs Jev | per case: Jev kept and the other arm not (win), or the reverse (loss), from the labels |
+| Wins, losses and ties vs Jev | per case: Jev kept and the other arm not (win), the reverse (loss), or both the same (tie), from the labels |
 | Jev answer and confidence | `answers.<question>.choice` and `.confidence` in the Jev response |
 | Latency | client wall clock around each call (shown, not used in the verdict) |
 | Label source and labelling time | counted from the file; reported, not added to spend |

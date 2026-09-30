@@ -1,4 +1,4 @@
-"""Findings of PR 15 review r1 (pr15-r1): N1, N2 and the optional fixes O1, O2, O4, O6, O7, O9."""
+"""Findings of PR 15 review r1 (pr15-r1): N1, N2 and the optional fixes O1, O2, O6, O7, O9."""
 import hashlib
 import shutil
 import subprocess
@@ -197,17 +197,6 @@ def test_o2_migration_refuses_a_jnj_loader_with_extra_powers(conn, attribute):
             conn.execute(sql)
     assert conn.execute("select rolcanlogin or rolsuper or rolcreaterole from pg_roles"
                         " where rolname = 'jnj_loader'").fetchone() == (False,)
-
-
-# O4: functions added later are not executable by PUBLIC
-
-@pytest.mark.integration
-def test_o4_a_function_added_later_is_not_executable_by_public(conn):
-    with pytest.raises(psycopg.errors.InsufficientPrivilege):
-        with conn.transaction():
-            conn.execute("create function jnj.added_later() returns integer language sql as 'select 1'")
-            conn.execute("set local role jnj_loader")
-            conn.execute("select jnj.added_later()")
 
 
 # O1: migrate.py enforces number order and notices a missing applied file

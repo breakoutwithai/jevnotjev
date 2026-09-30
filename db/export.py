@@ -62,8 +62,12 @@ def main(argv=None):
     if not dsn:
         print("set JNJ_DATABASE_URL to a libpq connection string", file=sys.stderr)
         return 2
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        result = export_csv(conn, args.workspace, args.run)
+    try:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            result = export_csv(conn, args.workspace, args.run)
+    except LookupError as error:
+        print(f"ERROR {error}", file=sys.stderr)
+        return 1
     for notice in result.notices:
         print(f"NOTICE {notice}", file=sys.stderr)
     sys.stdout.write(result.text)

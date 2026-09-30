@@ -219,9 +219,11 @@ left join jnj.label l on l.workspace_id = a.workspace_id and l.answer_pk = a.id;
 comment on view jnj.record_v1 is
   'One row per answer. Decision point for pairing: (workspace_id, run_pk, case_pk, question_id).';
 
--- Load one staged file. The caller fills pg_temp.jnj_stage (line + the 18 columns as raw text,
+-- Load one staged file. p_name is the file name, sent only for a synthetic workspace (NULL
+-- otherwise); its sha256 and length are always sent. The caller fills pg_temp.jnj_stage (line + the 18 columns as raw text,
 -- empty string for an empty cell) in the same transaction. Nothing here is committed on error.
-create function jnj.load_stage(p_workspace text, p_sha256 text, p_name text, p_purpose text)
+create function jnj.load_stage(p_workspace text, p_sha256 text, p_name_sha256 text, p_name_length integer,
+  p_name text, p_purpose text)
 returns table (status text, answers bigint, labels bigint)
 language plpgsql as $$
 declare
@@ -248,7 +250,7 @@ begin
   end if;
   insert into jnj.import_file (workspace_id, content_policy, purpose, file_sha256,
       original_name_sha256, original_name_length, original_name)
-    values (ws.id, ws.content_policy, p_purpose, p_sha256, encode(sha256(convert_to(p_name, 'UTF8')), 'hex'), char_length(p_name),
+    values (ws.id, ws.content_policy, p_purpose, p_sha256, p_name_sha256, p_name_length,
       case when ws.content_policy = 'synthetic' then p_name end)
     returning id into file_pk;
 
@@ -369,3 +371,6 @@ begin
 
   return query select 'loaded'::text, n_answers, n_labels;
 end $$;
+
+-- Every migration that creates functions in schema jnj revokes PUBLIC execute on them.
+revoke execute on all functions in schema jnj from public;

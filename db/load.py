@@ -138,9 +138,11 @@ def _load(conn, workspace, path, rows, digest, purpose, create_workspace):
         with conn.cursor().copy(f"copy pg_temp.jnj_stage (line, {', '.join(COLUMNS)}) from stdin") as copy:
             for line, row in rows:
                 copy.write_row([line, *(row[c] for c in COLUMNS)])
+        policy = conn.execute("select content_policy from jnj.workspace where slug = %s", (workspace,)).fetchone()
+        name = path.name if policy == ("synthetic",) else None
         status, answers, labels = conn.execute(
-            "select status, answers, labels from jnj.load_stage(%s, %s, %s, %s)",
-            (workspace, digest, path.name, purpose),
+            "select status, answers, labels from jnj.load_stage(%s, %s, %s, %s, %s, %s)",
+            (workspace, digest, hashlib.sha256(path.name.encode("utf-8")).hexdigest(), len(path.name), name, purpose),
         ).fetchone()
     return LoadResult(status, answers, labels)
 

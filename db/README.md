@@ -43,7 +43,7 @@ python3 db/export.py demo --run run-001 > run-001.csv
 `--run` is required: case text is fixed per run, not across runs, so one file per run is what `validate.py` accepts. Rows come out in source-line order, LF line endings, minimal quoting. Numbers come back as Postgres prints them: `1.8e-06` becomes `0.0000018` and `00042` becomes `42`, equal as decimals. A restricted workspace exports empty `case_input` and `question` cells and prints a NOTICE, and that file does not validate.
 
 ## Roles
-`jnj_loader` (NOLOGIN) has USAGE on schema `jnj`, SELECT on its tables, INSERT on the record tables, and may create a restricted workspace. It has no UPDATE and no DELETE, and every UPDATE on a record table is refused by a trigger. Its SELECT covers every workspace, including synthetic text; per-workspace row-level security is not built yet. The migration refuses an existing `jnj_loader` with LOGIN, SUPERUSER or CREATEROLE, and functions are not executable by PUBLIC, including ones added by later migrations. Grant it to a login role: `grant jnj_loader to <login role>;`.
+`jnj_loader` (NOLOGIN) has USAGE on schema `jnj`, SELECT on its tables, INSERT on the record tables, and may create a restricted workspace. It has no UPDATE and no DELETE, and every UPDATE on a record table is refused by a trigger. Its SELECT covers every workspace, including synthetic text; per-workspace row-level security is not built yet. The migration refuses an existing `jnj_loader` with LOGIN, SUPERUSER or CREATEROLE, and no function in schema `jnj` is executable by PUBLIC: each migration that creates functions revokes it, and a test checks the catalog. Grant it to a login role: `grant jnj_loader to <login role>;`.
 
 ## Tests
 ```

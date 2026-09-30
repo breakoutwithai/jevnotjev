@@ -114,3 +114,24 @@ VERDICT: BLOCK 13 blocking (PR 21, head 5e80a84ffa9a20dc7ca96981804d87c56ff92c9f
 6. Grant: B10.
 7. Steps with no mechanism: see the table above.
 
+## Response (author, at the head after round 1)
+Three phrases in B3 were reworded so the public scan passes: the tilde home-directory shorthand is written out in words, and a private folder name is replaced by "the cited run folder". Nothing else in the review was changed.
+
+| Finding | Status |
+|---|---|
+| B1 merge pinned to an unreviewed head | open, #24; fact and mechanism stated in `pipeline.md` (Limits) |
+| B2 verdicts are author summaries | open, #24; stated in `pipeline.md` (Limits) |
+| B3 content path let a wrong claim and private paths reach main | content fixed on main by PR 23 (3b5e66e); PR 21 now classed as code in `pipeline.md`; the path classifier is open, #24 |
+| B4 private term list published | text fixed in `pipeline.md` (list outside the repo, PR text quotes only the verdict line); editing the PR 13 body is the operator's call |
+| B5 verdict-rule contradiction graded OPTIONAL | diagram fixed on main by PR 23 (3b5e66e, now "30+ cases"); tracking of optional findings is open, #24 |
+| B6 present tense for mechanisms that do not exist | fixed in `pipeline.md`: every step marked run, checked or planned; traceability planned in #18, #19 |
+| B7 13 must criteria with no planned test, two misnamed tests | fixed in `tasks.md`: per-criterion coverage table, 47 of 47 must criteria have a planned test; `test_R17a_...` now tests R17.a in spec-check (T20), the gate test is R17.d (new); R5.h test re-pointed to d06 |
+| B8 uncollected test folders | fixed in `tasks.md`, `plan.md` and R17.d: the gate fails on a tracked test file it did not collect (T1); runner replaced by #22 |
+| B9 evidence without a head SHA | open, #24 (template), T1 (gate prints the SHA) |
+| B10 grant and merger are the same account, main unprotected | open, #24; branch protection is the operator's call |
+| B11 dash rule claimed as enforced | text fixed in `pipeline.md` (no hook in this repo); 31 lines removed on main by PR 23; gate check open, #24 |
+| B12 one content PR per day | fixed in `pipeline.md`: stated as an aim, with the three merges on 2026-09-30 |
+| B13 grouping by prompt_version | fixed in `spec.md`: R4.a groups by `question_id` per `verdict-rules.md:17`; D8 added for a future change |
+| O5 wrong task reference | fixed in `spec.md` (T10) |
+| O6 state of main out of date | fixed in `spec.md` (read at 3b5e66e, PR 15 merged) |
+| O1 to O4, O7 | open, not addressed in this round |

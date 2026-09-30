@@ -4,11 +4,11 @@ Scope for #16. The journey this specifies: a builder loads one `jnj-record/1` CS
 
 Sources this file restates rather than replaces: [FLOW.md](../../FLOW.md) (scope, arms, metric sources), [format/README.md](../../format/README.md) (the only column list), [verdict-rules.md](../decision/verdict-rules.md) (the only verdict rules), [user-journeys.md](../product/user-journeys.md), [user-stories.md](../product/user-stories.md). Where this file and one of those disagree, the source file wins and this file is corrected.
 
-## State on main today (base 5dbaa44)
-- `format/validate.py` validates a file in Python; 22 tests pass (`pytest`, `testpaths = format`).
+## State on main (read at 3b5e66e)
+- `format/validate.py` validates a file in Python. `pytest.ini` collects `format` and `db`; `.deploy/tests/` is run by no gate. #22 plans the move to TypeScript on Bun.
 - `site/index.html` is a static page. Its CSV handler (`site/index.html:716-724`) counts rows and columns, then replays the sample; it computes nothing from the file. The drop zone is disabled (`site/index.html:489-497`).
 - Every number and the verdict on the page come from `site/data.js`, which still holds the dropped prompt router sample (`site/data.js:4-8`, picks per Haiku / Sonnet / Opus read at `site/index.html:599-604`, verdict read at `site/index.html:698-702`). Tracked in #14.
-- PR 15 (Postgres store for `jnj-record/1`, `db/`) is open and not merged. Nothing here depends on it.
+- PR 15 (Postgres store for `jnj-record/1`, `db/`) is merged (be5f849). The browser path does not depend on it.
 
 ## Priorities
 - **must**: needed for the day-13 happy path (load a file, see a correct verdict with its numbers).
@@ -40,7 +40,7 @@ Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test
 - R3.e `examples/d06-tiny/records.csv` gives the equivalent of `VALID rows=30 cases=5 errors=0 gaps=2`, with gaps at line 21 (cost, cv5 q2 rule) and line 25 (label, cv2 q2 llm).
 
 ### R4 One verdict per decision point (must)
-- R4.a Rows are grouped by (`prompt_version`, `question_id`); each group is one decision point.
+- R4.a Rows are grouped by `question_id`; each group is one decision point, as `verdict-rules.md:17` pairs by `case_id` and `question_id` only. A `question_id` asked under two `prompt_version`s in one file is one decision point (see D8).
 - R4.b Pairs, counts and verdicts are never pooled across decision points (the defect found in PR 10 round 1).
 - R4.c The result view lists every decision point in the file and shows one at a time.
 - R4.d Rows with `answerer = human` are counted and shown but not used in the verdict (`verdict-rules.md`, Terms, names only `jev`, `rule`, `llm`).
@@ -116,9 +116,10 @@ Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test
 - R17.a Every test name carries the criterion id it proves (#18).
 - R17.b `scripts/spec-check.py` lists every criterion with its tests, exits non-zero while any must criterion has no passing test, and fails when it checked 0 criteria (#19).
 - R17.c One test checks that the verdict wording in `user-stories.md`, the site and `verdict-rules.md` agree (#14 part 2, #19).
+- R17.d The gate prints the head SHA it ran on and fails on a failing test, a 0 test count, or a tracked test file it did not collect.
 
 ### R18 Store records in Postgres (later)
-- R18.a A file loaded with `db/load.py` and exported with `db/export.py` (PR 15, pending) loads in the browser with the same numbers as the original file.
+- R18.a A file loaded with `db/load.py` and exported with `db/export.py` (PR 15, merged be5f849) loads in the browser with the same numbers as the original file.
 
 ### R19 Ask your own question, keeping only a generalised question (later)
 - R19.a As #11: the raw question is never stored; only a generalised, scanned question the user chose to keep.
@@ -148,15 +149,16 @@ Every story in `docs/product/user-stories.md` at 5dbaa44.
 
 Mapped: 8 of 8. Excluded: 0.
 
-**US-06 against verdict-rules.md (#14).** US-06 picks "don't use Jev" when LLM only or the rule has the lowest cost per accepted result. `verdict-rules.md:54` compares Jev with the rule on accept rate only, because a rule costs 0, and `verdict-rules.md:66-68` requires Jev at 0.8x the LLM's cost per accepted or less. Under US-06 as written, any rule with one accepted answer gives "don't use Jev". **verdict-rules.md wins.** R6 restates it; US-05 and US-06 are reworded to link to it in task T20.
+**US-06 against verdict-rules.md (#14).** US-06 picks "don't use Jev" when LLM only or the rule has the lowest cost per accepted result. `verdict-rules.md:54` compares Jev with the rule on accept rate only, because a rule costs 0, and `verdict-rules.md:66-68` requires Jev at 0.8x the LLM's cost per accepted or less. Under US-06 as written, any rule with one accepted answer gives "don't use Jev". **verdict-rules.md wins.** R6 restates it; US-05 and US-06 are reworded to link to it in task T10.
 
 ## Open decisions
 | # | Decision | Owner | Default until decided |
 |---|---|---|---|
-| D1 | Where Postgres is hosted (PR 15, #11) | operator | no hosted database; the browser path does not need one |
+| D1 | Where Postgres is hosted (#11) | operator | no hosted database; the browser path does not need one |
 | D2 | Name on the page and in docs: "TokenMax" or "UC11" for the CV example (PR 12 round-2 note O1) | operator | "UC11, CV against a job ad", with TokenMax as the flagship label |
 | D3 | Where metrics are computed canonically: browser JS, or SQL over `jnj.record_v1` as PR 15 defers to a `jnj_metrics` schema | operator | browser JS; any SQL version must reproduce the same fixtures |
 | D4 | Browser automation for the happy-path test (a headless browser adds a dependency) | operator | pipeline tested in Node without a DOM; the page is checked by hand with screenshots |
 | D5 | Whether in-page labelling (R15) moves into v1 | operator | later |
 | D6 | The 30-plus-case fixture for the "use Jev" and "don't use Jev" paths: synthetic, or a first real labelled UC11 set | operator | synthetic, generated by a script in the repo |
 | D7 | Whether `human` answerer rows get their own comparison | operator | shown, not compared (R4.d) |
+| D8 | Whether a new `prompt_version` starts a new decision point. That changes the pairing in `verdict-rules.md:17`, so it is a verdict-rule change and takes the full pipeline path | operator | no: R4.a follows verdict-rules.md |

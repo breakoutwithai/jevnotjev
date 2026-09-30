@@ -18,7 +18,7 @@ file (picker or drop)                         R2.a
   -> page wires the strings into the DOM   site/index.html
 ```
 
-Optional path, pending PR 15 (not merged, `db/` on branch `feat/db-records`):
+Optional path through PR 15 (merged be5f849, `db/`):
 ```
 CSV -> db/load.py -> Postgres (schema jnj) -> db/export.py -> CSV -> the browser path above   R18
 ```
@@ -55,7 +55,8 @@ The resampling uses a small seeded generator (mulberry32) whose seed is the firs
 
 ## Tests and the gate
 - `scripts/ci-check.sh` runs `pytest` and `node --test site/jnj/test/`, prints both counts, and exits non-zero when either fails or either count is 0.
-- `pytest.ini` `testpaths` gains each Python test folder as it lands (`db` when PR 15 merges).
+- `pytest.ini` collects `format` and `db` (PR 15). `.deploy/tests/` is run by no gate, and a test file outside `testpaths` is never collected; the gate therefore compares tracked test files with collected ones (R17.d).
+- #22 moves the code to TypeScript on Bun before day 7. When it lands, `bun test` replaces `pytest` and `node --test`, and the modules above become TypeScript under `src/`; the module boundaries and the data flow stay as written.
 - Oracles: `examples/d06-tiny/expected.md` for days 7 and 8; `docs/decision/newcombe_check.py:12-15` for the interval; a 30-plus-case fixture set for the verdict paths d06 cannot reach (`expected.md:91-92`).
 - Parity: `format/test_parity.py` runs `format/validate.py` and `node site/jnj/validate.js <file>` over `format/fixtures/*.csv` and compares VALID or INVALID and the error and gap counts.
 - Traceability: `scripts/spec-check.py` reads the criterion ids here and in `spec.md`, maps them to test names, and reports untested criteria (#18, #19).

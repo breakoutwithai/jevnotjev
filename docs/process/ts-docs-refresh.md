@@ -35,7 +35,7 @@ Classes:
 | `docs/spec/tasks.md` | 26 | T0 marked done in #25, verified by `scripts/parity.sh` |
 | `docs/spec/tasks.md` | 27 | T1 gate runs `bun test` only |
 | `docs/spec/tasks.md` | 33 | T7 generator is `make.ts` |
-| `docs/spec/tasks.md` | 43 | planned work, not code today: T17 re-planned as `scripts/hand-check.ts` in the gate, citing the #22 decision that supersedes `pipeline-review.md:149`; the Newcombe values in `docs/decision/newcombe_check.py` stay the oracle |
+| `docs/spec/tasks.md` | 43 | planned work, not code today: T17 re-planned as `scripts/hand-check.ts` in the gate, citing the operator decision recorded on #22 (https://github.com/breakoutwithai/jevnotjev/issues/22#issuecomment-5920877319), which supersedes the "T17 test file and runner" row of `pipeline-review.md`; the Newcombe values in `docs/decision/newcombe_check.py` stay the oracle |
 | `docs/spec/tasks.md` | 66 | R5.h test file `scripts/hand-check.test.ts` |
 | `docs/spec/tasks.md` | 80 | `bun test` is the only runner |
 | `.gitignore` | 2 | `.venv/` removed: nothing creates it (`scripts/parity.sh` builds its venv in a temp dir) |

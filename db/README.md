@@ -12,7 +12,7 @@ Stores eval record files (answers plus accept/reject labels) in Postgres 14+ and
 The driver is [postgres](https://github.com/porsager/postgres) (postgres.js), pinned to an exact version in `package.json`. No stored number passes through a JS float: cells go to the stage table as text, and `numeric` reads back as a string, `bigint` as a JS bigint.
 
 ## Connect
-Every command reads a libpq connection string from `JNJ_DATABASE_URL`: `key=value` pairs (`host`, `port`, `dbname`, `user`, `sslmode`, `connect_timeout`) or a `postgres://` URL. The secret goes in the `PGPASSWORD` environment variable only: a connection string that carries one is refused, and `~/.pgpass` is not read. Never put it in the repo.
+Every command reads a libpq connection string from `JNJ_DATABASE_URL`: `key=value` pairs (`host`, `port`, `dbname`, `user`, `sslmode`, `connect_timeout`) or a `postgres://` URL. The secret goes in the `PGPASSWORD` environment variable only: a password in a `postgres://` URL (`user:secret@host`) or a `password=` keyword pair is refused; a `?password=` query parameter in a `postgres://` URL is ignored (not used, not shown); `~/.pgpass` is not read. Never put it in the repo.
 
 ```
 bun install

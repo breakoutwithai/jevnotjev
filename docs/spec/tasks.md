@@ -28,7 +28,7 @@ In the rule-vs-Jev rows, a to d are counted with the rule as the first answerer 
 | T2 | 7 | R2.b, R2.d | `src/core/csv.ts` | Parse CSV text: quoted commas, doubled quotes, CRLF and LF; keep source line numbers | T0: `package.json` and `tsconfig.json` | `R2.b parses quoted comma, doubled quote and CRLF`, `R2.d d06 parses to 30 rows of 18 cells` (`csv.test.ts`) |
 | T3 | 7 | R4.a, R4.b, R4.d, R5.a, R5.b | `src/core/calc.ts` | Group by (`prompt_version`, `question_id`); per answerer rows, labelled, accepted, spend or `incomplete`, cost per accepted or `undefined` | T2: `calc.test.ts` reads `examples/d06-tiny/records.csv` through `parseCsv()` | `R4.a two prompt_versions of one question_id are two decision points`, `R4.b q1 and q2 are never pooled`, `R4.d human rows are counted and not in the verdict`, `R5.a d06 whole-file totals match expected.md:53-57`, `R5.b zero accepted gives undefined` |
 | T4 | 7 | R5.c, R5.d | `src/core/calc.ts` | Pairing by `case_id` on labelled rows inside one decision point; a, b, c, d, p1, p2, diff for Jev vs LLM and rule vs Jev | T3: pairing reads the groups `group()` returns | `R5.c q2 cv2 drops out, n=4`, `R5.d d06 a b c d match the oracle table` |
-| T5 | 7 | R5.e | `src/core/calc.ts` | Wilson interval and Newcombe method 10 per `verdict-rules.md:42-49` | T0 | `R5.e Newcombe matches the 7 Table III rows` (rows from `docs/decision/newcombe_check.py:12-15`) |
+| T5 | 7 | R5.e | `src/core/calc.ts` | Wilson interval and Newcombe method 10 per `verdict-rules.md:42-49` | T0: `src/format/validate.ts` (the TypeScript core that `src/core/calc.ts` sits beside and imports types from) | `R5.e Newcombe matches the 7 Table III rows` (rows from `docs/decision/newcombe_check.py:12-15`) |
 | T6 | 7 | R5.f, R5.g, R13.a | `src/core/calc.ts` | Cost ratio with 0 and infinity; 2,000 seeded paired resamples, both-zero redrawn; seed from the file's SHA-256 | T3: the ratio divides the two `cost_per_accepted` values T3 returns | `R5.f d06 q1 ratio 0.0125 and q2 0.01`, `R5.g both-zero resample is redrawn`, `R13.a same file gives identical interval twice` |
 | T7 | 8 | R6.b | `examples/d08-verdicts/make.py`, `examples/d08-verdicts/*.csv`, `examples/d08-verdicts/expected.md` | Synthetic 30-plus-case files, one per verdict branch, every count worked in `expected.md`; per-call costs $0.00002 Jev and $0.002 LLM so the cost bar holds in every resample and each branch turns on accept rate. Includes one file per rule-1 condition: no LLM rows, 29 paired cases, both 0 accepted, a paired row with no cost | the files: none. Its test calls `verdict()` from T8 | `R6.b each d08 rule-1 file gives not enough evidence naming its condition` (`src/core/verdict.test.ts`) |
 | T8 | 8 | R6.a, R6.c to R6.g | `src/core/verdict.ts` | The four rules in order, first match wins; returns the rule, the condition, the numbers read, and `add_n` | T4, T5, T6: `verdict-rules.md:62-68` conditions read the Newcombe bounds and cost-ratio bounds those tasks compute | `R6.g d06 q1 add 25 and q2 add 26`, `R6.f no Jev rows is never don't use Jev`, one `R6.c`, `R6.d` and `R6.e` test per matching d08 file |
@@ -47,7 +47,7 @@ In the rule-vs-Jev rows, a to d are counted with the rule as the first answerer 
 | T21 | 18 | R16 | `site/index.html`, `README.md` | First-use guide in `FLOW.md` Journey order | T12: the guide ends at the load `main.ts` wires in T12 | `R16.b guide commands run on a clean clone` (`src/docs/guide.test.ts`) |
 | T22 | later | R18 | `src/db/` (#22 port of PR 15, merged be5f849) | Export from Postgres loads in the browser with the same numbers | T0: `src/db/` exists only after #22; T15: compares with `run()` on the original file | `R18.a db export gives the same verdict` |
 | T23 | later | R15 | `src/browser/label.ts`, `site/index.html` | Label on the page; download a valid file | T12: extends the load `main.ts` wires in T12 | `R15.b labelled download passes the validator` |
-| T24 | later | R19 | per #11 | Generalised-question log | D1 in `spec.md` (hosting), which #11 lists as out of scope and separate | per #11 Done when |
+| T24 | later | R19 | per #11 | Generalised-question log | D1 at `spec.md:157` (hosting), which #11 lists as out of scope and separate | per #11 Done when |
 
 ## Coverage, per criterion
 Counted per criterion, since a requirement with a task can still have criteria with no test. All 47 must criteria have a planned test whose name and body are about that criterion; 0 have a passing test today.
@@ -64,7 +64,7 @@ Counted per criterion, since a requirement with a task can still have criteria w
 | R4.c | T14 | `src/browser/view.test.ts` |
 | R5.a to R5.g | T3 to T6 | `src/core/calc.test.ts` |
 | R5.h | T17 | `docs/decision/test_hand_check.py` |
-| R6.a | T8, T15 | `src/core/verdict.test.ts`, `src/core/pipeline.test.ts` |
+| R6.a | T15 | `src/core/pipeline.test.ts` |
 | R6.b | T7 | `src/core/verdict.test.ts` |
 | R6.c to R6.g | T8 | `src/core/verdict.test.ts` |
 | R6.h, R7.a, R7.b, R7.c, R8.a, R8.b | T9 | `src/browser/view.test.ts` |

@@ -106,7 +106,7 @@ Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test
 
 ### R15 Labelling on the page (later)
 - R15.a Each loaded answer can be marked accept or reject; the page shows how many are still unlabelled.
-- R15.b The labelled file downloads as `jnj-record/1` and passes `format/validate.py`.
+- R15.b The labelled file downloads as `jnj-record/1` and passes the format validator (`src/format/validate.ts` after T0).
 
 ### R16 First-use guide (should)
 - R16.a A guide on the page takes a new builder from an empty folder to a loaded file in the order of `FLOW.md` (Journey).

@@ -4,7 +4,7 @@
 
 **Prompted by:** the community post "Comparing Supabase vs Convex for Your Tools/Apps" (2026-09-24), a walkthrough of when to use one database platform over the other.
 
-## Jev or not
+## Jev or not Jev
 "Decide my tech stack" is open design work: it needs reasoning and a written answer, so as asked it is **Jev probably not**. Around it sit small decisions with fixed answers, where Jev can help.
 
 | Decision (typed question) | Answers | State (what Jev reads) | Code does with each answer | Mark | Simple rule to beat |

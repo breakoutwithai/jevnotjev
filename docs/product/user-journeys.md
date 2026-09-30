@@ -1,4 +1,4 @@
-Primary user: a builder who runs LLM calls in their workflow, keeps hitting usage limits, and wants to know whether letting Jev make one decision in that workflow gets more accepted results from the same token budget, before trusting it. That question is the flagship use case, TokenMax.
+Primary user: a builder who runs LLM calls in their workflow, keeps hitting usage limits, and wants to know whether letting Jev make one decision in that workflow gets more accepted results from the same token budget, before trusting it. The flagship use case, TokenMax, asks this for the token budget itself; other use cases ask it for other decisions.
 
 # Jev!Jev user journeys (v1)
 

@@ -53,7 +53,7 @@ bun run export demo --run run-001 > run-001.csv
 ```
 bun test -t '\[integration\]'    # needs a local Postgres; JNJ_TEST_ADMIN_DSN, default host=/tmp port=5432 dbname=postgres
 ```
-Each run creates `jnj_test_<hex>` on first use, migrates it and drops it `WITH (FORCE)` after the last test. The tests change no role: `jnj_loader` keeps every attribute false. [docs/process/py-to-ts-test-map.md](../docs/process/py-to-ts-test-map.md) maps each pre-port test to its TypeScript port. Parity with the pre-port code was shown in #25 (59 fixtures, 0 differences); the harness was then removed (it is in history at cd8397f).
+Each run creates `jnj_test_<hex>` on first use, migrates it and drops it `WITH (FORCE)` after the last test. The tests change no role: `jnj_loader` keeps every attribute false. The [#25](https://github.com/breakoutwithai/jevnotjev/pull/25) body records how each pre-port test was ported (the test map file it added is in history at cd8397f). Parity with the pre-port code was shown in #25 (59 fixtures, 0 differences); the harness was then removed (it is in history at cd8397f).
 
 ## Next
 - Day 7 metrics: a new migration with views in schema `jnj_metrics` that read only `jnj.record_v1`.

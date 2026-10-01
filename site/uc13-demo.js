@@ -20,7 +20,7 @@
 window.UC13_DEMO = {
  "schema": "jnj-uc13-demo/1",
  "mode": "pending",
- "note": "40 messages we wrote about a made-up shop (run-shopbot-2026-10-01). Labels pending: no message has a human answer yet, so every accept or reject slot waits.",
+ "note": "Recorded run, not sample data: 40 messages we wrote about a made-up shop (run-shopbot-2026-10-01). Labels pending: no message has a human answer yet, so every accept or reject slot waits.",
  "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
  "cases_total": 40,
  "fact_sheet": {

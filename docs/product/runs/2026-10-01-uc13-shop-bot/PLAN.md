@@ -19,7 +19,7 @@ UC13 is delivered when this run folder holds a labelled `records.csv` and a `res
 ## Success criteria
 | ID | Criterion | Target | How measured |
 |---|---|---|---|
-| S1 | Labels are human and blind | 40 of 40 cases labelled, `label_source` = `human`; the labelling page carries no arm output | `bun run validate records.csv` gaps = 0; test asserts `label.html` holds no `output` value from the records |
+| S1 | Labels are human and blind | 40 of 40 cases labelled, `label_source` = `human`; the labelling page carries no arm output | `bun run validate records.csv` gaps = 0; test UC13-F23 asserts `label.html` holds no arm output, model id, confidence or probabilities (the answer words `answer` and `hand_off` are allowed: the buttons and acceptance rule need them) |
 | S2 | Records are valid and complete | VALID, 120 rows, 3 arms, 40 cases, 0 gaps | `bun run validate docs/product/runs/2026-10-01-uc13-shop-bot/records.csv` |
 | S3 | Jev provenance | 40 of 40 rows `jev-1.13.0`; 40 of 40 fixture request hashes match a `body_sha256` in the call log; replay byte-identical | `bun scripts/uc13/run-arms.ts replay` then `git diff --exit-code` on records.csv and raw.json |
 | S4 | Verdict computed by the written rules | one verdict from `docs/decision/verdict-rules.md`, with paired n, counts a/b/c/d and intervals shown | `result.md` |

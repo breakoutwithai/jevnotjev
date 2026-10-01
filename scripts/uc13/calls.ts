@@ -7,8 +7,11 @@ import { dirname } from "node:path";
 import { JEV_MODEL, parseJevResponse, type ArmReply, type Case, type JevBody } from "./arms.ts";
 
 export const FIXTURE_SCHEMA = "jnj-jev-fixture/1";
-/** Strings that start like the API key or an auth header; the key is never in stdout, this guards that. */
-export const KEY_PREFIXES: readonly string[] = ["api_", "api-", "Bearer "];
+/**
+ * A key-like token anywhere in a string: `api_`/`api-` followed by 6+ key characters, or `Bearer <token>`. The key is
+ * never in stdout; this guards that. Plain prose ("the api is", "bearer of news") does not match.
+ */
+export const KEY_PATTERN = /(?:^|[^A-Za-z0-9])api[_-][A-Za-z0-9_-]{6,}|\bBearer\s+\S+/;
 const SECRET_FIELDS = /^(authorization|api[_-]?key)$/i;
 
 function isObject(value: unknown): value is { readonly [key: string]: unknown } {
@@ -24,10 +27,10 @@ export function sha256Hex(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
-/** Throws if the response holds an authorization/api_key field or a string starting with a key prefix. */
+/** Throws if the response holds an authorization/api_key field or a key-like token anywhere in a string. */
 export function assertNoSecrets(value: unknown, caseId: string, path = "$"): void {
   if (typeof value === "string") {
-    if (KEY_PREFIXES.some((p) => value.startsWith(p))) throw new Error(`Jev ${caseId}: key-like string at ${path}`);
+    if (KEY_PATTERN.test(value)) throw new Error(`Jev ${caseId}: key-like string at ${path}`);
   } else if (Array.isArray(value)) {
     value.forEach((v, i) => assertNoSecrets(v, caseId, `${path}[${i}]`));
   } else if (isObject(value)) {
@@ -84,11 +87,14 @@ export async function readFixture(path: string): Promise<JevFixture> {
   if (!isObject(raw) || raw.schema !== FIXTURE_SCHEMA || raw.model !== JEV_MODEL || typeof raw.captured_utc !== "string" || !Array.isArray(raw.entries)) {
     throw new Error(`replay: ${path} is not a ${FIXTURE_SCHEMA} fixture for ${JEV_MODEL}`);
   }
+  const seen = new Set<string>();
   const entries: JevEntry[] = raw.entries.map((e: unknown, i: number) => {
     if (!isObject(e) || typeof e.case_id !== "string" || typeof e.request_sha256 !== "string" || !isObject(e.request) ||
-      typeof e.latency_ms !== "number" || typeof e.utc !== "string" || typeof e.http !== "number") {
-      throw new Error(`replay: ${path} entry ${i} is malformed`);
+      typeof e.latency_ms !== "number" || !Number.isInteger(e.latency_ms) || e.latency_ms < 0 || typeof e.utc !== "string" || e.http !== 200) {
+      throw new Error(`replay: ${path} entry ${i} is malformed (needs http 200 and a non-negative integer latency_ms)`);
     }
+    if (seen.has(e.case_id)) throw new Error(`replay: ${path} has a duplicate entry for ${e.case_id}`);
+    seen.add(e.case_id);
     return { case_id: e.case_id, request_sha256: e.request_sha256, request: e.request, response: e.response, latency_ms: e.latency_ms, utc: e.utc, http: e.http, usage: e.usage };
   });
   return { schema: FIXTURE_SCHEMA, model: JEV_MODEL, captured_utc: raw.captured_utc, entries };

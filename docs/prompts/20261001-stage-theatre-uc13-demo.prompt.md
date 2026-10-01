@@ -51,7 +51,7 @@ facts:
     source: "docs/product/use-cases/uc13-shop-bot-answer-or-handoff.md:29-30"
   - claim: "An arm row is accept when its output equals the human label, else reject"
     source: "docs/product/use-cases/uc13-shop-bot-answer-or-handoff.md:62"
-  - claim: "Run status 2026-10-02: all three arms run (120 rows); labels and verdict not set (#31). Per records.csv: rule 27 answer / 13 hand_off, cost 0; Jev 18 / 22, $0.00130176; LLM 18 / 22, $0.103167. The use case table still says Jev 21 hand_off / 19 answer"
+  - claim: "Run status 2026-10-02: all three arms run (120 rows); labels and verdict not set (#31). Per records.csv: rule 27 answer / 13 hand_off, cost 0; Jev 18 / 22, $0.00130176; LLM 18 / 22, $0.103167 (answer / hand_off). The use case table agrees since #35 (Jev 22 hand_off, 18 answer)"
     source: "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv (counted by scripts/uc13/stage-demo.test.ts UC13-STAGE-1); uc13-shop-bot-answer-or-handoff.md:83"
   - claim: "Public repo rule: tickets and assets never name or quote community members"
     source: "docs/wayfinder/ten-organic-shares/map.md:14"

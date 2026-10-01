@@ -76,11 +76,24 @@ document.getElementById("bA").onclick = () => pick("answer");
 document.getElementById("bH").onclick = () => pick("hand_off");
 document.getElementById("prev").onclick = () => { if (i > 0) i--; show(); };
 document.getElementById("next").onclick = () => { if (i < CASES.length - 1) i++; show(); };
+// shortcut:start
+function shortcut(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.isComposing) return null;
+  const t = e.target || {};
+  if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || "")) return null;
+  if (e.key === "a" || e.key === "A") return "answer";
+  if (e.key === "h" || e.key === "H") return "hand_off";
+  if (e.key === "ArrowLeft") return "prev";
+  if (e.key === "ArrowRight") return "next";
+  return null;
+}
+// shortcut:end
 document.addEventListener("keydown", (e) => {
-  if (e.key === "a" || e.key === "A") pick("answer");
-  else if (e.key === "h" || e.key === "H") pick("hand_off");
-  else if (e.key === "ArrowLeft") document.getElementById("prev").click();
-  else if (e.key === "ArrowRight") document.getElementById("next").click();
+  const s = shortcut(e);
+  if (s === null) return;
+  e.preventDefault();
+  if (s === "answer" || s === "hand_off") pick(s);
+  else document.getElementById(s).click();
 });
 document.getElementById("dl").onclick = () => {
   const rows = ["case_id,truth", ...CASES.filter(c => truth[c.case_id]).map(c => `${c.case_id},${truth[c.case_id]}`)];

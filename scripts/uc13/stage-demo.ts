@@ -144,8 +144,8 @@ export function buildDemo(rows: readonly RecordRow[], factSheet: string, ids: re
   const runId = rows[0]?.run_id ?? "";
   const n = caseIds.length;
   const note = anyLabel
-    ? `${n} messages we wrote about a made-up shop (${runId}). Labelled by a person who never saw any arm's answer.`
-    : `${n} messages we wrote about a made-up shop (${runId}). Labels pending: no message has a human answer yet, so every accept or reject slot waits.`;
+    ? `Recorded run, not sample data: ${n} messages we wrote about a made-up shop (${runId}). Labelled by a person who never saw any arm's answer.`
+    : `Recorded run, not sample data: ${n} messages we wrote about a made-up shop (${runId}). Labels pending: no message has a human answer yet, so every accept or reject slot waits.`;
   return {
     schema: "jnj-uc13-demo/1",
     mode: anyLabel ? "labelled" : "pending",

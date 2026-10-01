@@ -6,6 +6,7 @@ import { type Answer, type RecordRow, applyLabels, formatRecords, parseRecords, 
 import {
   ARMS, DEMO_IDS, DEMO_OUT, EXAMPLE_DIR, LABEL_OUT, RUN_DIR, build, buildDemo, judge, labelPage, readDemoScript,
 } from "./stage-demo.ts";
+import { renderPage } from "./run-arms.ts";
 
 const RECORDS = join(RUN_DIR, "records.csv");
 
@@ -69,6 +70,7 @@ describe("stage-door demo data", () => {
       expect((t?.answer ?? 0) + (t?.hand_off ?? 0)).toBe(40);
     }
     expect(d.note).toContain("40 messages we wrote about a made-up shop");
+    expect(d.note).toMatch(/^Recorded run, not sample data:/);
     expect(d.label_page).toBe("label/");
   });
 
@@ -165,6 +167,12 @@ describe("stage-door demo data", () => {
   test("[integration] UC13-STAGE-6 the live label page is the run's page plus a back link, self-contained, no dashes", async () => {
     const page = await readFile(LABEL_OUT, "utf8");
     expect(page).toBe(labelPage(await readFile(join(RUN_DIR, "label.html"), "utf8")));
+    // One closing script tag: the page's own. A hostile message rendered through the same renderer cannot add one.
+    expect(page.match(/<\/script/gi)?.length).toBe(1);
+    const template = await readFile(join(EXAMPLE_DIR, "label.template.html"), "utf8");
+    const hostile = labelPage(renderPage(template, "</script><script>alert(1)</script>", [{ case_id: "m01", case_input: "</SCRIPT><img src=x onerror=alert(1)>" }]));
+    expect(hostile.match(/<\/script/gi)?.length).toBe(1);
+    expect(hostile).not.toContain("<script>alert");
     expect(page).not.toMatch(/\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|import\(/);
     expect(page).not.toMatch(/(src|href)="(https?:)?\/\//);
     expect(page).toContain("labels.csv");

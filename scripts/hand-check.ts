@@ -21,8 +21,11 @@ export type HandRecord = {
   readonly cost: number | null;
 };
 
-/** A computed figure. Required figures must be stated in expected.md; the rest are checked only when stated. */
-export type Figure = { readonly value: number | string; readonly required: boolean };
+/** A computed figure: a number, a text value, or a set of ids (compared as a set). */
+export type FigureValue = number | string | readonly string[];
+
+/** Required figures must be stated in expected.md; the rest are checked only when stated. */
+export type Figure = { readonly value: FigureValue; readonly required: boolean };
 
 export type Mismatch = { readonly key: string; readonly expected: string; readonly computed: string };
 
@@ -34,12 +37,16 @@ const INCOMPLETE = "incomplete";
 // ---------------------------------------------------------------------------------------------
 // CSV
 
-/** RFC 4180 CSV: quoted fields, doubled quotes, commas and newlines inside quotes. */
+/** RFC 4180 CSV. A quote is allowed only at the start of a field; malformed quoting throws. */
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
   let quoted = false;
+  let closed = false; // just read the closing quote of a quoted field
+  const fail = (i: number, why: string): never => {
+    throw new Error(`CSV: ${why} at offset ${i}`);
+  };
   for (let i = 0; i < text.length; i += 1) {
     const ch = text.charAt(i);
     if (quoted) {
@@ -48,25 +55,34 @@ export function parseCsv(text: string): string[][] {
         i += 1;
       } else if (ch === '"') {
         quoted = false;
+        closed = true;
       } else {
         field += ch;
       }
-    } else if (ch === '"') {
-      quoted = true;
-    } else if (ch === ",") {
+      continue;
+    }
+    if (ch === ",") {
       row.push(field);
       field = "";
+      closed = false;
     } else if (ch === "\n" || ch === "\r") {
       if (ch === "\r" && text.charAt(i + 1) === "\n") i += 1;
       row.push(field);
       rows.push(row);
       row = [];
       field = "";
+      closed = false;
+    } else if (closed) {
+      fail(i, "text after a closing quote");
+    } else if (ch === '"') {
+      if (field !== "") fail(i, "quote inside an unquoted field");
+      quoted = true;
     } else {
       field += ch;
     }
   }
-  if (field !== "" || row.length > 0) {
+  if (quoted) fail(text.length, "unterminated quote");
+  if (field !== "" || closed || row.length > 0) {
     row.push(field);
     rows.push(row);
   }
@@ -106,20 +122,35 @@ export function loadRecords(text: string): HandRecord[] {
 // ---------------------------------------------------------------------------------------------
 // The calculation, from verdict-rules.md
 
-type Totals = { accepted: number; rejects: string[]; spend: number | typeof INCOMPLETE };
+type Totals = {
+  accepted: number;
+  rejects: string[];
+  spend: number | typeof INCOMPLETE;
+  /** case ids of rows with no cost */
+  missing: string[];
+  rows: number;
+  /** the one cost every row carries, or null */
+  unit: number | null;
+};
 
 function totalsOf(rows: readonly HandRecord[]): Totals {
   let accepted = 0;
   let sum = 0;
-  let missing = false;
   const rejects: string[] = [];
+  const missing: string[] = [];
+  const costs = new Set<number>();
   for (const row of rows) {
     if (row.label === "accept") accepted += 1;
     if (row.label === "reject") rejects.push(row.caseId);
-    if (row.cost === null) missing = true;
-    else sum += row.cost;
+    if (row.cost === null) missing.push(row.caseId);
+    else {
+      sum += row.cost;
+      costs.add(row.cost);
+    }
   }
-  return { accepted, rejects, spend: missing ? INCOMPLETE : sum };
+  const [only] = costs;
+  const unit = missing.length === 0 && costs.size === 1 && only !== undefined ? only : null;
+  return { accepted, rejects, spend: missing.length > 0 ? INCOMPLETE : sum, missing, rows: rows.length, unit };
 }
 
 /** spend / accepted; undefined (null) at 0 accepted or incomplete spend. */
@@ -153,11 +184,20 @@ function distinct(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 
+type Pair = readonly [HandRecord, HandRecord];
+
 export function computeFigures(records: readonly HandRecord[]): Map<string, Figure> {
   const figures = new Map<string, Figure>();
-  const put = (key: string, value: number | string, required = true): void => {
+  const put = (key: string, value: FigureValue, required = true): void => {
     if (figures.has(key)) throw new Error(`figure ${key} computed twice`);
     figures.set(key, { value, required });
+  };
+  /** Spend and its operands (`n x unit`), and which rows are missing a cost when it is incomplete. */
+  const putSpend = (prefix: string, t: Totals, required: boolean, missingIds: readonly string[]): void => {
+    put(`${prefix}.spend`, t.spend, required || t.spend === INCOMPLETE);
+    put(`${prefix}.spend.n`, t.rows, false);
+    if (t.unit !== null) put(`${prefix}.spend.unit`, t.unit, false);
+    if (t.spend === INCOMPLETE) put(`${prefix}.spend.missing`, missingIds);
   };
 
   const cases = distinct(records.map((r) => r.caseId));
@@ -167,6 +207,9 @@ export function computeFigures(records: readonly HandRecord[]): Map<string, Figu
   put("file.questions", questions.length);
   put("file.answerers", answerers.length);
   put("file.rows", records.length);
+  put("file.min_paired", MIN_PAIRED, false);
+  put("file.unlabelled", records.filter((r) => r.label === "").map((r) => `${r.answerer} ${r.caseId} ${r.questionId}`));
+  put("file.cost_missing", records.filter((r) => r.cost === null).map((r) => `${r.answerer} ${r.caseId} ${r.questionId}`));
 
   // Per answerer, whole file.
   for (const who of answerers) {
@@ -175,10 +218,8 @@ export function computeFigures(records: readonly HandRecord[]): Map<string, Figu
     put(`file.${who}.rows`, rows.length);
     put(`file.${who}.labelled`, rows.filter((r) => r.label !== "").length);
     put(`file.${who}.accepted`, totals.accepted);
-    put(`file.${who}.spend`, totals.spend);
-    const costs = distinct(rows.map((r) => (r.cost === null ? "" : String(r.cost))));
-    const only = costs[0];
-    if (costs.length === 1 && only !== undefined && only !== "") put(`file.${who}.unit_cost`, Number(only), false);
+    putSpend(`file.${who}`, totals, true, rows.filter((r) => r.cost === null).map((r) => `${r.caseId} ${r.questionId}`));
+    if (totals.unit !== null) put(`file.${who}.unit_cost`, totals.unit, false);
   }
 
   // Every row: output, label, a missing cost.
@@ -205,12 +246,12 @@ export function computeFigures(records: readonly HandRecord[]): Map<string, Figu
   // Per decision point: Jev against the LLM (rate and cost) and against the rule (rate only).
   for (const q of questions) {
     const jevRows = labelled(records, "jev", q);
-    let pairedJevLlm: HandRecord[][] = [];
+    let pairedJevLlm: Pair[] = [];
     let pairedRule: number | null = null;
     for (const other of ["llm", "rule"]) {
       if (!answerers.includes(other)) continue;
       const otherRows = labelled(records, other, q);
-      const pairs: HandRecord[][] = [];
+      const pairs: Pair[] = [];
       for (const [caseId, jevRow] of jevRows) {
         const otherRow = otherRows.get(caseId);
         if (otherRow !== undefined) pairs.push([jevRow, otherRow]);
@@ -220,36 +261,58 @@ export function computeFigures(records: readonly HandRecord[]): Map<string, Figu
       const isLlm = other === "llm";
       if (isLlm) pairedJevLlm = pairs;
       else pairedRule = n;
+      const pairedIds = pairs.map(([j]) => j.caseId);
+      const touched = distinct(records.filter((r) => r.questionId === q && (r.answerer === "jev" || r.answerer === other)).map((r) => r.caseId));
+      const dropped = touched.filter((id) => !pairedIds.includes(id));
       put(`${prefix}.paired`, n);
+      put(`${prefix}.paired.cases`, pairedIds, isLlm);
+      put(`${prefix}.dropped.cases`, dropped, isLlm && dropped.length > 0);
 
-      const side = (index: 0 | 1): HandRecord[] => pairs.flatMap((pair) => (pair[index] === undefined ? [] : [pair[index]]));
-      const totals = { jev: totalsOf(side(0)), [other]: totalsOf(side(1)) };
-      for (const [who, t] of Object.entries(totals)) {
-        put(`${prefix}.${who}.accepted`, t.accepted);
-        put(`${prefix}.${who}.rejects`, t.rejects.join(","), false);
-        if (n > 0) put(`${prefix}.${who}.accept_rate`, t.accepted / n, isLlm);
-        put(`${prefix}.${who}.spend`, t.spend, isLlm || t.spend === INCOMPLETE);
+      const sides: ReadonlyArray<readonly [string, Totals]> = [
+        ["jev", totalsOf(pairs.map(([j]) => j))],
+        [other, totalsOf(pairs.map(([, o]) => o))],
+      ];
+      for (const [who, t] of sides) {
+        const side = `${prefix}.${who}`;
+        put(`${side}.accepted`, t.accepted);
+        put(`${side}.rejects`, t.rejects, false);
+        if (n > 0) {
+          put(`${side}.accept_rate`, t.accepted / n, isLlm);
+          put(`${side}.accept_rate.num`, t.accepted, false);
+          put(`${side}.accept_rate.den`, n, false);
+        }
+        putSpend(side, t, isLlm, t.missing);
         const cpa = costPerAccepted(t);
-        if (cpa !== null) put(`${prefix}.${who}.cost_per_accepted`, cpa, isLlm);
+        if (cpa !== null && t.spend !== INCOMPLETE) {
+          put(`${side}.cost_per_accepted`, cpa, isLlm);
+          put(`${side}.cost_per_accepted.num`, t.spend, false);
+          put(`${side}.cost_per_accepted.den`, t.accepted, false);
+        }
       }
-      const jevT = totals.jev;
-      const otherT = totals[other];
+      const jevT = sides[0]?.[1];
+      const otherT = sides[1]?.[1];
       if (isLlm && jevT !== undefined && otherT !== undefined) {
         const ratio = costRatio(jevT, otherT);
-        if (ratio !== null) put(`${prefix}.cost_ratio`, ratio);
+        if (ratio !== null) {
+          put(`${prefix}.cost_ratio`, ratio);
+          put(`${prefix}.cost_ratio.fraction`, ratio, false);
+          const j = costPerAccepted(jevT);
+          const l = costPerAccepted(otherT);
+          if (j !== null) put(`${prefix}.cost_ratio.num`, j, false);
+          if (l !== null) put(`${prefix}.cost_ratio.den`, l, false);
+        }
       }
 
       // a = both accepted, b = Jev only, c = other only, d = both rejected.
       const cells: Record<"a" | "b" | "c" | "d", string[]> = { a: [], b: [], c: [], d: [] };
       for (const [j, o] of pairs) {
-        if (j === undefined || o === undefined) continue;
         const ja = j.label === "accept";
         const oa = o.label === "accept";
         cells[ja && oa ? "a" : ja ? "b" : oa ? "c" : "d"].push(j.caseId);
       }
       for (const [cell, ids] of Object.entries(cells)) {
         put(`${prefix}.${cell}`, ids.length);
-        put(`${prefix}.${cell}.cases`, ids.join(","), false);
+        put(`${prefix}.${cell}.cases`, ids, false);
       }
       if (n > 0) {
         const p1 = (cells.a.length + cells.b.length) / n;
@@ -262,8 +325,8 @@ export function computeFigures(records: readonly HandRecord[]): Map<string, Figu
     // Verdict rule 1. Rules 2 to 4 need the Newcombe interval and the seeded cost-ratio resample;
     // d06 never reaches them, so this hand check stops rather than guess.
     const n = pairedJevLlm.length;
-    const jevPaired = pairedJevLlm.flatMap((pair) => (pair[0] === undefined ? [] : [pair[0]]));
-    const llmPaired = pairedJevLlm.flatMap((pair) => (pair[1] === undefined ? [] : [pair[1]]));
+    const jevPaired = pairedJevLlm.map(([j]) => j);
+    const llmPaired = pairedJevLlm.map(([, l]) => l);
     const noRows = !answerers.includes("jev") || !answerers.includes("llm");
     const bothZero = totalsOf(jevPaired).accepted === 0 && totalsOf(llmPaired).accepted === 0;
     const costMissing = [...jevPaired, ...llmPaired].some((r) => r.cost === null);
@@ -273,6 +336,7 @@ export function computeFigures(records: readonly HandRecord[]): Map<string, Figu
     put(`${q}.verdict`, "not enough evidence");
     if (!noRows && n < MIN_PAIRED) {
       put(`${q}.verdict.paired`, n);
+      put(`${q}.verdict.threshold`, MIN_PAIRED);
       put(`${q}.verdict.add_n`, MIN_PAIRED - n);
     }
     if (pairedRule !== null && pairedRule < MIN_PAIRED) put(`${q}.verdict.rule_skipped_paired`, pairedRule);
@@ -283,7 +347,7 @@ export function computeFigures(records: readonly HandRecord[]): Map<string, Figu
 // ---------------------------------------------------------------------------------------------
 // Reading the figures out of expected.md
 
-const ANSWERER_BY_HEADING: ReadonlyMap<string, string> = new Map([
+const ANSWERER_BY_NAME: ReadonlyMap<string, string> = new Map([
   ["Jev", "jev"],
   ["Rule", "rule"],
   ["LLM", "llm"],
@@ -294,26 +358,68 @@ const METRIC_BY_ROW: ReadonlyMap<string, string> = new Map([
   ["Spend", "spend"],
   ["Cost per accepted", "cost_per_accepted"],
 ]);
+/** The operand form each metric is written in before its "=" (`4/5`, `5 x 0.00002`, `0.0001 / 4`), and the operand names. */
+const OPERANDS: ReadonlyMap<string, readonly [RegExp, string, string]> = new Map([
+  ["accept_rate", [/^(\d+)\/(\d+)$/, "num", "den"]],
+  ["spend", [/^(\d+) x \$?([\d.]+)$/, "n", "unit"]],
+  ["cost_per_accepted", [/^\$?([\d.]+) \/ (\d+)$/, "num", "den"]],
+]);
+
+type Put = (key: string, value: string) => void;
 
 function splitRow(line: string): string[] {
   return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
 }
 
-/** The figure in a cell: text after the last "=", a leading "$" dropped, a trailing "(...)" split off. */
-function cellFigure(cell: string): { value: string; note: string } {
-  const afterEquals = cell.includes("=") ? cell.slice(cell.lastIndexOf("=") + 1) : cell;
-  const match = /^\s*\$?(\S+)(?:\s+\((.*)\))?\s*$/.exec(afterEquals);
-  if (match === null || match[1] === undefined) throw new Error(`no figure in cell "${cell}"`);
-  return { value: match[1], note: match[2] ?? "" };
+function isDelimiterRow(cells: readonly string[]): boolean {
+  return cells.every((c) => /^:?-+:?$/.test(c));
 }
 
-function caseList(note: string): string | null {
-  return /^cv\d+(?:, cv\d+)*$/.test(note) ? note.split(/,\s*/).join(",") : null;
+/** "cv1 to cv5" -> "cv1,cv2,cv3,cv4,cv5"; any other text is kept and compared as a comma list. */
+function idList(text: string): string {
+  const range = /^cv(\d+) to cv(\d+)$/.exec(text.trim());
+  if (range === null) return text.trim();
+  const ids: string[] = [];
+  for (let i = Number(range[1]); i <= Number(range[2]); i += 1) ids.push(`cv${i}`);
+  return ids.join(",");
+}
+
+/**
+ * A metric cell: `[operands =] value [(note)]`. The value goes to `key`, operands to `key.<name>`.
+ * An operand form this reader does not know goes to `key.expr`, which has no computed counterpart
+ * and so is always a mismatch. Returns the note for the caller to place.
+ */
+function putMetric(key: string, metric: string, cell: string, put: Put): string {
+  const terms = cell.split("=").map((t) => t.trim());
+  const last = terms.pop() ?? "";
+  const match = /^\$?(\S+)(?:\s+\((.*)\))?$/.exec(last);
+  if (match === null || match[1] === undefined) {
+    put(`${key}.expr`, cell);
+    return "";
+  }
+  put(key, match[1]);
+  const form = OPERANDS.get(metric);
+  for (const term of terms) {
+    const operands = form === undefined ? null : form[0].exec(term);
+    if (operands === null || form === undefined) put(`${key}.expr`, term);
+    else {
+      put(`${key}.${form[1]}`, operands[1] ?? "");
+      put(`${key}.${form[2]}`, operands[2] ?? "");
+    }
+  }
+  return match[2] ?? "";
+}
+
+/** "(cv5 q2 missing)" / "(cv5 missing)": the rows whose cost is missing. */
+function putMissing(key: string, note: string, put: Put): void {
+  const missing = /^(.+) missing$/.exec(note);
+  if (missing === null) put(`${key}.note`, note);
+  else put(`${key}.missing`, missing[1] ?? "");
 }
 
 export function parseExpected(markdown: string): Map<string, string> {
   const figures = new Map<string, string>();
-  const put = (key: string, value: string): void => {
+  const put: Put = (key, value) => {
     if (figures.has(key)) throw new Error(`expected.md states ${key} twice`);
     figures.set(key, value);
   };
@@ -343,13 +449,23 @@ export function parseExpected(markdown: string): Map<string, string> {
       put("file.rows", shape[4] ?? "");
     }
     for (const unit of line.matchAll(/\$([\d.]+) per (\w+) call/g)) {
-      const who = ANSWERER_BY_HEADING.get(unit[2] ?? "");
+      const who = ANSWERER_BY_NAME.get(unit[2] ?? "");
       if (who !== undefined) put(`file.${who}.unit_cost`, unit[1] ?? "");
     }
+    const noLabel: string[] = [];
+    const noCost: string[] = [];
+    for (const gap of line.matchAll(/the (\w+) row for (cv\d+) (q\d+) has no (label|cost)/g)) {
+      const who = ANSWERER_BY_NAME.get(gap[1] ?? "") ?? gap[1] ?? "";
+      (gap[4] === "label" ? noLabel : noCost).push(`${who} ${gap[2] ?? ""} ${gap[3] ?? ""}`);
+    }
+    if (noLabel.length > 0) put("file.unlabelled", noLabel.join(","));
+    if (noCost.length > 0) put("file.cost_missing", noCost.join(","));
+    const minimum = /fixture of (\d+) or more cases/.exec(line);
+    if (minimum !== null) put("file.min_paired", minimum[1] ?? "");
 
     if (line.startsWith("|")) {
       const cells = splitRow(line);
-      if (cells.every((c) => /^-*$/.test(c))) continue;
+      if (isDelimiterRow(cells)) continue;
       if (header === null) {
         header = cells;
         continue;
@@ -360,10 +476,19 @@ export function parseExpected(markdown: string): Map<string, string> {
     header = null;
     if (question === "") continue;
 
-    const against = /^\*\*Jev against the (LLM|rule):\*\*\s+(\d+) paired cases/.exec(line);
+    const against = /^\*\*Jev against the (LLM|rule):\*\*\s+(\d+) paired cases(?: \(([^)]*)\))?/.exec(line);
     if (against !== null) {
       comparison = `jev-${(against[1] ?? "").toLowerCase()}`;
       put(`${question}.${comparison}.paired`, against[2] ?? "");
+      if (against[3] !== undefined) {
+        const [ids, ...rest] = against[3].split(";");
+        put(`${question}.${comparison}.paired.cases`, idList(ids ?? ""));
+        for (const part of rest) {
+          const drop = /^(cv\d+(?:, cv\d+)*) drops? out\b/.exec(part.trim());
+          if (drop === null) put(`${question}.${comparison}.paired.note`, part.trim());
+          else put(`${question}.${comparison}.dropped.cases`, drop[1] ?? "");
+        }
+      }
     }
     const verdict = /^\*\*Verdict: ([^.*]+)\.\*\*/.exec(line);
     if (verdict !== null) {
@@ -371,6 +496,8 @@ export function parseExpected(markdown: string): Map<string, string> {
       put(`${question}.verdict`, verdict[1] ?? "");
       const paired = /Rule 1: (\d+) paired Jev and LLM cases/.exec(line);
       if (paired !== null) put(`${question}.verdict.paired`, paired[1] ?? "");
+      const threshold = /fewer than (\d+)/.exec(line);
+      if (threshold !== null) put(`${question}.verdict.threshold`, threshold[1] ?? "");
       const add = /add (\d+) more labelled cases/.exec(line);
       if (add !== null) put(`${question}.verdict.add_n`, add[1] ?? "");
       const skipped = /rule comparison is skipped \((\d+) paired rule cases\)/.exec(line);
@@ -385,30 +512,38 @@ export function parseExpected(markdown: string): Map<string, string> {
       put(`${prefix}.jev.accepted`, counts[1] ?? "");
       put(`${prefix}.rule.accepted`, counts[2] ?? "");
     }
-    const ratio = /Cost ratio = [^*]*\*\*([^*]+)\*\*/.exec(line);
-    if (ratio !== null) put(`${prefix}.cost_ratio`, cellFigure(ratio[1] ?? "").value);
+    const ratio = /Cost ratio = ([^*]*)\*\*([^*]+)\*\*/.exec(line);
+    if (ratio !== null) {
+      const terms = [...(ratio[1] ?? "").split("="), ...(ratio[2] ?? "").split("=")].map((t) => t.trim()).filter((t) => t !== "");
+      put(`${prefix}.cost_ratio`, terms.pop() ?? "");
+      for (const term of terms) {
+        const operands = /^(\d*\.\d+) \/ (\d*\.\d+)$/.exec(term);
+        if (operands !== null) {
+          put(`${prefix}.cost_ratio.num`, operands[1] ?? "");
+          put(`${prefix}.cost_ratio.den`, operands[2] ?? "");
+        } else if (/^\d+\/\d+$/.test(term)) put(`${prefix}.cost_ratio.fraction`, term);
+        else put(`${prefix}.cost_ratio.expr`, term);
+      }
+    }
+    // Every "(...)" after a cell count is its case list; anything that is not the right set of ids mismatches.
     for (const cell of line.matchAll(/\b([abcd]) (?:\([^)]*\) )?= (\d+)(?: \(([^)]*)\))?/g)) {
       put(`${prefix}.${cell[1] ?? ""}`, cell[2] ?? "");
-      const ids = caseList(cell[3] ?? "");
-      if (ids !== null) put(`${prefix}.${cell[1] ?? ""}.cases`, ids);
+      if (cell[3] !== undefined) put(`${prefix}.${cell[1] ?? ""}.cases`, cell[3]);
     }
     const jevMinusLlm = /Jev minus LLM = \*\*(-?[\d.]+)\*\*/.exec(line);
     if (jevMinusLlm !== null) put(`${question}.jev-llm.diff`, jevMinusLlm[1] ?? "");
     const ruleMinusJev = /Rule minus Jev = \*\*(-?[\d.]+)\*\*/.exec(line);
     if (ruleMinusJev !== null) put(`${question}.jev-rule.diff`, ruleMinusJev[1] ?? "");
-    if (/Rule spend is incomplete/.test(line)) put(`${question}.jev-rule.rule.spend`, INCOMPLETE);
+    const ruleSpend = /Rule spend is incomplete(?: \(([^)]*)\))?/.exec(line);
+    if (ruleSpend !== null) {
+      put(`${question}.jev-rule.rule.spend`, INCOMPLETE);
+      if (ruleSpend[1] !== undefined) putMissing(`${question}.jev-rule.rule.spend`, ruleSpend[1], put);
+    }
   }
   return figures;
 }
 
-function parseTableRow(
-  section: string,
-  question: string,
-  comparison: string,
-  header: readonly string[],
-  cells: readonly string[],
-  put: (key: string, value: string) => void,
-): void {
+function parseTableRow(section: string, question: string, comparison: string, header: readonly string[], cells: readonly string[], put: Put): void {
   const first = cells[0] ?? "";
   if (section === "Correct answers") {
     header.forEach((q, i) => {
@@ -419,14 +554,19 @@ function parseTableRow(
   if (section === "Every row, by hand") {
     const [caseId, q] = first.split(/\s+/);
     header.forEach((name, i) => {
-      const who = ANSWERER_BY_HEADING.get(name);
+      const who = ANSWERER_BY_NAME.get(name);
       if (who === undefined) return;
-      const cell = /^(\S+) ([AR-])(?: \((.*)\))?$/.exec(cells[i] ?? "");
-      if (cell === null) throw new Error(`cannot read row cell "${cells[i] ?? ""}"`);
       const key = `row.${caseId ?? ""}.${q ?? ""}.${who}`;
+      const cell = /^(\S+) ([AR-])(?: \((.*)\))?$/.exec(cells[i] ?? "");
+      if (cell === null) {
+        put(`${key}.note`, cells[i] ?? "");
+        return;
+      }
       put(`${key}.output`, cell[1] ?? "");
       put(`${key}.label`, cell[2] ?? "");
-      if ((cell[3] ?? "").includes("cost missing")) put(`${key}.cost`, "missing");
+      const note = cell[3];
+      if (note === "cost missing") put(`${key}.cost`, "missing");
+      else if (!(note === undefined || (note === "unlabelled" && cell[2] === "-"))) put(`${key}.note`, note);
     });
     return;
   }
@@ -434,10 +574,17 @@ function parseTableRow(
     const who = first;
     header.forEach((name, i) => {
       const cell = cells[i] ?? "";
-      if (name === "Rows") put(`file.${who}.rows`, cellFigure(cell).value);
-      if (name === "Labelled") put(`file.${who}.labelled`, cellFigure(cell).value);
-      if (name === "Accepted") put(`file.${who}.accepted`, cellFigure(cell).value);
-      if (name.startsWith("Spend")) put(`file.${who}.spend`, cell.startsWith(INCOMPLETE) ? INCOMPLETE : cellFigure(cell).value);
+      const metric = name === "Rows" ? "rows" : name === "Labelled" ? "labelled" : name === "Accepted" ? "accepted" : name.startsWith("Spend") ? "spend" : "";
+      if (metric === "") return;
+      if (metric === "spend" && cell.startsWith(INCOMPLETE)) {
+        put(`file.${who}.spend`, INCOMPLETE);
+        const note = /^incomplete(?: \((.*)\))?$/.exec(cell);
+        if (note === null) put(`file.${who}.spend.note`, cell);
+        else if (note[1] !== undefined) putMissing(`file.${who}.spend`, note[1], put);
+        return;
+      }
+      const note = putMetric(`file.${who}.${metric}`, metric, cell, put);
+      if (note !== "") put(`file.${who}.${metric}.note`, note);
     });
     return;
   }
@@ -445,12 +592,13 @@ function parseTableRow(
     const metric = METRIC_BY_ROW.get(first);
     if (metric === undefined) throw new Error(`unknown row "${first}" in ${question}`);
     header.forEach((name, i) => {
-      const who = ANSWERER_BY_HEADING.get(name);
+      const who = ANSWERER_BY_NAME.get(name);
       if (who === undefined) return;
-      const { value, note } = cellFigure(cells[i] ?? "");
-      put(`${question}.${comparison}.${who}.${metric}`, value);
+      const key = `${question}.${comparison}.${who}.${metric}`;
+      const note = putMetric(key, metric, cells[i] ?? "", put);
       const rejects = /^rejects (.+)$/.exec(note);
-      if (metric === "accepted" && rejects !== null) put(`${question}.${comparison}.${who}.rejects`, caseList(rejects[1] ?? "") ?? "");
+      if (metric === "accepted" && rejects !== null) put(`${question}.${comparison}.${who}.rejects`, rejects[1] ?? "");
+      else if (note !== "") put(`${key}.note`, note);
     });
   }
 }
@@ -458,18 +606,40 @@ function parseTableRow(
 // ---------------------------------------------------------------------------------------------
 // Comparison
 
-function canonical(value: number | string): string {
+function sortedIds(values: readonly string[]): string {
+  return [...values].map((v) => v.trim()).sort().join(",");
+}
+
+function canonical(value: FigureValue): string {
   if (typeof value === "string") return value;
+  if (typeof value !== "number") return sortedIds(value);
   if (!Number.isFinite(value)) return String(value);
   return String(Number(value.toPrecision(12)));
 }
 
-/** A computed number matches a stated one when it rounds to the stated text at the stated decimal places. */
-function render(computed: number | string, expected: string): string {
-  const decimals = /^-?\d+(?:\.(\d+))?$/.exec(expected);
-  if (typeof computed === "string" || decimals === null || !Number.isFinite(computed)) return canonical(computed);
-  const text = computed.toFixed((decimals[1] ?? "").length);
-  return /^-0(?:\.0+)?$/.test(text) ? text.slice(1) : text;
+/** A stated number: a decimal or a fraction like 1/80. */
+function statedNumber(text: string): number | null {
+  if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
+  const fraction = /^(\d+)\/(\d+)$/.exec(text);
+  return fraction === null ? null : Number(fraction[1]) / Number(fraction[2]);
+}
+
+/**
+ * Fixed precision, never taken from the stated text: equal within 1e-9 relative, or equal to the
+ * computed value rounded to 3 significant figures (how expected.md writes 0.0000267 and 0.00267).
+ */
+function sameNumber(stated: number, computed: number): boolean {
+  if (stated === computed) return true;
+  if (!Number.isFinite(computed)) return false;
+  if (Math.abs(stated - computed) <= 1e-9 * Math.max(Math.abs(stated), Math.abs(computed))) return true;
+  return Number(computed.toPrecision(3)) === stated;
+}
+
+function matches(expected: string, computed: FigureValue): boolean {
+  if (typeof computed !== "number" && typeof computed !== "string") return sortedIds(expected.split(",")) === sortedIds(computed);
+  const stated = statedNumber(expected);
+  if (stated !== null) return typeof computed === "number" && sameNumber(stated, computed);
+  return expected === computed;
 }
 
 export function compareFigures(expected: ReadonlyMap<string, string>, computed: ReadonlyMap<string, Figure>): CheckResult {
@@ -477,8 +647,8 @@ export function compareFigures(expected: ReadonlyMap<string, string>, computed: 
   if (expected.size === 0) mismatches.push({ key: "(expected.md)", expected: "(no figures)", computed: `${computed.size} figures` });
   for (const [key, value] of expected) {
     const figure = computed.get(key);
-    const got = figure === undefined ? "(not computed)" : render(figure.value, value);
-    if (got !== value) mismatches.push({ key, expected: value, computed: got });
+    if (figure === undefined) mismatches.push({ key, expected: value, computed: "(no computed value)" });
+    else if (!matches(value, figure.value)) mismatches.push({ key, expected: value, computed: canonical(figure.value) });
   }
   for (const [key, figure] of computed) {
     if (figure.required && !expected.has(key)) mismatches.push({ key, expected: "(not stated)", computed: canonical(figure.value) });
@@ -490,9 +660,9 @@ export function handCheck(recordsText: string, expectedText: string): CheckResul
   return compareFigures(parseExpected(expectedText), computeFigures(loadRecords(recordsText)));
 }
 
-/** Every module specifier this source imports, re-exports, dynamically imports or requires. */
+/** Every module specifier this source imports statically, re-exports, or imports for side effects. */
 export function importSpecifiers(source: string): string[] {
-  const pattern = /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|^\s*import\s+)["']([^"']+)["']/gm;
+  const pattern = /(?:\bfrom\s*|^\s*import\s+)["']([^"']+)["']/gm;
   return [...source.matchAll(pattern)].map((m) => m[1] ?? "");
 }
 

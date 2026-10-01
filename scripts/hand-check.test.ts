@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { compareFigures, computeFigures, handCheck, importSpecifiers, loadRecords, parseExpected } from "./hand-check.ts";
+import { compareFigures, computeFigures, handCheck, importSpecifiers, loadRecords, parseCsv, parseExpected } from "./hand-check.ts";
 
 const RECORDS = fileURLToPath(new URL("../examples/d06-tiny/records.csv", import.meta.url));
 const EXPECTED = fileURLToPath(new URL("../examples/d06-tiny/expected.md", import.meta.url));
@@ -77,29 +77,96 @@ describe("hand check of d06", () => {
     expect(result.mismatches.length).toBeGreaterThan(0);
   });
 
+  // Independence rule, kept textual so a comment or odd syntax cannot hide an import: the source
+  // never contains "src/" anywhere (comments included), never calls import() or require(), and
+  // every static import names a node: built-in.
   test("[unit] R5.h hand check imports nothing from src/core", () => {
-    const specifiers = importSpecifiers(readFileSync(SOURCE, "utf8"));
+    const source = readFileSync(SOURCE, "utf8");
+    expect(source.includes("src/")).toBe(false);
+    expect(/\bimport\s*\(/.test(source)).toBe(false);
+    expect(/\brequire\s*\(/.test(source)).toBe(false);
+    const specifiers = importSpecifiers(source);
     expect(specifiers.length).toBeGreaterThan(0);
-    expect(specifiers.filter((s) => s.includes("src/core") || s.includes("core/"))).toEqual([]);
     expect(specifiers.filter((s) => !s.startsWith("node:"))).toEqual([]);
   });
 
-  test("[unit] R5.h import scan sees static, dynamic and require imports", () => {
+  test("[unit] R5.h import scan sees static imports, re-exports and side-effect imports", () => {
     const sample = [
-      'import { a } from "../src/core/calc.ts";',
-      "import type { B } from '../src/core/verdict.ts';",
+      'import { a } from "../lib/calc.ts";',
+      "import type { B } from '../lib/verdict.ts';",
       'export { c } from "./c.ts";',
-      'const d = await import("../src/core/d.ts");',
-      'const e = require("node:path");',
       'import "./side-effect.ts";',
     ].join("\n");
-    expect(importSpecifiers(sample)).toEqual([
-      "../src/core/calc.ts",
-      "../src/core/verdict.ts",
-      "./c.ts",
-      "../src/core/d.ts",
-      "node:path",
-      "./side-effect.ts",
-    ]);
+    expect(importSpecifiers(sample)).toEqual(["../lib/calc.ts", "../lib/verdict.ts", "./c.ts", "./side-effect.ts"]);
+  });
+});
+
+/** Apply one replacement to expected.md (it must hit) and return the mismatch keys. */
+function plantedKeys(from: string, to: string): string[] {
+  const planted = expectedText.replace(from, to);
+  expect(planted).not.toBe(expectedText);
+  return handCheck(recordsText, planted).mismatches.map((m) => m.key);
+}
+
+describe("hand check catches planted changes", () => {
+  test("[unit] R5.h figures use a fixed precision, not the stated one: $0 for a non-zero cost fails", () => {
+    expect(plantedKeys("| Cost per accepted | 0.0001 / 4 = $0.000025 |", "| Cost per accepted | 0.0001 / 4 = $0 |")).toContain("q1.jev-llm.jev.cost_per_accepted");
+    expect(plantedKeys("0.008 / 3 = $0.00267", "0.008 / 3 = $0.003")).toContain("q2.jev-llm.llm.cost_per_accepted");
+  });
+
+  test("[unit] R5.h the operands before the = are checked", () => {
+    expect(plantedKeys("| Accept rate | 4/5 = 0.8 |", "| Accept rate | 9/5 = 0.8 |")).toContain("q1.jev-llm.jev.accept_rate.num");
+    expect(plantedKeys("| Accept rate | 4/5 = 0.8 |", "| Accept rate | 8/10 = 0.8 |")).toContain("q1.jev-llm.jev.accept_rate.den");
+    expect(plantedKeys("| Spend | 5 x 0.00002 = $0.0001 |", "| Spend | 6 x 0.00002 = $0.0001 |")).toContain("q1.jev-llm.jev.spend.n");
+    expect(plantedKeys("| Spend | 5 x 0.00002 = $0.0001 |", "| Spend | 5 x 0.00003 = $0.0001 |")).toContain("q1.jev-llm.jev.spend.unit");
+    expect(plantedKeys("0.0001 / 4 = $0.000025", "0.0002 / 8 = $0.000025")).toContain("q1.jev-llm.jev.cost_per_accepted.num");
+    expect(plantedKeys("0.0001 / 4 = $0.000025", "0.0002 / 8 = $0.000025")).toContain("q1.jev-llm.jev.cost_per_accepted.den");
+    expect(plantedKeys("| 10 x 0.00002 = $0.0002 |", "| 11 x 0.00002 = $0.0002 |")).toContain("file.jev.spend.n");
+    expect(plantedKeys("0.000025 / 0.002 = **1/80", "0.00005 / 0.004 = **1/80")).toContain("q1.jev-llm.cost_ratio.num");
+    expect(plantedKeys("**1/80 = 0.0125**", "**1/81 = 0.0125**")).toContain("q1.jev-llm.cost_ratio.fraction");
+  });
+
+  test("[unit] R5.h the threshold, paired case ids and missing-cost rows are checked", () => {
+    expect(plantedKeys("fewer than 30", "fewer than 300")).toContain("q1.verdict.threshold");
+    expect(plantedKeys("(cv1, cv3, cv4, cv5;", "(cv1, cv2, cv4, cv5;")).toContain("q2.jev-llm.paired.cases");
+    expect(plantedKeys("(cv1 to cv5)", "(cv1 to cv4)")).toContain("q1.jev-llm.paired.cases");
+    expect(plantedKeys("cv2 drops out", "cv3 drops out")).toContain("q2.jev-llm.dropped.cases");
+    expect(plantedKeys("incomplete (cv5 q2 missing)", "incomplete (cv4 q2 missing)")).toContain("file.rule.spend.missing");
+    expect(plantedKeys("Rule spend is incomplete (cv5 missing)", "Rule spend is incomplete (cv4 missing)")).toContain("q2.jev-rule.rule.spend.missing");
+    expect(plantedKeys("the rule row for cv5 q2 has no cost", "the rule row for cv4 q2 has no cost")).toContain("file.cost_missing");
+    expect(plantedKeys("the LLM row for cv2 q2 has no label", "the LLM row for cv1 q2 has no label")).toContain("file.unlabelled");
+    expect(plantedKeys("fixture of 30 or more", "fixture of 20 or more")).toContain("file.min_paired");
+  });
+
+  test("[unit] R5.h an annotation that does not parse is a mismatch", () => {
+    expect(plantedKeys("a = 2 (cv2, cv3)", "a = 2 (cv2, cv999, bogus)")).toContain("q1.jev-rule.a.cases");
+    expect(plantedKeys("| 4 (rejects cv4) |", "| 4 (approx) |")).toContain("q1.jev-llm.jev.accepted.note");
+    expect(plantedKeys("| yes R (cost missing) |", "| yes R (cost unknown) |")).toContain("row.cv5.q2.rule.note");
+  });
+
+  test("[unit] R5.h case lists compare as sets, so order does not matter", () => {
+    const reordered = expectedText.replace("a = 2 (cv2, cv3)", "a = 2 (cv3, cv2)");
+    expect(reordered).not.toBe(expectedText);
+    expect(handCheck(recordsText, reordered).mismatches).toEqual([]);
+  });
+
+  test("[unit] R5.h a stated figure with no computed value is always a mismatch", () => {
+    const result = compareFigures(new Map([["x.y", "(not computed)"]]), new Map());
+    expect(result.mismatches).toEqual([{ key: "x.y", expected: "(not computed)", computed: "(no computed value)" }]);
+  });
+
+  test("[unit] R5.h markdown alignment delimiters are not read as data", () => {
+    const aligned = expectedText.replace("|---|---|---|---|---|", "|:---|---:|:---:|---|---|");
+    expect(aligned).not.toBe(expectedText);
+    expect(handCheck(recordsText, aligned).mismatches).toEqual([]);
+  });
+});
+
+describe("hand check CSV", () => {
+  test("[unit] R5.h malformed CSV quoting is an error, not repaired", () => {
+    expect(() => parseCsv('a,n"o"\n')).toThrow();
+    expect(() => parseCsv('a,"x"y\n')).toThrow();
+    expect(() => parseCsv('a,"x\n')).toThrow();
+    expect(parseCsv('a,"x ""q"", y"\r\nb,\n')).toEqual([["a", 'x "q", y'], ["b", ""]]);
   });
 });

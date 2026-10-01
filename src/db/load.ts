@@ -10,7 +10,7 @@ import { basename } from "node:path";
 import { Writable } from "node:stream";
 import postgres from "postgres";
 import schemaJson from "../../format/record-v1.schema.json";
-import { pyStrRepr } from "../format/pyrepr.ts";
+import { quoteText } from "../format/quote.ts";
 import { COLUMNS, decodeUtf8, validate, type ParsedRow } from "../format/validate.ts";
 import type { Db, Query } from "./connect.ts";
 import { adjusted, isAboveOne, isZero, parseDecimal } from "./decimal.ts";
@@ -64,7 +64,7 @@ export function storageErrors(rows: readonly ParsedRow[]): string[] {
     }
     for (const column of PATTERN_COLUMNS) {
       const value = raw(row, column);
-      if (value.endsWith("\n")) errors.push(`line ${line}: ${column}: ${pyStrRepr(value)} ends with a line break`);
+      if (value.endsWith("\n")) errors.push(`line ${line}: ${column}: ${quoteText(value)} ends with a line break`);
     }
     for (const column of INTEGER_COLUMNS) {
       const value = raw(row, column);
@@ -113,7 +113,7 @@ export function withholdText(errors: readonly string[], rows: readonly ParsedRow
 /** Create a restricted workspace if it does not exist (the loader role may do this). */
 export async function ensureWorkspace(sql: Query, workspace: string): Promise<void> {
   if (!/^[a-z0-9-]{1,64}$/.test(workspace)) {
-    throw new LoadError([`workspace ${pyStrRepr(workspace)} must match [a-z0-9-]{1,64}`]);
+    throw new LoadError([`workspace ${quoteText(workspace)} must match [a-z0-9-]{1,64}`]);
   }
   await sql`insert into jnj.workspace (slug) values (${workspace}) on conflict (slug) do nothing`;
 }

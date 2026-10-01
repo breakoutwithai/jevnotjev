@@ -57,5 +57,43 @@ A value that is present but malformed (`about a cent`, confidence `1.5`, answer 
 - The file format: `format_version` in every row. A renamed, removed or re-typed column ships as `jnj-record/2` with its own schema; `/1` files keep validating.
 - The question: rewording a question under the same `prompt_version` is an error, so every answer can be traced to the exact wording that produced it.
 
+## Message contract
+Validator and loader output is part of the format: scripts and people match on it, so a change to any rule below is a change to the format's output. Code: [src/format/quote.ts](../src/format/quote.ts), [validate.ts](../src/format/validate.ts), [schema.ts](../src/format/schema.ts). Tests: `src/format/*.test.ts`, `src/db/tests/`.
+
+### Output lines and exit codes
+- Order: every `ERROR <message>`, then every `GAP <message>`, then (only when there are no errors) one summary line per answerer, then the verdict line.
+- Summary: `<answerer>: rows=<n> labelled=<n> accepted=<n> cost=<total>`, answerers sorted by code point. `<total>` is `$` plus the sum to six decimal places (`$0.000005`), or `incomplete` when any row of that answerer has no cost.
+- Verdict: `VALID rows=<n> cases=<n> errors=<n> gaps=<n>`, or `INVALID ...` with the same fields.
+- Exit codes: 0 valid (gaps allowed), 1 invalid or unreadable, 2 wrong command line. The validator prints its usage text to stdout on exit 2; the db commands print the usage line and `error: <message>` to stderr.
+- A file that is not strict UTF-8: `ERROR cannot read <path> in UTF-8: <reason>`, exit 1. A byte order mark is kept as text, so it shows up in the first header name.
+
+### Where a message points
+- `line <n>` is the physical line, counting the header as line 1, on which the record ends. A quoted line break inside a cell moves it on; blank lines are skipped but still counted.
+- Header problems stop the check before any row is read: `header: duplicate column names [...]`, `header: missing columns [...]`, `header: unknown columns [...]`.
+- `line <n>: row has more cells than the header` / `fewer cells`; `file has no data rows`.
+- A schema error: `line <n>: <column>: <message>`, or `line <n>: row: <message>` for a whole-row rule. A row's schema errors come in schema order (keywords in document order, depth first); a row with any schema error gets no cross-row checks.
+- Cross-row errors: `line <n>: output <value> is not in answer_set <value>`, `line <n>: duplicate row for run <run_id> (<case_id>, <question_id>, <answerer>)`, `line <n>: case_input differs from the first row for case_id <case_id>`, `line <n>: question <question_id> changed within prompt_version <prompt_version>; give the new wording a new prompt_version`.
+- Gaps: `line <n>: cost_usd missing (<case_id>, <question_id>, <answerer>)`, `line <n>: unlabelled (...)`.
+- Loader (values the validator accepts but the database cannot store): `line <n>: <column>: <value> ends with a line break` for a pattern-checked text column, `line <n>: <column>: contains a NUL character, which the database cannot store`, `line <n>: confidence: <text> is above 1`, plus integer and decimal range messages; and `workspace <value> must match [a-z0-9-]{1,64}`. A database error prints as `ERROR database error <SQLSTATE>`, never with the connection string or a cell.
+
+### Schema messages
+`<value> is not of type 'string', 'null'` · `<value> is not one of [...]` · `<value> was expected` · `<text> does not match <pattern>` · `<text> should be non-empty` (minLength 1) / `is too short` · `<text> is expected to be empty` (maxLength 0) / `is too long` · `<number> is less than the minimum of <bound>` · `<number> is greater than the maximum of <bound>` · `<name> is a required property` · `Additional properties are not allowed (<names> was|were unexpected)` with names sorted · `False schema does not allow <value>`. A whole row in a message prints as `{...}`.
+
+### How a value prints
+- Text is quoted: single quotes, or double quotes when the text holds `'` and no `"` (`"it's"`). The chosen quote and `\` are escaped with `\`; tab, newline and carriage return print as `\t`, `\n`, `\r`; other control and non-printable characters (format, private-use, unassigned, line/paragraph separators, any space but U+0020) print as `\xNN` up to U+00FF, `\uNNNN` up to U+FFFF, else `\UNNNNNNNN`. Everything else, including accented letters and emoji, prints as itself.
+- An empty cell is null and prints as `None`.
+- An integer cell (`tokens_in`, `tokens_out`, `latency_ms`) prints bare: `42`.
+- A number cell (`confidence`, `cost_usd`) is a float: the shortest digits that read back to the same value, always with a point (`1.0`, `0.0001`). Below `1e-4` or from `1e16` up it prints in exponent form with a sign and at least two exponent digits (`1e-05`, `1e+16`, `1.5e+300`). Negative zero is `-0.0`.
+- A schema bound prints bare when it is a whole number (`minimum of 0`, not `0.0`).
+- A list prints as `[a, b]` with each item formatted as above: `['label']`.
+- Numbers compare exactly: `1` equals `1.0`, and a large integer is never rounded to a float before comparing.
+- A pattern matches anywhere in the text; an unescaped `$` outside a character class also matches just before a final line break. An integer or number cell may likewise end in one line break, which is trimmed before parsing.
+- Text length counts code points, not UTF-16 units.
+
+### CSV
+- Comma-separated, `"` quotes a field, `""` is a quote inside a quoted field. A line ends at `\n`, `\r\n` or a lone `\r`.
+- A stray quote is kept as text, not rejected: `a"b"` reads as `a"b"`, `"ab"cd` as `abcd`; an unterminated quoted field runs to the end of the file.
+- Writing quotes a field only when it holds `,`, `"`, `\r` or `\n`; a row that is one empty field is written `""`.
+
 ## Sample data
 Every message, answer, model, token count and price in `example-v1.csv` is invented. `example-llm` is not a real model. No real user data.

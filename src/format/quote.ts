@@ -1,4 +1,5 @@
-// Python repr() for the values the validator quotes, so messages match the Python original byte for byte.
+// How validator and loader messages show a value: quoted text, numbers, null and lists. The message
+// contract in format/README.md states these rules; changing one changes every message that quotes a value.
 // Pure: no Node or Bun APIs, the browser imports it.
 
 const NOT_PRINTABLE = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}\p{Zs}]/u;
@@ -7,8 +8,12 @@ function hex(codePoint: number, width: number): string {
   return codePoint.toString(16).padStart(width, "0");
 }
 
-/** repr(str): single quotes unless the text holds ' and no ", escapes the way CPython does. */
-export function pyStrRepr(text: string): string {
+/**
+ * Quote text for a message: single quotes, or double quotes when the text holds ' and no ". The
+ * chosen quote and \ are backslash-escaped; tab, newline and carriage return print as \t \n \r; other
+ * control and non-printable characters print as \xNN, \uNNNN or \UNNNNNNNN. Everything else is literal.
+ */
+export function quoteText(text: string): string {
   const quote = text.includes("'") && !text.includes('"') ? '"' : "'";
   let out = quote;
   for (const char of text) {
@@ -26,8 +31,12 @@ export function pyStrRepr(text: string): string {
   return out + quote;
 }
 
-/** repr(float): shortest round-trip digits, fixed notation for exponents -4..15, else 1e+16 style. */
-export function pyFloatRepr(value: number): string {
+/**
+ * A float in a message: the shortest digits that read back to the same value, always with a decimal
+ * point (1.0). Below 1e-4 or from 1e16 up it prints in exponent form with a sign and at least two
+ * exponent digits (1e-05, 1e+16). nan, inf and -inf are spelled out; negative zero is -0.0.
+ */
+export function formatFloat(value: number): string {
   if (Number.isNaN(value)) return "nan";
   if (value === Infinity) return "inf";
   if (value === -Infinity) return "-inf";
@@ -47,8 +56,8 @@ export function pyFloatRepr(value: number): string {
   return `${sign}${digits.slice(0, 1)}${rest ? "." + rest : ""}e${exponent < 0 ? "-" : "+"}${magnitude}`;
 }
 
-/** f"{value:.6f}" for a float. */
-export function pyFixed6(value: number): string {
+/** A float fixed at six decimal places (the summary's cost total), nan / inf / -inf spelled out. */
+export function formatFixed6(value: number): string {
   if (Number.isNaN(value)) return "nan";
   if (!Number.isFinite(value)) return value > 0 ? "inf" : "-inf";
   if (Math.abs(value) >= 1e21) return `${BigInt(value).toString()}.000000`;
@@ -56,17 +65,17 @@ export function pyFixed6(value: number): string {
   return Object.is(value, -0) || (value < 0 && !fixed.startsWith("-")) ? "-" + fixed : fixed;
 }
 
-export type PyScalar = null | string | number | bigint;
+export type Scalar = null | string | number | bigint;
 
-/** repr() of None, str, float (number) or int (bigint). */
-export function pyRepr(value: PyScalar): string {
+/** A cell value in a message: null prints as None, text is quoted, an integer (bigint) prints bare, a float as formatFloat. */
+export function formatValue(value: Scalar): string {
   if (value === null) return "None";
-  if (typeof value === "string") return pyStrRepr(value);
+  if (typeof value === "string") return quoteText(value);
   if (typeof value === "bigint") return value.toString();
-  return pyFloatRepr(value);
+  return formatFloat(value);
 }
 
-/** repr(list) of scalars. */
-export function pyListRepr(values: readonly PyScalar[]): string {
-  return `[${values.map(pyRepr).join(", ")}]`;
+/** A list in a message: [a, b] with each item shown as formatValue shows it. */
+export function formatList(values: readonly Scalar[]): string {
+  return `[${values.map(formatValue).join(", ")}]`;
 }

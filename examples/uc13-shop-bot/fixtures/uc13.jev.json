@@ -1,0 +1,1807 @@
+{
+ "schema": "jnj-jev-fixture/1",
+ "model": "jev-1.13.0",
+ "captured_utc": "2026-10-01T17:29:02.546Z",
+ "entries": [
+  {
+   "case_id": "m01",
+   "request_sha256": "a0cb97c636cb9023d3cb65cfc2dd81fa62a3e994f45d2fce0f6a311650a7aa52",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nWhat will the snow be like on Friday?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 1,
+       "answer": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 772,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 726,
+   "utc": "2026-10-01T17:28:59.485Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 772,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m02",
+   "request_sha256": "be128edb8df2d8a8b0e6db929682c354f0b59c0e035b040c918f1e0836ef6ebd",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nDo you sell helmets?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 0.21,
+      "probabilities": {
+       "hand_off": 0.61,
+       "answer": 0.39
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 768,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 348,
+   "utc": "2026-10-01T17:28:59.108Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 768,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m03",
+   "request_sha256": "80cb10e6d5b92db46b6cbc85dbcfffbab2623c9ecfec4624a844a828c3685683",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nHow much would 3 days of resort skis cost?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 0.96,
+      "probabilities": {
+       "answer": 0.98,
+       "hand_off": 0.02
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 774,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 343,
+   "utc": "2026-10-01T17:28:59.102Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 774,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m04",
+   "request_sha256": "0643d733761232770934deea91d82bef4f2bd6084c1fbc2ca15d968b7b133773",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nDo you have women's boots in size 6?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 1,
+       "answer": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 774,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 328,
+   "utc": "2026-10-01T17:28:59.088Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 774,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m05",
+   "request_sha256": "955c864b1ee48ccda4a18b74447b2113933fe7fd52656cc093a25adc2ea8ef0f",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nWhat's your phone number?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 0,
+       "answer": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 769,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 326,
+   "utc": "2026-10-01T17:28:59.414Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 769,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m06",
+   "request_sha256": "ee4fbf804afc97911ea8cf4291720ef93f1f0060764b7dc902f287d62adeff4e",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nDo you do a discount if I rent for a week?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 0.97,
+      "probabilities": {
+       "hand_off": 0.01,
+       "answer": 0.99
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 775,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 323,
+   "utc": "2026-10-01T17:28:59.426Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 775,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m07",
+   "request_sha256": "f8211f0a5470232152cd034baaf35f2a24517e12abed41f87310a12ad5c79b7f",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nWhat size junior skis do you have for a 3-year-old?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 0.86,
+      "probabilities": {
+       "answer": 0.07,
+       "hand_off": 0.93
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 777,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 311,
+   "utc": "2026-10-01T17:28:59.419Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 777,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m08",
+   "request_sha256": "7cf4b46baec464cb5ce2b6f60ac2d6b38e3808bd1ab359a619eba03fde355ab2",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nHow much is a quick wax?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 0,
+       "answer": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 770,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 329,
+   "utc": "2026-10-01T17:28:59.743Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 770,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m09",
+   "request_sha256": "fb640d2a5ac3a3949a8d6bd0bfcfb190c733de95cfca9699c65f380248627823",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nCan someone show me how to use the avalanche beacon before I head out?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 0.97,
+      "probabilities": {
+       "hand_off": 0.99,
+       "answer": 0.01
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 778,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 362,
+   "utc": "2026-10-01T17:28:59.781Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 778,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m10",
+   "request_sha256": "2b0b1532f39366595aaebc7938103d61f653c1d6a58c93ddbeff0fd487cd97e1",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nI booked online last night. Is my order confirmed?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "answer": 0,
+       "hand_off": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 774,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 355,
+   "utc": "2026-10-01T17:28:59.781Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 774,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m11",
+   "request_sha256": "91b82ae9f6b3eda3dbac183734ea2eac21c7fc88b432a2d900b7fe44d763553a",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nMy friend hurt her knee on your rental skis. The binding didn't release.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 1,
+       "answer": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 779,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 390,
+   "utc": "2026-10-01T17:28:59.875Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 779,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m12",
+   "request_sha256": "7107252775c8eb03d8e4c27c0840a8b0580becf28aad73f1e6d645e8bc0ff2c6",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nHow long does pickup take in the morning?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 0.97,
+      "probabilities": {
+       "answer": 0.99,
+       "hand_off": 0.01
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 772,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 350,
+   "utc": "2026-10-01T17:29:00.094Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 772,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m13",
+   "request_sha256": "c91028c3d65a296f9f41e7e4407b506212a37dab1cfa1a823f26f6d7b6416bcb",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nDo you price match other shops in Larchfield?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 1,
+       "answer": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 775,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 481,
+   "utc": "2026-10-01T17:29:00.262Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 775,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m14",
+   "request_sha256": "c19a8efa097205d11e23092c2a67dbdeda2abba3e15bb6eb346c3e3bf44351e5",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nWhat comes with the splitboard package?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 0.99,
+      "probabilities": {
+       "answer": 1,
+       "hand_off": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 773,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 465,
+   "utc": "2026-10-01T17:29:00.246Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 773,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m15",
+   "request_sha256": "5f23ba02ea9f517ae63f9648e905dc5e50b161ea49dbfd754f53caeb03ff6b29",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nWhich brands of demo skis do you carry?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 0.99,
+      "probabilities": {
+       "answer": 1,
+       "hand_off": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 772,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 322,
+   "utc": "2026-10-01T17:29:00.197Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 772,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m16",
+   "request_sha256": "0e13c0e57dbcdebdccfd184a1ac85da12b0cdb60f6584a36eb49e779bf5dbade",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nWhat time do you open in the morning?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 0,
+       "answer": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 772,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 395,
+   "utc": "2026-10-01T17:29:00.488Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 772,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m17",
+   "request_sha256": "f7de5c5668a916a0d9e4c2d4e66df25c02cf97dcddc91bad75b6ec911d236228",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nWe're a group of 12. Is there a group rate?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 0.91,
+      "probabilities": {
+       "hand_off": 0.96,
+       "answer": 0.04
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 778,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 328,
+   "utc": "2026-10-01T17:29:00.525Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 778,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m18",
+   "request_sha256": "3a460a1ddfd405979892e0e416a944bc85038fcee720518e0ee1585921d67c63",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nWhat's the deposit to rent demo skis?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 0.99,
+      "probabilities": {
+       "hand_off": 0.99,
+       "answer": 0.01
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 772,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 354,
+   "utc": "2026-10-01T17:29:00.601Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 772,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m19",
+   "request_sha256": "9e06875af5b803241c5f1656bd291c876a22aa2598613f19d3532f95f806f1ed",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nI was charged twice on my card for Tuesday's rental.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "answer": 0,
+       "hand_off": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 775,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 345,
+   "utc": "2026-10-01T17:29:00.606Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 775,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m20",
+   "request_sha256": "d4656ff7162e1137cd43a946254857a79505cf465db183a070d537881e0092c2",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nYou told me on the phone my skis would be ready at 8 and they weren't.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 0.98,
+      "probabilities": {
+       "answer": 0.01,
+       "hand_off": 0.99
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 782,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 383,
+   "utc": "2026-10-01T17:29:00.871Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 782,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m21",
+   "request_sha256": "36b5bf70d7511396d5de1b99fad46d2ccead2155dbfcc0b81bcb41a639e94379",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nWhat ages is the junior package for?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 0.97,
+      "probabilities": {
+       "hand_off": 0.02,
+       "answer": 0.98
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 771,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 329,
+   "utc": "2026-10-01T17:29:00.854Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 771,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m22",
+   "request_sha256": "6efbf4403405914ead48780054119399a00607e1e73dd6d3e84aa89b972077ee",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nCan my kid change ski size if the junior ones don't fit?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 0.76,
+      "probabilities": {
+       "answer": 0.88,
+       "hand_off": 0.12
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 777,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 359,
+   "utc": "2026-10-01T17:29:00.960Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 777,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m23",
+   "request_sha256": "184b7dff85d9b9929286a6662fdd5754b5abf356cbacc424bdfcd6ef38d0d736",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nCan I cancel my rental for next week and get a refund?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 1,
+       "answer": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 776,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 321,
+   "utc": "2026-10-01T17:29:00.927Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 776,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m24",
+   "request_sha256": "d6616fc331115fe963059f9c4bcf904e0f3302963234a9450505eabca1002bc5",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nWhere are your shops?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 0.98,
+      "probabilities": {
+       "hand_off": 0.01,
+       "answer": 0.99
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 768,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 396,
+   "utc": "2026-10-01T17:29:01.250Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 768,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m25",
+   "request_sha256": "a32759834187b8f3525ad182c9ab4e9a072b979fa5d970fa1ce6c3fafc6f723c",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nDo you rent avalanche gear, and how much is it?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 1,
+      "probabilities": {
+       "answer": 1,
+       "hand_off": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 775,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 326,
+   "utc": "2026-10-01T17:29:01.197Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 775,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m26",
+   "request_sha256": "131f436b84afca378427105d7eabc1cf075ed5e5c92bfc6ca1099217794c9a34",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nDo you rent snowshoes?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 0.42,
+      "probabilities": {
+       "answer": 0.29,
+       "hand_off": 0.71
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 771,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 353,
+   "utc": "2026-10-01T17:29:01.281Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 771,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m27",
+   "request_sha256": "4aeac4928a659058f8834063b2c4dfb4608e963f2b7627c29657c13acdba4fd3",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nWhat's the daily price for the Corvo Freeride 106?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 0,
+       "answer": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 780,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 323,
+   "utc": "2026-10-01T17:29:01.283Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 780,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m28",
+   "request_sha256": "573eb0af04e5f5cd0752725cc259ec32befc0eb70597e32c21d309688a666a55",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nIf I drop my board off at 4pm can I have it back for first chair tomorrow?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 0.26,
+      "probabilities": {
+       "answer": 0.37,
+       "hand_off": 0.63
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 783,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 315,
+   "utc": "2026-10-01T17:29:01.512Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 783,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m29",
+   "request_sha256": "39c533301c0d6d992ac249876a88abee8df84370656794c5786571becff9f7a0",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nHow much is a recreational ski rental per day?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 0,
+       "answer": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 773,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 351,
+   "utc": "2026-10-01T17:29:01.601Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 773,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m30",
+   "request_sha256": "e2fe557530fffd56dec2c3cf3b7aae8efe4ba21692d2034125f1f608c717d720",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nCan you mount bindings on skis I bought somewhere else?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 0.97,
+      "probabilities": {
+       "answer": 0.01,
+       "hand_off": 0.99
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 774,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 375,
+   "utc": "2026-10-01T17:29:01.656Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 774,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m31",
+   "request_sha256": "97d530b0fc18e2580b72911b97908de95d01de8221c453286bc9027af4860f0c",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nCan you reserve two junior packages for December 27?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "answer": 0,
+       "hand_off": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 775,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 337,
+   "utc": "2026-10-01T17:29:01.620Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 775,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m32",
+   "request_sha256": "0f0d4739fd07c566649c6cf7e8283fff35a5ab8384c195038dfcfe5fc99e8888",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nHow much for a full tune with a base weld?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 1,
+      "probabilities": {
+       "answer": 1,
+       "hand_off": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 774,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 371,
+   "utc": "2026-10-01T17:29:01.883Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 774,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m33",
+   "request_sha256": "374a636df4780bd2e2eb7099712bb4d80088e3f029a45b47bed1ea5ddf1628cc",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nIf it dumps overnight can I swap my demo skis for something wider?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 0.78,
+      "probabilities": {
+       "hand_off": 0.89,
+       "answer": 0.11
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 777,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 309,
+   "utc": "2026-10-01T17:29:01.910Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 777,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m34",
+   "request_sha256": "65053759b3605164241aa74b5729833ee697221d8a5ef73befddf2e050a089a3",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nCan I return my gear after you close tonight?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 0,
+       "answer": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 773,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 349,
+   "utc": "2026-10-01T17:29:01.969Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 773,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m35",
+   "request_sha256": "da8ba8e88f2d46646c6f403ff87ca3fab874f41c74add75d80932315b90313d9",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nMy boots started pinching on day two of my trip. What can you do?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 0.8,
+      "probabilities": {
+       "hand_off": 0.1,
+       "answer": 0.9
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 780,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 357,
+   "utc": "2026-10-01T17:29:02.013Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 780,
+    "output_tokens": 33
+   }
+  },
+  {
+   "case_id": "m36",
+   "request_sha256": "57c39c179f81ecdd9da13aca120d318e7dfdf20d64a6cdf1a34a289e5933ee84",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nIs the backcountry safe to ski tomorrow?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "answer": 0,
+       "hand_off": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 774,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 352,
+   "utc": "2026-10-01T17:29:02.235Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 774,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m37",
+   "request_sha256": "671a9e0addfaf1a3c8472f5cca3098a793844027e783d3eb774dfd3adfa90b1c",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nAre there any splitboards left for this weekend?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 1,
+       "answer": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 775,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 348,
+   "utc": "2026-10-01T17:29:02.259Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 775,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m38",
+   "request_sha256": "9bcfbb449abd4ce2bc3a356af4dc24e94f21724416328e19fc484b134170fc55",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nI broke one of your rental skis yesterday. How much will that cost me?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "answer": 0,
+       "hand_off": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 779,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 470,
+   "utc": "2026-10-01T17:29:02.439Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 779,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m39",
+   "request_sha256": "d29072c0a8f200f4a3d13f9b1bbf216f79ab88d9dafa4a76b190384428007e5a",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nDo you have a Freeride 106 in 180cm available this Saturday?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "hand_off",
+      "confidence": 1,
+      "probabilities": {
+       "hand_off": 1,
+       "answer": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 784,
+     "output_tokens": 34
+    }
+   },
+   "latency_ms": 356,
+   "utc": "2026-10-01T17:29:02.370Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 784,
+    "output_tokens": 34
+   }
+  },
+  {
+   "case_id": "m40",
+   "request_sha256": "8411fe9872306200d67acd53d4c5b6bd5a2b3ba01ced7570b9715d95c52a6766",
+   "request": {
+    "state": "Fact sheet:\nShop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.\n\nCustomer message:\nDo you test bindings properly before I take them out?",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?"
+      },
+      "criteria": {
+       "answer": "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+       "hand_off": "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer."
+      }
+     }
+    }
+   },
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "answer",
+      "confidence": 1,
+      "probabilities": {
+       "answer": 1,
+       "hand_off": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 774,
+     "output_tokens": 33
+    }
+   },
+   "latency_ms": 309,
+   "utc": "2026-10-01T17:29:02.544Z",
+   "http": 200,
+   "usage": {
+    "input_tokens": 774,
+    "output_tokens": 33
+   }
+  }
+ ]
+}

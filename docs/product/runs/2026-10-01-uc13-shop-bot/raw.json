@@ -16,10 +16,10 @@
    "case_id": "m02",
    "arm": "jev",
    "model": "jev-1.13.0",
-   "choice": "answer",
+   "choice": "hand_off",
    "probabilities": {
-    "answer": 0.5,
-    "hand_off": 0.5
+    "hand_off": 0.61,
+    "answer": 0.39
    }
   },
   {
@@ -28,8 +28,8 @@
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "hand_off": 0.03,
-    "answer": 0.97
+    "answer": 0.98,
+    "hand_off": 0.02
    }
   },
   {
@@ -48,8 +48,8 @@
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "answer": 1,
-    "hand_off": 0
+    "hand_off": 0,
+    "answer": 1
    }
   },
   {
@@ -68,8 +68,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "answer": 0.04,
-    "hand_off": 0.96
+    "answer": 0.07,
+    "hand_off": 0.93
    }
   },
   {
@@ -78,8 +78,8 @@
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "answer": 1,
-    "hand_off": 0
+    "hand_off": 0,
+    "answer": 1
    }
   },
   {
@@ -88,22 +88,12 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "hand_off": 0.98,
-    "answer": 0.02
+    "hand_off": 0.99,
+    "answer": 0.01
    }
   },
   {
    "case_id": "m10",
-   "arm": "jev",
-   "model": "jev-1.13.0",
-   "choice": "hand_off",
-   "probabilities": {
-    "hand_off": 1,
-    "answer": 0
-   }
-  },
-  {
-   "case_id": "m11",
    "arm": "jev",
    "model": "jev-1.13.0",
    "choice": "hand_off",
@@ -113,13 +103,23 @@
    }
   },
   {
+   "case_id": "m11",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "hand_off": 1,
+    "answer": 0
+   }
+  },
+  {
    "case_id": "m12",
    "arm": "jev",
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "hand_off": 0.04,
-    "answer": 0.96
+    "answer": 0.99,
+    "hand_off": 0.01
    }
   },
   {
@@ -138,8 +138,8 @@
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "hand_off": 0,
-    "answer": 1
+    "answer": 1,
+    "hand_off": 0
    }
   },
   {
@@ -148,8 +148,8 @@
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "answer": 0.99,
-    "hand_off": 0.01
+    "answer": 1,
+    "hand_off": 0
    }
   },
   {
@@ -168,8 +168,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "hand_off": 0.95,
-    "answer": 0.05
+    "hand_off": 0.96,
+    "answer": 0.04
    }
   },
   {
@@ -178,8 +178,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "answer": 0,
-    "hand_off": 1
+    "hand_off": 0.99,
+    "answer": 0.01
    }
   },
   {
@@ -188,8 +188,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "hand_off": 1,
-    "answer": 0
+    "answer": 0,
+    "hand_off": 1
    }
   },
   {
@@ -208,8 +208,8 @@
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "answer": 0.97,
-    "hand_off": 0.03
+    "hand_off": 0.02,
+    "answer": 0.98
    }
   },
   {
@@ -218,8 +218,8 @@
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "answer": 0.86,
-    "hand_off": 0.14
+    "answer": 0.88,
+    "hand_off": 0.12
    }
   },
   {
@@ -228,8 +228,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "answer": 0,
-    "hand_off": 1
+    "hand_off": 1,
+    "answer": 0
    }
   },
   {
@@ -258,8 +258,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "hand_off": 0.69,
-    "answer": 0.31
+    "answer": 0.29,
+    "hand_off": 0.71
    }
   },
   {
@@ -268,8 +268,8 @@
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "answer": 1,
-    "hand_off": 0
+    "hand_off": 0,
+    "answer": 1
    }
   },
   {
@@ -278,8 +278,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "hand_off": 0.59,
-    "answer": 0.41
+    "answer": 0.37,
+    "hand_off": 0.63
    }
   },
   {
@@ -288,8 +288,8 @@
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "answer": 1,
-    "hand_off": 0
+    "hand_off": 0,
+    "answer": 1
    }
   },
   {
@@ -298,8 +298,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "hand_off": 0.99,
-    "answer": 0.01
+    "answer": 0.01,
+    "hand_off": 0.99
    }
   },
   {
@@ -308,8 +308,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "hand_off": 1,
-    "answer": 0
+    "answer": 0,
+    "hand_off": 1
    }
   },
   {
@@ -328,8 +328,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "answer": 0.11,
-    "hand_off": 0.89
+    "hand_off": 0.89,
+    "answer": 0.11
    }
   },
   {
@@ -348,8 +348,8 @@
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "hand_off": 0.08,
-    "answer": 0.92
+    "hand_off": 0.1,
+    "answer": 0.9
    }
   },
   {
@@ -358,8 +358,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "hand_off": 1,
-    "answer": 0
+    "answer": 0,
+    "hand_off": 1
    }
   },
   {
@@ -368,8 +368,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "answer": 0,
-    "hand_off": 1
+    "hand_off": 1,
+    "answer": 0
    }
   },
   {
@@ -388,8 +388,8 @@
    "model": "jev-1.13.0",
    "choice": "hand_off",
    "probabilities": {
-    "answer": 0,
-    "hand_off": 1
+    "hand_off": 1,
+    "answer": 0
    }
   },
   {
@@ -398,8 +398,8 @@
    "model": "jev-1.13.0",
    "choice": "answer",
    "probabilities": {
-    "hand_off": 0,
-    "answer": 1
+    "answer": 1,
+    "hand_off": 0
    }
   },
   {

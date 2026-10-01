@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label UC13 messages</title>
+<style>
+:root { --bg:#f6f4ef; --ink:#1d1b18; --muted:#6b655c; --line:#d9d3c7; --a:#2f6f4f; --h:#9a3b22; --card:#fff; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { --bg:#151412; --ink:#eeeae2; --muted:#a39d92; --line:#36332e; --a:#7cc79e; --h:#f0957a; --card:#1e1c19; color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.5 system-ui, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.muted { color: var(--muted); font-size: 14px; }
+details { background: var(--card); border:1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 16px 0; }
+summary { cursor: pointer; font-weight: 600; }
+.sheet { white-space: pre-wrap; font-size: 14px; }
+.card { background: var(--card); border:1px solid var(--line); border-radius: 12px; padding: 22px; margin-top: 16px; }
+.msg { font-size: 22px; margin: 8px 0 20px; }
+.row { display:flex; gap:12px; flex-wrap: wrap; }
+button { font: inherit; padding: 12px 18px; border-radius: 10px; border:2px solid var(--line); background: transparent; color: var(--ink); cursor:pointer; }
+button:focus-visible { outline: 3px solid var(--muted); outline-offset: 2px; }
+button.ans { border-color: var(--a); } button.ho { border-color: var(--h); }
+button.on.ans { background: var(--a); color: var(--bg); } button.on.ho { background: var(--h); color: var(--bg); }
+.nav { margin-top: 18px; display:flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 10px; }
+.bar i { display:block; height:100%; background: var(--muted); }
+.rule { font-size: 15px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Answer or hand off?</h1>
+<div class="muted">40 customer messages. For each one, say what the bot <em>should</em> do. You never see what any approach answered. Keys: <b>A</b> answer, <b>H</b> hand off, arrows to move.</div>
+
+<details open><summary>Acceptance rule</summary>
+<p class="rule"><b>answer</b>: everything asked is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.<br>
+<b>hand off</b>: needs live stock or availability, a booking, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem.</p>
+</details>
+<details><summary>Fact sheet the bot works from</summary><div class="sheet" id="sheet"></div></details>
+
+<div class="card">
+  <div class="muted" id="pos"></div>
+  <div class="msg" id="msg"></div>
+  <div class="row">
+    <button class="ans" id="bA" type="button">Answer (A)</button>
+    <button class="ho" id="bH" type="button">Hand off (H)</button>
+  </div>
+  <div class="bar"><i id="fill"></i></div>
+  <div class="nav">
+    <button id="prev" type="button">&larr; Back</button>
+    <button id="next" type="button">Next &rarr;</button>
+    <button id="dl" type="button">Download labels.csv</button>
+  </div>
+  <div class="muted" id="status"></div>
+</div>
+</main>
+<script>
+const SHEET = __SHEET__;
+const CASES = __CASES__;
+document.getElementById("sheet").textContent = SHEET;
+const truth = {};
+let i = 0;
+function show() {
+  const c = CASES[i];
+  document.getElementById("pos").textContent = `Message ${i + 1} of ${CASES.length} (${c.case_id})`;
+  document.getElementById("msg").textContent = c.case_input;
+  document.getElementById("bA").classList.toggle("on", truth[c.case_id] === "answer");
+  document.getElementById("bH").classList.toggle("on", truth[c.case_id] === "hand_off");
+  const done = Object.keys(truth).length;
+  document.getElementById("fill").style.width = (100 * done / CASES.length) + "%";
+  document.getElementById("status").textContent = `${done} of ${CASES.length} labelled` + (done === CASES.length ? ". All done, download the file." : "");
+}
+function pick(v) { truth[CASES[i].case_id] = v; if (i < CASES.length - 1) i++; show(); }
+document.getElementById("bA").onclick = () => pick("answer");
+document.getElementById("bH").onclick = () => pick("hand_off");
+document.getElementById("prev").onclick = () => { if (i > 0) i--; show(); };
+document.getElementById("next").onclick = () => { if (i < CASES.length - 1) i++; show(); };
+// shortcut:start
+function shortcut(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.isComposing) return null;
+  const t = e.target || {};
+  if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || "")) return null;
+  if (e.key === "a" || e.key === "A") return "answer";
+  if (e.key === "h" || e.key === "H") return "hand_off";
+  if (e.key === "ArrowLeft") return "prev";
+  if (e.key === "ArrowRight") return "next";
+  return null;
+}
+// shortcut:end
+document.addEventListener("keydown", (e) => {
+  const s = shortcut(e);
+  if (s === null) return;
+  e.preventDefault();
+  if (s === "answer" || s === "hand_off") pick(s);
+  else document.getElementById(s).click();
+});
+document.getElementById("dl").onclick = () => {
+  const rows = ["case_id,truth", ...CASES.filter(c => truth[c.case_id]).map(c => `${c.case_id},${truth[c.case_id]}`)];
+  const blob = new Blob([rows.join("\n") + "\n"], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "labels.csv"; a.click();
+};
+show();
+</script>
+</body>
+</html>

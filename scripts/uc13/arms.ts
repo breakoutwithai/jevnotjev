@@ -1,0 +1,268 @@
+// UC13 arms: one decision (can the shop bot answer this message from the fact sheet?), three answerers.
+// Pure parts only; scripts/uc13/run-arms.ts does the I/O. Spec: docs/product/use-cases/uc13-shop-bot-answer-or-handoff.md
+import { join } from "node:path";
+import { formatRows, readDictRows } from "../../src/format/csv.ts";
+import { validate } from "../../src/format/validate.ts";
+
+export const RUN_ID = "run-shopbot-2026-10-01";
+export const PROMPT_VERSION = "shop-bot-handoff.v1";
+export const QUESTION_ID = "q1";
+export const QUESTION = "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?";
+export type Answer = "answer" | "hand_off";
+export const ANSWERS: readonly Answer[] = ["answer", "hand_off"];
+export const CASES_COUNT = 40;
+export const CRITERIA: Readonly<Record<Answer, string>> = {
+  answer:
+    "Everything the customer asks is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.",
+  hand_off:
+    "The message needs live stock or availability, a booking or reservation, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem, so staff must answer.",
+};
+export const JEV_MODEL = "jev-1.13.0";
+/** Published input price per million tokens, output free; not yet checked against a bill. */
+export const JEV_PRICE_PER_M = 0.042;
+export const RULE_MODEL = "keywords.v1";
+
+export type Column =
+  | "format_version" | "run_id" | "prompt_version" | "case_id" | "case_input" | "question_id" | "question"
+  | "answer_set" | "answerer" | "answerer_model" | "output" | "confidence" | "label" | "label_source"
+  | "tokens_in" | "tokens_out" | "cost_usd" | "latency_ms";
+export const COLUMNS: readonly Column[] = [
+  "format_version", "run_id", "prompt_version", "case_id", "case_input", "question_id", "question",
+  "answer_set", "answerer", "answerer_model", "output", "confidence", "label", "label_source",
+  "tokens_in", "tokens_out", "cost_usd", "latency_ms",
+];
+export type RecordRow = Record<Column, string>;
+
+export interface Case { readonly case_id: string; readonly case_input: string }
+export interface Example { readonly factSheet: string; readonly cases: readonly Case[] }
+
+const RULE_TERMS = [
+  "available", "availability", "in stock", "stock", "left", "book", "booked", "booking", "reserve",
+  "reservation", "hold", "confirm", "confirmed", "cancel", "refund", "deposit", "damage", "broke",
+  "broken", "charged", "hurt", "injur", "avalanche", "safe", "danger", "this weekend", "saturday",
+  "sunday", "tomorrow",
+];
+const RULE_RE = new RegExp(`\\b(${RULE_TERMS.join("|")})`, "i");
+
+function isObject(value: unknown): value is { readonly [key: string]: unknown } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isAnswer(value: unknown): value is Answer {
+  return value === "answer" || value === "hand_off";
+}
+
+/** A token count: a finite, non-negative integer, or the reply is refused. */
+function tokenCount(value: unknown, field: string, who: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${who}: usage.${field} ${JSON.stringify(value)} is not a non-negative integer`);
+  }
+  return value;
+}
+
+/** An optional token counter: absent is 0, present must be valid. */
+function optionalCount(usage: { readonly [key: string]: unknown }, field: string, who: string): number {
+  return usage[field] === undefined ? 0 : tokenCount(usage[field], field, who);
+}
+
+function requireUsage(response: { readonly [key: string]: unknown }, who: string): { readonly [key: string]: unknown } {
+  if (!isObject(response.usage)) throw new Error(`${who}: no usage in reply; a call without token counts cannot be costed`);
+  return response.usage;
+}
+
+/** The case ids of the example, in order: m01 to m40. */
+export const CASE_IDS: readonly string[] = Array.from({ length: CASES_COUNT }, (_, i) => `m${String(i + 1).padStart(2, "0")}`);
+
+/** Throws unless the cases are exactly m01 to m40, in order, each with a non-blank message. */
+export function assertCases(cases: readonly Case[]): void {
+  const seen = new Set<string>();
+  cases.forEach((c, i) => {
+    if (seen.has(c.case_id)) throw new Error(`cases.jsonl: duplicate case_id ${JSON.stringify(c.case_id)}`);
+    seen.add(c.case_id);
+    if (c.case_id !== CASE_IDS[i]) throw new Error(`cases.jsonl line ${i + 1}: case_id ${JSON.stringify(c.case_id)}, expected ${CASE_IDS[i] ?? "no more cases"}`);
+    if (c.case_input.trim() === "") throw new Error(`cases.jsonl: ${c.case_id} has a blank case_input`);
+  });
+  const missing = CASE_IDS.slice(cases.length);
+  if (missing.length > 0) throw new Error(`cases.jsonl: missing ${missing.join(", ")}`);
+}
+
+export async function loadExample(dir: string): Promise<Example> {
+  const factSheet = (await Bun.file(join(dir, "fact-sheet.md")).text()).trim();
+  if (factSheet === "") throw new Error(`fact-sheet.md in ${dir} is empty`);
+  const cases = (await Bun.file(join(dir, "cases.jsonl")).text())
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line, i): Case => {
+      const parsed: unknown = JSON.parse(line);
+      if (!isObject(parsed) || typeof parsed.case_id !== "string" || typeof parsed.case_input !== "string") {
+        throw new Error(`cases.jsonl line ${i + 1}: needs string case_id and case_input`);
+      }
+      return { case_id: parsed.case_id, case_input: parsed.case_input };
+    });
+  assertCases(cases);
+  return { factSheet, cases };
+}
+
+export function record(c: Case, answerer: string, model: string, output: Answer, extra: Partial<RecordRow> = {}): RecordRow {
+  return {
+    format_version: "jnj-record/1", run_id: RUN_ID, prompt_version: PROMPT_VERSION, case_id: c.case_id,
+    case_input: c.case_input, question_id: QUESTION_ID, question: QUESTION, answer_set: ANSWERS.join("|"),
+    answerer, answerer_model: model, output, confidence: "", label: "", label_source: "",
+    tokens_in: "", tokens_out: "", cost_usd: "", latency_ms: "", ...extra,
+  };
+}
+
+/** The keyword rule in examples/uc13-shop-bot/rule.md: a term at a word start answers hand_off. */
+export function ruleOutput(message: string): Answer {
+  return RULE_RE.test(message) ? "hand_off" : "answer";
+}
+
+export function ruleRecord(c: Case): RecordRow {
+  return record(c, "rule", RULE_MODEL, ruleOutput(c.case_input), { cost_usd: "0", latency_ms: "0" });
+}
+
+export interface JevBody {
+  readonly state: string;
+  readonly model: string;
+  readonly questions: {
+    readonly q1: { readonly type: "choice"; readonly instructions: { readonly question: string }; readonly criteria: Readonly<Record<Answer, string>> };
+  };
+}
+
+export function jevBody(factSheet: string, c: Case): JevBody {
+  return {
+    state: `Fact sheet:\n${factSheet}\n\nCustomer message:\n${c.case_input}`,
+    model: JEV_MODEL,
+    questions: { q1: { type: "choice", instructions: { question: QUESTION }, criteria: CRITERIA } },
+  };
+}
+
+export interface ArmReply {
+  readonly choice: Answer;
+  readonly model: string;
+  readonly confidence: number | null;
+  readonly probabilities: unknown;
+  readonly tokensIn: number;
+  readonly tokensOut: number;
+  readonly costUsd: number;
+}
+
+/** A Jev systemone response; fails unless the model is the pinned one and the choice is in the answer set. */
+export function parseJevResponse(response: unknown, caseId: string): ArmReply {
+  if (!isObject(response) || response.model !== JEV_MODEL) {
+    throw new Error(`Jev ${caseId}: unexpected model ${isObject(response) ? String(response.model) : "none"}`);
+  }
+  const answers = response.answers;
+  const a = isObject(answers) ? answers[QUESTION_ID] : undefined;
+  if (!isObject(a) || !isAnswer(a.choice) || typeof a.confidence !== "number") {
+    throw new Error(`Jev ${caseId}: answer missing or outside ${ANSWERS.join("|")}`);
+  }
+  if (!Number.isFinite(a.confidence) || a.confidence < 0 || a.confidence > 1) {
+    throw new Error(`Jev ${caseId}: confidence ${a.confidence} is outside [0, 1]`);
+  }
+  const who = `Jev ${caseId}`;
+  const usage = requireUsage(response, who);
+  const tokensIn = tokenCount(usage.input_tokens, "input_tokens", who);
+  return {
+    choice: a.choice, model: JEV_MODEL, confidence: a.confidence, probabilities: a.probabilities ?? null,
+    tokensIn, tokensOut: tokenCount(usage.output_tokens, "output_tokens", who), costUsd: (tokensIn * JEV_PRICE_PER_M) / 1e6,
+  };
+}
+
+/**
+ * A `claude -p --output-format json` reply; input tokens include cache reads and writes. The whole trimmed result must
+ * be one answer word, so "unanswerable" or "do not answer; hand_off" fail rather than match a word inside them.
+ */
+export function parseLlmResponse(response: unknown, caseId: string): ArmReply {
+  const who = `LLM ${caseId}`;
+  if (!isObject(response)) throw new Error(`${who}: reply is not a JSON object`);
+  if (response.is_error === true) throw new Error(`${who}: error envelope (is_error true): ${String(response.result ?? "").slice(0, 120)}`);
+  const text = typeof response.result === "string" ? response.result.trim() : "";
+  if (!isAnswer(text)) throw new Error(`${who}: reply ${JSON.stringify(text.slice(0, 120))} is not exactly ${ANSWERS.join(" or ")}`);
+  const cost = response.total_cost_usd;
+  if (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0) throw new Error(`${who}: total_cost_usd ${JSON.stringify(cost)} is not a non-negative cost`);
+  const usage = requireUsage(response, who);
+  const models = isObject(response.modelUsage) ? Object.keys(response.modelUsage).sort() : [];
+  if (models.length === 0) throw new Error(`${who}: no modelUsage in reply`);
+  return {
+    choice: text, model: models.join("+"), confidence: null, probabilities: null,
+    tokensIn: tokenCount(usage.input_tokens, "input_tokens", who) + optionalCount(usage, "cache_creation_input_tokens", who) +
+      optionalCount(usage, "cache_read_input_tokens", who),
+    tokensOut: tokenCount(usage.output_tokens, "output_tokens", who), costUsd: cost,
+  };
+}
+
+export function armRecord(c: Case, answerer: "jev" | "llm", reply: ArmReply, latencyMs: number): RecordRow {
+  return record(c, answerer, reply.model, reply.choice, {
+    confidence: reply.confidence === null ? "" : reply.confidence.toFixed(4),
+    tokens_in: String(reply.tokensIn), tokens_out: String(reply.tokensOut),
+    cost_usd: reply.costUsd.toFixed(8), latency_ms: String(latencyMs),
+  });
+}
+
+export function formatRecords(rows: readonly RecordRow[]): string {
+  return formatRows([COLUMNS, ...rows.map((r) => COLUMNS.map((col) => r[col]))]);
+}
+
+/** records.csv: the header must be exactly COLUMNS, every row exactly as wide, and the file valid jnj-record/1. */
+export function parseRecords(text: string): RecordRow[] {
+  const { header, rows } = readDictRows(text);
+  if (header === null || header.join(",") !== COLUMNS.join(",")) {
+    throw new Error(`records.csv header is not the ${COLUMNS.length} jnj-record/1 columns in order`);
+  }
+  const parsed = rows.map(({ fields, line }) => {
+    if (fields.length !== COLUMNS.length) throw new Error(`records.csv line ${line}: ${fields.length} fields, expected ${COLUMNS.length}`);
+    const row = record({ case_id: "", case_input: "" }, "", "", "answer");
+    COLUMNS.forEach((col, i) => { row[col] = fields[i] ?? ""; });
+    return row;
+  });
+  const { errors } = validate(text);
+  if (errors.length > 0) throw new Error(`records.csv is not valid jnj-record/1: ${errors.slice(0, 3).join("; ")}`);
+  return parsed;
+}
+
+/** labels.csv from the labelling page: case_id,truth. Each id once, m01 to m40 only. */
+export function parseTruth(text: string): Map<string, Answer> {
+  const { header, rows } = readDictRows(text);
+  const idAt = (header ?? []).indexOf("case_id");
+  const truthAt = (header ?? []).indexOf("truth");
+  if (idAt < 0 || truthAt < 0) throw new Error("labels.csv needs case_id and truth columns");
+  const truth = new Map<string, Answer>();
+  for (const { fields, line } of rows) {
+    const id = fields[idAt] ?? "";
+    const t = fields[truthAt];
+    if (!CASE_IDS.includes(id)) throw new Error(`labels.csv line ${line}: case_id ${JSON.stringify(id)} is not m01 to m${CASES_COUNT}`);
+    if (truth.has(id)) throw new Error(`labels.csv line ${line}: duplicate truth for ${id}`);
+    if (!isAnswer(t)) throw new Error(`labels.csv line ${line}: ${id} truth ${JSON.stringify(t)} is not one of ${ANSWERS.join(", ")}`);
+    truth.set(id, t);
+  }
+  return truth;
+}
+
+/** Accept or reject each row against its case's truth; a case with no truth stays unlabelled; an unknown id fails. */
+export function applyLabels(rows: readonly RecordRow[], truth: ReadonlyMap<string, Answer>): RecordRow[] {
+  const ids = new Set(rows.map((r) => r.case_id));
+  const unknown = [...truth.keys()].filter((id) => !ids.has(id));
+  if (unknown.length > 0) throw new Error(`labels for cases not in records.csv: ${unknown.join(", ")}`);
+  return rows.map((r) => {
+    const t = truth.get(r.case_id);
+    if (t === undefined) return { ...r, label: "", label_source: "" };
+    return { ...r, label: r.output === t ? "accept" : "reject", label_source: "human" };
+  });
+}
+
+/** The per-case truth that labelled rows encode (accept: the output; reject: the other answer); conflicts fail. */
+export function truthFromRows(rows: readonly RecordRow[]): Map<string, Answer> {
+  const truth = new Map<string, Answer>();
+  for (const r of rows) {
+    if (r.label === "") continue;
+    if (!isAnswer(r.output) || (r.label !== "accept" && r.label !== "reject")) {
+      throw new Error(`records.csv ${r.case_id} ${r.answerer}: label ${JSON.stringify(r.label)} on output ${JSON.stringify(r.output)}`);
+    }
+    const t: Answer = r.label === "accept" ? r.output : r.output === "answer" ? "hand_off" : "answer";
+    const seen = truth.get(r.case_id);
+    if (seen !== undefined && seen !== t) throw new Error(`records.csv ${r.case_id}: labels disagree on the truth (${seen} vs ${t})`);
+    truth.set(r.case_id, t);
+  }
+  return truth;
+}

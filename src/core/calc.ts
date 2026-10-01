@@ -103,7 +103,8 @@ export interface CostSide {
 
 /**
  * cost_per_accepted(jev) / cost_per_accepted(llm). 0 when the LLM has 0 accepted and Jev some;
- * infinity when Jev has 0 and the LLM some; null when both have 0, or both cost $0 per accepted (no ratio; verdict() stops at rule 1, the resample redraws).
+ * infinity when Jev has 0 and the LLM some. null (no ratio; verdict() stops, the resample redraws) when both
+ * have 0 accepted, both cost $0 per accepted, or the division of two costs per accepted is not finite (overflow).
  */
 export function costRatio(jev: CostSide, llm: CostSide): number | null {
   checkCount("jev accepted", jev.accepted);
@@ -113,11 +114,10 @@ export function costRatio(jev: CostSide, llm: CostSide): number | null {
   if (jev.accepted === 0) return Number.POSITIVE_INFINITY;
   const jevPer = jev.spendUsd / jev.accepted;
   const llmPer = llm.spendUsd / llm.accepted;
-  if (llmPer === 0) {
-    if (jevPer === 0) return null;
-    return Number.POSITIVE_INFINITY;
-  }
-  return jevPer / llmPer;
+  if (!Number.isFinite(jevPer) || !Number.isFinite(llmPer)) return null;
+  if (llmPer === 0) return jevPer === 0 ? null : Number.POSITIVE_INFINITY;
+  const ratio = jevPer / llmPer;
+  return Number.isFinite(ratio) ? ratio : null;
 }
 
 /** One paired case for the resample: both labels and both costs (a missing cost stops at rule 1 first). */
@@ -175,7 +175,8 @@ export function percentile(sorted: Float64Array, q: number): number {
 
 /**
  * Draw `resamples` paired resamples of the cases with replacement and compute the cost ratio of each.
- * A resample where both answerers have 0 accepted has no ratio and is drawn again.
+ * A resample with no finite ratio is drawn again: both answerers at 0 accepted, both at $0 per accepted, or an
+ * overflowing ratio. Infinity from Jev at 0 accepted with the LLM above 0 (verdict-rules.md:51) is kept.
  */
 export function resampleCostRatios(cases: readonly CostCase[], uniform: () => number, resamples: number): ResampleRun {
   checkCount("resamples", resamples);
@@ -201,9 +202,9 @@ export function resampleCostRatios(cases: readonly CostCase[], uniform: () => nu
       if (picked.llmAccepted) llmAccepted += 1;
     }
     const ratio = costRatio({ spendUsd: jevSpend, accepted: jevAccepted }, { spendUsd: llmSpend, accepted: llmAccepted });
-    if (ratio === null) {
+    if (ratio === null || Number.isNaN(ratio)) {
       redrawn += 1;
-      if (redrawn > limit) throw new RangeError(`more than ${limit} resamples had both at 0 accepted`);
+      if (redrawn > limit) throw new RangeError(`more than ${limit} resamples had no finite ratio`);
       continue;
     }
     ratios.push(ratio);
@@ -216,4 +217,14 @@ export function costRatioInterval(cases: readonly CostCase[], seed: number, resa
   const run = resampleCostRatios(cases, mulberry32(seed), resamples);
   const sorted = Float64Array.from(run.ratios).sort();
   return { lower: percentile(sorted, 2.5), upper: percentile(sorted, 97.5), resamples, redrawn: run.redrawn };
+}
+
+/** The largest single row cost over the cases, by loop (a spread into Math.max fails on very large inputs); 0 for none. */
+export function largestCaseCost(cases: readonly CostCase[]): number {
+  let largest = 0;
+  for (const one of cases) {
+    if (one.jevCostUsd > largest) largest = one.jevCostUsd;
+    if (one.llmCostUsd > largest) largest = one.llmCostUsd;
+  }
+  return largest;
 }

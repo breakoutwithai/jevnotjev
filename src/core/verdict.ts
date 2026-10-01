@@ -3,7 +3,7 @@
 // rule 1 not enough evidence, rule 2 don't use Jev, rule 3 use Jev, rule 4 not enough evidence otherwise.
 // Pure: no Node or Bun APIs, so the browser can import it.
 
-import { costRatio, costRatioInterval, newcombePaired, type CostRatioInterval, type PairedCounts } from "./calc.ts";
+import { costRatio, costRatioInterval, largestCaseCost, newcombePaired, type CostRatioInterval, type PairedCounts } from "./calc.ts";
 import { pairedCostCases, type CohortMetrics, type PairedSample } from "./metrics.ts";
 
 /** Minimum paired labelled cases (verdict-rules.md "Settings"). */
@@ -156,19 +156,7 @@ export function verdict(metrics: CohortMetrics, seed: number): Verdict {
   if (cases === null || pair.jev.spend.kind !== "complete" || pair.otherArm.spend.kind !== "complete") {
     return notEnough("cost-missing", "cost missing on a paired Jev or LLM row, so the cost ratio would look complete on partial spend");
   }
-  // A resample can repeat the dearest case n times, so n x the largest cost must stay finite too.
-  const largest = Math.max(...cases.map((one) => Math.max(one.jevCostUsd, one.llmCostUsd)));
-  if (!Number.isFinite(pair.jev.spend.usd) || !Number.isFinite(pair.otherArm.spend.usd) || !Number.isFinite(largest * cases.length)) {
-    return notEnough("cost-not-finite", "costs too large to add up, so there is no cost ratio");
-  }
-  const ratio = costRatio(
-    { spendUsd: pair.jev.spend.usd, accepted: pair.jev.accepted },
-    { spendUsd: pair.otherArm.spend.usd, accepted: pair.otherArm.accepted },
-  );
-  if (ratio === null) return notEnough("no-cost-ratio", "Jev and the LLM both cost $0 per accepted answer, so there is no cost ratio");
-  if (Number.isNaN(ratio)) return notEnough("cost-not-finite", "the cost ratio is not a number");
-
-  // Rule 2: don't use Jev, conditions in the order verdict-rules.md lists them.
+  // Rule 2: don't use Jev, conditions in the order verdict-rules.md lists them. The first three do not read cost.
   const dont = (condition: Condition, reason: string, numbers?: VerdictNumbers): Verdict =>
     result("don't use Jev", 2, condition, reason, numbers === undefined ? {} : { numbers });
   if (rule.kind === "compared" && rule.lower > -MARGIN) {
@@ -179,6 +167,23 @@ export function verdict(metrics: CohortMetrics, seed: number): Verdict {
   }
   if (pair.jev.accepted === 0) {
     return dont("jev-zero-accepted", `Jev has 0 accepted and the LLM has ${pair.otherArm.accepted}`);
+  }
+
+  // Cost guards, not in verdict-rules.md. Only the conditions below read a cost ratio, so the guards come after
+  // every condition that does not; they report as rule 1, since the evidence for a cost verdict is missing.
+  // A resample can repeat the dearest case n times, so n x the largest cost must stay finite too.
+  const finiteSpend = Number.isFinite(pair.jev.spend.usd) && Number.isFinite(pair.otherArm.spend.usd);
+  if (!finiteSpend || !Number.isFinite(largestCaseCost(cases) * cases.length)) {
+    return notEnough("cost-not-finite", "costs too large to add up, so there is no cost ratio");
+  }
+  const ratio = costRatio(
+    { spendUsd: pair.jev.spend.usd, accepted: pair.jev.accepted },
+    { spendUsd: pair.otherArm.spend.usd, accepted: pair.otherArm.accepted },
+  );
+  if (ratio === null) {
+    return pair.jev.spend.usd === 0 && pair.otherArm.spend.usd === 0
+      ? notEnough("no-cost-ratio", "Jev and the LLM both cost $0 per accepted answer, so there is no cost ratio")
+      : notEnough("cost-not-finite", "the cost ratio is too large to represent");
   }
   const ci: RatioNumbers = { ratio, ...costRatioInterval(cases, seed) };
   const numbers: VerdictNumbers = { ...base, costRatio: ci };

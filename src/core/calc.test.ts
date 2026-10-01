@@ -7,6 +7,7 @@ import {
   costRatioInterval,
   EmptySampleError,
   fileSeed,
+  largestCaseCost,
   mulberry32,
   newcombePaired,
   pairedPhi,
@@ -239,5 +240,63 @@ describe("calc: zero-cost resamples", () => {
     const run = resampleCostRatios(cases, scripted([0.9, 0.9, 0.1, 0.9]), 1);
     expect(run.redrawn).toBe(1);
     expect(run.ratios[0]).toBeCloseTo(0.01, 12);
+  });
+});
+
+describe("calc: hand-worked percentiles and a fixed seeded interval", () => {
+  test("[unit] R5.g percentile matches hand-worked type 7 values", () => {
+    // n = 5: position = q/100 x 4. 2.5th: 0.1 -> 10 + 0.1 x (20 - 10) = 11. 97.5th: 3.9 -> 40 + 0.9 x 10 = 49.
+    const sorted = Float64Array.from([10, 20, 30, 40, 50]);
+    expect(percentile(sorted, 2.5)).toBeCloseTo(11, 12);
+    expect(percentile(sorted, 97.5)).toBeCloseTo(49, 12);
+    expect(percentile(sorted, 50)).toBe(30);
+    expect(percentile(sorted, 0)).toBe(10);
+    expect(percentile(sorted, 100)).toBe(50);
+    // n = 2,000: 2.5th sits at position 49.975, between the 50th and 51st values.
+    const ramp = Float64Array.from({ length: 2000 }, (_, i) => i);
+    expect(percentile(ramp, 2.5)).toBeCloseTo(49.975, 9);
+    expect(percentile(ramp, 97.5)).toBeCloseTo(1949.025, 9);
+  });
+
+  test("[unit] R5.g r3-use-jev interval is fixed: k = 23 to k = 30 of 3,000", async () => {
+    // Jev accepts every case at $0.00002; the LLM accepts k of 30 at $0.002 each, so a resample's ratio is k / 3,000.
+    const path = fileURLToPath(new URL("../../examples/d08-verdicts/r3-use-jev.csv", import.meta.url));
+    const text = readFileSync(path, "utf8");
+    const result = validate(text);
+    const [key] = cohorts(result.rows);
+    const pair = cohortMetrics(result.rows, key!).jevVsLlm;
+    const cases = pair === null ? null : pairedCostCases(pair);
+    if (cases === null) throw new Error("r3-use-jev has no paired costs");
+    const got = costRatioInterval(cases, await fileSeed(text));
+    expect(got.lower).toBeCloseTo(23 / 3000, 12);
+    expect(got.upper).toBeCloseTo(30 / 3000, 12);
+  });
+});
+
+describe("calc: non-finite resamples and large inputs", () => {
+  test("[unit] R5.g a resample whose ratio overflows is redrawn, not kept as infinity", () => {
+    const cases: readonly CostCase[] = [
+      { jevAccepted: true, jevCostUsd: 1e300, llmAccepted: true, llmCostUsd: 1e-10 },
+      { jevAccepted: true, jevCostUsd: 0.00002, llmAccepted: true, llmCostUsd: 0.002 },
+    ];
+    // Draw 1 picks case 0 twice: 1e300 / 1e-10 overflows. Draw 2 picks case 0 then case 1: finite.
+    const run = resampleCostRatios(cases, scripted([0.1, 0.1, 0.1, 0.9]), 1);
+    expect(run.redrawn).toBe(1);
+    expect(Number.isFinite(run.ratios[0])).toBe(true);
+  });
+
+  test("[unit] R5.f a ratio that overflows from finite costs per accepted is no ratio", () => {
+    expect(costRatio(side(1e300, 1), side(1e-10, 1))).toBeNull();
+  });
+
+  test("[unit] R5.g largest case cost is a loop, safe on 300,000 cases", () => {
+    const cases: CostCase[] = Array.from({ length: 300_000 }, (_, i) => ({
+      jevAccepted: true,
+      jevCostUsd: i === 123_456 ? 7 : 0.00002,
+      llmAccepted: true,
+      llmCostUsd: 0.002,
+    }));
+    expect(largestCaseCost(cases)).toBe(7);
+    expect(largestCaseCost([])).toBe(0);
   });
 });

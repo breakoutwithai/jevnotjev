@@ -190,3 +190,39 @@ describe("verdict: cost edge cases", () => {
     expect(got).toMatchObject({ verdict: "not enough evidence", rule: 1, condition: "cost-not-finite" });
   });
 });
+
+describe("verdict: cost guards come after the cost-free rules", () => {
+  test("[unit] R6.a all costs $0 with Jev clearly worse is don't use Jev, not no-cost-ratio", async () => {
+    const [got] = await verdictsOf(render(build({ name: "free-worse", pairs: quad(15, 0, 15, 0), jevCost: 0, llmCost: 0 })));
+    expect(got).toMatchObject({ verdict: "don't use Jev", rule: 2, condition: "jev-clearly-worse" });
+    expect(got?.numbers.jevVsLlm?.upper).toBeCloseTo(-0.2969, 4);
+  });
+
+  test("[unit] R6.a no verdict number or reason is NaN", async () => {
+    const texts = readdirSync(D08)
+      .filter((name) => name.endsWith(".csv"))
+      .map((name) => readFileSync(`${D08}${name}`, "utf8"));
+    texts.push(readFileSync(TINY, "utf8"));
+    const edge: readonly Parameters<typeof build>[0][] = [
+      { name: "free", pairs: quad(27, 3, 0, 0), jevCost: 0, llmCost: 0 },
+      { name: "huge", pairs: quad(27, 3, 0, 0), jevCost: 1e307, llmCost: 1e307 },
+      { name: "skewed", pairs: quad(27, 3, 0, 0), jevCost: 1e300, llmCost: 1e-10 },
+      { name: "boundary", pairs: quad(72, 0, 0, 0), jevCost: 0.0016, llmCost: 0.002 },
+    ];
+    for (const spec of edge) texts.push(render(build(spec)));
+    let checked = 0;
+    for (const text of texts) {
+      for (const got of await verdictsOf(text)) {
+        expect(got.reason).not.toContain("NaN");
+        const numbers: number[] = [];
+        JSON.stringify(got, (_, value: unknown) => {
+          if (typeof value === "number") numbers.push(value);
+          return value;
+        });
+        expect(numbers.filter((value) => Number.isNaN(value))).toEqual([]);
+        checked += 1;
+      }
+    }
+    expect(checked).toBe(18);
+  });
+});

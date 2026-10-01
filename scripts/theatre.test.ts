@@ -15,7 +15,7 @@ interface Stage {
   scrollTo(y: number): void;
 }
 
-async function runTheatre(hash = ""): Promise<Stage> {
+async function runTheatre(hash = "", withStage = true): Promise<Stage> {
   const src = await siteScript("theatre.js");
   const root = new FakeEl();
   root.classes.add("motion");
@@ -38,7 +38,7 @@ async function runTheatre(hash = ""): Promise<Stage> {
     act1Final: () => { const i = ids.get("askInput"); if (i) i.value = "to do a thing?"; },
   };
   const windowObj = {
-    JNJStage: stage,
+    JNJStage: withStage ? stage : undefined,
     scrollY: 0,
     innerHeight: 900,
     scrollTo: (o: unknown) => { scrolls.push(o); },
@@ -85,6 +85,26 @@ describe("theatre.js curtain", () => {
     expect(s.root.dataset.curtain).toBe("open");
     s.scrollTo(0);
     expect(s.root.dataset.curtain).toBe("open");
+  });
+
+  test("[unit] SITE-11 if the page script failed (no JNJStage), the page falls back to static: no curtain over the site", async () => {
+    const s = await runTheatre("", false);
+    expect(s.root.classes.has("motion")).toBe(false);
+    expect(s.root.classes.has("static")).toBe(true);
+    expect(s.ids.get("overture")?.classes.has("gone")).toBe(true);
+    expect(s.root.dataset.beat).toBe("3");
+  });
+
+  test("[unit] SITE-12 focus that comes from a pointer opens the curtain without scrolling, so the click lands where aimed", async () => {
+    const s = await runTheatre();
+    s.doc.fire("pointerdown", s.ids.get("cueBtn"));
+    s.doc.fire("focusin", s.ids.get("cueBtn"));
+    expect(s.root.dataset.curtain).toBe("open");
+    expect(s.scrolls).toEqual([]);
+    const k = await runTheatre();
+    k.doc.fire("keydown", k.ids.get("cueBtn"));
+    k.doc.fire("focusin", k.ids.get("cueBtn"));
+    expect(k.scrolls).toEqual([{ top: 900, behavior: "instant" }]);
   });
 
   test("[unit] SITE-5 a deep link loads open", async () => {

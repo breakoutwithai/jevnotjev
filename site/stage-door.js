@@ -31,17 +31,25 @@
     })) return false;
     if (!isObj(D.tally) || !D.arms.every(function (a) {
       var t = D.tally[a.key];
-      return isObj(t) && isCount(t.answer) && isCount(t.hand_off) && (t.accept === null || t.accept === undefined || isCount(t.accept));
+      if (!isObj(t) || !isCount(t.answer) || !isCount(t.hand_off)) return false;
+      if (t.accept === null || t.accept === undefined) return true;
+      /* A labelled tally renders all four counts. */
+      return isCount(t.accept) && isCount(t.labelled) && isCount(t.answered_should_hand_off) && isCount(t.handed_off_could_answer);
     })) return false;
-    return D.label_page === null || D.label_page === undefined || isStr(D.label_page);
+    if (!has(MODE, D.mode)) return false;
+    return D.label_page === null || D.label_page === undefined || (isStr(D.label_page) && SAFE_LINK.test(D.label_page));
   }
   var MODE = { sample: "Sample data", pending: "Labels pending", labelled: "Labelled" };
   var VERDICT = { accept: "accept", reject: "reject", pending: "pending: not labelled yet" };
+  /* Own keys only, so "constructor" or "toString" never reads as a mode or verdict. */
+  function has(map, k) { return typeof k === "string" && Object.prototype.hasOwnProperty.call(map, k); }
+  /* http(s) URLs, root or fragment links, or a plain relative path such as "label/"; never javascript: or data:. */
+  var SAFE_LINK = /^(https?:\/\/[^\s"<>]+|\/[^\s"<>]*|#[^\s"<>]*|[a-z0-9._-]+(\/[a-z0-9._-]+)*\/?)$/i;
 
   function messageHtml(D, m) {
     var arms = D.arms.map(function (a) {
       var o = (m.outputs && m.outputs[a.key]) || { output: "", verdict: "pending" };
-      var v = VERDICT[o.verdict] ? o.verdict : "pending";
+      var v = has(VERDICT, o.verdict) ? o.verdict : "pending";
       return '<div class="dd-arm"><span class="who">' + esc(a.name) + '</span><span class="out ' + esc(o.output) + '">' + esc(word(o.output)) + '</span> <span class="dd-v ' + v + '">' + esc(VERDICT[v]) + '</span></div>';
     }).join("");
     var label = m.label ? '<p class="dd-label">Human label: ' + esc(word(m.label)) + '</p>' : "";
@@ -83,7 +91,7 @@
     var msgs = D.messages.map(function (m) { return messageHtml(D, m); }).join("");
     box.innerHTML =
       '<h2 id="doorTitle" tabindex="-1">Stage door: answer, or hand off to staff?</h2>' +
-      '<p class="dd-note"><span class="dd-badge">' + esc(MODE[D.mode] || D.mode) + '</span>' + esc(D.note) + '</p>' +
+      '<p class="dd-note"><span class="dd-badge">' + esc(MODE[D.mode]) + '</span>' + esc(D.note) + '</p>' +
       '<div class="dd-sheet"><h3>' + esc(D.fact_sheet.title) + '</h3>' +
       '<ul>' + sheet + '</ul></div>' +
       '<ol class="dd-msgs" aria-label="' + esc(D.messages.length + " of " + D.cases_total + " messages") + '">' + msgs + '</ol>' +

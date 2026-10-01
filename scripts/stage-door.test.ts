@@ -52,9 +52,35 @@ describe("stage-door.js data guard", () => {
       { ...sample(), tally: { a: {} } },
       { ...sample(), cases_total: "40" },
       { ...sample(), schema: "other" },
+      { ...sample(), mode: "constructor" },
+      { ...sample(), mode: "unknown" },
+      { ...sample(), label_page: "javascript:alert(1)" },
+      { ...sample(), label_page: " javascript:alert(1)" },
+      { ...sample(), label_page: "data:text/html,x" },
+      { ...sample(), label_page: 42 },
+      { ...sample(), tally: { a: { answer: 1, hand_off: 0, cost_usd: 0, labelled: 1, accept: 1 }, b: { answer: 1, hand_off: 0, cost_usd: 0, labelled: 1, accept: 1 } } },
+      { ...sample(), tally: { a: { answer: 1, hand_off: 0, cost_usd: 0, labelled: "1", accept: 1, answered_should_hand_off: 0, handed_off_could_answer: 0 }, b: { answer: 1, hand_off: 0, cost_usd: 0, labelled: 1, accept: 1, answered_should_hand_off: 0, handed_off_could_answer: 0 } } },
     ];
     for (const d of bad) expect(await openDemo(d)).toContain("The demo data is loading soon.");
     expect(await openDemo(undefined)).toContain("The demo data is loading soon.");
+  });
+
+  test("[unit] SITE-6 safe label links render; a verdict that is an Object.prototype key reads pending", async () => {
+    for (const link of ["label/", "/label/", "#label", "https://example.com/label"]) {
+      expect(await openDemo({ ...sample(), label_page: link })).toContain(`<a href="${link}">Label these 1 yourself</a>`);
+    }
+    const d = sample();
+    d.messages = [{ id: "x1", text: "A message", label: null, outputs: { a: { output: "answer", verdict: "constructor" }, b: { output: "answer", verdict: "toString" } } }];
+    const html = await openDemo(d);
+    expect(html).toContain("pending: not labelled yet");
+    expect(html).not.toContain("function");
+  });
+
+  test("[unit] SITE-6 a labelled tally with every count renders the misses", async () => {
+    const row = { answer: 1, hand_off: 0, cost_usd: 0, labelled: 1, accept: 1, answered_should_hand_off: 0, handed_off_could_answer: 0 };
+    const html = await openDemo({ ...sample(), mode: "labelled", tally: { a: { ...row }, b: { ...row } } });
+    expect(html).toContain("1 of 1");
+    expect(html).toContain("Arm A 0, Arm B 0");
   });
 
   test("[unit] SITE-9 a missing, non-numeric or negative cost reads n/a, never $0.0000", async () => {

@@ -18,8 +18,14 @@
   var door = document.getElementById("door");
   var skip = document.getElementById("skipOverture");
   var title = document.getElementById("t1");
+  var main = document.querySelector("main");
 
-  if (!root.classList.contains("motion") || !S || !ov || !runway) {
+  /* No motion, or a missing piece (the page script failed before setting JNJStage, or markup changed): show the
+     static, open page. Never leave html.motion on without this script driving it, or the curtain covers the site. */
+  if (!root.classList.contains("motion") || !S || !ov || !runway || !input || !door || !skip || !main) {
+    root.classList.remove("motion");
+    root.classList.add("static");
+    if (ov) ov.classList.add("gone");
     root.dataset.beat = "3";
     root.dataset.act1 = "dialogue";
     return;
@@ -124,9 +130,15 @@
     finish(true);
     if (title) title.focus({ preventScroll: true });
   });
-  /* Never trap focus behind the curtain: tabbing into the page opens it. */
+  /* Never trap focus behind the curtain: tabbing into the page opens it and scrolls to Act I. Focus from a pointer
+     opens it without scrolling, so a scroll between mousedown and mouseup cannot move the click off its target. */
+  var pointerFocus = false;
+  function fromPointer() { pointerFocus = true; }
+  document.addEventListener("pointerdown", fromPointer, true);
+  document.addEventListener("mousedown", fromPointer, true);
+  document.addEventListener("keydown", function () { pointerFocus = false; }, true);
   document.addEventListener("focusin", function (e) {
-    if (beat < 3 && e.target instanceof Node && !ov.contains(e.target) && document.querySelector("main").contains(e.target)) finish(true);
+    if (beat < 3 && e.target instanceof Node && !ov.contains(e.target) && main.contains(e.target)) finish(!pointerFocus);
   });
 
   if (cues) cues.addEventListener("click", cancelOpener, true);

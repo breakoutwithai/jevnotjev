@@ -574,7 +574,7 @@ h1 em { font-weight: 500; color: var(--brass); }
 
   /* ---------- Act I ---------- */
   var cues = $("cues");
-  J.ask_examples.forEach(function (ex) {
+  (J.ask_examples || []).forEach(function (ex) {
     var li = document.createElement("li");
     var b = document.createElement("button");
     b.type = "button";
@@ -592,7 +592,7 @@ h1 em { font-weight: 500; color: var(--brass); }
 
   function cue(q) {
     var qw = words(q), best = null, bestScore = 0;
-    J.ask_examples.forEach(function (ex) {
+    (J.ask_examples || []).forEach(function (ex) {
       var ew = words(ex.q), s = 0;
       qw.forEach(function (w) { if (ew.indexOf(w) >= 0) s++; });
       if (s > bestScore) { bestScore = s; best = ex; }
@@ -622,20 +622,24 @@ h1 em { font-weight: 500; color: var(--brass); }
     if (!v) return;
     answer("Should I use Jev " + v.replace(/\?*$/, "?"));
   });
-  var opener = J.ask_examples.filter(function (ex) { return /continue/i.test(ex.q); })[0] || J.ask_examples[0];
-  var openerTail = opener.q.replace(/^Should I use Jev /, "");
-  /* The open, final state of Act I; theatre.js plays it in beats when motion is on. */
-  function act1Final() {
-    $("askInput").value = openerTail;
-    $("dialogue").classList.add("still");
-    answer(opener.q, opener, true);
+  var examples = J.ask_examples || [];
+  var opener = examples.filter(function (ex) { return /continue/i.test(ex.q); })[0] || examples[0];
+  /* The open, final state of Act I; theatre.js plays it in beats when motion is on. With no example there is no
+     opener: JNJStage stays unset and theatre.js shows the static page. */
+  if (opener && typeof opener.q === "string") {
+    var openerTail = opener.q.replace(/^Should I use Jev /, "");
+    var act1Final = function () {
+      $("askInput").value = openerTail;
+      $("dialogue").classList.add("still");
+      answer(opener.q, opener, true);
+    };
+    window.JNJStage = {
+      openerTail: openerTail,
+      playOpener: function () { answer(opener.q, opener); },
+      act1Final: act1Final
+    };
+    if (!root.classList.contains("motion")) act1Final();
   }
-  window.JNJStage = {
-    openerTail: openerTail,
-    playOpener: function () { answer(opener.q, opener); },
-    act1Final: act1Final
-  };
-  if (!root.classList.contains("motion")) act1Final();
   $("noteLine").textContent = J.meta.note;
 
   /* ---------- Act II ---------- */

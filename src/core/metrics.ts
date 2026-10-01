@@ -233,12 +233,13 @@ export function cohortMetrics(rows: readonly ParsedRow[], key: CohortKey): Cohor
           questionId: text(row, "question_id"),
         }) === id,
     );
-  if (mine.length === 0) throw new Error(`no rows for cohort ${id}`);
-  const first = mine[0] as Row;
+  const first = mine[0];
+  if (first === undefined) throw new Error(`no rows for cohort ${id}`);
   const byArm = new Map<Arm, Map<string, Row>>(ARMS.map((arm) => [arm, new Map()]));
   for (const row of mine) {
     const answerer = text(row, "answerer");
-    const arm = byArm.get(answerer as Arm);
+    const known = ARMS.find((a) => a === answerer);
+    const arm = known === undefined ? undefined : byArm.get(known);
     if (arm === undefined) continue; // `human` rows are kept in the file, not compared
     const caseId = text(row, "case_id");
     if (arm.has(caseId)) throw new Error(`cohort ${id}: more than one ${answerer} row for case ${caseId}`);

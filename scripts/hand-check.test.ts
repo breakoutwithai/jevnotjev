@@ -162,6 +162,40 @@ describe("hand check catches planted changes", () => {
   });
 });
 
+describe("hand check rejects malformed stated values", () => {
+  test("[unit] R5.h a non-finite stated value or a zero denominator is a mismatch", () => {
+    expect(plantedKeys("= $0.000025 |", "= $1/0 |")).toContain("q1.jev-llm.jev.cost_per_accepted");
+    const infinite = compareFigures(new Map([["k", "1/0"]]), new Map([["k", { value: Number.POSITIVE_INFINITY, required: true }]]));
+    expect(infinite.mismatches.map((m) => m.key)).toEqual(["k"]);
+  });
+
+  test("[unit] R5.h numbers are read as whole tokens, sign and decimals included", () => {
+    expect(plantedKeys("a (both accept) = 4,", "a (both accept) = 4.9,")).toContain("q1.jev-llm.a");
+    expect(plantedKeys("5 CVs x", "-5 CVs x")).toContain("file.cases");
+  });
+
+  test("[unit] R5.h a recognised field with a malformed value is a mismatch, not dropped", () => {
+    expect(plantedKeys("$0.00002 per Jev call", "$-0.00002 per Jev call")).toContain("file.jev.unit_cost");
+    expect(plantedKeys("fixture of 30 or more", "fixture of -30 or more")).toContain("file.min_paired");
+    expect(plantedKeys("a = 2 (cv2, cv3)", "a = 2(cv2, cv999)")).toContain("q1.jev-rule.a.cases");
+  });
+
+  test("[unit] R5.h a second, conflicting statement of a figure on the same line is a mismatch", () => {
+    const keys = plantedKeys("Jev minus LLM = **-0.2**.", "Jev minus LLM = **-0.2**. Jev minus LLM = **-0.9**.");
+    expect(keys.some((k) => k.startsWith("q1.jev-llm.diff"))).toBe(true);
+    expect(plantedKeys("Jev minus LLM = **-0.2**.", "Jev minus LLM = **-0.2**. Jev minus LLM = **-0.2** again.")).toEqual([]);
+  });
+
+  test("[unit] R5.h the validator's cases= count is checked", () => {
+    expect(plantedKeys("`cases=5`", "`cases=999`")).toContain("file.validate_cases");
+  });
+
+  test("[unit] R5.h a row label must be exactly a case id and a question id", () => {
+    const keys = plantedKeys("| cv1 q1 |", "| cv1 q1 q999 |");
+    expect(keys.some((k) => k.startsWith("row.cv1 q1 q999"))).toBe(true);
+  });
+});
+
 describe("hand check CSV", () => {
   test("[unit] R5.h malformed CSV quoting is an error, not repaired", () => {
     expect(() => parseCsv('a,n"o"\n')).toThrow();

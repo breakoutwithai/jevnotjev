@@ -208,6 +208,7 @@ export function computeFigures(records: readonly HandRecord[]): Map<string, Figu
   put("file.answerers", answerers.length);
   put("file.rows", records.length);
   put("file.min_paired", MIN_PAIRED, false);
+  put("file.validate_cases", cases.length, false); // the validator's `cases=` counts distinct case ids
   put("file.unlabelled", records.filter((r) => r.label === "").map((r) => `${r.answerer} ${r.caseId} ${r.questionId}`));
   put("file.cost_missing", records.filter((r) => r.cost === null).map((r) => `${r.answerer} ${r.caseId} ${r.questionId}`));
 
@@ -420,8 +421,14 @@ function putMissing(key: string, note: string, put: Put): void {
 export function parseExpected(markdown: string): Map<string, string> {
   const figures = new Map<string, string>();
   const put: Put = (key, value) => {
-    if (figures.has(key)) throw new Error(`expected.md states ${key} twice`);
-    figures.set(key, value);
+    // A repeat with the same value is harmless; a conflicting one is kept under a key nothing computes, so it mismatches.
+    const seen = figures.get(key);
+    if (seen === undefined) figures.set(key, value);
+    else if (seen !== value) {
+      let n = 1;
+      while (figures.has(`${key}.conflict${n}`)) n += 1;
+      figures.set(`${key}.conflict${n}`, value);
+    }
   };
 
   let section = "";
@@ -441,17 +448,17 @@ export function parseExpected(markdown: string): Map<string, string> {
     }
 
     // Prose figures anywhere in the file.
-    const shape = /(\d+) CVs x (\d+) questions x (\d+) answerers = (\d+) rows/.exec(line);
-    if (shape !== null) {
-      put("file.cases", shape[1] ?? "");
-      put("file.questions", shape[2] ?? "");
-      put("file.answerers", shape[3] ?? "");
-      put("file.rows", shape[4] ?? "");
-    }
-    for (const unit of line.matchAll(/\$([\d.]+) per (\w+) call/g)) {
-      const who = ANSWERER_BY_NAME.get(unit[2] ?? "");
-      if (who !== undefined) put(`file.${who}.unit_cost`, unit[1] ?? "");
-    }
+    each(line, `${V} CVs x ${V} questions x ${V} answerers = ${V} rows`, (m) => {
+      put("file.cases", v(m, 1));
+      put("file.questions", v(m, 2));
+      put("file.answerers", v(m, 3));
+      put("file.rows", v(m, 4));
+    });
+    each(line, "`cases=([^`]*)`", (m) => put("file.validate_cases", v(m, 1)));
+    each(line, String.raw`\$?${V} per (\w+) call`, (m) => {
+      const who = ANSWERER_BY_NAME.get(m[2] ?? "");
+      if (who !== undefined) put(`file.${who}.unit_cost`, v(m, 1));
+    });
     const noLabel: string[] = [];
     const noCost: string[] = [];
     for (const gap of line.matchAll(/the (\w+) row for (cv\d+) (q\d+) has no (label|cost)/g)) {
@@ -460,8 +467,7 @@ export function parseExpected(markdown: string): Map<string, string> {
     }
     if (noLabel.length > 0) put("file.unlabelled", noLabel.join(","));
     if (noCost.length > 0) put("file.cost_missing", noCost.join(","));
-    const minimum = /fixture of (\d+) or more cases/.exec(line);
-    if (minimum !== null) put("file.min_paired", minimum[1] ?? "");
+    each(line, `fixture of ${V} or more cases`, (m) => put("file.min_paired", v(m, 1)));
 
     if (line.startsWith("|")) {
       const cells = splitRow(line);
@@ -476,10 +482,10 @@ export function parseExpected(markdown: string): Map<string, string> {
     header = null;
     if (question === "") continue;
 
-    const against = /^\*\*Jev against the (LLM|rule):\*\*\s+(\d+) paired cases(?: \(([^)]*)\))?/.exec(line);
+    const against = new RegExp(String.raw`^\*\*Jev against the (LLM|rule):\*\*\s+${V} paired cases(?:\s*\(([^)]*)\))?`).exec(line);
     if (against !== null) {
       comparison = `jev-${(against[1] ?? "").toLowerCase()}`;
-      put(`${question}.${comparison}.paired`, against[2] ?? "");
+      put(`${question}.${comparison}.paired`, v(against, 2));
       if (against[3] !== undefined) {
         const [ids, ...rest] = against[3].split(";");
         put(`${question}.${comparison}.paired.cases`, idList(ids ?? ""));
@@ -494,26 +500,20 @@ export function parseExpected(markdown: string): Map<string, string> {
     if (verdict !== null) {
       comparison = "";
       put(`${question}.verdict`, verdict[1] ?? "");
-      const paired = /Rule 1: (\d+) paired Jev and LLM cases/.exec(line);
-      if (paired !== null) put(`${question}.verdict.paired`, paired[1] ?? "");
-      const threshold = /fewer than (\d+)/.exec(line);
-      if (threshold !== null) put(`${question}.verdict.threshold`, threshold[1] ?? "");
-      const add = /add (\d+) more labelled cases/.exec(line);
-      if (add !== null) put(`${question}.verdict.add_n`, add[1] ?? "");
-      const skipped = /rule comparison is skipped \((\d+) paired rule cases\)/.exec(line);
-      if (skipped !== null) put(`${question}.verdict.rule_skipped_paired`, skipped[1] ?? "");
+      each(line, `Rule 1: ${V} paired Jev and LLM cases`, (m) => put(`${question}.verdict.paired`, v(m, 1)));
+      each(line, `fewer than ${V}`, (m) => put(`${question}.verdict.threshold`, v(m, 1)));
+      each(line, `add ${V} more labelled cases`, (m) => put(`${question}.verdict.add_n`, v(m, 1)));
+      each(line, String.raw`rule comparison is skipped \(${V} paired rule cases\)`, (m) => put(`${question}.verdict.rule_skipped_paired`, v(m, 1)));
       continue;
     }
     if (comparison === "") continue;
     const prefix = `${question}.${comparison}`;
 
-    const counts = /Jev (\d+) accepted, rule (\d+)/.exec(line);
-    if (counts !== null) {
-      put(`${prefix}.jev.accepted`, counts[1] ?? "");
-      put(`${prefix}.rule.accepted`, counts[2] ?? "");
-    }
-    const ratio = /Cost ratio = ([^*]*)\*\*([^*]+)\*\*/.exec(line);
-    if (ratio !== null) {
+    each(line, `Jev ${V} accepted, rule ${V}`, (m) => {
+      put(`${prefix}.jev.accepted`, v(m, 1));
+      put(`${prefix}.rule.accepted`, v(m, 2));
+    });
+    each(line, String.raw`Cost ratio = ([^*]*)\*\*([^*]+)\*\*`, (ratio) => {
       const terms = [...(ratio[1] ?? "").split("="), ...(ratio[2] ?? "").split("=")].map((t) => t.trim()).filter((t) => t !== "");
       put(`${prefix}.cost_ratio`, terms.pop() ?? "");
       for (const term of terms) {
@@ -524,23 +524,33 @@ export function parseExpected(markdown: string): Map<string, string> {
         } else if (/^\d+\/\d+$/.test(term)) put(`${prefix}.cost_ratio.fraction`, term);
         else put(`${prefix}.cost_ratio.expr`, term);
       }
-    }
+    });
     // Every "(...)" after a cell count is its case list; anything that is not the right set of ids mismatches.
-    for (const cell of line.matchAll(/\b([abcd]) (?:\([^)]*\) )?= (\d+)(?: \(([^)]*)\))?/g)) {
-      put(`${prefix}.${cell[1] ?? ""}`, cell[2] ?? "");
+    each(line, String.raw`\b([abcd]) (?:\([^)]*\) )?= ${V}(?:\s*\(([^)]*)\))?`, (cell) => {
+      put(`${prefix}.${cell[1] ?? ""}`, v(cell, 2));
       if (cell[3] !== undefined) put(`${prefix}.${cell[1] ?? ""}.cases`, cell[3]);
-    }
-    const jevMinusLlm = /Jev minus LLM = \*\*(-?[\d.]+)\*\*/.exec(line);
-    if (jevMinusLlm !== null) put(`${question}.jev-llm.diff`, jevMinusLlm[1] ?? "");
-    const ruleMinusJev = /Rule minus Jev = \*\*(-?[\d.]+)\*\*/.exec(line);
-    if (ruleMinusJev !== null) put(`${question}.jev-rule.diff`, ruleMinusJev[1] ?? "");
-    const ruleSpend = /Rule spend is incomplete(?: \(([^)]*)\))?/.exec(line);
-    if (ruleSpend !== null) {
+    });
+    each(line, String.raw`Jev minus LLM = \*\*([^*]+)\*\*`, (m) => put(`${question}.jev-llm.diff`, v(m, 1)));
+    each(line, String.raw`Rule minus Jev = \*\*([^*]+)\*\*`, (m) => put(`${question}.jev-rule.diff`, v(m, 1)));
+    each(line, String.raw`Rule spend is incomplete(?:\s*\(([^)]*)\))?`, (m) => {
       put(`${question}.jev-rule.rule.spend`, INCOMPLETE);
-      if (ruleSpend[1] !== undefined) putMissing(`${question}.jev-rule.rule.spend`, ruleSpend[1], put);
-    }
+      if (m[1] !== undefined) putMissing(`${question}.jev-rule.rule.spend`, m[1], put);
+    });
   }
   return figures;
+}
+
+/** A value token: everything up to whitespace or , ; ( ) * backtick, so `4.9`, `-5` and `1/0` are read whole. */
+const V = "([^\\s,;()*`]+)";
+
+/** Group i of a match, with a sentence-ending full stop dropped. */
+function v(m: RegExpMatchArray, i: number): string {
+  return (m[i] ?? "").replace(/\.$/, "");
+}
+
+/** Every occurrence on the line, so a second statement of a figure is seen, not skipped. */
+function each(line: string, pattern: string, fn: (m: RegExpMatchArray) => void): void {
+  for (const m of line.matchAll(new RegExp(pattern, "g"))) fn(m);
 }
 
 function parseTableRow(section: string, question: string, comparison: string, header: readonly string[], cells: readonly string[], put: Put): void {
@@ -552,7 +562,12 @@ function parseTableRow(section: string, question: string, comparison: string, he
     return;
   }
   if (section === "Every row, by hand") {
-    const [caseId, q] = first.split(/\s+/);
+    const label = first.split(/\s+/);
+    const [caseId, q] = label;
+    if (label.length !== 2) {
+      put(`row.${first}.note`, first);
+      return;
+    }
     header.forEach((name, i) => {
       const who = ANSWERER_BY_NAME.get(name);
       if (who === undefined) return;
@@ -621,7 +636,9 @@ function canonical(value: FigureValue): string {
 function statedNumber(text: string): number | null {
   if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
   const fraction = /^(\d+)\/(\d+)$/.exec(text);
-  return fraction === null ? null : Number(fraction[1]) / Number(fraction[2]);
+  if (fraction === null || Number(fraction[2]) === 0) return null;
+  const value = Number(fraction[1]) / Number(fraction[2]);
+  return Number.isFinite(value) ? value : null;
 }
 
 /**
@@ -629,8 +646,8 @@ function statedNumber(text: string): number | null {
  * computed value rounded to 3 significant figures (how expected.md writes 0.0000267 and 0.00267).
  */
 function sameNumber(stated: number, computed: number): boolean {
+  if (!Number.isFinite(stated) || !Number.isFinite(computed)) return false;
   if (stated === computed) return true;
-  if (!Number.isFinite(computed)) return false;
   if (Math.abs(stated - computed) <= 1e-9 * Math.max(Math.abs(stated), Math.abs(computed))) return true;
   return Number(computed.toPrecision(3)) === stated;
 }

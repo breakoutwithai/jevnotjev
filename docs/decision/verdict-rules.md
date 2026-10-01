@@ -7,8 +7,8 @@ The verdict describes the builder's test set, not production.
 ## Settings
 | Setting | Value | Why |
 |---|---|---|
-| Minimum paired labelled cases | 30 | At 10 and 20 cases, a Jev that is truly as good as the LLM reaches "use Jev" in only 2% to 13% of simulated test sets; at 30, 18% to 21% (table below) |
-| Accept-rate margin | 10 points | With a 5-point margin, even 100 cases reach "use Jev" in only 17% to 24% of test sets |
+| Minimum paired labelled cases | 30 | At 10 and 20 cases, a Jev that is truly as good as the LLM reaches "use Jev" in only 2% to 13% of simulated test sets; at 30, 17% to 22% (table below) |
+| Accept-rate margin | 10 points | With a 5-point margin, even 100 cases reach "use Jev" in only 17% to 25% of test sets |
 | Cost ratio to count as cheaper | 0.8 or less | Jev must be at least 20% cheaper per accepted answer, with the 95% upper bound below 1 |
 | Confidence level | 95% | |
 
@@ -84,12 +84,12 @@ The screen shows the rule that fired and every number behind it.
 | No Jev key, so no Jev rows | Not enough evidence: no Jev results. Never "don't use Jev". |
 
 ## Evidence behind the settings
-Simulation: output in [sim_out.txt](sim_out.txt) (2,000 test sets per cell, seed 20260929, run 2026-09-29; the original research script is in history at [cd8397f](https://github.com/breakoutwithai/jevnotjev/tree/cd8397f/docs/decision), and any rerun is written in TypeScript). Outcome correlation between Jev and the LLM 0.5, an assumption. Share of test sets where a Jev truly equal to the LLM passes the accept-rate test for "use Jev" (Newcombe interval, 10-point margin). The simulation applies only that test, so these are upper bounds: the cost bar and the rule comparison can only lower them.
+Simulation: output in [sim_out.txt](sim_out.txt) (2,000 test sets per cell, seed 20260929), regenerated 2026-10-01 by [sim.ts](../research/2026-09-29-verdict-minimums/sim.ts) with `bun docs/research/2026-09-29-verdict-minimums/sim.ts > docs/decision/sim_out.txt`. Every value is within Monte Carlo tolerance of the first run of 2026-09-29; the comparison is in the [research README](../research/2026-09-29-verdict-minimums/README.md). Outcome correlation between Jev and the LLM 0.5, an assumption. Share of test sets where a Jev truly equal to the LLM passes the accept-rate test for "use Jev" (Newcombe interval, 10-point margin). The simulation applies only that test, so these are upper bounds: the cost bar and the rule comparison can only lower them.
 
 | LLM accept rate | n=10 | n=20 | n=30 | n=50 | n=100 |
 |---|---|---|---|---|---|
-| 0.8 | 4% | 13% | 18% | 30% | 54% |
-| 0.9 | 2% | 12% | 21% | 39% | 70% |
+| 0.8 | 4% | 13% | 17% | 31% | 53% |
+| 0.9 | 2% | 11% | 22% | 38% | 70% |
 
 When Jev is exactly 10 points worse, it wrongly reaches "use Jev" in 3% of test sets or fewer at every n. The rule leans towards "not enough evidence"; at 30 cases that is the most common result.
 

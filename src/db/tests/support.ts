@@ -77,7 +77,7 @@ export async function openConnection(options: { debug?: (id: number, query: stri
   return connect(ADMIN_DSN, { max: 1, database: await database(), ...options });
 }
 
-/** A fresh connection per test, as the Python conn fixture gave. */
+/** A fresh connection per test. */
 export function useConnection(): () => Db {
   let current: Db | undefined;
   beforeEach(async () => {
@@ -186,7 +186,7 @@ export function numericOnlyDifferences(sourceText: string, exportedText: string)
   return respelled;
 }
 
-/** SQLSTATE codes the Python tests named as psycopg exception classes. */
+/** SQLSTATE codes the tests assert, by name. */
 export const SQLSTATE: Readonly<Record<"foreignKeyViolation" | "checkViolation" | "uniqueViolation" | "raiseException" | "insufficientPrivilege", string>> = {
   foreignKeyViolation: "23503",
   checkViolation: "23514",

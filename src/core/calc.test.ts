@@ -224,3 +224,20 @@ describe("calc: cost ratio and its resampled interval", () => {
     expect(await fileSeed(`${text}\n`)).not.toBe(seed);
   });
 });
+
+describe("calc: zero-cost resamples", () => {
+  test("[unit] R5.f both costs per accepted $0 gives no ratio", () => {
+    expect(costRatio(side(0, 3), side(0, 2))).toBeNull();
+  });
+
+  test("[unit] R5.g a resample with both costs per accepted $0 is redrawn", () => {
+    const cases: readonly CostCase[] = [
+      { jevAccepted: true, jevCostUsd: 0.00002, llmAccepted: true, llmCostUsd: 0.002 },
+      { jevAccepted: true, jevCostUsd: 0, llmAccepted: true, llmCostUsd: 0 },
+    ];
+    // Draw 1 picks the free case twice: no ratio, redrawn. Draw 2 picks case 0 then case 1.
+    const run = resampleCostRatios(cases, scripted([0.9, 0.9, 0.1, 0.9]), 1);
+    expect(run.redrawn).toBe(1);
+    expect(run.ratios[0]).toBeCloseTo(0.01, 12);
+  });
+});

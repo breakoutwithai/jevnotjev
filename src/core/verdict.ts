@@ -12,11 +12,19 @@ export const MIN_PAIRED = 30;
 export const MARGIN = 0.1;
 /** Cost ratio to count as cheaper. */
 export const CHEAPER = 0.8;
+/**
+ * Tolerance on the cost comparisons (0.8 and 1). Spend is a float sum, so a ratio that is exactly 0.8 in
+ * decimal can come out as 0.8000000000000002; a value within this distance of a bound counts as on it.
+ */
+export const COST_TOLERANCE = 1e-9;
 
 export type VerdictName = "use Jev" | "don't use Jev" | "not enough evidence";
 
 export type Condition =
-  // Rule 1
+    // Rule 1 additions, not in verdict-rules.md: the cost ratio cannot be computed
+  | "no-cost-ratio"
+  | "cost-not-finite"
+// Rule 1
   | "no-jev-rows"
   | "no-llm-rows"
   | "too-few-paired"
@@ -148,6 +156,17 @@ export function verdict(metrics: CohortMetrics, seed: number): Verdict {
   if (cases === null || pair.jev.spend.kind !== "complete" || pair.otherArm.spend.kind !== "complete") {
     return notEnough("cost-missing", "cost missing on a paired Jev or LLM row, so the cost ratio would look complete on partial spend");
   }
+  // A resample can repeat the dearest case n times, so n x the largest cost must stay finite too.
+  const largest = Math.max(...cases.map((one) => Math.max(one.jevCostUsd, one.llmCostUsd)));
+  if (!Number.isFinite(pair.jev.spend.usd) || !Number.isFinite(pair.otherArm.spend.usd) || !Number.isFinite(largest * cases.length)) {
+    return notEnough("cost-not-finite", "costs too large to add up, so there is no cost ratio");
+  }
+  const ratio = costRatio(
+    { spendUsd: pair.jev.spend.usd, accepted: pair.jev.accepted },
+    { spendUsd: pair.otherArm.spend.usd, accepted: pair.otherArm.accepted },
+  );
+  if (ratio === null) return notEnough("no-cost-ratio", "Jev and the LLM both cost $0 per accepted answer, so there is no cost ratio");
+  if (Number.isNaN(ratio)) return notEnough("cost-not-finite", "the cost ratio is not a number");
 
   // Rule 2: don't use Jev, conditions in the order verdict-rules.md lists them.
   const dont = (condition: Condition, reason: string, numbers?: VerdictNumbers): Verdict =>
@@ -161,22 +180,17 @@ export function verdict(metrics: CohortMetrics, seed: number): Verdict {
   if (pair.jev.accepted === 0) {
     return dont("jev-zero-accepted", `Jev has 0 accepted and the LLM has ${pair.otherArm.accepted}`);
   }
-  const ratio = costRatio(
-    { spendUsd: pair.jev.spend.usd, accepted: pair.jev.accepted },
-    { spendUsd: pair.otherArm.spend.usd, accepted: pair.otherArm.accepted },
-  );
-  if (ratio === null) throw new Error("no cost ratio after rule 1 checked both at 0 accepted");
   const ci: RatioNumbers = { ratio, ...costRatioInterval(cases, seed) };
   const numbers: VerdictNumbers = { ...base, costRatio: ci };
-  if (ci.lower > 1) {
+  if (ci.lower > 1 + COST_TOLERANCE) {
     return dont("jev-clearly-dearer", `Jev is clearly dearer (cost ratio ${ratio.toFixed(3)}, lower bound ${ci.lower.toFixed(3)}, above 1)`, numbers);
   }
 
   // Rule 3: use Jev when every condition holds; rule 4 names the ones that did not.
   const unmet: Condition[] = [];
   if (!(jevVsLlm.lower > -MARGIN)) unmet.push("accept-rate-not-shown");
-  if (ratio > CHEAPER) unmet.push(ratio < 1 ? "cheaper-by-less-than-20" : "not-cheaper");
-  if (!(ci.upper < 1)) unmet.push("cost-upper-bound-not-below-1");
+  if (ratio > CHEAPER + COST_TOLERANCE) unmet.push(ratio < 1 - COST_TOLERANCE ? "cheaper-by-less-than-20" : "not-cheaper");
+  if (!(ci.upper < 1 - COST_TOLERANCE)) unmet.push("cost-upper-bound-not-below-1");
   const [first] = unmet;
   if (first === undefined) {
     return result("use Jev", 3, "use-jev", `Jev is within 10 points of the LLM (lower bound ${fixed(jevVsLlm.lower)}) and costs ${ratio.toFixed(3)} of it per accepted answer (upper bound ${ci.upper.toFixed(3)})`, { numbers });

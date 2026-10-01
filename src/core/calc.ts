@@ -103,7 +103,7 @@ export interface CostSide {
 
 /**
  * cost_per_accepted(jev) / cost_per_accepted(llm). 0 when the LLM has 0 accepted and Jev some;
- * infinity when Jev has 0 and the LLM some; null when both have 0 (no ratio, rule 1 stops first).
+ * infinity when Jev has 0 and the LLM some; null when both have 0, or both cost $0 per accepted (no ratio; verdict() stops at rule 1, the resample redraws).
  */
 export function costRatio(jev: CostSide, llm: CostSide): number | null {
   checkCount("jev accepted", jev.accepted);
@@ -114,7 +114,7 @@ export function costRatio(jev: CostSide, llm: CostSide): number | null {
   const jevPer = jev.spendUsd / jev.accepted;
   const llmPer = llm.spendUsd / llm.accepted;
   if (llmPer === 0) {
-    if (jevPer === 0) throw new RangeError("both costs per accepted are $0: no cost ratio");
+    if (jevPer === 0) return null;
     return Number.POSITIVE_INFINITY;
   }
   return jevPer / llmPer;

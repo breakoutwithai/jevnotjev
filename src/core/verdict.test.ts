@@ -161,3 +161,32 @@ describe("verdict: order", () => {
     expect(got).toMatchObject({ verdict: "don't use Jev", rule: 2, condition: "rule-within-margin" });
   });
 });
+
+describe("verdict: cost edge cases", () => {
+  test("[unit] R5.f all costs $0 gives not enough evidence with no cost ratio, not a throw", async () => {
+    const [got] = await verdictsOf(render(build({ name: "free", pairs: quad(27, 3, 0, 0), jevCost: 0, llmCost: 0 })));
+    expect(got).toMatchObject({ verdict: "not enough evidence", rule: 1, condition: "no-cost-ratio", addN: null });
+    expect(got?.reason).toContain("no cost ratio");
+  });
+
+  test("[unit] R5.g some $0 cases: a resample with both costs per accepted $0 is redrawn", async () => {
+    // Only c01 costs anything; a resample that never draws it has both costs per accepted at $0.
+    const freeCases = Array.from({ length: 71 }, (_, i) => i + 1);
+    const [got] = await verdictsOf(render(build({ name: "mostly-free", pairs: quad(72, 0, 0, 0), freeCases })));
+    expect(got).toMatchObject({ verdict: "use Jev", rule: 3 });
+    expect(got?.numbers.costRatio?.ratio).toBeCloseTo(0.01, 12);
+    expect(got?.numbers.costRatio?.redrawn).toBeGreaterThan(0);
+  });
+
+  test("[unit] R6.d exactly 20% cheaper passes rule 3 despite float sums", async () => {
+    // 72 cases, both accept all: 72 x 0.0016 / 72 over 72 x 0.002 / 72 sums to 0.8000000000000002.
+    const [got] = await verdictsOf(render(build({ name: "boundary", pairs: quad(72, 0, 0, 0), jevCost: 0.0016, llmCost: 0.002 })));
+    expect(got?.numbers.costRatio?.ratio).toBeGreaterThan(0.8);
+    expect(got).toMatchObject({ verdict: "use Jev", rule: 3, condition: "use-jev" });
+  });
+
+  test("[unit] R6.a costs too large to sum give not enough evidence, never use Jev", async () => {
+    const [got] = await verdictsOf(render(build({ name: "huge", pairs: quad(27, 3, 0, 0), jevCost: 1e307, llmCost: 1e307 })));
+    expect(got).toMatchObject({ verdict: "not enough evidence", rule: 1, condition: "cost-not-finite" });
+  });
+});

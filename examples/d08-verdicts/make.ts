@@ -55,6 +55,8 @@ export interface Build {
   readonly llmCost?: number;
   /** Case indexes (0-based) whose Jev row has no cost. */
   readonly jevCostMissing?: readonly number[];
+  /** Case indexes (0-based) whose Jev and LLM rows both cost $0. */
+  readonly freeCases?: readonly number[];
 }
 
 export function build(spec: Build): Fixture {
@@ -62,9 +64,10 @@ export function build(spec: Build): Fixture {
   const llmCost = spec.llmCost ?? LLM;
   const cases = spec.pairs.map(([jev, llm], i): CaseRow => {
     const rule = spec.rule?.[i];
+    const free = spec.freeCases?.includes(i) === true;
     return {
-      jev: jev === null ? null : { label: jev, cost: spec.jevCostMissing?.includes(i) === true ? null : jevCost },
-      llm: llm === null ? null : { label: llm, cost: llmCost },
+      jev: jev === null ? null : { label: jev, cost: spec.jevCostMissing?.includes(i) === true ? null : free ? 0 : jevCost },
+      llm: llm === null ? null : { label: llm, cost: free ? 0 : llmCost },
       rule: rule === undefined ? null : { label: rule, cost: 0 },
     };
   });
@@ -101,6 +104,11 @@ const ANSWERER_MODEL: Readonly<Record<"jev" | "llm" | "rule", string>> = {
   rule: "keywords:synthetic",
 };
 
+/** Plain decimal text: the format has no exponent notation, so a huge whole cost is written out in digits. */
+function costText(cost: number): string {
+  return Number.isInteger(cost) && Math.abs(cost) >= 1e21 ? BigInt(cost).toString() : String(cost);
+}
+
 function row(fixture: Fixture, caseIndex: number, answerer: "jev" | "llm" | "rule", cell: Cell): string[] {
   const caseId = `c${String(caseIndex + 1).padStart(2, "0")}`;
   // The output is whatever the label makes right for a synthetic case whose correct answer is "yes".
@@ -122,7 +130,7 @@ function row(fixture: Fixture, caseIndex: number, answerer: "jev" | "llm" | "rul
     label_source: "human",
     tokens_in: "",
     tokens_out: "",
-    cost_usd: cell.cost === null ? "" : String(cell.cost),
+    cost_usd: cell.cost === null ? "" : costText(cell.cost),
     latency_ms: "",
   };
   return COLUMNS.map((column) => values[column] ?? "");

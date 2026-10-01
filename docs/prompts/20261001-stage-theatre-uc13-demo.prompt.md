@@ -3,7 +3,7 @@ prompt_id: jnj-stage-theatre-uc13-demo
 title: Stage page theatre pass with UC13 stage-door demo
 version: 2.0.0
 created: 2026-10-01
-owner: Craig Austin
+owner: operator
 status: ready-not-run
 prompt_type: build
 task_class: code

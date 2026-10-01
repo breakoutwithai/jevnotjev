@@ -16,6 +16,7 @@ UC1 to UC8 come from one scenario: an AI coding agent takes a small client reque
 | UC10 | Tech stack choice ([detail](uc10-tech-stack-choice.md)) | builder starting a project | Does the project need each property (realtime, relational, access rules, self-hosting)? | yes / no per property; a mapping table picks the stack | project description | keyword list plus the mapping table |
 | UC11 | CV against a job ad ([detail](uc11-cv-vs-job-ad.md)) | hiring manager | Does the CV meet this line of the ad? One question per ad line | yes / no | CVs, labelled per ad line | keyword match per line |
 | UC12 | Requirement evidence check ([detail](uc12-requirement-evidence-check.md)) | builder, reviewer | Does this evidence excerpt support this requirement? | met / partly met / not met | requirement and evidence pairs from a public README | named check exits 0 and prints PASS |
+| UC13 | Shop bot, answer or hand off ([detail](uc13-shop-bot-answer-or-handoff.md)) | small shop owner, bot builder | Can the bot answer this from the fact sheet? | answer / hand_off | 40 customer messages against one synthetic fact sheet | keyword list: stock, availability, booking, policy, injury or safety word goes to hand off |
 
 ## Grouped by where they run
 - **Inside the agent loop** (every turn, volume, cheap wins): UC3, UC4, UC5.

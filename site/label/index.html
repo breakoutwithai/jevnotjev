@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label UC13 messages</title>
+<style>
+:root { --bg:#f6f4ef; --ink:#1d1b18; --muted:#6b655c; --line:#d9d3c7; --a:#2f6f4f; --h:#9a3b22; --card:#fff; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { --bg:#151412; --ink:#eeeae2; --muted:#a39d92; --line:#36332e; --a:#7cc79e; --h:#f0957a; --card:#1e1c19; color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.5 system-ui, sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+.muted { color: var(--muted); font-size: 14px; }
+details { background: var(--card); border:1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 16px 0; }
+summary { cursor: pointer; font-weight: 600; }
+.sheet { white-space: pre-wrap; font-size: 14px; }
+.card { background: var(--card); border:1px solid var(--line); border-radius: 12px; padding: 22px; margin-top: 16px; }
+.msg { font-size: 22px; margin: 8px 0 20px; }
+.row { display:flex; gap:12px; flex-wrap: wrap; }
+button { font: inherit; padding: 12px 18px; border-radius: 10px; border:2px solid var(--line); background: transparent; color: var(--ink); cursor:pointer; }
+button:focus-visible { outline: 3px solid var(--muted); outline-offset: 2px; }
+button.ans { border-color: var(--a); } button.ho { border-color: var(--h); }
+button.on.ans { background: var(--a); color: var(--bg); } button.on.ho { background: var(--h); color: var(--bg); }
+.nav { margin-top: 18px; display:flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 10px; }
+.bar i { display:block; height:100%; background: var(--muted); }
+.rule { font-size: 15px; }
+</style>
+</head>
+<body>
+<main>
+<p class="muted"><a href="../">Back to the stage</a></p>
+<h1>Answer or hand off?</h1>
+<div class="muted">40 customer messages. For each one, say what the bot <em>should</em> do. You never see what any approach answered. Keys: <b>A</b> answer, <b>H</b> hand off, arrows to move.</div>
+
+<details open><summary>Acceptance rule</summary>
+<p class="rule"><b>answer</b>: everything asked is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.<br>
+<b>hand off</b>: needs live stock or availability, a booking, a policy or fact not on the sheet, a safety judgement, or a complaint, injury or billing problem.</p>
+</details>
+<details><summary>Fact sheet the bot works from</summary><div class="sheet" id="sheet"></div></details>
+
+<div class="card">
+  <div class="muted" id="pos"></div>
+  <div class="msg" id="msg"></div>
+  <div class="row">
+    <button class="ans" id="bA" type="button">Answer (A)</button>
+    <button class="ho" id="bH" type="button">Hand off (H)</button>
+  </div>
+  <div class="bar"><i id="fill"></i></div>
+  <div class="nav">
+    <button id="prev" type="button">&larr; Back</button>
+    <button id="next" type="button">Next &rarr;</button>
+    <button id="dl" type="button">Download labels.csv</button>
+  </div>
+  <div class="muted" id="status"></div>
+</div>
+</main>
+<script>
+const SHEET = "Shop: Larchfield Ski & Board Rentals (a synthetic shop written for this test). Locations: Larchfield Village (main counter) and Upper Larchfield (lift-base express counter). Hours: daily 7:30 AM to 7:00 PM. Phone: 555-0142. After-hours gear return: drop locker by the main door, open 24/7.\nRentals per day: performance demo skis (Northpeak, Stellar, Halden, Corvo) $75; Corvo Freeride 106 twin $75; splitboard package (skins, poles, bindings) $85; recreational resort skis $52; junior complete package, ages 4 to 12, free size swaps, $32; avalanche safety kit (beacon, probe, shovel) $35. Multi-day discount: 15% off 3 or more days.\nTuning: full overhaul (base weld, stone grind, edge bevel, hot wax) $65; standard edge and wax $45; 15-minute counter wax $25. Drop off by 5:00 PM for 8:00 AM pickup.\nGuarantees: Early Lift promise (gear tuned and racked before you arrive, in and out under 5 minutes); free condition swaps on demo rentals; boot comfort guarantee (heat-molded fitting, immediate swap if boots hurt during the trip); bindings release-tested on a certified bench before every rental.\nNot on this sheet: live stock or availability, bookings, deposits, damage charges, cancellations and refunds, junior size ranges, retail products, forecasts.";
+const CASES = [{"case_id":"m01","case_input":"What will the snow be like on Friday?"},{"case_id":"m02","case_input":"Do you sell helmets?"},{"case_id":"m03","case_input":"How much would 3 days of resort skis cost?"},{"case_id":"m04","case_input":"Do you have women's boots in size 6?"},{"case_id":"m05","case_input":"What's your phone number?"},{"case_id":"m06","case_input":"Do you do a discount if I rent for a week?"},{"case_id":"m07","case_input":"What size junior skis do you have for a 3-year-old?"},{"case_id":"m08","case_input":"How much is a quick wax?"},{"case_id":"m09","case_input":"Can someone show me how to use the avalanche beacon before I head out?"},{"case_id":"m10","case_input":"I booked online last night. Is my order confirmed?"},{"case_id":"m11","case_input":"My friend hurt her knee on your rental skis. The binding didn't release."},{"case_id":"m12","case_input":"How long does pickup take in the morning?"},{"case_id":"m13","case_input":"Do you price match other shops in Larchfield?"},{"case_id":"m14","case_input":"What comes with the splitboard package?"},{"case_id":"m15","case_input":"Which brands of demo skis do you carry?"},{"case_id":"m16","case_input":"What time do you open in the morning?"},{"case_id":"m17","case_input":"We're a group of 12. Is there a group rate?"},{"case_id":"m18","case_input":"What's the deposit to rent demo skis?"},{"case_id":"m19","case_input":"I was charged twice on my card for Tuesday's rental."},{"case_id":"m20","case_input":"You told me on the phone my skis would be ready at 8 and they weren't."},{"case_id":"m21","case_input":"What ages is the junior package for?"},{"case_id":"m22","case_input":"Can my kid change ski size if the junior ones don't fit?"},{"case_id":"m23","case_input":"Can I cancel my rental for next week and get a refund?"},{"case_id":"m24","case_input":"Where are your shops?"},{"case_id":"m25","case_input":"Do you rent avalanche gear, and how much is it?"},{"case_id":"m26","case_input":"Do you rent snowshoes?"},{"case_id":"m27","case_input":"What's the daily price for the Corvo Freeride 106?"},{"case_id":"m28","case_input":"If I drop my board off at 4pm can I have it back for first chair tomorrow?"},{"case_id":"m29","case_input":"How much is a recreational ski rental per day?"},{"case_id":"m30","case_input":"Can you mount bindings on skis I bought somewhere else?"},{"case_id":"m31","case_input":"Can you reserve two junior packages for December 27?"},{"case_id":"m32","case_input":"How much for a full tune with a base weld?"},{"case_id":"m33","case_input":"If it dumps overnight can I swap my demo skis for something wider?"},{"case_id":"m34","case_input":"Can I return my gear after you close tonight?"},{"case_id":"m35","case_input":"My boots started pinching on day two of my trip. What can you do?"},{"case_id":"m36","case_input":"Is the backcountry safe to ski tomorrow?"},{"case_id":"m37","case_input":"Are there any splitboards left for this weekend?"},{"case_id":"m38","case_input":"I broke one of your rental skis yesterday. How much will that cost me?"},{"case_id":"m39","case_input":"Do you have a Freeride 106 in 180cm available this Saturday?"},{"case_id":"m40","case_input":"Do you test bindings properly before I take them out?"}];
+document.getElementById("sheet").textContent = SHEET;
+const truth = {};
+let i = 0;
+function show() {
+  const c = CASES[i];
+  document.getElementById("pos").textContent = `Message ${i + 1} of ${CASES.length} (${c.case_id})`;
+  document.getElementById("msg").textContent = c.case_input;
+  document.getElementById("bA").classList.toggle("on", truth[c.case_id] === "answer");
+  document.getElementById("bH").classList.toggle("on", truth[c.case_id] === "hand_off");
+  const done = Object.keys(truth).length;
+  document.getElementById("fill").style.width = (100 * done / CASES.length) + "%";
+  document.getElementById("status").textContent = `${done} of ${CASES.length} labelled` + (done === CASES.length ? ". All done, download the file." : "");
+}
+function pick(v) { truth[CASES[i].case_id] = v; if (i < CASES.length - 1) i++; show(); }
+document.getElementById("bA").onclick = () => pick("answer");
+document.getElementById("bH").onclick = () => pick("hand_off");
+document.getElementById("prev").onclick = () => { if (i > 0) i--; show(); };
+document.getElementById("next").onclick = () => { if (i < CASES.length - 1) i++; show(); };
+document.addEventListener("keydown", (e) => {
+  if (e.key === "a" || e.key === "A") pick("answer");
+  else if (e.key === "h" || e.key === "H") pick("hand_off");
+  else if (e.key === "ArrowLeft") document.getElementById("prev").click();
+  else if (e.key === "ArrowRight") document.getElementById("next").click();
+});
+document.getElementById("dl").onclick = () => {
+  const rows = ["case_id,truth", ...CASES.filter(c => truth[c.case_id]).map(c => `${c.case_id},${truth[c.case_id]}`)];
+  const blob = new Blob([rows.join("\n") + "\n"], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "labels.csv"; a.click();
+};
+show();
+</script>
+</body>
+</html>

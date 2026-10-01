@@ -1,68 +1,40 @@
 // Behavioural check of site/theatre.js without a browser: the script runs against small fakes of the elements it
-// touches, with scrollY pinned at 0 the way a slow smooth scroll leaves it, and the test reads the curtain state.
+// touches, with a clock the test advances, and the test reads the curtain and beat state.
 
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-
-type Handler = (e: { target: unknown }) => void;
-
-class FakeNode {}
-
-class FakeEl extends FakeNode {
-  readonly classes = new Set<string>();
-  readonly props = new Map<string, string>();
-  readonly dataset: Record<string, string> = {};
-  readonly handlers = new Map<string, Handler[]>();
-  readonly children = new Set<FakeEl>();
-  value = "";
-  offsetHeight = 900;
-  focused = false;
-  readonly classList = {
-    add: (c: string) => { this.classes.add(c); },
-    remove: (c: string) => { this.classes.delete(c); },
-    contains: (c: string) => this.classes.has(c),
-    toggle: (c: string, on: boolean) => { if (on) this.classes.add(c); else this.classes.delete(c); },
-  };
-  readonly style = { setProperty: (k: string, v: string) => { this.props.set(k, v); } };
-  addEventListener(type: string, fn: Handler): void {
-    this.handlers.set(type, [...(this.handlers.get(type) ?? []), fn]);
-  }
-  fire(type: string, target: unknown = this): void {
-    for (const fn of this.handlers.get(type) ?? []) fn({ target });
-  }
-  contains(other: unknown): boolean {
-    return other === this || [...this.children].some((c) => c.contains(other));
-  }
-  focus(): void { this.focused = true; }
-}
+import { FakeClock, FakeEl, FakeNode, type Handler, siteScript } from "./dom-fakes.ts";
 
 interface Stage {
   readonly root: FakeEl;
   readonly ids: Map<string, FakeEl>;
-  readonly main: FakeEl;
   readonly doc: FakeEl;
   readonly win: FakeEl;
   readonly scrolls: unknown[];
+  readonly clock: FakeClock;
+  readonly played: { count: number };
+  scrollTo(y: number): void;
 }
 
 async function runTheatre(hash = ""): Promise<Stage> {
-  const src = await readFile(join(import.meta.dir, "..", "site", "theatre.js"), "utf8");
+  const src = await siteScript("theatre.js");
   const root = new FakeEl();
   root.classes.add("motion");
   const ids = new Map<string, FakeEl>();
-  for (const id of ["overture", "runway", "askInput", "door", "skipOverture", "t1", "cueBtn"]) ids.set(id, new FakeEl());
+  for (const id of ["overture", "runway", "askInput", "door", "skipOverture", "t1", "cues", "cueBtn", "dialogue"]) ids.set(id, new FakeEl());
   const main = new FakeEl();
-  for (const id of ["askInput", "door", "t1", "cueBtn"]) {
+  for (const id of ["askInput", "door", "t1", "cues", "cueBtn", "dialogue"]) {
     const el = ids.get(id);
     if (el) main.children.add(el);
   }
   const scrolls: unknown[] = [];
   const doc = new FakeEl();
   const win = new FakeEl();
+  const clock = new FakeClock();
+  const played = { count: 0 };
+  const dialogue = ids.get("dialogue");
   const stage = {
     openerTail: "to do a thing?",
-    playOpener: () => {},
+    playOpener: () => { played.count++; if (dialogue) dialogue.lastElementChild = new FakeEl(); },
     act1Final: () => { const i = ids.get("askInput"); if (i) i.value = "to do a thing?"; },
   };
   const windowObj = {
@@ -79,8 +51,11 @@ async function runTheatre(hash = ""): Promise<Stage> {
     addEventListener: (t: string, fn: Handler) => doc.addEventListener(t, fn),
   };
   const run = new Function("window", "document", "location", "requestAnimationFrame", "Node", "setTimeout", "clearTimeout", src);
-  run(windowObj, documentObj, { hash }, (fn: () => void) => { fn(); return 0; }, FakeNode, () => 0, () => {});
-  return { root, ids, main, doc, win, scrolls };
+  run(windowObj, documentObj, { hash }, (fn: () => void) => { fn(); return 0; }, FakeNode, clock.setTimeout, clock.clearTimeout);
+  return {
+    root, ids, doc, win, scrolls, clock, played,
+    scrollTo(y: number) { windowObj.scrollY = y; win.fire("scroll"); },
+  };
 }
 
 describe("theatre.js curtain", () => {
@@ -100,7 +75,7 @@ describe("theatre.js curtain", () => {
     expect(s.ids.get("door")?.classes.has("shown")).toBe(true);
     expect(s.ids.get("t1")?.focused).toBe(true);
     expect(s.scrolls).toEqual([{ top: 900, behavior: "instant" }]);
-    s.win.fire("scroll");
+    s.scrollTo(0);
     expect(s.root.dataset.curtain).toBe("open");
   });
 
@@ -108,7 +83,7 @@ describe("theatre.js curtain", () => {
     const s = await runTheatre();
     s.doc.fire("focusin", s.ids.get("cueBtn"));
     expect(s.root.dataset.curtain).toBe("open");
-    s.win.fire("scroll");
+    s.scrollTo(0);
     expect(s.root.dataset.curtain).toBe("open");
   });
 
@@ -116,5 +91,44 @@ describe("theatre.js curtain", () => {
     const s = await runTheatre("#act3");
     expect(s.root.dataset.curtain).toBe("open");
     expect(s.root.dataset.beat).toBe("3");
+  });
+});
+
+describe("theatre.js Act I beats", () => {
+  test("[unit] SITE-7 choosing an example while the opener types cancels the opener: no later timer overwrites the choice", async () => {
+    const s = await runTheatre();
+    s.scrollTo(0.9 * 900);
+    expect(s.root.dataset.act1).toBe("typing");
+    // capture on #cues runs before the example's own handler, which then writes its question
+    s.ids.get("cues")?.fire("click", s.ids.get("cueBtn"));
+    const input = s.ids.get("askInput");
+    if (input) input.value = "to route support tickets?";
+    s.clock.runUntil();
+    expect(input?.value).toBe("to route support tickets?");
+    expect(input?.classes.has("struck")).toBe(false);
+    expect(s.played.count).toBe(0);
+    expect(s.root.dataset.act1).toBe("dialogue");
+    s.scrollTo(900);
+    expect(s.root.dataset.beat).toBe("3");
+  });
+
+  test("[unit] SITE-8 the note waits for the last dialogue line's animationend, with a timer fallback", async () => {
+    const s = await runTheatre();
+    s.scrollTo(0.9 * 900);
+    s.clock.runUntil(() => s.played.count > 0);
+    expect(s.root.dataset.act1).toBe("dialogue");
+    s.scrollTo(900);
+    expect(s.root.dataset.beat).toBe("2");
+    s.ids.get("dialogue")?.lastElementChild?.fire("animationend");
+    expect(s.root.dataset.beat).toBe("3");
+
+    const t = await runTheatre();
+    t.scrollTo(0.9 * 900);
+    t.clock.runUntil(() => t.played.count > 0);
+    const startedAt = t.clock.now;
+    t.scrollTo(900);
+    t.clock.runUntil(() => t.root.dataset.beat === "3");
+    expect(t.root.dataset.beat).toBe("3");
+    expect(t.clock.now - startedAt).toBeGreaterThanOrEqual(1100);
   });
 });

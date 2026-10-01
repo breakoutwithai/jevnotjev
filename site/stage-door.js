@@ -10,10 +10,30 @@
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   function word(o) { return o === "hand_off" ? "hand off" : String(o); }
-  function usd(v) { var n = Number(v) || 0; return "$" + n.toFixed(n > 0 && n < 0.01 ? 6 : 4); }
+  /* A cost that is missing, not a number or negative was not measured: say so rather than show $0. */
+  function usd(v) {
+    if (typeof v !== "number" || !isFinite(v) || v < 0) return "n/a";
+    return "$" + v.toFixed(v > 0 && v < 0.01 ? 6 : 4);
+  }
   function motion() { return root.classList.contains("motion"); }
+  function isObj(o) { return typeof o === "object" && o !== null && !Array.isArray(o); }
+  function isStr(s) { return typeof s === "string"; }
+  function isCount(n) { return typeof n === "number" && isFinite(n) && n >= 0; }
+  /* Every field the render reads, checked before it runs; anything else gets the fallback. */
   function valid(D) {
-    return D && D.schema === "jnj-uc13-demo/1" && D.arms && D.arms.length && D.messages && D.tally && D.fact_sheet;
+    if (!isObj(D) || D.schema !== "jnj-uc13-demo/1" || !isStr(D.note) || !isCount(D.cases_total)) return false;
+    var F = D.fact_sheet;
+    if (!isObj(F) || !isStr(F.title) || !Array.isArray(F.lines) || !F.lines.every(isStr)) return false;
+    if (!Array.isArray(D.arms) || D.arms.length === 0 || !D.arms.every(function (a) { return isObj(a) && isStr(a.key) && isStr(a.name); })) return false;
+    if (!Array.isArray(D.messages) || !D.messages.every(function (m) {
+      return isObj(m) && isStr(m.id) && isStr(m.text) && isObj(m.outputs) &&
+        (m.label === null || m.label === undefined || isStr(m.label));
+    })) return false;
+    if (!isObj(D.tally) || !D.arms.every(function (a) {
+      var t = D.tally[a.key];
+      return isObj(t) && isCount(t.answer) && isCount(t.hand_off) && (t.accept === null || t.accept === undefined || isCount(t.accept));
+    })) return false;
+    return D.label_page === null || D.label_page === undefined || isStr(D.label_page);
   }
   var MODE = { sample: "Sample data", pending: "Labels pending", labelled: "Labelled" };
   var VERDICT = { accept: "accept", reject: "reject", pending: "pending: not labelled yet" };

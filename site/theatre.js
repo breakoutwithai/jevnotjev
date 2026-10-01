@@ -25,7 +25,10 @@
     return;
   }
 
-  var OPEN_AT = 0.75, BEAT2_AT = 0.87, BEAT3_AT = 1.0, TYPE_MS = 38, STRIKE_HOLD_MS = 1500, DIALOGUE_MS = 900;
+  /* DIALOGUE_FALLBACK_MS covers the last line's .5s delay plus .6s entrance (index.html .dialogue .line) with margin. */
+  var OPEN_AT = 0.75, BEAT2_AT = 0.87, BEAT3_AT = 1.0, TYPE_MS = 38, STRIKE_HOLD_MS = 1500, DIALOGUE_FALLBACK_MS = 1400;
+  var dialogue = document.getElementById("dialogue");
+  var cues = document.getElementById("cues");
   /* opened: the curtain was opened directly (skip, focus, deep link) and stays open whatever scrollY reads. */
   var beat = 0, act1Done = false, timers = [], ticking = false, opened = false;
   root.dataset.beat = "0";
@@ -55,9 +58,30 @@
         input.classList.remove("struck");
         S.playOpener();
         root.dataset.act1 = "dialogue";
-        later(function () { act1Done = true; update(); }, DIALOGUE_MS);
+        /* The note waits for the last line's entrance animation; the timer covers a browser that never fires it. */
+        var last = dialogue && dialogue.lastElementChild;
+        if (last) last.addEventListener("animationend", dialogueDone, { once: true });
+        later(dialogueDone, DIALOGUE_FALLBACK_MS);
       }, STRIKE_HOLD_MS);
     })();
+  }
+
+  function dialogueDone() {
+    if (act1Done) return;
+    act1Done = true;
+    update();
+  }
+
+  /* Choosing an example ends the opener: no pending typing, strike or dialogue timer may overwrite the choice.
+     Runs in the capture phase on #cues, before the example button's own handler. */
+  function cancelOpener() {
+    timers.forEach(clearTimeout);
+    timers = [];
+    input.classList.remove("struck");
+    if (beat < 2) setBeat(2);
+    root.dataset.act1 = "dialogue";
+    act1Done = true;
+    update();
   }
 
   function toBeat3() {
@@ -105,6 +129,7 @@
     if (beat < 3 && e.target instanceof Node && !ov.contains(e.target) && document.querySelector("main").contains(e.target)) finish(true);
   });
 
+  if (cues) cues.addEventListener("click", cancelOpener, true);
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onScroll);
   if (location.hash || window.scrollY >= runwayH()) finish(false);

@@ -84,7 +84,7 @@ The screen shows the rule that fired and every number behind it.
 | No Jev key, so no Jev rows | Not enough evidence: no Jev results. Never "don't use Jev". |
 
 ## Evidence behind the settings
-Simulation: output in [sim_out.txt](sim_out.txt) (2,000 test sets per cell, seed 20260929, run 2026-09-29; the original research script is in history at [cd8397f](https://github.com/breakoutwithai/jevnotjev/tree/cd8397f/docs/decision), and a rerun is written in TypeScript). Outcome correlation between Jev and the LLM 0.5, an assumption. Share of test sets where a Jev truly equal to the LLM passes the accept-rate test for "use Jev" (Newcombe interval, 10-point margin). The simulation applies only that test, so these are upper bounds: the cost bar and the rule comparison can only lower them.
+Simulation: output in [sim_out.txt](sim_out.txt) (2,000 test sets per cell, seed 20260929, run 2026-09-29; the original research script is in history at [cd8397f](https://github.com/breakoutwithai/jevnotjev/tree/cd8397f/docs/decision), and any rerun is written in TypeScript). Outcome correlation between Jev and the LLM 0.5, an assumption. Share of test sets where a Jev truly equal to the LLM passes the accept-rate test for "use Jev" (Newcombe interval, 10-point margin). The simulation applies only that test, so these are upper bounds: the cost bar and the rule comparison can only lower them.
 
 | LLM accept rate | n=10 | n=20 | n=30 | n=50 | n=100 |
 |---|---|---|---|---|---|

@@ -64,13 +64,13 @@ Validator and loader output is part of the format: scripts and people match on i
 - Order: every `ERROR <message>`, then every `GAP <message>`, then (only when there are no errors) one summary line per answerer, then the verdict line.
 - Summary: `<answerer>: rows=<n> labelled=<n> accepted=<n> cost=<total>`, answerers sorted by code point. `<total>` is `$` plus the sum to six decimal places (`$0.000005`), or `incomplete` when any row of that answerer has no cost.
 - Verdict: `VALID rows=<n> cases=<n> errors=<n> gaps=<n>`, or `INVALID ...` with the same fields.
-- Exit codes: 0 valid (gaps allowed), 1 invalid or unreadable, 2 wrong command line. The validator prints its usage text to stdout on exit 2; the db commands print the usage line and `error: <message>` to stderr.
-- A file that is not strict UTF-8: `ERROR cannot read <path> in UTF-8: <reason>`, exit 1. A byte order mark is kept as text, so it shows up in the first header name.
+- Exit codes: 0 valid (gaps allowed), 1 invalid or unreadable, 2 wrong command line or, for the db commands, `JNJ_DATABASE_URL` not set. The validator prints its usage text to stdout on exit 2; the db commands print the usage line and `error: <message>` to stderr, or `set JNJ_DATABASE_URL to a libpq connection string` to stderr when the variable is missing.
+- A file that is not strict UTF-8: `ERROR cannot read <path> in UTF-8: <reason>` on stderr, exit 1. Every other `ERROR`, `GAP`, summary and verdict line goes to stdout. A byte order mark is kept as text, so it shows up in the first header name.
 
 ### Where a message points
 - `line <n>` is the physical line, counting the header as line 1, on which the record ends. A quoted line break inside a cell moves it on; blank lines are skipped but still counted.
 - Header problems stop the check before any row is read: `header: duplicate column names [...]`, `header: missing columns [...]`, `header: unknown columns [...]`.
-- `line <n>: row has more cells than the header` / `fewer cells`; `file has no data rows`.
+- `line <n>: row has more cells than the header` / `fewer cells`. Every row's cell count is reported, but any such error stops the check before schema and cross-row checks run. `file has no data rows`.
 - A schema error: `line <n>: <column>: <message>`, or `line <n>: row: <message>` for a whole-row rule. A row's schema errors come in schema order (keywords in document order, depth first); a row with any schema error gets no cross-row checks.
 - Cross-row errors: `line <n>: output <value> is not in answer_set <value>`, `line <n>: duplicate row for run <run_id> (<case_id>, <question_id>, <answerer>)`, `line <n>: case_input differs from the first row for case_id <case_id>`, `line <n>: question <question_id> changed within prompt_version <prompt_version>; give the new wording a new prompt_version`.
 - Gaps: `line <n>: cost_usd missing (<case_id>, <question_id>, <answerer>)`, `line <n>: unlabelled (...)`.

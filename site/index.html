@@ -410,10 +410,41 @@ h1 em { font-weight: 500; color: var(--brass); }
   html { scroll-behavior: auto; }
 }
 </style>
+<link rel="stylesheet" href="theatre.css">
+<script>
+/* Decide motion before first paint so the curtains are closed on load, never flashed open. */
+(function () {
+  var r = document.documentElement;
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  r.classList.add(!reduced && "IntersectionObserver" in window ? "motion" : "static");
+})();
+</script>
 </head>
 <body>
 
-<div class="sample" role="note" id="sampleBadge"><span>Sample data</span><button class="house-lights" id="lights" type="button">House lights</button></div>
+<div class="overture" id="overture">
+  <div class="curtain cl" aria-hidden="true"></div>
+  <div class="curtain cr" aria-hidden="true"></div>
+  <div class="playbill">
+    <p class="marquee" aria-hidden="true"><span class="kicker">Tonight &middot; Jev!Jev presents</span><span class="billing">To Jev or not to Jev <em>in five acts</em></span></p>
+    <div class="ticket" role="img" aria-label="Entrance ticket: admit one, Act I, row J, seat J-EV">
+      <div class="main">
+        <p class="admit">ADMIT ONE</p>
+        <p class="show">To Jev or not to Jev</p>
+        <dl><div><dt>Act</dt><dd>I</dd></div><div><dt>Row</dt><dd>J</dd></div><div><dt>Seat</dt><dd>J-EV</dd></div></dl>
+        <p class="fine">Phones off: brain rot blocked for the length of the performance. Latecomers seated at a suitable pause.</p>
+      </div>
+      <div class="stub"><span>No. 0042</span></div>
+    </div>
+    <div class="overture-actions">
+      <p class="cue-scroll" aria-hidden="true">Scroll to raise the curtain</p>
+      <button class="skip" id="skipOverture" type="button">Skip the overture</button>
+    </div>
+  </div>
+</div>
+<div class="runway" id="runway" aria-hidden="true"></div>
+
+<div class="sample" role="note" id="sampleBadge"><span>Sample data</span><button class="house-lights" id="lights" type="button" title="Switch check before curtain up">House lights</button></div>
 
 <div class="proscenium" aria-hidden="true">
   <div class="beam"></div>
@@ -428,17 +459,21 @@ h1 em { font-weight: 500; color: var(--brass); }
   <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">I</span><span class="scene">The question</span></div></div>
   <div class="stage">
     <p class="prologue">Jev!Jev presents</p>
-    <h1 id="t1">To Jev or not to Jev: <em>that is the question</em></h1>
+    <div class="title-row">
+      <h1 id="t1" tabindex="-1">To Jev or not to Jev: <em>that is the question</em></h1>
+      <button class="door" id="door" type="button" aria-expanded="false" aria-controls="doorDemo">Running a shop bot? Step through the stage door.<small>A short shop-bot demo</small></button>
+    </div>
     <p class="byline">A play in five short acts about one decision your workflow makes, three ways of making it, and twenty cases that judge them.</p>
     <form class="ask" id="askForm" autocomplete="off">
       <label for="askInput">Should I use Jev</label>
-      <input id="askInput" placeholder="to route support tickets?" disabled aria-describedby="askSoon">
+      <input id="askInput" disabled aria-describedby="askSoon">
       <button type="submit" disabled>Ask</button>
     </form>
     <p class="soon" id="askSoon">Your own question opens when the live check ships. Try the examples below.</p>
     <ul class="cues" id="cues" aria-label="Examples"></ul>
     <div class="dialogue" id="dialogue" aria-live="polite"></div>
     <p class="note" id="noteLine"></p>
+    <section class="door-demo" id="doorDemo" aria-labelledby="doorTitle" hidden></section>
   </div>
 </section>
 
@@ -485,7 +520,7 @@ h1 em { font-weight: 500; color: var(--brass); }
 <section class="act call" id="call" aria-labelledby="t6">
   <div class="slate"><div class="slate-in"><span class="act-word">Encore</span><span class="roman">&para;</span><span class="scene">Curtain call</span></div></div>
   <div class="stage">
-    <p class="stage-dir">The house asks for another performance, with its own cast.</p>
+    <p class="stage-dir">The house asks for another performance, with its own cast. The rest exit, pursued by daylight.</p>
     <label class="dropzone is-off" id="dropzone" for="csv" aria-disabled="true">
       <div>
         <h3 id="t6">Load your own script (CSV)</h3>
@@ -512,8 +547,7 @@ h1 em { font-weight: 500; color: var(--brass); }
   var J = window.JNJ;
   var root = document.documentElement;
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (!reduced && "IntersectionObserver" in window) root.classList.add("motion");
-  else root.classList.add("static");
+  /* html.motion or html.static is set in <head> before first paint */
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
@@ -588,13 +622,24 @@ h1 em { font-weight: 500; color: var(--brass); }
     if (!v) return;
     answer("Should I use Jev " + v.replace(/\?*$/, "?"));
   });
-  var opener = J.ask_examples[1] || J.ask_examples[0];
-  $("dialogue").classList.add("still");
-  answer(opener.q, opener, true);
+  var opener = J.ask_examples.filter(function (ex) { return /continue/i.test(ex.q); })[0] || J.ask_examples[0];
+  var openerTail = opener.q.replace(/^Should I use Jev /, "");
+  /* The open, final state of Act I; theatre.js plays it in beats when motion is on. */
+  function act1Final() {
+    $("askInput").value = openerTail;
+    $("dialogue").classList.add("still");
+    answer(opener.q, opener, true);
+  }
+  window.JNJStage = {
+    openerTail: openerTail,
+    playOpener: function () { answer(opener.q, opener); },
+    act1Final: act1Final
+  };
+  if (!root.classList.contains("motion")) act1Final();
   $("noteLine").textContent = J.meta.note;
 
   /* ---------- Act II ---------- */
-  $("workflowDir").textContent = "The decision on trial: " + J.meta.workflow + ".";
+  $("workflowDir").textContent = "The decision on trial: " + J.meta.workflow + ". Understudies wait in the wings; the stage manager keeps tabs on the subs.";
   var cast = $("cast");
   ARMS.forEach(function (k) {
     var counts = { haiku: 0, sonnet: 0, opus: 0 };
@@ -770,5 +815,8 @@ h1 em { font-weight: 500; color: var(--brass); }
   arm();
 })();
 </script>
+<script src="uc13-demo.js"></script>
+<script src="stage-door.js"></script>
+<script src="theatre.js"></script>
 </body>
 </html>

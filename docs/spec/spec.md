@@ -34,7 +34,7 @@ Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test
 
 ### R3 Validate with the `jnj-record/1` rules (must)
 - R3.a Every rule of the original validator at 3b5e66e, now `src/format/validate.ts` (header, per-row schema, output in `answer_set`, duplicate key, `case_input` consistency, question rewording within a `prompt_version`, empty file) has a browser equivalent.
-- R3.b Before the original validator is removed (#22), the TypeScript validator and the original agree on VALID or INVALID and on the error and gap counts for every file in a shared fixture set. Met in #25: `bash scripts/parity.sh`, 59 fixtures, 0 differences.
+- R3.b Before the original validator is removed (#22), the TypeScript validator and the original agree on VALID or INVALID and on the error and gap counts for every file in a shared fixture set. Met in #25: 59 fixtures, 0 differences; the parity harness was then removed (history at cd8397f).
 - R3.c An invalid file shows its first error with line and field, and nothing from it is imported or shown as a result.
 - R3.d A missing `cost_usd` or `label` is listed as a gap and the file stays valid.
 - R3.e `examples/d06-tiny/records.csv` gives the equivalent of `VALID rows=30 cases=5 errors=0 gaps=2`, with gaps at line 21 (cost, cv5 q2 rule) and line 25 (label, cv2 q2 llm).
@@ -50,7 +50,7 @@ Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test
 - R5.b Cost per accepted = spend / accepted; shows "undefined (0 accepted)" with total spend when accepted is 0.
 - R5.c A paired case is a `case_id` where both answerers have a labelled row for the question; unlabelled rows drop out of every count.
 - R5.d For Jev against the LLM and Jev against the rule: n, a, b, c, d, p1, p2 and diff as defined in `verdict-rules.md:34-40`.
-- R5.e The 95% interval for diff is Newcombe's paired method 10 and matches all 7 rows of Table III to 4 decimal places (the rows in `docs/decision/newcombe_check.py:12-15`).
+- R5.e The 95% interval for diff is Newcombe's paired method 10 and matches all 7 rows of Table III to 4 decimal places (the rows in `docs/decision/newcombe-table3.json`).
 - R5.f Cost ratio = Jev cost per accepted / LLM cost per accepted, 0 when the LLM has 0 accepted and Jev some, infinity when Jev has 0 and the LLM some.
 - R5.g The cost ratio interval is 2,000 paired resamples, 2.5th and 97.5th percentiles, a resample where both have 0 accepted is drawn again.
 - R5.h Every number in `examples/d06-tiny/expected.md` is reproduced exactly: q1 Jev 4/5, LLM 5/5, ratio 0.0125, a=4 b=0 c=1 d=0, diff -0.2, rule minus Jev -0.4; q2 n=4, 3/4 each, ratio 0.01, diff 0, rule minus Jev 0.

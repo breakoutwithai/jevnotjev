@@ -5,7 +5,7 @@ Architecture for the requirements in [spec.md](spec.md) (#17). Tasks: [tasks.md]
 ## Shape
 One TypeScript core under `src/` holds validation, calculations and the verdict. The browser and the command line both use it. The page is static and has no server; a `bun build` step bundles the core into `site/jnj.js`, which `site/index.html` loads with one `<script>` tag. The bundle is committed, and the gate rebuilds it and fails on any difference, because the deploy (`docs/DEPLOY.md`) serves `site/` as it is and builds nothing.
 
-The tests in `src/format/` are the reference for the validator. #25 (#22 steps 5 and 6) ported the original validator, showed it gives the same VALID or INVALID, errors and gaps on every fixture (`bash scripts/parity.sh`: 59 fixtures, 818 comparisons, 0 differences), and removed the original and its tests.
+The tests in `src/format/` are the reference for the validator. #25 (#22 steps 5 and 6) ported the original validator, showed it gives the same VALID or INVALID, errors and gaps on every fixture (59 fixtures, 818 comparisons, 0 differences; the parity harness was then removed, history at cd8397f), and removed the original and its tests.
 
 ## Data flow
 ```
@@ -32,7 +32,7 @@ The browser never talks to the database. The exported CSV is an ordinary `jnj-re
 | File | Owns | Used by | Tested by |
 |---|---|---|---|
 | `src/format/csv.ts` | CSV text to records: quotes, doubled quotes, CRLF and LF, line numbers kept (`readRecords`, `CsvRecord.line`; exists from #25) | browser, CLI | `src/format/csv.test.ts` |
-| `src/format/validate.ts` | #22 step 2: header, schema per row (`format/record-v1.schema.json`), cross-row rules, gaps, same messages as the original validator (done in #25) | browser, CLI | `src/format/validate.test.ts`, `scripts/parity.sh` (until parity is retired) |
+| `src/format/validate.ts` | #22 step 2: header, schema per row (`format/record-v1.schema.json`), cross-row rules, gaps, same messages as the original validator (done in #25) | browser, CLI | `src/format/validate.test.ts` |
 | `src/core/calc.ts` | grouping, per-answerer totals, pairing, a/b/c/d, Wilson, Newcombe method 10, cost ratio, seeded resampling | browser, CLI | `src/core/calc.test.ts` |
 | `src/core/verdict.ts` | the four rules of `verdict-rules.md:53-69` and the edge cases at `:73-84`; returns the rule that fired and the numbers it read | browser, CLI | `src/core/verdict.test.ts` |
 | `src/core/pipeline.ts` | `run(text) -> result[]`: csv, validate, group, calc, verdict in one call | browser, CLI | `src/core/pipeline.test.ts` |
@@ -61,10 +61,10 @@ The resampling uses a small seeded generator (mulberry32) whose seed is the firs
 
 ## Tests and the gate
 - `scripts/ci-check.sh` runs `bun test`, rebuilds `site/jnj.js` and fails on a diff, prints the head SHA and the test count, and fails when the run fails, the count is 0, or a tracked test file was not collected (R17.d). The two research scripts in `docs/decision/` are run by hand and are not in the gate.
-- Decision: the operator's decision recorded on #22 ([comment](https://github.com/breakoutwithai/jevnotjev/issues/22#issuecomment-5920877319): "we default to typescript", 2026-09-30) supersedes the "T17 test file and runner" row in the "Response to round 2" section of `pipeline-review.md`. The hand check (T17) is a TypeScript `bun test` in the gate; it stays independent because it is written from `verdict-rules.md` and does not import `src/core/`. The Newcombe reference values in `docs/decision/newcombe_check.py:12-15` (Table III of Newcombe 1998) remain the R5.e oracle; that research script stays as it is and is run by hand.
+- Decision: the operator's decision recorded on #22 ([comment](https://github.com/breakoutwithai/jevnotjev/issues/22#issuecomment-5920877319): "we default to typescript", 2026-09-30) supersedes the "T17 test file and runner" row in the "Response to round 2" section of `pipeline-review.md`. The hand check (T17) is a TypeScript `bun test` in the gate; it stays independent because it is written from `verdict-rules.md` and does not import `src/core/`. The Newcombe reference values (Table III of Newcombe 1998) are the R5.e oracle, in `docs/decision/newcombe-table3.json`.
 - Today `bun test` collects every tracked `*.test.ts` (#25), and `.deploy/tests/` is run by no gate.
-- Oracles: `examples/d06-tiny/expected.md` for days 7 and 8; `docs/decision/newcombe_check.py:12-15` for the interval; a 30-plus-case fixture set for the verdict paths d06 cannot reach (`expected.md:91-92`).
-- Parity (R3.b): done in #25. `bash scripts/parity.sh` checks out the original validator, loader, exporter and migrator from be5f849 and compares them with the TypeScript port on 59 fixtures; its passing output is quoted on #25.
+- Oracles: `examples/d06-tiny/expected.md` for days 7 and 8; `docs/decision/newcombe-table3.json` for the interval; a 30-plus-case fixture set for the verdict paths d06 cannot reach (`expected.md:91-92`).
+- Parity (R3.b): done in #25: the original validator, loader, exporter and migrator from be5f849 matched the TypeScript port on 59 fixtures, 0 differences (output quoted on #25). The harness was then removed; it is in history at cd8397f.
 - Traceability: `scripts/spec-check.ts` reads the criterion ids in `spec.md`, maps them to test names, and reports untested criteria (#18, #19).
 
 ## What does not change

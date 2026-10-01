@@ -1,0 +1,14 @@
+{
+  "source": "Newcombe RG (1998). Improved confidence intervals for the difference between binomial proportions based on paired data. Statistics in Medicine 17:2635-2650. Table III, method 10, transcribed from the paper.",
+  "tolerance": 6e-5,
+  "fields": "a, b, c, d are the paired counts (both, first only, second only, neither); lower and upper are the 95% interval bounds for the difference",
+  "rows": [
+    { "a": 36, "b": 12, "c": 2, "d": 0, "lower": 0.0569, "upper": 0.3404 },
+    { "a": 20, "b": 12, "c": 2, "d": 16, "lower": 0.0562, "upper": 0.3292 },
+    { "a": 18, "b": 12, "c": 2, "d": 18, "lower": 0.0562, "upper": 0.3290 },
+    { "a": 36, "b": 14, "c": 0, "d": 0, "lower": 0.1528, "upper": 0.4167 },
+    { "a": 35, "b": 14, "c": 0, "d": 1, "lower": 0.1461, "upper": 0.4175 },
+    { "a": 18, "b": 14, "c": 0, "d": 18, "lower": 0.1441, "upper": 0.3963 },
+    { "a": 2, "b": 97, "c": 1, "d": 0, "lower": 0.8721, "upper": 0.9854 }
+  ]
+}

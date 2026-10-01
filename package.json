@@ -8,8 +8,7 @@
     "migrate": "bun src/db/migrate-cli.ts",
     "load": "bun src/db/load-cli.ts",
     "export": "bun src/db/export-cli.ts",
-    "typecheck": "tsc --noEmit",
-    "parity": "bash scripts/parity.sh"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "postgres": "3.4.9"

@@ -84,7 +84,7 @@ The screen shows the rule that fired and every number behind it.
 | No Jev key, so no Jev rows | Not enough evidence: no Jev results. Never "don't use Jev". |
 
 ## Evidence behind the settings
-Simulation: [sim_min_n.py](sim_min_n.py), output in [sim_out.txt](sim_out.txt) (`python3 docs/decision/sim_min_n.py`, numpy, 2,000 test sets per cell). Outcome correlation between Jev and the LLM 0.5, an assumption. Share of test sets where a Jev truly equal to the LLM passes the accept-rate test for "use Jev" (Newcombe interval, 10-point margin). The simulation applies only that test, so these are upper bounds: the cost bar and the rule comparison can only lower them.
+Simulation: output in [sim_out.txt](sim_out.txt) (2,000 test sets per cell, seed 20260929, run 2026-09-29; the original research script is in history at [cd8397f](https://github.com/breakoutwithai/jevnotjev/tree/cd8397f/docs/decision), and a rerun is written in TypeScript). Outcome correlation between Jev and the LLM 0.5, an assumption. Share of test sets where a Jev truly equal to the LLM passes the accept-rate test for "use Jev" (Newcombe interval, 10-point margin). The simulation applies only that test, so these are upper bounds: the cost bar and the rule comparison can only lower them.
 
 | LLM accept rate | n=10 | n=20 | n=30 | n=50 | n=100 |
 |---|---|---|---|---|---|
@@ -96,6 +96,6 @@ When Jev is exactly 10 points worse, it wrongly reaches "use Jev" in 3% of test 
 Cost side, list prices read from the vendors' pages on 2026-09-29, for a 400-token question with a 5-token answer: Jev (`jev-1.13.0`, $0.042 per million input tokens, output free) $0.017 per 1,000 calls; `gpt-6-luna` $0.04; Claude Haiku 4.5 $0.43; Claude Sonnet 5.5 $0.85; Claude Opus 5.5 $1.70. With per-call costs that far apart, the cost condition is usually met and the verdict turns on accept rate.
 
 ## Checked, and still open
-- The interval code matches all 7 method-10 rows of Table III in Newcombe (1998), as transcribed from the paper: `python3 docs/decision/newcombe_check.py` prints `checked=7 mismatches=0`. The verdict code written on day 8 must pass the same check.
+- The interval code matches all 7 method-10 rows of Table III in Newcombe (1998), as transcribed from the paper into [newcombe-table3.json](newcombe-table3.json): the original research script printed `checked=7 mismatches=0` on 2026-09-29 (history at [cd8397f](https://github.com/breakoutwithai/jevnotjev/tree/cd8397f/docs/decision)). The TypeScript verdict code must pass the same check against that file.
 - The 0.5 outcome correlation is assumed; it is re-measured on the first real labelled file.
 - How long a person takes to label one answer is unmeasured, so whether 30 cases fits one sitting is open.

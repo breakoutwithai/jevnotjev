@@ -11,7 +11,7 @@
 | [models.md](models.md) | Other models' list prices (fetched 2026-09-29, re-checked 2026-09-30) |
 | [effort.md](effort.md) | Builder minutes per step and where the time goes |
 
-The simulation script and its output are public at [`docs/decision/sim_min_n.py`](../../decision/sim_min_n.py) and [`sim_out.txt`](../../decision/sim_out.txt).
+The simulation script and its output are public at [`docs/decision/sim_min_n.py`](https://github.com/breakoutwithai/jevnotjev/blob/cd8397f/docs/decision/sim_min_n.py) (commit cd8397f; removed when the repo dropped Python) and [`sim_out.txt`](../../decision/sim_out.txt).
 
 **Not proven.** Labelling time per answer is unmeasured. Grading accuracy was measured against AI-written labels on a synthetic set. The Jev price is from the vendor's docs page, not a bill.
 

@@ -64,4 +64,29 @@ describe("Jev fixture", () => {
       await expect(readFixture(join(dir, "none.json"))).rejects.toThrow(/missing/);
     });
   });
+
+  test("[unit] UC13-F19 a fixture with two entries for one case is refused", async () => {
+    await withDir(async (dir) => {
+      const path = join(dir, "f.json");
+      await writeFixture(path, [jevEntry("m01", bodyFor(c1), response, 1, "u"), jevEntry("m01", bodyFor(c1), response, 2, "u")], "t");
+      await expect(readFixture(path)).rejects.toThrow(/duplicate.*m01/);
+    });
+  });
+
+  test("[unit] UC13-F20 a fixture entry with a failed HTTP status or invalid latency is refused", async () => {
+    await withDir(async (dir) => {
+      const path = join(dir, "f.json");
+      const entry = jevEntry("m01", bodyFor(c1), response, 1, "u");
+      for (const bad of [{ ...entry, http: 500 }, { ...entry, latency_ms: -1 }, { ...entry, latency_ms: 1.5 }]) {
+        await writeFixture(path, [bad], "t");
+        await expect(readFixture(path)).rejects.toThrow(/entry 0/);
+      }
+    });
+  });
+
+  test("[unit] UC13-F21 a credential anywhere inside a string is refused", () => {
+    expect(() => assertNoSecrets({ note: "Authorization: Bearer api_fake_review_token" }, "m01")).toThrow(/key-like/);
+    expect(() => assertNoSecrets({ note: "token=api_abcdef123456 here" }, "m01")).toThrow(/key-like/);
+    expect(() => assertNoSecrets({ note: "the api is fine; bearer of news" }, "m01")).not.toThrow();
+  });
 });

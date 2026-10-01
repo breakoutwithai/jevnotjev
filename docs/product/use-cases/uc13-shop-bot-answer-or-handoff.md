@@ -68,7 +68,7 @@ Files: the synthetic shop in [examples/uc13-shop-bot/](../../../examples/uc13-sh
 Commands (TypeScript on Bun, from the repo root):
 
 ```
-bun scripts/uc13/run-arms.ts run --dry   # rule arm only, no network
+bun scripts/uc13/run-arms.ts run --dry   # rule arm only, no network; prints, writes nothing
 bun scripts/uc13/run-arms.ts run         # rule, Jev and the LLM
 bun scripts/uc13/run-arms.ts page        # build the labelling page
 bun scripts/uc13/run-arms.ts label       # merge labels.csv into the records
@@ -80,7 +80,7 @@ bun run validate docs/product/runs/2026-10-01-uc13-shop-bot/records.csv
 |---|---|
 | Fact sheet, 40 messages, acceptance rule, simple rule | written, before any arm ran |
 | Rule arm | run: 13 hand_off, 27 answer, cost 0 |
-| Jev arm | run: 40 calls, all `jev-1.13.0`; 21 hand_off, 19 answer; $0.001302 at the published price |
+| Jev arm | run: 40 calls, all `jev-1.13.0`; 22 hand_off, 18 answer; $0.001302 at the published price |
 | LLM arm | run: 40 calls, all `claude-haiku-4-5-20251001`; 22 hand_off, 18 answer; $0.103167 from `total_cost_usd` |
 | Labels | none yet |
 | Verdict | none |

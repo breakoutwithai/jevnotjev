@@ -31,6 +31,21 @@ export interface SimSizes {
 
 export const DEFAULT_SIZES: SimSizes = { repsNewcombe: 2000, repsBootstrap: 400, bootA: 1000, repsB: 300, bootB: 500 };
 
+/** Throws unless every size is a positive integer: 0 gives NaN intervals, a fraction gives shares above 100%. */
+export function checkSizes(sizes: SimSizes): void {
+  const { repsNewcombe, repsBootstrap, bootA, repsB, bootB } = sizes;
+  const named: readonly (readonly [string, number])[] = [
+    ["repsNewcombe", repsNewcombe],
+    ["repsBootstrap", repsBootstrap],
+    ["bootA", bootA],
+    ["repsB", repsB],
+    ["bootB", bootB],
+  ];
+  for (const [name, value] of named) {
+    if (!Number.isInteger(value) || value < 1) throw new RangeError(`${name} must be a positive integer, got ${value}`);
+  }
+}
+
 export interface Rng {
   /** Uniform on [0, 1). */
   readonly uniform: () => number;
@@ -94,7 +109,7 @@ export function invNormal(p: number): number {
   return (poly(ACKLAM_A, r) * q) / (poly(ACKLAM_B, r) * r + 1);
 }
 
-/** Percentile of sorted values with linear interpolation between ranks (numpy's default). */
+/** Percentile of sorted values with linear interpolation between ranks (Hyndman and Fan type 7, as the first run used). */
 export function percentile(sorted: Float64Array, q: number): number {
   const position = (q / 100) * (sorted.length - 1);
   const below = Math.floor(position);
@@ -116,6 +131,7 @@ export interface Cases {
 
 /** n paired cases; accept when the latent normal is below the quantile of the accept rate. */
 export function genCases(rng: Rng, n: number, pLlm: number, pJev: number, rho: number): Cases {
+  if (!(rho >= -1 && rho <= 1)) throw new RangeError(`rho must be in [-1, 1], got ${rho}`);
   const jevCut = invNormal(pJev);
   const llmCut = invNormal(pLlm);
   const spread = Math.sqrt(1 - rho * rho);
@@ -199,6 +215,7 @@ export interface PartABlock {
 
 /** Part A: share of test sets reaching ok / reject / not enough evidence, per setting. One stream, in print order. */
 export function partA(seed: number, sizes: SimSizes = DEFAULT_SIZES): PartABlock[] {
+  checkSizes(sizes);
   const rng = makeRng(seed);
   const methods: readonly Method[] = ["newcombe", "bootstrap"];
   return RHOS.flatMap((rho) =>
@@ -281,6 +298,7 @@ function costWidths(rng: Rng, n: number, cases: Cases, sizes: SimSizes): readonl
 
 /** Part B: cost-per-accepted CI widths, rho 0.5, Jev drop 0.05. */
 export function partB(seed: number, sizes: SimSizes = DEFAULT_SIZES): PartBRow[] {
+  checkSizes(sizes);
   const rng = makeRng(seed);
   return PLLM.flatMap((pLlm) =>
     NS.map((n) => {
@@ -321,9 +339,10 @@ export function render(blocks: readonly PartABlock[], rows: readonly PartBRow[],
   const lines: string[] = [];
   const header = "p_llm  drop |" + NS.map((n) => `  n=${String(n).padEnd(3)}          `).join("");
   for (const block of blocks) {
-    lines.push("", `== PART A  rho=${block.rho.toFixed(1)}  margin X=${block.margin.toFixed(2)}  reps=${sizes.repsNewcombe}  (cells: %ok / %reject / %not-enough)`);
+    lines.push("", `== PART A  rho=${block.rho.toFixed(1)}  margin X=${block.margin.toFixed(2)}  (cells: %ok / %reject / %not-enough)`);
     for (const table of block.tables) {
-      lines.push(`-- interval = ${table.method}`, header);
+      const reps = table.method === "newcombe" ? sizes.repsNewcombe : sizes.repsBootstrap;
+      lines.push(`-- interval = ${table.method}  reps=${reps}`, header);
       for (const row of table.rows) lines.push(`${row.pLlm.toFixed(1)}   ${row.drop.toFixed(2)} | ` + row.cells.map(shareText).join("   "));
     }
   }

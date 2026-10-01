@@ -20,7 +20,7 @@ Data is a 2x2 per case: both accept (a), Jev only (b), LLM only (c), neither (d)
 
 ## 2. Simulation
 
-Setup (all SIM). Jev and LLM outcomes per case are correlated via a Gaussian copula, latent rho 0.5 (ASSUMPTION, no data; rho 0 also run, in sim_out.txt, gives similar shape). 2000 reps per cell. Rule: interval for (Jev minus LLM) accept rate. `ok` if lower bound > -X. `reject` if upper bound < -X. Otherwise `not enough evidence` (nee). Cells are %ok / %reject / %nee.
+Setup (all SIM). Jev and LLM outcomes per case are correlated via a Gaussian copula, latent rho 0.5 (ASSUMPTION, no data; rho 0 also run, in sim_out.txt, gives similar shape). 2000 reps per Newcombe cell, 400 per bootstrap cell. Rule: interval for (Jev minus LLM) accept rate. `ok` if lower bound > -X. `reject` if upper bound < -X. Otherwise `not enough evidence` (nee). Cells are %ok / %reject / %nee.
 
 Newcombe interval, margin X = 0.10, rho 0.5:
 
@@ -97,7 +97,7 @@ Planning arithmetic using 30 s per label (my assumption from the 25 to 30 s figu
 | Recommended cases shown in UI | 50 to 100 | n=100 is the first size where a truly equal Jev reaches `ok` in over half of sets (53% to 70%); 100 cases is about 2.5 h of labelling at 30 s |
 | Allowed accept-rate drop (margin X) | 0.10 (10 points) | X=0.05 reaches `ok` in only 17% to 25% at n=100; X=0.10 gives 53% to 70% with 1% to 3% false `ok` at the boundary |
 | "Use Jev" rule | Newcombe 95% lower bound of (Jev minus LLM) > -0.10 AND cost per accepted lower than LLM | As above |
-| "Don't use Jev" rule | Upper bound < -0.10 | Fires in 4% to 17% (n=30 to 100) only when Jev is much worse; not simulated for drops above 0.10 beyond the boundary case, so this rate is a floor, UNVERIFIED for larger drops |
+| "Don't use Jev" rule | Upper bound < -0.10 | At the margin boundary (Jev exactly 10 points worse, X=0.10, rho 0.5, Newcombe) it fires in 1% to 2% of test sets at n=30 to 100. Drops larger than 0.10 were not simulated at X=0.10, so how often it fires when Jev is much worse is UNVERIFIED |
 | Margin for "cheaper" | Cost-per-accepted ratio (Jev/LLM) point estimate <= 0.8 and bootstrap upper bound < 1.0 | With 100x per-call gaps the ratio interval cannot reach 1 even at n=10; with realistic gaps of 1.5x to 2x it would (not simulated, UNVERIFIED). Width 61% to 70% at n=30 means a 0.8 point estimate needs a genuine gap |
 | Everything else | "Not enough evidence", show the interval and the count of labels needed | Most cells (over 80% at n <= 30) land here by design |
 

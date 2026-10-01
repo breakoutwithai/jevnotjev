@@ -21,15 +21,15 @@ export const COST_TOLERANCE = 1e-9;
 export type VerdictName = "use Jev" | "don't use Jev" | "not enough evidence";
 
 export type Condition =
-    // Rule 1 additions, not in verdict-rules.md: the cost ratio cannot be computed
-  | "no-cost-ratio"
-  | "cost-not-finite"
-// Rule 1
+  // Rule 1
   | "no-jev-rows"
   | "no-llm-rows"
   | "too-few-paired"
   | "both-zero-accepted"
   | "cost-missing"
+  // Rule 1 cost guards (verdict-rules.md "Cost guards and tolerance"), checked after the cost-free rule-2 conditions
+  | "no-cost-ratio"
+  | "cost-not-finite"
   // Rule 2
   | "rule-within-margin"
   | "jev-clearly-worse"
@@ -57,9 +57,12 @@ export interface RatioNumbers extends CostRatioInterval {
   readonly ratio: number;
 }
 
+/** Why the rule comparison was skipped. */
+export type SkipReason = "no rule rows" | "no Jev rows" | `fewer than ${typeof MIN_PAIRED} paired rule cases`;
+
 /** Rule against Jev, rule first (rule minus Jev), or why it was skipped. */
 export type RuleComparison =
-  | { readonly kind: "skipped"; readonly reason: "no rule rows" | "fewer than 30 paired rule cases"; readonly paired: number }
+  | { readonly kind: "skipped"; readonly reason: SkipReason; readonly paired: number }
   | ({ readonly kind: "compared" } & Comparison);
 
 export interface VerdictNumbers {
@@ -92,10 +95,11 @@ function compare(counts: PairedCounts): Comparison {
 }
 
 /** Rule minus Jev: the pair's b (Jev only) and c (rule only) swap places. */
-function ruleComparison(pair: PairedSample | null, hasRuleRows: boolean): RuleComparison {
+function ruleComparison(pair: PairedSample | null, hasRuleRows: boolean, hasJevRows: boolean): RuleComparison {
   if (!hasRuleRows) return { kind: "skipped", reason: "no rule rows", paired: 0 };
+  if (!hasJevRows) return { kind: "skipped", reason: "no Jev rows", paired: 0 };
   const paired = pair?.n ?? 0;
-  if (pair === null || paired < MIN_PAIRED) return { kind: "skipped", reason: "fewer than 30 paired rule cases", paired };
+  if (pair === null || paired < MIN_PAIRED) return { kind: "skipped", reason: `fewer than ${MIN_PAIRED} paired rule cases`, paired };
   return { kind: "compared", ...compare({ a: pair.a, b: pair.c, c: pair.b, d: pair.d }) };
 }
 
@@ -113,7 +117,7 @@ function fixed(x: number): string {
  */
 export function verdict(metrics: CohortMetrics, seed: number): Verdict {
   const hasArm = (arm: "jev" | "llm" | "rule"): boolean => metrics.arms.some((totals) => totals.arm === arm);
-  const rule = ruleComparison(metrics.jevVsRule, hasArm("rule"));
+  const rule = ruleComparison(metrics.jevVsRule, hasArm("rule"), hasArm("jev"));
   const pair = metrics.jevVsLlm;
   const jevVsLlm = pair === null || pair.n === 0 ? null : compare(pair);
   const base: VerdictNumbers = {
@@ -169,7 +173,7 @@ export function verdict(metrics: CohortMetrics, seed: number): Verdict {
     return dont("jev-zero-accepted", `Jev has 0 accepted and the LLM has ${pair.otherArm.accepted}`);
   }
 
-  // Cost guards, not in verdict-rules.md. Only the conditions below read a cost ratio, so the guards come after
+  // Cost guards (verdict-rules.md "Cost guards and tolerance"). Only the conditions below read a cost ratio, so the guards come after
   // every condition that does not; they report as rule 1, since the evidence for a cost verdict is missing.
   // A resample can repeat the dearest case n times, so n x the largest cost must stay finite too.
   const finiteSpend = Number.isFinite(pair.jev.spend.usd) && Number.isFinite(pair.otherArm.spend.usd);

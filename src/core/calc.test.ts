@@ -136,6 +136,18 @@ function tinyPairs() {
   });
 }
 
+/** The item at `index`, or a named failure instead of a non-null assertion. */
+function at<T>(items: readonly T[], index: number, what: string): T {
+  const item = items[index];
+  if (item === undefined) throw new Error(`no ${what} at index ${index}`);
+  return item;
+}
+
+/** d06 q1 (index 0) or q2 (index 1), Jev against the LLM. */
+function tinyPair(index: number) {
+  return at(tinyPairs(), index, "d06 decision point");
+}
+
 function side(spendUsd: number, accepted: number) {
   return { spendUsd, accepted };
 }
@@ -153,13 +165,12 @@ function scripted(values: readonly number[]): () => number {
 
 describe("calc: cost ratio and its resampled interval", () => {
   test("[unit] R5.f d06 q1 ratio 0.0125 and q2 0.01", () => {
-    const [q1, q2] = tinyPairs();
-    const ratio = (pair: NonNullable<typeof q1>): number | null => {
+    const ratio = (pair: ReturnType<typeof tinyPair>): number | null => {
       if (pair.jev.spend.kind !== "complete" || pair.otherArm.spend.kind !== "complete") throw new Error("spend incomplete");
       return costRatio(side(pair.jev.spend.usd, pair.jev.accepted), side(pair.otherArm.spend.usd, pair.otherArm.accepted));
     };
-    expect(ratio(q1!)).toBeCloseTo(0.0125, 12);
-    expect(ratio(q2!)).toBeCloseTo(0.01, 12);
+    expect(ratio(tinyPair(0))).toBeCloseTo(0.0125, 12);
+    expect(ratio(tinyPair(1))).toBeCloseTo(0.01, 12);
   });
 
   test("[unit] R5.f ratio is 0 when the LLM has 0 accepted, infinity when Jev has 0, none when both have 0", () => {
@@ -183,8 +194,7 @@ describe("calc: cost ratio and its resampled interval", () => {
   });
 
   test("[unit] R5.g 2,000 resamples on the paired cases, 2.5th and 97.5th percentiles", () => {
-    const [q1] = tinyPairs();
-    const cases = pairedCostCases(q1!);
+    const cases = pairedCostCases(tinyPair(0));
     if (cases === null) throw new Error("d06 q1 has a missing cost");
     const seed = 20261002;
     const got = costRatioInterval(cases, seed);
@@ -215,8 +225,7 @@ describe("calc: cost ratio and its resampled interval", () => {
     const digest = new Bun.CryptoHasher("sha256").update(text).digest("hex");
     expect(seed).toBe(Number.parseInt(digest.slice(0, 8), 16));
     expect(await fileSeed(text)).toBe(seed);
-    const [q1] = tinyPairs();
-    const cases = pairedCostCases(q1!);
+    const cases = pairedCostCases(tinyPair(0));
     if (cases === null) throw new Error("d06 q1 has a missing cost");
     const first = costRatioInterval(cases, seed);
     const second = costRatioInterval(cases, await fileSeed(readFileSync(TINY, "utf8")));
@@ -263,8 +272,7 @@ describe("calc: hand-worked percentiles and a fixed seeded interval", () => {
     const path = fileURLToPath(new URL("../../examples/d08-verdicts/r3-use-jev.csv", import.meta.url));
     const text = readFileSync(path, "utf8");
     const result = validate(text);
-    const [key] = cohorts(result.rows);
-    const pair = cohortMetrics(result.rows, key!).jevVsLlm;
+    const pair = cohortMetrics(result.rows, at(cohorts(result.rows), 0, "r3-use-jev decision point")).jevVsLlm;
     const cases = pair === null ? null : pairedCostCases(pair);
     if (cases === null) throw new Error("r3-use-jev has no paired costs");
     const got = costRatioInterval(cases, await fileSeed(text));

@@ -58,8 +58,9 @@ describe("verdict: rule 1, not enough evidence", () => {
   });
 
   test("[unit] R6.b 29 paired cases asks for 1 more, the others give no count", async () => {
-    expect((await d08("r1-29-paired")).addN).toBe(1);
-    expect((await d08("r1-29-paired")).numbers.jevVsLlm?.n).toBe(29);
+    const short = await d08("r1-29-paired");
+    expect(short.addN).toBe(1);
+    expect(short.numbers.jevVsLlm?.n).toBe(29);
     expect((await d08("r1-both-zero")).addN).toBeNull();
   });
 
@@ -67,6 +68,10 @@ describe("verdict: rule 1, not enough evidence", () => {
     const got = await d08("r1-no-jev");
     expect(got.verdict).toBe("not enough evidence");
     expect(got.reason).toBe("not enough evidence: no Jev results");
+  });
+
+  test("[unit] R6.h with no Jev rows the rule comparison is skipped for that reason", async () => {
+    expect((await d08("r1-no-jev")).ruleComparison).toEqual({ kind: "skipped", reason: "no Jev rows", paired: 0 });
   });
 
   test("[unit] R6.g d06 q1 add 25 and q2 add 26", async () => {

@@ -1,8 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { EmptySampleError, newcombePaired, pairedPhi, wilson } from "./calc.ts";
+import { validate } from "../format/validate.ts";
+import {
+  costRatio,
+  costRatioInterval,
+  EmptySampleError,
+  fileSeed,
+  mulberry32,
+  newcombePaired,
+  pairedPhi,
+  percentile,
+  resampleCostRatios,
+  RESAMPLES,
+  wilson,
+  type CostCase,
+} from "./calc.ts";
+import { cohortMetrics, cohorts, pairedCostCases } from "./metrics.ts";
 
+const TINY = fileURLToPath(new URL("../../examples/d06-tiny/records.csv", import.meta.url));
 const TABLE = fileURLToPath(new URL("../../docs/decision/newcombe-table3.json", import.meta.url));
 
 interface TableRow {
@@ -105,5 +121,106 @@ describe("calc: Wilson and Newcombe method 10", () => {
     expect(() => wilson(5, 4)).toThrow(RangeError);
     expect(() => wilson(-1, 4)).toThrow(RangeError);
     expect(() => newcombePaired({ a: 1.5, b: 0, c: 0, d: 1 })).toThrow(RangeError);
+  });
+});
+
+/** d06 decision points, Jev against the LLM, read through validate() and cohortMetrics(). */
+function tinyPairs() {
+  const result = validate(readFileSync(TINY, "utf8"));
+  if (result.errors.length > 0) throw new Error(result.errors.join("\n"));
+  return cohorts(result.rows).map((key) => {
+    const pair = cohortMetrics(result.rows, key).jevVsLlm;
+    if (pair === null) throw new Error(`${key.questionId}: no Jev and LLM pair`);
+    return pair;
+  });
+}
+
+function side(spendUsd: number, accepted: number) {
+  return { spendUsd, accepted };
+}
+
+/** A generator that returns the given uniforms in order, then fails: the test controls every draw. */
+function scripted(values: readonly number[]): () => number {
+  let next = 0;
+  return () => {
+    const value = values[next];
+    if (value === undefined) throw new Error(`scripted generator ran out after ${next} draws`);
+    next += 1;
+    return value;
+  };
+}
+
+describe("calc: cost ratio and its resampled interval", () => {
+  test("[unit] R5.f d06 q1 ratio 0.0125 and q2 0.01", () => {
+    const [q1, q2] = tinyPairs();
+    const ratio = (pair: NonNullable<typeof q1>): number | null => {
+      if (pair.jev.spend.kind !== "complete" || pair.otherArm.spend.kind !== "complete") throw new Error("spend incomplete");
+      return costRatio(side(pair.jev.spend.usd, pair.jev.accepted), side(pair.otherArm.spend.usd, pair.otherArm.accepted));
+    };
+    expect(ratio(q1!)).toBeCloseTo(0.0125, 12);
+    expect(ratio(q2!)).toBeCloseTo(0.01, 12);
+  });
+
+  test("[unit] R5.f ratio is 0 when the LLM has 0 accepted, infinity when Jev has 0, none when both have 0", () => {
+    expect(costRatio(side(0.0006, 30), side(0.06, 0))).toBe(0);
+    expect(costRatio(side(0.0006, 0), side(0.06, 27))).toBe(Number.POSITIVE_INFINITY);
+    expect(costRatio(side(0.0006, 0), side(0.06, 0))).toBeNull();
+  });
+
+  test("[unit] R5.g both-zero resample is redrawn", () => {
+    // Case 0: both accepted. Case 1: both rejected. Draw 1 picks case 1 twice (both 0 accepted),
+    // so it is thrown away; draw 2 picks case 0 then case 1 and is kept.
+    const cases: readonly CostCase[] = [
+      { jevAccepted: true, jevCostUsd: 0.00002, llmAccepted: true, llmCostUsd: 0.002 },
+      { jevAccepted: false, jevCostUsd: 0.00002, llmAccepted: false, llmCostUsd: 0.002 },
+    ];
+    const run = resampleCostRatios(cases, scripted([0.9, 0.9, 0.1, 0.9]), 1);
+    expect(run.redrawn).toBe(1);
+    expect(run.ratios).toHaveLength(1);
+    // Kept draw: Jev 0.00004 / 1, LLM 0.004 / 1.
+    expect(run.ratios[0]).toBeCloseTo(0.01, 12);
+  });
+
+  test("[unit] R5.g 2,000 resamples on the paired cases, 2.5th and 97.5th percentiles", () => {
+    const [q1] = tinyPairs();
+    const cases = pairedCostCases(q1!);
+    if (cases === null) throw new Error("d06 q1 has a missing cost");
+    const seed = 20261002;
+    const got = costRatioInterval(cases, seed);
+    expect(RESAMPLES).toBe(2000);
+    expect(got.resamples).toBe(2000);
+    // Same draws by hand: every resample's ratio from the same generator, sorted, then the percentiles.
+    const run = resampleCostRatios(cases, mulberry32(seed), 2000);
+    const sorted = Float64Array.from(run.ratios).sort();
+    expect(got.lower).toBe(percentile(sorted, 2.5));
+    expect(got.upper).toBe(percentile(sorted, 97.5));
+    expect(got.redrawn).toBe(run.redrawn);
+    // d06 q1: Jev rejects only cv4, so each resample's ratio is 0.01 x (LLM accepted / Jev accepted), at least 0.01.
+    expect(got.lower).toBeGreaterThanOrEqual(0.01 - 1e-15);
+    expect(got.lower).toBeLessThanOrEqual(got.upper);
+  });
+
+  test("[unit] R5.g percentile handles infinite ratios without NaN", () => {
+    const sorted = Float64Array.from([0.5, 1, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY]);
+    expect(percentile(sorted, 100)).toBe(Number.POSITIVE_INFINITY);
+    expect(percentile(sorted, 0)).toBe(0.5);
+    expect(Number.isNaN(percentile(sorted, 90))).toBe(false);
+  });
+
+  test("[unit] R13.a same file gives identical interval twice", async () => {
+    const text = readFileSync(TINY, "utf8");
+    const seed = await fileSeed(text);
+    // The seed is the first 32 bits of the SHA-256 of the file text (plan.md "Reproducibility").
+    const digest = new Bun.CryptoHasher("sha256").update(text).digest("hex");
+    expect(seed).toBe(Number.parseInt(digest.slice(0, 8), 16));
+    expect(await fileSeed(text)).toBe(seed);
+    const [q1] = tinyPairs();
+    const cases = pairedCostCases(q1!);
+    if (cases === null) throw new Error("d06 q1 has a missing cost");
+    const first = costRatioInterval(cases, seed);
+    const second = costRatioInterval(cases, await fileSeed(readFileSync(TINY, "utf8")));
+    expect(second).toEqual(first);
+    // A changed file gives a different seed.
+    expect(await fileSeed(`${text}\n`)).not.toBe(seed);
   });
 });

@@ -4,6 +4,7 @@
 // a missing cost makes spend incomplete, never zero; zero accepted makes cost per accepted undefined.
 
 import type { ParsedRow, Row } from "../format/validate.ts";
+import type { CostCase } from "./calc.ts";
 
 export type Arm = "llm" | "rule" | "jev";
 export const ARMS: readonly Arm[] = ["llm", "rule", "jev"];
@@ -66,6 +67,16 @@ export interface PairedSample {
   readonly wins: number;
   readonly losses: number;
   readonly ties: number;
+  /** The paired cases, sorted by case_id: both labels and both costs (null when missing). */
+  readonly cases: readonly PairedCase[];
+}
+
+export interface PairedCase {
+  readonly caseId: string;
+  readonly jevAccepted: boolean;
+  readonly otherAccepted: boolean;
+  readonly jevCostUsd: number | null;
+  readonly otherCostUsd: number | null;
 }
 
 export interface CohortMetrics {
@@ -159,6 +170,7 @@ function paired(
   const caseIds = [...new Set([...jevByCase.keys(), ...otherByCase.keys()])].sort();
   const jevRows: Row[] = [];
   const otherRows: Row[] = [];
+  const cases: PairedCase[] = [];
   let excluded = 0;
   let a = 0;
   let b = 0;
@@ -177,6 +189,7 @@ function paired(
     otherRows.push(otherRow);
     const jevOk = jevLabel === "accept";
     const otherOk = otherLabel === "accept";
+    cases.push({ caseId, jevAccepted: jevOk, otherAccepted: otherOk, jevCostUsd: cost(jevRow), otherCostUsd: cost(otherRow) });
     if (jevOk && otherOk) a += 1;
     else if (jevOk) b += 1;
     else if (otherOk) c += 1;
@@ -195,6 +208,7 @@ function paired(
     wins: b,
     losses: c,
     ties: a + d,
+    cases,
   };
 }
 
@@ -267,4 +281,14 @@ export function describeCostPerAccepted(value: CostPerAccepted): string {
 export function describeSpend(value: Spend): string {
   if (value.kind === "complete") return `$${value.usd.toFixed(6)}`;
   return `incomplete ($${value.knownUsd.toFixed(6)} known, ${value.missing} missing)`;
+}
+
+/** The paired cases as resample input, Jev first; null when any paired row lacks a cost (rule 1 stops first). */
+export function pairedCostCases(pair: PairedSample): CostCase[] | null {
+  const out: CostCase[] = [];
+  for (const one of pair.cases) {
+    if (one.jevCostUsd === null || one.otherCostUsd === null) return null;
+    out.push({ jevAccepted: one.jevAccepted, jevCostUsd: one.jevCostUsd, llmAccepted: one.otherAccepted, llmCostUsd: one.otherCostUsd });
+  }
+  return out;
 }

@@ -32,7 +32,7 @@ change(day_step):
     implement(tasks)
     run bun test                                                 [run; nothing checks the count]
     gate prints head=<sha> and counts; fails on 0 or uncollected [planned, T1]
-    spec_check()                                                 [planned, #19, T20; `scripts/` holds only parity.sh and parity.ts (#25)]
+    spec_check()                                                 [planned, #19, T20; no `scripts/` yet; the parity harness from #25 was removed]
 
     // 5 private-content scan                                    [run, outside the repo]
     scan(changed_files)                                          // prints one line: VERDICT public-scan OK|HITS files=<n> hits=<n>

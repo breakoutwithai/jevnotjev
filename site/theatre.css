@@ -157,6 +157,7 @@
 @media (max-width: 900px) {
   .title-row { grid-template-columns: minmax(0, 1fr); }
   .door { grid-column: 1; margin: 0 0 26px; max-width: 420px; }
+  .motion .door { transform: translateY(16px); }
   .motion .door.shown { transform: none; }
 }
 @media (max-width: 720px) {

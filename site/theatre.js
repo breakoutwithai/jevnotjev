@@ -26,7 +26,8 @@
   }
 
   var OPEN_AT = 0.75, BEAT2_AT = 0.87, BEAT3_AT = 1.0, TYPE_MS = 38, STRIKE_HOLD_MS = 1500, DIALOGUE_MS = 900;
-  var beat = 0, act1Done = false, timers = [], ticking = false;
+  /* opened: the curtain was opened directly (skip, focus, deep link) and stays open whatever scrollY reads. */
+  var beat = 0, act1Done = false, timers = [], ticking = false, opened = false;
   root.dataset.beat = "0";
   root.dataset.curtain = "closed";
 
@@ -67,7 +68,7 @@
   function update() {
     ticking = false;
     var h = runwayH(), y = window.scrollY;
-    var p = Math.max(0, Math.min(1, y / (h * OPEN_AT)));
+    var p = opened ? 1 : Math.max(0, Math.min(1, y / (h * OPEN_AT)));
     setCurtain(p);
     if (beat < 1 && p >= 1) setBeat(1);
     if (beat === 1 && y >= h * BEAT2_AT) toBeat2();
@@ -78,16 +79,20 @@
     if (!ticking) { ticking = true; requestAnimationFrame(update); }
   }
 
-  /* Jump to the final state: curtains open, example asked and answered, note shown. */
+  /* Jump to the final state: curtains open, example asked and answered, note shown. The curtain opens here,
+     not through the scroll position, because html { scroll-behavior: smooth } makes scrollTo slow. */
   function finish(scroll) {
     timers.forEach(clearTimeout);
     timers = [];
+    opened = true;
+    setCurtain(1);
+    if (beat < 1) setBeat(1);
     input.classList.remove("struck");
     S.act1Final();
     act1Done = true;
     root.dataset.act1 = "dialogue";
     toBeat3();
-    if (scroll && window.scrollY < runwayH()) window.scrollTo({ top: runwayH(), behavior: "auto" });
+    if (scroll && window.scrollY < runwayH()) window.scrollTo({ top: runwayH(), behavior: "instant" });
     update();
   }
 

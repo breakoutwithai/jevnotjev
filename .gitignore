@@ -1,4 +1,32 @@
 node_modules/
 /labelled.csv
 /run-*.csv
-__pycache__/
+
+# Local working material, never published
+_reference/
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.keychain
+credentials.json
+service-account*.json
+secrets/
+.secrets/
+.npmrc
+.netrc
+
+# Local agent and tool state
+.claude/settings.local.json
+.claude/claudex/
+.mh/
+
+# OS noise
+.DS_Store

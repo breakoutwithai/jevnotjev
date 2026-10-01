@@ -39,7 +39,7 @@ export function parseArgs(
   return { positional, flags, options };
 }
 
-/** Print usage and an argument error to stderr; exit code 2, as argparse does. */
+/** Print usage and `error: <message>` to stderr; exit code 2 means the command line was wrong. */
 export function usageError(io: Io, usage: string, message: string): number {
   io.err(usage);
   io.err(`error: ${message}`);

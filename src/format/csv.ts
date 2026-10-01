@@ -1,16 +1,17 @@
-// CSV reading and writing with the behaviour of Python's csv module (excel dialect, strict=False),
-// including its line numbers, so validator messages keep the Python original's "line N".
+// CSV reading and writing for jnj-record/1: comma-separated, " quotes, "" escapes a quote inside a quoted
+// field, a stray quote is kept as text rather than rejected, and each record carries the physical line it
+// ends on, which is the N in a validator message's "line N".
 // Pure: no Node or Bun APIs, the browser imports it.
 
 export interface CsvRecord {
-  /** Physical line on which the record ends (csv.reader.line_num). */
+  /** Physical line on which the record ends (1-based; a quoted line break makes it later than the start). */
   readonly line: number;
   readonly fields: readonly string[];
 }
 
 type State = "startRecord" | "startField" | "inField" | "inQuoted" | "quoteInQuoted" | "eatCrnl";
 
-/** Split like a text file opened with newline="": lines end after \n, \r\n or a lone \r. */
+/** Split into physical lines: a line ends after \n, \r\n or a lone \r. */
 function physicalLines(text: string): string[] {
   const lines: string[] = [];
   let start = 0;
@@ -29,7 +30,7 @@ export class CsvError extends Error {
   override readonly name = "CsvError";
 }
 
-/** Every record csv.reader yields, blank lines included as []. */
+/** Every record in the text, blank lines included as []. */
 export function readRecords(text: string): CsvRecord[] {
   const records: CsvRecord[] = [];
   let fields: string[] = [];
@@ -133,13 +134,13 @@ export function readRecords(text: string): CsvRecord[] {
 }
 
 export interface DictRows {
-  /** csv.DictReader.fieldnames: null for an empty file. */
+  /** The first record's fields; null for an empty file. */
   readonly header: readonly string[] | null;
-  /** Data records, blank lines skipped, each with the line csv.DictReader reports. */
+  /** Data records after the header, blank lines skipped, each with the line it ends on. */
   readonly rows: readonly CsvRecord[];
 }
 
-/** What csv.DictReader sees: the first record is the header, blank records are skipped. */
+/** Header and data rows: the first record is the header, blank records are skipped. */
 export function readDictRows(text: string): DictRows {
   const [first, ...rest] = readRecords(text);
   return {
@@ -152,13 +153,13 @@ function quoteField(value: string): string {
   return /[,"\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
-/** One row as csv.writer writes it with QUOTE_MINIMAL. */
+/** One row: a field is quoted only when it holds , " \r or \n (quotes doubled); a lone empty field is written "". */
 export function formatRow(fields: readonly string[], lineTerminator = "\n"): string {
   if (fields.length === 1 && fields[0] === "") return `""${lineTerminator}`;
   return fields.map(quoteField).join(",") + lineTerminator;
 }
 
-/** Rows as csv.writer writes them. */
+/** Rows, each written as formatRow writes it. */
 export function formatRows(rows: readonly (readonly string[])[], lineTerminator = "\n"): string {
   return rows.map((row) => formatRow(row, lineTerminator)).join("");
 }

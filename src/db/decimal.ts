@@ -1,4 +1,4 @@
-// Exact decimal reading of number text, the way Python's Decimal does it: no JS float is involved.
+// Exact decimal reading of number text: digits and a base-10 exponent, no JS float involved.
 
 export interface Decimal {
   /** Significant digits without leading zeros; "0" for zero. */
@@ -25,7 +25,7 @@ export function isZero(value: Decimal): boolean {
   return value.digits === "0";
 }
 
-/** Python's Decimal.adjusted(): the exponent of the most significant digit. */
+/** The exponent of the most significant digit: 1 for 42, -6 for 1.8e-06. */
 export function adjusted(value: Decimal): bigint {
   return value.exponent + BigInt(value.digits.length) - 1n;
 }

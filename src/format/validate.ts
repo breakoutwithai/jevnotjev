@@ -1,10 +1,10 @@
 // Validate a Jev!Jev eval record CSV against format jnj-record/1.
-// Output text matches the Python validator it replaces (GAP lines, per-answerer summary, VALID/INVALID).
+// Output text (ERROR and GAP lines, per-answerer summary, VALID/INVALID) is the message contract in format/README.md.
 // Pure: takes the file's text, uses no Node or Bun APIs, so the browser imports it. CLI: cli.ts.
 
 import schemaJson from "../../format/record-v1.schema.json";
 import { readDictRows } from "./csv.ts";
-import { pyFixed6, pyListRepr, pyStrRepr } from "./pyrepr.ts";
+import { formatFixed6, formatList, quoteText } from "./quote.ts";
 import { iterErrors, type Value } from "./schema.ts";
 
 export const SCHEMA: unknown = schemaJson;
@@ -12,7 +12,7 @@ export const COLUMNS: readonly string[] = schemaJson.required;
 
 const INTEGER_COLUMNS = new Set(["tokens_in", "tokens_out", "latency_ms"]);
 const NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);
-// Python re.match with $ also accepts one trailing newline; int() and float() then ignore it.
+// A number cell may end in one line break; it is accepted and trimmed before parsing.
 const INTEGER_TEXT = /^[0-9]+\n?$/;
 const NUMBER_TEXT = /^[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?\n?$/;
 
@@ -35,7 +35,7 @@ export interface Validation {
   readonly rows: readonly ParsedRow[];
 }
 
-/** Decode file bytes the way Python's open(encoding="utf-8") does: strict, and a byte order mark stays in the text. */
+/** Decode file bytes as strict UTF-8: invalid bytes throw, and a byte order mark stays in the text. */
 export function decodeUtf8(bytes: Uint8Array): string {
   return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
 }
@@ -61,7 +61,7 @@ function duplicates(header: readonly string[]): string[] {
   return [...repeated].sort(compareCodePoints);
 }
 
-/** Python's str ordering: by code point, not by UTF-16 unit. */
+/** Text ordering by code point, not by UTF-16 unit. */
 function compareCodePoints(left: string, right: string): number {
   const a = [...left];
   const b = [...right];
@@ -78,11 +78,11 @@ function readRows(text: string): { errors: string[]; rows: ParsedRow[] } {
   const header = fieldnames ?? [];
   const errors: string[] = [];
   const repeated = duplicates(header);
-  if (repeated.length > 0) errors.push(`header: duplicate column names ${pyListRepr(repeated)}`);
+  if (repeated.length > 0) errors.push(`header: duplicate column names ${formatList(repeated)}`);
   const missing = COLUMNS.filter((column) => !header.includes(column));
   const unknown = header.filter((column) => !COLUMNS.includes(column));
-  if (missing.length > 0) errors.push(`header: missing columns ${pyListRepr(missing)}`);
-  if (unknown.length > 0) errors.push(`header: unknown columns ${pyListRepr(unknown)}`);
+  if (missing.length > 0) errors.push(`header: missing columns ${formatList(missing)}`);
+  if (unknown.length > 0) errors.push(`header: unknown columns ${formatList(unknown)}`);
   if (errors.length > 0) return { errors, rows: [] };
   const rows: ParsedRow[] = [];
   for (const record of records) {
@@ -142,7 +142,7 @@ export function validate(csvText: string): Validation {
     const answerSet = text(row, "answer_set");
     const where = `(${caseId}, ${questionId}, ${answerer})`;
     if (!answerSet.split("|").includes(output)) {
-      errors.push(`line ${line}: output ${pyStrRepr(output)} is not in answer_set ${pyStrRepr(answerSet)}`);
+      errors.push(`line ${line}: output ${quoteText(output)} is not in answer_set ${quoteText(answerSet)}`);
     }
     const key = JSON.stringify([runId, caseId, questionId, answerer]);
     if (seen.has(key)) errors.push(`line ${line}: duplicate row for run ${runId} ${where}`);
@@ -184,7 +184,7 @@ export function summary(rows: readonly ParsedRow[]): string[] {
       else if (typeof cost === "number") total += cost;
       else throw new Error("cost_usd is not a number after schema validation");
     }
-    const shown = complete ? `$${pyFixed6(total)}` : "incomplete";
+    const shown = complete ? `$${formatFixed6(total)}` : "incomplete";
     return `${answerer}: rows=${mine.length} labelled=${labelled.length} accepted=${accepted} cost=${shown}`;
   });
 }

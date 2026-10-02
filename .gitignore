@@ -30,3 +30,8 @@ secrets/
 
 # OS noise
 .DS_Store
+
+# Local-only working folders. Prompt templates are the exception and are tracked.
+docs/wayfinder/
+docs/prompts/*
+!docs/prompts/*.prompt-template.md

@@ -33,5 +33,6 @@ secrets/
 
 # Local-only working folders. Prompt templates are the exception and are tracked.
 docs/wayfinder/
+docs/handovers/
 docs/prompts/*
 !docs/prompts/*.prompt-template.md

@@ -13,7 +13,8 @@
   /* A cost that is missing, not a number or negative was not measured: say so rather than show $0. */
   function usd(v) {
     if (typeof v !== "number" || !isFinite(v) || v < 0) return "n/a";
-    return "$" + v.toFixed(v > 0 && v < 0.01 ? 6 : 4);
+    if (v === 0) return "$0";
+    return "$" + v.toFixed(v < 1 ? 6 : 4);
   }
   function motion() { return root.classList.contains("motion"); }
   function isObj(o) { return typeof o === "object" && o !== null && !Array.isArray(o); }
@@ -39,7 +40,7 @@
     if (!has(MODE, D.mode)) return false;
     return D.label_page === null || D.label_page === undefined || (isStr(D.label_page) && SAFE_LINK.test(D.label_page));
   }
-  var MODE = { sample: "Sample data", pending: "Labels pending", labelled: "Labelled" };
+  var MODE = { sample: "Sample data", pending: "Recorded run, labels pending", labelled: "Recorded run, labelled" };
   var VERDICT = { accept: "accept", reject: "reject", pending: "pending: not labelled yet" };
   /* Own keys only, so "constructor" or "toString" never reads as a mode or verdict. */
   function has(map, k) { return typeof k === "string" && Object.prototype.hasOwnProperty.call(map, k); }

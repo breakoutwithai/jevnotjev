@@ -9,7 +9,7 @@ The verdict describes the builder's test set, not production.
 |---|---|---|
 | Minimum paired labelled cases | 30 | At 10 and 20 cases, a Jev that is truly as good as the LLM reaches "use Jev" in only 2% to 13% of simulated test sets; at 30, 17% to 22% (table below) |
 | Accept-rate margin | 10 points | With a 5-point margin, even 100 cases reach "use Jev" in only 17% to 25% of test sets |
-| Cost ratio to count as cheaper | 0.8 or less | Jev must be at least 20% cheaper per accepted answer, with the 95% upper bound below 1 |
+| Cost ratio to count as cheaper | 0.8 or less | Jev must be at least 20% cheaper per accepted answer, with the 95% upper bound below 1; compared with a tolerance of 1e-9 (see [Cost guards and tolerance](#cost-guards-and-tolerance)) |
 | Confidence level | 95% | |
 
 ## Terms
@@ -48,12 +48,12 @@ lower = diff - sqrt((p1 - l1)^2 - 2*phi*(p1 - l1)*(u2 - p2) + (u2 - p2)^2)
 upper = diff + sqrt((u1 - p1)^2 - 2*phi*(u1 - p1)*(p2 - l2) + (p2 - l2)^2)
 ```
 
-Cost ratio interval: resample the paired cases with replacement 2,000 times, recompute `cost_ratio` each time, take the 2.5th and 97.5th percentiles. Resamples use the same two special values: ratio 0 when the LLM has 0 accepted and Jev has some, infinity when Jev has 0 and the LLM has some, and a resample where both have 0 is drawn again.
+Cost ratio interval: resample the paired cases with replacement 2,000 times, recompute `cost_ratio` each time, take the 2.5th and 97.5th percentiles. Resamples use the same two special values: ratio 0 when the LLM has 0 accepted and Jev has some, infinity when Jev has 0 and the LLM has some, and a resample where both have 0 is drawn again. A resample is also drawn again when both cost $0 per accepted answer or when its ratio overflows to a value that is not finite; an infinity from Jev at 0 accepted is kept.
 
 ## Verdict, in order, first match wins
 Jev is compared with the LLM on accept rate and cost, and with the rule on accept rate only (a rule costs 0, so Jev can never be cheaper than it).
 
-1. **Not enough evidence** when any of these holds:
+1. **Not enough evidence** when any of these holds (two cost guards also give this verdict, checked after the first three rule-2 conditions: see [Cost guards and tolerance](#cost-guards-and-tolerance)):
    - no `jev` rows, or no `llm` rows;
    - fewer than 30 paired labelled cases between Jev and the LLM;
    - Jev and the LLM both have 0 accepted;
@@ -99,3 +99,13 @@ Cost side, list prices read from the vendors' pages on 2026-09-29, for a 400-tok
 - The interval code matches all 7 method-10 rows of Table III in Newcombe (1998), as transcribed from the paper into [newcombe-table3.json](newcombe-table3.json): the original research script printed `checked=7 mismatches=0` on 2026-09-29 (history at [cd8397f](https://github.com/breakoutwithai/jevnotjev/tree/cd8397f/docs/decision)). The TypeScript verdict code must pass the same check against that file.
 - The 0.5 outcome correlation is assumed; it is re-measured on the first real labelled file.
 - How long a person takes to label one answer is unmeasured, so whether 30 cases fits one sitting is open.
+
+## Cost guards and tolerance
+Added with the verdict code (#48). These cover files whose costs give no usable ratio; they never change a verdict on real per-call prices.
+
+- **Two more ways to reach "not enough evidence"**, reported as rule 1:
+  - `no-cost-ratio`: Jev and the LLM both cost $0 per accepted answer on the paired cases, so there is no ratio.
+  - `cost-not-finite`: either paired spend is not a finite number, or n times the largest single paired cost is not (a resample can repeat that case n times), or the ratio of the two costs per accepted overflows.
+- **Order.** Both guards run after the four rule-1 conditions above and after the first three rule-2 conditions (rule within the margin, Jev clearly worse, Jev 0 accepted), which do not read cost. They run before "Jev clearly dearer" and rule 3, the first conditions that need the ratio. So a file where Jev is clearly worse still gets "don't use Jev" even when every cost is $0.
+- **Tolerance.** Spend is a sum of floating-point numbers, so a ratio that is exactly 0.8 in decimal can come out as 0.8000000000000002. Every comparison with 0.8 or 1 uses a tolerance of 1e-9 (`COST_TOLERANCE` in `src/core/verdict.ts`): ratio 0.8 or less means at most 0.8 + 1e-9; the upper bound is below 1 when under 1 - 1e-9; the lower bound is above 1 when over 1 + 1e-9; "cheaper, but by less than 20%" applies when the ratio is under 1 - 1e-9.
+- **Extra resample redraws**, as in "Cost ratio interval": a resample where both cost $0 per accepted, or whose ratio overflows, is drawn again.

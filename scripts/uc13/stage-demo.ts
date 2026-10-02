@@ -9,7 +9,10 @@
 // output equals the human answer, and the tally adds accepts and misses per arm. No code change is needed.
 
 import { join } from "node:path";
-import { ANSWERS, type Answer, type RecordRow, parseRecords } from "./arms.ts";
+import {
+  ANSWERS, type Answer, CASE_IDS, type Case, type Column, PROMPT_VERSION, QUESTION, QUESTION_ID, RUN_ID, type RecordRow, loadExample,
+  parseRecords,
+} from "./arms.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 export const RUN_DIR = join(ROOT, "docs", "product", "runs", "2026-10-01-uc13-shop-bot");
@@ -42,7 +45,8 @@ export interface DemoMessage {
 export interface ArmTally {
   readonly answer: number;
   readonly hand_off: number;
-  readonly cost_usd: number;
+  /** null when any row's cost is blank: unmeasured spend, shown as n/a. */
+  readonly cost_usd: number | null;
   readonly labelled: number;
   readonly accept: number | null;
   readonly answered_should_hand_off: number | null;
@@ -84,6 +88,18 @@ function round8(n: number): number {
   return Math.round(n * 1e8) / 1e8;
 }
 
+/** An arm's spend, or null when any row's cost is blank (unmeasured is not free). A malformed cost fails. */
+function armCost(rows: readonly RecordRow[]): number | null {
+  let sum = 0;
+  for (const r of rows) {
+    if (r.cost_usd === "") return null;
+    const v = Number(r.cost_usd);
+    if (!Number.isFinite(v) || v < 0) throw new Error(`${r.answerer} ${r.case_id}: cost_usd ${JSON.stringify(r.cost_usd)} is not a cost`);
+    sum += v;
+  }
+  return round8(sum);
+}
+
 export function buildDemo(rows: readonly RecordRow[], factSheet: string, ids: readonly string[] = DEMO_IDS): DemoData {
   const byArm = new Map<string, Map<string, RecordRow>>();
   for (const r of rows) {
@@ -93,10 +109,24 @@ export function buildDemo(rows: readonly RecordRow[], factSheet: string, ids: re
     m.set(r.case_id, r);
     byArm.set(r.answerer, m);
   }
-  const caseIds = [...new Set(rows.map((r) => r.case_id))];
+  // One run: every row carries the same run, prompt version, question and answer set.
+  const IDENTITY: readonly (readonly [Column, string])[] = [
+    ["run_id", RUN_ID], ["prompt_version", PROMPT_VERSION], ["question_id", QUESTION_ID], ["question", QUESTION], ["answer_set", ANSWERS.join("|")],
+  ];
+  for (const r of rows) {
+    for (const [col, want] of IDENTITY) {
+      if (r[col] !== want) throw new Error(`${r.answerer} ${r.case_id}: ${col} ${JSON.stringify(r[col])} is not this run's ${JSON.stringify(want)}`);
+    }
+  }
+  // Every arm holds exactly the canonical cases m01 to m40.
+  const caseIds = CASE_IDS;
   for (const a of ARMS) {
-    const m = byArm.get(a.key);
-    if (!m || m.size !== caseIds.length) throw new Error(`arm ${a.key} has ${m?.size ?? 0} rows for ${caseIds.length} cases`);
+    const m = byArm.get(a.key) ?? new Map<string, RecordRow>();
+    const missing = caseIds.filter((c) => !m.has(c));
+    const extra = [...m.keys()].filter((c) => !caseIds.includes(c));
+    if (missing.length > 0 || extra.length > 0) {
+      throw new Error(`arm ${a.key}: needs exactly ${caseIds[0]} to ${caseIds[caseIds.length - 1]}; missing [${missing.join(", ")}], extra [${extra.join(", ")}]`);
+    }
   }
 
   /** One human answer per case, the same whichever arm's row it is read from. */
@@ -111,6 +141,9 @@ export function buildDemo(rows: readonly RecordRow[], factSheet: string, ids: re
     return r;
   }
 
+  // The human answer must agree across arms for all 40 cases, not only the ones shown.
+  const truths = new Map(caseIds.map((c) => [c, truthOf(c)]));
+
   const messages = ids.map((id): DemoMessage => {
     const outputs: Record<string, ArmOutput> = {};
     for (const a of ARMS) {
@@ -118,7 +151,7 @@ export function buildDemo(rows: readonly RecordRow[], factSheet: string, ids: re
       const { verdict } = judge(r);
       outputs[a.key] = { output: isAnswer(r.output) ? r.output : "answer", verdict };
     }
-    return { id, text: rowOf("rule", id).case_input, label: truthOf(id), outputs };
+    return { id, text: rowOf("rule", id).case_input, label: truths.get(id) ?? null, outputs };
   });
 
   const tally: Record<string, ArmTally> = {};
@@ -132,7 +165,7 @@ export function buildDemo(rows: readonly RecordRow[], factSheet: string, ids: re
     tally[a.key] = {
       answer: armRows.filter((r) => r.output === "answer").length,
       hand_off: armRows.filter((r) => r.output === "hand_off").length,
-      cost_usd: round8(armRows.reduce((s, r) => s + (r.cost_usd === "" ? 0 : Number(r.cost_usd)), 0)),
+      cost_usd: armCost(armRows),
       labelled: labelled.length,
       accept: has ? labelled.filter((j) => j.verdict === "accept").length : null,
       answered_should_hand_off: has ? labelled.filter((j) => j.verdict === "reject" && j.r.output === "answer").length : null,
@@ -203,16 +236,60 @@ export function labelPage(runLabelHtml: string): string {
 
 export interface Built { readonly demo: string; readonly label: string }
 
-export async function build(runDir = RUN_DIR, exampleDir = EXAMPLE_DIR): Promise<Built> {
-  const rows = parseRecords(await Bun.file(join(runDir, "records.csv")).text());
-  const sheet = (await Bun.file(join(exampleDir, "fact-sheet.md")).text()).trim();
-  const html = await Bun.file(join(runDir, "label.html")).text();
-  return { demo: demoScript(buildDemo(rows, sheet)), label: labelPage(html) };
+function isCase(v: unknown): v is Case {
+  return typeof v === "object" && v !== null && typeof Reflect.get(v, "case_id") === "string" && typeof Reflect.get(v, "case_input") === "string";
 }
 
+/**
+ * The inputs recorded with the run: the fact sheet and messages embedded in the run's label.html when it was
+ * rendered. The demo reads these, the same snapshot the label page shows, never today's examples/ files.
+ */
+export function recordedInputs(labelHtml: string): { factSheet: string; cases: Case[] } {
+  const sheet = /^const SHEET = (.*);$/m.exec(labelHtml)?.[1];
+  const cases = /^const CASES = (.*);$/m.exec(labelHtml)?.[1];
+  if (sheet === undefined || cases === undefined) throw new Error("label.html: no SHEET or CASES line to read the recorded inputs from");
+  const parsedSheet: unknown = JSON.parse(sheet);
+  const parsedCases: unknown = JSON.parse(cases);
+  if (typeof parsedSheet !== "string" || !Array.isArray(parsedCases) || !parsedCases.every(isCase)) {
+    throw new Error("label.html: SHEET is not text or CASES is not a list of {case_id, case_input}");
+  }
+  return { factSheet: parsedSheet, cases: parsedCases };
+}
+
+/** The recorded inputs, the records and today's examples/ must all describe the same 40 messages and fact sheet. */
+export function checkInputs(recorded: { factSheet: string; cases: readonly Case[] }, example: { factSheet: string; cases: readonly Case[] }, rows: readonly RecordRow[]): void {
+  const ids = recorded.cases.map((c) => c.case_id);
+  if (ids.length !== CASE_IDS.length || ids.some((id, i) => id !== CASE_IDS[i])) {
+    throw new Error(`label.html: its messages are [${ids.join(", ")}], not exactly ${CASE_IDS[0]} to ${CASE_IDS[CASE_IDS.length - 1]}`);
+  }
+  if (example.factSheet !== recorded.factSheet) throw new Error("examples/ fact sheet differs from the one recorded with the run (label.html)");
+  const exampleText = new Map(example.cases.map((c) => [c.case_id, c.case_input]));
+  for (const c of recorded.cases) {
+    if (exampleText.get(c.case_id) !== c.case_input) throw new Error(`examples/ cases.jsonl ${c.case_id} differs from the message recorded with the run`);
+    for (const r of rows) {
+      if (r.case_id === c.case_id && r.case_input !== c.case_input) throw new Error(`records.csv ${r.answerer} ${c.case_id}: case_input differs from the message recorded with the run`);
+    }
+  }
+}
+
+export async function build(runDir = RUN_DIR, exampleDir = EXAMPLE_DIR): Promise<Built> {
+  const rows = parseRecords(await Bun.file(join(runDir, "records.csv")).text());
+  const html = await Bun.file(join(runDir, "label.html")).text();
+  const recorded = recordedInputs(html);
+  checkInputs(recorded, await loadExample(exampleDir), rows);
+  return { demo: demoScript(buildDemo(rows, recorded.factSheet)), label: labelPage(html) };
+}
+
+export const USAGE = "usage: bun scripts/uc13/stage-demo.ts [--check]";
+
 if (import.meta.main) {
+  const args = process.argv.slice(2);
+  if (args.length > 1 || (args.length === 1 && args[0] !== "--check")) {
+    console.error(`${USAGE}\nunknown arguments: ${args.join(" ")}; nothing written`);
+    process.exit(2);
+  }
   const built = await build();
-  if (process.argv.includes("--check")) {
+  if (args[0] === "--check") {
     const stale: string[] = [];
     if ((await Bun.file(DEMO_OUT).text().catch(() => "")) !== built.demo) stale.push("site/uc13-demo.js");
     if ((await Bun.file(LABEL_OUT).text().catch(() => "")) !== built.label) stale.push("site/label/index.html");

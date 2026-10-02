@@ -91,7 +91,8 @@ describe("stage-door.js data guard", () => {
   });
 
   test("[unit] SITE-9 a missing, non-numeric or negative cost reads n/a, never $0.0000", async () => {
-    for (const cost of [undefined, "abc", -1, Number.NaN]) {
+    // null is what stage-demo.ts emits for an arm with a blank cost
+    for (const cost of [null, undefined, "abc", -1, Number.NaN]) {
       const d = sample();
       d.tally = { a: { answer: 1, hand_off: 0, cost_usd: cost, labelled: 0, accept: null, answered_should_hand_off: null, handed_off_could_answer: null }, b: { answer: 1, hand_off: 0, cost_usd: 0, labelled: 0, accept: null, answered_should_hand_off: null, handed_off_could_answer: null } };
       const html = await openDemo(d);

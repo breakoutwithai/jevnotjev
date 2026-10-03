@@ -2,6 +2,7 @@
 // Pure parts only; scripts/uc13/run-arms.ts does the I/O. Spec: docs/product/use-cases/uc13-shop-bot-answer-or-handoff.md
 import { join } from "node:path";
 import { formatRows, readDictRows } from "../../src/format/csv.ts";
+import { checkJevResponse } from "../../src/jev-answer.ts";
 import { validate } from "../../src/format/validate.ts";
 
 export const RUN_ID = "run-shopbot-2026-10-01";
@@ -149,22 +150,21 @@ export interface ArmReply {
 
 /** A Jev systemone response; fails unless the model is the pinned one and the choice is in the answer set. */
 export function parseJevResponse(response: unknown, caseId: string): ArmReply {
-  if (!isObject(response) || response.model !== JEV_MODEL) {
-    throw new Error(`Jev ${caseId}: unexpected model ${isObject(response) ? String(response.model) : "none"}`);
-  }
-  const answers = response.answers;
-  const a = isObject(answers) ? answers[QUESTION_ID] : undefined;
-  if (!isObject(a) || !isAnswer(a.choice) || typeof a.confidence !== "number") {
-    throw new Error(`Jev ${caseId}: answer missing or outside ${ANSWERS.join("|")}`);
-  }
-  if (!Number.isFinite(a.confidence) || a.confidence < 0 || a.confidence > 1) {
-    throw new Error(`Jev ${caseId}: confidence ${a.confidence} is outside [0, 1]`);
-  }
   const who = `Jev ${caseId}`;
+  const check = checkJevResponse(response, { [QUESTION_ID]: ANSWERS }, JEV_MODEL);
+  if (!check.ok) {
+    const where = check.questionId === null ? "" : ` at ${check.questionId}`;
+    throw new Error(`${who}: invalid response (${check.reason}${where}; model ${JEV_MODEL}, answers ${ANSWERS.join("|")})`);
+  }
+  const a = check.answers[QUESTION_ID];
+  if (a === undefined || !isAnswer(a.choice) || a.confidence === null) {
+    throw new Error(`${who}: answer or confidence missing`);
+  }
+  if (!isObject(response)) throw new Error(`${who}: response is not an object`);
   const usage = requireUsage(response, who);
   const tokensIn = tokenCount(usage.input_tokens, "input_tokens", who);
   return {
-    choice: a.choice, model: JEV_MODEL, confidence: a.confidence, probabilities: a.probabilities ?? null,
+    choice: a.choice, model: JEV_MODEL, confidence: a.confidence, probabilities: a.probabilities,
     tokensIn, tokensOut: tokenCount(usage.output_tokens, "output_tokens", who), costUsd: (tokensIn * JEV_PRICE_PER_M) / 1e6,
   };
 }

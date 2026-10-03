@@ -1,0 +1,140 @@
+[
+  {
+    "name": "valid single question",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "hand_off", "confidence": 0.9, "probabilities": { "answer": 0.1, "hand_off": 0.9 } } } },
+    "questions": { "q1": ["answer", "hand_off"] },
+    "expect": { "ok": true }
+  },
+  {
+    "name": "valid without confidence or probabilities",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "answer" } } },
+    "questions": { "q1": ["answer", "hand_off"] },
+    "expect": { "ok": true }
+  },
+  {
+    "name": "valid two questions",
+    "response": {
+      "model": "jev-1.13.0",
+      "answers": {
+        "q1": { "choice": "a", "probabilities": { "a": 0.7, "b": 0.3 } },
+        "q2": { "choice": "z", "confidence": 0.5, "probabilities": { "x": 0.2, "y": 0.3, "z": 0.5 } }
+      }
+    },
+    "questions": { "q1": ["a", "b"], "q2": ["x", "y", "z"] },
+    "expect": { "ok": true }
+  },
+  {
+    "name": "mass within 0.02 tolerance",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "a", "probabilities": { "a": 0.6, "b": 0.41 } } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": true }
+  },
+  {
+    "name": "tied maximum is argmax",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "b", "probabilities": { "a": 0.5, "b": 0.5 } } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": true }
+  },
+  {
+    "name": "response is a string",
+    "response": "nope",
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": null, "reason": "not-object" }
+  },
+  {
+    "name": "response is an array",
+    "response": [],
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": null, "reason": "not-object" }
+  },
+  {
+    "name": "wrong model",
+    "response": { "model": "jev-1.12.0", "answers": { "q1": { "choice": "a" } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": null, "reason": "model" }
+  },
+  {
+    "name": "answers object absent",
+    "response": { "model": "jev-1.13.0" },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": "q1", "reason": "missing-answer" }
+  },
+  {
+    "name": "second question has no answer",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "a" } } },
+    "questions": { "q1": ["a", "b"], "q2": ["x", "y"] },
+    "expect": { "ok": false, "questionId": "q2", "reason": "missing-answer" }
+  },
+  {
+    "name": "choice outside the options",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "maybe", "confidence": 0.5 } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": "q1", "reason": "choice" }
+  },
+  {
+    "name": "choice is not a string",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": 1 } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": "q1", "reason": "choice" }
+  },
+  {
+    "name": "confidence above one",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "a", "confidence": 1.2 } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": "q1", "reason": "confidence-range" }
+  },
+  {
+    "name": "confidence is a string",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "a", "confidence": "0.9" } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": "q1", "reason": "confidence-range" }
+  },
+  {
+    "name": "probability keys differ from the options",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "a", "probabilities": { "a": 0.5, "c": 0.5 } } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": "q1", "reason": "keys" }
+  },
+  {
+    "name": "probability key missing",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "a", "probabilities": { "a": 1 } } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": "q1", "reason": "keys" }
+  },
+  {
+    "name": "probability below zero",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "a", "probabilities": { "a": 1.2, "b": -0.2 } } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": "q1", "reason": "prob-range" }
+  },
+  {
+    "name": "probability is a string",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "a", "probabilities": { "a": "0.5", "b": 0.5 } } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": "q1", "reason": "prob-range" }
+  },
+  {
+    "name": "probability mass does not sum to one",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "a", "probabilities": { "a": 0.6, "b": 0.5 } } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": "q1", "reason": "mass" }
+  },
+  {
+    "name": "choice is not the most probable option",
+    "response": { "model": "jev-1.13.0", "answers": { "q1": { "choice": "b", "probabilities": { "a": 0.7, "b": 0.3 } } } },
+    "questions": { "q1": ["a", "b"] },
+    "expect": { "ok": false, "questionId": "q1", "reason": "argmax" }
+  },
+  {
+    "name": "second question fails after the first passes",
+    "response": {
+      "model": "jev-1.13.0",
+      "answers": {
+        "q1": { "choice": "a", "probabilities": { "a": 0.7, "b": 0.3 } },
+        "q2": { "choice": "x", "probabilities": { "x": 0.2, "y": 0.8 } }
+      }
+    },
+    "questions": { "q1": ["a", "b"], "q2": ["x", "y"] },
+    "expect": { "ok": false, "questionId": "q2", "reason": "argmax" }
+  }
+]

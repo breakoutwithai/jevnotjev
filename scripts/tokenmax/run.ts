@@ -5,25 +5,31 @@
 //                                        (every request and full raw response) and records.csv with blank labels
 //   bun scripts/tokenmax/run.ts replay   rebuild records.csv from raw.json alone, no network; labels in records.csv kept
 //   bun scripts/tokenmax/run.ts page     label.html: each answer with its CV and question, no arm, model or confidence
-//   bun scripts/tokenmax/run.ts label    merge labels.csv (item_id,label) from the page into records.csv
+//   bun scripts/tokenmax/run.ts label [labels.csv]   merge the page's download (item_id,label; default
+//                                        <out>/labels.csv) into records.csv; a label for another run, CV, question or
+//                                        answer is refused
+//
+// A run journals every finished call (raw stdout, before parsing) to <out>/run.journal.jsonl and ends it with a
+// "complete" or "failed" event; raw.json and records.csv are written only when every call succeeded. Every file is
+// written to a temp name and renamed into place, and records.csv only after it validates.
 //
 // Jev calls go through $JEV_CALL (default ~/.claude/scripts/jaylo-jev.sh call <body.json>), which reads the key
 // itself; this process never holds it. The LLM runs with no tools, no MCP servers and no user settings.
-import { mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatRecords, JEV_MODEL, parseRecords, type RecordRow } from "../uc13/arms.ts";
 import { assertNoSecrets, assertPinned } from "../uc13/calls.ts";
-import { pool, spawnJson } from "../uc13/run-arms.ts";
+import { pool, spawnText } from "../uc13/run-arms.ts";
 import {
-  LLM_MODEL, LLM_PRICES, RUN_ID, applyItemLabels, armRecord, blindItems, inputsSha256, jevBody, llmRequest, loadInputs,
+  LLM_MODEL, LLM_PRICES, RUN_ID, applyItemLabels, samePriceTable, armRecord, blindItems, inputsSha256, jevBody, llmRequest, loadInputs,
   parseJev, parseLlm, rowKey, ruleRecord, sha256Hex, type Case, type Inputs, type Question,
 } from "./arms.ts";
 
 export const FIXTURE_SCHEMA = "jnj-tokenmax-fixture/1";
 const CONCURRENCY = 4;
-const USAGE = "usage: bun scripts/tokenmax/run.ts run | replay | page | label";
+const USAGE = "usage: bun scripts/tokenmax/run.ts run | replay | page | label [labels.csv]";
 
 export interface Paths { readonly d06: string; readonly out: string; readonly template: string; readonly jevCall: string; readonly claude: string }
 
@@ -86,6 +92,7 @@ export function parseFixture(text: string): Fixture {
     typeof raw.captured_utc !== "string" || !Array.isArray(raw.entries)) {
     throw new Error(`raw.json is not a ${FIXTURE_SCHEMA} fixture for ${RUN_ID}`);
   }
+  if (!samePriceTable(raw.llm_price_table)) throw new Error("raw.json llm_price_table differs from the dated price table in scripts/tokenmax/arms.ts; costs would not match the capture");
   const entries = raw.entries.map((e: unknown, i: number): Entry => {
     if (!isObject(e) || (e.arm !== "jev" && e.arm !== "llm") || typeof e.case_id !== "string" || typeof e.question_id !== "string" ||
       typeof e.request_sha256 !== "string" || typeof e.latency_ms !== "number" || !Number.isInteger(e.latency_ms) || e.latency_ms < 0 || typeof e.utc !== "string") {
@@ -120,45 +127,77 @@ export function rowsFromFixture(inputs: Inputs, fixture: Fixture): RecordRow[] {
   return rows;
 }
 
-/** Labels already in records.csv survive a replay, matched by CV, question and answerer. */
-function keepLabels(rows: readonly RecordRow[], old: readonly RecordRow[]): RecordRow[] {
+const LABEL_BINDING: readonly (keyof RecordRow)[] = ["run_id", "prompt_version", "case_input", "question", "answer_set", "output"];
+
+/** A label survives a replay only when the row it was given to shows the same run, prompt, CV, question, answer set and answer. */
+export function keepLabels(rows: readonly RecordRow[], old: readonly RecordRow[]): RecordRow[] {
   const byKey = new Map(old.map((r) => [rowKey(r), r]));
   return rows.map((r) => {
     const o = byKey.get(rowKey(r));
-    return o === undefined || o.output !== r.output ? r : { ...r, label: o.label, label_source: o.label_source };
+    if (o === undefined || LABEL_BINDING.some((col) => o[col] !== r[col])) return r;
+    return { ...r, label: o.label, label_source: o.label_source };
   });
 }
 
-async function writeRecords(out: string, rows: readonly RecordRow[]): Promise<void> {
-  await Bun.write(join(out, "records.csv"), formatRecords(rows));
-  parseRecords(formatRecords(rows));
+/** Write to a temp name in the same directory, then rename, so a reader never sees a half-written file. */
+async function atomicWrite(path: string, text: string): Promise<void> {
+  const tmp = `${path}.tmp-${process.pid}`;
+  await writeFile(tmp, text);
+  await rename(tmp, path);
+}
+
+/** records.csv is validated first and replaced only when valid. */
+export async function writeRecords(out: string, rows: readonly RecordRow[]): Promise<void> {
+  const text = formatRecords(rows);
+  parseRecords(text);
+  await atomicWrite(join(out, "records.csv"), text);
   console.log(`wrote records.csv rows=${rows.length}`);
 }
 
 async function run(paths: Paths, inputs: Inputs): Promise<void> {
+  await mkdir(paths.out, { recursive: true });
+  const journal = join(paths.out, "run.journal.jsonl");
+  const log = (event: Readonly<Record<string, unknown>>): Promise<void> => appendFile(journal, JSON.stringify({ utc: new Date().toISOString(), ...event }) + "\n");
+  await writeFile(journal, "");
+  await log({ event: "start", run_id: RUN_ID, inputs_sha256: inputsSha256(inputs) });
   const dir = await mkdtemp(join(tmpdir(), "tokenmax-"));
   const work = pairs(inputs);
+  /** One call: its raw stdout is journalled before anything parses it; a failed spawn is journalled too. */
+  const call = async (arm: Arm, c: Case, q: Question, cmd: readonly string[]): Promise<Entry> => {
+    const where = { arm, case_id: c.case_id, question_id: q.question_id };
+    let out: { text: string; ms: number };
+    try {
+      out = await spawnText(cmd, dir, `${arm} ${c.case_id} ${q.question_id}`);
+    } catch (error) {
+      await log({ event: "call_failed", ...where, error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
+    await log({ event: "call", ...where, latency_ms: out.ms, stdout: out.text });
+    const json: unknown = JSON.parse(out.text);
+    const who = `${arm} ${c.case_id} ${q.question_id}`;
+    if (arm === "jev") parseJev(json, q.question_id, who);
+    else parseLlm(json, who);
+    return entry(arm, c, q, json, out.ms, new Date().toISOString());
+  };
   try {
     const jev = await pool(work, CONCURRENCY, async ({ c, q }, i) => {
       const bodyPath = join(dir, `req-${i}.json`);
       await Bun.write(bodyPath, JSON.stringify(jevBody(c, q)));
-      const { json, ms } = await spawnJson([paths.jevCall, "call", bodyPath], dir, `Jev ${c.case_id} ${q.question_id}`);
-      parseJev(json, q.question_id, `Jev ${c.case_id} ${q.question_id}`);
-      return entry("jev", c, q, json, ms, new Date().toISOString());
+      return call("jev", c, q, [paths.jevCall, "call", bodyPath]);
     });
     const llm = await pool(work, CONCURRENCY, async ({ c, q }) => {
       const r = llmRequest(c, q);
-      const { json, ms } = await spawnJson(
-        [paths.claude, "-p", "--model", r.model, "--output-format", "json", "--tools", "", "--strict-mcp-config",
-          "--setting-sources", "", "--no-session-persistence", "--system-prompt", r.system, r.user],
-        dir, `claude -p ${c.case_id} ${q.question_id}`,
-      );
-      parseLlm(json, `LLM ${c.case_id} ${q.question_id}`);
-      return entry("llm", c, q, json, ms, new Date().toISOString());
+      return call("llm", c, q, [paths.claude, "-p", "--model", r.model, "--output-format", "json", "--tools", "", "--strict-mcp-config",
+        "--setting-sources", "", "--no-session-persistence", "--system-prompt", r.system, r.user]);
     });
     const fixture: Fixture = { inputs_sha256: inputsSha256(inputs), captured_utc: new Date().toISOString(), entries: [...jev, ...llm] };
-    await Bun.write(join(paths.out, "raw.json"), fixtureJson(fixture));
-    await writeRecords(paths.out, rowsFromFixture(inputs, fixture));
+    const rows = rowsFromFixture(inputs, fixture);
+    await atomicWrite(join(paths.out, "raw.json"), fixtureJson(fixture));
+    await writeRecords(paths.out, rows);
+    await log({ event: "complete", calls: fixture.entries.length });
+  } catch (error) {
+    await log({ event: "failed", error: error instanceof Error ? error.message : String(error) });
+    throw error;
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -182,24 +221,27 @@ export function renderPage(template: string, rows: readonly RecordRow[]): string
 
 async function page(paths: Paths): Promise<void> {
   const rows = parseRecords(await Bun.file(join(paths.out, "records.csv")).text());
-  await Bun.write(join(paths.out, "label.html"), renderPage(await Bun.file(paths.template).text(), rows));
+  await atomicWrite(join(paths.out, "label.html"), renderPage(await Bun.file(paths.template).text(), rows));
   console.log(`wrote label.html with ${rows.length} answers`);
 }
 
-async function label(paths: Paths): Promise<void> {
-  const rows = applyItemLabels(parseRecords(await Bun.file(join(paths.out, "records.csv")).text()), await Bun.file(join(paths.out, "labels.csv")).text());
+async function label(paths: Paths, labelsPath: string): Promise<void> {
+  const rows = applyItemLabels(parseRecords(await Bun.file(join(paths.out, "records.csv")).text()), await Bun.file(labelsPath).text());
   await writeRecords(paths.out, rows);
   console.log(`labelled ${rows.filter((r) => r.label !== "").length} of ${rows.length} rows`);
 }
 
 export async function main(argv: readonly string[], paths: Paths): Promise<void> {
   const [command, ...rest] = argv;
+  if (command === "label") {
+    if (rest.length > 1) throw new Error(USAGE);
+    await label(paths, rest[0] ?? join(paths.out, "labels.csv"));
+    return;
+  }
   if (rest.length > 0) throw new Error(USAGE);
-  const inputs = loadInputs(await Bun.file(paths.d06).text());
-  if (command === "run") await run(paths, inputs);
-  else if (command === "replay") await replay(paths, inputs);
-  else if (command === "page") await page(paths);
-  else if (command === "label") await label(paths);
+  if (command === "page") await page(paths);
+  else if (command === "run") await run(paths, loadInputs(await Bun.file(paths.d06).text()));
+  else if (command === "replay") await replay(paths, loadInputs(await Bun.file(paths.d06).text()));
   else throw new Error(USAGE);
 }
 

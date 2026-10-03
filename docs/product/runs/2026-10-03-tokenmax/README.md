@@ -33,9 +33,15 @@ Latency is client wall clock around each call, start-up included: Jev 392 to 476
 ## What is real
 Everything in `records.csv` except the labels: the CV text and questions (inputs from d06), every output, Jev confidence, token count, cost and latency come from the calls in `raw.json` or the keyword rule. The d06 Jev and LLM rows were not read; they are invented (`examples/d06-tiny/expected.md`).
 
-Labels are blank. The operator labels blind in `label.html`, downloads `labels.csv`, and runs `bun scripts/tokenmax/run.ts label`. A verdict comes later from `src/core/verdict.ts` on the labelled records; none is written here.
+Labels are blank. To label:
+
+1. Open `label.html` in a browser, mark each of the 30 answers accept or reject, and press Download labels.csv (the browser saves it, usually to `~/Downloads/labels.csv`).
+2. From the repo root: `bun scripts/tokenmax/run.ts label ~/Downloads/labels.csv` (any path works; with no path it reads `docs/product/runs/2026-10-03-tokenmax/labels.csv`).
+
+Each item id is bound to this run, its CV, question, answer set, prompt version and answer, so a `labels.csv` from an older page is refused rather than attached to a changed answer. A verdict comes later from `src/core/verdict.ts` on the labelled records; none is written here.
 
 ## Rebuild
-- `bun scripts/tokenmax/run.ts replay` rebuilds `records.csv` from `raw.json` with no network, keeping labels.
+- `bun scripts/tokenmax/run.ts replay` rebuilds `records.csv` from `raw.json` with no network, keeping a label only when its row's run, prompt, CV, question, answer set and answer are unchanged. It refuses a `raw.json` whose price table differs from the dated one.
+- Do not run `replay` and `label` at the same time: neither locks `records.csv`, so the later write wins.
 - `bun scripts/tokenmax/run.ts page` regenerates `label.html`.
-- `bun scripts/tokenmax/run.ts run` makes 20 new paid calls and overwrites `raw.json`.
+- `bun scripts/tokenmax/run.ts run` makes 20 new paid calls. Each call's raw output goes to `run.journal.jsonl` before it is parsed, and the journal ends with `complete` or `failed`; `raw.json` and `records.csv` are replaced only when all 20 succeed.

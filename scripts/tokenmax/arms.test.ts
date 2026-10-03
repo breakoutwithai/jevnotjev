@@ -31,11 +31,16 @@ describe("TokenMax inputs and rule", () => {
     const { header, rows } = readDictRows(d06Text);
     const h = header ?? [];
     const at = (name: string) => h.indexOf(name);
-    for (const { fields } of rows.filter(({ fields }) => fields[at("answerer")] === "rule")) {
+    const ruleRows = rows.filter(({ fields }) => fields[at("answerer")] === "rule");
+    const pairs = new Set(ruleRows.map(({ fields }) => `${fields[at("case_id")] ?? ""}|${fields[at("question_id")] ?? ""}`));
+    expect([ruleRows.length, pairs.size]).toEqual([10, 10]);
+    for (const { fields } of ruleRows) {
       const c = inputs.cases.find((x) => x.case_id === fields[at("case_id")]);
       const q = inputs.questions.find((x) => x.question_id === fields[at("question_id")]);
       if (c === undefined || q === undefined) throw new Error("d06 row outside the inputs");
-      expect(ruleOutput(c, q)).toBe(fields[at("output")] === "yes" ? "yes" : "no");
+      const expected = fields[at("output")];
+      expect(expected === "yes" || expected === "no").toBe(true);
+      expect<string>(ruleOutput(c, q)).toBe(expected ?? "missing");
     }
   });
 

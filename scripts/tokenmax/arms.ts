@@ -37,6 +37,16 @@ export const LLM_PRICES: PriceTable = {
   cacheWrite1hPerM: 2,
   outputPerM: 5,
 };
+/** The exact model ids the table prices; `modelPrefix` above is kept as captured in raw.json, not used to match. */
+export const LLM_MODEL_IDS: readonly string[] = ["claude-haiku-4-5-20251001"];
+
+/** True when a captured table equals the dated one field for field. */
+export function samePriceTable(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  const want: Readonly<Record<string, string | number>> = { ...LLM_PRICES };
+  const keys = Object.keys(value);
+  return keys.length === Object.keys(want).length && keys.every((k) => value[k] === want[k]);
+}
 
 export interface Case { readonly case_id: string; readonly case_input: string }
 export interface Question { readonly question_id: string; readonly question: string }
@@ -63,10 +73,13 @@ export function loadInputs(text: string): Inputs {
     return i;
   };
   const [ci, ii, qi, qt] = [col("case_id"), col("case_input"), col("question_id"), col("question")];
+  const width = (header ?? []).length;
   const cases = new Map<string, string>();
   const questions = new Map<string, string>();
   for (const { fields, line } of rows) {
+    if (fields.length !== width) throw new Error(`d06 line ${line}: ${fields.length} fields, expected ${width}`);
     const add = (map: Map<string, string>, id: string, value: string, what: string): void => {
+      if (value.trim() === "") throw new Error(`d06 line ${line}: ${what} ${id} is blank`);
       const seen = map.get(id);
       if (seen !== undefined && seen !== value) throw new Error(`d06 line ${line}: ${what} ${id} differs from an earlier row`);
       map.set(id, value);
@@ -74,11 +87,12 @@ export function loadInputs(text: string): Inputs {
     add(cases, fields[ci] ?? "", fields[ii] ?? "", "case_input for");
     add(questions, fields[qi] ?? "", fields[qt] ?? "", "question text for");
   }
-  if ([...cases.keys()].join(",") !== CASE_IDS.join(",")) throw new Error(`d06 cases are ${[...cases.keys()].join(",")}, expected ${CASE_IDS.join(",")}`);
-  if ([...questions.keys()].join(",") !== QUESTION_IDS.join(",")) throw new Error(`d06 questions are ${[...questions.keys()].join(",")}, expected q1,q2`);
+  const sameSet = (got: Map<string, string>, want: readonly string[]): boolean => got.size === want.length && want.every((id) => got.has(id));
+  if (!sameSet(cases, CASE_IDS)) throw new Error(`d06 cases are ${[...cases.keys()].join(",")}, expected ${CASE_IDS.join(",")}`);
+  if (!sameSet(questions, QUESTION_IDS)) throw new Error(`d06 questions are ${[...questions.keys()].join(",")}, expected q1,q2`);
   return {
-    cases: [...cases].map(([case_id, case_input]) => ({ case_id, case_input })),
-    questions: [...questions].map(([question_id, question]) => ({ question_id, question })),
+    cases: CASE_IDS.map((case_id) => ({ case_id, case_input: cases.get(case_id) ?? "" })),
+    questions: QUESTION_IDS.map((question_id) => ({ question_id, question: questions.get(question_id) ?? "" })),
   };
 }
 
@@ -164,9 +178,14 @@ export function llmCost(usage: { readonly [key: string]: unknown }, who: string)
   const output = count(usage.output_tokens, "usage.output_tokens", who);
   const read = optional(usage, "cache_read_input_tokens", who);
   const write = optional(usage, "cache_creation_input_tokens", who);
-  const split = isObject(usage.cache_creation) ? usage.cache_creation : {};
-  const write1h = optional(split, "ephemeral_1h_input_tokens", who);
-  if (write1h > write) throw new Error(`${who}: 1 h cache writes ${write1h} exceed cache_creation_input_tokens ${write}`);
+  let write1h = 0;
+  if (usage.cache_creation !== undefined) {
+    const split = usage.cache_creation;
+    if (!isObject(split)) throw new Error(`${who}: usage.cache_creation ${JSON.stringify(split)} is not an object`);
+    write1h = optional(split, "ephemeral_1h_input_tokens", who);
+    const w5 = split.ephemeral_5m_input_tokens === undefined ? write - write1h : optional(split, "ephemeral_5m_input_tokens", who);
+    if (w5 < 0 || w5 + write1h !== write) throw new Error(`${who}: cache_creation 5 m ${w5} + 1 h ${write1h} does not sum to cache_creation_input_tokens ${write}`);
+  }
   const p = LLM_PRICES;
   return (input * p.inputPerM + (write - write1h) * p.cacheWrite5mPerM + write1h * p.cacheWrite1hPerM + read * p.cacheReadPerM + output * p.outputPerM) / 1e6;
 }
@@ -180,8 +199,8 @@ export function parseLlm(response: unknown, who: string): Reply {
   if (!isObject(response.usage)) throw new Error(`${who}: no usage in reply`);
   const models = isObject(response.modelUsage) ? Object.keys(response.modelUsage).sort() : [];
   if (models.length === 0) throw new Error(`${who}: no modelUsage in reply`);
-  const off = models.filter((m) => !m.startsWith(LLM_PRICES.modelPrefix));
-  if (off.length > 0) throw new Error(`${who}: model ${off.join("+")} is not in the price table (${LLM_PRICES.modelPrefix} only)`);
+  const off = models.filter((m) => !LLM_MODEL_IDS.includes(m));
+  if (off.length > 0) throw new Error(`${who}: model ${off.join("+")} is not in the price table (${LLM_MODEL_IDS.join(", ")} only)`);
   const u = response.usage;
   return {
     choice: text, model: models.join("+"), confidence: null,
@@ -213,9 +232,14 @@ export function rowKey(r: Pick<RecordRow, "case_id" | "question_id" | "answerer"
   return `${r.case_id}|${r.question_id}|${r.answerer}`;
 }
 
-/** An opaque id per row: no arm name, model or order can be read from it. */
-export function itemId(r: Pick<RecordRow, "case_id" | "question_id" | "answerer">): string {
-  return sha256Hex(`${RUN_ID}|${rowKey(r)}`).slice(0, 10);
+type Shown = "run_id" | "prompt_version" | "case_id" | "question_id" | "answerer" | "case_input" | "question" | "answer_set" | "output";
+
+/**
+ * An opaque id per row, bound to the run and to everything the page shows: a label exported for another run, CV,
+ * question, answer set, prompt or answer no longer matches any row. No arm name, model or order can be read from it.
+ */
+export function itemId(r: Pick<RecordRow, Shown>): string {
+  return sha256Hex(JSON.stringify([r.run_id, r.prompt_version, r.case_id, r.question_id, r.answerer, r.case_input, r.question, r.answer_set, r.output])).slice(0, 16);
 }
 
 export interface BlindItem { readonly item_id: string; readonly case_input: string; readonly question: string; readonly output: string }

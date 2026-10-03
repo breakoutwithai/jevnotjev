@@ -10,7 +10,7 @@ Built in public for the Early AI-dopters 30 Day Challenge. The day-30 goal is **
 | [docs/product/flow/comparison.html](docs/product/flow/comparison.html) | The comparison flow diagram |
 | [format/](format/README.md) | Eval record format: cases, answers, labels, cost; schema, sample, validator |
 | [src/core/](src/core) | The tested maths: accepted counts and cost per accepted result per arm (`metrics.ts`), confidence intervals (`calc.ts`), and the verdict with its plain-language reason (`verdict.ts`) |
-| [site/result-d06.html](site/result-d06.html) | The result view: the three methods side by side on the example dataset, the verdict, the numbers it computed, and the limits |
+| [docs/product/result-views/result-d06.html](docs/product/result-views/result-d06.html) | The D09 result view, a local artifact (not on the site): the three methods side by side on the example dataset, the verdict, the numbers it computed, and the limits |
 | [docs/spec/](docs/spec/) | Requirements, plan and tasks |
 | [src/](src) | TypeScript on Bun: the validator (`src/format`, no Node APIs, so the site can use it) and the Postgres loader and exporter (`src/db`, see [db/README.md](db/README.md)) |
 | [docs/benchmarks/](docs/benchmarks/) | Measurements |
@@ -23,7 +23,7 @@ Needs [Bun](https://bun.sh).
 ```
 git clone https://github.com/breakoutwithai/jevnotjev
 cd jevnotjev
-open site/result-d06.html        # macOS; any browser works, no server needed
+open docs/product/result-views/result-d06.html   # macOS; any browser works, no server needed
 bun install
 bun scripts/result-view.ts       # regenerates the page from examples/d06-tiny/records.csv
 ```
@@ -51,7 +51,7 @@ One step a day, each shipped to main.
 | 6 | Build a tiny example dataset | [#10](https://github.com/breakoutwithai/jevnotjev/pull/10) `examples/d06-tiny`, worked by hand |
 | 7 | Implement metric calculations | [#29](https://github.com/breakoutwithai/jevnotjev/pull/29) `src/core/metrics.ts` |
 | 8 | Implement the verdict | [#48](https://github.com/breakoutwithai/jevnotjev/pull/48) `src/core/verdict.ts` |
-| 9 | Create the first result view | [#61](https://github.com/breakoutwithai/jevnotjev/pull/61), [#63](https://github.com/breakoutwithai/jevnotjev/pull/63) `site/result-d06.html` |
+| 9 | Create the first result view | [#61](https://github.com/breakoutwithai/jevnotjev/pull/61), [#63](https://github.com/breakoutwithai/jevnotjev/pull/63) `docs/product/result-views/result-d06.html` (local, not published) |
 
 ## Develop
 ```

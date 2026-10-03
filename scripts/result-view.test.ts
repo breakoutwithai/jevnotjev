@@ -11,7 +11,7 @@ import { isNumberCell, renderResultView } from "./result-view.ts";
 
 const SOURCE = "examples/d06-tiny/records.csv";
 const RECORDS = fileURLToPath(new URL(`../${SOURCE}`, import.meta.url));
-const PAGE = fileURLToPath(new URL("../site/result-d06.html", import.meta.url));
+const PAGE = fileURLToPath(new URL("../docs/product/result-views/result-d06.html", import.meta.url));
 /** d06-tiny's one cohort per question: run-d06, prompt cv-match.v1. */
 const Q1 = "run-d06/cv-match.v1/q1";
 const Q2 = "run-d06/cv-match.v1/q2";
@@ -49,13 +49,13 @@ function trackedPage(): { readonly text: string; readonly mtimeMs: number } {
   return { text: readFileSync(PAGE, "utf8"), mtimeMs: statSync(PAGE).mtimeMs };
 }
 
-/** A temp copy of what the CLI needs (its script, src/, format/, the d06 records), with an empty site/. */
+/** A temp copy of what the CLI needs (its script, src/, format/, the d06 records), with an empty docs/product/result-views/. */
 function cliCopy(): string {
   const root = mkdtempSync(join(tmpdir(), "result-view-repo-"));
   for (const part of ["scripts/result-view.ts", "src", "format", SOURCE, "package.json", "tsconfig.json"]) {
     cpSync(join(REPO, part), join(root, part), { recursive: true });
   }
-  mkdirSync(join(root, "site"));
+  mkdirSync(join(root, "docs", "product", "result-views"), { recursive: true });
   return root;
 }
 
@@ -164,7 +164,7 @@ describe("result view of d06-tiny", () => {
     expect(html).toContain(SOURCE);
   });
 
-  test("[unit] D09 committed site/result-d06.html equals the rendered view", () => {
+  test("[unit] D09 committed docs/product/result-views/result-d06.html equals the rendered view", () => {
     expect(readFileSync(PAGE, "utf8")).toBe(html);
   });
 
@@ -351,7 +351,7 @@ describe("result view of other files", () => {
 
   test("[integration] D09 CLI takes no arguments: any argument is a usage error and writes nothing", () => {
     const root = cliCopy();
-    const output = join(root, "site", "result-d06.html");
+    const output = join(root, "docs", "product", "result-views", "result-d06.html");
     const tracked = trackedPage();
     for (const args of [[join(root, SOURCE), join(root, "out.html")], [join(root, SOURCE)], ["--help"]]) {
       const run = Bun.spawnSync(["bun", join(root, "scripts", "result-view.ts"), ...args], { cwd: root });
@@ -364,7 +364,7 @@ describe("result view of other files", () => {
 
   test("[integration] D09 CLI in a copy of the repo, from its root and from the fixture directory, writes the committed page", () => {
     const root = cliCopy();
-    const output = join(root, "site", "result-d06.html");
+    const output = join(root, "docs", "product", "result-views", "result-d06.html");
     const tracked = trackedPage();
     for (const cwd of [root, join(root, "examples", "d06-tiny")]) {
       writeFileSync(output, "sentinel");

@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backstage Pass</title>
+<meta name="description" content="Design mock: the Jev!Jev Backstage Pass playground, walking the TokenMax example through the six rooms behind the five acts. Offline, no model calls.">
+<style>
+/* Tokens copied from the main stage (site/index.html:19-76); fonts are system stacks here. */
+:root {
+  color-scheme: light;
+  --bg: #e8e5df; --panel: #f3f1ec; --ink: #1f0a0e; --ink-soft: #4d3a3c; --muted: #6f5f5e;
+  --line: rgba(31, 10, 14, .16); --curtain: #7b1424; --curtain-hi: #a3263a; --curtain-lo: #3e0710;
+  --brass: #8a5f10; --brass-soft: rgba(138, 95, 16, .14); --keep: #2f7a4d; --cut: #b2382a;
+  --ticket: #efe2c4; --ticket-ink: #2a1408;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #12060a; --panel: #1c0b10; --ink: #f2e9df; --ink-soft: #d4c3b8; --muted: #a8918b;
+    --line: rgba(242, 233, 223, .13); --curtain: #6d0f1e; --curtain-hi: #94203a; --curtain-lo: #25040a;
+    --brass: #e0b04e; --brass-soft: rgba(224, 176, 78, .14); --keep: #86cf9f; --cut: #f08470;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #12060a; --panel: #1c0b10; --ink: #f2e9df; --ink-soft: #d4c3b8; --muted: #a8918b;
+  --line: rgba(242, 233, 223, .13); --curtain: #6d0f1e; --curtain-hi: #94203a; --curtain-lo: #25040a;
+  --brass: #e0b04e; --brass-soft: rgba(224, 176, 78, .14); --keep: #86cf9f; --cut: #f08470;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.5 var(--sans); overflow-wrap: anywhere; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, a:focus-visible { outline: 3px solid var(--brass); outline-offset: 2px; }
+a { color: inherit; }
+.wrap { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+.num { font-variant-numeric: tabular-nums; }
+.small { font-size: 13px; color: var(--muted); }
+.cite { font-family: var(--mono); font-size: 12px; color: var(--muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
+
+/* Top bar: the valance */
+.valance { background: linear-gradient(180deg, var(--curtain-hi), var(--curtain) 60%, var(--curtain-lo)); color: #f6e7c8; }
+.valance .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; padding-bottom: 10px; }
+.brand { font-family: var(--serif); font-weight: 700; font-size: 18px; letter-spacing: .01em; }
+.brand small { display: block; font-family: var(--sans); font-size: 10px; font-weight: 700; letter-spacing: .26em; text-transform: uppercase; color: #e0b04e; }
+.lights { background: transparent; border: 1px solid rgba(246, 231, 200, .45); color: #f6e7c8; border-radius: 3px; padding: 6px 10px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+
+/* Entry: the pass */
+.door { padding: 40px 0 56px; }
+.door h1 { font-family: var(--serif); font-size: clamp(28px, 6vw, 44px); line-height: 1.05; margin: 0 0 10px; }
+.door p.lede { max-width: 54ch; color: var(--ink-soft); margin: 0 0 26px; }
+.ticket { display: grid; grid-template-columns: minmax(0, 1fr) 64px; max-width: 460px; background: var(--ticket); color: var(--ticket-ink); box-shadow: 0 12px 30px rgba(0, 0, 0, .25); transform: rotate(-1.5deg); margin: 0 0 30px 4px;
+  -webkit-mask: radial-gradient(circle 9px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat, radial-gradient(circle 9px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+          mask: radial-gradient(circle 9px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat, radial-gradient(circle 9px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat; }
+.ticket .main { padding: 16px 16px 14px 24px; border-right: 2px dashed rgba(42, 20, 8, .35); min-width: 0; }
+.ticket .admit { font-family: var(--serif); font-weight: 800; font-size: 28px; line-height: 1; margin: 0; }
+.ticket .show { font-family: var(--serif); font-style: italic; margin: 4px 0 10px; }
+.ticket dl { display: grid; grid-template-columns: repeat(3, auto); gap: 0 14px; margin: 0; justify-content: start; }
+.ticket dt { font-size: 9px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; opacity: .7; }
+.ticket dd { margin: 0; font-weight: 800; font-size: 14px; }
+.ticket .fine { font-size: 11px; line-height: 1.35; margin: 10px 0 0; opacity: .8; }
+.ticket .stub { display: flex; align-items: center; justify-content: center; }
+.ticket .stub span { writing-mode: vertical-rl; transform: rotate(180deg); font-weight: 800; font-size: 12px; letter-spacing: .28em; text-transform: uppercase; }
+.enter { background: var(--curtain); color: #f6e7c8; border: 0; border-radius: 3px; padding: 14px 22px; font-weight: 700; letter-spacing: .04em; }
+
+/* Stepper */
+.rail { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+.steps { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 0; padding: 10px 0 6px; }
+.steps button { width: 100%; text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 3px; padding: 6px 8px; min-height: 44px; }
+.steps .act { display: block; font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.steps .nm { display: block; font-family: var(--serif); font-size: 14px; line-height: 1.15; }
+.steps button[aria-current="step"] { background: var(--curtain); border-color: var(--curtain); color: #f6e7c8; }
+.steps button[aria-current="step"] .act { color: #e0b04e; }
+.qbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 0 0 10px; font-size: 13px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.seg button { background: transparent; border: 0; padding: 8px 12px; min-height: 36px; }
+.seg button[aria-pressed="true"] { background: var(--brass-soft); color: var(--brass); font-weight: 700; }
+@media (min-width: 720px) { .steps { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+
+/* Rooms */
+.room { padding: 26px 0 40px; }
+.room[hidden] { display: none; }
+.room-head { display: flex; gap: 6px 14px; align-items: baseline; flex-wrap: wrap; margin-bottom: 4px; }
+.room h2 { font-family: var(--serif); font-size: clamp(26px, 5vw, 36px); line-height: 1.05; margin: 0; }
+.prepares { font-size: 12px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--brass); }
+.teach { font-family: var(--serif); font-style: italic; color: var(--ink-soft); font-size: 18px; margin: 6px 0 20px; max-width: 60ch; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 16px; margin: 0 0 14px; }
+.card h3 { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+.big { font-family: var(--serif); font-size: 21px; line-height: 1.3; margin: 0; }
+ul.plain { margin: 0; padding-left: 18px; } ul.plain li { margin: 4px 0; }
+.grid3 { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@media (min-width: 720px) { .grid3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.player h4 { font-family: var(--serif); font-size: 20px; margin: 0; }
+.player .who { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 2px 0 10px; }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 2px 6px; border-radius: 2px; border: 1px solid currentColor; }
+.tag.real { color: var(--keep); } .tag.inv { color: var(--brass); }
+
+/* Learning lines */
+.line { border-top: 1px solid var(--line); padding: 12px 0; }
+.line:first-of-type { border-top: 0; padding-top: 0; }
+.line .cv { font-weight: 700; }
+.line blockquote { margin: 6px 0 8px; font-family: var(--serif); font-size: 16px; color: var(--ink-soft); }
+mark { background: var(--brass-soft); color: var(--brass); font-weight: 700; padding: 0 2px; }
+.answers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; font-size: 13px; }
+.answers div { border: 1px solid var(--line); border-radius: 3px; padding: 6px; min-width: 0; }
+.answers b { display: block; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.gap { color: var(--cut); font-weight: 700; }
+
+/* Rehearsal */
+.cue { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.said { font-family: var(--serif); font-size: 30px; margin: 6px 0 14px; }
+.verdicts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.verdicts button { min-height: 48px; border-radius: 3px; border: 2px solid var(--line); background: transparent; font-weight: 700; padding: 4px; }
+.verdicts .acc[aria-pressed="true"] { background: var(--keep); border-color: var(--keep); color: var(--bg); }
+.verdicts .rej[aria-pressed="true"] { background: var(--cut); border-color: var(--cut); color: var(--bg); }
+.verdicts .non[aria-pressed="true"] { background: var(--muted); border-color: var(--muted); color: var(--bg); }
+.prefill { font-size: 13px; margin: 10px 0 0; color: var(--muted); }
+.prefill.changed { color: var(--brass); font-weight: 700; }
+.dots { display: flex; flex-wrap: wrap; gap: 4px; margin: 14px 0 0; padding: 0; list-style: none; }
+.dots button { width: 30px; height: 30px; border-radius: 2px; border: 1px solid var(--line); background: transparent; font-size: 11px; font-weight: 700; padding: 0; }
+.dots .A { background: var(--keep); color: var(--bg); border-color: var(--keep); }
+.dots .R { background: var(--cut); color: var(--bg); border-color: var(--cut); }
+.dots .cur { outline: 2px solid var(--ink); outline-offset: 1px; }
+.dots .chg::after { content: "*"; }
+.nav2 { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.ghost { background: transparent; border: 1px solid var(--line); border-radius: 3px; padding: 10px 14px; min-height: 44px; }
+
+/* Ledger */
+table { border-collapse: collapse; width: 100%; font-size: 14px; overflow-wrap: normal; }
+th, td { text-align: left; padding: 7px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11px; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+td.n, th.n { text-align: right; }
+.was { display: block; font-size: 11px; color: var(--brass); font-weight: 700; }
+table.tight { font-size: 13px; }
+td.moved { background: var(--brass-soft); }
+.below { color: var(--brass); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+
+/* Verdict */
+.vgrid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 720px) { .vgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.vword { font-family: var(--serif); font-weight: 800; font-size: clamp(26px, 6vw, 34px); line-height: 1.05; margin: 4px 0 8px; color: var(--curtain); }
+:root[data-theme="dark"] .vword { color: var(--brass); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .vword { color: var(--brass); } }
+.reason { font-family: var(--mono); font-size: 13px; background: var(--bg); border: 1px solid var(--line); padding: 8px; border-radius: 3px; margin: 0 0 10px; }
+
+.foot { display: flex; justify-content: space-between; gap: 10px; padding: 18px 0 40px; border-top: 1px solid var(--line); }
+.next { background: var(--curtain); color: #f6e7c8; border: 0; border-radius: 3px; padding: 12px 18px; font-weight: 700; min-height: 44px; }
+.next[disabled], .ghost[disabled] { opacity: .35; cursor: default; }
+</style>
+</head>
+<body>
+<header class="valance">
+  <div class="wrap">
+    <div class="brand"><small>Jev!Jev &middot; design mock</small>Backstage</div>
+    <button class="lights" id="lights" type="button">House lights</button>
+  </div>
+</header>
+
+<section class="door" id="door">
+  <div class="wrap">
+    <h1>Backstage Pass</h1>
+    <p class="lede">The main stage plays five acts on a finished dataset. Back here you see how each act is prepared, using one small worked example, TokenMax: five fictional CVs, two yes/no questions, three players. Nothing on this page calls a model or leaves your browser.</p>
+    <div class="ticket" aria-label="Backstage Pass ticket">
+      <div class="main">
+        <p class="admit">Admit one</p>
+        <p class="show">To Jev or not to Jev, backstage</p>
+        <dl><div><dt>Rooms</dt><dd>6</dd></div><div><dt>Cases</dt><dd>5 CVs</dd></div><div><dt>Rows</dt><dd>30</dd></div></dl>
+        <p class="fine">Walkthrough: TokenMax, examples/d06-tiny. Invited testers only; the gate is the server's, not this ticket.</p>
+      </div>
+      <div class="stub"><span>Backstage</span></div>
+    </div>
+    <button class="enter" id="enter" type="button">Go through the stage door</button>
+  </div>
+</section>
+
+<div id="backstage" hidden>
+<nav class="rail" aria-label="Rooms">
+  <div class="wrap">
+    <ol class="steps" id="steps"></ol>
+    <div class="qbar"><span>Decision point</span><span class="seg" role="group" aria-label="Question"><button type="button" data-q="q1">q1 Token Pot</button><button type="button" data-q="q2">q2 Dashboard</button></span></div>
+  </div>
+</nav>
+
+<main class="wrap">
+
+<section class="room" data-room="0" aria-labelledby="r0">
+  <div class="room-head"><h2 id="r0" tabindex="-1">New Scene</h2><span class="prepares">Prepares Act I, The question</span></div>
+  <p class="teach">Write the question, the rule for a kept answer and what you leave out, before you see a single answer.</p>
+  <div class="card">
+    <h3>The question <span class="cite" id="qCite"></span></h3>
+    <p class="big" id="qText"></p>
+    <p class="small" id="qAd"></p>
+  </div>
+  <div class="card">
+    <h3>Answer set</h3>
+    <p class="big">yes / no</p>
+    <p class="small">Code acts on the answer: yes adds a point for that ad line (docs/product/use-cases/uc11-cv-vs-job-ad.md). Jev is never asked "who is best".</p>
+  </div>
+  <div class="card">
+    <h3>Acceptance rule <span class="cite">FLOW.md:11</span></h3>
+    <p class="big">Accept an answer when it is correct and complete enough to use without edits. Labels are blind to which player gave it.</p>
+  </div>
+  <div class="card">
+    <h3>Left out of this scene <span class="cite">FLOW.md:12 (4 of 6); uc11, answer key</span></h3>
+    <ul class="plain">
+      <li>Many workflows at once: one ad line is one decision point, with its own verdict.</li>
+      <li>The tool calling any model: Jev and LLM answers here are recorded, not live.</li>
+      <li>Real CVs or sensitive data: all five CVs are fictional.</li>
+      <li>Claims beyond these cases: the verdict holds for this test set only.</li>
+      <li>The answer key inside any player's text: labels are kept apart from what the players read.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="room" data-room="1" aria-labelledby="r1" hidden>
+  <div class="room-head"><h2 id="r1">Casting</h2><span class="prepares">Prepares Act II, Enter the three players</span></div>
+  <p class="teach">Three players answer the same typed question on the same case. Each needs different inputs.</p>
+  <div class="grid3" id="cast"></div>
+  <p class="small">Inputs from the FLOW.md table "The three arms". Which outputs are real and which invented: examples/d06-tiny/expected.md, "What is real and what is invented".</p>
+</section>
+
+<section class="room" data-room="2" aria-labelledby="r2" hidden>
+  <div class="room-head"><h2 id="r2">Learning Lines</h2><span class="prepares">Prepares Act III, the cases</span></div>
+  <p class="teach">The script every player reads: five CVs, small enough to check by eye. Highlights are the keyword rule matching, run here in your browser.</p>
+  <div class="card">
+    <h3>15 of 30 rows <span id="llQ"></span> <span class="cite">examples/d06-tiny/records.csv</span></h3>
+    <div id="lines"></div>
+  </div>
+</section>
+
+<section class="room" data-room="3" aria-labelledby="r3" hidden>
+  <div class="room-head"><h2 id="r3">Rehearsals</h2><span class="prepares">Prepares Act III, the labels</span></div>
+  <p class="teach">Mark each answer accept or reject without knowing who gave it. Labels come pre-filled from the file; you confirm or change them.</p>
+  <div class="card" id="rehearsal"></div>
+  <p class="small">Order is shuffled and the player, confidence and cost are hidden, because each would give the player away. Rule: correct and complete enough to use without edits (FLOW.md:11).</p>
+</section>
+
+<section class="room" data-room="4" aria-labelledby="r4" hidden>
+  <div class="room-head"><h2 id="r4">Dress Rehearsal</h2><span class="prepares">Prepares Act IV, The reckoning</span></div>
+  <p class="teach">Count the kept answers and divide the bill by them. A missing cost or label is shown as missing, never as zero.</p>
+  <div id="ledger"></div>
+</section>
+
+<section class="room" data-room="5" aria-labelledby="r5" hidden>
+  <div class="room-head"><h2 id="r5">Opening Night</h2><span class="prepares">Prepares Act V, The verdict</span></div>
+  <p class="teach">One of three verdicts per decision point, the rule that fired, and what it does not cover.</p>
+  <div class="vgrid" id="verdicts"></div>
+  <div class="card">
+    <h3>New acts</h3>
+    <p>Your own scene follows the same six rooms with 30 or more cases (FLOW.md, Journey). Five cases cannot reach "use Jev" or "don't use Jev"; that is the lesson of this walkthrough, not a fault in it.</p>
+  </div>
+</section>
+
+<div class="foot"><button class="ghost" id="prev" type="button">Back</button><button class="next" id="next" type="button">Next room</button></div>
+</main>
+</div>
+
+<!-- examples/d06-tiny/records.csv, inlined verbatim -->
+<script type="text/plain" id="records">
+format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output,confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms
+jnj-record/1,run-d06,cv-match.v1,cv1,"Chief Yield Officer, Aurelian Points Exchange. Pooled 2.3 million dormant frequent flyer accounts into one Family Mega Balance. Skills: points pooling and expiry design, tier status engineering.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,jev,jev-1.13.0,no,0.9,accept,human,60,1,0.00002,400
+jnj-record/1,run-d06,cv-match.v1,cv1,"Chief Yield Officer, Aurelian Points Exchange. Pooled 2.3 million dormant frequent flyer accounts into one Family Mega Balance. Skills: points pooling and expiry design, tier status engineering.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,jev,jev-1.13.0,no,0.9,accept,human,60,1,0.00002,400
+jnj-record/1,run-d06,cv-match.v1,cv2,"Head of Frugal Computing, Small Context Labs. Cut team token spend 78% by capping context at 2,000 words. Cancelled 31 of 34 AI subscriptions. Skills: subscription cancellation, usage auditing.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,jev,jev-1.13.0,no,0.9,accept,human,60,1,0.00002,400
+jnj-record/1,run-d06,cv-match.v1,cv2,"Head of Frugal Computing, Small Context Labs. Cut team token spend 78% by capping context at 2,000 words. Cancelled 31 of 34 AI subscriptions. Skills: subscription cancellation, usage auditing.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,jev,jev-1.13.0,no,0.9,accept,human,60,1,0.00002,400
+jnj-record/1,run-d06,cv-match.v1,cv3,"Principal Token Strategist, Nimbus Commons. Launched Token Pot, pooling 612 subscriptions. Built the ""Who is carrying this project"" dashboard; Dave was named in 83% of reports.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,jev,jev-1.13.0,yes,0.9,accept,human,60,1,0.00002,400
+jnj-record/1,run-d06,cv-match.v1,cv3,"Principal Token Strategist, Nimbus Commons. Launched Token Pot, pooling 612 subscriptions. Built the ""Who is carrying this project"" dashboard; Dave was named in 83% of reports.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,jev,jev-1.13.0,yes,0.9,accept,human,60,1,0.00002,400
+jnj-record/1,run-d06,cv-match.v1,cv4,"Token Visionary, self employed. Attended 12 webinars about pooling. Maximised tokens with a pooling mindset, roughly 5 times. Skills: Token, Pooling, Max Max Ultra Max.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,jev,jev-1.13.0,yes,0.62,reject,human,60,1,0.00002,400
+jnj-record/1,run-d06,cv-match.v1,cv4,"Token Visionary, self employed. Attended 12 webinars about pooling. Maximised tokens with a pooling mindset, roughly 5 times. Skills: Token, Pooling, Max Max Ultra Max.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,jev,jev-1.13.0,no,0.9,accept,human,60,1,0.00002,400
+jnj-record/1,run-d06,cv-match.v1,cv5,"Assistant to the Assistant at a plumbing firm. Built a shared spreadsheet of who owes whom a tenner; 11 people use it. Why this job: flatmates pool one streaming account, so a fair share meter showing who has used what is the real product.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,jev,jev-1.13.0,no,0.9,accept,human,60,1,0.00002,400
+jnj-record/1,run-d06,cv-match.v1,cv5,"Assistant to the Assistant at a plumbing firm. Built a shared spreadsheet of who owes whom a tenner; 11 people use it. Why this job: flatmates pool one streaming account, so a fair share meter showing who has used what is the real product.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,jev,jev-1.13.0,yes,0.55,reject,human,60,1,0.00002,400
+jnj-record/1,run-d06,cv-match.v1,cv1,"Chief Yield Officer, Aurelian Points Exchange. Pooled 2.3 million dormant frequent flyer accounts into one Family Mega Balance. Skills: points pooling and expiry design, tier status engineering.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,rule,keywords:token pot|pool,yes,,reject,human,0,0,0,1
+jnj-record/1,run-d06,cv-match.v1,cv1,"Chief Yield Officer, Aurelian Points Exchange. Pooled 2.3 million dormant frequent flyer accounts into one Family Mega Balance. Skills: points pooling and expiry design, tier status engineering.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,rule,keywords:dashboard|meter,no,,accept,human,0,0,0,1
+jnj-record/1,run-d06,cv-match.v1,cv2,"Head of Frugal Computing, Small Context Labs. Cut team token spend 78% by capping context at 2,000 words. Cancelled 31 of 34 AI subscriptions. Skills: subscription cancellation, usage auditing.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,rule,keywords:token pot|pool,no,,accept,human,0,0,0,1
+jnj-record/1,run-d06,cv-match.v1,cv2,"Head of Frugal Computing, Small Context Labs. Cut team token spend 78% by capping context at 2,000 words. Cancelled 31 of 34 AI subscriptions. Skills: subscription cancellation, usage auditing.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,rule,keywords:dashboard|meter,no,,accept,human,0,0,0,1
+jnj-record/1,run-d06,cv-match.v1,cv3,"Principal Token Strategist, Nimbus Commons. Launched Token Pot, pooling 612 subscriptions. Built the ""Who is carrying this project"" dashboard; Dave was named in 83% of reports.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,rule,keywords:token pot|pool,yes,,accept,human,0,0,0,1
+jnj-record/1,run-d06,cv-match.v1,cv3,"Principal Token Strategist, Nimbus Commons. Launched Token Pot, pooling 612 subscriptions. Built the ""Who is carrying this project"" dashboard; Dave was named in 83% of reports.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,rule,keywords:dashboard|meter,yes,,accept,human,0,0,0,1
+jnj-record/1,run-d06,cv-match.v1,cv4,"Token Visionary, self employed. Attended 12 webinars about pooling. Maximised tokens with a pooling mindset, roughly 5 times. Skills: Token, Pooling, Max Max Ultra Max.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,rule,keywords:token pot|pool,yes,,reject,human,0,0,0,1
+jnj-record/1,run-d06,cv-match.v1,cv4,"Token Visionary, self employed. Attended 12 webinars about pooling. Maximised tokens with a pooling mindset, roughly 5 times. Skills: Token, Pooling, Max Max Ultra Max.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,rule,keywords:dashboard|meter,no,,accept,human,0,0,0,1
+jnj-record/1,run-d06,cv-match.v1,cv5,"Assistant to the Assistant at a plumbing firm. Built a shared spreadsheet of who owes whom a tenner; 11 people use it. Why this job: flatmates pool one streaming account, so a fair share meter showing who has used what is the real product.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,rule,keywords:token pot|pool,yes,,reject,human,0,0,0,1
+jnj-record/1,run-d06,cv-match.v1,cv5,"Assistant to the Assistant at a plumbing firm. Built a shared spreadsheet of who owes whom a tenner; 11 people use it. Why this job: flatmates pool one streaming account, so a fair share meter showing who has used what is the real product.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,rule,keywords:dashboard|meter,yes,,reject,human,0,0,,1
+jnj-record/1,run-d06,cv-match.v1,cv1,"Chief Yield Officer, Aurelian Points Exchange. Pooled 2.3 million dormant frequent flyer accounts into one Family Mega Balance. Skills: points pooling and expiry design, tier status engineering.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,llm,example-llm,no,,accept,human,180,2,0.002,1800
+jnj-record/1,run-d06,cv-match.v1,cv1,"Chief Yield Officer, Aurelian Points Exchange. Pooled 2.3 million dormant frequent flyer accounts into one Family Mega Balance. Skills: points pooling and expiry design, tier status engineering.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,llm,example-llm,no,,accept,human,180,2,0.002,1800
+jnj-record/1,run-d06,cv-match.v1,cv2,"Head of Frugal Computing, Small Context Labs. Cut team token spend 78% by capping context at 2,000 words. Cancelled 31 of 34 AI subscriptions. Skills: subscription cancellation, usage auditing.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,llm,example-llm,no,,accept,human,180,2,0.002,1800
+jnj-record/1,run-d06,cv-match.v1,cv2,"Head of Frugal Computing, Small Context Labs. Cut team token spend 78% by capping context at 2,000 words. Cancelled 31 of 34 AI subscriptions. Skills: subscription cancellation, usage auditing.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,llm,example-llm,no,,,,180,2,0.002,1800
+jnj-record/1,run-d06,cv-match.v1,cv3,"Principal Token Strategist, Nimbus Commons. Launched Token Pot, pooling 612 subscriptions. Built the ""Who is carrying this project"" dashboard; Dave was named in 83% of reports.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,llm,example-llm,yes,,accept,human,180,2,0.002,1800
+jnj-record/1,run-d06,cv-match.v1,cv3,"Principal Token Strategist, Nimbus Commons. Launched Token Pot, pooling 612 subscriptions. Built the ""Who is carrying this project"" dashboard; Dave was named in 83% of reports.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,llm,example-llm,yes,,accept,human,180,2,0.002,1800
+jnj-record/1,run-d06,cv-match.v1,cv4,"Token Visionary, self employed. Attended 12 webinars about pooling. Maximised tokens with a pooling mindset, roughly 5 times. Skills: Token, Pooling, Max Max Ultra Max.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,llm,example-llm,no,,accept,human,180,2,0.002,1800
+jnj-record/1,run-d06,cv-match.v1,cv4,"Token Visionary, self employed. Attended 12 webinars about pooling. Maximised tokens with a pooling mindset, roughly 5 times. Skills: Token, Pooling, Max Max Ultra Max.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,llm,example-llm,no,,accept,human,180,2,0.002,1800
+jnj-record/1,run-d06,cv-match.v1,cv5,"Assistant to the Assistant at a plumbing firm. Built a shared spreadsheet of who owes whom a tenner; 11 people use it. Why this job: flatmates pool one streaming account, so a fair share meter showing who has used what is the real product.",q1,Does the CV show the person has built or run a product that pools AI subscriptions or tokens?,yes|no,llm,example-llm,no,,accept,human,180,2,0.002,1800
+jnj-record/1,run-d06,cv-match.v1,cv5,"Assistant to the Assistant at a plumbing firm. Built a shared spreadsheet of who owes whom a tenner; 11 people use it. Why this job: flatmates pool one streaming account, so a fair share meter showing who has used what is the real product.",q2,Does the CV show the person has built a usage dashboard or meter for a shared subscription?,yes|no,llm,example-llm,yes,,reject,human,180,2,0.002,1800
+</script>
+<pre id="calc-dump" hidden></pre>
+
+<script>
+"use strict";
+// ---------- Data: parse the inlined CSV (RFC 4180 quotes) ----------
+function parseCsv(text) {
+  const out = []; let row = []; let cell = ""; let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') q = false;
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n") { row.push(cell); out.push(row); row = []; cell = ""; }
+    else if (ch !== "\r") cell += ch;
+  }
+  if (cell !== "" || row.length) { row.push(cell); out.push(row); }
+  const [head, ...body] = out.filter((r) => r.length > 1);
+  return body.map((r) => Object.fromEntries(head.map((h, j) => [h, r[j] ?? ""])));
+}
+const RAW = parseCsv(document.getElementById("records").textContent.trim());
+const ROWS = RAW.map((r) => ({
+  key: r.case_id + ":" + r.question_id + ":" + r.answerer,
+  caseId: r.case_id, q: r.question_id, question: r.question, input: r.case_input,
+  arm: r.answerer, model: r.answerer_model, output: r.output,
+  confidence: r.confidence === "" ? null : Number(r.confidence),
+  fileLabel: r.label === "" ? null : r.label,
+  cost: r.cost_usd === "" ? null : Number(r.cost_usd),
+}));
+const labels = new Map(ROWS.map((r) => [r.key, r.fileLabel]));
+// Test and share hook: #set=cv1:q1:jev:reject,cv2:q2:llm:accept (value "none" clears a label).
+for (const part of (location.hash.match(/set=([^&]*)/) || [, ""])[1].split(",").filter(Boolean)) {
+  const [c, qq, a, v] = part.split(":"); const k = c + ":" + qq + ":" + a;
+  if (labels.has(k)) labels.set(k, v === "none" ? null : v);
+}
+
+// ---------- Calc: mirrors src/core/metrics.ts and the rule-1 branch of src/core/verdict.ts ----------
+const MIN_PAIRED = 30;
+function spendOf(rows) {
+  let known = 0, missing = 0;
+  for (const r of rows) { if (r.cost === null) missing++; else known += r.cost; }
+  return missing === 0 ? { kind: "complete", usd: known } : { kind: "incomplete", knownUsd: known, missing };
+}
+function cpa(spend, accepted) {
+  if (spend.kind === "incomplete") return { kind: "incomplete" };
+  if (accepted === 0) return { kind: "undefined" };
+  return { kind: "value", usd: spend.usd / accepted };
+}
+function armTotals(rows) {
+  const ls = rows.map((r) => labels.get(r.key));
+  const accepted = ls.filter((l) => l === "accept").length;
+  const labelled = ls.filter((l) => l !== null).length;
+  return { rows: rows.length, labelled, accepted, spend: spendOf(rows) };
+}
+function paired(qid, other) {
+  const jev = ROWS.filter((r) => r.q === qid && r.arm === "jev");
+  const oth = ROWS.filter((r) => r.q === qid && r.arm === other);
+  if (!jev.length || !oth.length) return null;
+  const ids = [...new Set([...jev, ...oth].map((r) => r.caseId))].sort();
+  const J = [], O = []; let a = 0, b = 0, c = 0, d = 0, excluded = 0;
+  for (const id of ids) {
+    const jr = jev.find((r) => r.caseId === id), or = oth.find((r) => r.caseId === id);
+    const jl = jr ? labels.get(jr.key) : null, ol = or ? labels.get(or.key) : null;
+    if (!jr || !or || jl === null || ol === null) { excluded++; continue; }
+    J.push(jr); O.push(or);
+    const jo = jl === "accept", oo = ol === "accept";
+    if (jo && oo) a++; else if (jo) b++; else if (oo) c++; else d++;
+  }
+  const side = (rows) => { const acc = rows.filter((r) => labels.get(r.key) === "accept").length; const sp = spendOf(rows); return { accepted: acc, rate: rows.length ? acc / rows.length : null, spend: sp, cpa: cpa(sp, acc) }; };
+  return { n: J.length, excluded, a, b, c, d, jev: side(J), other: side(O) };
+}
+function verdictFor(qid) {
+  // At five cases only rule 1 can fire; rules 2 to 4 are unreachable here. The build imports src/core/verdict.ts instead.
+  const p = paired(qid, "llm"); const n = p ? p.n : 0; const add = MIN_PAIRED - n;
+  const pr = paired(qid, "rule");
+  return {
+    verdict: "not enough evidence", rule: 1,
+    reason: "not enough evidence: " + n + " paired Jev and LLM cases, fewer than 30; add " + (add === 1 ? "1 more labelled case" : add + " more labelled cases"),
+    addN: add,
+    ruleCmp: { kind: "skipped", reason: "fewer than 30 paired rule cases", paired: pr ? pr.n : 0 },
+  };
+}
+
+// ---------- Formatting: missing is never $0 ----------
+const sig = (x) => String(Number(x.toPrecision(3)));
+const usd = (x) => (x === 0 ? "$0" : "$" + sig(x));
+function spendText(s) { return s.kind === "complete" ? usd(s.usd) : "n/a, " + s.missing + " cost missing"; }
+function cpaText(c) { return c.kind === "value" ? usd(c.usd) : c.kind === "undefined" ? "undefined (0 accepted)" : "n/a, cost missing"; }
+const esc = (s) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+
+// ---------- State ----------
+const ROOMS = [["I", "New Scene"], ["II", "Casting"], ["III", "Learning Lines"], ["III", "Rehearsals"], ["IV", "Dress Rehearsal"], ["V", "Opening Night"]];
+let room = 0, q = "q1", cue = 0;
+const AD = { q1: "Build our flagship Token Pot", q2: "Develop a dashboard showing whose subscription is carrying the group project" };
+const ARM = { llm: "What you do now", rule: "A simple rule", jev: "Jev decides" };
+
+// Blind order: a fixed shuffle so every tester sees the same sequence.
+function blindOrder(qid) {
+  const rs = ROWS.filter((r) => r.q === qid); let s = 55;
+  const rnd = () => ((s = (s * 1103515245 + 12345) % 2147483648) / 2147483648);
+  for (let i = rs.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [rs[i], rs[j]] = [rs[j], rs[i]]; }
+  return rs;
+}
+
+// The file's own labels, for "file:" markers next to anything an edit moved.
+function withFileLabels(fn) { const now = new Map(labels); for (const r of ROWS) labels.set(r.key, r.fileLabel); const out = fn(); for (const [k, v] of now) labels.set(k, v); return out; }
+
+// ---------- Render ----------
+const $ = (id) => document.getElementById(id);
+function renderSteps() {
+  $("steps").innerHTML = ROOMS.map(([act, nm], i) => '<li><button type="button" data-room="' + i + '"' + (i === room ? ' aria-current="step"' : "") + '><span class="act">' + (i + 1) + " &middot; Act " + act + '</span><span class="nm">' + nm + "</span></button></li>").join("");
+  document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.q === q)));
+  document.querySelectorAll(".room").forEach((s) => (s.hidden = Number(s.dataset.room) !== room));
+  $("prev").disabled = room === 0;
+  $("next").disabled = room === ROOMS.length - 1;
+  $("next").textContent = room < ROOMS.length - 1 ? "Next: " + ROOMS[room + 1][1] : "Final room";
+}
+function renderScene() {
+  const r = ROWS.find((x) => x.q === q);
+  $("qText").textContent = r.question;
+  $("qCite").textContent = "records.csv, question_id " + q;
+  $("qAd").textContent = 'Ad line it checks: "' + AD[q] + '" (expected.md, The workflow).';
+}
+function renderCast() {
+  const by = (a) => ROWS.find((r) => r.q === q && r.arm === a);
+  const inputs = { llm: "the case, the question, the answer set, your prompt and model", rule: "the case and the rule", jev: "the case, the question, the answer set" };
+  const kind = { llm: '<span class="tag inv">invented outputs</span>', rule: '<span class="tag real">real, run here</span>', jev: '<span class="tag inv">invented outputs</span>' };
+  const cost = { llm: "$0.002 per call", rule: "$0 per call, cv5 q2 missing", jev: "$0.00002 per call" };
+  $("cast").innerHTML = ["llm", "rule", "jev"].map((a) =>
+    '<div class="card player"><h4>' + ARM[a] + "</h4>" +
+    '<p class="who">answerer=' + a + " &middot; " + esc(by(a).model) + "</p>" + kind[a] +
+    "<p><b>Needs:</b> " + inputs[a] + '.</p><p class="small">Recorded cost: ' + cost[a] + " (records.csv cost_usd)</p></div>").join("");
+}
+function ruleRe(model) { return new RegExp("(" + model.replace(/^keywords:/, "") + ")", "gi"); }
+function renderLines() {
+  $("llQ").textContent = "(" + q + ": 5 CVs x 3 players)";
+  const ruleRow = ROWS.find((r) => r.q === q && r.arm === "rule");
+  const ids = [...new Set(ROWS.map((r) => r.caseId))];
+  $("lines").innerHTML = ids.map((id) => {
+    const rs = ["jev", "rule", "llm"].map((a) => ROWS.find((r) => r.caseId === id && r.q === q && r.arm === a));
+    const live = ruleRe(ruleRow.model).test(rs[0].input) ? "yes" : "no";
+    const cells = rs.map((r) => {
+      const conf = r.confidence === null ? "" : " &middot; conf " + r.confidence;
+      const c = r.cost === null ? '<span class="gap">cost missing</span>' : usd(r.cost);
+      const check = r.arm === "rule" ? (live === r.output ? "" : ' <span class="gap">re-run says ' + live + "</span>") : "";
+      return "<div><b>" + ARM[r.arm] + "</b>" + r.output + conf + check + "<br>" + c + "</div>";
+    }).join("");
+    return '<div class="line"><span class="cv">' + id + "</span><blockquote>" + esc(rs[0].input).replace(ruleRe(ruleRow.model), "<mark>$1</mark>") + '</blockquote><div class="answers num">' + cells + "</div></div>";
+  }).join("");
+}
+function renderRehearsal() {
+  const order = blindOrder(q); if (cue >= order.length) cue = 0;
+  const r = order[cue]; const l = labels.get(r.key); const changed = l !== r.fileLabel;
+  const pre = changed ? "Changed from the file (file said " + (r.fileLabel ?? "unlabelled") + ")." : r.fileLabel === null ? "The file has no label for this answer: it counts in no total until you mark it." : "Pre-filled from the file, label_source human. Confirm or change.";
+  const dot = (x, i) => { const v = labels.get(x.key); const cls = (v === "accept" ? "A" : v === "reject" ? "R" : "") + (i === cue ? " cur" : "") + (v !== x.fileLabel ? " chg" : ""); return '<li><button type="button" class="' + cls + '" data-cue="' + i + '" aria-label="Answer ' + (i + 1) + ", " + (v ?? "unlabelled") + '">' + (v === "accept" ? "A" : v === "reject" ? "R" : "-") + "</button></li>"; };
+  $("rehearsal").innerHTML =
+    '<div class="cue"><span>Answer ' + (cue + 1) + " of " + order.length + " &middot; " + r.caseId + " &middot; " + q + "</span><span>Player hidden</span></div>" +
+    '<blockquote class="big" style="margin:10px 0">' + esc(r.input) + "</blockquote>" +
+    '<p class="small">' + esc(r.question) + '</p><p class="said">Answer: ' + r.output + "</p>" +
+    '<div class="verdicts" role="group" aria-label="Label"><button type="button" class="acc" data-l="accept" aria-pressed="' + (l === "accept") + '">Accept</button><button type="button" class="rej" data-l="reject" aria-pressed="' + (l === "reject") + '">Reject</button><button type="button" class="non" data-l="none" aria-pressed="' + (l === null) + '">No label</button></div>' +
+    '<p class="prefill' + (changed ? " changed" : "") + '">' + pre + "</p>" +
+    '<ul class="dots">' + order.map(dot).join("") + "</ul>" +
+    '<div class="nav2"><button type="button" class="ghost" data-step="-1"' + (cue === 0 ? " disabled" : "") + '>Previous</button><button type="button" class="ghost" data-reset>Reset to file</button><button type="button" class="ghost" data-step="1"' + (cue === order.length - 1 ? " disabled" : "") + ">Next</button></div>";
+}
+function cell(now, was) { return now === was ? '<td class="n num">' + now + "</td>" : '<td class="n num moved">' + now + '<span class="was">file: ' + was + "</span></td>"; }
+function pairTable(title, other, p, base) {
+  const rate = (s, n) => (s.rate === null ? "n/a" : s.accepted + "/" + n + " = " + sig(s.rate));
+  const rowsDef = [
+    ["Accepted", (x) => String(x.p[x.side].accepted)],
+    ["Accept rate", (x) => rate(x.p[x.side], x.p.n)],
+    ["Spend", (x) => spendText(x.p[x.side].spend)],
+    ["Cost per accepted", (x) => cpaText(x.p[x.side].cpa)],
+  ];
+  const body = rowsDef.map(([name, f]) => "<tr><th>" + name + "</th>" + cell(f({ p, side: "jev" }), f({ p: base, side: "jev" })) + cell(f({ p, side: "other" }), f({ p: base, side: "other" })) + "</tr>").join("");
+  return '<div class="card"><h3>' + title + "</h3>" +
+    "<table><tr><th>Paired cases</th>" + cell(String(p.n), String(base.n)) + '<td></td></tr><tr><th></th><th class="n">Jev</th><th class="n">' + (other === "llm" ? "LLM" : "Rule") + "</th></tr>" + body + "</table>";
+}
+function ratioText(p) { return p.jev.cpa.kind === "value" && p.other.cpa.kind === "value" && p.other.cpa.usd > 0 ? sig(p.jev.cpa.usd / p.other.cpa.usd) : "n/a"; }
+function diffText(x, y, n) { return n === 0 ? "n/a" : sig(x / n - y / n); }
+function renderLedger() {
+  const p = paired(q, "llm"), pr = paired(q, "rule");
+  const b = withFileLabels(() => paired(q, "llm")), br = withFileLabels(() => paired(q, "rule"));
+  const kv = (k, now, was) => "<tr><th>" + k + "</th>" + cell(now, was) + "</tr>";
+  let html = pairTable("Jev against what you do now (LLM), " + q, "llm", p, b) +
+    '<table style="margin-top:8px">' +
+    kv("Cost ratio, Jev / LLM per accepted", ratioText(p), ratioText(b)) +
+    kv("Jev minus LLM, accept rate", diffText(p.a + p.b, p.a + p.c, p.n), diffText(b.a + b.b, b.a + b.c, b.n)) +
+    kv("a both / b Jev only / c LLM only / d neither", [p.a, p.b, p.c, p.d].join(" / "), [b.a, b.b, b.c, b.d].join(" / ")) +
+    '</table><p class="below">Below minimum: ' + p.n + " of 30 paired cases</p>" + (p.excluded ? '<p class="small">' + p.excluded + " case(s) left out: an answer has no label.</p>" : "") + "</div>";
+  html += pairTable("Jev against the simple rule, " + q, "rule", pr, br) +
+    '<table style="margin-top:8px">' + kv("Rule minus Jev, accept rate", diffText(pr.a + pr.c, pr.a + pr.b, pr.n), diffText(br.a + br.c, br.a + br.b, br.n)) + "</table>" +
+    '<p class="small">The rule is compared on accept rate only; a rule costs nothing, so its cost never enters the verdict (verdict-rules.md).</p></div>';
+  const whole = (a) => armTotals(ROWS.filter((r) => r.arm === a));
+  const wholeB = (a) => withFileLabels(() => whole(a));
+  html += '<div class="card"><h3>Whole file, both questions <span class="cite">expected.md, Per answerer</span></h3>' +
+    '<table class="tight"><tr><th>Player</th><th class="n">Rows</th><th class="n">Labelled</th><th class="n">Accepted</th><th class="n">Spend</th></tr>' +
+    ["jev", "rule", "llm"].map((a) => { const t = whole(a), w = wholeB(a); return "<tr><th>" + a + "</th>" + cell(String(t.rows), String(w.rows)) + cell(String(t.labelled), String(w.labelled)) + cell(String(t.accepted), String(w.accepted)) + '<td class="n num">' + spendText(t.spend) + "</td></tr>"; }).join("") + "</table></div>";
+  $("ledger").innerHTML = html;
+}
+function renderVerdicts() {
+  $("verdicts").innerHTML = ["q1", "q2"].map((qid) => {
+    const v = verdictFor(qid), was = withFileLabels(() => verdictFor(qid));
+    const moved = v.reason !== was.reason ? '<p class="prefill changed">Your labels moved this. The file gives: ' + esc(was.reason) + "</p>" : "";
+    return '<div class="card"><h3>' + qid + " " + AD[qid] + "</h3>" +
+      '<p class="vword">' + v.verdict + '</p><p class="small">Rule ' + v.rule + ' fired, first match wins (docs/decision/verdict-rules.md)</p><p class="reason">' + esc(v.reason) + "</p>" + moved +
+      "<h3>Limits</h3>" +
+      '<ul class="plain small"><li>Holds for these 5 fictional CVs only, not production.</li><li>Jev and LLM outputs and costs are invented for arithmetic (expected.md); only the rule is real.</li><li>Rule comparison skipped: ' + v.ruleCmp.reason + " (" + v.ruleCmp.paired + " paired).</li></ul></div>";
+  }).join("");
+}
+function dump() {
+  const out = {};
+  for (const qid of ["q1", "q2"]) {
+    out[qid] = { llm: paired(qid, "llm"), rule: paired(qid, "rule"), verdict: verdictFor(qid), whole: Object.fromEntries(["jev", "rule", "llm"].map((a) => [a, armTotals(ROWS.filter((r) => r.q === qid && r.arm === a))])) };
+  }
+  $("calc-dump").textContent = JSON.stringify(out);
+}
+function render() {
+  renderSteps(); renderScene(); renderCast(); renderLines(); renderRehearsal(); renderLedger(); renderVerdicts(); dump();
+}
+
+// ---------- Events ----------
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.id === "enter") { $("door").hidden = true; $("backstage").hidden = false; render(); $("r0").focus(); return; }
+  if (t.id === "lights") { const d = document.documentElement; const dark = d.dataset.theme ? d.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; d.dataset.theme = dark ? "light" : "dark"; return; }
+  if (t.dataset.room !== undefined && t.closest("#steps")) room = Number(t.dataset.room);
+  else if (t.id === "prev") room = Math.max(0, room - 1);
+  else if (t.id === "next") room = Math.min(ROOMS.length - 1, room + 1);
+  else if (t.dataset.q) { q = t.dataset.q; cue = 0; }
+  else if (t.dataset.l) { const r = blindOrder(q)[cue]; labels.set(r.key, t.dataset.l === "none" ? null : t.dataset.l); }
+  else if (t.dataset.cue !== undefined) cue = Number(t.dataset.cue);
+  else if (t.dataset.step) cue += Number(t.dataset.step);
+  else if (t.hasAttribute("data-reset")) for (const r of ROWS) labels.set(r.key, r.fileLabel);
+  else return;
+  render();
+  if (t.id === "prev" || t.id === "next" || t.closest("#steps")) window.scrollTo(0, 0);
+});
+// Review deep link: #room=4&q=q2 opens a room directly.
+const m = location.hash.match(/room=(\d)/);
+if (m) { room = Number(m[1]); const qm = location.hash.match(/q=(q[12])/); if (qm) q = qm[1]; $("door").hidden = true; $("backstage").hidden = false; }
+render();
+</script>
+</body>
+</html>

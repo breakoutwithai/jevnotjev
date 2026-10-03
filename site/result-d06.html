@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev!Jev result view: examples/d06-tiny/records.csv</title>
+<style>
+:root { color-scheme: light dark; --bg: #fafaf7; --fg: #1c1f24; --muted: #5a616b; --line: #d5d8dc; --head: #eef0f2; --mark: #1d5fa8; }
+@media (prefers-color-scheme: dark) { :root { --bg: #15181c; --fg: #e6e8eb; --muted: #9aa3ad; --line: #343a42; --head: #1f242a; --mark: #7fb3ee; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 56rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+h1 { font-size: 1.6rem; margin: 0 0 .5rem; }
+h2 { font-size: 1.15rem; margin: 2rem 0 .5rem; border-top: 1px solid var(--line); padding-top: 1.25rem; }
+p, li { max-width: 46rem; }
+.lead { color: var(--muted); }
+.verdict strong { color: var(--mark); }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-variant-numeric: tabular-nums; }
+caption { text-align: left; font-weight: 600; padding-bottom: .4rem; }
+th, td { border: 1px solid var(--line); padding: .4rem .55rem; text-align: left; vertical-align: top; }
+thead th { background: var(--head); }
+tbody th { font-weight: 500; color: var(--muted); }
+dt { font-weight: 600; }
+dd { margin: 0 0 .5rem 0; }
+@media (max-width: 40rem) { body { font-size: 15px; } th, td { padding: .3rem .35rem; font-size: .85rem; overflow-wrap: anywhere; } }
+</style>
+</head>
+<body><main>
+<h1>Current LLM, keyword rule and Jev on the same CV questions</h1>
+<p class="lead">How to read this: each question below compares up to three methods (the current LLM, a simple keyword rule, and Jev), as many as the file holds. A person marks answers accepted or rejected; unmarked answers and missing costs are listed as gaps. More accepted answers is better; a lower cost per accepted result is cheaper. The verdict says whether this test set is enough to switch from the LLM to Jev.</p>
+<h2>Words used in the tables</h2>
+<dl>
+<dt>Accepted</dt><dd>Answers a person marked correct. Unlabelled answers count as neither accepted nor rejected.</dd>
+<dt>Cost per accepted result</dt><dd>Spend divided by accepted answers. All-answers spend includes rows with no label; the verdict comparison uses only cases where both Jev and the LLM have a label, so the two LLM figures can differ.</dd>
+<dt>incomplete</dt><dd>At least one answer has no recorded cost, so there is no true total and no cost per accepted result. It is never shown as $0.</dd>
+<dt>undefined</dt><dd>The method has 0 accepted answers, so there is nothing to divide by.</dd>
+<dt>not enough evidence</dt><dd>The rules could not establish either use Jev or don't use Jev from this test set; too few cases or missing data are the usual reasons.</dd>
+</dl>
+<section>
+<h2>q1: Does the CV show the person has built or run a product that pools AI subscriptions or tokens?</h2>
+<p class="verdict">Verdict: <strong data-cell="run-d06/cv-match.v1/q1.verdict">not enough evidence</strong> (<span data-cell="run-d06/cv-match.v1/q1.rule">rule 1</span> of the 4 in docs/decision/verdict-rules.md fired)</p>
+<p>Why: <span data-cell="run-d06/cv-match.v1/q1.reason">not enough evidence: 5 paired Jev and LLM cases, fewer than 30; add 25 more labelled cases</span></p>
+<p>Rule against Jev: <span data-cell="run-d06/cv-match.v1/q1.rule-comparison">skipped: fewer than 30 paired rule cases (5 paired)</span></p>
+<table><caption>All answers to q1, per method</caption>
+<thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Simple keyword rule</th><th scope="col">Jev</th></tr></thead><tbody>
+<tr><th scope="row">Answers</th><td data-cell="run-d06/cv-match.v1/q1.llm.rows">5</td><td data-cell="run-d06/cv-match.v1/q1.rule.rows">5</td><td data-cell="run-d06/cv-match.v1/q1.jev.rows">5</td></tr>
+<tr><th scope="row">Labelled by a person</th><td data-cell="run-d06/cv-match.v1/q1.llm.labelled">5</td><td data-cell="run-d06/cv-match.v1/q1.rule.labelled">5</td><td data-cell="run-d06/cv-match.v1/q1.jev.labelled">5</td></tr>
+<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q1.llm.accepted">5</td><td data-cell="run-d06/cv-match.v1/q1.rule.accepted">2</td><td data-cell="run-d06/cv-match.v1/q1.jev.accepted">4</td></tr>
+<tr><th scope="row">Gaps</th><td data-cell="run-d06/cv-match.v1/q1.llm.gaps">none</td><td data-cell="run-d06/cv-match.v1/q1.rule.gaps">none</td><td data-cell="run-d06/cv-match.v1/q1.jev.gaps">none</td></tr>
+<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q1.llm.spend">$0.010000</td><td data-cell="run-d06/cv-match.v1/q1.rule.spend">$0.000000</td><td data-cell="run-d06/cv-match.v1/q1.jev.spend">$0.000100</td></tr>
+<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q1.llm.cpa">$0.002000</td><td data-cell="run-d06/cv-match.v1/q1.rule.cpa">$0.000000</td><td data-cell="run-d06/cv-match.v1/q1.jev.cpa">$0.000025</td></tr>
+</tbody></table>
+<table><caption>What the verdict compares: Jev and the LLM on the <span data-cell="run-d06/cv-match.v1/q1.vs-llm.n">5</span> cases where both answers have a label</caption>
+<thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Jev</th></tr></thead><tbody>
+<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q1.vs-llm.llm.accepted">5</td><td data-cell="run-d06/cv-match.v1/q1.vs-llm.jev.accepted">4</td></tr>
+<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q1.vs-llm.llm.spend">$0.010000</td><td data-cell="run-d06/cv-match.v1/q1.vs-llm.jev.spend">$0.000100</td></tr>
+<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q1.vs-llm.llm.cpa">$0.002000</td><td data-cell="run-d06/cv-match.v1/q1.vs-llm.jev.cpa">$0.000025</td></tr>
+</tbody></table>
+</section>
+<section>
+<h2>q2: Does the CV show the person has built a usage dashboard or meter for a shared subscription?</h2>
+<p class="verdict">Verdict: <strong data-cell="run-d06/cv-match.v1/q2.verdict">not enough evidence</strong> (<span data-cell="run-d06/cv-match.v1/q2.rule">rule 1</span> of the 4 in docs/decision/verdict-rules.md fired)</p>
+<p>Why: <span data-cell="run-d06/cv-match.v1/q2.reason">not enough evidence: 4 paired Jev and LLM cases, fewer than 30; add 26 more labelled cases</span></p>
+<p>Rule against Jev: <span data-cell="run-d06/cv-match.v1/q2.rule-comparison">skipped: fewer than 30 paired rule cases (5 paired)</span></p>
+<table><caption>All answers to q2, per method</caption>
+<thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Simple keyword rule</th><th scope="col">Jev</th></tr></thead><tbody>
+<tr><th scope="row">Answers</th><td data-cell="run-d06/cv-match.v1/q2.llm.rows">5</td><td data-cell="run-d06/cv-match.v1/q2.rule.rows">5</td><td data-cell="run-d06/cv-match.v1/q2.jev.rows">5</td></tr>
+<tr><th scope="row">Labelled by a person</th><td data-cell="run-d06/cv-match.v1/q2.llm.labelled">4</td><td data-cell="run-d06/cv-match.v1/q2.rule.labelled">5</td><td data-cell="run-d06/cv-match.v1/q2.jev.labelled">5</td></tr>
+<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q2.llm.accepted">3</td><td data-cell="run-d06/cv-match.v1/q2.rule.accepted">4</td><td data-cell="run-d06/cv-match.v1/q2.jev.accepted">4</td></tr>
+<tr><th scope="row">Gaps</th><td data-cell="run-d06/cv-match.v1/q2.llm.gaps">1 unlabelled (line 25)</td><td data-cell="run-d06/cv-match.v1/q2.rule.gaps">1 cost missing (line 21)</td><td data-cell="run-d06/cv-match.v1/q2.jev.gaps">none</td></tr>
+<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q2.llm.spend">$0.010000</td><td data-cell="run-d06/cv-match.v1/q2.rule.spend">incomplete ($0.000000 known, 1 missing)</td><td data-cell="run-d06/cv-match.v1/q2.jev.spend">$0.000100</td></tr>
+<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q2.llm.cpa">$0.003333</td><td data-cell="run-d06/cv-match.v1/q2.rule.cpa">incomplete (cost missing)</td><td data-cell="run-d06/cv-match.v1/q2.jev.cpa">$0.000025</td></tr>
+</tbody></table>
+<table><caption>What the verdict compares: Jev and the LLM on the <span data-cell="run-d06/cv-match.v1/q2.vs-llm.n">4</span> cases where both answers have a label</caption>
+<thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Jev</th></tr></thead><tbody>
+<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q2.vs-llm.llm.accepted">3</td><td data-cell="run-d06/cv-match.v1/q2.vs-llm.jev.accepted">3</td></tr>
+<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q2.vs-llm.llm.spend">$0.008000</td><td data-cell="run-d06/cv-match.v1/q2.vs-llm.jev.spend">$0.000080</td></tr>
+<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q2.vs-llm.llm.cpa">$0.002667</td><td data-cell="run-d06/cv-match.v1/q2.vs-llm.jev.cpa">$0.000027</td></tr>
+</tbody></table>
+</section>
+<section>
+<h2>Whole file, per method</h2>
+<table><caption>Every question together</caption>
+<thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Simple keyword rule</th><th scope="col">Jev</th></tr></thead><tbody>
+<tr><th scope="row">Answers</th><td data-cell="file.llm.rows">10</td><td data-cell="file.rule.rows">10</td><td data-cell="file.jev.rows">10</td></tr>
+<tr><th scope="row">Labelled by a person</th><td data-cell="file.llm.labelled">9</td><td data-cell="file.rule.labelled">10</td><td data-cell="file.jev.labelled">10</td></tr>
+<tr><th scope="row">Accepted</th><td data-cell="file.llm.accepted">8</td><td data-cell="file.rule.accepted">6</td><td data-cell="file.jev.accepted">8</td></tr>
+<tr><th scope="row">Gaps</th><td data-cell="file.llm.gaps">1 unlabelled (line 25)</td><td data-cell="file.rule.gaps">1 cost missing (line 21)</td><td data-cell="file.jev.gaps">none</td></tr>
+<tr><th scope="row">Spend</th><td data-cell="file.llm.spend">$0.020000</td><td data-cell="file.rule.spend">incomplete ($0.000000 known, 1 missing)</td><td data-cell="file.jev.spend">$0.000200</td></tr>
+<tr><th scope="row">Cost per accepted result</th><td data-cell="file.llm.cpa">$0.002500</td><td data-cell="file.rule.cpa">incomplete (cost missing)</td><td data-cell="file.jev.cpa">$0.000025</td></tr>
+</tbody></table>
+</section>
+<section>
+<h2>Limitations</h2>
+<ul>
+<li>The data is synthetic: five fictional CVs checked against a fictional job ad. No real person is described.</li>
+<li>Each question has at most 5 paired cases; the verdict rules need at least 30 before they will say use Jev or don't use Jev.</li>
+<li>The Jev and LLM answers, tokens and costs are invented round numbers ($0.00002 per Jev call, $0.002 per LLM call); no model was called. The keyword rule answers are real.</li>
+<li>Two gaps are planted on purpose: one LLM answer has no label, and one rule answer has no cost.</li>
+<li>The verdict is evidence from this test set only, not production.</li>
+</ul>
+<p>Source: examples/d06-tiny/records.csv, worked by hand in examples/d06-tiny/expected.md. Numbers from src/core/metrics.ts and src/core/verdict.ts.</p>
+</section>
+</main></body>
+</html>

@@ -1,0 +1,22 @@
+[Unit]
+Description=Jev Not Jev Backstage BYOK
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/jevnotjev-backstage-current
+EnvironmentFile=/var/www/jevnotjev-backstage-current/runtime.env
+ExecStart=/usr/local/bin/bun /var/www/jevnotjev-backstage-current/server.js
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

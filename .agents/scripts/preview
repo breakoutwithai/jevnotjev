@@ -1,0 +1,5 @@
+#!/usr/bin/env bun
+const release: unknown = await Bun.file('dist/backstage/release.json').json();
+if(typeof release!=='object'||release===null||!('version' in release)||typeof release.version!=='string')throw new Error('Build first.');
+const proc=Bun.spawn(['bun','dist/backstage/server.js'],{env:{...process.env,BACKSTAGE_VERSION:release.version,BACKSTAGE_STATIC_ROOT:'dist/backstage/site'},stdout:'inherit',stderr:'inherit'});
+process.exit(await proc.exited);

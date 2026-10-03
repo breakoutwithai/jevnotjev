@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Backstage Pass | Jev!Jev</title>
+    <meta
+      name="description"
+      content="Bring your own keys. Rehearse one real decision with Jev, an LLM and a simple rule."
+    />
+    <link rel="stylesheet" href="./backstage.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <header>
+      <a href="/">Jev!Jev <span>/ The Stage</span></a
+      ><button id="theme" type="button">House Lights</button>
+    </header>
+    <main>
+      <div class="ticket">
+        <div>
+          <p class="eyebrow">ADMIT ONE / WORK IN PROGRESS</p>
+          <h1>Backstage <em>Pass</em></h1>
+          <p class="direction">A little rough. A real rehearsal.</p>
+        </div>
+        <span class="stub">BRING YOUR OWN KEYS</span>
+      </div>
+      <p class="intro">
+        One decision. Three players. Your cases, your calls, your judgment.
+      </p>
+      <nav aria-label="Backstage rooms" id="rooms">
+        <button data-room="0" aria-current="step">
+          1 <span>New Scene</span></button
+        ><button data-room="1">2 <span>Casting</span></button
+        ><button data-room="2">3 <span>Learning Lines</span></button
+        ><button data-room="3">4 <span>Rehearsals</span></button
+        ><button data-room="4">5 <span>Dress Rehearsal</span></button
+        ><button data-room="5">6 <span>Opening Night</span></button>
+      </nav>
+      <p id="notice" role="status" aria-live="polite">
+        Set the scene before the first call.
+      </p>
+      <section data-panel="0" aria-labelledby="scene-title">
+        <p class="eyebrow">ACT I / THE QUESTION</p>
+        <h2 id="scene-title" tabindex="-1">New Scene</h2>
+        <p class="direction">
+          Decide what a kept answer means before you see one.
+        </p>
+        <fieldset id="scene-fields">
+          <legend class="sr-only">Your decision</legend>
+          <label
+            >One question<textarea
+              id="question"
+              maxlength="1000"
+              rows="2"
+              placeholder="Does this message ask for a refund?"
+            ></textarea>
+          </label>
+          <div class="columns">
+            <label
+              >First answer<input
+                id="choice-a"
+                maxlength="64"
+                value="yes" /></label
+            ><label
+              >Second answer<input id="choice-b" maxlength="64" value="no"
+            /></label>
+          </div>
+          <div class="columns">
+            <label
+              >What the first answer means<textarea
+                id="definition-a"
+                maxlength="1000"
+                rows="3"
+              ></textarea></label
+            ><label
+              >What the second answer means<textarea
+                id="definition-b"
+                maxlength="1000"
+                rows="3"
+              ></textarea>
+            </label>
+          </div>
+          <label
+            >Keep an answer when...<textarea
+              id="acceptance"
+              maxlength="2000"
+              rows="3"
+              placeholder="Write the rule you will use when judging each answer."
+            ></textarea>
+          </label>
+          <label
+            >Leave out... <span class="optional">(optional)</span
+            ><textarea
+              id="exclusions"
+              maxlength="2000"
+              rows="2"
+              placeholder="Cases this rehearsal does not cover."
+            ></textarea>
+          </label>
+        </fieldset>
+        <button id="new-scene" class="secondary" type="button">
+          Edit as a new scene
+        </button>
+        <p class="fine">
+          Once a run starts, its scene is frozen. Download your work before
+          starting over; refreshing clears this session.
+        </p>
+      </section>
+      <section data-panel="1" aria-labelledby="casting-title" hidden>
+        <p class="eyebrow">ACT II / ENTER THE PLAYERS</p>
+        <h2 id="casting-title" tabindex="-1">Casting</h2>
+        <p class="direction">
+          The same question. The same cases. Three ways to answer.
+        </p>
+        <div class="cast">
+          <article>
+            <h3>Jev decides</h3>
+            <p class="model">jev-1.13.0</p>
+            <label
+              >TypeSafe API key<input
+                id="jev-key"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+            /></label>
+          </article>
+          <article>
+            <h3>The LLM</h3>
+            <p class="model">claude-haiku-4-5-20251001</p>
+            <label
+              >Anthropic API key<input
+                id="llm-key"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+            /></label>
+          </article>
+        </div>
+        <p class="fine">
+          Your key and case travel through this site's server to the selected
+          provider over HTTPS. Keys stay in memory for this session; they are
+          not saved or included in downloads. Each Run makes billable calls on
+          your accounts.
+        </p>
+        <button id="clear-keys" class="secondary" type="button">
+          Clear keys
+        </button>
+        <fieldset id="rule-fields">
+          <legend>A simple rule</legend>
+          <label
+            >Literal keywords, one per line<textarea
+              id="keywords"
+              rows="3"
+              placeholder="refund&#10;money back"
+            ></textarea>
+          </label>
+          <p class="fine">
+            Case-insensitive text matching. Any keyword found selects the first
+            answer; otherwise, the second. No API cost.
+          </p>
+        </fieldset>
+        <p class="fine">
+          List-price estimates: Jev $0.042 / million input tokens, output free;
+          Haiku $1 input / $5 output. Dated 3 October 2026. Your invoice may
+          differ.
+        </p>
+      </section>
+      <section data-panel="2" aria-labelledby="lines-title" hidden>
+        <p class="eyebrow">ACT III / THE CASES</p>
+        <h2 id="lines-title" tabindex="-1">Learning Lines</h2>
+        <p class="direction">Give every player the same script.</p>
+        <fieldset id="case-fields">
+          <legend class="sr-only">Your cases</legend>
+          <label
+            >Cases, one per line<textarea
+              id="cases"
+              rows="8"
+              placeholder="Paste your own test cases here. Each line is one case."
+            ></textarea>
+          </label>
+          <p class="fine">
+            1 to 100 cases, up to 8,000 characters each. For multiline cases,
+            import a CSV with exactly case_id,case_input columns.
+          </p>
+          <label
+            >Import cases CSV<input
+              type="file"
+              id="import-cases"
+              accept=".csv,text/csv"
+          /></label>
+        </fieldset>
+        <p id="run-preview">No cases yet.</p>
+        <div class="actions">
+          <button id="run-one">Run first case</button
+          ><button id="run-all">Run all cases</button
+          ><button id="stop" class="secondary" disabled>Stop</button
+          ><button id="retry" class="secondary" disabled>
+            Retry unfinished calls
+          </button>
+        </div>
+        <p class="fine">
+          Stop keeps completed answers. An in-flight call may still be charged.
+          Retry is a new paid attempt; previous attempts stay in your evidence.
+        </p>
+        <div id="progress" aria-live="polite"></div>
+      </section>
+      <section data-panel="3" aria-labelledby="rehearsal-title" hidden>
+        <p class="eyebrow">ACT III / YOUR JUDGMENT</p>
+        <h2 id="rehearsal-title" tabindex="-1">Rehearsals</h2>
+        <p class="direction">Judge the answer before you learn who gave it.</p>
+        <p id="rubric"></p>
+        <div id="blind-card">
+          <p>Run your cases first. Answers appear here when the run stops.</p>
+        </div>
+        <div class="actions" id="label-actions" hidden>
+          <button id="accept" class="keep">Accept</button
+          ><button id="reject" class="cut">Reject</button
+          ><button id="unlabel" class="secondary">No label</button>
+        </div>
+        <div class="actions">
+          <button id="previous-card" class="secondary">Previous answer</button
+          ><button id="next-card" class="secondary">Next answer</button>
+        </div>
+        <p class="fine">
+          Player, model, confidence, cost and timing are hidden here. Order is
+          shuffled. Labels are yours; no model grades itself.
+        </p>
+        <button id="reveal" disabled>Reveal results and lock labels</button>
+        <p class="fine">
+          Revealing unlocks the comparisons and downloads. It ends this blind
+          labeling pass; labels and retries are then locked. You can leave
+          answers unlabelled.
+        </p>
+      </section>
+      <section data-panel="4" aria-labelledby="dress-title" hidden>
+        <p class="eyebrow">ACT IV / THE RECKONING</p>
+        <h2 id="dress-title" tabindex="-1">Dress Rehearsal</h2>
+        <p class="direction">Count the kept answers. Then look at the bill.</p>
+        <div id="metrics"><p>No run yet.</p></div>
+        <div class="actions">
+          <button id="download-csv" disabled>Download records.csv</button
+          ><button id="download-evidence" class="secondary" disabled>
+            Download run evidence
+          </button>
+        </div>
+        <p class="fine">
+          Costs use returned usage and dated list prices, not your invoice.
+          Missing costs stay missing. CSV records include successful answers;
+          evidence also preserves failed and uncertain attempts. Treat case text
+          as data when opening CSV in a spreadsheet.
+        </p>
+      </section>
+      <section data-panel="5" aria-labelledby="opening-title" hidden>
+        <p class="eyebrow">ACT V / THE VERDICT</p>
+        <h2 id="opening-title" tabindex="-1">Opening Night</h2>
+        <p class="direction">Let the evidence take its bow.</p>
+        <div id="verdict">
+          <p>No run yet. The verdict follows your actual answers and labels.</p>
+        </div>
+        <aside>
+          <h3>A pilot is a beginning.</h3>
+          <p>
+            The shared verdict needs at least 30 paired, human-labelled cases.
+            Smaller runs are real pilots. A result applies to this question and
+            these cases.
+          </p>
+        </aside>
+      </section>
+      <footer>
+        <button id="back" class="secondary">Back</button
+        ><span id="room-count">1 / 6</span><button id="next">Next room</button>
+      </footer>
+    </main>
+    <p class="colophon">
+      Jev!Jev / Backstage is always a little rough.
+      <a href="https://github.com/breakoutwithai/jevnotjev/issues/new"
+        >Leave a stage note</a
+      >
+    </p>
+  </body>
+</html>

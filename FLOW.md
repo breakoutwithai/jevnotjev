@@ -9,7 +9,11 @@ Diagram: [docs/product/flow/comparison.html](docs/product/flow/comparison.html) 
 - **Historical (superseded 2026-09-28):** the first example was "How hard is this coding prompt? trivial / ordinary / hard", with code mapping the answer to Haiku, Sonnet or Opus (the Claude Code prompt router). That router was dropped and is not a v1 requirement.
 - **User:** a builder who runs LLM calls in their workflow and wants to know if Jev can make some of those decisions cheaper without losing quality.
 - **Accepted result:** an output a person marks "accept" under one written rule: correct and complete enough to use without edits. Labels are blind to which arm gave the answer. A Jev pre-grade may pre-fill a label but a person confirms it.
-- **Out of scope:** many workflows at once; the tool calling any model; production integrations; sensitive data (synthetic or redacted cases only); claims beyond the user's own test set; pooling or sharing subscriptions.
+- **Out of scope:** many workflows at once; production integrations; sensitive data (synthetic or redacted cases only); claims beyond the user's own test set; pooling or sharing subscriptions.
+
+## Backstage live MVP (#67)
+
+Backstage adds an explicit BYOK runner for one binary question: Jev, Anthropic and a local keyword rule. Calls start only when the tester presses Run. Keys stay in session/request memory, cases and frozen run evidence can be downloaded, and human blind labels drive the unchanged core verdict. The main-stage examples and CSV tools remain available. See [Backstage](backstage.md) for local use.
 
 ## Journey
 1. Describe the decision and its answer set.

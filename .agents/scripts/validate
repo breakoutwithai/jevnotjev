@@ -1,0 +1,5 @@
+#!/usr/bin/env bun
+for (const command of [["bun", "run", "typecheck"], ["bun", "scripts/backstage-build.ts"], ["bun", "test", "./.deploy/backstage-package.test.ts"], ["bash", "-n", ".deploy/backstage-deploy.sh"]]) {
+  const result = Bun.spawnSync(command, { stdout: "inherit", stderr: "inherit" });
+  if (result.exitCode !== 0) process.exit(result.exitCode);
+}

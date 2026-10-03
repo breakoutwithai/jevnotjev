@@ -8,7 +8,9 @@
     "migrate": "bun src/db/migrate-cli.ts",
     "load": "bun src/db/load-cli.ts",
     "export": "bun src/db/export-cli.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "backstage:build": "bun scripts/backstage-build.ts",
+    "backstage:start": "bun dist/backstage/server.js"
   },
   "dependencies": {
     "postgres": "3.4.9"

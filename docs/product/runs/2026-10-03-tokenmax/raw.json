@@ -1,0 +1,1553 @@
+{
+ "schema": "jnj-tokenmax-fixture/1",
+ "run_id": "run-tokenmax-2026-10-03",
+ "captured_utc": "2026-10-03T06:40:15.051Z",
+ "inputs_sha256": "1e1481573029fd4effacfda2c5a7816bcfc3db8dcde923528be60922f6b508e8",
+ "jev_model": "jev-1.13.0",
+ "llm_model_requested": "haiku",
+ "llm_price_table": {
+  "source": "docs/research/2026-09-29-verdict-minimums/models.md sections 1 and 4 (fetched 2026-09-29, re-checked 2026-09-30)",
+  "modelPrefix": "claude-haiku-4-5",
+  "inputPerM": 1,
+  "cacheReadPerM": 0.1,
+  "cacheWrite5mPerM": 1.25,
+  "cacheWrite1hPerM": 2,
+  "outputPerM": 5
+ },
+ "calls": {
+  "jev": 10,
+  "llm": 10
+ },
+ "entries": [
+  {
+   "arm": "jev",
+   "case_id": "cv1",
+   "question_id": "q1",
+   "request": {
+    "state": "CV:\nChief Yield Officer, Aurelian Points Exchange. Pooled 2.3 million dormant frequent flyer accounts into one Family Mega Balance. Skills: points pooling and expiry design, tier status engineering.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Does the CV show the person has built or run a product that pools AI subscriptions or tokens?"
+      },
+      "criteria": {
+       "yes": "The CV shows it.",
+       "no": "The CV does not show it."
+      }
+     }
+    }
+   },
+   "request_sha256": "1de4f73e40d1c80d60a7fd9566d10c3d74bba4c18b2f4cec8d7471bd467cd6fa",
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 0.99,
+      "probabilities": {
+       "no": 1,
+       "yes": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 377,
+     "output_tokens": 32
+    }
+   },
+   "latency_ms": 459,
+   "utc": "2026-10-03T06:39:59.172Z"
+  },
+  {
+   "arm": "jev",
+   "case_id": "cv1",
+   "question_id": "q2",
+   "request": {
+    "state": "CV:\nChief Yield Officer, Aurelian Points Exchange. Pooled 2.3 million dormant frequent flyer accounts into one Family Mega Balance. Skills: points pooling and expiry design, tier status engineering.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q2": {
+      "type": "choice",
+      "instructions": {
+       "question": "Does the CV show the person has built a usage dashboard or meter for a shared subscription?"
+      },
+      "criteria": {
+       "yes": "The CV shows it.",
+       "no": "The CV does not show it."
+      }
+     }
+    }
+   },
+   "request_sha256": "2272ff5d1a5c54b9a2f102312ad7a9959aa72e363a4e1ea7112ef534d3ac51f3",
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q2": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1,
+      "probabilities": {
+       "no": 1,
+       "yes": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 376,
+     "output_tokens": 32
+    }
+   },
+   "latency_ms": 476,
+   "utc": "2026-10-03T06:39:59.189Z"
+  },
+  {
+   "arm": "jev",
+   "case_id": "cv2",
+   "question_id": "q1",
+   "request": {
+    "state": "CV:\nHead of Frugal Computing, Small Context Labs. Cut team token spend 78% by capping context at 2,000 words. Cancelled 31 of 34 AI subscriptions. Skills: subscription cancellation, usage auditing.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Does the CV show the person has built or run a product that pools AI subscriptions or tokens?"
+      },
+      "criteria": {
+       "yes": "The CV shows it.",
+       "no": "The CV does not show it."
+      }
+     }
+    }
+   },
+   "request_sha256": "2ac888c728e1f881115944864c14ecffc69c2d9e2e91b42326dbfbc53e37f2af",
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1,
+      "probabilities": {
+       "yes": 0,
+       "no": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 389,
+     "output_tokens": 32
+    }
+   },
+   "latency_ms": 456,
+   "utc": "2026-10-03T06:39:59.169Z"
+  },
+  {
+   "arm": "jev",
+   "case_id": "cv2",
+   "question_id": "q2",
+   "request": {
+    "state": "CV:\nHead of Frugal Computing, Small Context Labs. Cut team token spend 78% by capping context at 2,000 words. Cancelled 31 of 34 AI subscriptions. Skills: subscription cancellation, usage auditing.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q2": {
+      "type": "choice",
+      "instructions": {
+       "question": "Does the CV show the person has built a usage dashboard or meter for a shared subscription?"
+      },
+      "criteria": {
+       "yes": "The CV shows it.",
+       "no": "The CV does not show it."
+      }
+     }
+    }
+   },
+   "request_sha256": "5079f49e92d9bb8cc1946c87dfc72e73eb6b98cbd23bb32b38faa9448cecfa7b",
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q2": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1,
+      "probabilities": {
+       "no": 1,
+       "yes": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 388,
+     "output_tokens": 32
+    }
+   },
+   "latency_ms": 456,
+   "utc": "2026-10-03T06:39:59.170Z"
+  },
+  {
+   "arm": "jev",
+   "case_id": "cv3",
+   "question_id": "q1",
+   "request": {
+    "state": "CV:\nPrincipal Token Strategist, Nimbus Commons. Launched Token Pot, pooling 612 subscriptions. Built the \"Who is carrying this project\" dashboard; Dave was named in 83% of reports.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Does the CV show the person has built or run a product that pools AI subscriptions or tokens?"
+      },
+      "criteria": {
+       "yes": "The CV shows it.",
+       "no": "The CV does not show it."
+      }
+     }
+    }
+   },
+   "request_sha256": "86bf9adf7d57eb950939821ae66d622ea7867d8c25fa976bb8617b514f8880ee",
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.98,
+      "probabilities": {
+       "no": 0.01,
+       "yes": 0.99
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 381,
+     "output_tokens": 32
+    }
+   },
+   "latency_ms": 411,
+   "utc": "2026-10-03T06:39:59.581Z"
+  },
+  {
+   "arm": "jev",
+   "case_id": "cv3",
+   "question_id": "q2",
+   "request": {
+    "state": "CV:\nPrincipal Token Strategist, Nimbus Commons. Launched Token Pot, pooling 612 subscriptions. Built the \"Who is carrying this project\" dashboard; Dave was named in 83% of reports.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q2": {
+      "type": "choice",
+      "instructions": {
+       "question": "Does the CV show the person has built a usage dashboard or meter for a shared subscription?"
+      },
+      "criteria": {
+       "yes": "The CV shows it.",
+       "no": "The CV does not show it."
+      }
+     }
+    }
+   },
+   "request_sha256": "d40e39adc44147307656613dab6e06f86f0a16846048cf5bb5173d7aea2ec0e5",
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q2": {
+      "type": "choice",
+      "choice": "yes",
+      "confidence": 0.58,
+      "probabilities": {
+       "no": 0.21,
+       "yes": 0.79
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 380,
+     "output_tokens": 32
+    }
+   },
+   "latency_ms": 412,
+   "utc": "2026-10-03T06:39:59.582Z"
+  },
+  {
+   "arm": "jev",
+   "case_id": "cv4",
+   "question_id": "q1",
+   "request": {
+    "state": "CV:\nToken Visionary, self employed. Attended 12 webinars about pooling. Maximised tokens with a pooling mindset, roughly 5 times. Skills: Token, Pooling, Max Max Ultra Max.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Does the CV show the person has built or run a product that pools AI subscriptions or tokens?"
+      },
+      "criteria": {
+       "yes": "The CV shows it.",
+       "no": "The CV does not show it."
+      }
+     }
+    }
+   },
+   "request_sha256": "18ae72b7239c391b0a1b5ce33012b50d3f7675b9fe2d8953e20cc1636a425cac",
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1,
+      "probabilities": {
+       "yes": 0,
+       "no": 1
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 382,
+     "output_tokens": 32
+    }
+   },
+   "latency_ms": 410,
+   "utc": "2026-10-03T06:39:59.582Z"
+  },
+  {
+   "arm": "jev",
+   "case_id": "cv4",
+   "question_id": "q2",
+   "request": {
+    "state": "CV:\nToken Visionary, self employed. Attended 12 webinars about pooling. Maximised tokens with a pooling mindset, roughly 5 times. Skills: Token, Pooling, Max Max Ultra Max.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q2": {
+      "type": "choice",
+      "instructions": {
+       "question": "Does the CV show the person has built a usage dashboard or meter for a shared subscription?"
+      },
+      "criteria": {
+       "yes": "The CV shows it.",
+       "no": "The CV does not show it."
+      }
+     }
+    }
+   },
+   "request_sha256": "17b6dd7af675ea80e69b07090409fccfd94dd78535c4f004050923b229a97429",
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q2": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 1,
+      "probabilities": {
+       "no": 1,
+       "yes": 0
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 381,
+     "output_tokens": 32
+    }
+   },
+   "latency_ms": 392,
+   "utc": "2026-10-03T06:39:59.582Z"
+  },
+  {
+   "arm": "jev",
+   "case_id": "cv5",
+   "question_id": "q1",
+   "request": {
+    "state": "CV:\nAssistant to the Assistant at a plumbing firm. Built a shared spreadsheet of who owes whom a tenner; 11 people use it. Why this job: flatmates pool one streaming account, so a fair share meter showing who has used what is the real product.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q1": {
+      "type": "choice",
+      "instructions": {
+       "question": "Does the CV show the person has built or run a product that pools AI subscriptions or tokens?"
+      },
+      "criteria": {
+       "yes": "The CV shows it.",
+       "no": "The CV does not show it."
+      }
+     }
+    }
+   },
+   "request_sha256": "543bb2beca2f07534bcb1430fc009ea5afd996875648029bc8ad15f74a6fe59e",
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q1": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 0.99,
+      "probabilities": {
+       "yes": 0.01,
+       "no": 0.99
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 392,
+     "output_tokens": 32
+    }
+   },
+   "latency_ms": 430,
+   "utc": "2026-10-03T06:40:00.012Z"
+  },
+  {
+   "arm": "jev",
+   "case_id": "cv5",
+   "question_id": "q2",
+   "request": {
+    "state": "CV:\nAssistant to the Assistant at a plumbing firm. Built a shared spreadsheet of who owes whom a tenner; 11 people use it. Why this job: flatmates pool one streaming account, so a fair share meter showing who has used what is the real product.",
+    "model": "jev-1.13.0",
+    "questions": {
+     "q2": {
+      "type": "choice",
+      "instructions": {
+       "question": "Does the CV show the person has built a usage dashboard or meter for a shared subscription?"
+      },
+      "criteria": {
+       "yes": "The CV shows it.",
+       "no": "The CV does not show it."
+      }
+     }
+    }
+   },
+   "request_sha256": "2061de41287ccd4b7eaa1740d55952c5dc367b03a85d516ccf905fdbf6d7519b",
+   "response": {
+    "model": "jev-1.13.0",
+    "answers": {
+     "q2": {
+      "type": "choice",
+      "choice": "no",
+      "confidence": 0.29,
+      "probabilities": {
+       "yes": 0.35,
+       "no": 0.65
+      }
+     }
+    },
+    "usage": {
+     "input_tokens": 391,
+     "output_tokens": 32
+    }
+   },
+   "latency_ms": 430,
+   "utc": "2026-10-03T06:40:00.012Z"
+  },
+  {
+   "arm": "llm",
+   "case_id": "cv1",
+   "question_id": "q1",
+   "request": {
+    "model": "haiku",
+    "system": "You screen a CV against one line of a job ad. Read the CV and answer the question.\nQuestion: Does the CV show the person has built or run a product that pools AI subscriptions or tokens?\nyes: The CV shows it.\nno: The CV does not show it.\nReply with exactly one word: yes or no.",
+    "user": "CV: Chief Yield Officer, Aurelian Points Exchange. Pooled 2.3 million dormant frequent flyer accounts into one Family Mega Balance. Skills: points pooling and expiry design, tier status engineering."
+   },
+   "request_sha256": "ed0451e8a9776d4fb9d918b0975cfec76e66b012359591ab49eba144c549b6a8",
+   "response": {
+    "duration_api_ms": 2532,
+    "stop_reason": "end_turn",
+    "session_id": "9f50687c-82ac-404d-8fa7-ff26638a3c2c",
+    "total_cost_usd": 0.0017339999999999999,
+    "usage": {
+     "input_tokens": 524,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 242,
+     "output_tokens_details": {
+      "thinking_tokens": 235
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "not_available",
+     "iterations": [
+      {
+       "input_tokens": 524,
+       "output_tokens": 242,
+       "cache_read_input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+       },
+       "type": "message"
+      }
+     ],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "claude-haiku-4-5-20251001": {
+      "inputTokens": 524,
+      "outputTokens": 242,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.0017339999999999999,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 235,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+     }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+     "spawned": 0,
+     "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+     },
+     "started_in_background": 0,
+     "max_depth": 0,
+     "spawned_by_subagents": 0,
+     "completed": 0,
+     "failed": 0,
+     "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+     },
+     "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+     },
+     "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 1,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "no",
+    "ttft_ms": 2533,
+    "type": "result",
+    "duration_ms": 2550,
+    "uuid": "a33033b7-d3d2-45f2-b41b-30d05f1a8149",
+    "ttft_stream_ms": 644,
+    "time_to_request_ms": 16,
+    "first_content_frame_ms": 644,
+    "queued_turn_count": 0,
+    "result_index": 0
+   },
+   "latency_ms": 3923,
+   "utc": "2026-10-03T06:40:03.935Z"
+  },
+  {
+   "arm": "llm",
+   "case_id": "cv1",
+   "question_id": "q2",
+   "request": {
+    "model": "haiku",
+    "system": "You screen a CV against one line of a job ad. Read the CV and answer the question.\nQuestion: Does the CV show the person has built a usage dashboard or meter for a shared subscription?\nyes: The CV shows it.\nno: The CV does not show it.\nReply with exactly one word: yes or no.",
+    "user": "CV: Chief Yield Officer, Aurelian Points Exchange. Pooled 2.3 million dormant frequent flyer accounts into one Family Mega Balance. Skills: points pooling and expiry design, tier status engineering."
+   },
+   "request_sha256": "69e2c0049d5df9218c091dc8e9f17906542f4b051d2180c9039e0d20274621cf",
+   "response": {
+    "duration_api_ms": 3693,
+    "stop_reason": "end_turn",
+    "session_id": "d4ff49a4-40e3-4f54-a9d2-b44eaabac6e5",
+    "total_cost_usd": 0.002597,
+    "usage": {
+     "input_tokens": 522,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 415,
+     "output_tokens_details": {
+      "thinking_tokens": 408
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "not_available",
+     "iterations": [
+      {
+       "input_tokens": 522,
+       "output_tokens": 415,
+       "cache_read_input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+       },
+       "type": "message"
+      }
+     ],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "claude-haiku-4-5-20251001": {
+      "inputTokens": 522,
+      "outputTokens": 415,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.002597,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 408,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+     }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+     "spawned": 0,
+     "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+     },
+     "started_in_background": 0,
+     "max_depth": 0,
+     "spawned_by_subagents": 0,
+     "completed": 0,
+     "failed": 0,
+     "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+     },
+     "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+     },
+     "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 1,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "no",
+    "ttft_ms": 3705,
+    "type": "result",
+    "duration_ms": 3711,
+    "uuid": "49c7c020-2fe9-4961-b364-3a2d177e5bfe",
+    "ttft_stream_ms": 554,
+    "time_to_request_ms": 16,
+    "first_content_frame_ms": 554,
+    "queued_turn_count": 0,
+    "result_index": 0
+   },
+   "latency_ms": 5033,
+   "utc": "2026-10-03T06:40:05.046Z"
+  },
+  {
+   "arm": "llm",
+   "case_id": "cv2",
+   "question_id": "q1",
+   "request": {
+    "model": "haiku",
+    "system": "You screen a CV against one line of a job ad. Read the CV and answer the question.\nQuestion: Does the CV show the person has built or run a product that pools AI subscriptions or tokens?\nyes: The CV shows it.\nno: The CV does not show it.\nReply with exactly one word: yes or no.",
+    "user": "CV: Head of Frugal Computing, Small Context Labs. Cut team token spend 78% by capping context at 2,000 words. Cancelled 31 of 34 AI subscriptions. Skills: subscription cancellation, usage auditing."
+   },
+   "request_sha256": "3c275bb638b0dc1c34fba551eacbb77c6bd2dbb8b9c338ca7c8cd655f932d2fb",
+   "response": {
+    "duration_api_ms": 3284,
+    "stop_reason": "end_turn",
+    "session_id": "2b73be1e-0075-4753-b47d-214e24fefaf2",
+    "total_cost_usd": 0.00229,
+    "usage": {
+     "input_tokens": 530,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 352,
+     "output_tokens_details": {
+      "thinking_tokens": 345
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "not_available",
+     "iterations": [
+      {
+       "input_tokens": 530,
+       "output_tokens": 352,
+       "cache_read_input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+       },
+       "type": "message"
+      }
+     ],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "claude-haiku-4-5-20251001": {
+      "inputTokens": 530,
+      "outputTokens": 352,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.00229,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 345,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+     }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+     "spawned": 0,
+     "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+     },
+     "started_in_background": 0,
+     "max_depth": 0,
+     "spawned_by_subagents": 0,
+     "completed": 0,
+     "failed": 0,
+     "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+     },
+     "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+     },
+     "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 1,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "no",
+    "ttft_ms": 3288,
+    "type": "result",
+    "duration_ms": 3302,
+    "uuid": "54f4e63b-f1c1-4827-9adf-c0ff1692870b",
+    "ttft_stream_ms": 554,
+    "time_to_request_ms": 16,
+    "first_content_frame_ms": 554,
+    "queued_turn_count": 0,
+    "result_index": 0
+   },
+   "latency_ms": 4621,
+   "utc": "2026-10-03T06:40:04.634Z"
+  },
+  {
+   "arm": "llm",
+   "case_id": "cv2",
+   "question_id": "q2",
+   "request": {
+    "model": "haiku",
+    "system": "You screen a CV against one line of a job ad. Read the CV and answer the question.\nQuestion: Does the CV show the person has built a usage dashboard or meter for a shared subscription?\nyes: The CV shows it.\nno: The CV does not show it.\nReply with exactly one word: yes or no.",
+    "user": "CV: Head of Frugal Computing, Small Context Labs. Cut team token spend 78% by capping context at 2,000 words. Cancelled 31 of 34 AI subscriptions. Skills: subscription cancellation, usage auditing."
+   },
+   "request_sha256": "1b8e4cad1b9fed049ac55b251af6c9822978f81ac1aee1afd0e52c9b5f009878",
+   "response": {
+    "duration_api_ms": 3191,
+    "stop_reason": "end_turn",
+    "session_id": "2d23ced1-7519-45cf-984f-0f265b6c6728",
+    "total_cost_usd": 0.002053,
+    "usage": {
+     "input_tokens": 528,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 305,
+     "output_tokens_details": {
+      "thinking_tokens": 298
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "not_available",
+     "iterations": [
+      {
+       "input_tokens": 528,
+       "output_tokens": 305,
+       "cache_read_input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+       },
+       "type": "message"
+      }
+     ],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "claude-haiku-4-5-20251001": {
+      "inputTokens": 528,
+      "outputTokens": 305,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.002053,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 298,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+     }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+     "spawned": 0,
+     "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+     },
+     "started_in_background": 0,
+     "max_depth": 0,
+     "spawned_by_subagents": 0,
+     "completed": 0,
+     "failed": 0,
+     "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+     },
+     "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+     },
+     "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 1,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "no",
+    "ttft_ms": 3176,
+    "type": "result",
+    "duration_ms": 3212,
+    "uuid": "6efb2af8-1da7-4bdb-bc95-68dffa4bfe9f",
+    "ttft_stream_ms": 612,
+    "time_to_request_ms": 18,
+    "first_content_frame_ms": 612,
+    "queued_turn_count": 0,
+    "result_index": 0
+   },
+   "latency_ms": 4574,
+   "utc": "2026-10-03T06:40:04.587Z"
+  },
+  {
+   "arm": "llm",
+   "case_id": "cv3",
+   "question_id": "q1",
+   "request": {
+    "model": "haiku",
+    "system": "You screen a CV against one line of a job ad. Read the CV and answer the question.\nQuestion: Does the CV show the person has built or run a product that pools AI subscriptions or tokens?\nyes: The CV shows it.\nno: The CV does not show it.\nReply with exactly one word: yes or no.",
+    "user": "CV: Principal Token Strategist, Nimbus Commons. Launched Token Pot, pooling 612 subscriptions. Built the \"Who is carrying this project\" dashboard; Dave was named in 83% of reports."
+   },
+   "request_sha256": "51420a74dab18029b00aabffd0d77ee845e9a017dd60b805bbaa06b021f36657",
+   "response": {
+    "duration_api_ms": 3219,
+    "stop_reason": "end_turn",
+    "session_id": "13e61f1a-ef33-46a4-8304-8c57b8915886",
+    "total_cost_usd": 0.001987,
+    "usage": {
+     "input_tokens": 522,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 293,
+     "output_tokens_details": {
+      "thinking_tokens": 286
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "not_available",
+     "iterations": [
+      {
+       "input_tokens": 522,
+       "output_tokens": 293,
+       "cache_read_input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+       },
+       "type": "message"
+      }
+     ],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "claude-haiku-4-5-20251001": {
+      "inputTokens": 522,
+      "outputTokens": 293,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.001987,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 286,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+     }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+     "spawned": 0,
+     "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+     },
+     "started_in_background": 0,
+     "max_depth": 0,
+     "spawned_by_subagents": 0,
+     "completed": 0,
+     "failed": 0,
+     "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+     },
+     "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+     },
+     "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 1,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "yes",
+    "ttft_ms": 3230,
+    "type": "result",
+    "duration_ms": 3238,
+    "uuid": "c46e4f04-50ce-4e88-ae04-6b5f67dd19e4",
+    "ttft_stream_ms": 553,
+    "time_to_request_ms": 18,
+    "first_content_frame_ms": 553,
+    "queued_turn_count": 0,
+    "result_index": 0
+   },
+   "latency_ms": 4453,
+   "utc": "2026-10-03T06:40:08.388Z"
+  },
+  {
+   "arm": "llm",
+   "case_id": "cv3",
+   "question_id": "q2",
+   "request": {
+    "model": "haiku",
+    "system": "You screen a CV against one line of a job ad. Read the CV and answer the question.\nQuestion: Does the CV show the person has built a usage dashboard or meter for a shared subscription?\nyes: The CV shows it.\nno: The CV does not show it.\nReply with exactly one word: yes or no.",
+    "user": "CV: Principal Token Strategist, Nimbus Commons. Launched Token Pot, pooling 612 subscriptions. Built the \"Who is carrying this project\" dashboard; Dave was named in 83% of reports."
+   },
+   "request_sha256": "81a2ff4a789a7eb0904774d9d8c19b2bfe1672b53f0cd332bf7bb0e23677372c",
+   "response": {
+    "duration_api_ms": 3158,
+    "stop_reason": "end_turn",
+    "session_id": "b657ff10-650b-4ade-a303-d389db2b0d63",
+    "total_cost_usd": 0.002155,
+    "usage": {
+     "input_tokens": 520,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 327,
+     "output_tokens_details": {
+      "thinking_tokens": 321
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "not_available",
+     "iterations": [
+      {
+       "input_tokens": 520,
+       "output_tokens": 327,
+       "cache_read_input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+       },
+       "type": "message"
+      }
+     ],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "claude-haiku-4-5-20251001": {
+      "inputTokens": 520,
+      "outputTokens": 327,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.002155,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 321,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+     }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+     "spawned": 0,
+     "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+     },
+     "started_in_background": 0,
+     "max_depth": 0,
+     "spawned_by_subagents": 0,
+     "completed": 0,
+     "failed": 0,
+     "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+     },
+     "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+     },
+     "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 1,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "yes",
+    "ttft_ms": 3132,
+    "type": "result",
+    "duration_ms": 3178,
+    "uuid": "b08b47b5-3fb6-46af-a304-515d1ab80091",
+    "ttft_stream_ms": 566,
+    "time_to_request_ms": 17,
+    "first_content_frame_ms": 566,
+    "queued_turn_count": 0,
+    "result_index": 0
+   },
+   "latency_ms": 4433,
+   "utc": "2026-10-03T06:40:09.020Z"
+  },
+  {
+   "arm": "llm",
+   "case_id": "cv4",
+   "question_id": "q1",
+   "request": {
+    "model": "haiku",
+    "system": "You screen a CV against one line of a job ad. Read the CV and answer the question.\nQuestion: Does the CV show the person has built or run a product that pools AI subscriptions or tokens?\nyes: The CV shows it.\nno: The CV does not show it.\nReply with exactly one word: yes or no.",
+    "user": "CV: Token Visionary, self employed. Attended 12 webinars about pooling. Maximised tokens with a pooling mindset, roughly 5 times. Skills: Token, Pooling, Max Max Ultra Max."
+   },
+   "request_sha256": "93de26894eee6e18a9439c7aee05d117df280a9c2da0348ec704c4400001eba9",
+   "response": {
+    "duration_api_ms": 4609,
+    "stop_reason": "end_turn",
+    "session_id": "e81ed8c8-a732-4922-a868-c372766d3ca0",
+    "total_cost_usd": 0.002796,
+    "usage": {
+     "input_tokens": 526,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 454,
+     "output_tokens_details": {
+      "thinking_tokens": 447
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "not_available",
+     "iterations": [
+      {
+       "input_tokens": 526,
+       "output_tokens": 454,
+       "cache_read_input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+       },
+       "type": "message"
+      }
+     ],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "claude-haiku-4-5-20251001": {
+      "inputTokens": 526,
+      "outputTokens": 454,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.002796,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 447,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+     }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+     "spawned": 0,
+     "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+     },
+     "started_in_background": 0,
+     "max_depth": 0,
+     "spawned_by_subagents": 0,
+     "completed": 0,
+     "failed": 0,
+     "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+     },
+     "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+     },
+     "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 1,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "no",
+    "ttft_ms": 4621,
+    "type": "result",
+    "duration_ms": 4628,
+    "uuid": "2215b940-8840-41bb-99c3-cc1057872843",
+    "ttft_stream_ms": 866,
+    "time_to_request_ms": 17,
+    "first_content_frame_ms": 867,
+    "queued_turn_count": 0,
+    "result_index": 0
+   },
+   "latency_ms": 5849,
+   "utc": "2026-10-03T06:40:10.483Z"
+  },
+  {
+   "arm": "llm",
+   "case_id": "cv4",
+   "question_id": "q2",
+   "request": {
+    "model": "haiku",
+    "system": "You screen a CV against one line of a job ad. Read the CV and answer the question.\nQuestion: Does the CV show the person has built a usage dashboard or meter for a shared subscription?\nyes: The CV shows it.\nno: The CV does not show it.\nReply with exactly one word: yes or no.",
+    "user": "CV: Token Visionary, self employed. Attended 12 webinars about pooling. Maximised tokens with a pooling mindset, roughly 5 times. Skills: Token, Pooling, Max Max Ultra Max."
+   },
+   "request_sha256": "a3de6b14b831d713886d510e2a459ecee396d421c93ff3d3d99f7a561514d4d0",
+   "response": {
+    "duration_api_ms": 3422,
+    "stop_reason": "end_turn",
+    "session_id": "3feeb21d-af97-46be-86bf-88de2f721e04",
+    "total_cost_usd": 0.001984,
+    "usage": {
+     "input_tokens": 524,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 292,
+     "output_tokens_details": {
+      "thinking_tokens": 285
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "not_available",
+     "iterations": [
+      {
+       "input_tokens": 524,
+       "output_tokens": 292,
+       "cache_read_input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+       },
+       "type": "message"
+      }
+     ],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "claude-haiku-4-5-20251001": {
+      "inputTokens": 524,
+      "outputTokens": 292,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.001984,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 285,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+     }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+     "spawned": 0,
+     "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+     },
+     "started_in_background": 0,
+     "max_depth": 0,
+     "spawned_by_subagents": 0,
+     "completed": 0,
+     "failed": 0,
+     "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+     },
+     "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+     },
+     "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 1,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "no",
+    "ttft_ms": 3435,
+    "type": "result",
+    "duration_ms": 3441,
+    "uuid": "35650b3c-c737-4c8e-b43a-c585a03a7809",
+    "ttft_stream_ms": 518,
+    "time_to_request_ms": 18,
+    "first_content_frame_ms": 518,
+    "queued_turn_count": 0,
+    "result_index": 0
+   },
+   "latency_ms": 4736,
+   "utc": "2026-10-03T06:40:09.782Z"
+  },
+  {
+   "arm": "llm",
+   "case_id": "cv5",
+   "question_id": "q1",
+   "request": {
+    "model": "haiku",
+    "system": "You screen a CV against one line of a job ad. Read the CV and answer the question.\nQuestion: Does the CV show the person has built or run a product that pools AI subscriptions or tokens?\nyes: The CV shows it.\nno: The CV does not show it.\nReply with exactly one word: yes or no.",
+    "user": "CV: Assistant to the Assistant at a plumbing firm. Built a shared spreadsheet of who owes whom a tenner; 11 people use it. Why this job: flatmates pool one streaming account, so a fair share meter showing who has used what is the real product."
+   },
+   "request_sha256": "4094084804fc32622bdd3bfed7d6c20fb2b51cc0c8503d3e96e1d022eabfa5e4",
+   "response": {
+    "duration_api_ms": 2861,
+    "stop_reason": "end_turn",
+    "session_id": "7a4b6ce8-7d8a-44ce-b5a5-7edd2671522e",
+    "total_cost_usd": 0.002044,
+    "usage": {
+     "input_tokens": 534,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 302,
+     "output_tokens_details": {
+      "thinking_tokens": 295
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "not_available",
+     "iterations": [
+      {
+       "input_tokens": 534,
+       "output_tokens": 302,
+       "cache_read_input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+       },
+       "type": "message"
+      }
+     ],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "claude-haiku-4-5-20251001": {
+      "inputTokens": 534,
+      "outputTokens": 302,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.002044,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 295,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+     }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+     "spawned": 0,
+     "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+     },
+     "started_in_background": 0,
+     "max_depth": 0,
+     "spawned_by_subagents": 0,
+     "completed": 0,
+     "failed": 0,
+     "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+     },
+     "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+     },
+     "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 1,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "no",
+    "ttft_ms": 3040,
+    "type": "result",
+    "duration_ms": 3046,
+    "uuid": "ae21c1e6-6575-4aea-af71-a72c59653449",
+    "ttft_stream_ms": 683,
+    "time_to_request_ms": 184,
+    "first_content_frame_ms": 683,
+    "queued_turn_count": 0,
+    "result_index": 0
+   },
+   "latency_ms": 4261,
+   "utc": "2026-10-03T06:40:12.649Z"
+  },
+  {
+   "arm": "llm",
+   "case_id": "cv5",
+   "question_id": "q2",
+   "request": {
+    "model": "haiku",
+    "system": "You screen a CV against one line of a job ad. Read the CV and answer the question.\nQuestion: Does the CV show the person has built a usage dashboard or meter for a shared subscription?\nyes: The CV shows it.\nno: The CV does not show it.\nReply with exactly one word: yes or no.",
+    "user": "CV: Assistant to the Assistant at a plumbing firm. Built a shared spreadsheet of who owes whom a tenner; 11 people use it. Why this job: flatmates pool one streaming account, so a fair share meter showing who has used what is the real product."
+   },
+   "request_sha256": "2bf923974ac4ef0ae2c2867a7a4946467ceedf0eb7bd34a8019a75e117a55a61",
+   "response": {
+    "duration_api_ms": 4932,
+    "stop_reason": "end_turn",
+    "session_id": "c5c03f8a-029c-4655-8b29-13f9b4e2efa7",
+    "total_cost_usd": 0.003022,
+    "usage": {
+     "input_tokens": 532,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "output_tokens": 498,
+     "output_tokens_details": {
+      "thinking_tokens": 491
+     },
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": "standard",
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": "not_available",
+     "iterations": [
+      {
+       "input_tokens": 532,
+       "output_tokens": 498,
+       "cache_read_input_tokens": 0,
+       "cache_creation_input_tokens": 0,
+       "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+       },
+       "type": "message"
+      }
+     ],
+     "speed": "standard",
+     "fallback_credit": null
+    },
+    "modelUsage": {
+     "claude-haiku-4-5-20251001": {
+      "inputTokens": 532,
+      "outputTokens": 498,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.003022,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000,
+      "thinkingTokens": 491,
+      "canonicalModel": "claude-haiku-4-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+     }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+     "spawned": 0,
+     "requested": {
+      "background": 0,
+      "foreground": 0,
+      "unset": 0
+     },
+     "started_in_background": 0,
+     "max_depth": 0,
+     "spawned_by_subagents": 0,
+     "completed": 0,
+     "failed": 0,
+     "killed": {
+      "parent": 0,
+      "user": 0,
+      "system": 0
+     },
+     "refused": {
+      "depth_limit": 0,
+      "concurrency_limit": 0,
+      "budget": 0
+     },
+     "by_type": {}
+    },
+    "is_error": false,
+    "num_turns": 1,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "no",
+    "ttft_ms": 4889,
+    "type": "result",
+    "duration_ms": 4954,
+    "uuid": "c5e93ae8-c2bd-4f1f-b746-981782778c44",
+    "ttft_stream_ms": 511,
+    "time_to_request_ms": 17,
+    "first_content_frame_ms": 511,
+    "queued_turn_count": 0,
+    "result_index": 0
+   },
+   "latency_ms": 6030,
+   "utc": "2026-10-03T06:40:15.051Z"
+  }
+ ]
+}

@@ -60,7 +60,13 @@
   });
   function rowIds(r) { return ids.slice(r * S.PER_ROW, (r + 1) * S.PER_ROW); }
 
-  function persist() { kept = S.save(store, state.calls); }
+  /* Merge with what storage holds now, so a call made in another tab is kept. */
+  function persist() {
+    var stored = S.load(store, ids);
+    Object.keys(state.calls).forEach(function (id) { stored[id] = state.calls[id]; });
+    state = { calls: stored, cur: state.cur, queue: state.queue };
+    kept = S.save(store, state.calls);
+  }
 
   function renderSeats() {
     ids.forEach(function (id) {
@@ -157,9 +163,16 @@
   });
   seatAll.addEventListener("click", function () { state = S.queueUp(state, ids); update(); focusCall(); });
   $("emptyHouse").addEventListener("click", function () {
-    S.clear(store);
-    state = S.blank();
-    kept = store !== null;
+    var r = S.emptyHouse(store);
+    state = r.state;
+    kept = r.cleared;
+    update();
+    if (store && !r.cleared) $("saved").textContent = "This browser would not let us remove your saved calls; clear this site's data to remove them.";
+  });
+  /* Another tab changed the calls: read them back so neither tab overwrites the other with a stale copy. */
+  window.addEventListener("storage", function (e) {
+    if (e.key !== null && e.key !== S.KEY) return;
+    state = { calls: S.load(store, ids), cur: state.cur, queue: state.queue };
     update();
   });
   function say(call) {
@@ -170,6 +183,11 @@
   }
   $("sayAnswer").addEventListener("click", function () { say("answer"); });
   $("sayHand").addEventListener("click", function () { say("hand_off"); });
+
+  if (D.fact_sheet && Array.isArray(D.fact_sheet.lines)) {
+    $("sheetTitle").textContent = D.fact_sheet.title;
+    $("sheetLines").innerHTML = D.fact_sheet.lines.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("");
+  } else $("sheet").hidden = true;
 
   update();
 })();

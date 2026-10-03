@@ -1139,6 +1139,10 @@
     const outputAt = at("output");
     const labelAt = at("label");
     const sourceAt = at("label_source");
+    for (const { fields, line } of rows) {
+      if (fields.length !== header.length)
+        throw new Error(`records.csv line ${line}: ${fields.length} fields, header has ${header.length}`);
+    }
     const known = new Set(rows.map(({ fields }) => fields[caseAt] ?? ""));
     const own = Object.keys(calls);
     for (const id of own) {

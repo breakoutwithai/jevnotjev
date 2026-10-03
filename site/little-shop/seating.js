@@ -82,9 +82,12 @@
     try { if (!storage) return false; storage.removeItem(KEY); return true; } catch (e) { return false; }
   }
 
+  /* Empty the house: the calls are cleared on screen; cleared says whether storage dropped them too. */
+  function emptyHouse(storage) { return { state: blank(), cleared: clear(storage) }; }
+
   window.JNJSeating = {
     ROWS: ROWS, PER_ROW: PER_ROW, KEY: KEY, VERDICT_AT: 30,
     isCall: isCall, seatCode: seatCode, blank: blank, withCalls: withCalls, pick: pick, decide: decide, queueUp: queueUp,
-    count: count, taken: taken, perAccepted: perAccepted, usd: usd, tally: tally, load: load, save: save, clear: clear
+    count: count, taken: taken, perAccepted: perAccepted, usd: usd, tally: tally, load: load, save: save, clear: clear, emptyHouse: emptyHouse
   };
 })();

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CASE_IDS, parseRecords, type RecordRow } from "./arms.ts";
-import { DATA_OUT, PAGE, RUN_URL, VERDICT_OUT, build, readShopScript } from "./little-shop.ts";
+import { DATA_OUT, PAGE, RUN_URL, VERDICT_OUT, build, buildData, readShopScript } from "./little-shop.ts";
 import { RUN_DIR } from "./stage-demo.ts";
 import { shopVerdict } from "../../src/browser/shop-verdict.ts";
 
@@ -86,6 +86,12 @@ describe("Little Shop data and verdict bundle (scripts/uc13/little-shop.ts)", ()
     expect(field(d, "run_id")).toBe("run-shopbot-2026-10-01");
     expect(field(d, "run_date")).toBe("2026-10-01");
     expect(field(d, "run_url")).toBe(RUN_URL);
+    // the run id is read from the parsed rows, so a quoted first field reads the same
+    const csv = await readFile(join(RUN_DIR, "records.csv"), "utf8");
+    const quoted = csv.replace(/^jnj-record\/1,/gm, '"jnj-record/1",');
+    expect(quoted).not.toBe(csv);
+    expect(buildData(quoted, "sheet").run_date).toBe("2026-10-01");
+    expect(list(field(field(d, "fact_sheet"), "lines")).length).toBeGreaterThan(0);
     const page = await readFile(PAGE, "utf8");
     const footer = page.slice(page.indexOf("<footer"), page.indexOf("</footer>"));
     expect(footer).toContain("1 October 2026");

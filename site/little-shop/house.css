@@ -20,6 +20,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { overflow-x: clip; }
 body {
   margin: 0; min-height: 100vh; color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.45;
@@ -141,6 +142,12 @@ h1 { margin: 0; font-family: var(--serif); font-weight: 800; font-size: clamp(32
 .verdict.wait { font-style: italic; }
 .verdict b { color: var(--bulb); }
 .verdict-src { display: block; margin: 4px 0 0; font-family: var(--sans); font-size: 12px; color: var(--muted); }
+
+/* The fact sheet the bot works from */
+.sheet { border-top: 1px solid #c9b48a; padding-top: 8px; font-size: 13px; }
+.sheet summary { cursor: pointer; font-weight: 700; min-height: 44px; display: flex; align-items: center; }
+.sheet ul { margin: 0; padding: 0 0 0 18px; line-height: 1.45; }
+.sheet li { margin: 0 0 4px; overflow-wrap: anywhere; }
 
 /* Footer: what happens to your calls */
 .notes { max-width: 1280px; margin: 40px auto 0; padding: 18px 44px 40px; border-top: 1px solid var(--brass-dark); color: var(--ink-soft); font-size: 13px; }

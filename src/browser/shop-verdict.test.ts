@@ -34,8 +34,11 @@ describe("shop verdict (the Little Shop page's verdict, read by src/core)", () =
   test("[unit] SHOP-V1 a call labels every arm's row: accept when the output equals it, reject otherwise, source human", async () => {
     const out = labelRecords(await csv(), { m01: "hand_off", m03: "answer" });
     const rows = column(out, "label");
+    expect(rows.length).toBe(120);
+    expect(rows.map((r) => `${r.case_id}/${r.answerer}`)).toEqual(column(await csv(), "label").map((r) => `${r.case_id}/${r.answerer}`));
     const m01 = rows.filter((r) => r.case_id === "m01");
     expect(m01.length).toBe(3);
+    expect(rows.filter((x) => x.case_id === "m03").length).toBe(3);
     for (const r of m01) expect(r.value).toBe(r.output === "hand_off" ? "accept|human" : "reject|human");
     for (const r of rows.filter((x) => x.case_id === "m03")) expect(r.value).toBe(r.output === "answer" ? "accept|human" : "reject|human");
     expect(rows.filter((r) => r.case_id !== "m01" && r.case_id !== "m03").every((r) => r.value === "|")).toBe(true);
@@ -46,6 +49,10 @@ describe("shop verdict (the Little Shop page's verdict, read by src/core)", () =
     const pre = labelRecords(await csv(), { m02: "answer" });
     const again = labelRecords(pre, { m05: "answer" });
     const rows = column(again, "label");
+    expect(rows.length).toBe(120);
+    expect(rows.filter((r) => r.case_id === "m02").length).toBe(3);
+    expect(rows.filter((r) => r.case_id === "m05").length).toBe(3);
+    expect(rows.filter((r) => r.value !== "|").length).toBe(3);
     expect(rows.filter((r) => r.case_id === "m02").every((r) => r.value === "|")).toBe(true);
     expect(rows.filter((r) => r.case_id === "m05").every((r) => r.value !== "|")).toBe(true);
   });
@@ -55,6 +62,12 @@ describe("shop verdict (the Little Shop page's verdict, read by src/core)", () =
     expect(() => labelRecords(text, { m99: "answer" })).toThrow("m99");
     expect(() => labelRecords(text, JSON.parse('{"m01":"maybe"}'))).toThrow("maybe");
     expect(() => labelRecords(text, JSON.parse('{"__proto__":"answer"}'))).toThrow("__proto__");
+  });
+
+  test("[unit] SHOP-V6 a row whose width differs from the header fails before any label is written", async () => {
+    const lines = (await csv()).split("\n");
+    lines[1] = (lines[1] ?? "").split(",").slice(0, -1).join(",");
+    expect(() => labelRecords(lines.join("\n"), { m01: "answer" })).toThrow("fields, header has");
   });
 
   test("[integration] SHOP-V4 29 calls read not enough evidence (1 more case); 30 calls read a verdict from rule 2, 3 or 4", async () => {

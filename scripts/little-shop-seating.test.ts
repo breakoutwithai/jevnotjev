@@ -23,6 +23,7 @@ interface Seating {
   load(storage: unknown, ids: readonly string[]): Record<string, string>;
   save(storage: unknown, calls: Record<string, string>): boolean;
   clear(storage: unknown): boolean;
+  emptyHouse(storage: unknown): { state: State; cleared: boolean };
   readonly KEY: string;
 }
 
@@ -131,7 +132,7 @@ describe("little shop seating logic", () => {
     expect(rows[1]?.perAccepted).toBe(0);
     // unmeasured spend has no cost per accepted, never $0
     expect(rows[2]?.perAccepted).toBeNull();
-    expect(s.tally(d, {}).every((r) => r.accepted === 0 && r.calls === 0 && r.perAccepted === null)).toBe(true);
+    expect(s.tally(d, {}).map((r) => [r.key, r.accepted, r.calls, r.perAccepted])).toEqual([["llm", 0, 0, null], ["rule", 0, 0, null], ["jev", 0, 0, null]]);
   });
 
   test("[unit] LSS-7 cost per accepted is null with 0 accepted or a spend that is not a number", async () => {
@@ -150,7 +151,7 @@ describe("little shop seating logic", () => {
     const store = new MemoryStorage();
     expect(s.save(store, { m01: "answer", m02: "hand_off" })).toBe(true);
     expect(s.load(store, IDS)).toEqual({ m01: "answer", m02: "hand_off" });
-    store.setItem(s.KEY, JSON.stringify({ m01: "answer", m99: "answer", m03: "maybe", __proto__: "x", constructor: "answer" }));
+    store.setItem(s.KEY, '{"m01":"answer","m99":"answer","m03":"maybe","__proto__":"answer","constructor":"answer","m04":{"x":1}}');
     expect(s.load(store, IDS)).toEqual({ m01: "answer" });
     for (const junk of ["not json", "[1,2]", "null", "42"]) {
       store.setItem(s.KEY, junk);
@@ -175,19 +176,42 @@ describe("little shop seating logic", () => {
   });
 
   test("[integration] LSS-11 the footer's claims hold in the shipped files: no request carries a call; storage only via seating.js; Empty the house clears it", async () => {
-    const scripts = ["seating.js", "house.js", "verdict.js", "shop-data.js"];
-    for (const f of scripts) {
+    // code files: no network API named at all (bracket access included, since the bare word is banned)
+    for (const f of ["seating.js", "house.js", "verdict.js"]) {
       const src = await readFile(join(SITE, f), "utf8");
-      expect(src).not.toMatch(/\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|EventSource|\bimport\s*\(|new Image\b|\.src\s*=/);
+      expect(src).not.toMatch(/fetch|XMLHttpRequest|sendBeacon|WebSocket|EventSource|\bimport\s*\(|Image\b|\.src\s*=|\.href\s*=|location\s*=|\bopen\s*\(/);
       if (f !== "seating.js") expect(src).not.toMatch(/localStorage\.|sessionStorage|indexedDB|document\.cookie/);
     }
+    // the data file is one JSON assignment under a comment: nothing in it runs
+    const dataJs = await readFile(join(SITE, "shop-data.js"), "utf8");
+    const at = dataJs.indexOf("\nwindow.JNJ_LITTLE_SHOP = ");
+    expect(dataJs.slice(0, at)).toMatch(/^\/\*[\s\S]*\*\/$/);
+    expect(() => JSON.parse(dataJs.slice(at + "\nwindow.JNJ_LITTLE_SHOP = ".length).trim().replace(/;$/, ""))).not.toThrow();
+    // no inline script or style in the page
+    const html = await readFile(join(SITE, "index.html"), "utf8");
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>|<style|\bon[a-z]+=/i);
+    expect(await readFile(join(SITE, "house.css"), "utf8")).not.toMatch(/url\(|@import/);
     const page = await readFile(join(SITE, "index.html"), "utf8");
     // every external resource the page loads (link href, script src) is a font; anchors are links, not requests
     const loads = [...page.matchAll(/<(?:link|script)[^>]*(?:href|src)="([^"]+)"/g)].map((m) => m[1] ?? "");
-    expect(loads.filter((u) => /^https?:/.test(u)).every((u) => /^https:\/\/fonts\.(googleapis|gstatic)\.com/.test(u))).toBe(true);
+    const hosts = loads.filter((u) => /^[a-z]+:/i.test(u)).map((u) => new URL(u).host);
+    expect(hosts.length).toBeGreaterThan(0);
+    expect(hosts.every((h) => h === "fonts.googleapis.com" || h === "fonts.gstatic.com")).toBe(true);
     expect(loads.filter((u) => !/^https?:/.test(u))).toEqual(["house.css", "shop-data.js", "seating.js", "verdict.js", "house.js"]);
     const house = await readFile(join(SITE, "house.js"), "utf8");
-    const empty = house.slice(house.indexOf('$("emptyHouse")'), house.indexOf("function say("));
-    expect(empty).toContain("S.clear(store)");
+    const empty = house.slice(house.indexOf('$("emptyHouse")'), house.indexOf("window.addEventListener(\"storage\""));
+    expect(empty).toContain("S.emptyHouse(store)");
+  });
+
+  test("[unit] LSS-12 Empty the house clears the calls and the stored key; with storage blocked it says it could not", async () => {
+    const s = await seating();
+    const store = new MemoryStorage();
+    s.save(store, { m01: "answer" });
+    const r = s.emptyHouse(store);
+    expect(r.state).toEqual(s.blank());
+    expect(r.cleared).toBe(true);
+    expect(store.map.has(s.KEY)).toBe(false);
+    expect(s.emptyHouse(new BlockedStorage()).cleared).toBe(false);
+    expect(s.emptyHouse(new BlockedStorage()).state).toEqual(s.blank());
   });
 });

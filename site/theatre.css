@@ -207,6 +207,11 @@
   .poster .p-blurb { display: none; }
 }
 
+/* Very short screens (a phone on its side): no room on the curtain; the line in Act I below carries the preview */
+@media (max-height: 520px) {
+  .poster { display: none; }
+}
+
 /* The same preview as a line under the stage-door note, for reduced motion and after the curtain is up */
 .door-preview { grid-column: 2; display: block; margin-top: 14px; font-family: var(--sans); font-size: 14px; line-height: 1.4; color: var(--ink-soft); }
 .door-preview em { font-family: var(--serif); font-weight: 700; color: var(--ink); }

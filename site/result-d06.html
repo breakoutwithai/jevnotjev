@@ -22,7 +22,9 @@ thead th { background: var(--head); }
 tbody th { font-weight: 500; color: var(--muted); }
 dt { font-weight: 600; }
 dd { margin: 0 0 .5rem 0; }
-@media (max-width: 40rem) { body { font-size: 15px; } th, td { padding: .3rem .35rem; font-size: .85rem; overflow-wrap: anywhere; } }
+.scroll { overflow-x: auto; max-width: 100%; }
+td.num { white-space: nowrap; overflow-wrap: normal; }
+@media (max-width: 40rem) { body { font-size: 15px; } th, td { padding: .3rem .35rem; font-size: .85rem; } th { overflow-wrap: anywhere; } td { overflow-wrap: break-word; } }
 </style>
 </head>
 <body><main>
@@ -43,68 +45,68 @@ dd { margin: 0 0 .5rem 0; }
 <p class="verdict">Verdict: <strong data-cell="run-d06/cv-match.v1/q1.verdict">not enough evidence</strong> (<span data-cell="run-d06/cv-match.v1/q1.rule">rule 1</span> of the 4 in docs/decision/verdict-rules.md fired)</p>
 <p>Why: <span data-cell="run-d06/cv-match.v1/q1.reason">not enough evidence: 5 paired Jev and LLM cases, fewer than 30; add 25 more labelled cases</span></p>
 <p>Rule against Jev: <span data-cell="run-d06/cv-match.v1/q1.rule-comparison">skipped: fewer than 30 paired rule cases (5 paired)</span></p>
-<table><caption>Numbers the verdict read</caption>
+<div class="scroll"><table><caption>Numbers the verdict read</caption>
 <thead><tr><th scope="col"></th><th scope="col">Value</th><th scope="col">95% interval from</th><th scope="col">to</th></tr></thead><tbody>
-<tr><th scope="row">Paired cases (Jev and the LLM both labelled)</th><td data-cell="run-d06/cv-match.v1/q1.numbers.paired">5</td><td></td><td></td></tr>
-<tr><th scope="row">Accept rate, Jev</th><td data-cell="run-d06/cv-match.v1/q1.numbers.jev-rate">0.8000</td><td></td><td></td></tr>
-<tr><th scope="row">Accept rate, LLM</th><td data-cell="run-d06/cv-match.v1/q1.numbers.llm-rate">1.0000</td><td></td><td></td></tr>
-<tr><th scope="row">Accept rate, Jev minus LLM</th><td data-cell="run-d06/cv-match.v1/q1.numbers.accept-diff">-0.2000</td><td data-cell="run-d06/cv-match.v1/q1.numbers.accept-lower">-0.6245</td><td data-cell="run-d06/cv-match.v1/q1.numbers.accept-upper">0.2643</td></tr>
-</tbody></table>
-<table><caption>All answers to q1, per method</caption>
+<tr><th scope="row">Paired cases (Jev and the LLM both labelled)</th><td data-cell="run-d06/cv-match.v1/q1.numbers.paired" class="num">5</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, Jev</th><td data-cell="run-d06/cv-match.v1/q1.numbers.jev-rate" class="num">0.8000</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, LLM</th><td data-cell="run-d06/cv-match.v1/q1.numbers.llm-rate" class="num">1.0000</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, Jev minus LLM</th><td data-cell="run-d06/cv-match.v1/q1.numbers.accept-diff" class="num">-0.2000</td><td data-cell="run-d06/cv-match.v1/q1.numbers.accept-lower" class="num">-0.6245</td><td data-cell="run-d06/cv-match.v1/q1.numbers.accept-upper" class="num">0.2643</td></tr>
+</tbody></table></div>
+<div class="scroll"><table><caption>All answers to q1, per method</caption>
 <thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Simple keyword rule</th><th scope="col">Jev</th></tr></thead><tbody>
-<tr><th scope="row">Answers</th><td data-cell="run-d06/cv-match.v1/q1.llm.rows">5</td><td data-cell="run-d06/cv-match.v1/q1.rule.rows">5</td><td data-cell="run-d06/cv-match.v1/q1.jev.rows">5</td></tr>
-<tr><th scope="row">Labelled by a person</th><td data-cell="run-d06/cv-match.v1/q1.llm.labelled">5</td><td data-cell="run-d06/cv-match.v1/q1.rule.labelled">5</td><td data-cell="run-d06/cv-match.v1/q1.jev.labelled">5</td></tr>
-<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q1.llm.accepted">5</td><td data-cell="run-d06/cv-match.v1/q1.rule.accepted">2</td><td data-cell="run-d06/cv-match.v1/q1.jev.accepted">4</td></tr>
+<tr><th scope="row">Answers</th><td data-cell="run-d06/cv-match.v1/q1.llm.rows" class="num">5</td><td data-cell="run-d06/cv-match.v1/q1.rule.rows" class="num">5</td><td data-cell="run-d06/cv-match.v1/q1.jev.rows" class="num">5</td></tr>
+<tr><th scope="row">Labelled by a person</th><td data-cell="run-d06/cv-match.v1/q1.llm.labelled" class="num">5</td><td data-cell="run-d06/cv-match.v1/q1.rule.labelled" class="num">5</td><td data-cell="run-d06/cv-match.v1/q1.jev.labelled" class="num">5</td></tr>
+<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q1.llm.accepted" class="num">5</td><td data-cell="run-d06/cv-match.v1/q1.rule.accepted" class="num">2</td><td data-cell="run-d06/cv-match.v1/q1.jev.accepted" class="num">4</td></tr>
 <tr><th scope="row">Gaps</th><td data-cell="run-d06/cv-match.v1/q1.llm.gaps">none</td><td data-cell="run-d06/cv-match.v1/q1.rule.gaps">none</td><td data-cell="run-d06/cv-match.v1/q1.jev.gaps">none</td></tr>
-<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q1.llm.spend">$0.010000</td><td data-cell="run-d06/cv-match.v1/q1.rule.spend">$0.000000</td><td data-cell="run-d06/cv-match.v1/q1.jev.spend">$0.000100</td></tr>
-<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q1.llm.cpa">$0.002000</td><td data-cell="run-d06/cv-match.v1/q1.rule.cpa">$0.000000</td><td data-cell="run-d06/cv-match.v1/q1.jev.cpa">$0.000025</td></tr>
-</tbody></table>
-<table><caption>What the verdict compares: Jev and the LLM on the <span data-cell="run-d06/cv-match.v1/q1.vs-llm.n">5</span> cases where both answers have a label</caption>
+<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q1.llm.spend" class="num">$0.010000</td><td data-cell="run-d06/cv-match.v1/q1.rule.spend" class="num">$0.000000</td><td data-cell="run-d06/cv-match.v1/q1.jev.spend" class="num">$0.000100</td></tr>
+<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q1.llm.cpa" class="num">$0.002000</td><td data-cell="run-d06/cv-match.v1/q1.rule.cpa" class="num">$0.000000</td><td data-cell="run-d06/cv-match.v1/q1.jev.cpa" class="num">$0.000025</td></tr>
+</tbody></table></div>
+<div class="scroll"><table><caption>What the verdict compares: Jev and the LLM on the <span data-cell="run-d06/cv-match.v1/q1.vs-llm.n">5</span> cases where both answers have a label</caption>
 <thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Jev</th></tr></thead><tbody>
-<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q1.vs-llm.llm.accepted">5</td><td data-cell="run-d06/cv-match.v1/q1.vs-llm.jev.accepted">4</td></tr>
-<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q1.vs-llm.llm.spend">$0.010000</td><td data-cell="run-d06/cv-match.v1/q1.vs-llm.jev.spend">$0.000100</td></tr>
-<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q1.vs-llm.llm.cpa">$0.002000</td><td data-cell="run-d06/cv-match.v1/q1.vs-llm.jev.cpa">$0.000025</td></tr>
-</tbody></table>
+<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q1.vs-llm.llm.accepted" class="num">5</td><td data-cell="run-d06/cv-match.v1/q1.vs-llm.jev.accepted" class="num">4</td></tr>
+<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q1.vs-llm.llm.spend" class="num">$0.010000</td><td data-cell="run-d06/cv-match.v1/q1.vs-llm.jev.spend" class="num">$0.000100</td></tr>
+<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q1.vs-llm.llm.cpa" class="num">$0.002000</td><td data-cell="run-d06/cv-match.v1/q1.vs-llm.jev.cpa" class="num">$0.000025</td></tr>
+</tbody></table></div>
 </section>
 <section>
 <h2>q2: Does the CV show the person has built a usage dashboard or meter for a shared subscription?</h2>
 <p class="verdict">Verdict: <strong data-cell="run-d06/cv-match.v1/q2.verdict">not enough evidence</strong> (<span data-cell="run-d06/cv-match.v1/q2.rule">rule 1</span> of the 4 in docs/decision/verdict-rules.md fired)</p>
 <p>Why: <span data-cell="run-d06/cv-match.v1/q2.reason">not enough evidence: 4 paired Jev and LLM cases, fewer than 30; add 26 more labelled cases</span></p>
 <p>Rule against Jev: <span data-cell="run-d06/cv-match.v1/q2.rule-comparison">skipped: fewer than 30 paired rule cases (5 paired)</span></p>
-<table><caption>Numbers the verdict read</caption>
+<div class="scroll"><table><caption>Numbers the verdict read</caption>
 <thead><tr><th scope="col"></th><th scope="col">Value</th><th scope="col">95% interval from</th><th scope="col">to</th></tr></thead><tbody>
-<tr><th scope="row">Paired cases (Jev and the LLM both labelled)</th><td data-cell="run-d06/cv-match.v1/q2.numbers.paired">4</td><td></td><td></td></tr>
-<tr><th scope="row">Accept rate, Jev</th><td data-cell="run-d06/cv-match.v1/q2.numbers.jev-rate">0.7500</td><td></td><td></td></tr>
-<tr><th scope="row">Accept rate, LLM</th><td data-cell="run-d06/cv-match.v1/q2.numbers.llm-rate">0.7500</td><td></td><td></td></tr>
-<tr><th scope="row">Accept rate, Jev minus LLM</th><td data-cell="run-d06/cv-match.v1/q2.numbers.accept-diff">0.0000</td><td data-cell="run-d06/cv-match.v1/q2.numbers.accept-lower">-0.4272</td><td data-cell="run-d06/cv-match.v1/q2.numbers.accept-upper">0.4272</td></tr>
-</tbody></table>
-<table><caption>All answers to q2, per method</caption>
+<tr><th scope="row">Paired cases (Jev and the LLM both labelled)</th><td data-cell="run-d06/cv-match.v1/q2.numbers.paired" class="num">4</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, Jev</th><td data-cell="run-d06/cv-match.v1/q2.numbers.jev-rate" class="num">0.7500</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, LLM</th><td data-cell="run-d06/cv-match.v1/q2.numbers.llm-rate" class="num">0.7500</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, Jev minus LLM</th><td data-cell="run-d06/cv-match.v1/q2.numbers.accept-diff" class="num">0.0000</td><td data-cell="run-d06/cv-match.v1/q2.numbers.accept-lower" class="num">-0.4272</td><td data-cell="run-d06/cv-match.v1/q2.numbers.accept-upper" class="num">0.4272</td></tr>
+</tbody></table></div>
+<div class="scroll"><table><caption>All answers to q2, per method</caption>
 <thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Simple keyword rule</th><th scope="col">Jev</th></tr></thead><tbody>
-<tr><th scope="row">Answers</th><td data-cell="run-d06/cv-match.v1/q2.llm.rows">5</td><td data-cell="run-d06/cv-match.v1/q2.rule.rows">5</td><td data-cell="run-d06/cv-match.v1/q2.jev.rows">5</td></tr>
-<tr><th scope="row">Labelled by a person</th><td data-cell="run-d06/cv-match.v1/q2.llm.labelled">4</td><td data-cell="run-d06/cv-match.v1/q2.rule.labelled">5</td><td data-cell="run-d06/cv-match.v1/q2.jev.labelled">5</td></tr>
-<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q2.llm.accepted">3</td><td data-cell="run-d06/cv-match.v1/q2.rule.accepted">4</td><td data-cell="run-d06/cv-match.v1/q2.jev.accepted">4</td></tr>
+<tr><th scope="row">Answers</th><td data-cell="run-d06/cv-match.v1/q2.llm.rows" class="num">5</td><td data-cell="run-d06/cv-match.v1/q2.rule.rows" class="num">5</td><td data-cell="run-d06/cv-match.v1/q2.jev.rows" class="num">5</td></tr>
+<tr><th scope="row">Labelled by a person</th><td data-cell="run-d06/cv-match.v1/q2.llm.labelled" class="num">4</td><td data-cell="run-d06/cv-match.v1/q2.rule.labelled" class="num">5</td><td data-cell="run-d06/cv-match.v1/q2.jev.labelled" class="num">5</td></tr>
+<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q2.llm.accepted" class="num">3</td><td data-cell="run-d06/cv-match.v1/q2.rule.accepted" class="num">4</td><td data-cell="run-d06/cv-match.v1/q2.jev.accepted" class="num">4</td></tr>
 <tr><th scope="row">Gaps</th><td data-cell="run-d06/cv-match.v1/q2.llm.gaps">1 unlabelled (line 25)</td><td data-cell="run-d06/cv-match.v1/q2.rule.gaps">1 cost missing (line 21)</td><td data-cell="run-d06/cv-match.v1/q2.jev.gaps">none</td></tr>
-<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q2.llm.spend">$0.010000</td><td data-cell="run-d06/cv-match.v1/q2.rule.spend">incomplete ($0.000000 known, 1 missing)</td><td data-cell="run-d06/cv-match.v1/q2.jev.spend">$0.000100</td></tr>
-<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q2.llm.cpa">$0.003333</td><td data-cell="run-d06/cv-match.v1/q2.rule.cpa">incomplete (cost missing)</td><td data-cell="run-d06/cv-match.v1/q2.jev.cpa">$0.000025</td></tr>
-</tbody></table>
-<table><caption>What the verdict compares: Jev and the LLM on the <span data-cell="run-d06/cv-match.v1/q2.vs-llm.n">4</span> cases where both answers have a label</caption>
+<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q2.llm.spend" class="num">$0.010000</td><td data-cell="run-d06/cv-match.v1/q2.rule.spend">incomplete ($0.000000 known, 1 missing)</td><td data-cell="run-d06/cv-match.v1/q2.jev.spend" class="num">$0.000100</td></tr>
+<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q2.llm.cpa" class="num">$0.003333</td><td data-cell="run-d06/cv-match.v1/q2.rule.cpa">incomplete (cost missing)</td><td data-cell="run-d06/cv-match.v1/q2.jev.cpa" class="num">$0.000025</td></tr>
+</tbody></table></div>
+<div class="scroll"><table><caption>What the verdict compares: Jev and the LLM on the <span data-cell="run-d06/cv-match.v1/q2.vs-llm.n">4</span> cases where both answers have a label</caption>
 <thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Jev</th></tr></thead><tbody>
-<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q2.vs-llm.llm.accepted">3</td><td data-cell="run-d06/cv-match.v1/q2.vs-llm.jev.accepted">3</td></tr>
-<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q2.vs-llm.llm.spend">$0.008000</td><td data-cell="run-d06/cv-match.v1/q2.vs-llm.jev.spend">$0.000080</td></tr>
-<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q2.vs-llm.llm.cpa">$0.002667</td><td data-cell="run-d06/cv-match.v1/q2.vs-llm.jev.cpa">$0.000027</td></tr>
-</tbody></table>
+<tr><th scope="row">Accepted</th><td data-cell="run-d06/cv-match.v1/q2.vs-llm.llm.accepted" class="num">3</td><td data-cell="run-d06/cv-match.v1/q2.vs-llm.jev.accepted" class="num">3</td></tr>
+<tr><th scope="row">Spend</th><td data-cell="run-d06/cv-match.v1/q2.vs-llm.llm.spend" class="num">$0.008000</td><td data-cell="run-d06/cv-match.v1/q2.vs-llm.jev.spend" class="num">$0.000080</td></tr>
+<tr><th scope="row">Cost per accepted result</th><td data-cell="run-d06/cv-match.v1/q2.vs-llm.llm.cpa" class="num">$0.002667</td><td data-cell="run-d06/cv-match.v1/q2.vs-llm.jev.cpa" class="num">$0.000027</td></tr>
+</tbody></table></div>
 </section>
 <section>
 <h2>Whole file, per method</h2>
-<table><caption>Every question together</caption>
+<div class="scroll"><table><caption>Every question together</caption>
 <thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Simple keyword rule</th><th scope="col">Jev</th></tr></thead><tbody>
-<tr><th scope="row">Answers</th><td data-cell="file.llm.rows">10</td><td data-cell="file.rule.rows">10</td><td data-cell="file.jev.rows">10</td></tr>
-<tr><th scope="row">Labelled by a person</th><td data-cell="file.llm.labelled">9</td><td data-cell="file.rule.labelled">10</td><td data-cell="file.jev.labelled">10</td></tr>
-<tr><th scope="row">Accepted</th><td data-cell="file.llm.accepted">8</td><td data-cell="file.rule.accepted">6</td><td data-cell="file.jev.accepted">8</td></tr>
+<tr><th scope="row">Answers</th><td data-cell="file.llm.rows" class="num">10</td><td data-cell="file.rule.rows" class="num">10</td><td data-cell="file.jev.rows" class="num">10</td></tr>
+<tr><th scope="row">Labelled by a person</th><td data-cell="file.llm.labelled" class="num">9</td><td data-cell="file.rule.labelled" class="num">10</td><td data-cell="file.jev.labelled" class="num">10</td></tr>
+<tr><th scope="row">Accepted</th><td data-cell="file.llm.accepted" class="num">8</td><td data-cell="file.rule.accepted" class="num">6</td><td data-cell="file.jev.accepted" class="num">8</td></tr>
 <tr><th scope="row">Gaps</th><td data-cell="file.llm.gaps">1 unlabelled (line 25)</td><td data-cell="file.rule.gaps">1 cost missing (line 21)</td><td data-cell="file.jev.gaps">none</td></tr>
-<tr><th scope="row">Spend</th><td data-cell="file.llm.spend">$0.020000</td><td data-cell="file.rule.spend">incomplete ($0.000000 known, 1 missing)</td><td data-cell="file.jev.spend">$0.000200</td></tr>
-<tr><th scope="row">Cost per accepted result</th><td data-cell="file.llm.cpa">$0.002500</td><td data-cell="file.rule.cpa">incomplete (cost missing)</td><td data-cell="file.jev.cpa">$0.000025</td></tr>
-</tbody></table>
+<tr><th scope="row">Spend</th><td data-cell="file.llm.spend" class="num">$0.020000</td><td data-cell="file.rule.spend">incomplete ($0.000000 known, 1 missing)</td><td data-cell="file.jev.spend" class="num">$0.000200</td></tr>
+<tr><th scope="row">Cost per accepted result</th><td data-cell="file.llm.cpa" class="num">$0.002500</td><td data-cell="file.rule.cpa">incomplete (cost missing)</td><td data-cell="file.jev.cpa" class="num">$0.000025</td></tr>
+</tbody></table></div>
 </section>
 <section>
 <h2>Limitations</h2>

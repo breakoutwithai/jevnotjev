@@ -39,8 +39,12 @@ function tag(name: string, inner: string): string {
   return `<${name}>${inner}</${name}>`;
 }
 
+/** A whole number or money value ("30", "-0.1097", "$0.000025"): its cell never wraps, so the number is never split. */
+const NUMBER = /^-?\$?\d[\d.,]*$/;
+
 function td(key: string, value: string): string {
-  return `<td data-cell="${escape(key)}">${escape(value)}</td>`;
+  const kind = NUMBER.test(value) ? ' class="num"' : "";
+  return `<td data-cell="${escape(key)}"${kind}>${escape(value)}</td>`;
 }
 
 function field(row: ParsedRow, column: string): string {
@@ -90,7 +94,7 @@ function humanTable(scope: string, rows: readonly ParsedRow[]): string | null {
   const spend = spendOf(mine.map((row) => row.values));
   const line = (label: string, name: string, value: string): string => `<tr><th scope="row">${label}</th>${td(`${scope}.human.${name}`, value)}</tr>`;
   return [
-    `<table>${tag("caption", "Answers by a person: counted and shown, not used in the verdict")}`,
+    `<div class="scroll"><table>${tag("caption", "Answers by a person: counted and shown, not used in the verdict")}`,
     `<thead><tr><th scope="col"></th><th scope="col">Person</th></tr></thead><tbody>`,
     line("Answers", "rows", String(mine.length)),
     line("Labelled by a person", "labelled", String(labelled)),
@@ -98,7 +102,7 @@ function humanTable(scope: string, rows: readonly ParsedRow[]): string | null {
     line("Gaps", "gaps", gapText(mine, mine.length - labelled, spend)),
     line("Spend", "spend", describeSpend(spend)),
     line("Cost per accepted result", "cpa", describeCostPerAccepted(costPerAccepted(spend, accepted))),
-    "</tbody></table>",
+    "</tbody></table></div>",
   ].join("\n");
 }
 
@@ -125,7 +129,7 @@ function armTable(scope: string, metrics: CohortMetrics, rows: readonly ParsedRo
   const line = (label: string, name: string, value: (totals: ArmTotals) => string): string =>
     `<tr><th scope="row">${label}</th>${arms.map((totals) => td(`${scope}.${totals.arm}.${name}`, value(totals))).join("")}</tr>`;
   return [
-    `<table>${tag("caption", caption)}`,
+    `<div class="scroll"><table>${tag("caption", caption)}`,
     `<thead><tr><th scope="col"></th>${head}</tr></thead><tbody>`,
     line("Answers", "rows", (totals) => String(totals.rows)),
     line("Labelled by a person", "labelled", (totals) => String(totals.labelled)),
@@ -133,7 +137,7 @@ function armTable(scope: string, metrics: CohortMetrics, rows: readonly ParsedRo
     line("Gaps", "gaps", (totals) => gaps(totals, rows)),
     line("Spend", "spend", (totals) => describeSpend(totals.spend)),
     line("Cost per accepted result", "cpa", (totals) => describeCostPerAccepted(totals.costPerAccepted)),
-    "</tbody></table>",
+    "</tbody></table></div>",
     ...[humanTable(scope, rows)].filter((table): table is string => table !== null),
   ].join("\n");
 }
@@ -149,12 +153,12 @@ function pairTable(scope: string, metrics: CohortMetrics): string {
     `<tr><th scope="row">${label}</th>${sides.map(([name, side]) => td(`${scope}.vs-llm.${name}.${cellName}`, value(side))).join("")}</tr>`;
   const caption = `What the verdict compares: Jev and the LLM on the <span data-cell="${escape(scope)}.vs-llm.n">${pair.n}</span> cases where both answers have a label`;
   return [
-    `<table>${tag("caption", caption)}`,
+    `<div class="scroll"><table>${tag("caption", caption)}`,
     `<thead><tr><th scope="col"></th><th scope="col">${NAMES.llm}</th><th scope="col">${NAMES.jev}</th></tr></thead><tbody>`,
     line("Accepted", "accepted", (side) => String(side.accepted)),
     line("Spend", "spend", (side) => describeSpend(side.spend)),
     line("Cost per accepted result", "cpa", (side) => describeCostPerAccepted(side.costPerAccepted)),
-    "</tbody></table>",
+    "</tbody></table></div>",
   ].join("\n");
 }
 
@@ -195,10 +199,10 @@ function numbersTable(scope: string, result: Verdict): string {
     lines.push(withInterval("Cost ratio, Jev / LLM per accepted answer", "cost", costRatio.ratio, costRatio.lower, costRatio.upper));
   }
   return [
-    `<table>${tag("caption", "Numbers the verdict read")}`,
+    `<div class="scroll"><table>${tag("caption", "Numbers the verdict read")}`,
     '<thead><tr><th scope="col"></th><th scope="col">Value</th><th scope="col">95% interval from</th><th scope="col">to</th></tr></thead><tbody>',
     ...lines,
-    "</tbody></table>",
+    "</tbody></table></div>",
   ].join("\n");
 }
 
@@ -240,7 +244,9 @@ thead th { background: var(--head); }
 tbody th { font-weight: 500; color: var(--muted); }
 dt { font-weight: 600; }
 dd { margin: 0 0 .5rem 0; }
-@media (max-width: 40rem) { body { font-size: 15px; } th, td { padding: .3rem .35rem; font-size: .85rem; overflow-wrap: anywhere; } }
+.scroll { overflow-x: auto; max-width: 100%; }
+td.num { white-space: nowrap; overflow-wrap: normal; }
+@media (max-width: 40rem) { body { font-size: 15px; } th, td { padding: .3rem .35rem; font-size: .85rem; } th { overflow-wrap: anywhere; } td { overflow-wrap: break-word; } }
 `;
 
 const LEAD =

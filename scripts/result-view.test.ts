@@ -393,6 +393,21 @@ describe("result view of other files", () => {
     expect(keys(html).some((key) => key.includes(".human."))).toBe(false);
   });
 
+  test("[unit] D09 narrow screens keep numbers whole: number cells never wrap, tables scroll in a wrapper, not the body", () => {
+    expect(html).toContain("td.num { white-space: nowrap; overflow-wrap: normal; }");
+    expect(html).toContain(".scroll { overflow-x: auto; max-width: 100%; }");
+    // Only row headers may break anywhere; data cells never do.
+    expect(html).toContain("th { overflow-wrap: anywhere; }");
+    expect(html).not.toMatch(/\btd\b[^{}]*\{[^}]*overflow-wrap: anywhere/);
+    // Every table sits in the scroll wrapper.
+    expect(html.match(/<table>/g)?.length).toBe(html.match(/<div class="scroll"><table>/g)?.length);
+    // Number and money cells carry the class; text cells do not.
+    for (const key of ["file.jev.cpa", "file.llm.spend", `${Q1}.vs-llm.jev.cpa`, `${Q1}.numbers.accept-lower`, `${Q1}.jev.accepted`]) {
+      expect([key, html.includes(`<td data-cell="${key}" class="num">`)]).toEqual([key, true]);
+    }
+    for (const key of [`${Q2}.rule.gaps`, `${Q2}.rule.spend`]) expect([key, html.includes(`<td data-cell="${key}">`)]).toEqual([key, true]);
+  });
+
   test("[unit] R7.b the glossary explains 95% interval and cost ratio", () => {
     expect(html).toContain("<dt>95% interval</dt>");
     expect(html).toContain("<dt>Cost ratio</dt>");

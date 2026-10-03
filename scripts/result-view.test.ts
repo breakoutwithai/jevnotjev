@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderResultView } from "./result-view.ts";
 
@@ -186,5 +186,59 @@ describe("result view of other files", () => {
     const run = Bun.spawnSync(["bun", SCRIPT, input, output]);
     expect(run.exitCode).not.toBe(0);
     expect(existsSync(output)).toBe(false);
+  });
+
+  test("[integration] D09 CLI refuses an output that is the input, by path or hard link, and leaves it intact", () => {
+    const dir = mkdtempSync(join(tmpdir(), "result-view-"));
+    const input = join(dir, "records.csv");
+    const link = join(dir, "linked.csv");
+    writeFileSync(input, recordsText);
+    linkSync(input, link);
+    for (const output of [input, join(dir, ".", "records.csv"), link]) {
+      const run = Bun.spawnSync(["bun", SCRIPT, input, output]);
+      expect([output, run.exitCode]).toEqual([output, 1]);
+      expect(readFileSync(input, "utf8")).toBe(recordsText);
+    }
+  });
+
+  test("[integration] D09 CLI run from the fixture directory still names the d06 fixture and its limitations", () => {
+    const dir = mkdtempSync(join(tmpdir(), "result-view-"));
+    const output = join(dir, "out.html");
+    const run = Bun.spawnSync(["bun", SCRIPT, "records.csv", output], { cwd: dirname(RECORDS) });
+    expect(run.exitCode).toBe(0);
+    expect(readFileSync(output, "utf8")).toBe(html);
+  });
+
+  test("[unit] R4.d human rows are counted and shown with their gap lines, and kept out of the verdict", async () => {
+    // Lines 32-36: the five q1 Jev rows re-answered by a person; line 32 unlabelled, line 33 without a cost.
+    const q1Jev = dataLines.filter((line) => line.includes(",q1,") && line.includes(",jev,jev-1.13.0,"));
+    expect(q1Jev).toHaveLength(5);
+    const human = q1Jev.map((line, i) => {
+      let out = line.replace(",jev,jev-1.13.0,", ",human,person,");
+      if (i === 0) out = out.replace(",accept,human,", ",,,");
+      if (i === 1) out = out.replace(",0.00002,", ",,");
+      return out;
+    });
+    const page = await renderResultView([header, ...dataLines, ...human, ""].join("\n"), "with-human.csv");
+    expect(cellIn(page, `${Q1}.human.rows`)).toBe("5");
+    expect(cellIn(page, `${Q1}.human.labelled`)).toBe("4");
+    expect(cellIn(page, `${Q1}.human.accepted`)).toBe("3");
+    expect(cellIn(page, `${Q1}.human.gaps`)).toBe("1 unlabelled (line 32), 1 cost missing (line 33)");
+    expect(cellIn(page, `${Q1}.human.spend`).startsWith("incomplete")).toBe(true);
+    expect(cellIn(page, "file.human.rows")).toBe("5");
+    expect(keys(page).some((key) => key.startsWith(`${Q2}.human.`))).toBe(false);
+    // The verdict and its paired figures are the same as without the human rows.
+    for (const key of [`${Q1}.reason`, `${Q1}.rule`, `${Q1}.vs-llm.n`, `${Q1}.jev.accepted`]) expect([key, cellIn(page, key)]).toEqual([key, cell(key)]);
+  });
+
+  test("[unit] R4.d a file with no human rows shows no human table", () => {
+    expect(keys(html).some((key) => key.includes(".human."))).toBe(false);
+  });
+
+  test("[unit] D09 the intro does not claim every method answered or every answer was labelled", () => {
+    expect(html).not.toContain("was answered by three methods");
+    expect(html).not.toContain("marked each answer");
+    expect(html).toContain("up to three methods");
+    expect(html).toContain("listed as gaps");
   });
 });

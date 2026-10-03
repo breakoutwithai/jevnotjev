@@ -2,7 +2,7 @@
 // Every number comes from src/core (metrics and verdict) over the validated file; this script only lays them out.
 // Run: bun scripts/result-view.ts examples/d06-tiny/records.csv site/result-d06.html
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { decodeUtf8, validate, type ParsedRow } from "../src/format/validate.ts";
 import { fileSeed } from "../src/core/calc.ts";
@@ -10,13 +10,16 @@ import {
   ARMS,
   cohortMetrics,
   cohorts,
+  costPerAccepted,
   describeCostPerAccepted,
   describeSpend,
+  spendOf,
   type Arm,
   type ArmTotals,
   type CohortKey,
   type CohortMetrics,
   type PairArm,
+  type Spend,
 } from "../src/core/metrics.ts";
 import { verdict, type RuleComparison, type Verdict } from "../src/core/verdict.ts";
 
@@ -58,15 +61,43 @@ function lineList(lines: readonly number[]): string {
   return lines.length === 1 ? `line ${lines[0]}` : `lines ${lines.join(", ")}`;
 }
 
-/** Gap counts from src/core, with the CSV lines behind them (R8.a, R8.b). */
-function gaps(totals: ArmTotals, rows: readonly ParsedRow[]): string {
-  const mine = rows.filter((row) => field(row, "answerer") === totals.arm);
+/** Gap counts (from src/core for the arms), with the CSV lines behind them (R8.a, R8.b). `mine` is one answerer's rows. */
+function gapText(mine: readonly ParsedRow[], unlabelledCount: number, spend: Spend): string {
   const unlabelled = mine.filter((row) => row.values.get("label") === null).map((row) => row.line);
   const noCost = mine.filter((row) => row.values.get("cost_usd") === null).map((row) => row.line);
   const parts: string[] = [];
-  if (totals.unlabelled > 0) parts.push(`${totals.unlabelled} unlabelled (${lineList(unlabelled)})`);
-  if (totals.spend.kind === "incomplete") parts.push(`${totals.spend.missing} cost missing (${lineList(noCost)})`);
+  if (unlabelledCount > 0) parts.push(`${unlabelledCount} unlabelled (${lineList(unlabelled)})`);
+  if (spend.kind === "incomplete") parts.push(`${spend.missing} cost missing (${lineList(noCost)})`);
   return parts.length === 0 ? "none" : parts.join(", ");
+}
+
+function gaps(totals: ArmTotals, rows: readonly ParsedRow[]): string {
+  return gapText(rows.filter((row) => field(row, "answerer") === totals.arm), totals.unlabelled, totals.spend);
+}
+
+/**
+ * Rows answered by `human` (R4.d): counted and shown, never in the verdict. src/core keeps them out of the arms,
+ * so spend and cost per accepted use its spendOf and costPerAccepted directly. Null when there are none.
+ */
+function humanTable(scope: string, rows: readonly ParsedRow[]): string | null {
+  const mine = rows.filter((row) => field(row, "answerer") === "human");
+  if (mine.length === 0) return null;
+  const labels = mine.map((row) => row.values.get("label"));
+  const accepted = labels.filter((value) => value === "accept").length;
+  const labelled = labels.filter((value) => value === "accept" || value === "reject").length;
+  const spend = spendOf(mine.map((row) => row.values));
+  const line = (label: string, name: string, value: string): string => `<tr><th scope="row">${label}</th>${td(`${scope}.human.${name}`, value)}</tr>`;
+  return [
+    `<table>${tag("caption", "Answers by a person: counted and shown, not used in the verdict")}`,
+    `<thead><tr><th scope="col"></th><th scope="col">Person</th></tr></thead><tbody>`,
+    line("Answers", "rows", String(mine.length)),
+    line("Labelled by a person", "labelled", String(labelled)),
+    line("Accepted", "accepted", String(accepted)),
+    line("Gaps", "gaps", gapText(mine, mine.length - labelled, spend)),
+    line("Spend", "spend", describeSpend(spend)),
+    line("Cost per accepted result", "cpa", describeCostPerAccepted(costPerAccepted(spend, accepted))),
+    "</tbody></table>",
+  ].join("\n");
 }
 
 /**
@@ -101,6 +132,7 @@ function armTable(scope: string, metrics: CohortMetrics, rows: readonly ParsedRo
     line("Spend", "spend", (totals) => describeSpend(totals.spend)),
     line("Cost per accepted result", "cpa", (totals) => describeCostPerAccepted(totals.costPerAccepted)),
     "</tbody></table>",
+    ...[humanTable(scope, rows)].filter((table): table is string => table !== null),
   ].join("\n");
 }
 
@@ -170,8 +202,9 @@ dd { margin: 0 0 .5rem 0; }
 `;
 
 const LEAD =
-  "How to read this: each question below was answered by three methods (the current LLM, a simple keyword rule, and Jev). " +
-  "A person then marked each answer accepted or rejected. More accepted answers is better; a lower cost per accepted result is cheaper. " +
+  "How to read this: each question below compares up to three methods (the current LLM, a simple keyword rule, and Jev), as many as the file holds. " +
+  "A person marks answers accepted or rejected; unmarked answers and missing costs are listed as gaps. " +
+  "More accepted answers is better; a lower cost per accepted result is cheaper. " +
   "The verdict says whether this test set is enough to switch from the LLM to Jev.";
 
 const WORDS: ReadonlyArray<readonly [string, string]> = [
@@ -199,13 +232,13 @@ const D06_LIMITS: readonly string[] = [
 ];
 
 function isD06(source: string): boolean {
-  const path = source.replaceAll("\\", "/");
-  return path === D06_SOURCE || path.endsWith(`/${D06_SOURCE}`);
+  return source === D06_SOURCE;
 }
 
 /**
  * The result view for one records CSV, as one HTML document with inline CSS and no scripts.
- * `source` is the file's name as the page should show it (a repo-relative path, never an absolute one).
+ * `source` is the file's repo-relative path (never an absolute one); the d06 limitations show only when it is
+ * exactly D06_SOURCE, which the CLI derives from the input's real path.
  */
 export async function renderResultView(csvText: string, source: string): Promise<string> {
   const result = validate(csvText);
@@ -261,9 +294,18 @@ if (import.meta.main) {
     console.error("usage: bun scripts/result-view.ts <records.csv> <out.html>");
     process.exit(2);
   }
-  // The page names its source relative to the working directory, never by an absolute path.
-  const source = relative(process.cwd(), resolve(input)).split(sep).join("/");
   try {
+    // The page names its source by its real path relative to the repo root, never by an absolute path,
+    // so the d06 fixture is recognised from any working directory or through a symlink.
+    const real = realpathSync(input);
+    const source = relative(realpathSync(resolve(import.meta.dir, "..")), real).split(sep).join("/");
+    if (existsSync(output)) {
+      const a = statSync(real);
+      const b = statSync(output);
+      if (realpathSync(output) === real || (a.dev === b.dev && a.ino === b.ino)) {
+        throw new Error(`output ${output} is the input file; refusing to overwrite it`);
+      }
+    }
     const page = await renderResultView(decodeUtf8(readFileSync(input)), source);
     writeFileSync(output, page);
     console.log(`wrote ${output}`);

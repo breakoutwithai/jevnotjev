@@ -78,6 +78,11 @@ describe("Jev arm", () => {
     expect(() => parseJevResponse({ ...good, answers: { q1: { choice: "maybe", confidence: 0.5 } } }, "m01")).toThrow(/m01/);
     expect(() => parseJevResponse({ model: "jev-1.13.0" }, "m02")).toThrow(/m02/);
   });
+
+  test("[unit] UC13-4 probabilities that do not sum to one fail through the shared answer check", () => {
+    const bad = { ...good, answers: { q1: { choice: "hand_off", confidence: 0.9, probabilities: { answer: 0.5, hand_off: 0.9 } } } };
+    expect(() => parseJevResponse(bad, "m04")).toThrow(/mass/);
+  });
 });
 
 describe("LLM arm", () => {

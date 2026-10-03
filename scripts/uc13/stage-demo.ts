@@ -177,7 +177,7 @@ export function buildDemo(rows: readonly RecordRow[], factSheet: string, ids: re
   const runId = rows[0]?.run_id ?? "";
   const n = caseIds.length;
   const note = anyLabel
-    ? `Recorded run, not sample data: ${n} messages we wrote about a made-up shop (${runId}). Labels drafted from the fact sheet by three AI labellers who never saw any arm's answer, then reviewed and approved by a person.`
+    ? `Recorded run, not sample data: ${n} messages we wrote about a made-up shop (${runId}). Labels drafted from the fact sheet by three AI labellers who never saw an arm's answer to any message, then reviewed and approved by a person.`
     : `Recorded run, not sample data: ${n} messages we wrote about a made-up shop (${runId}). Labels pending: no message has a human answer yet, so every accept or reject slot waits.`;
   return {
     schema: "jnj-uc13-demo/1",

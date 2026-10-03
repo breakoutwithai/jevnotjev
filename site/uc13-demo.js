@@ -20,7 +20,7 @@
 window.UC13_DEMO = {
  "schema": "jnj-uc13-demo/1",
  "mode": "labelled",
- "note": "Recorded run, not sample data: 40 messages we wrote about a made-up shop (run-shopbot-2026-10-01). Labels drafted from the fact sheet by three AI labellers who never saw any arm's answer, then reviewed and approved by a person.",
+ "note": "Recorded run, not sample data: 40 messages we wrote about a made-up shop (run-shopbot-2026-10-01). Labels drafted from the fact sheet by three AI labellers who never saw an arm's answer to any message, then reviewed and approved by a person.",
  "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
  "cases_total": 40,
  "fact_sheet": {

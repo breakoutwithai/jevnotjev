@@ -39,8 +39,20 @@ function tag(name: string, inner: string): string {
   return `<${name}>${inner}</${name}>`;
 }
 
+/**
+ * A whole number or money value ("30", "-0.1097", "$0.000025", "4.4999999999999984e+26"): its cell never wraps,
+ * so the number is never split.
+ */
+const NUMBER = /^-?\$?\d[\d.,]*(?:[eE][+-]?\d+)?$/;
+
+/** True for a cell value that is one number or money amount, so it must never wrap. */
+export function isNumberCell(value: string): boolean {
+  return NUMBER.test(value);
+}
+
 function td(key: string, value: string): string {
-  return `<td data-cell="${escape(key)}">${escape(value)}</td>`;
+  const kind = isNumberCell(value) ? ' class="num"' : "";
+  return `<td data-cell="${escape(key)}"${kind}>${escape(value)}</td>`;
 }
 
 function field(row: ParsedRow, column: string): string {
@@ -90,7 +102,7 @@ function humanTable(scope: string, rows: readonly ParsedRow[]): string | null {
   const spend = spendOf(mine.map((row) => row.values));
   const line = (label: string, name: string, value: string): string => `<tr><th scope="row">${label}</th>${td(`${scope}.human.${name}`, value)}</tr>`;
   return [
-    `<table>${tag("caption", "Answers by a person: counted and shown, not used in the verdict")}`,
+    `<div class="scroll"><table>${tag("caption", "Answers by a person: counted and shown, not used in the verdict")}`,
     `<thead><tr><th scope="col"></th><th scope="col">Person</th></tr></thead><tbody>`,
     line("Answers", "rows", String(mine.length)),
     line("Labelled by a person", "labelled", String(labelled)),
@@ -98,7 +110,7 @@ function humanTable(scope: string, rows: readonly ParsedRow[]): string | null {
     line("Gaps", "gaps", gapText(mine, mine.length - labelled, spend)),
     line("Spend", "spend", describeSpend(spend)),
     line("Cost per accepted result", "cpa", describeCostPerAccepted(costPerAccepted(spend, accepted))),
-    "</tbody></table>",
+    "</tbody></table></div>",
   ].join("\n");
 }
 
@@ -125,7 +137,7 @@ function armTable(scope: string, metrics: CohortMetrics, rows: readonly ParsedRo
   const line = (label: string, name: string, value: (totals: ArmTotals) => string): string =>
     `<tr><th scope="row">${label}</th>${arms.map((totals) => td(`${scope}.${totals.arm}.${name}`, value(totals))).join("")}</tr>`;
   return [
-    `<table>${tag("caption", caption)}`,
+    `<div class="scroll"><table>${tag("caption", caption)}`,
     `<thead><tr><th scope="col"></th>${head}</tr></thead><tbody>`,
     line("Answers", "rows", (totals) => String(totals.rows)),
     line("Labelled by a person", "labelled", (totals) => String(totals.labelled)),
@@ -133,7 +145,7 @@ function armTable(scope: string, metrics: CohortMetrics, rows: readonly ParsedRo
     line("Gaps", "gaps", (totals) => gaps(totals, rows)),
     line("Spend", "spend", (totals) => describeSpend(totals.spend)),
     line("Cost per accepted result", "cpa", (totals) => describeCostPerAccepted(totals.costPerAccepted)),
-    "</tbody></table>",
+    "</tbody></table></div>",
     ...[humanTable(scope, rows)].filter((table): table is string => table !== null),
   ].join("\n");
 }
@@ -149,18 +161,59 @@ function pairTable(scope: string, metrics: CohortMetrics): string {
     `<tr><th scope="row">${label}</th>${sides.map(([name, side]) => td(`${scope}.vs-llm.${name}.${cellName}`, value(side))).join("")}</tr>`;
   const caption = `What the verdict compares: Jev and the LLM on the <span data-cell="${escape(scope)}.vs-llm.n">${pair.n}</span> cases where both answers have a label`;
   return [
-    `<table>${tag("caption", caption)}`,
+    `<div class="scroll"><table>${tag("caption", caption)}`,
     `<thead><tr><th scope="col"></th><th scope="col">${NAMES.llm}</th><th scope="col">${NAMES.jev}</th></tr></thead><tbody>`,
     line("Accepted", "accepted", (side) => String(side.accepted)),
     line("Spend", "spend", (side) => describeSpend(side.spend)),
     line("Cost per accepted result", "cpa", (side) => describeCostPerAccepted(side.costPerAccepted)),
-    "</tbody></table>",
+    "</tbody></table></div>",
   ].join("\n");
 }
 
 function ruleLine(rule: RuleComparison): string {
   if (rule.kind === "skipped") return `skipped: ${rule.reason} (${rule.paired} paired)`;
   return `compared on ${rule.n} paired cases: rule minus Jev ${rule.diff.toFixed(2)} (95% interval ${rule.lower.toFixed(2)} to ${rule.upper.toFixed(2)})`;
+}
+
+function four(x: number): string {
+  return x.toFixed(4);
+}
+
+/**
+ * The numbers the verdict computed (R7.b): only the fields result.numbers holds, to 4 places, with no new arithmetic.
+ * The accept rates and their difference come from the Jev against LLM comparison, computed before rule 1 runs, so the
+ * rule that fired may not have used all of them; the cost ratio exists once rule 1 has passed.
+ */
+function numbersTable(scope: string, result: Verdict): string {
+  const { jevVsLlm, costRatio } = result.numbers;
+  if (jevVsLlm === null && costRatio === null) {
+    return `<p data-cell="${escape(scope)}.numbers">No Jev-versus-LLM numbers were computed for this question.</p>`;
+  }
+  const caption = `Numbers the verdict computed. Rule ${result.rule} may not use all of these; the reason above names the condition that decided.`;
+  const key = (name: string): string => `${scope}.numbers.${name}`;
+  const row = (label: string, name: string, value: number | string): string =>
+    `<tr><th scope="row">${escape(label)}</th>${td(key(name), typeof value === "number" ? four(value) : value)}<td></td><td></td></tr>`;
+  const withInterval = (label: string, stem: string, value: number, lower: number, upper: number): string =>
+    `<tr><th scope="row">${escape(label)}</th>${td(key(`${stem}-${stem === "accept" ? "diff" : "ratio"}`), four(value))}` +
+    `${td(key(`${stem}-lower`), four(lower))}${td(key(`${stem}-upper`), four(upper))}</tr>`;
+  const lines: string[] = [];
+  if (jevVsLlm !== null) {
+    lines.push(
+      row("Paired cases (Jev and the LLM both labelled)", "paired", String(jevVsLlm.n)),
+      row("Accept rate, Jev", "jev-rate", jevVsLlm.p1),
+      row("Accept rate, LLM", "llm-rate", jevVsLlm.p2),
+      withInterval("Accept rate, Jev minus LLM", "accept", jevVsLlm.diff, jevVsLlm.lower, jevVsLlm.upper),
+    );
+  }
+  if (costRatio !== null) {
+    lines.push(withInterval("Cost ratio, Jev / LLM per accepted answer", "cost", costRatio.ratio, costRatio.lower, costRatio.upper));
+  }
+  return [
+    `<div class="scroll"><table>${tag("caption", escape(caption))}`,
+    '<thead><tr><th scope="col"></th><th scope="col">Value</th><th scope="col">95% interval from</th><th scope="col">to</th></tr></thead><tbody>',
+    ...lines,
+    "</tbody></table></div>",
+  ].join("\n");
 }
 
 /** One question's section. `shared` is true when another cohort has the same question id, so run and prompt are named. */
@@ -176,6 +229,7 @@ function questionSection(metrics: CohortMetrics, rows: readonly ParsedRow[], res
       `(<span data-cell="${attr}.rule">rule ${result.rule}</span> of the 4 in docs/decision/verdict-rules.md fired)</p>`,
     `<p>Why: <span data-cell="${attr}.reason">${escape(result.reason)}</span></p>`,
     `<p>Rule against Jev: <span data-cell="${attr}.rule-comparison">${escape(ruleLine(result.ruleComparison))}</span></p>`,
+    numbersTable(scope, result),
     armTable(scope, metrics, rows, `All answers to ${escape(label)}, per method`),
     pairTable(scope, metrics),
     "</section>",
@@ -200,7 +254,9 @@ thead th { background: var(--head); }
 tbody th { font-weight: 500; color: var(--muted); }
 dt { font-weight: 600; }
 dd { margin: 0 0 .5rem 0; }
-@media (max-width: 40rem) { body { font-size: 15px; } th, td { padding: .3rem .35rem; font-size: .85rem; overflow-wrap: anywhere; } }
+.scroll { overflow-x: auto; max-width: 100%; }
+td.num { white-space: nowrap; overflow-wrap: normal; }
+@media (max-width: 40rem) { body { font-size: 15px; } th, td { padding: .3rem .35rem; font-size: .85rem; } th { overflow-wrap: anywhere; } td { overflow-wrap: break-word; } }
 `;
 
 const LEAD =
@@ -217,6 +273,8 @@ const WORDS: ReadonlyArray<readonly [string, string]> = [
   ],
   ["incomplete", "At least one answer has no recorded cost, so there is no true total and no cost per accepted result. It is never shown as $0."],
   ["undefined", "The method has 0 accepted answers, so there is nothing to divide by."],
+  ["95% interval", "The range the true value is likely to sit in, given only this test set; a narrow range means more evidence."],
+  ["Cost ratio", "Jev's cost per accepted answer divided by the LLM's: below 1 means Jev is cheaper, 0.80 means 20% cheaper."],
   ["not enough evidence", "The rules could not establish either use Jev or don't use Jev from this test set; too few cases or missing data are the usual reasons."],
 ];
 

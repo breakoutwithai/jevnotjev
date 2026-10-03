@@ -171,3 +171,52 @@
   .ticket .admit { font-size: 28px; }
   .playbill { gap: 20px; }
 }
+
+/* ---------- Preview poster on the curtain: Little Shop of Horrors (little-shop/) ---------- */
+.poster {
+  pointer-events: auto; display: flex; flex-direction: column; gap: 6px; width: min(440px, 88vw);
+  text-decoration: none; color: #1a0508; background: #e9d9b4; font-family: var(--sans);
+  border: 8px solid #1a0508; padding: 16px 20px; transform: rotate(1.5deg);
+  box-shadow: inset 0 0 0 4px #e9d9b4, inset 0 0 0 6px #b8892a, 0 18px 40px rgba(0, 0, 0, .55);
+}
+.poster:focus-visible { outline: 3px solid #ffe6a6; outline-offset: 4px; }
+.poster .p-kicker { font-size: 11px; font-weight: 700; letter-spacing: .32em; text-transform: uppercase; color: #8a2233; }
+.poster .p-who { font-family: var(--serif); font-style: italic; font-size: 20px; line-height: 1; }
+.poster .p-title { font-family: var(--serif); font-weight: 800; font-size: 28px; line-height: .95; color: #5a0f1c; }
+.poster .p-rule { height: 2px; background: #1a0508; margin: 4px 0; }
+.poster .p-blurb { font-size: 14px; line-height: 1.45; }
+.poster .p-seats { font-size: 14px; line-height: 1.45; font-weight: 600; }
+.poster .p-cta {
+  align-self: flex-start; margin-top: 4px; font-size: 12px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase;
+  color: #f6e7c8; background: #1a0508; padding: 10px 14px;
+}
+.poster:hover .p-cta { background: #5a0f1c; }
+/* Wide screens: the poster hangs on the right curtain, as the design does; the playbill moves left to make room */
+@media (min-width: 1100px) and (min-height: 640px) {
+  .playbill { padding-right: calc(320px + max(28px, 5vw) + 24px); }
+  .poster {
+    position: absolute; right: max(28px, 5vw); top: 50%; width: 320px; min-height: 440px; padding: 30px 28px; gap: 10px;
+    transform: translateY(-50%) rotate(2deg);
+  }
+  .poster .p-who { font-size: 26px; }
+  .poster .p-title { font-size: 44px; }
+  .poster .p-cta { margin-top: auto; padding: 12px 16px; }
+}
+/* Short or narrow screens: a compact poster under the skip button */
+@media (max-width: 1099px), (max-height: 639px) {
+  .poster .p-blurb { display: none; }
+}
+
+/* Very short screens (a phone on its side): no room on the curtain; the line in Act I below carries the preview */
+@media (max-height: 520px) {
+  .poster { display: none; }
+}
+
+/* The same preview as a line under the stage-door note, for reduced motion and after the curtain is up */
+.door-preview { grid-column: 2; display: block; margin-top: 14px; font-family: var(--sans); font-size: 14px; line-height: 1.4; color: var(--ink-soft); }
+.door-preview em { font-family: var(--serif); font-weight: 700; color: var(--ink); }
+.motion .door-preview { opacity: 0; visibility: hidden; transition: opacity .7s ease .3s, visibility 0s .8s; }
+.motion .door.shown + .door-preview { opacity: 1; visibility: visible; transition: opacity .7s ease .3s, visibility 0s; }
+@media (max-width: 900px) {
+  .door-preview { grid-column: 1; margin: -12px 0 26px; max-width: 420px; }
+}

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Little Shop of Horrors: take your seat | Jev!Jev</title>
+<meta name="description" content="A ski shop's bot got 40 customer messages and three clerks answered each one. Take a seat, make the call on each message, and see which clerk you agree with. Recorded run, your calls stay in your browser.">
+<meta property="og:title" content="Little Shop of Horrors: take your seat">
+<meta property="og:description" content="40 customer messages, three clerks, 120 seats. You decide who is right.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://jevnotjev.breakoutwithai.com/little-shop/">
+<meta property="og:image" content="https://jevnotjev.breakoutwithai.com/og.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;0,800;1,400;1,500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="house.css">
+</head>
+<body>
+<a class="skiplink" href="#onstage">Skip to the stage</a>
+<div class="wrap">
+  <a class="back" href="../">Back to the stage</a>
+  <header class="bill">
+    <div>
+      <p class="kicker">Preview &middot; Whodunnit? &middot; Little Shop of Horrors</p>
+      <h1>Take a seat, then make the call</h1>
+      <p class="lede">Every seat is one customer message to a ski shop's bot. Choose an empty seat: the message takes the stage, and you decide whether the bot should answer it or hand it to a person. Your call seats all three clerks at once.</p>
+    </div>
+    <p class="count" aria-live="polite"><span class="n"><span id="taken">0</span> <small>of 120</small></span><span class="cap">seats taken</span></p>
+  </header>
+
+  <main class="house" id="house">
+    <section class="fan" id="fan" aria-label="The house: 40 seats in rows A to E, one customer message each">
+      <div class="lip" aria-hidden="true">Stage</div>
+    </section>
+
+    <div class="ctrl">
+      <div class="rowbtns" id="rowBtns">
+        <button class="whole" id="seatAll" type="button">Seat the whole house</button>
+        <button class="empty" id="emptyHouse" type="button">Empty the house</button>
+      </div>
+      <ul class="legend">
+        <li><i></i>empty</li>
+        <li class="a"><i></i>you said: answer</li>
+        <li class="h"><i></i>you said: hand off</li>
+      </ul>
+      <p class="saved" id="saved" aria-live="polite"></p>
+    </div>
+
+    <div class="side">
+      <section class="onstage" id="onstage" aria-labelledby="onstageTag" tabindex="-1">
+        <h2 class="tag" id="onstageTag">On stage now</h2>
+        <p class="idle" id="idle">Choose any empty seat. A customer's message takes the stage.</p>
+        <div id="act" hidden>
+          <div aria-live="polite" aria-atomic="true">
+            <p class="seatline">Seat <b id="curCode"></b><span id="queueLeft"></span></p>
+            <p class="said" id="curText"></p>
+          </div>
+          <div class="ask" id="ask">
+            <p>Should the bot answer this itself, or hand it to a person?</p>
+            <div class="calls">
+              <button class="say-answer" id="sayAnswer" type="button">The bot answers</button>
+              <button class="say-hand" id="sayHand" type="button">Hand to a person</button>
+            </div>
+          </div>
+          <p class="yourcall" id="yourCall" hidden></p>
+          <ul class="clerks" id="clerks" aria-live="polite"></ul>
+        </div>
+        <details class="sheet" id="sheet">
+          <summary id="sheetTitle">The fact sheet the bot works from</summary>
+          <ul id="sheetLines"></ul>
+        </details>
+      </section>
+  
+      <section class="programme" aria-labelledby="progTitle">
+        <h2 id="progTitle">The programme</h2>
+        <ul class="arms" id="arms"></ul>
+        <div aria-live="polite"><p class="verdict wait" id="verdict">The verdict is read at 30 calls. 30 to go.</p></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<footer class="notes">
+  <h2>About your calls</h2>
+  <ul>
+    <li>Your calls stay in this browser. Nothing is sent to us or saved on a server: this page makes no request that carries them. The only outside request is for fonts, from Google Fonts.</li>
+    <li>Clearing this site's data in your browser, or pressing Empty the house, removes them. If your browser blocks storage, they last until you leave the page.</li>
+    <li>The messages, answers and costs come from a <a href="https://github.com/breakoutwithai/jevnotjev/tree/main/docs/product/runs/2026-10-01-uc13-shop-bot">recorded run on 1 October 2026</a> against a made-up ski shop. Cost per accepted is an estimate: each clerk's spend on all 40 messages, scaled to the calls you made.</li>
+    <li>Your calls are your own judgement, not the run's official labels.</li>
+  </ul>
+</footer>
+
+<noscript><p class="wrap">This page needs JavaScript to seat you.</p></noscript>
+<script src="shop-data.js"></script>
+<script src="seating.js"></script>
+<script src="verdict.js"></script>
+<script src="house.js"></script>
+</body>
+</html>

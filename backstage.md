@@ -21,4 +21,4 @@ Run `.agents/scripts/test-green`, `.agents/scripts/validate` and `.agents/script
 
 [Deployment contract](docs/backstage-deploy.md) packages frontend/backend together off-host, requires a merged PR, and documents the one-time service/proxy setup plus paired rollback. This build does not deploy itself.
 
-Finish any retries, then choose **Begin blind judging** in Rehearsals. This locks retries and opens shuffled answer cards with player metadata hidden. When labeling is finished, choose **Reveal results and lock labels** to unlock provider comparisons and downloads. Unlabelled answers stay missing.
+Finish any retries, then choose **Open blind judging and lock retries** in Rehearsals. This locks retries and opens shuffled answer cards with player metadata hidden. When labeling is finished, choose **Reveal results and lock labels** to unlock provider comparisons and downloads. Unlabelled answers stay missing.

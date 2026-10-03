@@ -158,8 +158,8 @@ test("[unit] B8 failed first deploy removes only its own current link", async ()
 });
 test("[unit] B8 neighbour network failures cannot pass deployment", () => {
   const script =
-    'source .deploy/backstage-lib.sh; probe_neighbours(){ printf "%s" "$PROBES"; }; backstage_probe_neighbours 127.0.0.1 example.test';
-  for (const probes of ["example.test 000", "example.test 000000", ""])
+    'source .deploy/backstage-lib.sh; curl(){ printf "%s" "$PROBES"; }; backstage_probe_neighbours 127.0.0.1 example.test';
+  for (const probes of ["000", "000000", ""])
     expect(
       Bun.spawnSync(["bash", "-c", script], {
         env: { ...process.env, PROBES: probes },
@@ -167,7 +167,7 @@ test("[unit] B8 neighbour network failures cannot pass deployment", () => {
     ).not.toBe(0);
   expect(
     Bun.spawnSync(["bash", "-c", script], {
-      env: { ...process.env, PROBES: "example.test 200" },
+      env: { ...process.env, PROBES: "200" },
     }).exitCode,
   ).toBe(0);
 });
@@ -263,4 +263,16 @@ test("[integration] B8 protected route probes load private curl credentials", as
     server.stop(true);
     await rm(dir, { recursive: true, force: true });
   }
+});
+test("[unit] B8 neighbour HTTP headers cannot hide transport failure", () => {
+  const result = Bun.spawnSync(
+    [
+      "bash",
+      "-c",
+      "source .deploy/lib.sh; source .deploy/backstage-lib.sh; curl(){ printf 200; return 28; }; backstage_probe_neighbours 127.0.0.1 example.test",
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  expect(result.exitCode).not.toBe(0);
+  expect(new TextDecoder().decode(result.stdout)).toBe("");
 });

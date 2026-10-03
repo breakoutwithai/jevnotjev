@@ -30,11 +30,16 @@ backstage_remove_failed_initial() {
 
 # Never accept an unreachable neighbour as a stable baseline.
 backstage_probe_neighbours() {
-    local probes
-    probes="$(probe_neighbours "$@")" || return 1
-    [[ -n "$probes" ]] || return 1
-    printf '%s\n' "$probes" | awk 'NF != 2 || $2 !~ /^[1-5][0-9][0-9]$/ { bad=1 } END { exit bad }' || return 1
-    printf '%s\n' "$probes"
+    local ip="$1" name code probes=""
+    shift
+    [[ "$#" -gt 0 ]] || return 1
+    for name in "$@"; do
+        code="$(curl -q -sS -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${name}:443:${ip}" "https://${name}/")" || return 1
+        [[ "$code" =~ ^[1-5][0-9][0-9]$ ]] || return 1
+        probes="${probes}${name} ${code}
+"
+    done
+    printf '%s' "$probes"
 }
 
 # Existing unsuccessful releases can be quarantined, but never a live or verified one.

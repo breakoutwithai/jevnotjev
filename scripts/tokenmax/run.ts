@@ -9,20 +9,19 @@
 //                                        <out>/labels.csv) into records.csv; a label for another run, CV, question or
 //                                        answer is refused
 //
-// A run journals every finished call (raw stdout, before parsing) to <out>/run.journal.jsonl and ends it with a
-// "complete" or "failed" event; raw.json and records.csv are written only when every call succeeded. Every file is
-// written to a temp name and renamed into place, and records.csv only after it validates.
+// A run writes nothing until every call has succeeded; then raw.json and records.csv are each written to a temp name
+// and renamed into place, records.csv only after it validates. Single operator: do not run commands concurrently.
 //
 // Jev calls go through $JEV_CALL (default ~/.claude/scripts/jaylo-jev.sh call <body.json>), which reads the key
 // itself; this process never holds it. The LLM runs with no tools, no MCP servers and no user settings.
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatRecords, JEV_MODEL, parseRecords, type RecordRow } from "../uc13/arms.ts";
-import { assertNoSecrets, assertPinned, KEY_PATTERN } from "../uc13/calls.ts";
-import { pool, spawnResult } from "../uc13/run-arms.ts";
+import { assertNoSecrets, assertPinned } from "../uc13/calls.ts";
+import { pool, spawnJson } from "../uc13/run-arms.ts";
 import { validate } from "../../src/format/validate.ts";
 import {
   LLM_MODEL, LLM_MODEL_IDS, LLM_PRICES, RUN_ID, applyItemLabels, samePriceTable, armRecord, blindItems, inputsSha256, jevBody, llmRequest, loadInputs,
@@ -141,25 +140,11 @@ export function keepLabels(rows: readonly RecordRow[], old: readonly RecordRow[]
   });
 }
 
-/** Write text to a uniquely named temp file next to path; the caller renames it into place. */
-async function stage(path: string, text: string): Promise<string> {
+/** Write to a uniquely named temp file in the same directory, then rename, so a reader never sees a half-written file. */
+async function atomicWrite(path: string, text: string): Promise<void> {
   const tmp = `${path}.tmp-${process.pid}-${randomUUID()}`;
   await writeFile(tmp, text);
-  return tmp;
-}
-
-/** Write to a temp name in the same directory, then rename, so a reader never sees a half-written file. */
-async function atomicWrite(path: string, text: string): Promise<void> {
-  await rename(await stage(path, text), path);
-}
-
-const SECRET_FIELD_TEXT = /"(authorization|api[_-]?key)"\s*:/i;
-const KEY_TOKENS = new RegExp(KEY_PATTERN.source, "g");
-
-/** Text safe to journal: key-like tokens redacted; text naming a secret field is withheld whole. */
-export function sanitize(text: string): string {
-  if (SECRET_FIELD_TEXT.test(text)) return "[withheld: text carries a secret field]";
-  return text.replace(KEY_TOKENS, "[redacted]");
+  await rename(tmp, path);
 }
 
 /**
@@ -175,25 +160,16 @@ export function preflight(inputs: Inputs): void {
   if (errors.length > 0) throw new Error(`inputs would not make valid records, no call made: ${errors.slice(0, 3).join("; ")}`);
 }
 
-/** Validate raw.json and records.csv in full, stage both, and only then rename each into place. */
+/**
+ * raw.json is the record of the run: validated (it must rebuild valid records), written atomically, then records.csv
+ * is derived from it by its own atomic write. If that second write fails, `replay` rebuilds records.csv from raw.json.
+ */
 export async function publishRun(out: string, inputs: Inputs, fixture: Fixture): Promise<void> {
   const rawText = fixtureJson(fixture);
-  const recordsText = formatRecords(rowsFromFixture(inputs, parseFixture(rawText)));
-  parseRecords(recordsText);
-  const raw = join(out, "raw.json");
-  const records = join(out, "records.csv");
-  const staged: string[] = [];
-  try {
-    staged.push(await stage(raw, rawText), await stage(records, recordsText));
-  } catch (error) {
-    await Promise.all(staged.map((p) => rm(p, { force: true })));
-    throw error;
-  }
-  const [rawTmp, recordsTmp] = staged;
-  if (rawTmp === undefined || recordsTmp === undefined) throw new Error("publish: staging failed");
-  await rename(rawTmp, raw);
-  await rename(recordsTmp, records);
-  console.log(`wrote raw.json and records.csv rows=${recordsText.split("\n").length - 2}`);
+  const rows = rowsFromFixture(inputs, parseFixture(rawText));
+  parseRecords(formatRecords(rows));
+  await atomicWrite(join(out, "raw.json"), rawText);
+  await writeRecords(out, rows);
 }
 
 /** records.csv is validated first and replaced only when valid. */
@@ -207,49 +183,27 @@ export async function writeRecords(out: string, rows: readonly RecordRow[]): Pro
 async function run(paths: Paths, inputs: Inputs): Promise<void> {
   preflight(inputs);
   await mkdir(paths.out, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const journal = join(paths.out, `run.journal.${stamp}-${randomUUID().slice(0, 8)}.jsonl`);
-  const log = (event: Readonly<Record<string, unknown>>): Promise<void> => appendFile(journal, JSON.stringify({ utc: new Date().toISOString(), ...event }) + "\n");
-  await writeFile(journal, "", { flag: "wx" });
-  await log({ event: "start", run_id: RUN_ID, inputs_sha256: inputsSha256(inputs) });
   const dir = await mkdtemp(join(tmpdir(), "tokenmax-"));
   const work = pairs(inputs);
-  /** One call: its raw stdout is journalled before anything parses it; a failed spawn is journalled too. */
-  const call = async (arm: Arm, c: Case, q: Question, cmd: readonly string[]): Promise<Entry> => {
-    const where = { arm, case_id: c.case_id, question_id: q.question_id };
-    const who = `${arm} ${c.case_id} ${q.question_id}`;
-    let out: Awaited<ReturnType<typeof spawnResult>>;
-    try {
-      out = await spawnResult(cmd, dir);
-    } catch (error) {
-      await log({ event: "call_failed", ...where, error: sanitize(error instanceof Error ? error.message : String(error)) });
-      throw error;
-    }
-    await log({ event: "call", ...where, exit_code: out.code, timed_out: out.timedOut, latency_ms: out.ms, stdout: sanitize(out.stdout), stderr: sanitize(out.stderr) });
-    if (out.timedOut) throw new Error(`${who} timed out`);
-    if (out.code !== 0) throw new Error(`${who} exited ${out.code}: ${sanitize(out.stderr.trim().slice(0, 300))}`);
-    const json: unknown = JSON.parse(out.stdout);
-    if (arm === "jev") parseJev(json, q.question_id, who);
-    else parseLlm(json, who);
-    return entry(arm, c, q, json, out.ms, new Date().toISOString());
-  };
   try {
     const jev = await pool(work, CONCURRENCY, async ({ c, q }, i) => {
       const bodyPath = join(dir, `req-${i}.json`);
       await Bun.write(bodyPath, JSON.stringify(jevBody(c, q)));
-      return call("jev", c, q, [paths.jevCall, "call", bodyPath]);
+      const { json, ms } = await spawnJson([paths.jevCall, "call", bodyPath], dir, `Jev ${c.case_id} ${q.question_id}`);
+      parseJev(json, q.question_id, `Jev ${c.case_id} ${q.question_id}`);
+      return entry("jev", c, q, json, ms, new Date().toISOString());
     });
     const llm = await pool(work, CONCURRENCY, async ({ c, q }) => {
       const r = llmRequest(c, q);
-      return call("llm", c, q, [paths.claude, "-p", "--model", r.model, "--output-format", "json", "--tools", "", "--strict-mcp-config",
-        "--setting-sources", "", "--no-session-persistence", "--system-prompt", r.system, r.user]);
+      const { json, ms } = await spawnJson(
+        [paths.claude, "-p", "--model", r.model, "--output-format", "json", "--tools", "", "--strict-mcp-config",
+          "--setting-sources", "", "--no-session-persistence", "--system-prompt", r.system, r.user],
+        dir, `claude -p ${c.case_id} ${q.question_id}`,
+      );
+      parseLlm(json, `LLM ${c.case_id} ${q.question_id}`);
+      return entry("llm", c, q, json, ms, new Date().toISOString());
     });
-    const fixture: Fixture = { inputs_sha256: inputsSha256(inputs), captured_utc: new Date().toISOString(), entries: [...jev, ...llm] };
-    await publishRun(paths.out, inputs, fixture);
-    await log({ event: "complete", calls: fixture.entries.length });
-  } catch (error) {
-    await log({ event: "failed", error: sanitize(error instanceof Error ? error.message : String(error)) });
-    throw error;
+    await publishRun(paths.out, inputs, { inputs_sha256: inputsSha256(inputs), captured_utc: new Date().toISOString(), entries: [...jev, ...llm] });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

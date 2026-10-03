@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { parseRecords } from "../uc13/arms.ts";
 import { validate } from "../../src/format/validate.ts";
 import { itemId, loadInputs } from "./arms.ts";

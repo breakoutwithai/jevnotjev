@@ -1,6 +1,6 @@
 // Fixes from the PR #57 sweep: each test here failed on f9a5b54.
 import { describe, expect, test } from "bun:test";
-import { chmod, copyFile, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatRows, readDictRows } from "../../src/format/csv.ts";
@@ -58,26 +58,6 @@ describe("PR #57 sweep fixes", () => {
       const old = labelled.map((r) => ({ ...r, ...change }));
       expect(keepLabels(recorded, old).filter((r) => r.label !== "").length).toBe(0);
     }
-  });
-
-  test("[integration] TM-16 (finding 3) a run journals every completed call with its raw response before parsing and marks a failed run", async () => {
-    await withDir(async (dir) => {
-      const jev = join(dir, "jev.sh");
-      await writeFile(jev, `#!/usr/bin/env bash\nq=$(jq -r '.questions|keys[0]' "$2")\nprintf '{"model":"jev-1.13.0","answers":{"%s":{"choice":"no","confidence":0.9}},"usage":{"input_tokens":10,"output_tokens":1}}\\n' "$q"\n`);
-      const claude = join(dir, "claude.sh");
-      await writeFile(claude, "#!/usr/bin/env bash\necho 'not json at all'\n");
-      await chmod(jev, 0o755);
-      await chmod(claude, 0o755);
-      const out = join(dir, "out");
-      await expect(main(["run"], { ...REAL, out, jevCall: jev, claude })).rejects.toThrow();
-      const journal = (await readdir(out)).find((n) => n.startsWith("run.journal.")) ?? "no-journal";
-      const lines = (await read(join(out, journal))).trim().split("\n").map((l): unknown => JSON.parse(l));
-      const calls = lines.filter((l) => typeof l === "object" && l !== null && "arm" in l);
-      expect(calls.filter((l) => JSON.stringify(l).includes('"arm":"jev"')).length).toBe(10);
-      expect(calls.some((l) => JSON.stringify(l).includes("not json at all"))).toBe(true);
-      expect(JSON.stringify(lines.at(-1))).toContain('"event":"failed"');
-      expect(await readdir(out)).not.toContain("raw.json");
-    });
   });
 
   test("[unit] TM-17 (finding 4) invalid rows are refused before records.csv is touched", async () => {

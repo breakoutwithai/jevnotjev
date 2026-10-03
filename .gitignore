@@ -36,6 +36,3 @@ docs/wayfinder/
 docs/handovers/
 docs/prompts/*
 !docs/prompts/*.prompt-template.md
-
-# Per-attempt run journals (raw call output, sanitised); raw.json is the published record
-docs/product/runs/**/run.journal.*.jsonl

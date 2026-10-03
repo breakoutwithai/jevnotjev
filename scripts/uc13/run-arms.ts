@@ -89,30 +89,17 @@ export function inputsSha256(factSheet: string, cases: readonly Case[]): string 
 
 /** Run a command for its JSON stdout; killed and rejected at the deadline. */
 export async function spawnJson(cmd: readonly string[], cwd: string, what: string, deadlineMs = CALL_DEADLINE_MS): Promise<{ json: unknown; ms: number }> {
-  const { text, ms } = await spawnText(cmd, cwd, what, deadlineMs);
-  const json: unknown = JSON.parse(text);
-  return { json, ms };
-}
-
-/** Run a command for its raw stdout; killed and rejected at the deadline, rejected on a non-zero exit. */
-export async function spawnText(cmd: readonly string[], cwd: string, what: string, deadlineMs = CALL_DEADLINE_MS): Promise<{ text: string; ms: number }> {
-  const r = await spawnResult(cmd, cwd, deadlineMs);
-  if (r.timedOut) throw new Error(`${what} timed out after ${deadlineMs} ms`);
-  if (r.code !== 0) throw new Error(`${what} exited ${r.code}: ${r.stderr.trim().slice(0, 300)}`);
-  return { text: r.stdout, ms: r.ms };
-}
-
-export interface SpawnResult { readonly stdout: string; readonly stderr: string; readonly code: number; readonly timedOut: boolean; readonly ms: number }
-
-/** Run a command and return everything it produced, whatever its exit; killed at the deadline. */
-export async function spawnResult(cmd: readonly string[], cwd: string, deadlineMs = CALL_DEADLINE_MS): Promise<SpawnResult> {
   const t0 = performance.now();
   const proc = Bun.spawn([...cmd], { cwd, stdout: "pipe", stderr: "pipe" });
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; proc.kill(); }, deadlineMs);
   try {
     const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    return { stdout, stderr, code, timedOut, ms: Math.round(performance.now() - t0) };
+    const ms = Math.round(performance.now() - t0);
+    if (timedOut) throw new Error(`${what} timed out after ${deadlineMs} ms`);
+    if (code !== 0) throw new Error(`${what} exited ${code}: ${stderr.trim().slice(0, 300)}`);
+    const json: unknown = JSON.parse(stdout);
+    return { json, ms };
   } finally {
     clearTimeout(timer);
   }

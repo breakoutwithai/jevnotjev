@@ -42,6 +42,7 @@ Each item id is bound to this run, its CV, question, answer set, prompt version 
 
 ## Rebuild
 - `bun scripts/tokenmax/run.ts replay` rebuilds `records.csv` from `raw.json` with no network, keeping a label only when its row's run, prompt, CV, question, answer set and answer are unchanged. It refuses a `raw.json` whose price table differs from the dated one.
-- Do not run `replay` and `label` at the same time: neither locks `records.csv`, so the later write wins.
+- Single operator: do not run these commands concurrently; nothing locks `records.csv`.
 - `bun scripts/tokenmax/run.ts page` regenerates `label.html`.
-- `bun scripts/tokenmax/run.ts run` makes 20 new paid calls, after checking that every record the inputs would produce passes the jnj-record/1 schema. Each attempt writes its own `run.journal.<time>.jsonl` (gitignored, never overwritten): every call's exit code, stdout and stderr, with key-like text redacted, before parsing, ending with `complete` or `failed`. `raw.json` and `records.csv` are both validated before either is replaced, and only when all 20 calls succeed.
+- `bun scripts/tokenmax/run.ts run` makes 20 new paid calls, after checking that every record the inputs would produce passes the jnj-record/1 schema. It writes nothing unless all 20 succeed; then `raw.json` is validated and written atomically, and `records.csv` is derived from it by a second atomic write.
+- `raw.json` is the record of the run; `records.csv` is rebuilt from it by `replay`. Labels live only in `records.csv`, and `replay` preserves them. If the second write of a run fails, run `replay` to recover `records.csv`.

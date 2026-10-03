@@ -40,7 +40,7 @@ bun run validate format/example-v1.csv
 Expected last line: `VALID rows=9 cases=3 errors=0 gaps=2`. Edit a cell (answer `maybe`, confidence `1.5`) and run it again to see the file rejected. Spec: [format/README.md](format/README.md).
 
 ## Progress
-One step a day, each merged as a pull request.
+One step a day, each shipped to main.
 
 | Day | Step | Shipped |
 |---|---|---|

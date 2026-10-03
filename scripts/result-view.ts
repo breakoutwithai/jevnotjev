@@ -1,9 +1,9 @@
 // D09 result view: one self-contained HTML page comparing the current LLM, the keyword rule and Jev.
 // Every number comes from src/core (metrics and verdict) over the validated file; this script only lays them out.
-// Run: bun scripts/result-view.ts examples/d06-tiny/records.csv site/result-d06.html
+// Run: bun scripts/result-view.ts (no arguments): reads examples/d06-tiny/records.csv, writes site/result-d06.html.
 
-import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { decodeUtf8, validate, type ParsedRow } from "../src/format/validate.ts";
 import { fileSeed } from "../src/core/calc.ts";
 import {
@@ -27,6 +27,8 @@ const NAMES: Readonly<Record<Arm, string>> = { llm: "Current LLM", rule: "Simple
 const WHOLE_FILE = "whole file";
 /** The hand-worked fixture; its own limitations are shown only for this source. */
 export const D06_SOURCE = "examples/d06-tiny/records.csv";
+/** The page the CLI writes, relative to the repo root. */
+const OUTPUT = "site/result-d06.html";
 
 function escape(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -238,7 +240,7 @@ function isD06(source: string): boolean {
 /**
  * The result view for one records CSV, as one HTML document with inline CSS and no scripts.
  * `source` is the file's repo-relative path (never an absolute one); the d06 limitations show only when it is
- * exactly D06_SOURCE, which the CLI derives from the input's real path.
+ * exactly D06_SOURCE, which is what the CLI passes.
  */
 export async function renderResultView(csvText: string, source: string): Promise<string> {
   const result = validate(csvText);
@@ -264,7 +266,7 @@ export async function renderResultView(csvText: string, source: string): Promise
     tag("style", STYLE),
     "</head>",
     "<body><main>",
-    tag("h1", "Current LLM, keyword rule and Jev on the same CV questions"),
+    tag("h1", `Current LLM, keyword rule and Jev on the same ${d06 ? "CV questions" : "questions"}`),
     `<p class="lead">${escape(LEAD)}</p>`,
     tag("h2", "Words used in the tables"),
     "<dl>",
@@ -289,28 +291,19 @@ export async function renderResultView(csvText: string, source: string): Promise
 }
 
 if (import.meta.main) {
-  const [input, output] = process.argv.slice(2);
-  if (input === undefined || output === undefined) {
-    console.error("usage: bun scripts/result-view.ts <records.csv> <out.html>");
+  // Fixed input and output, both under the repo root: there are no paths to get wrong.
+  if (process.argv.length > 2) {
+    console.error("usage: bun scripts/result-view.ts (no arguments; writes site/result-d06.html from examples/d06-tiny/records.csv)");
     process.exit(2);
   }
+  const repo = resolve(import.meta.dir, "..");
+  const output = resolve(repo, OUTPUT);
   try {
-    // The page names its source by its real path relative to the repo root, never by an absolute path,
-    // so the d06 fixture is recognised from any working directory or through a symlink.
-    const real = realpathSync(input);
-    const source = relative(realpathSync(resolve(import.meta.dir, "..")), real).split(sep).join("/");
-    if (existsSync(output)) {
-      const a = statSync(real);
-      const b = statSync(output);
-      if (realpathSync(output) === real || (a.dev === b.dev && a.ino === b.ino)) {
-        throw new Error(`output ${output} is the input file; refusing to overwrite it`);
-      }
-    }
-    const page = await renderResultView(decodeUtf8(readFileSync(input)), source);
+    const page = await renderResultView(decodeUtf8(readFileSync(resolve(repo, D06_SOURCE))), D06_SOURCE);
     writeFileSync(output, page);
-    console.log(`wrote ${output}`);
+    console.log(`wrote ${OUTPUT}`);
   } catch (error) {
-    console.error(`${input}: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`${D06_SOURCE}: ${error instanceof Error ? error.message : String(error)}`);
     process.exit(1);
   }
 }

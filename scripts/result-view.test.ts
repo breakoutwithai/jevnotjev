@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, linkSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,6 +39,21 @@ function keys(page: string): string[] {
 }
 
 const [header = "", ...dataLines] = recordsText.trimEnd().split("\n");
+const REPO = fileURLToPath(new URL("../", import.meta.url));
+
+/** True when the HTML opens a script element, in any letter case. */
+function hasScript(page: string): boolean {
+  return /<script\b/i.test(page);
+}
+
+/**
+ * Every reference to another resource, absolute or relative: a resource-bearing attribute with any value,
+ * a CSS @import, a CSS url(), or an http(s) URL anywhere. The page must reference nothing at all.
+ */
+function resourceRefs(page: string): string[] {
+  const patterns = [/\b(?:src|href|srcset|action|formaction|poster|data|background|xlink:href)\s*=/gi, /@import\b/gi, /\burl\s*\(/gi, /https?:\/\//gi];
+  return patterns.flatMap((pattern) => [...page.matchAll(pattern)].map((match) => match[0]));
+}
 
 describe("result view of d06-tiny", () => {
   test("[unit] D09 whole-file accepted counts and spend match expected.md", () => {
@@ -126,14 +141,33 @@ describe("result view of d06-tiny", () => {
   test("[unit] D09 no em or en dash and no script", () => {
     expect(html.includes("\u2014")).toBe(false);
     expect(html.includes("\u2013")).toBe(false);
-    expect(html).not.toContain("<script");
+    expect(hasScript(html)).toBe(false);
   });
 
-  test("[unit] D09 no external resource reference in any syntax", () => {
-    expect(html).not.toMatch(/\b(?:src|href|srcset|action|poster|data)\s*=\s*["']?\s*(?:[a-z][a-z0-9+.-]*:)?\/\//i);
-    expect(html).not.toMatch(/@import/i);
-    expect(html).not.toMatch(/url\s*\(/i);
-    expect(html).not.toMatch(/https?:\/\//i);
+  test("[unit] D09 the script check is case-insensitive", () => {
+    expect(hasScript("<p>x</p>")).toBe(false);
+    expect(hasScript("<script>x</script>")).toBe(true);
+    expect(hasScript("<SCRIPT src=x></SCRIPT>")).toBe(true);
+    expect(hasScript("<Script>x</Script>")).toBe(true);
+  });
+
+  test("[unit] D09 the page references no resource at all, absolute or relative", () => {
+    expect(resourceRefs(html)).toEqual([]);
+  });
+
+  test("[unit] D09 the resource check rejects every reference form", () => {
+    const bad = [
+      '<link rel="stylesheet" href="./x.css">',
+      '<img src="./p.png">',
+      "<img src=p.png>",
+      '<link href="//cdn.example/x.css">',
+      '<a href="https://example.com/">x</a>',
+      '<img srcset="a.png 2x">',
+      "<style>@import 'x.css';</style>",
+      "<style>body { background: url(p.png); }</style>",
+    ];
+    for (const fixture of bad) expect([fixture, resourceRefs(fixture).length > 0]).toEqual([fixture, true]);
+    expect(resourceRefs('<td data-cell="q1.jev.cpa">$0.000025</td>')).toEqual([]);
   });
 });
 
@@ -173,40 +207,31 @@ describe("result view of other files", () => {
     expect(page).toContain("evidence from this test set only");
   });
 
-  test("[integration] D09 CLI rejects malformed UTF-8 and writes nothing", () => {
+  test("[integration] D09 CLI takes no arguments: any argument is a usage error and writes nothing", () => {
     const dir = mkdtempSync(join(tmpdir(), "result-view-"));
-    const input = join(dir, "bad.csv");
     const output = join(dir, "out.html");
-    // A valid file whose cv1 case_input (every row of it) holds a byte that is not UTF-8: a lossy decode
-    // turns it into U+FFFD, the rows still agree, and the file would validate and render.
-    const parts = recordsText.split("Aurelian");
-    expect(parts.length).toBeGreaterThan(1);
-    const bad = Buffer.from([0xff]);
-    writeFileSync(input, Buffer.concat(parts.flatMap((part, i) => (i === 0 ? [Buffer.from(part)] : [Buffer.from("Aur"), bad, Buffer.from(`lian${part}`)]))));
-    const run = Bun.spawnSync(["bun", SCRIPT, input, output]);
-    expect(run.exitCode).not.toBe(0);
+    const before = readFileSync(PAGE, "utf8");
+    for (const args of [[RECORDS, output], [RECORDS], ["--help"]]) {
+      const run = Bun.spawnSync(["bun", SCRIPT, ...args], { cwd: REPO });
+      expect([args, run.exitCode]).toEqual([args, 2]);
+    }
     expect(existsSync(output)).toBe(false);
+    expect(readFileSync(PAGE, "utf8")).toBe(before);
   });
 
-  test("[integration] D09 CLI refuses an output that is the input, by path or hard link, and leaves it intact", () => {
-    const dir = mkdtempSync(join(tmpdir(), "result-view-"));
-    const input = join(dir, "records.csv");
-    const link = join(dir, "linked.csv");
-    writeFileSync(input, recordsText);
-    linkSync(input, link);
-    for (const output of [input, join(dir, ".", "records.csv"), link]) {
-      const run = Bun.spawnSync(["bun", SCRIPT, input, output]);
-      expect([output, run.exitCode]).toEqual([output, 1]);
-      expect(readFileSync(input, "utf8")).toBe(recordsText);
+  test("[integration] D09 CLI from the repo root and from the fixture directory writes the committed page byte for byte", () => {
+    for (const cwd of [REPO, dirname(RECORDS)]) {
+      const run = Bun.spawnSync(["bun", SCRIPT], { cwd });
+      expect([cwd, run.exitCode]).toEqual([cwd, 0]);
+      expect(readFileSync(PAGE, "utf8")).toBe(html);
     }
   });
 
-  test("[integration] D09 CLI run from the fixture directory still names the d06 fixture and its limitations", () => {
-    const dir = mkdtempSync(join(tmpdir(), "result-view-"));
-    const output = join(dir, "out.html");
-    const run = Bun.spawnSync(["bun", SCRIPT, "records.csv", output], { cwd: dirname(RECORDS) });
-    expect(run.exitCode).toBe(0);
-    expect(readFileSync(output, "utf8")).toBe(html);
+  test("[unit] D09 heading says CV questions only for the d06 fixture", async () => {
+    expect(html).toContain("on the same CV questions");
+    const page = await renderResultView(recordsText, "runs/other.csv");
+    expect(page).toContain("on the same questions");
+    expect(page).not.toContain("CV questions");
   });
 
   test("[unit] R4.d human rows are counted and shown with their gap lines, and kept out of the verdict", async () => {

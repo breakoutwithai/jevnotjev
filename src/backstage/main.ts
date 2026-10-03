@@ -1,5 +1,9 @@
-import { BackstageRun, parseCases, validateSceneKeys } from "./run.ts";
-import { PROTOCOL_VERSION } from "./contracts.ts";
+import {
+  BackstageRun,
+  CaseImportState,
+  checkRunnerHealth,
+  validateSceneKeys,
+} from "./run.ts";
 import type { Scene } from "./contracts.ts";
 import type { Spend, CostPerAccepted } from "../core/metrics.ts";
 declare const BACKSTAGE_BUILD_VERSION: string;
@@ -35,6 +39,8 @@ let run: BackstageRun | undefined;
 let cardIndex = 0;
 let renderEpoch = 0;
 let imported: Scene["cases"] | undefined;
+const imports = new CaseImportState();
+let startup: AbortController | undefined;
 function notice(message: string) {
   text("notice", message);
 }
@@ -100,45 +106,39 @@ function freezeFields(frozen: boolean) {
     if (value instanceof HTMLFieldSetElement) value.disabled = frozen;
   }
 }
-async function checkServer() {
-  const response = await fetch("/api/backstage/health", { cache: "no-store" });
-  if (!response.ok)
-    throw new Error("Runner unavailable. Start the matching Backstage server.");
-  const health: unknown = await response.json();
-  if (
-    typeof health !== "object" ||
-    health === null ||
-    !("protocol" in health) ||
-    health.protocol !== PROTOCOL_VERSION ||
-    !("version" in health) ||
-    health.version !== BACKSTAGE_BUILD_VERSION
-  )
-    throw new Error("Page and runner versions differ. Reload before running.");
-}
 let starting = false;
 async function start(firstOnly: boolean, retry = false) {
   if (starting || run?.running) return;
+  if (imports.pending) {
+    notice("Wait for the case import or edit the cases to cancel it.");
+    return;
+  }
   starting = true;
-  button("run-one").disabled = true;
-  button("run-all").disabled = true;
-  button("retry").disabled = true;
+  const controller = new AbortController();
+  startup = controller;
   try {
     const supplied = keys();
-    if (!supplied.jev || !supplied.llm)
-      throw new Error("Enter both provider keys in Casting first.");
-    await checkServer();
+    let current = run;
     if (!retry) {
-      if (run)
+      if (current)
         throw new Error(
           "This scene is already frozen. Retry unfinished calls or edit as a new scene.",
         );
+      // Capture and validate before the first asynchronous operation: Run authorizes these exact inputs.
       const candidate = scene(firstOnly);
       validateSceneKeys(candidate, supplied);
-      run = new BackstageRun(candidate);
-      cardIndex = 0;
+      current = new BackstageRun(candidate, BACKSTAGE_BUILD_VERSION);
+      imports.invalidate();
       freezeFields(true);
+    } else if (!current || current.labeling)
+      throw new Error("Retries are locked once blind judging begins.");
+    void render();
+    await checkRunnerHealth(BACKSTAGE_BUILD_VERSION, controller.signal);
+    if (controller.signal.aborted) return;
+    if (!retry) {
+      run = current;
+      cardIndex = 0;
     }
-    const current = run;
     if (!current) return;
     notice("Rehearsing. Calls use your provider accounts.");
     const refresh = () => {
@@ -148,12 +148,14 @@ async function start(firstOnly: boolean, retry = false) {
     else await current.start(supplied, undefined, refresh);
     if (run === current)
       notice(
-        "Run stopped. Review failures in Learning Lines, then judge answers in Rehearsals.",
+        "Calls stopped. Decide whether to retry unfinished calls, then open blind judging in Rehearsals.",
       );
   } catch (error) {
     notice(error instanceof Error ? error.message : "Could not start the run.");
   } finally {
     starting = false;
+    startup = undefined;
+    if (!run) freezeFields(false);
     void render();
   }
 }
@@ -195,20 +197,21 @@ async function render() {
   const epoch = ++renderEpoch;
   const current = run;
   const running = current?.running ?? false;
-  button("run-one").disabled = starting || !!current;
-  button("run-all").disabled = starting || !!current;
-  button("stop").disabled = !running;
+  button("run-one").disabled = starting || imports.pending || !!current;
+  button("run-all").disabled = starting || imports.pending || !!current;
+  button("stop").disabled = !running && !starting;
   button("retry").disabled =
     starting ||
     !current ||
     running ||
     current.completed === current.total ||
-    current.revealed;
+    current.labeling;
   button("new-scene").disabled = running || starting;
   button("download-csv").disabled = !current || running || !current.revealed;
   button("download-evidence").disabled =
     !current || running || !current.revealed;
-  button("reveal").disabled = !current || running || current.revealed;
+  button("reveal").disabled =
+    !current || running || starting || !current.labeling || current.revealed;
   const count = current?.manifest.scene.cases.length ?? cases().length;
   text(
     "run-preview",
@@ -222,7 +225,16 @@ async function render() {
     progress.append(
       node("p", running ? "Calls in progress..." : "No calls in progress."),
     );
-    for (const attempt of current.attempts) {
+    if (!current.revealed) {
+      const extra = current.extraSpend();
+      progress.append(
+        node(
+          "p",
+          `${current.total - current.completed} provider calls remain unfinished. Failed attempts: ${money(extra.knownUsd)} known spend, ${extra.unknown} with unknown charges. Provider details stay hidden until results are revealed.`,
+        ),
+      );
+    }
+    for (const attempt of current.revealed ? current.attempts : []) {
       progress.append(
         node(
           "p",
@@ -302,7 +314,8 @@ async function render() {
 function renderCard() {
   const current = run;
   const container = element("blind-card");
-  const cards = current && !current.running ? current.cards() : [];
+  const cards =
+    current && !current.running && current.labeling ? current.cards() : [];
   cardIndex = Math.max(0, Math.min(cardIndex, cards.length - 1));
   const card = cards[cardIndex];
   element("label-actions").hidden = !card || !!current?.revealed;
@@ -313,10 +326,31 @@ function renderCard() {
       node(
         "p",
         current?.running
-          ? "Let the run stop before labeling."
-          : "No answers to judge yet.",
+          ? "Let the run stop before judging."
+          : "Complete your retry decisions before opening blind judging. After that, this set of answers cannot change.",
       ),
     );
+    if (
+      current?.started &&
+      !current.running &&
+      !current.labeling &&
+      !starting
+    ) {
+      const begin = document.createElement("button");
+      begin.type = "button";
+      begin.textContent = "Open blind judging and lock retries";
+      begin.onclick = () => {
+        if (
+          !confirm(
+            "Finish retrying and judge this fixed set of answers? Any unfinished calls will remain missing. You cannot retry after opening judging.",
+          )
+        )
+          return;
+        current.beginLabeling();
+        void render();
+      };
+      container.append(begin);
+    }
     return;
   }
   text("rubric", `Keep when: ${current?.manifest.scene.acceptance ?? ""}`);
@@ -333,7 +367,7 @@ function renderCard() {
 }
 function label(value: "accept" | "reject" | null) {
   const card = run?.cards()[cardIndex];
-  if (!card || !run || run.running || run.revealed) return;
+  if (!card || !run || run.running || !run.labeling || run.revealed) return;
   run.label(card.id, value);
   cardIndex = Math.min(cardIndex + 1, run.cards().length - 1);
   void render();
@@ -354,17 +388,20 @@ button("run-one").onclick = () => void start(true);
 button("run-all").onclick = () => void start(false);
 button("retry").onclick = () => void start(false, true);
 button("stop").onclick = () => {
+  startup?.abort();
   run?.stop();
   notice(
-    "Stopped. In-flight calls may still be charged; completed answers are kept.",
+    run?.running
+      ? "Stopped. In-flight calls may still be charged; completed answers are kept."
+      : "Runner check cancelled. No new provider calls were started.",
   );
   void render();
 };
 button("reveal").onclick = () => {
-  if (!run || run.running) return;
+  if (!run || run.running || !run.labeling) return;
   if (
     !confirm(
-      "Reveal the players and lock your labels? You can leave answers unlabelled. Retry unfinished calls before revealing.",
+      "Reveal the players and lock your labels? You can leave answers unlabelled. Unfinished calls remain missing.",
     )
   )
     return;
@@ -387,6 +424,8 @@ button("new-scene").onclick = () => {
     )
   )
     return;
+  startup?.abort();
+  imports.invalidate();
   run?.stop();
   run = undefined;
   cardIndex = 0;
@@ -420,28 +459,38 @@ button("download-evidence").onclick = () => {
     );
 };
 field("cases").addEventListener("input", () => {
+  imports.invalidate();
   imported = undefined;
   void render();
 });
 field("import-cases").addEventListener("change", async () => {
   const input = field("import-cases");
-  if (!(input instanceof HTMLInputElement)) return;
+  if (!(input instanceof HTMLInputElement) || starting || run) return;
+  imports.invalidate();
   const file = input.files?.[0];
-  if (!file) return;
+  if (!file) {
+    void render();
+    return;
+  }
   try {
     if (file.size > 1000000)
       throw new Error("Case CSV must be smaller than 1 MB.");
-    imported = parseCases(await file.text());
-    field("cases").value = imported
+    const reading = imports.read(file.text());
+    void render();
+    const loaded = await reading;
+    if (!loaded || starting || run) return;
+    imported = loaded;
+    field("cases").value = loaded
       .map((c) => c.input.replaceAll("\n", " / "))
       .join("\n");
     notice(
-      `Imported ${imported.length} cases; original multiline text is preserved.`,
+      `Imported ${loaded.length} cases; original multiline text is preserved.`,
     );
   } catch (error) {
     notice(error instanceof Error ? error.message : "Could not read CSV.");
+  } finally {
+    void render();
   }
-  void render();
 });
 button("theme").onclick = () => {
   document.documentElement.dataset.theme =

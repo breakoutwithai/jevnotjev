@@ -3,6 +3,7 @@ import { callProvider, parseAnswerRequest } from "./providers.ts";
 import type { AnswerRequest } from "./contracts.ts";
 const request: AnswerRequest = {
   version: "backstage/1",
+  revision: "test",
   runId: "run-1",
   caseId: "case-1",
   question: "Keep?",
@@ -186,4 +187,15 @@ test("[unit] B67 timeout cancels a stalled provider response body", async () => 
   expect(result.ok).toBe(false);
   if (!result.ok) expect(result.code).toBe("timeout");
   expect(cancelled).toBe(true);
+});
+
+test("[unit] B4 malformed cache usage cannot become a known cost", async () => {
+  for (const cache of ["100", null, -1, 1.5, {}, false]) {
+    const result = await callProvider({ ...request, provider: "llm" }, async () => Response.json({
+      model: "claude-haiku-4-5-20251001", stop_reason: "end_turn",
+      content: [{ type: "text", text: "keep" }],
+      usage: { input_tokens: 100, output_tokens: 1, cache_read_input_tokens: cache },
+    }));
+    expect(result.costUsd).toBeNull();
+  }
 });

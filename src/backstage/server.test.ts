@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { createHandler } from "./server.ts";
 const body = {
   version: "backstage/1",
+  revision: "test",
   runId: "run-1",
   caseId: "case-1",
   question: "Keep?",
@@ -88,4 +89,24 @@ test("[unit] B67 unsupported methods and traversal never serve source files", as
   expect(
     (await handler(new Request("http://localhost:3456/.env"))).status,
   ).toBe(404);
+});
+
+test("[unit] B8 stale browser revision is rejected before paid dispatch", async () => {
+  let calls = 0;
+  const handler = createHandler({ version: "new-revision", providerFetch: async () => {
+    calls++;
+    return Response.json({});
+  }});
+  const response = await handler(request("http://localhost:3456", { ...body, revision: "old-revision" }));
+  expect(response.status).toBe(409);
+  expect(calls).toBe(0);
+});
+
+test("[unit] B8 runtime cannot relabel a compiled server artifact", async () => {
+  const { runtimeVersion } = await import("./server.ts");
+  const compiled = "a".repeat(40);
+  expect(runtimeVersion(compiled, compiled)).toBe(compiled);
+  expect(() => runtimeVersion("b".repeat(40), compiled)).toThrow("compiled server revision");
+  expect(() => runtimeVersion(undefined, compiled)).toThrow();
+  expect(() => runtimeVersion("test", "test")).toThrow();
 });

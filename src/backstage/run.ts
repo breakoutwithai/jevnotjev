@@ -23,6 +23,7 @@ export type Transport = (
 ) => Promise<unknown>;
 export type Label = "accept" | "reject" | null;
 export interface Manifest {
+  readonly revision: string;
   readonly runId: string;
   readonly promptVersion: string;
   readonly questionId: string;
@@ -98,7 +99,11 @@ function validCases(cases: Scene["cases"]): Scene["cases"] {
 }
 export function parseCases(csv: string): Scene["cases"] {
   const parsed = readDictRows(csv);
-  if (parsed.header?.join(",") !== "case_id,case_input")
+  if (
+    parsed.header?.length !== 2 ||
+    parsed.header[0] !== "case_id" ||
+    parsed.header[1] !== "case_input"
+  )
     throw new Error("Use exactly the CSV columns case_id,case_input.");
   return validCases(
     parsed.rows.map((r) => {
@@ -194,6 +199,7 @@ export async function parseAnswerResult(
   if (
     !object(value) ||
     value.runId !== request.runId ||
+    value.revision !== request.revision ||
     value.caseId !== request.caseId ||
     value.provider !== request.provider ||
     value.model !== MODELS[request.provider] ||
@@ -212,6 +218,7 @@ export async function parseAnswerResult(
     throw new Error("Invalid response evidence.");
   const common = {
     runId: request.runId,
+    revision: request.revision,
     caseId: request.caseId,
     provider: request.provider,
     model: MODELS[request.provider],
@@ -274,6 +281,7 @@ export const answerTransport: Transport = async (request, signal) => {
         "Invalid or oversized request.",
       ],
       403: ["Same-origin requests required."],
+      409: ["Page and runner versions differ. Reload before running."],
       413: ["Request too large."],
       415: ["JSON required."],
       503: ["Runner busy. Retry explicitly when ready."],
@@ -291,6 +299,7 @@ export const answerTransport: Transport = async (request, signal) => {
         const failure: AnswerFailure = {
           ok: false,
           runId: request.runId,
+          revision: request.revision,
           caseId: request.caseId,
           provider: request.provider,
           model: MODELS[request.provider],
@@ -326,12 +335,16 @@ export class BackstageRun {
   #controller: AbortController | null = null;
   #started = false;
   #revealed = false;
+  #labeling = false;
   #unsafe = false;
   #notify: (() => void) | undefined;
-  constructor(scene: Scene) {
+  constructor(scene: Scene, revision = "test") {
+    if (!/^[A-Za-z0-9_.-]{1,64}$/.test(revision))
+      throw new Error("Invalid run revision.");
     const frozen = freezeScene(scene);
     this.manifest = Object.freeze({
       runId: crypto.randomUUID(),
+      revision,
       promptVersion: "backstage-v1",
       questionId: "decision",
       createdAt: new Date().toISOString(),
@@ -369,11 +382,24 @@ export class BackstageRun {
   get started(): boolean {
     return this.#started;
   }
+  get labeling(): boolean {
+    return this.#labeling;
+  }
+  beginLabeling(): void {
+    if (this.running || !this.#answers.length || this.#unsafe)
+      throw new Error("Finish or stop the run before opening blind judging.");
+    this.#labeling = true;
+  }
   get revealed(): boolean {
     return this.#revealed;
   }
   reveal(): void {
-    if (this.running || !this.#answers.length || this.#unsafe)
+    if (
+      this.running ||
+      !this.#answers.length ||
+      this.#unsafe ||
+      !this.#labeling
+    )
       throw new Error("Finish or stop a safe run before revealing results.");
     this.#revealed = true;
   }
@@ -394,6 +420,10 @@ export class BackstageRun {
       }));
   }
   label(id: string, label: Label): void {
+    if (!this.#labeling)
+      throw new Error(
+        "Open blind judging before labeling. This locks retries.",
+      );
     if (this.#revealed)
       throw new Error("Labels are locked after revealing results.");
     if (this.running)
@@ -421,8 +451,10 @@ export class BackstageRun {
     transport: Transport = answerTransport,
     onChange?: () => void,
   ): Promise<void> {
-    if (this.#revealed)
-      throw new Error("Start a new run after revealing results.");
+    if (this.#labeling)
+      throw new Error(
+        "Retries are locked once blind judging begins. Start a new run.",
+      );
     if (!this.#started) throw new Error("Start the run first.");
     await this.#execute(keys, transport, onChange);
   }
@@ -489,6 +521,7 @@ export class BackstageRun {
           const request: AnswerRequest = {
             version: PROTOCOL_VERSION,
             runId: this.manifest.runId,
+            revision: this.manifest.revision,
             caseId: c.id,
             question: scene.question,
             choices: scene.choices,
@@ -503,6 +536,7 @@ export class BackstageRun {
           const interrupted = (): AnswerFailure => ({
             ok: false,
             runId: request.runId,
+            revision: request.revision,
             caseId: c.id,
             provider,
             attemptId: crypto.randomUUID(),
@@ -636,5 +670,85 @@ export class BackstageRun {
       extraSpend: this.extraSpend(),
       records: this.csv(),
     };
+  }
+}
+
+/** Entire handshake is bounded, including headers and JSON body; cancellation never starts paid work. */
+export async function checkRunnerHealth(
+  revision: string,
+  signal: AbortSignal,
+  fetcher: (input: string, init: RequestInit) => Promise<Response> = fetch,
+  timeoutMs = 10000,
+): Promise<void> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal.addEventListener("abort", abort, { once: true });
+  if (signal.aborted) controller.abort();
+  const timer = setTimeout(abort, timeoutMs);
+  let onAbort: (() => void) | undefined;
+  try {
+    const cancelled = new Promise<never>((_, reject) => {
+      onAbort = () =>
+        reject(
+          new Error(
+            "Runner check stopped or timed out. No provider calls were started.",
+          ),
+        );
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+      if (controller.signal.aborted) onAbort();
+    });
+    const checked = (async () => {
+      if (controller.signal.aborted) throw new Error("Runner check cancelled.");
+      const response = await fetcher("/api/backstage/health", {
+        cache: "no-store",
+        signal: controller.signal,
+        redirect: "error",
+      });
+      if (!response.ok)
+        throw new Error(
+          "Runner unavailable. Start the matching Backstage server.",
+        );
+      const health: unknown = await response.json();
+      if (
+        !object(health) ||
+        health.protocol !== PROTOCOL_VERSION ||
+        health.version !== revision
+      )
+        throw new Error(
+          "Page and runner versions differ. Reload before running.",
+        );
+    })();
+    await Promise.race([checked, cancelled]);
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", abort);
+    if (onAbort) controller.signal.removeEventListener("abort", onAbort);
+  }
+}
+
+/** A superseded file read cannot overwrite a newer import, edit or frozen run. */
+export class CaseImportState {
+  #generation = 0;
+  #pending = false;
+  get pending(): boolean {
+    return this.#pending;
+  }
+  invalidate(): void {
+    this.#generation++;
+    this.#pending = false;
+  }
+  async read(text: Promise<string>): Promise<Scene["cases"] | undefined> {
+    const generation = ++this.#generation;
+    this.#pending = true;
+    try {
+      const csv = await text;
+      if (generation !== this.#generation) return undefined;
+      return parseCases(csv);
+    } catch (error) {
+      if (generation !== this.#generation) return undefined;
+      throw error;
+    } finally {
+      if (generation === this.#generation) this.#pending = false;
+    }
   }
 }

@@ -6,8 +6,7 @@ A live BYOK rehearsal for one binary decision. Open six rooms, write the questio
 
 ```
 bun install
-bun run backstage:build
-BACKSTAGE_VERSION=$(git rev-parse HEAD) BACKSTAGE_STATIC_ROOT=dist/backstage/site bun run backstage:start
+bun run backstage:start
 ```
 
 Open http://localhost:3456/backstage/. The service binds to loopback. Keys remain in session/request memory; reload clears them and the run. No product demo mode exists. Calls use pinned jev-1.13.0 and claude-haiku-4-5-20251001. An invalid key fails visibly. No automatic retry; Stop and explicit retry preserve attempt evidence and possible charges.
@@ -22,4 +21,4 @@ Run `.agents/scripts/test-green`, `.agents/scripts/validate` and `.agents/script
 
 [Deployment contract](docs/backstage-deploy.md) packages frontend/backend together off-host, requires a merged PR, and documents the one-time service/proxy setup plus paired rollback. This build does not deploy itself.
 
-Rehearsals conceal player metadata. When ready, choose **Reveal results and lock labels**. This unlocks provider comparisons and downloads, and ends the blind pass. Finish retries before revealing. No label stays missing.
+Finish any retries, then choose **Begin blind judging** in Rehearsals. This locks retries and opens shuffled answer cards with player metadata hidden. When labeling is finished, choose **Reveal results and lock labels** to unlock provider comparisons and downloads. Unlabelled answers stay missing.

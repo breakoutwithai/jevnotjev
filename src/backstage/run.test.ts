@@ -1,6 +1,8 @@
 import { describe, expect, test, spyOn } from "bun:test";
 import {
   BackstageRun,
+  CaseImportState,
+  checkRunnerHealth,
   inputFingerprint,
   parseCases,
   validateSceneKeys,
@@ -38,6 +40,7 @@ async function success(r: AnswerRequest): Promise<AnswerSuccess> {
   return {
     ok: true,
     runId: r.runId,
+    revision: r.revision,
     caseId: r.caseId,
     provider: r.provider,
     attemptId: crypto.randomUUID(),
@@ -79,6 +82,7 @@ describe("Backstage run", () => {
     expect(run.cards()).toHaveLength(6);
     expect(run.cards().every((c) => !("provider" in c))).toBe(true);
     const order = run.cards().map((c) => c.id);
+    run.beginLabeling();
     for (const c of run.cards()) run.label(c.id, "accept");
     expect(run.cards().map((c) => c.id)).toEqual(order);
     const report = await run.report();
@@ -239,6 +243,7 @@ test("[unit] B67 reveal irreversibly locks labels and retries", async () => {
   await run.start(keys, success);
   const card = run.cards()[0];
   if (!card) throw new Error("missing card");
+  run.beginLabeling();
   run.label(card.id, "accept");
   run.reveal();
   expect(run.revealed).toBe(true);
@@ -334,4 +339,94 @@ test("[unit] B67 first progress callback enables stopping before initial call", 
   expect(states).toEqual([true, false]);
   expect(calls).toBe(0);
   expect(run.attempts).toHaveLength(0);
+});
+
+test("[unit] B67 quoted combined CSV header is not two columns", () => {
+  expect(() => parseCases('"case_id,case_input"\na,b\n')).toThrow();
+});
+test("[unit] B67 labeling locks retry decisions before first card judgment", async () => {
+  const run = new BackstageRun(scene());
+  await run.start(keys, success);
+  const card = run.cards()[0];
+  if (!card) throw new Error("missing card");
+  expect(() => run.label(card.id, "accept")).toThrow();
+  run.beginLabeling();
+  expect(run.labeling).toBe(true);
+  run.label(card.id, "accept");
+  await expect(run.retry(keys, success)).rejects.toThrow();
+});
+test("[unit] B67 stale backend revision cannot enter frozen run", async () => {
+  const run = new BackstageRun(scene(), "release-a");
+  await run.start(keys, async (request) => ({
+    ...(await success(request)),
+    revision: "release-b",
+  }));
+  expect(run.completed).toBe(0);
+  expect(run.extraSpend().unknown).toBe(4);
+});
+
+test("[unit] B67 health deadline and stop cover stalled response body", async () => {
+  const signal = new AbortController();
+  const stalled = () =>
+    Promise.resolve(
+      new Response(new ReadableStream({ start() {} }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  await expect(
+    checkRunnerHealth("test", signal.signal, stalled, 5),
+  ).rejects.toThrow();
+  const controller = new AbortController();
+  const waiting = checkRunnerHealth(
+    "test",
+    controller.signal,
+    () => new Promise(() => {}),
+  );
+  controller.abort();
+  await expect(waiting).rejects.toThrow();
+  await expect(
+    checkRunnerHealth("test", signal.signal, async () =>
+      Response.json({ protocol: "backstage/1", version: "test" }),
+    ),
+  ).resolves.toBeUndefined();
+});
+test("[unit] B67 import generations ignore stale files and edits", async () => {
+  const state = new CaseImportState();
+  let first: ((text: string) => void) | undefined;
+  const stale = state.read(
+    new Promise((resolve) => {
+      first = resolve;
+    }),
+  );
+  expect(state.pending).toBe(true);
+  const latest = await state.read(
+    Promise.resolve("case_id,case_input\nnew,latest\n"),
+  );
+  expect(latest?.[0]?.id).toBe("new");
+  first?.("case_id,case_input\nold,stale\n");
+  expect(await stale).toBeUndefined();
+  let editing: ((text: string) => void) | undefined;
+  const prior = state.read(
+    new Promise((resolve) => {
+      editing = resolve;
+    }),
+  );
+  state.invalidate();
+  editing?.("case_id,case_input\nold,stale\n");
+  expect(await prior).toBeUndefined();
+  expect(state.pending).toBe(false);
+});
+
+test("[unit] B67 frozen scene cannot change while handshake is pending", async () => {
+  const original = { ...scene(), cases: [{ id: "x", input: "before" }] };
+  const run = new BackstageRun(original, "revision");
+  original.question = "changed";
+  const item = original.cases[0];
+  if (item) item.input = "after";
+  const received: string[] = [];
+  await run.start(keys, async (request) => {
+    received.push(request.question + ":" + request.input);
+    return success(request);
+  });
+  expect(received).toEqual(["Qualified?:before", "Qualified?:before"]);
 });

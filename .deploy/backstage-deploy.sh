@@ -39,16 +39,18 @@ if [[ -z "$ROLLBACK_SHA" ]]; then
  # A merged PR and issue link are required even when main contains the SHA.
  PR_JSON="$(gh api "repos/breakoutwithai/jevnotjev/commits/${SHA}/pulls")"
  printf '%s' "$PR_JSON" | bun -e 'const p=await Bun.stdin.json();if(!Array.isArray(p)||!p.some(x=>x.merged_at&&x.base?.ref==="main"&&/#67\b/.test(x.body??"")))process.exit(1)' || fail "No merged main PR linked to #67 for HEAD"
- bun scripts/backstage-build.ts
- bun .deploy/backstage-package.ts dist/backstage "$SHA"
+ BUILD_DIR="$(bun scripts/backstage-build.ts)"
+ ARCHIVE="$(bun .deploy/backstage-package.ts "$BUILD_DIR" "$SHA")"
 fi
+backstage_check_curl_config || fail "Curl credential config must be a private file owned by the current user"
 remote "test -f /etc/systemd/system/${SERVICE}.service && test -f /etc/nginx/snippets/jevnotjev-backstage.conf && grep -q 'include /etc/nginx/snippets/jevnotjev-backstage.conf;' '${VHOST_AVAILABLE}'" || fail "One-time reviewed setup is missing; see docs/backstage-deploy.md"
 remote "mkdir /var/lock/jevnotjev-backstage-deploy" || fail "Another host deploy is active; inspect the existing lock before retrying"
 trap 'remote "rmdir /var/lock/jevnotjev-backstage-deploy" || true; rmdir "$LOCK" 2>/dev/null || true' EXIT
 neighbours=()
-while IFS= read -r n; do [[ -z "$n" ]] || neighbours+=("$n"); done < <(list_neighbours "$DOMAIN")
+neighbour_names="$(backstage_list_neighbours "$DOMAIN")" || fail "Cannot enumerate neighbours reliably"
+while IFS= read -r n; do [[ -z "$n" ]] || neighbours+=("$n"); done <<< "$neighbour_names"
 [[ ${#neighbours[@]} -gt 0 ]] || fail "Cannot enumerate neighbours"
-before="$(probe_neighbours "$SERVER_HOST" "${neighbours[@]}")"
+before="$(backstage_probe_neighbours "$SERVER_HOST" "${neighbours[@]}")" || fail "Neighbour baseline includes failed probes"
 previous="$(backstage_previous_release "$CURRENT")" || fail "Cannot verify current Backstage release; refusing to assume first install"
 if [[ -n "$previous" ]]; then
  [[ "$previous" =~ ^/var/www/jevnotjev-backstage-releases/[a-f0-9]{40}$ ]] || fail "Foreign current release"
@@ -58,11 +60,13 @@ release="${ROOT}/${SHA}"
 if [[ -n "$ROLLBACK_SHA" ]]; then
  remote "test -f '${release}/.verified'" || fail "Rollback target is not verified"
 else
- remote "test ! -e '${release}' && mkdir -p '${release}'" || fail "Release already exists or cannot be created"
- archive_sha="$(shasum -a 256 dist/backstage.tar.gz | awk '{print $1}')"
- remote "cat > '${release}/payload.tar.gz'" < dist/backstage.tar.gz
- remote "cd '${release}' && printf '%s\n' '${archive_sha}  payload.tar.gz' | sha256sum -c - && tar -xzf payload.tar.gz --no-same-owner && rm payload.tar.gz"
- remote "printf '%s\n' 'BACKSTAGE_VERSION=${SHA}' 'BACKSTAGE_ORIGIN=${HEALTH_URL}' 'BACKSTAGE_STATIC_ROOT=${CURRENT}/site' 'PORT=3456' > '${release}/runtime.env'; chmod -R a+rX '${release}'"
+ backstage_prepare_destination "$release" "$CURRENT" || fail "Existing release is live or verified; refusing to replace it"
+ stage="$(remote "mkdir -p '${ROOT}' && mktemp -d '${ROOT}/.stage-${SHA}-XXXXXX'")" || fail "Cannot create upload stage"
+ [[ "$stage" =~ ^/var/www/jevnotjev-backstage-releases/\.stage-[a-f0-9]{40}-[A-Za-z0-9]+$ ]] || fail "Unexpected upload stage"
+ archive_sha="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+ remote "cat > '${stage}/payload.tar.gz'" < "$ARCHIVE"
+ remote "cd '${stage}' && printf '%s\n' '${archive_sha}  payload.tar.gz' | sha256sum -c - && tar -xzf payload.tar.gz --no-same-owner && rm payload.tar.gz"
+ remote "printf '%s\n' 'BACKSTAGE_VERSION=${SHA}' 'BACKSTAGE_ORIGIN=${HEALTH_URL}' 'BACKSTAGE_STATIC_ROOT=${CURRENT}/site' 'PORT=3456' > '${stage}/runtime.env' && chmod -R a+rX '${stage}' && mv '${stage}' '${release}'"
 fi
 activated=false
 restore(){
@@ -71,9 +75,9 @@ restore(){
   if [[ -n "$previous" ]]; then
    activate_release "$previous" "$CURRENT" && remote "systemctl restart '${SERVICE}'" || log_error "PAIR ROLLBACK FAILED: inspect ${CURRENT} and ${SERVICE}"
    sleep 1
-   curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1])process.exit(1)' "${previous##*/}" || log_error "Rollback version did not verify; inspect service immediately"
+   backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1])process.exit(1)' "${previous##*/}" || log_error "Rollback version did not verify; inspect service immediately"
   else
-   remote "systemctl stop '${SERVICE}'" || log_error "Could not stop failed initial service"
+   backstage_remove_failed_initial "$CURRENT" "$release" "systemctl stop '${SERVICE}'" || log_error "Could not safely clear failed initial activation; inspect current release"
   fi
  fi
  remote "rmdir /var/lock/jevnotjev-backstage-deploy" || log_error "Remote lock remains; inspect before retrying"
@@ -87,17 +91,19 @@ remote "systemctl restart '${SERVICE}'"
 # Version endpoint and served page asset each prove the newly promoted pair.
 healthy=false
 for attempt in 1 2 3 4 5; do
- if curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||r.protocol!=="backstage/1")process.exit(1)' "$SHA"; then healthy=true; break; fi
+ if backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||r.protocol!=="backstage/1")process.exit(1)' "$SHA"; then healthy=true; break; fi
  sleep 1
 done
 $healthy || fail "New API version did not verify"
 # Compare actual served bundle bytes to the immutable on-box artifact for rollback as well.
-expected="$(remote "sha256sum '${release}/site/backstage/app.js'" | awk '{print $1}')"
-actual="$(curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/backstage/app.js" | shasum -a 256 | awk '{print $1}')"
-[[ -n "$expected" && "$expected" == "$actual" ]] || fail "Served browser bundle differs"
-curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/backstage/" >/dev/null
+for asset in app.js backstage.css; do
+ expected="$(remote "sha256sum '${release}/site/backstage/${asset}'" | awk '{print $1}')"
+ actual="$(backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/backstage/${asset}" | shasum -a 256 | awk '{print $1}')"
+ [[ -n "$expected" && "$expected" == "$actual" ]] || fail "Served browser asset ${asset} differs"
+done
+backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/backstage/" >/dev/null
 remote "systemctl is-active --quiet '${SERVICE}'"
-after="$(probe_neighbours "$SERVER_HOST" "${neighbours[@]}")"
+after="$(backstage_probe_neighbours "$SERVER_HOST" "${neighbours[@]}")" || fail "Neighbour verification includes failed probes"
 neighbour_status_changes "$before" "$after" || fail "Neighbour changed"
 remote "printf '%s\n' 'sha=${SHA}' 'issue=67' 'utc=$(date -u +%FT%TZ)' 'actor=$(id -un)' > '${release}/.verified'"
 log_success "Backstage pair ${SHA} verified. Previous: ${previous:-none}. No nginx reload or other service restart."

@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { checkRelease } from "./backstage-package.ts";
-import { mkdtemp, rm, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, readdir, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 test("[unit] B67 release package requires matching SHA and complete paired artifacts", async () => {
@@ -17,10 +17,11 @@ test("[unit] B67 release package requires matching SHA and complete paired artif
       "server.js",
       "site/backstage/index.html",
       "site/backstage/app.js",
+      "site/backstage/backstage.css",
     ])
       await Bun.write(join(dir, path), "artifact");
     const files = await checkRelease(dir, "a".repeat(40));
-    expect(files.length).toBe(4);
+    expect(files.length).toBe(5);
     await Bun.write(join(dir, ".env"), "secret");
     await expect(checkRelease(dir, "a".repeat(40))).rejects.toThrow();
   } finally {
@@ -112,4 +113,154 @@ test("[unit] B67 nginx locations preserve inherited security headers", async () 
   expect(await Bun.file(".deploy/backstage-nginx.conf").text()).not.toMatch(
     /^\s*add_header\s/m,
   );
+});
+test("[unit] B8 stylesheet is required by release packaging", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-css-"));
+  try {
+    await mkdir(join(dir, "site/backstage"), { recursive: true });
+    await Bun.write(
+      join(dir, "release.json"),
+      JSON.stringify({ version: "a".repeat(40) }),
+    );
+    for (const path of [
+      "server.js",
+      "site/backstage/index.html",
+      "site/backstage/app.js",
+    ])
+      await Bun.write(join(dir, path), "artifact");
+    await expect(checkRelease(dir, "a".repeat(40))).rejects.toThrow(
+      "backstage.css",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("[unit] B8 failed first deploy removes only its own current link", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-restore-"));
+  try {
+    const script =
+      'source .deploy/backstage-lib.sh; remote(){ bash -c "$1"; }; backstage_remove_failed_initial "$1" "$2" true';
+    const release = join(dir, "release"),
+      current = join(dir, "current");
+    await mkdir(release);
+    await Bun.spawn(["ln", "-s", release, current]).exited;
+    expect(
+      Bun.spawnSync(["bash", "-c", script, "test", current, join(dir, "other")])
+        .exitCode,
+    ).not.toBe(0);
+    expect(
+      Bun.spawnSync(["bash", "-c", script, "test", current, release]).exitCode,
+    ).toBe(0);
+    expect(Bun.spawnSync(["test", "-L", current]).exitCode).not.toBe(0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("[unit] B8 neighbour network failures cannot pass deployment", () => {
+  const script =
+    'source .deploy/backstage-lib.sh; probe_neighbours(){ printf "%s" "$PROBES"; }; backstage_probe_neighbours 127.0.0.1 example.test';
+  for (const probes of ["example.test 000", "example.test 000000", ""])
+    expect(
+      Bun.spawnSync(["bash", "-c", script], {
+        env: { ...process.env, PROBES: probes },
+      }).exitCode,
+    ).not.toBe(0);
+  expect(
+    Bun.spawnSync(["bash", "-c", script], {
+      env: { ...process.env, PROBES: "example.test 200" },
+    }).exitCode,
+  ).toBe(0);
+});
+test("[unit] B8 partial failed neighbour enumeration is rejected", () => {
+  const result = Bun.spawnSync(
+    [
+      "bash",
+      "-c",
+      "source .deploy/backstage-lib.sh; list_neighbours(){ echo example.test; return 1; }; backstage_list_neighbours own.test",
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  expect(result.exitCode).not.toBe(0);
+  expect(new TextDecoder().decode(result.stdout)).toBe("");
+});
+test("[unit] B8 retry quarantines only inactive unverified releases", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-retry-"));
+  try {
+    const release = join(dir, "release"),
+      current = join(dir, "current");
+    await mkdir(release);
+    await Bun.write(join(release, "payload"), "evidence");
+    const run = () =>
+      Bun.spawnSync(
+        [
+          "bash",
+          "-c",
+          'source .deploy/backstage-lib.sh; remote(){ bash -c "$1"; }; backstage_prepare_destination "$1" "$2"',
+          "test",
+          release,
+          current,
+        ],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+    await Bun.write(join(release, ".verified"), "yes");
+    expect(run().exitCode).not.toBe(0);
+    await rm(join(release, ".verified"));
+    await Bun.spawn(["ln", "-s", release, current]).exited;
+    expect(run().exitCode).not.toBe(0);
+    await rm(current);
+    expect(run().exitCode).toBe(0);
+    expect(await Bun.file(join(release, "payload")).exists()).toBe(false);
+    const quarantines = await readdir(dir);
+    expect(quarantines.length).toBe(1);
+    expect(
+      await Bun.file(join(dir, quarantines[0] ?? "", "payload")).text(),
+    ).toBe("evidence");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("[integration] B8 protected route probes load private curl credentials", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-curl-"));
+  const config = join(dir, "credentials");
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request) {
+      return request.headers.get("authorization") ===
+        `Basic ${btoa("tester:test-password")}`
+        ? new Response("protected-ok")
+        : new Response("unauthorized", { status: 401 });
+    },
+  });
+  try {
+    await Bun.write(config, 'user = "tester:test-password"\n');
+    await chmod(config, 0o600);
+    const env = { ...process.env, BACKSTAGE_CURL_CONFIG: config };
+    const child = Bun.spawn(
+      [
+        "bash",
+        "-c",
+        'source .deploy/backstage-lib.sh; backstage_check_curl_config && backstage_curl -fsS "$1"',
+        "test",
+        `http://127.0.0.1:${server.port}/api/backstage/health`,
+      ],
+      { env, stdout: "pipe", stderr: "pipe" },
+    );
+    expect(await child.exited).toBe(0);
+    expect(await new Response(child.stdout).text()).toBe("protected-ok");
+    await chmod(config, 0o644);
+    expect(
+      Bun.spawnSync(
+        [
+          "bash",
+          "-c",
+          "source .deploy/backstage-lib.sh; backstage_check_curl_config",
+        ],
+        { env, stdout: "pipe", stderr: "pipe" },
+      ).exitCode,
+    ).not.toBe(0);
+  } finally {
+    server.stop(true);
+    await rm(dir, { recursive: true, force: true });
+  }
 });

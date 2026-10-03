@@ -25,7 +25,7 @@ Run the local test/typecheck/build gate before promotion. A production release r
 .deploy/backstage-deploy.sh
 ```
 
-The helper rebuilds with `bun scripts/backstage-build.ts` on the workstation. The build produces `dist/backstage/site`, `server.js` and `release.json`; `.deploy/backstage-package.ts` rejects wrong version, missing browser/backend files, symlinks and unexpected files. The helper packages and verifies transferred archive bytes, then extracts under `/var/www/jevnotjev-backstage-releases/<SHA>`. Production never builds.
+The helper rebuilds with `bun scripts/backstage-build.ts` on the workstation. Each build returns a unique `dist/backstage-build-<suffix>` directory containing `site`, `server.js` and `release.json`; `.deploy/backstage-package.ts` rejects wrong version, missing browser/backend files, symlinks and unexpected files. The helper packages and verifies transferred archive bytes, then extracts under `/var/www/jevnotjev-backstage-releases/<SHA>`. Production never builds.
 
 Activation swaps `/var/www/jevnotjev-backstage-current`, restarts only `jevnotjev-backstage`, checks the served API version, exact browser bundle bytes, page response, service status and co-tenants. Only then is `.verified` written with SHA, UTC time, actor and issue. No nginx reload is needed for subsequent releases. Keep previous releases; this helper does not prune them.
 
@@ -36,8 +36,12 @@ Activation swaps `/var/www/jevnotjev-backstage-current`, restarts only `jevnotje
 .deploy/backstage-deploy.sh --rollback FULL_PREVIOUS_SHA
 ```
 
-Rollback requires the target's `.verified` marker and restores its complete browser/backend pair. Verification is the same as promotion. A failed promotion restores the previous pair and checks its API version. A failed first release stops only the Backstage service; restore the setup vhost backup if Backstage should be removed entirely. A failed rollback or unreachable host is reported for inspection, never treated as success.
+Rollback requires the target's `.verified` marker and restores its complete browser/backend pair. Verification is the same as promotion. A failed promotion restores the previous pair and checks its API version. A failed first release stops only the Backstage service and removes its current symlink only after checking it still names that failed release; restore the setup vhost backup if Backstage should be removed entirely. A failed rollback or unreachable host is reported for inspection, never treated as success.
 
 ## Live acceptance
 
 Version and HTTP checks do not prove inference. After deployment, enter tester-owned keys in the browser and run an authorized small comparison. Download sanitized evidence, inspect actual model IDs/usage and apply human labels. This has provider charges and is distinct from the deterministic adapter tests. No live calls were made while preparing this deployment contract.
+
+For Basic Auth rollout, set `BACKSTAGE_CURL_CONFIG` to an absolute, user-owned mode-0600 curl configuration file containing the tester `user` credential. Every protected-route deploy and rollback probe reads this private file; credentials never appear in process arguments or deploy output. The config is not used for co-tenant probes. Keep it outside the repository.
+
+Interrupted uploads remain in unique hidden staging directories. Retrying an inactive, unverified SHA quarantines its previous directory without deleting evidence; live or verified releases are never replaced. These directories require a separate reviewed cleanup. Concurrent local builds have distinct outputs; `bun run backstage:start` builds and serves its own immutable pair.

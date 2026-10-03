@@ -33,6 +33,7 @@ export async function checkRelease(
     "server.js",
     "site/backstage/index.html",
     "site/backstage/app.js",
+    "site/backstage/backstage.css",
   ])
     if (!files.includes(path))
       throw new Error(`Missing paired artifact: ${path}`);

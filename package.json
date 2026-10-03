@@ -10,7 +10,7 @@
     "export": "bun src/db/export-cli.ts",
     "typecheck": "tsc --noEmit",
     "backstage:build": "bun scripts/backstage-build.ts",
-    "backstage:start": "bun dist/backstage/server.js"
+    "backstage:start": "bun .agents/scripts/preview"
   },
   "dependencies": {
     "postgres": "3.4.9"

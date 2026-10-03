@@ -40,6 +40,7 @@ export function parseAnswerRequest(value: unknown): AnswerRequest | null {
       (k) =>
         ![
           "version",
+          "revision",
           "runId",
           "caseId",
           "question",
@@ -51,10 +52,12 @@ export function parseAnswerRequest(value: unknown): AnswerRequest | null {
     )
   )
     return null;
-  const { version, runId, caseId, question, choices, input, provider, key } =
+  const { version, revision, runId, caseId, question, choices, input, provider, key } =
     value;
   if (
     version !== PROTOCOL_VERSION ||
+    !text(revision, 64) ||
+    !/^[A-Za-z0-9_.-]+$/.test(revision) ||
     !text(runId, 64) ||
     !/^[A-Za-z0-9_.-]+$/.test(runId) ||
     !text(caseId, 64) ||
@@ -74,6 +77,7 @@ export function parseAnswerRequest(value: unknown): AnswerRequest | null {
   // Never let a pasted credential become part of a downstream prompt or exported identity.
   if (
     [
+      revision,
       runId,
       caseId,
       question,
@@ -87,6 +91,7 @@ export function parseAnswerRequest(value: unknown): AnswerRequest | null {
     return null;
   return {
     version,
+    revision,
     runId,
     caseId,
     question,
@@ -166,6 +171,7 @@ export async function callProvider(
   let tokensOut: number | null = null;
   let costUsd: number | null = null;
   const evidence = (): AttemptEvidence => ({
+    revision: request.revision,
     runId: request.runId,
     caseId: request.caseId,
     provider: request.provider,
@@ -258,9 +264,9 @@ export async function callProvider(
     tokensIn = token(usage.input_tokens);
     tokensOut = token(usage.output_tokens);
     // No caching is requested. Unexpected cache usage makes cost unknown, never undercounted.
-    const cacheUnexpected =
-      token(usage.cache_read_input_tokens) ||
-      token(usage.cache_creation_input_tokens);
+    const cacheUnexpected = ["cache_read_input_tokens", "cache_creation_input_tokens"].some(
+      (field) => field in usage && token(usage[field]) !== 0,
+    );
     if (raw.model !== MODELS[request.provider])
       return fail(
         "model-mismatch",

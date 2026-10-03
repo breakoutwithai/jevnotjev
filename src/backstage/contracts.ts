@@ -16,6 +16,7 @@ export interface Scene {
   readonly cases: readonly { readonly id: string; readonly input: string }[];
 }
 export interface AnswerRequest {
+  readonly revision: string;
   readonly version: typeof PROTOCOL_VERSION;
   readonly runId: string;
   readonly caseId: string;
@@ -26,6 +27,7 @@ export interface AnswerRequest {
   readonly key: string;
 }
 export interface AttemptEvidence {
+  readonly revision: string;
   readonly runId: string;
   readonly caseId: string;
   readonly provider: Provider;

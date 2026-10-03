@@ -2,6 +2,12 @@ import { resolve, sep } from "node:path";
 import { MODELS, PROTOCOL_VERSION } from "./contracts.ts";
 import { boundedText, callProvider, parseAnswerRequest } from "./providers.ts";
 import type { ProviderFetch } from "./providers.ts";
+declare const BACKSTAGE_BUILD_VERSION: string;
+export function runtimeVersion(configured: string | undefined, compiled: string): string {
+  if (!/^[a-f0-9]{40}$/.test(compiled) || configured !== compiled)
+    throw new Error("BACKSTAGE_VERSION must match the compiled server revision.");
+  return compiled;
+}
 export interface ServerOptions {
   readonly version: string;
   readonly staticRoot?: string;
@@ -68,6 +74,8 @@ export function createHandler(
             { error: "Invalid request. Check case, options and credentials." },
             400,
           );
+        if (input.revision !== options.version)
+          return json({ error: "Page and runner versions differ. Reload before running." }, 409);
         return json(
           await callProvider(input, options.providerFetch, options.timeoutMs),
         );
@@ -103,8 +111,7 @@ export function createHandler(
   };
 }
 if (import.meta.main) {
-  const version = process.env.BACKSTAGE_VERSION;
-  if (!version) throw new Error("BACKSTAGE_VERSION is required.");
+  const version = runtimeVersion(process.env.BACKSTAGE_VERSION, BACKSTAGE_BUILD_VERSION);
   const port = Number(process.env.PORT ?? "3456");
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("Invalid PORT.");

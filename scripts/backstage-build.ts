@@ -1,4 +1,4 @@
-import { copyFile, mkdir, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp } from "node:fs/promises";
 import { join, dirname } from "node:path";
 
 /** Build both sides off-host from the same revision. No credentials are read. */
@@ -7,9 +7,8 @@ export async function buildBackstage(root = process.cwd()): Promise<string> {
   if (git.exitCode !== 0) throw new Error("Cannot identify build revision.");
   const version = git.stdout.toString().trim();
   if (!/^[a-f0-9]{40}$/.test(version)) throw new Error("Invalid revision.");
-  const out = join(root, "dist/backstage");
-  await rm(out, { recursive: true, force: true });
-  await mkdir(out, { recursive: true });
+  await mkdir(join(root, "dist"), { recursive: true });
+  const out = await mkdtemp(join(root, "dist/backstage-build-"));
   const listed = Bun.spawnSync(["git", "ls-files", "-z", "--", "site"], {
     cwd: root,
   });

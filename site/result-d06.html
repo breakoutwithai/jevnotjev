@@ -31,10 +31,10 @@ dd { margin: 0 0 .5rem 0; }
 <h2>Words used in the tables</h2>
 <dl>
 <dt>Accepted</dt><dd>Answers a person marked correct. Unlabelled answers count as neither accepted nor rejected.</dd>
-<dt>Cost per accepted result</dt><dd>Spend divided by accepted answers.</dd>
+<dt>Cost per accepted result</dt><dd>Spend divided by accepted answers. All-answers spend includes rows with no label; the verdict comparison uses only cases where both Jev and the LLM have a label, so the two LLM figures can differ.</dd>
 <dt>incomplete</dt><dd>At least one answer has no recorded cost, so there is no true total and no cost per accepted result. It is never shown as $0.</dd>
 <dt>undefined</dt><dd>The method has 0 accepted answers, so there is nothing to divide by.</dd>
-<dt>not enough evidence</dt><dd>The test set is too small or too incomplete to say either use Jev or don't use Jev.</dd>
+<dt>not enough evidence</dt><dd>The rules could not establish either use Jev or don't use Jev from this test set; too few cases or missing data are the usual reasons.</dd>
 </dl>
 <section>
 <h2>q1: Does the CV show the person has built or run a product that pools AI subscriptions or tokens?</h2>

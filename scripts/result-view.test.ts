@@ -1,14 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderResultView } from "./result-view.ts";
 
 const SOURCE = "examples/d06-tiny/records.csv";
 const RECORDS = fileURLToPath(new URL(`../${SOURCE}`, import.meta.url));
 const PAGE = fileURLToPath(new URL("../site/result-d06.html", import.meta.url));
-const SCRIPT = fileURLToPath(new URL("./result-view.ts", import.meta.url));
 /** d06-tiny's one cohort per question: run-d06, prompt cv-match.v1. */
 const Q1 = "run-d06/cv-match.v1/q1";
 const Q2 = "run-d06/cv-match.v1/q2";
@@ -41,6 +40,21 @@ function keys(page: string): string[] {
 const [header = "", ...dataLines] = recordsText.trimEnd().split("\n");
 const REPO = fileURLToPath(new URL("../", import.meta.url));
 
+/** The tracked page's bytes and mtime, to prove a test run never touches it. */
+function trackedPage(): { readonly text: string; readonly mtimeMs: number } {
+  return { text: readFileSync(PAGE, "utf8"), mtimeMs: statSync(PAGE).mtimeMs };
+}
+
+/** A temp copy of what the CLI needs (its script, src/, format/, the d06 records), with an empty site/. */
+function cliCopy(): string {
+  const root = mkdtempSync(join(tmpdir(), "result-view-repo-"));
+  for (const part of ["scripts/result-view.ts", "src", "format", SOURCE, "package.json", "tsconfig.json"]) {
+    cpSync(join(REPO, part), join(root, part), { recursive: true });
+  }
+  mkdirSync(join(root, "site"));
+  return root;
+}
+
 /** True when the HTML opens a script element, in any letter case. */
 function hasScript(page: string): boolean {
   return /<script\b/i.test(page);
@@ -67,6 +81,18 @@ describe("result view of d06-tiny", () => {
       expect([arm, cell(`file.${arm}.labelled`), cell(`file.${arm}.accepted`)]).toEqual([arm, labelled, accepted]);
       expect(cell(`file.${arm}.spend`).startsWith(spend)).toBe(true);
     }
+    // Whole-file cost per accepted: jev 0.0002 / 8 = $0.000025, llm 0.02 / 8 = $0.0025.
+    expect(cell("file.jev.cpa")).toBe("$0.000025");
+    expect(cell("file.llm.cpa")).toBe("$0.002500");
+  });
+
+  test("[unit] D09 the glossary says what not enough evidence means and why two LLM costs differ", () => {
+    expect(html).toContain(
+      "The rules could not establish either use Jev or don't use Jev from this test set; too few cases or missing data are the usual reasons.",
+    );
+    expect(html).not.toContain("too small or too incomplete");
+    expect(html).toContain("All-answers spend includes rows with no label");
+    expect(html).toContain("the verdict comparison uses only cases where both Jev and the LLM have a label");
   });
 
   test("[unit] D09 per-question Jev and LLM figures match expected.md", () => {
@@ -208,23 +234,29 @@ describe("result view of other files", () => {
   });
 
   test("[integration] D09 CLI takes no arguments: any argument is a usage error and writes nothing", () => {
-    const dir = mkdtempSync(join(tmpdir(), "result-view-"));
-    const output = join(dir, "out.html");
-    const before = readFileSync(PAGE, "utf8");
-    for (const args of [[RECORDS, output], [RECORDS], ["--help"]]) {
-      const run = Bun.spawnSync(["bun", SCRIPT, ...args], { cwd: REPO });
+    const root = cliCopy();
+    const output = join(root, "site", "result-d06.html");
+    const tracked = trackedPage();
+    for (const args of [[join(root, SOURCE), join(root, "out.html")], [join(root, SOURCE)], ["--help"]]) {
+      const run = Bun.spawnSync(["bun", join(root, "scripts", "result-view.ts"), ...args], { cwd: root });
       expect([args, run.exitCode]).toEqual([args, 2]);
     }
     expect(existsSync(output)).toBe(false);
-    expect(readFileSync(PAGE, "utf8")).toBe(before);
+    expect(existsSync(join(root, "out.html"))).toBe(false);
+    expect(trackedPage()).toEqual(tracked);
   });
 
-  test("[integration] D09 CLI from the repo root and from the fixture directory writes the committed page byte for byte", () => {
-    for (const cwd of [REPO, dirname(RECORDS)]) {
-      const run = Bun.spawnSync(["bun", SCRIPT], { cwd });
+  test("[integration] D09 CLI in a copy of the repo, from its root and from the fixture directory, writes the committed page", () => {
+    const root = cliCopy();
+    const output = join(root, "site", "result-d06.html");
+    const tracked = trackedPage();
+    for (const cwd of [root, join(root, "examples", "d06-tiny")]) {
+      writeFileSync(output, "sentinel");
+      const run = Bun.spawnSync(["bun", join(root, "scripts", "result-view.ts")], { cwd });
       expect([cwd, run.exitCode]).toEqual([cwd, 0]);
-      expect(readFileSync(PAGE, "utf8")).toBe(html);
+      expect(readFileSync(output, "utf8")).toBe(tracked.text);
     }
+    expect(trackedPage()).toEqual(tracked);
   });
 
   test("[unit] D09 heading says CV questions only for the d06 fixture", async () => {

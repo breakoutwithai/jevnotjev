@@ -211,10 +211,13 @@ const LEAD =
 
 const WORDS: ReadonlyArray<readonly [string, string]> = [
   ["Accepted", "Answers a person marked correct. Unlabelled answers count as neither accepted nor rejected."],
-  ["Cost per accepted result", "Spend divided by accepted answers."],
+  [
+    "Cost per accepted result",
+    "Spend divided by accepted answers. All-answers spend includes rows with no label; the verdict comparison uses only cases where both Jev and the LLM have a label, so the two LLM figures can differ.",
+  ],
   ["incomplete", "At least one answer has no recorded cost, so there is no true total and no cost per accepted result. It is never shown as $0."],
   ["undefined", "The method has 0 accepted answers, so there is nothing to divide by."],
-  ["not enough evidence", "The test set is too small or too incomplete to say either use Jev or don't use Jev."],
+  ["not enough evidence", "The rules could not establish either use Jev or don't use Jev from this test set; too few cases or missing data are the usual reasons."],
 ];
 
 /** Limitations that hold for any records file. */

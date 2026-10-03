@@ -39,11 +39,19 @@ function tag(name: string, inner: string): string {
   return `<${name}>${inner}</${name}>`;
 }
 
-/** A whole number or money value ("30", "-0.1097", "$0.000025"): its cell never wraps, so the number is never split. */
-const NUMBER = /^-?\$?\d[\d.,]*$/;
+/**
+ * A whole number or money value ("30", "-0.1097", "$0.000025", "4.4999999999999984e+26"): its cell never wraps,
+ * so the number is never split.
+ */
+const NUMBER = /^-?\$?\d[\d.,]*(?:[eE][+-]?\d+)?$/;
+
+/** True for a cell value that is one number or money amount, so it must never wrap. */
+export function isNumberCell(value: string): boolean {
+  return NUMBER.test(value);
+}
 
 function td(key: string, value: string): string {
-  const kind = NUMBER.test(value) ? ' class="num"' : "";
+  const kind = isNumberCell(value) ? ' class="num"' : "";
   return `<td data-cell="${escape(key)}"${kind}>${escape(value)}</td>`;
 }
 
@@ -172,14 +180,16 @@ function four(x: number): string {
 }
 
 /**
- * The numbers the verdict read (R7.b): only the fields result.numbers holds, to 4 places, with no new arithmetic.
- * The accept rates and their difference come from the Jev against LLM comparison; the cost ratio exists once rule 1 has passed.
+ * The numbers the verdict computed (R7.b): only the fields result.numbers holds, to 4 places, with no new arithmetic.
+ * The accept rates and their difference come from the Jev against LLM comparison, computed before rule 1 runs, so the
+ * rule that fired may not have used all of them; the cost ratio exists once rule 1 has passed.
  */
 function numbersTable(scope: string, result: Verdict): string {
   const { jevVsLlm, costRatio } = result.numbers;
   if (jevVsLlm === null && costRatio === null) {
-    return `<p data-cell="${escape(scope)}.numbers">The verdict computed no numbers for this question.</p>`;
+    return `<p data-cell="${escape(scope)}.numbers">No Jev-versus-LLM numbers were computed for this question.</p>`;
   }
+  const caption = `Numbers the verdict computed. Rule ${result.rule} may not use all of these; the reason above names the condition that decided.`;
   const key = (name: string): string => `${scope}.numbers.${name}`;
   const row = (label: string, name: string, value: number | string): string =>
     `<tr><th scope="row">${escape(label)}</th>${td(key(name), typeof value === "number" ? four(value) : value)}<td></td><td></td></tr>`;
@@ -199,7 +209,7 @@ function numbersTable(scope: string, result: Verdict): string {
     lines.push(withInterval("Cost ratio, Jev / LLM per accepted answer", "cost", costRatio.ratio, costRatio.lower, costRatio.upper));
   }
   return [
-    `<div class="scroll"><table>${tag("caption", "Numbers the verdict read")}`,
+    `<div class="scroll"><table>${tag("caption", escape(caption))}`,
     '<thead><tr><th scope="col"></th><th scope="col">Value</th><th scope="col">95% interval from</th><th scope="col">to</th></tr></thead><tbody>',
     ...lines,
     "</tbody></table></div>",

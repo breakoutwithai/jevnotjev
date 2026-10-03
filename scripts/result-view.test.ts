@@ -7,7 +7,7 @@ import { fileSeed } from "../src/core/calc.ts";
 import { cohortMetrics, cohorts } from "../src/core/metrics.ts";
 import { verdict, type Verdict } from "../src/core/verdict.ts";
 import { validate } from "../src/format/validate.ts";
-import { renderResultView } from "./result-view.ts";
+import { isNumberCell, renderResultView } from "./result-view.ts";
 
 const SOURCE = "examples/d06-tiny/records.csv";
 const RECORDS = fileURLToPath(new URL(`../${SOURCE}`, import.meta.url));
@@ -213,7 +213,7 @@ function four(x: number): string {
   return x.toFixed(4);
 }
 
-/** Every "Numbers the verdict read" cell of a page, keyed by the part after `<scope>.numbers.`. */
+/** Every "Numbers the verdict computed" cell of a page, keyed by the part after `<scope>.numbers.`. */
 function numberCells(page: string, scope: string): Map<string, string> {
   const prefix = `${scope}.numbers.`;
   return new Map(keys(page).filter((key) => key.startsWith(prefix)).map((key) => [key.slice(prefix.length), cellIn(page, key)]));
@@ -244,7 +244,7 @@ function d08(name: string): { readonly source: string; readonly text: string } {
   return { source, text: readFileSync(fileURLToPath(new URL(`../${source}`, import.meta.url)), "utf8") };
 }
 
-describe("result view: numbers the verdict read (R7.b)", () => {
+describe("result view: numbers the verdict computed (R7.b)", () => {
   // Values from examples/d08-verdicts/expected.md "Intervals" (4 places) and its cost ratio percentiles.
   const cases: ReadonlyArray<readonly [string, Verdict["rule"], Readonly<Record<string, string>>]> = [
     [
@@ -271,6 +271,18 @@ describe("result view: numbers the verdict read (R7.b)", () => {
     });
   }
 
+  test("[unit] R7.b the table says computed, not read, and that the rule may not use every number", async () => {
+    const { source, text } = d08("r4-accept-rate");
+    const page = await renderResultView(text, source);
+    expect(page).toContain(
+      "<caption>Numbers the verdict computed. Rule 4 may not use all of these; the reason above names the condition that decided.</caption>",
+    );
+    expect(html).toContain(
+      "<caption>Numbers the verdict computed. Rule 1 may not use all of these; the reason above names the condition that decided.</caption>",
+    );
+    expect(page).not.toContain("Numbers the verdict read");
+  });
+
   test("[unit] R7.b a verdict with no cost ratio shows no cost rows (r1-cost-missing)", async () => {
     const { source, text } = d08("r1-cost-missing");
     const { scope, result } = await onlyVerdict(text);
@@ -280,14 +292,17 @@ describe("result view: numbers the verdict read (R7.b)", () => {
     expect([...shown.keys()].some((key) => key.startsWith("cost-"))).toBe(false);
   });
 
-  test("[unit] R7.b a verdict that computed no numbers says so (r1-no-jev)", async () => {
-    const { source, text } = d08("r1-no-jev");
-    const { scope, result } = await onlyVerdict(text);
-    expect(result.numbers.jevVsLlm).toBeNull();
-    const page = await renderResultView(text, source);
-    expect(numberCells(page, scope).size).toBe(0);
-    expect(cellIn(page, `${scope}.numbers`)).toBe("The verdict computed no numbers for this question.");
-  });
+  for (const name of ["r1-no-jev", "r1-no-llm"]) {
+    test(`[unit] R7.b with no Jev-versus-LLM comparison the view says only that (${name})`, async () => {
+      const { source, text } = d08(name);
+      const { scope, result } = await onlyVerdict(text);
+      expect(result.numbers.jevVsLlm).toBeNull();
+      const page = await renderResultView(text, source);
+      expect(numberCells(page, scope).size).toBe(0);
+      expect(cellIn(page, `${scope}.numbers`)).toBe("No Jev-versus-LLM numbers were computed for this question.");
+      expect(page).not.toContain("computed no numbers");
+    });
+  }
 
   test("[unit] R7.b d06-tiny shows what each question's verdict computed, and no cost ratio", async () => {
     for (const q of [Q1, Q2]) {
@@ -399,13 +414,27 @@ describe("result view of other files", () => {
     // Only row headers may break anywhere; data cells never do.
     expect(html).toContain("th { overflow-wrap: anywhere; }");
     expect(html).not.toMatch(/\btd\b[^{}]*\{[^}]*overflow-wrap: anywhere/);
-    // Every table sits in the scroll wrapper.
-    expect(html.match(/<table>/g)?.length).toBe(html.match(/<div class="scroll"><table>/g)?.length);
+    // Every table, with or without attributes, sits directly in the scroll wrapper.
+    const tables = [...html.matchAll(/<table\b/g)];
+    expect(tables.length).toBeGreaterThan(0);
+    for (const match of tables) {
+      const at = match.index ?? 0;
+      expect([at, html.slice(at - '<div class="scroll">'.length, at)]).toEqual([at, '<div class="scroll">']);
+    }
     // Number and money cells carry the class; text cells do not.
     for (const key of ["file.jev.cpa", "file.llm.spend", `${Q1}.vs-llm.jev.cpa`, `${Q1}.numbers.accept-lower`, `${Q1}.jev.accepted`]) {
       expect([key, html.includes(`<td data-cell="${key}" class="num">`)]).toEqual([key, true]);
     }
     for (const key of [`${Q2}.rule.gaps`, `${Q2}.rule.spend`]) expect([key, html.includes(`<td data-cell="${key}">`)]).toEqual([key, true]);
+  });
+
+  test("[unit] D09 number cells: plain, money, signed and exponent forms are numbers; text is not", () => {
+    for (const value of ["30", "-0.1097", "$0.000025", "1,278,617", "4.4999999999999984e+26", "$4.4999999999999984e+26", "1e-7", "-2.5E+3"]) {
+      expect([value, isNumberCell(value)]).toEqual([value, true]);
+    }
+    for (const value of ["none", "incomplete (cost missing)", "undefined (0 accepted)", "1 cost missing (line 21)", "e+26", "4e", "4e+"]) {
+      expect([value, isNumberCell(value)]).toEqual([value, false]);
+    }
   });
 
   test("[unit] R7.b the glossary explains 95% interval and cost ratio", () => {

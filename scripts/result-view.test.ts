@@ -3,6 +3,10 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fileSeed } from "../src/core/calc.ts";
+import { cohortMetrics, cohorts } from "../src/core/metrics.ts";
+import { verdict, type Verdict } from "../src/core/verdict.ts";
+import { validate } from "../src/format/validate.ts";
 import { renderResultView } from "./result-view.ts";
 
 const SOURCE = "examples/d06-tiny/records.csv";
@@ -197,6 +201,103 @@ describe("result view of d06-tiny", () => {
   });
 });
 
+/** The one cohort's verdict for a records file, computed by src/core exactly as the view does. */
+async function onlyVerdict(text: string): Promise<{ readonly scope: string; readonly result: Verdict }> {
+  const parsed = validate(text);
+  const [key, ...rest] = cohorts(parsed.rows);
+  if (key === undefined || rest.length > 0) throw new Error("expected one cohort");
+  return { scope: `${key.runId}/${key.promptVersion}/${key.questionId}`, result: verdict(cohortMetrics(parsed.rows, key), await fileSeed(text)) };
+}
+
+function four(x: number): string {
+  return x.toFixed(4);
+}
+
+/** Every "Numbers the verdict read" cell of a page, keyed by the part after `<scope>.numbers.`. */
+function numberCells(page: string, scope: string): Map<string, string> {
+  const prefix = `${scope}.numbers.`;
+  return new Map(keys(page).filter((key) => key.startsWith(prefix)).map((key) => [key.slice(prefix.length), cellIn(page, key)]));
+}
+
+/** The cells the view must show for a verdict: exactly the fields result.numbers computed, to 4 places. */
+function expectedCells(result: Verdict): Map<string, string> {
+  const out = new Map<string, string>();
+  const { jevVsLlm, costRatio } = result.numbers;
+  if (jevVsLlm !== null) {
+    out.set("paired", String(jevVsLlm.n));
+    out.set("jev-rate", four(jevVsLlm.p1));
+    out.set("llm-rate", four(jevVsLlm.p2));
+    out.set("accept-diff", four(jevVsLlm.diff));
+    out.set("accept-lower", four(jevVsLlm.lower));
+    out.set("accept-upper", four(jevVsLlm.upper));
+  }
+  if (costRatio !== null) {
+    out.set("cost-ratio", four(costRatio.ratio));
+    out.set("cost-lower", four(costRatio.lower));
+    out.set("cost-upper", four(costRatio.upper));
+  }
+  return out;
+}
+
+function d08(name: string): { readonly source: string; readonly text: string } {
+  const source = `examples/d08-verdicts/${name}.csv`;
+  return { source, text: readFileSync(fileURLToPath(new URL(`../${source}`, import.meta.url)), "utf8") };
+}
+
+describe("result view: numbers the verdict read (R7.b)", () => {
+  // Values from examples/d08-verdicts/expected.md "Intervals" (4 places) and its cost ratio percentiles.
+  const cases: ReadonlyArray<readonly [string, Verdict["rule"], Readonly<Record<string, string>>]> = [
+    [
+      "r4-accept-rate",
+      4,
+      { paired: "30", "accept-diff": "0.0000", "accept-lower": "-0.1097", "accept-upper": "0.1097", "cost-ratio": "0.0100", "cost-lower": "0.0100", "cost-upper": "0.0100" },
+    ],
+    [
+      "r4-cheaper-under-20",
+      4,
+      { paired: "30", "accept-lower": "-0.0310", "accept-upper": "0.2562", "cost-ratio": "0.9000", "cost-lower": "0.8000", "cost-upper": "1.0000" },
+    ],
+    ["r3-use-jev", 3, { paired: "30", "accept-lower": "-0.0310", "accept-upper": "0.2562", "cost-ratio": "0.0090", "cost-lower": "0.0077", "cost-upper": "0.0100" }],
+    ["r2-jev-dearer", 2, { paired: "30", "accept-lower": "-0.0310", "accept-upper": "0.2562", "cost-ratio": "1.8000", "cost-lower": "1.6000", "cost-upper": "2.0000" }],
+  ];
+  for (const [name, rule, stated] of cases) {
+    test(`[unit] R7.b ${name}: every number result.numbers holds is shown, matching expected.md`, async () => {
+      const { source, text } = d08(name);
+      const { scope, result } = await onlyVerdict(text);
+      expect(result.rule).toBe(rule);
+      const shown = numberCells(await renderResultView(text, source), scope);
+      expect(Object.fromEntries(shown)).toEqual(Object.fromEntries(expectedCells(result)));
+      for (const [key, value] of Object.entries(stated)) expect([key, shown.get(key)]).toEqual([key, value]);
+    });
+  }
+
+  test("[unit] R7.b a verdict with no cost ratio shows no cost rows (r1-cost-missing)", async () => {
+    const { source, text } = d08("r1-cost-missing");
+    const { scope, result } = await onlyVerdict(text);
+    expect(result.numbers.costRatio).toBeNull();
+    const shown = numberCells(await renderResultView(text, source), scope);
+    expect(Object.fromEntries(shown)).toEqual(Object.fromEntries(expectedCells(result)));
+    expect([...shown.keys()].some((key) => key.startsWith("cost-"))).toBe(false);
+  });
+
+  test("[unit] R7.b a verdict that computed no numbers says so (r1-no-jev)", async () => {
+    const { source, text } = d08("r1-no-jev");
+    const { scope, result } = await onlyVerdict(text);
+    expect(result.numbers.jevVsLlm).toBeNull();
+    const page = await renderResultView(text, source);
+    expect(numberCells(page, scope).size).toBe(0);
+    expect(cellIn(page, `${scope}.numbers`)).toBe("The verdict computed no numbers for this question.");
+  });
+
+  test("[unit] R7.b d06-tiny shows what each question's verdict computed, and no cost ratio", async () => {
+    for (const q of [Q1, Q2]) {
+      const shown = numberCells(html, q);
+      expect(shown.get("paired")).toBe(cell(`${q}.vs-llm.n`));
+      expect([...shown.keys()].some((key) => key.startsWith("cost-"))).toBe(false);
+    }
+  });
+});
+
 describe("result view of other files", () => {
   test("[unit] D09 two runs in one file: whole file keeps run identity, cohorts get distinct headings and keys", async () => {
     const second = dataLines.map((line) => line.replace(",run-d06,", ",run-b,"));
@@ -290,6 +391,11 @@ describe("result view of other files", () => {
 
   test("[unit] R4.d a file with no human rows shows no human table", () => {
     expect(keys(html).some((key) => key.includes(".human."))).toBe(false);
+  });
+
+  test("[unit] R7.b the glossary explains 95% interval and cost ratio", () => {
+    expect(html).toContain("<dt>95% interval</dt>");
+    expect(html).toContain("<dt>Cost ratio</dt>");
   });
 
   test("[unit] D09 the intro does not claim every method answered or every answer was labelled", () => {

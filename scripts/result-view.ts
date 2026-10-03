@@ -163,6 +163,45 @@ function ruleLine(rule: RuleComparison): string {
   return `compared on ${rule.n} paired cases: rule minus Jev ${rule.diff.toFixed(2)} (95% interval ${rule.lower.toFixed(2)} to ${rule.upper.toFixed(2)})`;
 }
 
+function four(x: number): string {
+  return x.toFixed(4);
+}
+
+/**
+ * The numbers the verdict read (R7.b): only the fields result.numbers holds, to 4 places, with no new arithmetic.
+ * The accept rates and their difference come from the Jev against LLM comparison; the cost ratio exists once rule 1 has passed.
+ */
+function numbersTable(scope: string, result: Verdict): string {
+  const { jevVsLlm, costRatio } = result.numbers;
+  if (jevVsLlm === null && costRatio === null) {
+    return `<p data-cell="${escape(scope)}.numbers">The verdict computed no numbers for this question.</p>`;
+  }
+  const key = (name: string): string => `${scope}.numbers.${name}`;
+  const row = (label: string, name: string, value: number | string): string =>
+    `<tr><th scope="row">${escape(label)}</th>${td(key(name), typeof value === "number" ? four(value) : value)}<td></td><td></td></tr>`;
+  const withInterval = (label: string, stem: string, value: number, lower: number, upper: number): string =>
+    `<tr><th scope="row">${escape(label)}</th>${td(key(`${stem}-${stem === "accept" ? "diff" : "ratio"}`), four(value))}` +
+    `${td(key(`${stem}-lower`), four(lower))}${td(key(`${stem}-upper`), four(upper))}</tr>`;
+  const lines: string[] = [];
+  if (jevVsLlm !== null) {
+    lines.push(
+      row("Paired cases (Jev and the LLM both labelled)", "paired", String(jevVsLlm.n)),
+      row("Accept rate, Jev", "jev-rate", jevVsLlm.p1),
+      row("Accept rate, LLM", "llm-rate", jevVsLlm.p2),
+      withInterval("Accept rate, Jev minus LLM", "accept", jevVsLlm.diff, jevVsLlm.lower, jevVsLlm.upper),
+    );
+  }
+  if (costRatio !== null) {
+    lines.push(withInterval("Cost ratio, Jev / LLM per accepted answer", "cost", costRatio.ratio, costRatio.lower, costRatio.upper));
+  }
+  return [
+    `<table>${tag("caption", "Numbers the verdict read")}`,
+    '<thead><tr><th scope="col"></th><th scope="col">Value</th><th scope="col">95% interval from</th><th scope="col">to</th></tr></thead><tbody>',
+    ...lines,
+    "</tbody></table>",
+  ].join("\n");
+}
+
 /** One question's section. `shared` is true when another cohort has the same question id, so run and prompt are named. */
 function questionSection(metrics: CohortMetrics, rows: readonly ParsedRow[], result: Verdict, shared: boolean): string {
   const { key } = metrics;
@@ -176,6 +215,7 @@ function questionSection(metrics: CohortMetrics, rows: readonly ParsedRow[], res
       `(<span data-cell="${attr}.rule">rule ${result.rule}</span> of the 4 in docs/decision/verdict-rules.md fired)</p>`,
     `<p>Why: <span data-cell="${attr}.reason">${escape(result.reason)}</span></p>`,
     `<p>Rule against Jev: <span data-cell="${attr}.rule-comparison">${escape(ruleLine(result.ruleComparison))}</span></p>`,
+    numbersTable(scope, result),
     armTable(scope, metrics, rows, `All answers to ${escape(label)}, per method`),
     pairTable(scope, metrics),
     "</section>",
@@ -217,6 +257,8 @@ const WORDS: ReadonlyArray<readonly [string, string]> = [
   ],
   ["incomplete", "At least one answer has no recorded cost, so there is no true total and no cost per accepted result. It is never shown as $0."],
   ["undefined", "The method has 0 accepted answers, so there is nothing to divide by."],
+  ["95% interval", "The range the true value is likely to sit in, given only this test set; a narrow range means more evidence."],
+  ["Cost ratio", "Jev's cost per accepted answer divided by the LLM's: below 1 means Jev is cheaper, 0.80 means 20% cheaper."],
   ["not enough evidence", "The rules could not establish either use Jev or don't use Jev from this test set; too few cases or missing data are the usual reasons."],
 ];
 

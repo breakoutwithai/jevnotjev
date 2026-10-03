@@ -34,6 +34,8 @@ dd { margin: 0 0 .5rem 0; }
 <dt>Cost per accepted result</dt><dd>Spend divided by accepted answers. All-answers spend includes rows with no label; the verdict comparison uses only cases where both Jev and the LLM have a label, so the two LLM figures can differ.</dd>
 <dt>incomplete</dt><dd>At least one answer has no recorded cost, so there is no true total and no cost per accepted result. It is never shown as $0.</dd>
 <dt>undefined</dt><dd>The method has 0 accepted answers, so there is nothing to divide by.</dd>
+<dt>95% interval</dt><dd>The range the true value is likely to sit in, given only this test set; a narrow range means more evidence.</dd>
+<dt>Cost ratio</dt><dd>Jev's cost per accepted answer divided by the LLM's: below 1 means Jev is cheaper, 0.80 means 20% cheaper.</dd>
 <dt>not enough evidence</dt><dd>The rules could not establish either use Jev or don't use Jev from this test set; too few cases or missing data are the usual reasons.</dd>
 </dl>
 <section>
@@ -41,6 +43,13 @@ dd { margin: 0 0 .5rem 0; }
 <p class="verdict">Verdict: <strong data-cell="run-d06/cv-match.v1/q1.verdict">not enough evidence</strong> (<span data-cell="run-d06/cv-match.v1/q1.rule">rule 1</span> of the 4 in docs/decision/verdict-rules.md fired)</p>
 <p>Why: <span data-cell="run-d06/cv-match.v1/q1.reason">not enough evidence: 5 paired Jev and LLM cases, fewer than 30; add 25 more labelled cases</span></p>
 <p>Rule against Jev: <span data-cell="run-d06/cv-match.v1/q1.rule-comparison">skipped: fewer than 30 paired rule cases (5 paired)</span></p>
+<table><caption>Numbers the verdict read</caption>
+<thead><tr><th scope="col"></th><th scope="col">Value</th><th scope="col">95% interval from</th><th scope="col">to</th></tr></thead><tbody>
+<tr><th scope="row">Paired cases (Jev and the LLM both labelled)</th><td data-cell="run-d06/cv-match.v1/q1.numbers.paired">5</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, Jev</th><td data-cell="run-d06/cv-match.v1/q1.numbers.jev-rate">0.8000</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, LLM</th><td data-cell="run-d06/cv-match.v1/q1.numbers.llm-rate">1.0000</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, Jev minus LLM</th><td data-cell="run-d06/cv-match.v1/q1.numbers.accept-diff">-0.2000</td><td data-cell="run-d06/cv-match.v1/q1.numbers.accept-lower">-0.6245</td><td data-cell="run-d06/cv-match.v1/q1.numbers.accept-upper">0.2643</td></tr>
+</tbody></table>
 <table><caption>All answers to q1, per method</caption>
 <thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Simple keyword rule</th><th scope="col">Jev</th></tr></thead><tbody>
 <tr><th scope="row">Answers</th><td data-cell="run-d06/cv-match.v1/q1.llm.rows">5</td><td data-cell="run-d06/cv-match.v1/q1.rule.rows">5</td><td data-cell="run-d06/cv-match.v1/q1.jev.rows">5</td></tr>
@@ -62,6 +71,13 @@ dd { margin: 0 0 .5rem 0; }
 <p class="verdict">Verdict: <strong data-cell="run-d06/cv-match.v1/q2.verdict">not enough evidence</strong> (<span data-cell="run-d06/cv-match.v1/q2.rule">rule 1</span> of the 4 in docs/decision/verdict-rules.md fired)</p>
 <p>Why: <span data-cell="run-d06/cv-match.v1/q2.reason">not enough evidence: 4 paired Jev and LLM cases, fewer than 30; add 26 more labelled cases</span></p>
 <p>Rule against Jev: <span data-cell="run-d06/cv-match.v1/q2.rule-comparison">skipped: fewer than 30 paired rule cases (5 paired)</span></p>
+<table><caption>Numbers the verdict read</caption>
+<thead><tr><th scope="col"></th><th scope="col">Value</th><th scope="col">95% interval from</th><th scope="col">to</th></tr></thead><tbody>
+<tr><th scope="row">Paired cases (Jev and the LLM both labelled)</th><td data-cell="run-d06/cv-match.v1/q2.numbers.paired">4</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, Jev</th><td data-cell="run-d06/cv-match.v1/q2.numbers.jev-rate">0.7500</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, LLM</th><td data-cell="run-d06/cv-match.v1/q2.numbers.llm-rate">0.7500</td><td></td><td></td></tr>
+<tr><th scope="row">Accept rate, Jev minus LLM</th><td data-cell="run-d06/cv-match.v1/q2.numbers.accept-diff">0.0000</td><td data-cell="run-d06/cv-match.v1/q2.numbers.accept-lower">-0.4272</td><td data-cell="run-d06/cv-match.v1/q2.numbers.accept-upper">0.4272</td></tr>
+</tbody></table>
 <table><caption>All answers to q2, per method</caption>
 <thead><tr><th scope="col"></th><th scope="col">Current LLM</th><th scope="col">Simple keyword rule</th><th scope="col">Jev</th></tr></thead><tbody>
 <tr><th scope="row">Answers</th><td data-cell="run-d06/cv-match.v1/q2.llm.rows">5</td><td data-cell="run-d06/cv-match.v1/q2.rule.rows">5</td><td data-cell="run-d06/cv-match.v1/q2.jev.rows">5</td></tr>

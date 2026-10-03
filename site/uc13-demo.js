@@ -19,8 +19,8 @@
  */
 window.UC13_DEMO = {
  "schema": "jnj-uc13-demo/1",
- "mode": "pending",
- "note": "Recorded run, not sample data: 40 messages we wrote about a made-up shop (run-shopbot-2026-10-01). Labels pending: no message has a human answer yet, so every accept or reject slot waits.",
+ "mode": "labelled",
+ "note": "Recorded run, not sample data: 40 messages we wrote about a made-up shop (run-shopbot-2026-10-01). Labels drafted from the fact sheet by three AI labellers who never saw an arm's answer to any message, then reviewed and approved by a person.",
  "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
  "cases_total": 40,
  "fact_sheet": {
@@ -54,152 +54,152 @@ window.UC13_DEMO = {
   {
    "id": "m03",
    "text": "How much would 3 days of resort skis cost?",
-   "label": null,
+   "label": "answer",
    "outputs": {
     "llm": {
      "output": "answer",
-     "verdict": "pending"
+     "verdict": "accept"
     },
     "rule": {
      "output": "answer",
-     "verdict": "pending"
+     "verdict": "accept"
     },
     "jev": {
      "output": "answer",
-     "verdict": "pending"
+     "verdict": "accept"
     }
    }
   },
   {
    "id": "m10",
    "text": "I booked online last night. Is my order confirmed?",
-   "label": null,
+   "label": "hand_off",
    "outputs": {
     "llm": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "accept"
     },
     "rule": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "accept"
     },
     "jev": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "accept"
     }
    }
   },
   {
    "id": "m25",
    "text": "Do you rent avalanche gear, and how much is it?",
-   "label": null,
+   "label": "answer",
    "outputs": {
     "llm": {
      "output": "answer",
-     "verdict": "pending"
+     "verdict": "accept"
     },
     "rule": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "reject"
     },
     "jev": {
      "output": "answer",
-     "verdict": "pending"
+     "verdict": "accept"
     }
    }
   },
   {
    "id": "m02",
    "text": "Do you sell helmets?",
-   "label": null,
+   "label": "hand_off",
    "outputs": {
     "llm": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "accept"
     },
     "rule": {
      "output": "answer",
-     "verdict": "pending"
+     "verdict": "reject"
     },
     "jev": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "accept"
     }
    }
   },
   {
    "id": "m37",
    "text": "Are there any splitboards left for this weekend?",
-   "label": null,
+   "label": "hand_off",
    "outputs": {
     "llm": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "accept"
     },
     "rule": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "accept"
     },
     "jev": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "accept"
     }
    }
   },
   {
    "id": "m28",
    "text": "If I drop my board off at 4pm can I have it back for first chair tomorrow?",
-   "label": null,
+   "label": "answer",
    "outputs": {
     "llm": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "reject"
     },
     "rule": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "reject"
     },
     "jev": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "reject"
     }
    }
   },
   {
    "id": "m33",
    "text": "If it dumps overnight can I swap my demo skis for something wider?",
-   "label": null,
+   "label": "answer",
    "outputs": {
     "llm": {
      "output": "answer",
-     "verdict": "pending"
+     "verdict": "accept"
     },
     "rule": {
      "output": "answer",
-     "verdict": "pending"
+     "verdict": "accept"
     },
     "jev": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "reject"
     }
    }
   },
   {
    "id": "m35",
    "text": "My boots started pinching on day two of my trip. What can you do?",
-   "label": null,
+   "label": "answer",
    "outputs": {
     "llm": {
      "output": "hand_off",
-     "verdict": "pending"
+     "verdict": "reject"
     },
     "rule": {
      "output": "answer",
-     "verdict": "pending"
+     "verdict": "accept"
     },
     "jev": {
      "output": "answer",
-     "verdict": "pending"
+     "verdict": "accept"
     }
    }
   }
@@ -209,28 +209,28 @@ window.UC13_DEMO = {
    "answer": 18,
    "hand_off": 22,
    "cost_usd": 0.103167,
-   "labelled": 0,
-   "accept": null,
-   "answered_should_hand_off": null,
-   "handed_off_could_answer": null
+   "labelled": 40,
+   "accept": 38,
+   "answered_should_hand_off": 0,
+   "handed_off_could_answer": 2
   },
   "rule": {
    "answer": 27,
    "hand_off": 13,
    "cost_usd": 0,
-   "labelled": 0,
-   "accept": null,
-   "answered_should_hand_off": null,
-   "handed_off_could_answer": null
+   "labelled": 40,
+   "accept": 29,
+   "answered_should_hand_off": 9,
+   "handed_off_could_answer": 2
   },
   "jev": {
    "answer": 18,
    "hand_off": 22,
    "cost_usd": 0.00130176,
-   "labelled": 0,
-   "accept": null,
-   "answered_should_hand_off": null,
-   "handed_off_could_answer": null
+   "labelled": 40,
+   "accept": 38,
+   "answered_should_hand_off": 0,
+   "handed_off_could_answer": 2
   }
  },
  "label_page": "label/"

@@ -3,7 +3,8 @@
 // Run: bun scripts/result-view.ts examples/d06-tiny/records.csv site/result-d06.html
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { validate, type ParsedRow } from "../src/format/validate.ts";
+import { relative, resolve, sep } from "node:path";
+import { decodeUtf8, validate, type ParsedRow } from "../src/format/validate.ts";
 import { fileSeed } from "../src/core/calc.ts";
 import {
   ARMS,
@@ -13,6 +14,7 @@ import {
   describeSpend,
   type Arm,
   type ArmTotals,
+  type CohortKey,
   type CohortMetrics,
   type PairArm,
 } from "../src/core/metrics.ts";
@@ -20,6 +22,8 @@ import { verdict, type RuleComparison, type Verdict } from "../src/core/verdict.
 
 const NAMES: Readonly<Record<Arm, string>> = { llm: "Current LLM", rule: "Simple keyword rule", jev: "Jev" };
 const WHOLE_FILE = "whole file";
+/** The hand-worked fixture; its own limitations are shown only for this source. */
+export const D06_SOURCE = "examples/d06-tiny/records.csv";
 
 function escape(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -31,24 +35,49 @@ function tag(name: string, inner: string): string {
 }
 
 function td(key: string, value: string): string {
-  return `<td data-cell="${key}">${escape(value)}</td>`;
+  return `<td data-cell="${escape(key)}">${escape(value)}</td>`;
 }
 
-function gaps(totals: ArmTotals): string {
+function field(row: ParsedRow, column: string): string {
+  return String(row.values.get(column));
+}
+
+/** Data-cell namespace for one cohort: run, prompt version and question, so no two cohorts share a key. */
+function scopeOf(key: CohortKey): string {
+  return `${key.runId}/${key.promptVersion}/${key.questionId}`;
+}
+
+/** The validated rows of one cohort, with their CSV line numbers. */
+function cohortRows(rows: readonly ParsedRow[], key: CohortKey): ParsedRow[] {
+  return rows.filter(
+    (row) => field(row, "run_id") === key.runId && field(row, "prompt_version") === key.promptVersion && field(row, "question_id") === key.questionId,
+  );
+}
+
+function lineList(lines: readonly number[]): string {
+  return lines.length === 1 ? `line ${lines[0]}` : `lines ${lines.join(", ")}`;
+}
+
+/** Gap counts from src/core, with the CSV lines behind them (R8.a, R8.b). */
+function gaps(totals: ArmTotals, rows: readonly ParsedRow[]): string {
+  const mine = rows.filter((row) => field(row, "answerer") === totals.arm);
+  const unlabelled = mine.filter((row) => row.values.get("label") === null).map((row) => row.line);
+  const noCost = mine.filter((row) => row.values.get("cost_usd") === null).map((row) => row.line);
   const parts: string[] = [];
-  if (totals.unlabelled > 0) parts.push(`${totals.unlabelled} unlabelled`);
-  if (totals.spend.kind === "incomplete") parts.push(`${totals.spend.missing} cost missing`);
+  if (totals.unlabelled > 0) parts.push(`${totals.unlabelled} unlabelled (${lineList(unlabelled)})`);
+  if (totals.spend.kind === "incomplete") parts.push(`${totals.spend.missing} cost missing (${lineList(noCost)})`);
   return parts.length === 0 ? "none" : parts.join(", ");
 }
 
 /**
- * Every row of the file as one cohort, so src/core totals the whole file per method. The case id carries the
- * question id, so each (case, question) stays one row per method; the paired figures of this cohort are not shown.
+ * Every row of the file as one cohort, so src/core totals the whole file per method. The case id carries the full
+ * identity (run, prompt version, case, question), so each original row stays one row per method; the paired
+ * figures of this cohort are not shown.
  */
 function wholeFile(rows: readonly ParsedRow[]): CohortMetrics {
   const merged = rows.map((row): ParsedRow => {
     const values = new Map(row.values);
-    values.set("case_id", `${String(row.values.get("case_id"))}/${String(row.values.get("question_id"))}`);
+    values.set("case_id", JSON.stringify(["run_id", "prompt_version", "case_id", "question_id"].map((column) => field(row, column))));
     values.set("question_id", WHOLE_FILE);
     values.set("run_id", WHOLE_FILE);
     values.set("prompt_version", WHOLE_FILE);
@@ -57,18 +86,18 @@ function wholeFile(rows: readonly ParsedRow[]): CohortMetrics {
   return cohortMetrics(merged, { runId: WHOLE_FILE, promptVersion: WHOLE_FILE, questionId: WHOLE_FILE });
 }
 
-function armTable(scope: string, metrics: CohortMetrics, caption: string): string {
+function armTable(scope: string, metrics: CohortMetrics, rows: readonly ParsedRow[], caption: string): string {
   const arms = ARMS.flatMap((arm) => metrics.arms.filter((totals) => totals.arm === arm));
   const head = arms.map((totals) => `<th scope="col">${NAMES[totals.arm]}</th>`).join("");
-  const line = (label: string, field: string, value: (totals: ArmTotals) => string): string =>
-    `<tr><th scope="row">${label}</th>${arms.map((totals) => td(`${scope}.${totals.arm}.${field}`, value(totals))).join("")}</tr>`;
+  const line = (label: string, name: string, value: (totals: ArmTotals) => string): string =>
+    `<tr><th scope="row">${label}</th>${arms.map((totals) => td(`${scope}.${totals.arm}.${name}`, value(totals))).join("")}</tr>`;
   return [
     `<table>${tag("caption", caption)}`,
     `<thead><tr><th scope="col"></th>${head}</tr></thead><tbody>`,
     line("Answers", "rows", (totals) => String(totals.rows)),
     line("Labelled by a person", "labelled", (totals) => String(totals.labelled)),
     line("Accepted", "accepted", (totals) => String(totals.accepted)),
-    line("Gaps", "gaps", gaps),
+    line("Gaps", "gaps", (totals) => gaps(totals, rows)),
     line("Spend", "spend", (totals) => describeSpend(totals.spend)),
     line("Cost per accepted result", "cpa", (totals) => describeCostPerAccepted(totals.costPerAccepted)),
     "</tbody></table>",
@@ -82,9 +111,9 @@ function pairTable(scope: string, metrics: CohortMetrics): string {
     ["llm", pair.otherArm],
     ["jev", pair.jev],
   ];
-  const line = (label: string, field: string, value: (side: PairArm) => string): string =>
-    `<tr><th scope="row">${label}</th>${sides.map(([name, side]) => td(`${scope}.vs-llm.${name}.${field}`, value(side))).join("")}</tr>`;
-  const caption = `What the verdict compares: Jev and the LLM on the <span data-cell="${scope}.vs-llm.n">${pair.n}</span> cases where both answers have a label`;
+  const line = (label: string, cellName: string, value: (side: PairArm) => string): string =>
+    `<tr><th scope="row">${label}</th>${sides.map(([name, side]) => td(`${scope}.vs-llm.${name}.${cellName}`, value(side))).join("")}</tr>`;
+  const caption = `What the verdict compares: Jev and the LLM on the <span data-cell="${escape(scope)}.vs-llm.n">${pair.n}</span> cases where both answers have a label`;
   return [
     `<table>${tag("caption", caption)}`,
     `<thead><tr><th scope="col"></th><th scope="col">${NAMES.llm}</th><th scope="col">${NAMES.jev}</th></tr></thead><tbody>`,
@@ -100,15 +129,20 @@ function ruleLine(rule: RuleComparison): string {
   return `compared on ${rule.n} paired cases: rule minus Jev ${rule.diff.toFixed(2)} (95% interval ${rule.lower.toFixed(2)} to ${rule.upper.toFixed(2)})`;
 }
 
-function questionSection(metrics: CohortMetrics, result: Verdict): string {
-  const scope = metrics.key.questionId;
+/** One question's section. `shared` is true when another cohort has the same question id, so run and prompt are named. */
+function questionSection(metrics: CohortMetrics, rows: readonly ParsedRow[], result: Verdict, shared: boolean): string {
+  const { key } = metrics;
+  const scope = scopeOf(key);
+  const attr = escape(scope);
+  const label = shared ? `${key.questionId} (run ${key.runId}, prompt ${key.promptVersion})` : key.questionId;
   return [
     "<section>",
-    tag("h2", `${escape(scope)}: ${escape(metrics.question)}`),
-    `<p class="verdict">Verdict: <strong data-cell="${scope}.verdict">${escape(result.verdict)}</strong></p>`,
-    `<p>Why: <span data-cell="${scope}.reason">${escape(result.reason)}</span></p>`,
-    `<p>Rule against Jev: <span data-cell="${scope}.rule-comparison">${escape(ruleLine(result.ruleComparison))}</span></p>`,
-    armTable(scope, metrics, `All answers to ${escape(scope)}, per method`),
+    tag("h2", `${escape(label)}: ${escape(metrics.question)}`),
+    `<p class="verdict">Verdict: <strong data-cell="${attr}.verdict">${escape(result.verdict)}</strong> ` +
+      `(<span data-cell="${attr}.rule">rule ${result.rule}</span> of the 4 in docs/decision/verdict-rules.md fired)</p>`,
+    `<p>Why: <span data-cell="${attr}.reason">${escape(result.reason)}</span></p>`,
+    `<p>Rule against Jev: <span data-cell="${attr}.rule-comparison">${escape(ruleLine(result.ruleComparison))}</span></p>`,
+    armTable(scope, metrics, rows, `All answers to ${escape(label)}, per method`),
     pairTable(scope, metrics),
     "</section>",
   ].join("\n");
@@ -148,7 +182,15 @@ const WORDS: ReadonlyArray<readonly [string, string]> = [
   ["not enough evidence", "The test set is too small or too incomplete to say either use Jev or don't use Jev."],
 ];
 
+/** Limitations that hold for any records file. */
 const LIMITS: readonly string[] = [
+  "The verdict rules need at least 30 paired labelled cases per question before they will say use Jev or don't use Jev.",
+  "Labels and costs are shown as recorded in the file; this page does not check how they were produced.",
+  "The verdict is evidence from this test set only, not production.",
+];
+
+/** Limitations of the d06-tiny fixture (examples/d06-tiny/expected.md "What is real and what is invented"). */
+const D06_LIMITS: readonly string[] = [
   "The data is synthetic: five fictional CVs checked against a fictional job ad. No real person is described.",
   "Each question has at most 5 paired cases; the verdict rules need at least 30 before they will say use Jev or don't use Jev.",
   "The Jev and LLM answers, tokens and costs are invented round numbers ($0.00002 per Jev call, $0.002 per LLM call); no model was called. The keyword rule answers are real.",
@@ -156,22 +198,36 @@ const LIMITS: readonly string[] = [
   "The verdict is evidence from this test set only, not production.",
 ];
 
-/** The result view for one records CSV, as one HTML document with inline CSS and no scripts. */
-export async function renderResultView(csvText: string): Promise<string> {
+function isD06(source: string): boolean {
+  const path = source.replaceAll("\\", "/");
+  return path === D06_SOURCE || path.endsWith(`/${D06_SOURCE}`);
+}
+
+/**
+ * The result view for one records CSV, as one HTML document with inline CSS and no scripts.
+ * `source` is the file's name as the page should show it (a repo-relative path, never an absolute one).
+ */
+export async function renderResultView(csvText: string, source: string): Promise<string> {
   const result = validate(csvText);
   if (result.errors.length > 0) throw new Error(`records file is invalid:\n${result.errors.join("\n")}`);
   const seed = await fileSeed(csvText);
-  const sections = cohorts(result.rows).map((key) => {
+  const keys = cohorts(result.rows);
+  const sections = keys.map((key) => {
     const metrics = cohortMetrics(result.rows, key);
-    return questionSection(metrics, verdict(metrics, seed));
+    const shared = keys.some((other) => other !== key && other.questionId === key.questionId);
+    return questionSection(metrics, cohortRows(result.rows, key), verdict(metrics, seed), shared);
   });
+  const d06 = isD06(source);
+  const sourceLine = d06
+    ? `Source: ${source}, worked by hand in examples/d06-tiny/expected.md.`
+    : `Source: ${source}.`;
   return [
     "<!doctype html>",
     '<html lang="en">',
     "<head>",
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    tag("title", "Jev!Jev result view: d06-tiny"),
+    tag("title", `Jev!Jev result view: ${escape(source)}`),
     tag("style", STYLE),
     "</head>",
     "<body><main>",
@@ -184,14 +240,14 @@ export async function renderResultView(csvText: string): Promise<string> {
     ...sections,
     "<section>",
     tag("h2", "Whole file, per method"),
-    armTable("file", wholeFile(result.rows), "Both questions together"),
+    armTable("file", wholeFile(result.rows), result.rows, "Every question together"),
     "</section>",
     "<section>",
     tag("h2", "Limitations"),
     "<ul>",
-    ...LIMITS.map((limit) => tag("li", escape(limit))),
+    ...(d06 ? D06_LIMITS : LIMITS).map((limit) => tag("li", escape(limit))),
     "</ul>",
-    tag("p", "Source: examples/d06-tiny/records.csv, worked by hand in examples/d06-tiny/expected.md. Numbers from src/core/metrics.ts and src/core/verdict.ts."),
+    tag("p", `${escape(sourceLine)} Numbers from src/core/metrics.ts and src/core/verdict.ts.`),
     "</section>",
     "</main></body>",
     "</html>",
@@ -205,6 +261,14 @@ if (import.meta.main) {
     console.error("usage: bun scripts/result-view.ts <records.csv> <out.html>");
     process.exit(2);
   }
-  writeFileSync(output, await renderResultView(readFileSync(input, "utf8")));
-  console.log(`wrote ${output}`);
+  // The page names its source relative to the working directory, never by an absolute path.
+  const source = relative(process.cwd(), resolve(input)).split(sep).join("/");
+  try {
+    const page = await renderResultView(decodeUtf8(readFileSync(input)), source);
+    writeFileSync(output, page);
+    console.log(`wrote ${output}`);
+  } catch (error) {
+    console.error(`${input}: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
 }

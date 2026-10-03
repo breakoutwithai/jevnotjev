@@ -15,16 +15,18 @@
 //
 // Jev calls go through $JEV_CALL (default ~/.claude/scripts/jaylo-jev.sh call <body.json>), which reads the key
 // itself; this process never holds it. The LLM runs with no tools, no MCP servers and no user settings.
+import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatRecords, JEV_MODEL, parseRecords, type RecordRow } from "../uc13/arms.ts";
-import { assertNoSecrets, assertPinned } from "../uc13/calls.ts";
-import { pool, spawnText } from "../uc13/run-arms.ts";
+import { assertNoSecrets, assertPinned, KEY_PATTERN } from "../uc13/calls.ts";
+import { pool, spawnResult } from "../uc13/run-arms.ts";
+import { validate } from "../../src/format/validate.ts";
 import {
-  LLM_MODEL, LLM_PRICES, RUN_ID, applyItemLabels, samePriceTable, armRecord, blindItems, inputsSha256, jevBody, llmRequest, loadInputs,
-  parseJev, parseLlm, rowKey, ruleRecord, sha256Hex, type Case, type Inputs, type Question,
+  LLM_MODEL, LLM_MODEL_IDS, LLM_PRICES, RUN_ID, applyItemLabels, samePriceTable, armRecord, blindItems, inputsSha256, jevBody, llmRequest, loadInputs,
+  parseJev, parseLlm, rowKey, ruleRecord, sha256Hex, type Case, type Inputs, type Question, type Reply,
 } from "./arms.ts";
 
 export const FIXTURE_SCHEMA = "jnj-tokenmax-fixture/1";
@@ -139,11 +141,59 @@ export function keepLabels(rows: readonly RecordRow[], old: readonly RecordRow[]
   });
 }
 
+/** Write text to a uniquely named temp file next to path; the caller renames it into place. */
+async function stage(path: string, text: string): Promise<string> {
+  const tmp = `${path}.tmp-${process.pid}-${randomUUID()}`;
+  await writeFile(tmp, text);
+  return tmp;
+}
+
 /** Write to a temp name in the same directory, then rename, so a reader never sees a half-written file. */
 async function atomicWrite(path: string, text: string): Promise<void> {
-  const tmp = `${path}.tmp-${process.pid}`;
-  await writeFile(tmp, text);
-  await rename(tmp, path);
+  await rename(await stage(path, text), path);
+}
+
+const SECRET_FIELD_TEXT = /"(authorization|api[_-]?key)"\s*:/i;
+const KEY_TOKENS = new RegExp(KEY_PATTERN.source, "g");
+
+/** Text safe to journal: key-like tokens redacted; text naming a secret field is withheld whole. */
+export function sanitize(text: string): string {
+  if (SECRET_FIELD_TEXT.test(text)) return "[withheld: text carries a secret field]";
+  return text.replace(KEY_TOKENS, "[redacted]");
+}
+
+/**
+ * Every record the inputs would produce, with placeholder answers, through the jnj-record/1 validator: a CV or question
+ * the record schema refuses (blank, over 8,000 characters, ...) stops the run before any paid call.
+ */
+export function preflight(inputs: Inputs): void {
+  const reply = (model: string, confidence: number | null): Reply => ({ choice: "yes", model, confidence, tokensIn: 0, tokensOut: 0, costUsd: 0 });
+  const rows = pairs(inputs).flatMap(({ c, q }) => [
+    ruleRecord(c, q), armRecord(c, q, "jev", reply(JEV_MODEL, 0.5), 0), armRecord(c, q, "llm", reply(LLM_MODEL_IDS[0] ?? "", null), 0),
+  ]);
+  const { errors } = validate(formatRecords(rows));
+  if (errors.length > 0) throw new Error(`inputs would not make valid records, no call made: ${errors.slice(0, 3).join("; ")}`);
+}
+
+/** Validate raw.json and records.csv in full, stage both, and only then rename each into place. */
+export async function publishRun(out: string, inputs: Inputs, fixture: Fixture): Promise<void> {
+  const rawText = fixtureJson(fixture);
+  const recordsText = formatRecords(rowsFromFixture(inputs, parseFixture(rawText)));
+  parseRecords(recordsText);
+  const raw = join(out, "raw.json");
+  const records = join(out, "records.csv");
+  const staged: string[] = [];
+  try {
+    staged.push(await stage(raw, rawText), await stage(records, recordsText));
+  } catch (error) {
+    await Promise.all(staged.map((p) => rm(p, { force: true })));
+    throw error;
+  }
+  const [rawTmp, recordsTmp] = staged;
+  if (rawTmp === undefined || recordsTmp === undefined) throw new Error("publish: staging failed");
+  await rename(rawTmp, raw);
+  await rename(recordsTmp, records);
+  console.log(`wrote raw.json and records.csv rows=${recordsText.split("\n").length - 2}`);
 }
 
 /** records.csv is validated first and replaced only when valid. */
@@ -155,26 +205,30 @@ export async function writeRecords(out: string, rows: readonly RecordRow[]): Pro
 }
 
 async function run(paths: Paths, inputs: Inputs): Promise<void> {
+  preflight(inputs);
   await mkdir(paths.out, { recursive: true });
-  const journal = join(paths.out, "run.journal.jsonl");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const journal = join(paths.out, `run.journal.${stamp}-${randomUUID().slice(0, 8)}.jsonl`);
   const log = (event: Readonly<Record<string, unknown>>): Promise<void> => appendFile(journal, JSON.stringify({ utc: new Date().toISOString(), ...event }) + "\n");
-  await writeFile(journal, "");
+  await writeFile(journal, "", { flag: "wx" });
   await log({ event: "start", run_id: RUN_ID, inputs_sha256: inputsSha256(inputs) });
   const dir = await mkdtemp(join(tmpdir(), "tokenmax-"));
   const work = pairs(inputs);
   /** One call: its raw stdout is journalled before anything parses it; a failed spawn is journalled too. */
   const call = async (arm: Arm, c: Case, q: Question, cmd: readonly string[]): Promise<Entry> => {
     const where = { arm, case_id: c.case_id, question_id: q.question_id };
-    let out: { text: string; ms: number };
+    const who = `${arm} ${c.case_id} ${q.question_id}`;
+    let out: Awaited<ReturnType<typeof spawnResult>>;
     try {
-      out = await spawnText(cmd, dir, `${arm} ${c.case_id} ${q.question_id}`);
+      out = await spawnResult(cmd, dir);
     } catch (error) {
-      await log({ event: "call_failed", ...where, error: error instanceof Error ? error.message : String(error) });
+      await log({ event: "call_failed", ...where, error: sanitize(error instanceof Error ? error.message : String(error)) });
       throw error;
     }
-    await log({ event: "call", ...where, latency_ms: out.ms, stdout: out.text });
-    const json: unknown = JSON.parse(out.text);
-    const who = `${arm} ${c.case_id} ${q.question_id}`;
+    await log({ event: "call", ...where, exit_code: out.code, timed_out: out.timedOut, latency_ms: out.ms, stdout: sanitize(out.stdout), stderr: sanitize(out.stderr) });
+    if (out.timedOut) throw new Error(`${who} timed out`);
+    if (out.code !== 0) throw new Error(`${who} exited ${out.code}: ${sanitize(out.stderr.trim().slice(0, 300))}`);
+    const json: unknown = JSON.parse(out.stdout);
     if (arm === "jev") parseJev(json, q.question_id, who);
     else parseLlm(json, who);
     return entry(arm, c, q, json, out.ms, new Date().toISOString());
@@ -191,12 +245,10 @@ async function run(paths: Paths, inputs: Inputs): Promise<void> {
         "--setting-sources", "", "--no-session-persistence", "--system-prompt", r.system, r.user]);
     });
     const fixture: Fixture = { inputs_sha256: inputsSha256(inputs), captured_utc: new Date().toISOString(), entries: [...jev, ...llm] };
-    const rows = rowsFromFixture(inputs, fixture);
-    await atomicWrite(join(paths.out, "raw.json"), fixtureJson(fixture));
-    await writeRecords(paths.out, rows);
+    await publishRun(paths.out, inputs, fixture);
     await log({ event: "complete", calls: fixture.entries.length });
   } catch (error) {
-    await log({ event: "failed", error: error instanceof Error ? error.message : String(error) });
+    await log({ event: "failed", error: sanitize(error instanceof Error ? error.message : String(error)) });
     throw error;
   } finally {
     await rm(dir, { recursive: true, force: true });

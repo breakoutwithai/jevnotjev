@@ -70,7 +70,8 @@ describe("PR #57 sweep fixes", () => {
       await chmod(claude, 0o755);
       const out = join(dir, "out");
       await expect(main(["run"], { ...REAL, out, jevCall: jev, claude })).rejects.toThrow();
-      const lines = (await read(join(out, "run.journal.jsonl"))).trim().split("\n").map((l): unknown => JSON.parse(l));
+      const journal = (await readdir(out)).find((n) => n.startsWith("run.journal.")) ?? "no-journal";
+      const lines = (await read(join(out, journal))).trim().split("\n").map((l): unknown => JSON.parse(l));
       const calls = lines.filter((l) => typeof l === "object" && l !== null && "arm" in l);
       expect(calls.filter((l) => JSON.stringify(l).includes('"arm":"jev"')).length).toBe(10);
       expect(calls.some((l) => JSON.stringify(l).includes("not json at all"))).toBe(true);

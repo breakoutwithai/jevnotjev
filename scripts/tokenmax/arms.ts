@@ -228,8 +228,8 @@ export function armRecord(c: Case, q: Question, answerer: "jev" | "llm", reply: 
   });
 }
 
-export function rowKey(r: Pick<RecordRow, "case_id" | "question_id" | "answerer">): string {
-  return `${r.case_id}|${r.question_id}|${r.answerer}`;
+export function rowKey(r: Pick<RecordRow, "run_id" | "case_id" | "question_id" | "answerer">): string {
+  return JSON.stringify([r.run_id, r.case_id, r.question_id, r.answerer]);
 }
 
 type Shown = "run_id" | "prompt_version" | "case_id" | "question_id" | "answerer" | "case_input" | "question" | "answer_set" | "output";
@@ -254,22 +254,25 @@ export function blindItems(rows: readonly RecordRow[]): BlindItem[] {
 /** labels.csv from the page (item_id,label): accept or reject, each id once, every id known. Unlisted rows stay blank. */
 export function applyItemLabels(rows: readonly RecordRow[], text: string): RecordRow[] {
   const { header, rows: lines } = readDictRows(text);
-  const idAt = (header ?? []).indexOf("item_id");
-  const labelAt = (header ?? []).indexOf("label");
+  const h = header ?? [];
+  const repeated = h.filter((name, i) => h.indexOf(name) !== i);
+  if (repeated.length > 0) throw new Error(`labels.csv: duplicate column ${repeated.join(", ")}`);
+  const idAt = h.indexOf("item_id");
+  const labelAt = h.indexOf("label");
   if (idAt < 0 || labelAt < 0) throw new Error("labels.csv needs item_id and label columns");
-  const byId = new Map(rows.map((r) => [itemId(r), rowKey(r)]));
+  const ids = rows.map(itemId);
   const labels = new Map<string, string>();
   for (const { fields, line } of lines) {
+    if (fields.length !== h.length) throw new Error(`labels.csv line ${line}: ${fields.length} fields, header has ${h.length}`);
     const id = fields[idAt] ?? "";
     const label = fields[labelAt] ?? "";
-    const key = byId.get(id);
-    if (key === undefined) throw new Error(`labels.csv line ${line}: unknown item_id ${JSON.stringify(id)}`);
-    if (labels.has(key)) throw new Error(`labels.csv line ${line}: duplicate item_id ${id}`);
+    if (!ids.includes(id)) throw new Error(`labels.csv line ${line}: unknown item_id ${JSON.stringify(id)}`);
+    if (labels.has(id)) throw new Error(`labels.csv line ${line}: duplicate item_id ${id}`);
     if (label !== "accept" && label !== "reject") throw new Error(`labels.csv line ${line}: label ${JSON.stringify(label)} is not accept or reject`);
-    labels.set(key, label);
+    labels.set(id, label);
   }
-  return rows.map((r) => {
-    const label = labels.get(rowKey(r));
+  return rows.map((r, i) => {
+    const label = labels.get(ids[i] ?? "");
     return label === undefined ? r : { ...r, label, label_source: "human" };
   });
 }

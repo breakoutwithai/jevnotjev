@@ -82,12 +82,20 @@
     try { if (!storage) return false; storage.removeItem(KEY); return true; } catch (e) { return false; }
   }
 
+  /* Calls changed in another tab: take them, drop queued seats that are now called, and if the seat on stage was
+     called there while a queue was running, move on to the next queued seat. */
+  function resync(s, calls) {
+    var q = s.queue.filter(function (id) { return !own(calls, id); });
+    if (s.cur && own(calls, s.cur) && !own(s.calls, s.cur) && q.length) return { calls: calls, cur: q[0], queue: q.slice(1) };
+    return { calls: calls, cur: s.cur, queue: q };
+  }
+
   /* Empty the house: the calls are cleared on screen; cleared says whether storage dropped them too. */
   function emptyHouse(storage) { return { state: blank(), cleared: clear(storage) }; }
 
   window.JNJSeating = {
     ROWS: ROWS, PER_ROW: PER_ROW, KEY: KEY, VERDICT_AT: 30,
     isCall: isCall, seatCode: seatCode, blank: blank, withCalls: withCalls, pick: pick, decide: decide, queueUp: queueUp,
-    count: count, taken: taken, perAccepted: perAccepted, usd: usd, tally: tally, load: load, save: save, clear: clear, emptyHouse: emptyHouse
+    count: count, taken: taken, perAccepted: perAccepted, usd: usd, tally: tally, load: load, save: save, clear: clear, emptyHouse: emptyHouse, resync: resync
   };
 })();

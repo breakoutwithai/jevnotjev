@@ -24,6 +24,7 @@ interface Seating {
   save(storage: unknown, calls: Record<string, string>): boolean;
   clear(storage: unknown): boolean;
   emptyHouse(storage: unknown): { state: State; cleared: boolean };
+  resync(s: State, calls: Record<string, string>): State;
   readonly KEY: string;
 }
 
@@ -180,16 +181,17 @@ describe("little shop seating logic", () => {
     for (const f of ["seating.js", "house.js", "verdict.js"]) {
       const src = await readFile(join(SITE, f), "utf8");
       expect(src).not.toMatch(/fetch|XMLHttpRequest|sendBeacon|WebSocket|EventSource|\bimport\s*\(|Image\b|\.src\s*=|\.href\s*=|location\s*=|\bopen\s*\(/);
+      expect(src).not.toMatch(/createElement\(\s*["'](?:img|iframe|script|link|audio|video|source|object|embed|form)|setAttribute\(\s*["'](?:src|href|action|srcset)|\.(?:srcset|action)\s*=/i);
       if (f !== "seating.js") expect(src).not.toMatch(/localStorage\.|sessionStorage|indexedDB|document\.cookie/);
     }
     // the data file is one JSON assignment under a comment: nothing in it runs
     const dataJs = await readFile(join(SITE, "shop-data.js"), "utf8");
     const at = dataJs.indexOf("\nwindow.JNJ_LITTLE_SHOP = ");
-    expect(dataJs.slice(0, at)).toMatch(/^\/\*[\s\S]*\*\/$/);
+    expect(dataJs.slice(0, at)).toMatch(/^\/\*(?:(?!\*\/)[\s\S])*\*\/$/);
     expect(() => JSON.parse(dataJs.slice(at + "\nwindow.JNJ_LITTLE_SHOP = ".length).trim().replace(/;$/, ""))).not.toThrow();
     // no inline script or style in the page
     const html = await readFile(join(SITE, "index.html"), "utf8");
-    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>|<style|\bon[a-z]+=/i);
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>|<style|\bon[a-z]+=|<(?:img|iframe|object|embed|audio|video|form)\b/i);
     expect(await readFile(join(SITE, "house.css"), "utf8")).not.toMatch(/url\(|@import/);
     const page = await readFile(join(SITE, "index.html"), "utf8");
     // every external resource the page loads (link href, script src) is a font; anchors are links, not requests
@@ -201,6 +203,18 @@ describe("little shop seating logic", () => {
     const house = await readFile(join(SITE, "house.js"), "utf8");
     const empty = house.slice(house.indexOf('$("emptyHouse")'), house.indexOf("window.addEventListener(\"storage\""));
     expect(empty).toContain("S.emptyHouse(store)");
+  });
+
+  test("[unit] LSS-13 another tab's calls: queued seats now called drop out, and a running queue moves past a seat called there", async () => {
+    const s = await seating();
+    const st = s.queueUp(s.blank(), ["m01", "m02", "m03"]);
+    const moved = s.resync(st, { m01: "answer", m03: "hand_off" });
+    expect(moved).toEqual({ calls: { m01: "answer", m03: "hand_off" }, cur: "m02", queue: [] });
+    // a seat picked by hand (no queue) stays on stage to show the other tab's call
+    const picked = s.pick(s.blank(), "m05");
+    expect(s.resync(picked, { m05: "answer" }).cur).toBe("m05");
+    // cleared in another tab: calls empty, stage unchanged
+    expect(s.resync(picked, {})).toEqual({ calls: {}, cur: "m05", queue: [] });
   });
 
   test("[unit] LSS-12 Empty the house clears the calls and the stored key; with storage blocked it says it could not", async () => {

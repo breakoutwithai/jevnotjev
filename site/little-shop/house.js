@@ -60,13 +60,7 @@
   });
   function rowIds(r) { return ids.slice(r * S.PER_ROW, (r + 1) * S.PER_ROW); }
 
-  /* Merge with what storage holds now, so a call made in another tab is kept. */
-  function persist() {
-    var stored = S.load(store, ids);
-    Object.keys(state.calls).forEach(function (id) { stored[id] = state.calls[id]; });
-    state = { calls: stored, cur: state.cur, queue: state.queue };
-    kept = S.save(store, state.calls);
-  }
+  function persist() { kept = S.save(store, state.calls); }
 
   function renderSeats() {
     ids.forEach(function (id) {
@@ -172,7 +166,7 @@
   /* Another tab changed the calls: read them back so neither tab overwrites the other with a stale copy. */
   window.addEventListener("storage", function (e) {
     if (e.key !== null && e.key !== S.KEY) return;
-    state = { calls: S.load(store, ids), cur: state.cur, queue: state.queue };
+    state = S.resync(state, S.load(store, ids));
     update();
   });
   function say(call) {

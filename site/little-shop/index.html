@@ -51,8 +51,10 @@
         <h2 class="tag" id="onstageTag">On stage now</h2>
         <p class="idle" id="idle">Choose any empty seat. A customer's message takes the stage.</p>
         <div id="act" hidden>
-          <p class="seatline">Seat <b id="curCode"></b><span id="queueLeft"></span></p>
-          <p class="said" id="curText"></p>
+          <div aria-live="polite" aria-atomic="true">
+            <p class="seatline">Seat <b id="curCode"></b><span id="queueLeft"></span></p>
+            <p class="said" id="curText"></p>
+          </div>
           <div class="ask" id="ask">
             <p>Should the bot answer this itself, or hand it to a person?</p>
             <div class="calls">

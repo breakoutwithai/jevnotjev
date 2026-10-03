@@ -13,6 +13,7 @@ interface Seating {
   readonly VERDICT_AT: number;
   seatCode(i: number): string;
   blank(): State;
+  withCalls(calls: Record<string, string>): State;
   pick(s: State, id: string): State;
   decide(s: State, call: string): State;
   queueUp(s: State, ids: readonly string[]): State;
@@ -21,9 +22,10 @@ interface Seating {
   perAccepted(spend: unknown, total: number, n: number, accepted: number): number | null;
   usd(v: unknown): string;
   load(storage: unknown, ids: readonly string[]): Record<string, string>;
-  save(storage: unknown, calls: Record<string, string>): boolean;
-  clear(storage: unknown): boolean;
-  emptyHouse(storage: unknown): { state: State; cleared: boolean };
+  save(storage: unknown, id: string, call: string): boolean;
+  clear(storage: unknown, ids: readonly string[]): boolean;
+  ours(key: unknown): boolean;
+  emptyHouse(storage: unknown, ids: readonly string[]): { state: State; cleared: boolean };
   resync(s: State, calls: Record<string, string>): State;
   readonly KEY: string;
 }
@@ -150,24 +152,38 @@ describe("little shop seating logic", () => {
   test("[unit] LSS-8 calls round-trip through storage; only known ids with answer or hand_off are read back", async () => {
     const s = await seating();
     const store = new MemoryStorage();
-    expect(s.save(store, { m01: "answer", m02: "hand_off" })).toBe(true);
+    expect(s.save(store, "m01", "answer")).toBe(true);
+    expect(s.save(store, "m02", "hand_off")).toBe(true);
+    expect(s.save(store, "m03", "maybe")).toBe(false);
     expect(s.load(store, IDS)).toEqual({ m01: "answer", m02: "hand_off" });
-    store.setItem(s.KEY, '{"m01":"answer","m99":"answer","m03":"maybe","__proto__":"answer","constructor":"answer","m04":{"x":1}}');
-    expect(s.load(store, IDS)).toEqual({ m01: "answer" });
-    for (const junk of ["not json", "[1,2]", "null", "42"]) {
-      store.setItem(s.KEY, junk);
-      expect(s.load(store, IDS)).toEqual({});
-    }
-    expect(s.clear(store)).toBe(true);
-    expect(store.map.has(s.KEY)).toBe(false);
+    for (const [k, v] of [["m99", "answer"], ["__proto__", "answer"], ["constructor", "answer"], ["m04", "{\"x\":1}"], ["m05", "null"]]) store.setItem(s.KEY + k, v ?? "");
+    expect(s.load(store, IDS)).toEqual({ m01: "answer", m02: "hand_off" });
+    expect(s.clear(store, IDS)).toBe(true);
+    expect([...store.map.keys()].filter((k) => IDS.some((id) => k === s.KEY + id))).toEqual([]);
+    expect(s.ours(s.KEY + "m01")).toBe(true);
+    expect(s.ours(null)).toBe(true);
+    expect(s.ours("other")).toBe(false);
+  });
+
+  test("[unit] LSS-14 two tabs calling different messages, writes interleaved, keep both calls", async () => {
+    const s = await seating();
+    const store = new MemoryStorage();
+    // both tabs load the same empty snapshot, then each saves its own call
+    let a = s.withCalls(s.load(store, IDS));
+    let b = s.withCalls(s.load(store, IDS));
+    a = s.decide(s.pick(a, "m01"), "answer");
+    b = s.decide(s.pick(b, "m02"), "hand_off");
+    s.save(store, "m01", a.calls.m01 ?? "");
+    s.save(store, "m02", b.calls.m02 ?? "");
+    expect(s.load(store, IDS)).toEqual({ m01: "answer", m02: "hand_off" });
   });
 
   test("[unit] LSS-9 blocked or missing storage never throws: load reads nothing, save and clear report false", async () => {
     const s = await seating();
     for (const st of [new BlockedStorage(), null, undefined]) {
       expect(s.load(st, IDS)).toEqual({});
-      expect(s.save(st, { m01: "answer" })).toBe(false);
-      expect(s.clear(st)).toBe(false);
+      expect(s.save(st, "m01", "answer")).toBe(false);
+      expect(s.clear(st, IDS)).toBe(false);
     }
   });
 
@@ -202,7 +218,7 @@ describe("little shop seating logic", () => {
     expect(loads.filter((u) => !/^https?:/.test(u))).toEqual(["house.css", "shop-data.js", "seating.js", "verdict.js", "house.js"]);
     const house = await readFile(join(SITE, "house.js"), "utf8");
     const empty = house.slice(house.indexOf('$("emptyHouse")'), house.indexOf("window.addEventListener(\"storage\""));
-    expect(empty).toContain("S.emptyHouse(store)");
+    expect(empty).toContain("S.emptyHouse(store, ids)");
   });
 
   test("[unit] LSS-13 another tab's calls: queued seats now called drop out, and a running queue moves past a seat called there", async () => {
@@ -220,12 +236,12 @@ describe("little shop seating logic", () => {
   test("[unit] LSS-12 Empty the house clears the calls and the stored key; with storage blocked it says it could not", async () => {
     const s = await seating();
     const store = new MemoryStorage();
-    s.save(store, { m01: "answer" });
-    const r = s.emptyHouse(store);
+    s.save(store, "m01", "answer");
+    const r = s.emptyHouse(store, IDS);
     expect(r.state).toEqual(s.blank());
     expect(r.cleared).toBe(true);
-    expect(store.map.has(s.KEY)).toBe(false);
-    expect(s.emptyHouse(new BlockedStorage()).cleared).toBe(false);
-    expect(s.emptyHouse(new BlockedStorage()).state).toEqual(s.blank());
+    expect(store.map.size).toBe(0);
+    expect(s.emptyHouse(new BlockedStorage(), IDS).cleared).toBe(false);
+    expect(s.emptyHouse(new BlockedStorage(), IDS).state).toEqual(s.blank());
   });
 });

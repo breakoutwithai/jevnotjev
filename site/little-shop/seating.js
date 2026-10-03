@@ -1,10 +1,11 @@
 /* Little Shop of Horrors: the seating logic. Pure functions on window.JNJSeating; house.js draws the page.
  * A call is the visitor's own judgement on one message: "answer" (the bot answers) or "hand_off" (hand to a person).
- * Calls live only in this browser's localStorage under KEY; every storage read and write is guarded, so the page
+ * Calls live only in this browser's localStorage, one key per message (KEY + id), so two tabs calling different
+ * messages never overwrite each other. Every storage read and write is guarded, so the page
  * works with storage blocked. Nothing here makes a network request. */
 (function () {
   "use strict";
-  var ROWS = "ABCDE", PER_ROW = 8, KEY = "jnj.little-shop.calls.v1";
+  var ROWS = "ABCDE", PER_ROW = 8, KEY = "jnj.little-shop.call.v1.";
 
   function isCall(v) { return v === "answer" || v === "hand_off"; }
   function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
@@ -64,23 +65,28 @@
     });
   }
 
-  /* Calls read back from storage: only known ids with a valid call. Anything unreadable reads as no calls. */
+  /* Calls read back from storage: one key per known id, holding answer or hand_off. Anything else reads as no call. */
   function load(storage, ids) {
     var out = {};
     try {
       if (!storage) return out;
-      var raw = JSON.parse(storage.getItem(KEY) || "null");
-      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return out;
-      ids.forEach(function (id) { if (own(raw, id) && isCall(raw[id])) out[id] = raw[id]; });
+      ids.forEach(function (id) { var v = storage.getItem(KEY + id); if (isCall(v)) out[id] = v; });
     } catch (e) { return {}; }
     return out;
   }
-  function save(storage, calls) {
-    try { if (!storage) return false; storage.setItem(KEY, JSON.stringify(calls)); return true; } catch (e) { return false; }
+  /* Writes one call; never touches another message's key. */
+  function save(storage, id, call) {
+    try { if (!storage || !isCall(call)) return false; storage.setItem(KEY + id, call); return true; } catch (e) { return false; }
   }
-  function clear(storage) {
-    try { if (!storage) return false; storage.removeItem(KEY); return true; } catch (e) { return false; }
+  /* Removes every message's key; true only when all removals worked. */
+  function clear(storage, ids) {
+    if (!storage) return false;
+    var ok = true;
+    ids.forEach(function (id) { try { storage.removeItem(KEY + id); } catch (e) { ok = false; } });
+    return ok;
   }
+  /* A storage event key that belongs to this page (null means the whole store was cleared). */
+  function ours(key) { return key === null || (typeof key === "string" && key.indexOf(KEY) === 0); }
 
   /* Calls changed in another tab: take them, drop queued seats that are now called, and if the seat on stage was
      called there while a queue was running, move on to the next queued seat. */
@@ -91,11 +97,11 @@
   }
 
   /* Empty the house: the calls are cleared on screen; cleared says whether storage dropped them too. */
-  function emptyHouse(storage) { return { state: blank(), cleared: clear(storage) }; }
+  function emptyHouse(storage, ids) { return { state: blank(), cleared: clear(storage, ids) }; }
 
   window.JNJSeating = {
     ROWS: ROWS, PER_ROW: PER_ROW, KEY: KEY, VERDICT_AT: 30,
     isCall: isCall, seatCode: seatCode, blank: blank, withCalls: withCalls, pick: pick, decide: decide, queueUp: queueUp,
-    count: count, taken: taken, perAccepted: perAccepted, usd: usd, tally: tally, load: load, save: save, clear: clear, emptyHouse: emptyHouse, resync: resync
+    count: count, taken: taken, perAccepted: perAccepted, usd: usd, tally: tally, load: load, save: save, clear: clear, emptyHouse: emptyHouse, resync: resync, ours: ours
   };
 })();

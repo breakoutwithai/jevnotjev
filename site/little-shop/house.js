@@ -60,7 +60,7 @@
   });
   function rowIds(r) { return ids.slice(r * S.PER_ROW, (r + 1) * S.PER_ROW); }
 
-  function persist() { kept = S.save(store, state.calls); }
+  function persist(id) { kept = S.save(store, id, state.calls[id]); }
 
   function renderSeats() {
     ids.forEach(function (id) {
@@ -157,7 +157,7 @@
   });
   seatAll.addEventListener("click", function () { state = S.queueUp(state, ids); update(); focusCall(); });
   $("emptyHouse").addEventListener("click", function () {
-    var r = S.emptyHouse(store);
+    var r = S.emptyHouse(store, ids);
     state = r.state;
     kept = r.cleared;
     update();
@@ -165,13 +165,14 @@
   });
   /* Another tab changed the calls: read them back so neither tab overwrites the other with a stale copy. */
   window.addEventListener("storage", function (e) {
-    if (e.key !== null && e.key !== S.KEY) return;
+    if (!S.ours(e.key)) return;
     state = S.resync(state, S.load(store, ids));
     update();
   });
   function say(call) {
+    var id = state.cur;
     state = S.decide(state, call);
-    persist();
+    if (id) persist(id);
     update();
     if (!state.calls[state.cur]) focusCall(); else $("onstage").focus();
   }

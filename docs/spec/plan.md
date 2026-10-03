@@ -3,7 +3,7 @@
 Architecture for the requirements in [spec.md](spec.md) (#17). Tasks: [tasks.md](tasks.md). Language and runner follow #22: TypeScript on Bun.
 
 ## Shape
-One TypeScript core under `src/` holds validation, calculations and the verdict. The browser and the command line both use it. The page is static and has no server; a `bun build` step bundles the core into `site/jnj.js`, which `site/index.html` loads with one `<script>` tag. The bundle is committed, and the gate rebuilds it and fails on any difference, because the deploy (`docs/DEPLOY.md`) serves `site/` as it is and builds nothing.
+One TypeScript core under `src/` holds validation, calculations and the verdict. The browser and the command line both use it. The original analysis page is static; Backstage (#67) adds the separate same-origin BYOK service described in [issue-67](../slices/issue-67.md) and [deployment](../backstage-deploy.md). For the original analysis page, a `bun build` step bundles the core into `site/jnj.js`, which `site/index.html` loads with one `<script>` tag. The bundle is committed, and the gate rebuilds it and fails on any difference, because the deploy (`docs/DEPLOY.md`) serves `site/` as it is and builds nothing.
 
 The tests in `src/format/` are the reference for the validator. #25 (#22 steps 5 and 6) ported the original validator, showed it gives the same VALID or INVALID, errors and gaps on every fixture (59 fixtures, 818 comparisons, 0 differences; the parity harness was then removed, history at cd8397f), and removed the original and its tests.
 

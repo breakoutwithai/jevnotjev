@@ -1,0 +1,361 @@
+:root {
+  --bg: #e8e5df;
+  --paper: #efe2c4;
+  --ink: #1f0a0e;
+  --muted: #665454;
+  --line: rgba(31, 10, 14, 0.2);
+  --curtain: #7b1424;
+  --brass: #8a5f10;
+  --keep: #2f7a4d;
+  --cut: #b2382a;
+  --serif: "Iowan Old Style", Georgia, serif;
+  --sans: "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #12060a;
+  --paper: #24131a;
+  --ink: #f2e9df;
+  --muted: #baa39d;
+  --line: rgba(242, 233, 223, 0.22);
+  --curtain: #94203a;
+  --brass: #e0b04e;
+  --keep: #86cf9f;
+  --cut: #f08470;
+  color-scheme: dark;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--serif);
+  line-height: 1.5;
+  border-top: 7px solid var(--curtain);
+}
+header {
+  max-width: 1100px;
+  margin: auto;
+  padding: 20px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  font-family: var(--sans);
+}
+a {
+  color: inherit;
+  text-underline-offset: 4px;
+}
+header > a {
+  font-weight: 700;
+  text-decoration: none;
+}
+header span {
+  font-weight: 400;
+  color: var(--muted);
+}
+main {
+  max-width: 980px;
+  margin: 25px auto;
+  padding: 0 24px;
+}
+.ticket {
+  display: flex;
+  justify-content: space-between;
+  max-width: 650px;
+  background: var(--paper);
+  padding: 22px 0 22px 30px;
+  border: 1px solid var(--brass);
+  box-shadow: 4px 5px 0 var(--line);
+  transform: rotate(-0.6deg);
+}
+.stub {
+  border-left: 2px dashed var(--brass);
+  writing-mode: vertical-rl;
+  padding: 0 20px;
+  font: 700 11px var(--sans);
+  letter-spacing: 0.18em;
+}
+.eyebrow {
+  font: 700 10px var(--sans);
+  letter-spacing: 0.19em;
+  color: var(--brass);
+  margin: 0 0 12px;
+}
+h1 {
+  font-size: clamp(40px, 7vw, 66px);
+  line-height: 1.05;
+  margin: 0;
+  font-weight: 700;
+}
+h1 em {
+  font-weight: 400;
+}
+h2 {
+  font-size: clamp(32px, 5vw, 46px);
+  line-height: 1.1;
+  margin: 0 0 12px;
+}
+h3 {
+  font-size: 24px;
+  margin: 0 0 8px;
+}
+.direction {
+  font-style: italic;
+  color: var(--muted);
+  font-size: 20px;
+  margin: 12px 0 24px;
+}
+.ticket .direction {
+  margin: 8px 0 0;
+}
+.intro {
+  font-size: 20px;
+  margin: 28px 0;
+}
+nav {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+button {
+  font: 600 13px var(--sans);
+  padding: 12px 16px;
+  background: var(--curtain);
+  border: 1px solid var(--curtain);
+  color: #fff;
+  cursor: pointer;
+  min-height: 44px;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+button:hover:enabled {
+  filter: brightness(1.15);
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--brass);
+  outline-offset: 3px;
+}
+nav button {
+  padding: 10px 6px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  font-size: 12px;
+}
+nav span {
+  display: block;
+  margin-top: 5px;
+}
+nav [aria-current="step"] {
+  background: var(--curtain);
+  color: #fff;
+  border-color: var(--curtain);
+}
+#notice {
+  min-height: 25px;
+  font: 13px var(--sans);
+  color: var(--muted);
+  margin: 22px 0;
+}
+section {
+  border-top: 2px solid var(--brass);
+  padding: 30px 0;
+  min-height: 420px;
+}
+[hidden] {
+  display: none !important;
+}
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 24px;
+  min-width: 0;
+}
+legend {
+  font-size: 25px;
+  margin: 24px 0 12px;
+}
+label {
+  display: block;
+  font: 600 13px var(--sans);
+  line-height: 1.5;
+  margin: 16px 0;
+}
+input,
+textarea {
+  display: block;
+  width: 100%;
+  font: 400 16px/1.5 var(--sans);
+  padding: 12px;
+  margin-top: 7px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  min-width: 0;
+}
+textarea {
+  resize: vertical;
+}
+input:disabled,
+textarea:disabled {
+  opacity: 0.65;
+}
+.columns,
+.cast {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.cast article,
+aside,
+.answer-card {
+  border: 1px solid var(--line);
+  padding: 22px;
+  background: var(--paper);
+}
+.model {
+  font: 12px var(--sans);
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.fine,
+.optional {
+  font: 12px/1.6 var(--sans);
+  color: var(--muted);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 0;
+}
+.secondary {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--line);
+}
+.keep {
+  background: var(--keep);
+  color: var(--bg);
+  border-color: var(--keep);
+}
+.cut {
+  background: var(--cut);
+  color: var(--bg);
+  border-color: var(--cut);
+}
+.answer-card p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.answer {
+  font-size: 32px;
+  font-weight: 700;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+#progress {
+  font: 13px/1.7 var(--sans);
+}
+.table-wrap {
+  overflow-x: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font: 13px/1.5 var(--sans);
+  margin: 18px 0;
+}
+th,
+td {
+  text-align: left;
+  padding: 12px 8px;
+  border-bottom: 1px solid var(--line);
+}
+th {
+  color: var(--muted);
+}
+#verdict h3 {
+  font-size: 38px;
+  color: var(--brass);
+}
+aside {
+  margin-top: 30px;
+}
+footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding: 22px 0;
+  font: 12px var(--sans);
+}
+.colophon {
+  max-width: 980px;
+  padding: 0 24px 32px;
+  margin: auto;
+  color: var(--muted);
+  font: 12px/1.6 var(--sans);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+@media (max-width: 719px) {
+  main {
+    padding: 0 18px;
+    margin-top: 15px;
+  }
+  header {
+    padding: 16px 18px;
+  }
+  header span {
+    display: none;
+  }
+  nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .columns,
+  .cast {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .ticket {
+    padding-left: 18px;
+  }
+  .stub {
+    padding: 0 10px;
+  }
+  .ticket .eyebrow {
+    font-size: 8px;
+  }
+  .ticket .direction {
+    font-size: 17px;
+  }
+  section {
+    padding-top: 24px;
+  }
+  .cast article + article {
+    margin-top: 14px;
+  }
+  th,
+  td {
+    padding: 10px 6px;
+  }
+  .actions button {
+    flex-grow: 1;
+  }
+}

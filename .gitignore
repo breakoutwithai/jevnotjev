@@ -36,3 +36,11 @@ docs/wayfinder/
 docs/handovers/
 docs/prompts/*
 !docs/prompts/*.prompt-template.md
+
+# Backstage build and local execution evidence
+.agents/backlog-clearing/runs/
+dist/
+site/backstage/app.js
+
+# Local pipeline checkpoints
+.agents/pipeline/

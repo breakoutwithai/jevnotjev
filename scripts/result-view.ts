@@ -1,6 +1,6 @@
 // D09 result view: one self-contained HTML page comparing the current LLM, the keyword rule and Jev.
 // Every number comes from src/core (metrics and verdict) over the validated file; this script only lays them out.
-// Run: bun scripts/result-view.ts (no arguments): reads examples/d06-tiny/records.csv, writes site/result-d06.html.
+// Run: bun scripts/result-view.ts (no arguments): reads examples/d06-tiny/records.csv, writes docs/product/result-views/result-d06.html.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -28,7 +28,7 @@ const WHOLE_FILE = "whole file";
 /** The hand-worked fixture; its own limitations are shown only for this source. */
 export const D06_SOURCE = "examples/d06-tiny/records.csv";
 /** The page the CLI writes, relative to the repo root. */
-const OUTPUT = "site/result-d06.html";
+const OUTPUT = "docs/product/result-views/result-d06.html";
 
 function escape(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -354,7 +354,7 @@ export async function renderResultView(csvText: string, source: string): Promise
 if (import.meta.main) {
   // Fixed input and output, both under the repo root: there are no paths to get wrong.
   if (process.argv.length > 2) {
-    console.error("usage: bun scripts/result-view.ts (no arguments; writes site/result-d06.html from examples/d06-tiny/records.csv)");
+    console.error("usage: bun scripts/result-view.ts (no arguments; writes docs/product/result-views/result-d06.html from examples/d06-tiny/records.csv)");
     process.exit(2);
   }
   const repo = resolve(import.meta.dir, "..");

@@ -120,6 +120,17 @@ EOF
     cat > "${STUB}/nginx" <<'EOF'
 #!/usr/bin/env bash
 v="${FAKE_BOX}/etc/nginx/sites-available/jevnotjev.breakoutwithai.com"
+if [ "$1" = -T ]; then
+    # Effective config dump: nginx.conf plus everything it includes.
+    [ -f "${FAKE_BOX}/state/nginx_T_fail" ] && { echo 'nginx: [emerg] dump failed' >&2; exit 1; }
+    echo 'nginx: configuration file /etc/nginx/nginx.conf test is successful' >&2
+    echo '# configuration file /etc/nginx/nginx.conf:'
+    cat "${FAKE_BOX}/etc/nginx/nginx.conf"
+    for f in "${FAKE_BOX}"/etc/nginx/conf.d/*.conf; do
+        [ -f "$f" ] && { echo "# configuration file ${f#${FAKE_BOX}}:"; cat "$f"; }
+    done
+    exit 0
+fi
 if [ "$1" = -t ]; then
     if [ -f "${FAKE_BOX}/state/nginx_t_fail" ] && grep -q 'jevnotjev-backstage.conf' "$v"; then
         echo 'nginx: [emerg] test failure' >&2; exit 1
@@ -187,17 +198,19 @@ curl() {
     done
     [[ -s "${BOX}/state/reloads" ]] && reloaded=true
     # Backstage routes: nginx answers 401 before the proxy whenever the INSTALLED snippet carries
-    # auth_basic; with the curl config the request passes auth and reaches the (absent) upstream: 502.
-    # UNAUTH_CODE / AUTHED_CODE override what the host answers.
+    # auth_basic; with the curl config the request passes auth and reaches the upstream: 200 when
+    # the service runs, 502 when it does not. UNAUTH_CODE / AUTHED_CODE override what the host
+    # answers; BS_CURL_RC makes the transfer fail with that curl exit after the status line.
     if [[ "$url" == */backstage/* || "$url" == */api/backstage/* ]]; then
-        if $authed; then printf '%s' "${AUTHED_CODE:-502}"; return 0; fi
-        if [[ -n "${UNAUTH_CODE:-}" ]]; then printf '%s' "$UNAUTH_CODE"; return 0; fi
-        if grep -q 'auth_basic_user_file' "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" 2>/dev/null; then
-            printf 401
-        else
-            printf 502
-        fi
-        return 0
+        local code
+        if $authed; then
+            if [[ -n "${AUTHED_CODE:-}" ]]; then code="$AUTHED_CODE"
+            elif [[ -f "${BOX}/state/active" ]]; then code=200; else code=502; fi
+        elif [[ -n "${UNAUTH_CODE:-}" ]]; then code="$UNAUTH_CODE"
+        elif grep -q 'auth_basic_user_file' "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" 2>/dev/null; then code=401
+        else code=502; fi
+        printf '%s' "$code"
+        return "${BS_CURL_RC:-0}"
     fi
     if [[ -n "$host" ]] && { [[ "$host" == "${FAIL_NAME:-}" ]] \
         || { [[ "$host" == "${FAIL_NAME_BEFORE:-}" ]] && ! $reloaded; } \
@@ -686,6 +699,79 @@ out="$(AUTHED_CODE=401; (setup_main) 2>&1)"; rc=$?
 [[ $rc -ne 0 && ! -e "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
     && ok "authenticated probe still 401 (wrong credentials) -> restore, exit non-zero" \
     || nope "authed 401: rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
+
+echo
+echo "[T1] sweep #1: authenticated probe must prove it reached the upstream"
+for c in 403 500; do
+    make_box no
+    out="$(AUTHED_CODE=$c; (setup_main) 2>&1)"; rc=$?
+    [[ $rc -ne 0 && ! -e "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+        && ok "authenticated ${c} (nginx auth handler failure, e.g. unreadable htpasswd) -> restore, exit non-zero" \
+        || nope "authed ${c}: rc=${rc}, reloads $(reloads); out: ${out}"
+    drop_box
+done
+make_box yes
+touch "${BOX}/state/active" "${BOX}/state/port_used"
+printf '%s\n' "$OLD_SNIPPET" > "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
+out="$( (setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"authenticated GET /api/backstage/health: 200"* ]] \
+    && ok "release running: authenticated 200 from the upstream passes" || nope "active 200: rc=${rc}; out: ${out}"
+drop_box
+make_box yes
+touch "${BOX}/state/active" "${BOX}/state/port_used"
+printf '%s\n' "$OLD_SNIPPET" > "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
+out="$(AUTHED_CODE=502; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(cat "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf")" == "$OLD_SNIPPET" && "$(reloads)" == 2 ]] \
+    && ok "release running: authenticated 502 is not accepted (502 is allowed only with no release) -> restore" \
+    || nope "active 502: rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
+
+echo
+echo "[T1] sweep #2: a failed transfer never verifies, whatever status it printed"
+make_box no
+out="$(BS_CURL_RC=28; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && ! -e "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" && "$(reloads)" == 2 && "$out" == *"curl exit 28"* ]] \
+    && ok "401/502 followed by curl exit 28 -> verification fails, restore, the curl exit is reported" \
+    || nope "curl 28: rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
+
+echo
+echo "[T1] sweep #3: a failed snippet restore stops before any reload"
+make_box yes
+printf '%s\n' "$OLD_SNIPPET" > "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
+remote() {
+    if [[ "$*" == "cp -p '/var/backups/jevnotjev-backstage/jevnotjev-backstage.conf."*"' '/etc/nginx/snippets/jevnotjev-backstage.conf'" ]]; then
+        printf '%s\n---\n' "$*" >> "$RLOG"; return 1
+    fi
+    fake_remote "$@"
+}
+out="$(UNAUTH_CODE=200; (setup_main) 2>&1)"; rc=$?
+remote() { fake_remote "$@"; }
+[[ $rc -ne 0 && "$(reloads)" == 1 && "$out" == *"RESTORE FAILED"* ]] \
+    && ok "snippet restore failure -> exit non-zero, no further reload, operator told to restore by hand" \
+    || nope "restore failure: rc=${rc}, reloads $(reloads); out: ${out}"
+[[ "$(grep -c "^cp -p '/var/backups/jevnotjev-backstage/jevnotjev-backstage.conf\." "$RLOG")" -ge 2 ]] \
+    && ok "recovery state is kept: the exit trap retries the restore" || nope "no restore retry: $(grep -c 'jevnotjev-backstage.conf\.' "$RLOG")"
+drop_box
+
+echo
+echo "[T1] sweep #7: nginx worker group comes from the effective config"
+make_box no
+printf 'worker_processes auto;\ninclude /etc/nginx/conf.d/*.conf;\n' > "${BOX}/etc/nginx/nginx.conf"
+mkdir -p "${BOX}/etc/nginx/conf.d"; printf 'user nginx;\n' > "${BOX}/etc/nginx/conf.d/00-user.conf"
+printf 'root nginx 640 44\n' > "${HT}.statmeta"; printf 'root nginx 750 4096\n' > "${BOX}/etc/jevnotjev-backstage.statmeta"
+out="$( (setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && ok "a user directive in an included file is found (nginx -T): group nginx accepted" \
+    || nope "included user: rc=${rc}; out: ${out}"
+drop_box
+make_box no
+printf 'worker_processes auto;\n' > "${BOX}/etc/nginx/nginx.conf"
+refuses_untouched "no user directive in the effective config -> refuse, no www-data guess" "worker group"
+drop_box
+make_box no
+touch "${BOX}/state/nginx_T_fail"
+refuses_untouched "nginx -T failing -> refuse, no www-data guess" "worker group"
 drop_box
 
 echo

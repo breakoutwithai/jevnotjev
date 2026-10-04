@@ -104,9 +104,11 @@ L=\$(readlink \"\$C\" 2>/dev/null || true)
 echo \"release=\${L:-none}\"
 if [ -n \"\$L\" ] && [ -f \"\$L/.verified\" ]; then echo verified=yes; else echo verified=no; fi
 echo \"service=\$(systemctl is-active jevnotjev-backstage 2>/dev/null || true), \$(systemctl is-enabled jevnotjev-backstage 2>/dev/null || true)\"
-if [ -f \"\$U\" ] && [ -f \"\$S\" ] && sed 's/#.*//' \"\$V\" 2>/dev/null | grep -qF \"include \$S;\"; then echo setup=yes; else echo setup=no; fi
-if [ ! -e \"\$S\" ]; then echo auth=no; elif [ ! -r \"\$S\" ]; then echo auth=unknown; elif grep -Eq '^[[:space:]]*auth_basic_user_file[[:space:]]' \"\$S\"; then echo auth=yes; else echo auth=no; fi")" || return 1
-    auth="$(printf '%s\n' "$probe" | sed -n 's/^auth=//p' | head -1)"
+if [ -f \"\$U\" ] && [ -f \"\$S\" ] && sed 's/#.*//' \"\$V\" 2>/dev/null | grep -qF \"include \$S;\"; then echo setup=yes; else echo setup=no; fi")" || return 1
+    # Effective auth of the installed snippet; unreadable or unrecognised is unknown, never no.
+    auth="$(backstage_auth_state)" || auth=unknown
+    probe="${probe}
+auth=${auth}"
     if ! backstage_require_curl_config "$auth"; then
         print_status backstage unknown "$probe"
         return 1

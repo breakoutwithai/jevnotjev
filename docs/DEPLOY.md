@@ -35,8 +35,8 @@ variant in `docs/backstage-deploy.md` § Basic Auth gate):
 # On the host as root (ssh -t), password typed at the prompt, tester replaced with the login
 install -d -o root -g www-data -m 0750 /etc/jevnotjev-backstage && htpasswd -B -c /etc/jevnotjev-backstage/htpasswd tester && chown root:www-data /etc/jevnotjev-backstage/htpasswd && chmod 0640 /etc/jevnotjev-backstage/htpasswd
 # On the workstation: private curl config holding the same login and password
-umask 077; read -r -s -p 'Backstage password: ' BP; echo; printf 'user = "tester:%s"\n' "$BP" > $HOME/.config/jevnotjev/backstage-curl; unset BP
-export BACKSTAGE_CURL_CONFIG=$HOME/.config/jevnotjev/backstage-curl
+d="$HOME/.config/jevnotjev"; mkdir -p "$d" && chmod 700 "$d" && t="$(mktemp "$d/.backstage-curl.XXXXXX")" && chmod 600 "$t" && read -r -s -p 'Backstage password: ' BP && echo && printf 'user = "tester:%s"\n' "$BP" > "$t" && mv -f "$t" "$d/backstage-curl"; unset BP
+export BACKSTAGE_CURL_CONFIG="$HOME/.config/jevnotjev/backstage-curl"
 ./.deploy/ship.sh --setup --module backstage --dry-run
 ./.deploy/ship.sh --setup --module backstage
 # Both print 401
@@ -45,7 +45,7 @@ curl -s -o /dev/null -w '%{http_code}\n' https://jevnotjev.breakoutwithai.com/ap
 ```
 
 Setup refuses, changing nothing, until the htpasswd is root:<nginx group> 0640 and non-empty, and
-verifies after the reload that both routes answer 401 without credentials and pass with them,
+verifies after the reload that both routes answer 401 without credentials and reach the upstream with them,
 restoring the previous nginx config otherwise. Backstage deploy, rollback and `--status` fail
 naming `BACKSTAGE_CURL_CONFIG` when the host has the gate and the variable is unset.
 

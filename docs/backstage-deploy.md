@@ -14,17 +14,17 @@ Both Backstage locations, the page (`/backstage/`) and the API (`/api/backstage/
    install -d -o root -g www-data -m 0750 /etc/jevnotjev-backstage && htpasswd -B -c /etc/jevnotjev-backstage/htpasswd tester && chown root:www-data /etc/jevnotjev-backstage/htpasswd && chmod 0640 /etc/jevnotjev-backstage/htpasswd
    ```
 
-   Without apache2-utils, `openssl passwd -apr1` prompts instead; setup prints that variant when it refuses. `-c` replaces any existing file. `www-data` is nginx's worker group on this host; setup reads the `user` directive in `/etc/nginx/nginx.conf` and refuses on a mismatch.
+   Without apache2-utils, `openssl passwd -apr1` prompts instead; setup prints that variant when it refuses. `-c` replaces any existing file. `www-data` is nginx's worker group on this host; setup reads the `user` directive from the effective config (`nginx -T`, includes resolved) and refuses on a mismatch, or when no single `user` directive is found.
 
 2. Create the local curl config on the workstation, typing the same login and password (`read -s` keeps the password off the screen and out of shell history):
 
    ```sh
-   umask 077; read -r -s -p 'Backstage password: ' BP; echo; printf 'user = "tester:%s"\n' "$BP" > $HOME/.config/jevnotjev/backstage-curl; unset BP
+   d="$HOME/.config/jevnotjev"; mkdir -p "$d" && chmod 700 "$d" && t="$(mktemp "$d/.backstage-curl.XXXXXX")" && chmod 600 "$t" && read -r -s -p 'Backstage password: ' BP && echo && printf 'user = "tester:%s"\n' "$BP" > "$t" && mv -f "$t" "$d/backstage-curl"; unset BP
    ```
 
-   Create `$HOME/.config/jevnotjev` first if needed; any absolute path outside the repository works. The file must be owned by you, mode 0600. Avoid `"` and `\` in the password: curl config quoting would need escaping.
+   The password goes only into a new mode-0600 temporary file, which then atomically replaces `backstage-curl`, so an existing file's looser mode never sees it. Any absolute path outside the repository works. Avoid `"` and `\` in the password: curl config quoting would need escaping.
 
-3. `export BACKSTAGE_CURL_CONFIG=$HOME/.config/jevnotjev/backstage-curl` (absolute path).
+3. `export BACKSTAGE_CURL_CONFIG="$HOME/.config/jevnotjev/backstage-curl"` (absolute path).
 
 4. `.deploy/ship.sh --setup --module backstage --dry-run`, then `.deploy/ship.sh --setup --module backstage`. Setup installs or updates the gated snippet and then verifies the gate (below).
 
@@ -50,7 +50,7 @@ Two operator commands, after reading the dry run's plan and vhost diff:
 2. Creates the non-login system user/group `jevnotjev-backstage` if absent. Installs `.deploy/backstage.service` as `/etc/systemd/system/jevnotjev-backstage.service` if absent, runs `systemctl daemon-reload` and `systemctl enable jevnotjev-backstage`. It runs as `jevnotjev-backstage`, bound to loopback. `StateDirectory=jevnotjev-backstage` with mode 0700 grants only that service writable state under `/var/lib/jevnotjev-backstage`, compatible with `ProtectSystem=strict`. Enable configures reboot recovery; the service is not started until a release exists.
 3. Probes every co-tenant in `/etc/nginx/sites-enabled`, saves a timestamped backup of the installed vhost under `/var/backups/jevnotjev-backstage/`, installs `.deploy/backstage-nginx.conf` as `/etc/nginx/snippets/jevnotjev-backstage.conf` if absent or, when the installed snippet differs, saves it under the same backup directory and replaces it, and inserts exactly `include /etc/nginx/snippets/jevnotjev-backstage.conf;` if absent, inside this domain's only HTTPS server block. Every certificate directive and other location is kept; the vhost is never replaced by the repository HTTP-only template, which would remove Certbot's TLS configuration. No other domain is edited.
 4. Runs `nginx -t`. On failure it restores the saved vhost and never reloads. On success it runs `systemctl reload nginx`, never restart, and re-probes all neighbours. A changed neighbour restores the vhost, validates it and reloads again. Either failure exits non-zero.
-5. Verifies the gate, pinned to the host: unauthenticated GET of `/backstage/` and `/api/backstage/health` must return 401 (auth runs before the proxy, so 401 even before the first release), and the same requests with `BACKSTAGE_CURL_CONFIG` must not. Otherwise it restores the vhost and the previous snippet (or removes a new one), validates and reloads again, and exits non-zero.
+5. Verifies the gate, pinned to the host: unauthenticated GET of `/backstage/` and `/api/backstage/health` must return 401 (auth runs before the proxy, so 401 even before the first release), and the same requests with `BACKSTAGE_CURL_CONFIG` must reach the upstream: 200 with a running release, 502 only while none runs. 403 or 500 (nginx cannot use the htpasswd) and any failed transfer fail the check. Otherwise it restores the vhost and the previous snippet (or removes a new one), validates and reloads again, and exits non-zero. If a restore copy itself fails, nothing is reloaded and the exact manual step is printed.
 
 Re-running on a configured host changes nothing and exits 0. Then run the guarded deployment below. Before the initial release starts, authenticated requests to the Backstage locations return a gateway error; the main site continues to serve its static release. If setup is abandoned, copy the backup back over the vhost, run `nginx -t` and reload.
 
@@ -84,7 +84,7 @@ Rollback requires the target's `.verified` marker and restores its complete brow
 
 Version and HTTP checks do not prove inference. After deployment, enter tester-owned keys in the browser and run an authorized small comparison. Download sanitized evidence, inspect actual model IDs/usage and apply human labels. This has provider charges and is distinct from the deterministic adapter tests. No live calls were made while preparing this deployment contract.
 
-`BACKSTAGE_CURL_CONFIG` must name an absolute, user-owned mode-0600 curl configuration file containing the tester `user` credential (Basic Auth gate, step 2). Every protected-route deploy, rollback and status probe reads this private file; credentials never appear in process arguments or deploy output. The deploy reads the installed snippet first and refuses, naming the variable, when the snippet has auth and the variable is unset; an unreadable snippet also refuses. The config is not used for co-tenant probes. Keep it outside the repository.
+`BACKSTAGE_CURL_CONFIG` must name an absolute, user-owned mode-0600 curl configuration file containing the tester `user` credential (Basic Auth gate, step 2). Every protected-route deploy, rollback and status probe reads this private file; credentials never appear in process arguments or deploy output. After taking the host lock, the deploy reads the installed snippet and refuses, naming the variable, when both Backstage locations have effective auth (`auth_basic` not `off`, plus `auth_basic_user_file`) and the variable is unset. An unreadable snippet, or one where only one location is gated or the layout is not recognised, also refuses. The config is not used for co-tenant probes. Keep it outside the repository.
 
 Interrupted uploads remain in unique hidden staging directories. Retrying an inactive, unverified SHA quarantines its previous directory without deleting evidence; live or verified releases are never replaced. These directories require a separate reviewed cleanup. Concurrent local builds have distinct outputs; `bun run backstage:start` builds and serves its own immutable pair.
 

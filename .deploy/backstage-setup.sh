@@ -54,7 +54,6 @@ readonly BS_LOCK="/var/lock/jevnotjev-backstage-deploy"
 readonly BS_HTPASSWD_DIR="/etc/jevnotjev-backstage"
 readonly BS_HTPASSWD="${BS_HTPASSWD_DIR}/htpasswd"
 readonly BS_HTPASSWD_TOOL="/usr/bin/htpasswd"
-readonly BS_NGINX_CONF="/etc/nginx/nginx.conf"
 
 # insert_include - pure. vhost text on stdin, include line as $1. Prints the vhost with the
 # include added once, at server level, right after the first `listen ...443` line of the ONLY
@@ -111,10 +110,14 @@ if [ -L \"\$E\" ] && [ \"\$(readlink \"\$E\")\" = \"\$V\" ]; then echo vhost_lin
 if sed 's/#.*//' \"\$V\" 2>/dev/null | grep -qF \"\$I\"; then echo include=present; else echo include=absent; fi
 if [ \"\$(systemctl is-enabled \"\$N\" 2>/dev/null)\" = enabled ]; then echo enabled=yes; else echo enabled=no; fi
 if systemctl is-active --quiet \"\$N\" 2>/dev/null; then echo active=yes; else echo active=no; fi
-H='${BS_HTPASSWD}' D='${BS_HTPASSWD_DIR}' T='${BS_HTPASSWD_TOOL}' C='${BS_NGINX_CONF}'
+H='${BS_HTPASSWD}' D='${BS_HTPASSWD_DIR}' T='${BS_HTPASSWD_TOOL}'
 if [ -x \"\$T\" ]; then echo ht_tool=htpasswd; else echo ht_tool=openssl; fi
-g=\$(awk '\$1 == \"user\" { sub(/;.*/, \"\"); print (\$3 != \"\" ? \$3 : \$2); exit }' \"\$C\" 2>/dev/null)
-echo \"nginx_group=\${g:-www-data}\"
+g=unknown
+if dump=\$(nginx -T 2>/dev/null); then
+    u=\$(printf '%s\n' \"\$dump\" | awk '{ sub(/#.*/, \"\") } \$1 == \"user\" { sub(/;.*/, \"\"); print (\$3 != \"\" ? \$3 : \$2) }' | sort -u)
+    if [ -n \"\$u\" ] && [ \"\$(printf '%s\n' \"\$u\" | wc -l)\" -eq 1 ]; then g=\"\$u\"; fi
+fi
+echo \"nginx_group=\$g\"
 if [ -L \"\$H\" ]; then echo htpasswd=symlink; elif [ ! -e \"\$H\" ]; then echo htpasswd=absent; elif [ ! -f \"\$H\" ]; then echo htpasswd=notfile
 elif m=\$(stat -c '%U %G %a %s' \"\$H\" 2>/dev/null); then echo \"htpasswd=\$(printf '%s' \"\$m\" | tr ' ' ':')\"; else echo htpasswd=unknown; fi
 if [ -L \"\$D\" ]; then echo htpasswd_dir=symlink; elif [ ! -d \"\$D\" ]; then echo htpasswd_dir=absent
@@ -140,7 +143,10 @@ htpasswd_command() {
 htpasswd_ready() {
     local probe="$1" group tool ht dir owner g mode size problem=""
     group="$(probe_get "$probe" nginx_group)"
-    [[ "$group" =~ ^[a-z_][a-z0-9_-]*$ ]] || { log_error "Could not read the nginx worker group from ${BS_NGINX_CONF} ('${group}')."; return 1; }
+    if [[ "$group" == unknown || ! "$group" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+        log_error "Cannot determine nginx's worker group from the effective config (nginx -T: no single 'user' directive, or nginx -T failed). Refusing; nothing changed."
+        return 1
+    fi
     tool="$(probe_get "$probe" ht_tool)"
     ht="$(probe_get "$probe" htpasswd)"
     dir="$(probe_get "$probe" htpasswd_dir)"
@@ -151,7 +157,7 @@ htpasswd_ready() {
             IFS=: read -r owner g mode size <<< "$ht"
             if [[ ! "$size" =~ ^[0-9]+$ || "$size" -eq 0 ]]; then problem="${BS_HTPASSWD} is empty."
             elif [[ "$owner" != root ]]; then problem="${BS_HTPASSWD} is owned by '${owner}'; required owner root."
-            elif [[ "$g" != "$group" ]]; then problem="${BS_HTPASSWD} has group '${g}'; nginx workers run as group '${group}' (${BS_NGINX_CONF}), required root:${group}."
+            elif [[ "$g" != "$group" ]]; then problem="${BS_HTPASSWD} has group '${g}'; nginx workers run as group '${group}' (nginx -T), required root:${group}."
             elif [[ "$mode" != 640 ]]; then problem="${BS_HTPASSWD} is mode 0${mode}; required 0640."
             fi ;;
     esac
@@ -235,37 +241,41 @@ print_plan() {
         echo "$p nginx -t   (failure: restore the backup, no reload)"
         echo "$p systemctl reload nginx   (never restart)"
         echo "$p re-probe co-tenants   (changed: restore the backup, nginx -t, systemctl reload nginx)"
-        echo "$p GET /backstage/ and /api/backstage/health: 401 without credentials, not 401 with BACKSTAGE_CURL_CONFIG   (else: restore)"
+        echo "$p GET /backstage/ and /api/backstage/health: 401 without credentials; with BACKSTAGE_CURL_CONFIG 200 (release running) or 502 (none)   (else: restore)"
     fi
     return 0
 }
 
 # restore_nginx - put the saved vhost back and undo this run's snippet change ($2: none, remove
 # for a snippet this run created, or the path of the saved previous snippet). Reloads only
-# when this run already reloaded, and only after the restored config passes nginx -t.
+# when this run already reloaded, and only after BOTH files are restored and the restored config
+# passes nginx -t. A failed copy returns 1 at once with BS_PENDING_BACKUP still set, so the EXIT
+# trap retries, and nothing is reloaded over a half-restored config.
 restore_nginx() {
     local backup="$1" snippet_undo="$2" reloaded="$3"
     log_warn "Restoring ${VHOST_AVAILABLE} from ${backup}"
     if ! remote "cp -p '${backup}' '${VHOST_AVAILABLE}'"; then
-        # Keep the snippet the live vhost may still include; nginx stays as last validated.
-        log_error "RESTORE FAILED: copy ${backup} over ${VHOST_AVAILABLE} by hand, then nginx -t and reload."
-        BS_PENDING_BACKUP=""
+        log_error "RESTORE FAILED: copy ${backup} over ${VHOST_AVAILABLE} by hand, then nginx -t and reload. Nothing was reloaded."
         return 1
     fi
-    BS_PENDING_BACKUP=""
     case "$snippet_undo" in
         none) ;;
-        remove) remote "rm -f '${BS_SNIPPET}'" || log_error "Could not remove ${BS_SNIPPET}." ;;
-        *) remote "cp -p '${snippet_undo}' '${BS_SNIPPET}'" \
-               || log_error "Could not restore ${BS_SNIPPET}: copy ${snippet_undo} over it by hand." ;;
+        remove)
+            remote "rm -f '${BS_SNIPPET}'" \
+                || { log_error "RESTORE FAILED: remove ${BS_SNIPPET} by hand, then nginx -t and reload. Nothing was reloaded."; return 1; } ;;
+        *)
+            remote "cp -p '${snippet_undo}' '${BS_SNIPPET}'" \
+                || { log_error "RESTORE FAILED: copy ${snippet_undo} over ${BS_SNIPPET} by hand, then nginx -t and reload. Nothing was reloaded."; return 1; } ;;
     esac
-    if remote "nginx -t" 2>&1; then
-        if $reloaded; then
-            remote "systemctl reload nginx" || log_error "Reload after restore FAILED. Inspect nginx now."
-        fi
-    else
+    BS_PENDING_BACKUP=""
+    if ! remote "nginx -t" 2>&1; then
         log_error "The restored config fails nginx -t. Inspect nginx now; nothing was reloaded."
+        return 1
     fi
+    if $reloaded; then
+        remote "systemctl reload nginx" || { log_error "Reload after restore FAILED. Inspect nginx now."; return 1; }
+    fi
+    return 0
 }
 
 # apply_nginx - steps 3-4. Returns non-zero after restoring on any failure.
@@ -336,25 +346,37 @@ apply_nginx() {
     return 0
 }
 
-# verify_auth_gate - step 5. Probes pinned to the host just changed. Without credentials both
-# Backstage routes must answer 401 (auth runs before the proxy, so even with no release); with
-# BACKSTAGE_CURL_CONFIG they must not. The credentials stay in that file (backstage_curl).
+# verify_auth_gate - step 5. Probes pinned to the host just changed; every transfer must complete
+# (curl exit 0) as well as return the expected status. Without credentials both Backstage routes
+# must answer 401 (auth runs before the proxy, so even with no release). With
+# BACKSTAGE_CURL_CONFIG the answer must prove the request got PAST auth to the upstream: 200 from
+# a running release, or 502 (nginx could not connect) only while no release runs. 403/500 are
+# what nginx's auth handler itself returns for a missing or unreadable htpasswd: never accepted.
+# The credentials stay in the curl config file (backstage_curl).
 verify_auth_gate() {
-    local path code good=true
+    local path code rc want state good=true err
+    state="$(remote "if systemctl is-active --quiet '${BS_SERVICE}'; then echo active; else echo inactive; fi")" || state=""
+    case "$state" in
+        active) want=200 ;;
+        inactive) want=502 ;;
+        *) log_error "Could not read whether ${BS_SERVICE} is running; cannot judge the authenticated probe."; return 1 ;;
+    esac
+    err="$(mktemp)" || return 1
     for path in /backstage/ /api/backstage/health; do
-        code="$(curl -q -sS -o /dev/null -w '%{http_code}' --max-time 10 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || true
-        if [[ "$code" == 401 ]]; then
+        rc=0; code="$(curl -q -sS -o /dev/null -w '%{http_code}' --max-time 10 ${CURL_PIN} "${HEALTH_URL}${path}" 2>"$err")" || rc=$?
+        if [[ "$rc" -eq 0 && "$code" == 401 ]]; then
             log_success "unauthenticated GET ${path}: 401"
         else
-            log_error "unauthenticated GET ${path}: ${code:-none}, expected 401 before the proxy."; good=false
+            log_error "unauthenticated GET ${path}: ${code:-none} (curl exit ${rc}: $(head -c 200 "$err")), expected 401 before the proxy."; good=false
         fi
-        code="$(backstage_curl -sS -o /dev/null -w '%{http_code}' --max-time 10 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || true
-        if [[ "$code" =~ ^[1-5][0-9][0-9]$ && "$code" != 401 ]]; then
-            log_success "authenticated GET ${path}: ${code} (passed Basic Auth)"
+        rc=0; code="$(backstage_curl -sS -o /dev/null -w '%{http_code}' --max-time 10 ${CURL_PIN} "${HEALTH_URL}${path}" 2>"$err")" || rc=$?
+        if [[ "$rc" -eq 0 && "$code" == "$want" ]]; then
+            log_success "authenticated GET ${path}: ${code} (reached the upstream; ${BS_SERVICE} ${state})"
         else
-            log_error "authenticated GET ${path} with BACKSTAGE_CURL_CONFIG: ${code:-none}; the credentials do not match ${BS_HTPASSWD}."; good=false
+            log_error "authenticated GET ${path} with BACKSTAGE_CURL_CONFIG: ${code:-none} (curl exit ${rc}: $(head -c 200 "$err")), expected ${want} with ${BS_SERVICE} ${state}. 401: credentials do not match ${BS_HTPASSWD}; 403/500: nginx cannot use ${BS_HTPASSWD}."; good=false
         fi
     done
+    rm -f "$err"
     $good
 }
 

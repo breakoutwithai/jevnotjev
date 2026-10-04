@@ -368,6 +368,7 @@ async function activationFixture(
     wrongProtocol?: boolean;
     currentV2?: boolean;
     authSnippet?: boolean;
+    authAfterLock?: boolean;
     curlConfig?: string;
   } = {},
 ): Promise<{
@@ -453,7 +454,17 @@ async function activationFixture(
     );
     await Bun.write(
       join(dir, "remote.ts"),
-      `import {appendFileSync} from 'node:fs';const root=process.env.FIXTURE??'';const command=process.argv[2]??'';appendFileSync(root+'/remote.log',command+'\\n---\\n');if(command.includes('auth_basic_user_file')){console.info(process.env.AUTH_SNIPPET==='1'?'auth=yes':'auth=no');process.exit(0);}if(command.startsWith('test -f /etc/systemd'))process.exit(0);if(command.startsWith('cat /etc/nginx/sites-enabled')){console.info('server_name neighbor.test;');process.exit(0);}const translated=command.replaceAll('/var/www',root+'/www').replaceAll('/var/lock',root+'/lock');const result=Bun.spawnSync(['bash','-c',translated],{env:process.env,stdin:'inherit',stdout:'pipe',stderr:'pipe'});process.stdout.write(new TextDecoder().decode(result.stdout).replaceAll(root+'/www','/var/www'));process.stderr.write(result.stderr);process.exit(result.exitCode);`,
+      `import {appendFileSync,existsSync} from 'node:fs';const root=process.env.FIXTURE??'';const command=process.argv[2]??'';appendFileSync(root+'/remote.log',command+'\\n---\\n');if(command.startsWith('test -f /etc/systemd'))process.exit(0);if(command.startsWith('cat /etc/nginx/sites-enabled')){console.info('server_name neighbor.test;');process.exit(0);}const gated=process.env.AUTH_AFTER_LOCK==='1'?existsSync(root+'/lock/jevnotjev-backstage-deploy'):process.env.AUTH_SNIPPET==='1';const snippet=root+(gated?'/snippet-auth.conf':'/snippet-open.conf');const translated=command.replaceAll('/etc/nginx/snippets/jevnotjev-backstage.conf',snippet).replaceAll('/var/www',root+'/www').replaceAll('/var/lock',root+'/lock');const result=Bun.spawnSync(['bash','-c',translated],{env:process.env,stdin:'inherit',stdout:'pipe',stderr:'pipe'});process.stdout.write(new TextDecoder().decode(result.stdout).replaceAll(root+'/www','/var/www'));process.stderr.write(result.stderr);process.exit(result.exitCode);`,
+    );
+    // The installed snippet the real remote auth-state command reads: gated (repo copy) or open.
+    const repoSnippet = await Bun.file(".deploy/backstage-nginx.conf").text();
+    await Bun.write(join(dir, "snippet-auth.conf"), repoSnippet);
+    await Bun.write(
+      join(dir, "snippet-open.conf"),
+      repoSnippet
+        .split("\n")
+        .filter((line) => !line.includes("auth_basic"))
+        .join("\n"),
     );
     const commands: Record<string, string> = {
       git: `#!/usr/bin/env bash\ncase "$1" in rev-parse) echo ${newSha};; status|fetch) exit 0;; *) exit 1;; esac\n`,
@@ -479,6 +490,7 @@ async function activationFixture(
       DISABLED: options.disabled ? "1" : "0",
       WRONG_PROTOCOL: options.wrongProtocol ? "1" : "0",
       AUTH_SNIPPET: options.authSnippet ? "1" : "0",
+      AUTH_AFTER_LOCK: options.authAfterLock ? "1" : "0",
     };
     delete env.BACKSTAGE_CURL_CONFIG;
     if (options.curlConfig) env.BACKSTAGE_CURL_CONFIG = options.curlConfig;
@@ -574,7 +586,27 @@ test("[integration] A3 auth snippet without BACKSTAGE_CURL_CONFIG fails before a
     expect(result.log).not.toContain("restart");
     expect(result.output).toContain("BACKSTAGE_CURL_CONFIG");
     expect(result.curlLog).not.toContain("backstage");
-    expect(result.remoteLog).not.toContain("mkdir /var/lock");
+    expect(result.remoteLog).not.toContain(".stage-");
+    expect(result.remoteLog).not.toContain("ln -sfn");
+  }
+});
+test("[integration] sweep #6 auth state is read under the host lock, so a gate installed meanwhile is seen", async () => {
+  for (const promote of [true, false]) {
+    const result = await activationFixture(false, false, {
+      promote,
+      authAfterLock: true,
+    });
+    expect(result.code).not.toBe(0);
+    expect(result.current).toBe("a".repeat(40));
+    expect(result.log).not.toContain("restart");
+    expect(result.output).toContain("BACKSTAGE_CURL_CONFIG");
+    expect(result.remoteLog).not.toContain(".stage-");
+    expect(result.remoteLog).not.toContain("ln -sfn");
+    const lock = result.remoteLog.indexOf("mkdir /var/lock/jevnotjev-backstage-deploy");
+    const read = result.remoteLog.indexOf("S='/etc/nginx/snippets/jevnotjev-backstage.conf'");
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(read).toBeGreaterThan(lock);
+    expect(result.remoteLog).toContain("rmdir /var/lock/jevnotjev-backstage-deploy");
   }
 });
 test("[integration] A3 every Backstage probe passes the curl config; credentials stay in the file", async () => {
@@ -605,26 +637,100 @@ test("[integration] A3 every Backstage probe passes the curl config; credentials
     await rm(cfgDir, { recursive: true, force: true });
   }
 });
-test("[unit] A3 the snippet auth state fails closed when it cannot be read", () => {
-  const state = (reply: string, rc: number) =>
-    Bun.spawnSync(
+// Runs the REAL remote auth-state command locally against a snippet file (sweep #4/#5).
+async function authState(
+  snippet: string | null,
+  mode = 0o644,
+): Promise<{ code: number; out: string }> {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-auth-"));
+  const path = join(dir, "snippet.conf");
+  try {
+    if (snippet !== null) {
+      await Bun.write(path, snippet);
+      await chmod(path, mode);
+    }
+    const result = Bun.spawnSync(
       [
         "bash",
         "-c",
-        `source .deploy/backstage-lib.sh; remote(){ printf '%s\\n' "$REPLY_TEXT"; return ${rc}; }; backstage_auth_state`,
+        'source .deploy/backstage-lib.sh; remote(){ bash -c "${1//\\/etc\\/nginx\\/snippets\\/jevnotjev-backstage.conf/$SNIP}"; }; backstage_auth_state',
       ],
-      { env: { ...process.env, REPLY_TEXT: reply }, stdout: "pipe", stderr: "pipe" },
+      { env: { ...process.env, SNIP: path }, stdout: "pipe", stderr: "pipe" },
     );
-  const yes = state("auth=yes", 0);
-  expect(yes.exitCode).toBe(0);
-  expect(new TextDecoder().decode(yes.stdout).trim()).toBe("yes");
-  expect(new TextDecoder().decode(state("auth=no", 0).stdout).trim()).toBe("no");
-  for (const [reply, rc] of [
-    ["auth=unknown", 0],
-    ["", 0],
-    ["auth=yes", 255],
-  ] as const)
-    expect(state(reply, rc).exitCode).not.toBe(0);
+    return {
+      code: result.exitCode,
+      out: new TextDecoder().decode(result.stdout).trim(),
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+test("[unit] sweep #4/#5 auth state reflects effective auth in the supported layout, else fails closed", async () => {
+  const repo = await Bun.file(".deploy/backstage-nginx.conf").text();
+  const open = repo
+    .split("\n")
+    .filter((line) => !line.includes("auth_basic"))
+    .join("\n");
+  expect(await authState(repo)).toEqual({ code: 0, out: "yes" });
+  expect(await authState(open)).toEqual({ code: 0, out: "no" });
+  expect(await authState(null)).toEqual({ code: 0, out: "no" });
+  expect(
+    await authState(repo.replaceAll('auth_basic "Backstage";', "auth_basic off;")),
+  ).toEqual({ code: 0, out: "no" });
+  const inline =
+    'location = /backstage { return 308 /backstage/; }\nlocation ^~ /backstage/ { auth_basic "Backstage"; auth_basic_user_file /etc/jevnotjev-backstage/htpasswd; proxy_pass http://127.0.0.1:3456; }\nlocation ^~ /api/backstage/ { auth_basic "Backstage"; auth_basic_user_file /etc/jevnotjev-backstage/htpasswd; proxy_pass http://127.0.0.1:3456; }\n';
+  expect(await authState(inline)).toEqual({ code: 0, out: "yes" });
+  const failClosed = [
+    // gate on one location only
+    repo.replace('    auth_basic "Backstage";\n', "").replace(
+      "    auth_basic_user_file /etc/jevnotjev-backstage/htpasswd;\n",
+      "",
+    ),
+    // auth_basic without a user file
+    repo.replaceAll(
+      "    auth_basic_user_file /etc/jevnotjev-backstage/htpasswd;\n",
+      "",
+    ),
+    // directives outside the two Backstage locations
+    `auth_basic "Backstage";\n${open}`,
+    // the API location missing
+    open.replace("location ^~ /api/backstage/", "location ^~ /api/other/"),
+  ];
+  for (const snippet of failClosed) expect((await authState(snippet)).code).not.toBe(0);
+  if (process.getuid?.() !== 0)
+    expect((await authState(repo, 0o000)).code).not.toBe(0);
+});
+test("[integration] sweep #8 the documented curl-config command never exposes the password", async () => {
+  const docLine = (text: string) =>
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.includes("backstage-curl.XXXXXX"));
+  const command = docLine(await Bun.file("docs/backstage-deploy.md").text());
+  expect(command).toBeDefined();
+  expect(docLine(await Bun.file("docs/DEPLOY.md").text())).toBe(command);
+  const home = join(await mkdtemp(join(tmpdir(), "backstage-home-")), "with space");
+  const dest = join(home, ".config/jevnotjev/backstage-curl");
+  try {
+    await mkdir(join(home, ".config/jevnotjev"), { recursive: true });
+    await Bun.write(dest, "stale\n");
+    await chmod(dest, 0o644);
+    const result = Bun.spawnSync(["bash", "-c", command ?? "exit 9"], {
+      env: { ...process.env, HOME: home },
+      stdin: new TextEncoder().encode("doc-test-pw\n"),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await Bun.file(dest).text()).toBe('user = "tester:doc-test-pw"\n');
+    const { stat } = await import("node:fs/promises");
+    expect((await stat(dest)).mode & 0o777).toBe(0o600);
+    expect((await stat(join(home, ".config/jevnotjev"))).mode & 0o077).toBe(0);
+    expect(await readdir(join(home, ".config/jevnotjev"))).toEqual(["backstage-curl"]);
+    expect(new TextDecoder().decode(result.stdout)).not.toContain("doc-test-pw");
+  } finally {
+    await rm(join(home, ".."), { recursive: true, force: true });
+  }
 });
 test("[unit] A3 the curl config is required exactly when the snippet has auth", () => {
   const require = (auth: string, config?: string) => {

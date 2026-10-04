@@ -197,8 +197,15 @@ case "$cmd" in
             vhost=present vhost_link=yes include=absent enabled=no active=no \
             ht_tool=htpasswd nginx_group=www-data htpasswd=root:www-data:640:44 htpasswd_dir=root:www-data:750 ;;
     *"jevnotjev-backstage-current"*)
-        printf '%s\n' release=none verified=no service=inactive enabled=no setup=no
-        if [ -n "${FAKE_AUTH:-}" ]; then echo auth=yes; else echo auth=no; fi ;;
+        printf '%s\n' release=none verified=no service=inactive enabled=no setup=no ;;
+    "S='/etc/nginx/snippets/jevnotjev-backstage.conf'"*)
+        # The installed snippet: the repo copy (auth), auth switched off, unreadable, or absent.
+        case "${FAKE_AUTH:-}" in
+            1) cat "${FAKE_REPO}/.deploy/backstage-nginx.conf" ;;
+            off) sed 's/auth_basic "Backstage";/auth_basic off;/' "${FAKE_REPO}/.deploy/backstage-nginx.conf" ;;
+            readfail) echo 'cat: Permission denied' >&2; exit 1 ;;
+            *) exit 10 ;;
+        esac ;;
     *"/var/www/jevnotjev"*)
         printf '%s\n' release=/var/www/jevnotjev-releases/20261003T203100Z-80cf0a1 marker=80cf0a1full \
             verified=yes service=active setup=yes ;;
@@ -226,6 +233,7 @@ esac
 EOF
 chmod +x "${FAKEBIN}/ssh" "${FAKEBIN}/curl"
 export FAKE_SSH_LOG="$SSHLOG"
+export FAKE_REPO="$REPO_ROOT"
 
 # Split the log into commands and report the mutating ones.
 mutating_commands() {
@@ -291,6 +299,16 @@ grep 'https://' "${SSHLOG}.curl" | grep -v 'api/backstage' | grep -q -- '--confi
     && nope "a non-Backstage probe carried the curl config" || ok "non-Backstage probes never carry the curl config"
 out="$(unset BACKSTAGE_CURL_CONFIG; PATH="${FAKEBIN}:${PATH}" bash "$SHIP" --status --module backstage 2>&1)"; rc=$?
 [[ $rc -eq 0 ]] && ok "no auth snippet on the host -> status needs no curl config" || nope "status open: rc=${rc}; out: ${out}"
+out="$(unset BACKSTAGE_CURL_CONFIG; FAKE_AUTH=off PATH="${FAKEBIN}:${PATH}" bash "$SHIP" --status --module backstage 2>&1)"; rc=$?
+bs="$(section backstage)"
+[[ $rc -eq 0 ]] && printf '%s\n' "$bs" | grep -Eq '^  auth +no$' \
+    && ok "sweep #5: a snippet with 'auth_basic off;' reports auth no (the file directive alone is not auth)" \
+    || nope "auth off: rc=${rc}; out: ${out}"
+out="$(BACKSTAGE_CURL_CONFIG="${CFGDIR}/curl" FAKE_AUTH=readfail PATH="${FAKEBIN}:${PATH}" bash "$SHIP" --status --module backstage 2>&1)"; rc=$?
+bs="$(section backstage)"
+[[ $rc -ne 0 ]] && printf '%s\n' "$bs" | grep -Eq '^  auth +unknown$' \
+    && ok "sweep #4: an unreadable snippet reports auth unknown and fails, never auth no" \
+    || nope "read failure: rc=${rc}; out: ${out}"
 rm -rf "$CFGDIR"
 
 echo

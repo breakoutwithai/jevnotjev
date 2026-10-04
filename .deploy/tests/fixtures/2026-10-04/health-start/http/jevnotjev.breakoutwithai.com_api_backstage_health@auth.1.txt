@@ -1,0 +1,5 @@
+source: transcribed-from-live-log 2026-10-04 (health 502 while the service starts; body not recorded)
+url: https://jevnotjev.breakoutwithai.com/api/backstage/health (with BACKSTAGE_CURL_CONFIG)
+http_code: 502
+curl_exit: 0
+---

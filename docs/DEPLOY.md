@@ -16,6 +16,7 @@ against `origin/main`, the skip of modules already current, and the release reco
 | Action | Command |
 |---|---|
 | Live state and drift, read-only | `.deploy/ship.sh --status` |
+| Live verify against the spec, read-only | `.deploy/ship.sh --verify` (or `--verify <SHA>`) |
 | One-time setup (static: vhost + TLS; backstage: user, unit, nginx include) | `.deploy/ship.sh --setup --module static` or `--module backstage`, each with `--dry-run` first |
 | **Deploy the stack (standard)** | `.deploy/ship.sh --dry-run`, then `.deploy/ship.sh` |
 | Deploy one module (refused while another module is stale) | `.deploy/ship.sh --module static` or `--module backstage` |
@@ -62,7 +63,9 @@ probe is sent, backstage drift is UNKNOWN and `--status` fails naming the variab
 `--status` exit 0 means no detected module drift: every module is `none`, which includes
 `none (sha differs, no module changes)`, so it does not prove every module serves the exact
 `origin/main` SHA. It exits 3 when any module is STALE or UNKNOWN (1 when the host cannot be
-probed). `--module X` refuses with exit 4 when any other module is STALE or UNKNOWN, naming it
+probed). It then runs the live verify (below) with the selected modules expected at `origin/main`
+and exits 6 when that fails, so `none (sha differs, no module changes)` with an older served SHA is
+no longer exit 0. `--module X` refuses with exit 4 when any other module is STALE or UNKNOWN, naming it
 and its changed paths; `--allow-drift` overrides that for a deliberate partial deploy.
 
 ### Release tags
@@ -96,6 +99,7 @@ reads the box, and makes no tag, push or `gh` call.
 | 3 | `--status`: a module is STALE or UNKNOWN |
 | 4 | `--module X` refused: another module is STALE or UNKNOWN |
 | 5 | deploy verified and live, release record failed (recovery command printed) |
+| 6 | the live verify failed (`--verify`, or the closing check of a deploy, setup, rollback or `--status`) |
 | other | the failing module script's own exit code |
 
 Backstage specifics: `docs/backstage-deploy.md`.
@@ -171,12 +175,67 @@ active and previous ones.
 
 Swaps to the newest other release that has a `DEPLOYED_SHA` marker and verifies the served SHA.
 
-## Tests
+## Seams under test
 
-Hermetic (no ssh, no network), bash 3.2 compatible:
+Agreed on #84 (the operator approved S1-S3 as proposed). Deploy tests sit at these seams, and every
+expected value in a seam test is a literal from this list or the spec line it cites, never a value
+recomputed from the scripts.
+
+- **S1 Operator command to served state.** After `.deploy/ship.sh` exits 0, every module serves `origin/main`: static `/DEPLOYED_SHA` and Backstage `/api/backstage/health` `version` both equal the `origin/main` SHA, and an annotated release tag `vYYYY.MM.DD.N` on origin points at it.
+- **S2 Security invariants.** Unauthenticated GET of `/backstage/` and `/api/backstage/health` returns 401; with `BACKSTAGE_CURL_CONFIG` both return 200 (502 only while no Backstage release exists, `docs/backstage-deploy.md:53`); the public paths `/`, `/label/` and `/little-shop/` return 200.
+- **S3 Co-tenant safety.** No other `server_name` on the host changes status across a deploy or setup (`docs/DEPLOY.md:164`, `docs/backstage-deploy.md:52`).
+
+| Seam | Tests |
+|---|---|
+| S1 | `.deploy/tests/verify.test.sh`; the closing verify cases in `.deploy/tests/ship.test.sh` |
+| S2 | `.deploy/tests/verify.test.sh`, `.deploy/tests/live-failures.test.sh` |
+| S3 | `.deploy/tests/live-failures.test.sh` (replayed from fixtures), `.deploy/tests/backstage-setup.test.sh` |
+
+## Live verify
+
+`.deploy/ship.sh --verify [SHA]` is read-only (HTTP pinned to the host, plus `git ls-remote`; no ssh)
+and asserts S1 and S2 for the whole stack, one `PASS`/`FAIL` line per assertion, exit 6 on any
+failure. SHA defaults to `origin/main`; pass another to check a specific release (a wrong SHA is the
+negative control: it must fail). It needs `BACKSTAGE_CURL_CONFIG`; without it the authenticated
+assertions fail by name. An authenticated health 502 with a release present is retried
+(`VERIFY_ATTEMPTS`, default 5, every `VERIFY_SLEEP` seconds, default 2) because the service may be
+starting.
+
+The same check closes every live action, which exits 6 when it fails:
+
+| Action | Expected SHA | Release tag |
+|---|---|---|
+| deploy (default) | every module at `origin/main` | required |
+| deploy `--module X` or `--no-release` | the deployed module(s) at `origin/main` | not required |
+| setup | none (setup ships no release); Backstage 502 accepted while no release exists | not required |
+| rollback static | the rolled-back release's own `DEPLOYED_SHA` marker | not required |
+| rollback backstage | the given SHA | not required |
+| `--status` | the selected modules at `origin/main` | required for the whole stack |
+
+## Fixtures
+
+The deploy tests' curl double, `.deploy/tests/fixture-curl.sh`, answers from files under
+`.deploy/tests/fixtures/<date>/`, not from responses written into the tests. The 2026-10-04 set is
+transcribed or hand-built (see its `MANIFEST.md`) until the operator records the real host with the
+read-only capture:
 
 ```bash
-for t in .deploy/tests/*.test.sh; do bash "$t" || echo "RED: $t"; done
+export BACKSTAGE_CURL_CONFIG="$HOME/.config/jevnotjev/backstage-curl"
+.deploy/tests/capture-fixtures.sh --scan <path to the private public-scan.sh>
+```
+
+It writes `.deploy/tests/fixtures/<UTC date>/live/` (refusing an existing one): `nginx -T`, the
+`sites-enabled` listing, the Backstage snippet, every co-tenant's status and curl exit, and this
+domain's public, gated and authenticated answers. Credential lines are redacted at capture; every
+line the scanner flags is redacted and the capture is kept only when a second scan is clean.
+
+## Tests
+
+Hermetic (no ssh, no network), bash 3.2 compatible. The gate runs every suite, Bun and shell, and
+checks each file against its committed test-count floor:
+
+```bash
+bun scripts/gate.ts
 ```
 
 ## Overrides

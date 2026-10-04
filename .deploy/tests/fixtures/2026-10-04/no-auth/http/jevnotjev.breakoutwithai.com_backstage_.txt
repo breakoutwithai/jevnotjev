@@ -1,0 +1,6 @@
+source: transcribed-from-live-log 2026-10-04 (Backstage page served without auth)
+url: https://jevnotjev.breakoutwithai.com/backstage/
+http_code: 200
+curl_exit: 0
+---
+<!doctype html>

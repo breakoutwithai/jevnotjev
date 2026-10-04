@@ -65,10 +65,11 @@ The standard deploy is the whole stack, `.deploy/ship.sh` with no flags:
 ```sh
 .deploy/ship.sh --dry-run   # per-module plan, drift, the release tag it would create
 .deploy/ship.sh             # static then Backstage; modules already at origin/main are skipped
-.deploy/ship.sh --status    # exit 0 = no detected module drift; 3 = a module is STALE or UNKNOWN
+.deploy/ship.sh --status    # exit 0 = no detected module drift and the live verify passed; 3 = STALE or UNKNOWN; 6 = verify failed
+.deploy/ship.sh --verify    # read-only live check against the spec (docs/DEPLOY.md "Live verify")
 ```
 
-`--status` exit 0 means no detected module drift, not that every module serves the exact `origin/main` SHA: a module on an older SHA with no changes under its paths reports `none (sha differs, no module changes)`. Backstage's paths include every source file its build bundles (the import graph of the `scripts/backstage-build.ts` entrypoints), so a change in `src/core/` or `src/format/` makes Backstage STALE.
+Drift `none` alone does not mean every module serves the exact `origin/main` SHA: a module on an older SHA with no changes under its paths reports `none (sha differs, no module changes)`, and the live verify that closes `--status` then fails S1 and exits 6. Backstage's paths include every source file its build bundles (the import graph of the `scripts/backstage-build.ts` entrypoints), so a change in `src/core/` or `src/format/` makes Backstage STALE.
 
 Backstage runs through `.deploy/backstage-deploy.sh`. ship.sh skips it with `up to date` only when the served API version, the current release directory (`/var/www/jevnotjev-backstage-releases/<SHA>`) and its `.verified` marker all name `origin/main`, because the helper refuses to replace a verified live release. After every module serves `origin/main`, ship.sh tags the stack `vYYYY.MM.DD.N` and publishes a GitHub release whose metadata includes the Backstage `version`, `protocol`, `catalogVersion` and release directory; a tag or release failure exits 5 with the recovery command and never rolls Backstage back. Full contract, drift states and exit codes: `docs/DEPLOY.md`.
 

@@ -1,0 +1,6 @@
+source: hand-built from spec (docs/DEPLOY.md "Seams under test"); replace with a capture
+url: https://jevnotjev.breakoutwithai.com/backstage/ (with BACKSTAGE_CURL_CONFIG)
+http_code: 200
+curl_exit: 0
+---
+<!doctype html>

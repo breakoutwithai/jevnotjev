@@ -9,6 +9,7 @@
     "load": "bun src/db/load-cli.ts",
     "export": "bun src/db/export-cli.ts",
     "typecheck": "tsc --noEmit",
+    "gate": "bun scripts/gate.ts",
     "backstage:build": "bun scripts/backstage-build.ts",
     "backstage:start": "bun .agents/scripts/preview"
   },

@@ -84,25 +84,16 @@ case "$cmd" in
 esac
 exit 0
 EOF
-cat > "${FAKEBIN}/curl" <<'EOF'
+cat > "${FAKEBIN}/curl" <<EOF
 #!/usr/bin/env bash
-printf 'curl %s\n' "$*" >> "${FAKE_STATE}/curl.log"
-st() { cat "${FAKE_STATE}/$1" 2>/dev/null || printf '%s' "$2"; }
-case "$*" in
-    *DEPLOYED_SHA*)
-        s="$(st static_served none)"
-        if [ "$s" = none ]; then echo "curl: (22) 404" >&2; exit 22; fi
-        echo "$s"
-        # A complete body followed by a transfer error (e.g. Content-Length mismatch).
-        [ -z "${FAKE_CURL_PARTIAL:-}" ] || exit 18 ;;
-    *api/backstage/health*)
-        s="$(st backstage_served none)"
-        if [ "$s" = none ]; then echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; fi
-        # Shape of the real health body: a nested catalog after the top-level release fields.
-        printf '{"protocol":"backstage/2","version":"%s","catalogVersion":"2026-10-04.1","catalog":{"version":"NESTED"}}\n' "$s"
-        [ -z "${FAKE_CURL_PARTIAL:-}" ] || exit 18 ;;
-    *) printf 200 ;;
-esac
+# curl answers from fixtures (fixture-curl.sh, #86). A host whose installed snippet carries auth
+# (FAKE_AUTH=1, the fixture default) answers from the gated scenario; any other host serves the
+# Backstage routes without auth, as recorded live on 2026-10-04 (no-auth scenario).
+F="${REPO_ROOT}/.deploy/tests/fixtures/2026-10-04"
+if [ "\${FAKE_AUTH:-}" = 1 ]; then export FIXTURE_DIRS="\$F/gated"; else export FIXTURE_DIRS="\$F/no-auth:\$F/gated"; fi
+# A complete body followed by a transfer error (e.g. Content-Length mismatch).
+[ -z "\${FAKE_CURL_PARTIAL:-}" ] || export FAKE_CURL_EXIT=18
+exec bash "${REPO_ROOT}/.deploy/tests/fixture-curl.sh" "\$@"
 EOF
 cat > "${FAKEBIN}/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -128,8 +119,11 @@ cat > "${FAKEBIN}/git" <<EOF
 # except the failures a case injects (diff, log, the tag fetch).
 case "\${1:-}" in
     push)
+        # Logged; a success really pushes to the fixture's local bare origin, so the closing
+        # verify can see the release tag there.
         printf 'git %s\n' "\$*" >> "\${FAKE_STATE}/push.log"
-        exit "\${STUB_RC_PUSH:-0}" ;;
+        [ "\${STUB_RC_PUSH:-0}" = 0 ] || exit "\${STUB_RC_PUSH}"
+        exec "${REAL_GIT}" "\$@" >/dev/null 2>&1 ;;
     diff) [ -z "\${FAKE_GIT_DIFF_FAIL:-}" ] || exit 128 ;;
     log) [ -z "\${FAKE_GIT_LOG_FAIL:-}" ] || exit 128 ;;
     fetch) case "\$*" in *refs/tags/*)
@@ -187,7 +181,13 @@ make_fixture() {
     C2="$("$REAL_GIT" -C "$WORK" rev-parse HEAD)"
     mkdir -p "${WORK}/.deploy"
     cp "$SHIP" "${REPO_ROOT}/.deploy/config.sh" "${REPO_ROOT}/.deploy/lib.sh" \
-        "${REPO_ROOT}/.deploy/backstage-lib.sh" "${REPO_ROOT}/.deploy/backstage-deps.ts" "${WORK}/.deploy/"
+        "${REPO_ROOT}/.deploy/backstage-lib.sh" "${REPO_ROOT}/.deploy/backstage-deps.ts" \
+        "${REPO_ROOT}/.deploy/verify-lib.sh" "${WORK}/.deploy/"
+    # The host behind the Basic Auth gate with the private curl config set: the state the closing
+    # verify requires (S2). Cases about an ungated host or a missing config override both.
+    export FAKE_AUTH=1 VERIFY_SLEEP=0
+    ( umask 077; : > "${FIX}/curl-config" )
+    export BACKSTAGE_CURL_CONFIG="${FIX}/curl-config"
     # Release files and every other temp file of this fixture stay inside it.
     export TMPDIR="${FIX}/tmp"; mkdir -p "$TMPDIR"
     CALLS="${FIX}/calls.log"; : > "$CALLS"
@@ -201,7 +201,12 @@ make_fixture() {
 #!/usr/bin/env bash
 printf '%s\n' "${s}.sh \$*" >> "${CALLS}"
 rc="\${${var}:-0}"
-case " \$* " in *" --dry-run "*|*" --rollback "*) exit "\$rc" ;; esac
+case " \$* " in *" --dry-run "*) exit "\$rc" ;; esac
+case " \$* " in *" --rollback "*)
+    # A successful backstage rollback serves the SHA it was given.
+    if [ "\$rc" = 0 ] && [ "${mod}" = backstage ] && [ -n "\${2:-}" ] && [ -z "\${STUB_NO_UPDATE:-}" ]; then echo "\$2" > "${FAKE_STATE}/backstage_served"; fi
+    exit "\$rc" ;;
+esac
 if [ "\$rc" = 0 ] && [ -n "${mod}" ] && [ -z "\${STUB_NO_UPDATE:-}" ]; then
     git -C "\$(dirname "\$0")/.." rev-parse origin/main > "${FAKE_STATE}/${mod}_served"
     rm -f "${FAKE_STATE}/${mod}_marker" "${FAKE_STATE}/${mod}_release"
@@ -399,9 +404,16 @@ make_fixture
 serve static "$C2"; serve backstage "$C1"
 out="$(ship --status 2>&1)"; rc=$?
 st="$(section static)"
-[[ $rc -eq 0 ]] && printf '%s\n' "$st" | grep -Eq '^  drift +none$' \
-    && ok "--status exits 0 when no module is STALE or UNKNOWN; at main is drift none" \
+[[ $rc -eq 6 ]] && printf '%s\n' "$st" | grep -Eq '^  drift +none$' \
+    && [[ "$out" == *"PASS S1 static /DEPLOYED_SHA ${C2}"* && "$out" == *"FAIL S1 backstage version: expected ${C2}, served ${C1}"* ]] \
+    && ok "--status: no module STALE, but backstage serves an older SHA, so the closing verify exits 6 naming it (S1)" \
     || nope "--status none: rc=${rc}; out: ${out}"
+"$REAL_GIT" -C "$WORK" tag -a v2026.01.01.1 -m r "$C2" && "$REAL_GIT" -C "$WORK" push -q origin refs/tags/v2026.01.01.1 >/dev/null 2>&1
+serve backstage "$C2"
+out="$(ship --status 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"verify: 10 passed, 0 failed"* ]] \
+    && ok "--status exits 0 only when every module serves origin/main, the gate holds and the release tag is on origin" \
+    || nope "--status all green: rc=${rc}; out: ${out}"
 drop_fixture
 
 make_fixture
@@ -579,8 +591,8 @@ STATUS_PW="pw-status-NEVER-LOGGED"
 
 make_fixture
 serve static "$C2"; serve backstage "$C2"
-out="$(FAKE_AUTH=1 ship --status 2>&1)"; rc=$?
-[[ $rc -ne 0 && "$out" == *"BACKSTAGE_CURL_CONFIG"* && "$out" != *"401"* ]] \
+out="$(BACKSTAGE_CURL_CONFIG= FAKE_AUTH=1 ship --status 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"BACKSTAGE_CURL_CONFIG"* && "$out" != *"401"* ]] \
     && ok "auth snippet + BACKSTAGE_CURL_CONFIG unset -> status fails naming the variable, not a bare 401" \
     || nope "status auth no config: rc=${rc}; out: ${out}"
 grep -q 'api/backstage' "${FAKE_STATE}/curl.log" 2>/dev/null \
@@ -589,7 +601,7 @@ drop_fixture
 
 make_fixture
 serve static "$C2"; serve backstage "$C2"
-out="$(FAKE_AUTH=1 ship --dry-run 2>&1)"; rc=$?
+out="$(BACKSTAGE_CURL_CONFIG= FAKE_AUTH=1 ship --dry-run 2>&1)"; rc=$?
 grep -q 'api/backstage' "${FAKE_STATE}/curl.log" 2>/dev/null \
     && nope "the deploy plan's drift read sent an unauthenticated Backstage probe" \
     || ok "deploy drift reads send no Backstage probe without credentials (backstage drift UNKNOWN)"
@@ -597,6 +609,7 @@ drop_fixture
 
 make_fixture
 serve static "$C2"; serve backstage "$C2"
+"$REAL_GIT" -C "$WORK" tag -a v2026.01.01.1 -m r "$C2" && "$REAL_GIT" -C "$WORK" push -q origin refs/tags/v2026.01.01.1 >/dev/null 2>&1
 out="$(BACKSTAGE_CURL_CONFIG="${CFGDIR}/curl" FAKE_AUTH=1 ship --status 2>&1)"; rc=$?
 bs="$(section backstage)"
 [[ $rc -eq 0 ]] && printf '%s\n' "$bs" | grep -Eq "^  served +${C2}$" && printf '%s\n' "$bs" | grep -Eq '^  drift +none$' \
@@ -613,12 +626,16 @@ drop_fixture
 
 make_fixture
 serve static "$C2"; serve backstage "$C2"
-out="$(ship --status --module backstage 2>&1)"; rc=$?
-[[ $rc -eq 0 ]] && ok "no auth snippet on the host -> status needs no curl config" || nope "status open: rc=${rc}; out: ${out}"
+out="$(FAKE_AUTH= BACKSTAGE_CURL_CONFIG= ship --status --module backstage 2>&1)"; rc=$?
+bs="$(section backstage)"
+[[ $rc -eq 6 ]] && printf '%s\n' "$bs" | grep -Eq "^  served +${C2}$" && printf '%s\n' "$bs" | grep -Eq '^  auth +no$' \
+    && [[ "$out" == *"FAIL S2 anon /backstage/: expected 401, got 200"* ]] \
+    && ok "no auth snippet on the host -> status reads without a curl config, and the live verify fails S2 (exit 6)" \
+    || nope "status open: rc=${rc}; out: ${out}"
 out="$(FAKE_AUTH=off ship --status --module backstage 2>&1)"; rc=$?
 bs="$(section backstage)"
-[[ $rc -eq 0 ]] && printf '%s\n' "$bs" | grep -Eq '^  auth +no$' \
-    && ok "a snippet with 'auth_basic off;' reports auth no (the file directive alone is not auth)" \
+[[ $rc -eq 6 ]] && printf '%s\n' "$bs" | grep -Eq '^  auth +no$' && [[ "$out" == *"FAIL S2 anon /api/backstage/health: expected 401, got 200"* ]] \
+    && ok "a snippet with 'auth_basic off;' reports auth no (the file directive alone is not auth); verify fails S2" \
     || nope "auth off: rc=${rc}; out: ${out}"
 out="$(BACKSTAGE_CURL_CONFIG="${CFGDIR}/curl" FAKE_AUTH=readfail ship --status --module backstage 2>&1)"; rc=$?
 bs="$(section backstage)"
@@ -644,8 +661,9 @@ NEW2="$(advance_main src/other.ts 'export const other = 2;' 'chore: other (#14)'
 serve backstage "$NEW"
 out="$(ship --status --module backstage 2>&1)"; rc=$?
 bs="$(section backstage)"
-[[ $rc -eq 0 ]] && printf '%s\n' "$bs" | grep -Eq '^  drift +none \(sha differs, no module changes\)$' \
-    && ok "#1 a change outside the Backstage import graph (src/other.ts) is not backstage drift" \
+[[ $rc -eq 6 ]] && printf '%s\n' "$bs" | grep -Eq '^  drift +none \(sha differs, no module changes\)$' \
+    && [[ "$out" == *"FAIL S1 backstage version: expected ${NEW2}, served ${NEW}"* ]] \
+    && ok "#1 a change outside the Backstage import graph (src/other.ts) is not backstage drift; the live verify still exits 6 (S1)" \
     || nope "#1 other change: rc=${rc}; ${bs}"
 drop_fixture
 
@@ -880,6 +898,58 @@ grep -q 'no detected module drift' docs/DEPLOY.md && grep -q 'no detected module
     && ! grep -q 'every module serves origin/main; 3' docs/backstage-deploy.md \
     && ok "#14 both deploy docs describe --status exit 0 as no detected module drift" \
     || nope "#14 docs still promise exit 0 = every module at origin/main"
+
+echo
+echo "[T1] #85 AC2: every deploy, setup and rollback closes with the live verify"
+# Expected values are spec literals: docs/DEPLOY.md "Seams under test" S1 (served SHA, release tag)
+# and docs/backstage-deploy.md:53 (401 without credentials). FAKE_AUTH= is a host with no gate.
+make_fixture
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"PASS S1 release tag v${TODAY}.1 on ${C2}"* && "$out" == *"verify: 10 passed, 0 failed"* ]] \
+    && ok "a full-stack deploy ends with the live verify: 10 assertions passed, release tag found on origin" \
+    || nope "closing verify on success: rc=${rc}; out: ${out}"
+drop_fixture
+make_fixture
+out="$(FAKE_AUTH= ship 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$out" == *"FAIL S2 anon /backstage/: expected 401, got 200"* && "$(calls)" == "deploy.sh |backstage-deploy.sh |" && "$(calls)" != *"--rollback"* ]] \
+    && ok "deploy onto an ungated host: both modules deploy, the closing verify fails S2, exit 6, nothing rolled back" \
+    || nope "deploy ungated: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+make_fixture
+out="$(FAKE_AUTH= ship --module backstage 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$out" == *"FAIL S2 anon /api/backstage/health: expected 401, got 200"* ]] \
+    && ok "a partial deploy closes with the same verify and exits 6 on an ungated host" \
+    || nope "partial ungated: rc=${rc}; out: ${out}"
+drop_fixture
+make_fixture
+out="$(FAKE_AUTH= ship --setup --module backstage 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$(calls)" == "backstage-setup.sh |" && "$out" == *"FAIL S2 anon /backstage/: expected 401, got 200"* ]] \
+    && ok "setup that leaves Backstage ungated exits 6 naming the route" \
+    || nope "setup ungated: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+make_fixture
+out="$(ship --setup --module static 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"static not asserted"* && "$out" == *"verify: 7 passed, 0 failed"* ]] \
+    && ok "setup asserts no SHA (it ships no release) but the gate and public paths: 7 assertions (2 anon, 2 auth, 3 public) passed" \
+    || nope "setup gated: rc=${rc}; out: ${out}"
+drop_fixture
+make_fixture
+out="$(FAKE_AUTH= ship --module static --rollback 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$out" == *"PASS S1 static /DEPLOYED_SHA ${C1}"* && "$out" == *"FAIL S2 anon /backstage/"* ]] \
+    && ok "static rollback: verify expects the rolled-back release's own marker, and exits 6 on an ungated host" \
+    || nope "static rollback ungated: rc=${rc}; out: ${out}"
+drop_fixture
+make_fixture
+out="$(STUB_NO_UPDATE=1 ship --module backstage --rollback "$SHA40" 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$out" == *"FAIL S1 backstage version: expected ${SHA40}, served ${C1}"* ]] \
+    && ok "backstage rollback that does not take effect: verify names the expected and served SHA, exit 6" \
+    || nope "backstage rollback no effect: rc=${rc}; out: ${out}"
+out="$(ship --module backstage --rollback "$SHA40" 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"PASS S1 backstage version ${SHA40}"* ]] \
+    && ok "backstage rollback that serves the given SHA passes the closing verify" \
+    || nope "backstage rollback ok: rc=${rc}; out: ${out}"
+drop_fixture
+
 echo
 echo "[T1] --setup --dry-run through the real scripts is read-only"
 FAKE_STATE="$(mktemp -d)"; export FAKE_STATE

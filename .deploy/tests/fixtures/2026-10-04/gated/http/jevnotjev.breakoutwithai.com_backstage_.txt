@@ -1,0 +1,6 @@
+source: hand-built from spec (docs/DEPLOY.md "Seams under test"); replace with a capture
+url: https://jevnotjev.breakoutwithai.com/backstage/
+http_code: 401
+curl_exit: 0
+---
+<html><head><title>401 Authorization Required</title></head></html>

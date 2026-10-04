@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="571" assertions="2783" failures="0" skipped="0" time="26.018517">
+  <testsuite name="scripts/backstage-deps.test.ts" file="scripts/backstage-deps.test.ts" tests="4" assertions="9" failures="0" skipped="0" time="0.026441" hostname="breakout-mac">
+    <testcase name="[unit] #82 Backstage drift paths come from the build entrypoints" classname="" time="0.000027" file="scripts/backstage-deps.test.ts" line="10" assertions="1" />
+    <testcase name="[unit] #82 the real Backstage import graph reaches src/core, src/format and jev-answer" classname="" time="0.004446" file="scripts/backstage-deps.test.ts" line="17" assertions="6" />
+    <testcase name="[unit] #82 relative imports are followed transitively; packages and unreached files are not" classname="" time="0.009704" file="scripts/backstage-deps.test.ts" line="30" assertions="1" />
+    <testcase name="[unit] #82 an import that leaves the source root is an error, not a silent omission" classname="" time="0.001332" file="scripts/backstage-deps.test.ts" line="62" assertions="1" />
+  </testsuite>
+  <testsuite name="scripts/theatre.test.ts" file="scripts/theatre.test.ts" tests="8" assertions="32" failures="0" skipped="0" time="0.002223" hostname="breakout-mac">
+    <testsuite name="theatre.js curtain" file="scripts/theatre.test.ts" line="61" tests="6" assertions="21" failures="0" skipped="0" time="0" hostname="breakout-mac">
+      <testcase name="[unit] SITE-5 loads closed at scrollY 0" classname="theatre.js curtain" time="0.000621" file="scripts/theatre.test.ts" line="62" assertions="2" />
+      <testcase name="[unit] SITE-5 Skip the overture opens the curtain at once, with scrollY still 0, and a scroll event never re-closes it" classname="theatre.js curtain" time="0.000181" file="scripts/theatre.test.ts" line="68" assertions="8" />
+      <testcase name="[unit] SITE-5 tabbing into the page opens the curtain without waiting for the scroll" classname="theatre.js curtain" time="0.000097" file="scripts/theatre.test.ts" line="82" assertions="2" />
+      <testcase name="[unit] SITE-11 if the page script failed (no JNJStage), the page falls back to static: no curtain over the site" classname="theatre.js curtain" time="0.000082" file="scripts/theatre.test.ts" line="90" assertions="4" />
+      <testcase name="[unit] SITE-12 focus that comes from a pointer opens the curtain without scrolling, so the click lands where aimed" classname="theatre.js curtain" time="0.000144" file="scripts/theatre.test.ts" line="98" assertions="3" />
+      <testcase name="[unit] SITE-5 a deep link loads open" classname="theatre.js curtain" time="0.000056" file="scripts/theatre.test.ts" line="110" assertions="2" />
+    </testsuite>
+    <testsuite name="theatre.js Act I beats" file="scripts/theatre.test.ts" line="117" tests="2" assertions="11" failures="0" skipped="0" time="0" hostname="breakout-mac">
+      <testcase name="[unit] SITE-7 choosing an example while the opener types cancels the opener: no later timer overwrites the choice" classname="theatre.js Act I beats" time="0.000146" file="scripts/theatre.test.ts" line="118" assertions="6" />
+      <testcase name="[unit] SITE-8 the note waits for the last dialogue line&apos;s animationend, with a timer fallback" classname="theatre.js Act I beats" time="0.000186" file="scripts/theatre.test.ts" line="135" assertions="5" />
+    </testsuite>
+  </testsuite>
+</testsuites>

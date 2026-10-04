@@ -103,6 +103,29 @@
         <button id="new-scene" class="secondary" type="button">
           Edit as a new scene
         </button>
+        <div
+          id="confirm-new-scene"
+          class="confirm-panel"
+          role="alertdialog"
+          aria-labelledby="confirm-new-scene-title"
+          aria-describedby="confirm-new-scene-message"
+          tabindex="-1"
+          hidden
+        >
+          <p id="confirm-new-scene-title" class="confirm-title">
+            Start a new scene?
+          </p>
+          <p id="confirm-new-scene-message">
+            Download your records and evidence first; this clears the current
+            run.
+          </p>
+          <div class="actions">
+            <button id="confirm-new-scene-yes" type="button">Confirm</button
+            ><button id="confirm-new-scene-no" class="secondary" type="button">
+              Cancel
+            </button>
+          </div>
+        </div>
         <p class="fine">
           Once a run starts, its scene is frozen. Download your work before
           starting over; refreshing clears this session.
@@ -262,6 +285,29 @@
         <div id="blind-card">
           <p>Run your cases first. Answers appear here when the run stops.</p>
         </div>
+        <div
+          id="confirm-judging"
+          class="confirm-panel"
+          role="alertdialog"
+          aria-labelledby="confirm-judging-title"
+          aria-describedby="confirm-judging-message"
+          tabindex="-1"
+          hidden
+        >
+          <p id="confirm-judging-title" class="confirm-title">
+            Finish retrying and judge this fixed set of answers?
+          </p>
+          <p id="confirm-judging-message">
+            Any unfinished calls will remain missing. You cannot retry after
+            opening judging.
+          </p>
+          <div class="actions">
+            <button id="confirm-judging-yes" type="button">Confirm</button
+            ><button id="confirm-judging-no" class="secondary" type="button">
+              Cancel
+            </button>
+          </div>
+        </div>
         <div class="actions" id="label-actions" hidden>
           <button id="accept" class="keep">Accept</button
           ><button id="reject" class="cut">Reject</button
@@ -276,6 +322,28 @@
           shuffled. Labels are yours; no model grades itself.
         </p>
         <button id="reveal" disabled>Reveal results and lock labels</button>
+        <div
+          id="confirm-reveal"
+          class="confirm-panel"
+          role="alertdialog"
+          aria-labelledby="confirm-reveal-title"
+          aria-describedby="confirm-reveal-message"
+          tabindex="-1"
+          hidden
+        >
+          <p id="confirm-reveal-title" class="confirm-title">
+            Reveal the players and lock your labels?
+          </p>
+          <p id="confirm-reveal-message">
+            You can leave answers unlabelled. Unfinished calls remain missing.
+          </p>
+          <div class="actions">
+            <button id="confirm-reveal-yes" type="button">Confirm</button
+            ><button id="confirm-reveal-no" class="secondary" type="button">
+              Cancel
+            </button>
+          </div>
+        </div>
         <p class="fine">
           Revealing unlocks results and downloads. It ends this blind labeling
           pass; labels and retries are then locked. You can leave answers

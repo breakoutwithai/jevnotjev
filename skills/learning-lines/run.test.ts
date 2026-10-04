@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -367,9 +367,61 @@ describe("learning-lines", () => {
     } finally { s.done(); }
   });
 
-  test("[integration] LL.path relative PATH entries resolve against the caller's folder; a folder named claude is skipped", () => {
+  test("[integration] LL.overflow output past the limit fails the call instead of being cut", async () => {
     const s = sandbox();
     try {
+      const big = join(s.dir, "bin", "big");
+      writeFileSync(big, "#!" + process.execPath + '\nprocess.stdout.write("x".repeat(2100000));', { mode: 0o700 });
+      const r = await execute(big, [], 20000, s.env, s.dir);
+      expect(r.error).toBe("output larger than 2000000 characters");
+    } finally { s.done(); }
+  });
+
+  test("[integration] LL.redact the key is redacted from argument errors and across the old truncation boundary", async () => {
+    const s = sandbox();
+    try {
+      const arg = await go([s.cases, KEY], s.env, fakeJev().fetchImpl);
+      expect(arg.code).toBe(1);
+      expect(arg.err).toBe("Unexpected argument [redacted]");
+      const edge = await go([s.cases], s.env, fakeJev("yes", 401, "x".repeat(190) + KEY).fetchImpl);
+      expect(edge.err).toContain("[redacted]");
+      expect(edge.err).not.toContain("test-jev");
+    } finally { s.done(); }
+  });
+
+  test("[unit] LL.codex an item-level error fails the case even when an answer follows", () => {
+    const s = CODEX_OK.replace("ANSWER", "yes").replace('"type":"turn.started"}', '"type":"turn.started"}\n{"type":"item.completed","item":{"id":"e","type":"error","message":"boom"}}');
+    expect(() => parseCodex(s, "gpt-6-sol", YN)).toThrow("Codex error: boom");
+  });
+
+  test("[integration] LL.signal SIGINT stops the running CLI's process group and exits 130", async () => {
+    const s = sandbox();
+    const pidFile = join(s.dir, "child.pid");
+    let pid = 0;
+    try {
+      writeFileSync(join(s.dir, "bin", "claude"), "#!" + process.execPath + "\nconst a=process.argv.slice(2);" +
+        `if(a[0]==="auth")console.log(${JSON.stringify(JSON.stringify(AUTH_OK))});` +
+        'else if(a[0]==="--help")console.log("--safe-mode");' +
+        `else{const c=require("node:child_process").spawn("sleep",["30"],{stdio:"ignore"});require("node:fs").writeFileSync(${JSON.stringify(pidFile)},String(c.pid));setInterval(()=>{},1000);}`, { mode: 0o700 });
+      const proc = Bun.spawn([process.execPath, RUN, s.cases, "--skip-jev"], { env: s.env, stdout: "ignore", stderr: "ignore" });
+      for (let i = 0; i < 100 && pid === 0; i++) { await Bun.sleep(100); try { pid = Number(readFileSync(pidFile, "utf8")); } catch { /* not yet */ } }
+      expect(pid).toBeGreaterThan(0);
+      proc.kill("SIGINT");
+      expect(await proc.exited).toBe(130);
+      await Bun.sleep(200);
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      if (pid > 0) try { process.kill(pid, "SIGKILL"); } catch { /* gone */ }
+      s.done();
+    }
+  });
+
+  test("[integration] LL.path relative PATH entries resolve against the caller's folder for the CLI and its shebang interpreter; a folder named claude is skipped", () => {
+    const s = sandbox();
+    try {
+      symlinkSync(process.execPath, join(s.dir, "bin", "fakebun"));
+      const claude = join(s.dir, "bin", "claude");
+      writeFileSync(claude, readFileSync(claude, "utf8").replace(/^#![^\n]*/, "#!/usr/bin/env fakebun"), { mode: 0o700 });
       mkdirSync(join(s.dir, "decoy", "claude"), { recursive: true });
       const env = { ...s.env, PATH: "decoy:bin:" + (process.env.PATH ?? "") };
       const r = spawnSync(process.execPath, [RUN, "cases.json", "--skip-jev"], { encoding: "utf8", env, cwd: s.dir });

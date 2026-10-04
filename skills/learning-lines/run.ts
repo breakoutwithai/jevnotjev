@@ -46,7 +46,7 @@ export const CODEX_DISABLED_FEATURES: readonly string[] = [
   "computer_use", "skill_search", "tool_suggest", "hooks", "goals", "sleep_tool", "shell_snapshot", "in_app_browser", "workspace_dependencies",
 ];
 /** Codex stream item types a plain classification may contain. Anything else means a tool ran. */
-const CODEX_ALLOWED_ITEMS = ["agent_message", "reasoning", "error"];
+const CODEX_ALLOWED_ITEMS = ["agent_message", "reasoning"];
 export const MAX_TEXT = 20000;
 export const NO_KEY_MESSAGE = "JEV_API_KEY is not set. Get a TypeSafe API key at https://console.typesafe.ai (docs: https://docs.typesafe.ai), then `export JEV_API_KEY=...` in your shell. Or pass --skip-jev to run only the model arm.";
 export const USAGE = "Usage: bun run.ts <cases.json> [--with claude|codex] [--model <id>] [--limit N] [--skip-jev]";
@@ -186,20 +186,22 @@ export async function callJev(fetchImpl: FetchLike, key: string, body: unknown, 
     signal: AbortSignal.timeout(timeoutMs),
   });
   const text = await res.text();
-  if (res.status !== 200) throw Error(`Jev HTTP ${res.status}: ${text.slice(0, 200)}`);
+  if (res.status !== 200) throw Error(`Jev HTTP ${res.status}: ${text}`);
   return text;
 }
 
+/** Child env: secrets removed, PATH entries made absolute against the caller's folder (the child runs elsewhere). */
 export function sanitizedEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = { ...env };
   for (const name of Object.keys(out)) if (SECRET_ENV.test(name)) delete out[name];
+  if (out.PATH !== undefined) out.PATH = out.PATH.split(delimiter).map((dir) => resolve(dir === "" ? "." : dir)).join(delimiter);
   return out;
 }
 
-/** The real binary on PATH as an absolute path (an empty entry is the current folder; folders are skipped). */
+/** The real binary on an absolute PATH (from sanitizedEnv); folders are skipped. */
 export function resolveBin(name: string, env: NodeJS.ProcessEnv): string {
   for (const dir of (env.PATH ?? "").split(delimiter)) {
-    const candidate = resolve(dir === "" ? "." : dir, name);
+    const candidate = join(dir, name);
     try {
       if (!statSync(candidate).isFile()) continue;
       accessSync(candidate, constants.X_OK);
@@ -209,34 +211,44 @@ export function resolveBin(name: string, env: NodeJS.ProcessEnv): string {
   throw Error(`${name} not found on PATH. Install the ${name === "claude" ? "Claude Code" : "Codex"} CLI and log in first.`);
 }
 
+export const MAX_OUTPUT = 2_000_000;
+/** Longest error line printed, applied after redaction. */
+const MAX_ERROR = 2000;
+/** Process groups of running CLIs, so an interrupt can stop them too. */
+const ACTIVE = new Set<number>();
+function killGroup(pid: number): void {
+  try { process.kill(-pid, "SIGKILL"); } catch { /* already gone */ }
+}
+/** Kill every running CLI group; the entry point calls this on SIGINT and SIGTERM. */
+export function stopAll(): void {
+  for (const pid of ACTIVE) killGroup(pid);
+}
+
 /**
  * Run a CLI with `input` on stdin, in its own process group, so a timeout kills the CLI and
- * every child it started.
+ * every child it started. Output past MAX_OUTPUT fails the call rather than being cut.
  */
 export function execute(binary: string, args: readonly string[], timeoutMs: number, env: NodeJS.ProcessEnv, cwd: string, input = ""): Promise<ExecResult> {
   const started = Date.now();
   return new Promise((done) => {
     let stdout = "";
     let stderr = "";
-    let timedOut = false;
-    let settled = false;
+    let abort: string | null = null;
     const child = spawn(binary, [...args], { env, cwd, detached: true, stdio: ["pipe", "pipe", "pipe"] });
-    const killGroup = () => { try { if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ } };
-    const timer = setTimeout(() => { timedOut = true; killGroup(); }, timeoutMs);
+    const pid = child.pid;
+    if (pid !== undefined) ACTIVE.add(pid);
+    const stop = (reason: string) => { abort ??= reason; if (pid !== undefined) killGroup(pid); };
+    const timer = setTimeout(() => stop("timeout"), timeoutMs);
     const finish = (error: string | null) => {
-      if (settled) return;
-      settled = true;
       clearTimeout(timer);
-      done({ stdout, stderr, elapsedMs: Date.now() - started, error });
+      if (pid !== undefined) { killGroup(pid); ACTIVE.delete(pid); }
+      done({ stdout, stderr, elapsedMs: Date.now() - started, error: abort ?? error });
     };
-    child.stdout.setEncoding("utf8").on("data", (d: string) => { stdout = (stdout + d).slice(-2_000_000); });
+    child.stdout.setEncoding("utf8").on("data", (d: string) => { stdout += d; if (stdout.length > MAX_OUTPUT) stop(`output larger than ${MAX_OUTPUT} characters`); });
     child.stderr.setEncoding("utf8").on("data", (d: string) => { stderr = (stderr + d).slice(-200_000); });
     child.stdin.on("error", () => { /* the CLI may exit without reading stdin */ });
     child.on("error", (e) => finish(e.message));
-    child.on("close", (code, signal) => {
-      killGroup();
-      finish(timedOut ? "timeout" : code === 0 ? null : `exit ${code}, signal ${signal}`);
-    });
+    child.on("close", (code, signal) => finish(code === 0 ? null : `exit ${code}, signal ${signal}`));
     child.stdin.end(input);
   });
 }
@@ -298,6 +310,7 @@ function events(raw: string): Rec[] {
 function eventError(e: Rec): string | null {
   if (e.type === "error") return typeof e.message === "string" ? e.message : "error event";
   if (e.type === "turn.failed") return isRec(e.error) && typeof e.error.message === "string" ? e.error.message : "turn.failed";
+  if (isRec(e.item) && e.item.type === "error") return typeof e.item.message === "string" ? e.item.message : "error item";
   return null;
 }
 
@@ -392,7 +405,7 @@ export function summaryLines(rows: readonly CaseRow[], modelLabel: string, skipJ
 type ModelArm = { label: string; ask: (prompt: string, choices: readonly string[]) => Promise<Reply & { elapsedMs: number }> };
 
 function cliFailure(name: string, ex: ExecResult, detail: string | null = null): Error {
-  return Error(`${name} failed (${ex.error}): ${visible((detail ?? (ex.stderr || ex.stdout)).slice(0, 300))}`);
+  return Error(`${name} failed (${ex.error}): ${detail ?? (ex.stderr || ex.stdout)}`);
 }
 
 async function claudeArm(o: Options, env: NodeJS.ProcessEnv, cwd: string): Promise<ModelArm> {
@@ -436,7 +449,7 @@ function caseLine(r: CaseRow, skipJev: boolean): string[] {
   return skipJev ? [r.id, r.model?.output ?? "", exp] : [r.id, r.jev?.output ?? "", r.model?.output ?? "", exp, verdict];
 }
 
-type Out = { print: (l: string) => void; printErr: (l: string) => void; setKey: (k: string) => void };
+type Out = { print: (l: string) => void; printErr: (l: string) => void };
 
 async function rehearse(argv: readonly string[], deps: Deps, out: Out): Promise<number> {
   const { print, printErr } = out;
@@ -444,7 +457,6 @@ async function rehearse(argv: readonly string[], deps: Deps, out: Out): Promise<
   if (o.help) { print(USAGE); return 0; }
   const file = parseCasesFile(readFileSync(o.casesPath, "utf8"));
   const key = deps.env.JEV_API_KEY ?? "";
-  out.setKey(key);
   if (!o.skipJev && key === "") { printErr(NO_KEY_MESSAGE); return 1; }
   const env = sanitizedEnv(deps.env);
   const base = deps.env.TMPDIR || tmpdir();
@@ -476,7 +488,7 @@ async function rehearse(argv: readonly string[], deps: Deps, out: Out): Promise<
       const a = await arm.ask(promptFor(file, c), names);
       row.model = { output: a.output, tokensIn: a.tokensIn, tokensOut: a.tokensOut, costUsd: a.costUsd, latencyMs: a.elapsedMs };
     } catch (e) {
-      printErr(`Stopped at case ${c.id} (${stage}): ${visible(message(e))}`);
+      printErr(`Stopped at case ${c.id} (${stage}): ${message(e)}`);
       return 1;
     }
     rows.push(row);
@@ -495,18 +507,21 @@ async function rehearse(argv: readonly string[], deps: Deps, out: Out): Promise<
 
 /** Runs the rehearsal and returns the exit code. Every printed line has the Jev key redacted. */
 export async function run(argv: readonly string[], deps: Deps): Promise<number> {
-  let key = "";
+  const key = deps.env.JEV_API_KEY ?? "";
   const print = (l: string) => deps.print(redact(l, key));
-  const printErr = (l: string) => deps.printErr(redact(l, key));
+  // Redact the whole line first, then escape and cap it, so a cut can never leave part of the key.
+  const printErr = (l: string) => deps.printErr(visible(redact(l, key)).slice(0, MAX_ERROR));
   try {
-    return await rehearse(argv, deps, { print, printErr, setKey: (k) => { key = k; } });
+    return await rehearse(argv, deps, { print, printErr });
   } catch (e) {
-    printErr(visible(message(e)));
+    printErr(message(e));
     return 1;
   }
 }
 
 if (import.meta.main) {
+  process.on("SIGINT", () => { stopAll(); process.exit(130); });
+  process.on("SIGTERM", () => { stopAll(); process.exit(143); });
   const code = await run(process.argv.slice(2), {
     env: process.env, fetch, print: (l) => console.log(l), printErr: (l) => console.error(l),
   });

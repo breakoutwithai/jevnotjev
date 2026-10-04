@@ -44,6 +44,7 @@ if [[ -z "$ROLLBACK_SHA" ]]; then
 fi
 backstage_check_curl_config || fail "Curl credential config must be a private file owned by the current user"
 remote "test -f /etc/systemd/system/${SERVICE}.service && test -f /etc/nginx/snippets/jevnotjev-backstage.conf && grep -q 'include /etc/nginx/snippets/jevnotjev-backstage.conf;' '${VHOST_AVAILABLE}'" || fail "One-time reviewed setup is missing; see docs/backstage-deploy.md"
+remote "systemctl is-enabled --quiet '${SERVICE}'" || fail "Backstage service is not enabled for reboot recovery; complete one-time setup"
 remote "mkdir /var/lock/jevnotjev-backstage-deploy" || fail "Another host deploy is active; inspect the existing lock before retrying"
 trap 'remote "rmdir /var/lock/jevnotjev-backstage-deploy" || true; rmdir "$LOCK" 2>/dev/null || true' EXIT
 neighbours=()
@@ -54,7 +55,16 @@ before="$(backstage_probe_neighbours "$SERVER_HOST" "${neighbours[@]}")" || fail
 previous="$(backstage_previous_release "$CURRENT")" || fail "Cannot verify current Backstage release; refusing to assume first install"
 if [[ -n "$previous" ]]; then
  [[ "$previous" =~ ^/var/www/jevnotjev-backstage-releases/[a-f0-9]{40}$ ]] || fail "Foreign current release"
- remote "test -f '${previous}/.verified'" || fail "Previous release is unverified"
+ previous_state="$(remote "if [ -f '${previous}/.verified' ]; then echo VERIFIED; else echo UNVERIFIED; fi")" || fail "Cannot inspect previous release verification"
+ case "$previous_state" in
+  VERIFIED) : ;;
+  UNVERIFIED)
+   [[ -n "$ROLLBACK_SHA" ]] || fail "Previous release is unverified"
+   log_warn "Explicit recovery from unverified current release; it cannot be a fallback"
+   previous=""
+   ;;
+  *) fail "Unknown previous release verification state" ;;
+ esac
 fi
 release="${ROOT}/${SHA}"
 if [[ -n "$ROLLBACK_SHA" ]]; then
@@ -77,7 +87,11 @@ restore(){
    sleep 1
    backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1])process.exit(1)' "${previous##*/}" || log_error "Rollback version did not verify; inspect service immediately"
   else
-   backstage_remove_failed_initial "$CURRENT" "$release" "systemctl stop '${SERVICE}'" || log_error "Could not safely clear failed initial activation; inspect current release"
+   if backstage_remove_failed_initial "$CURRENT" "$release" "systemctl stop '${SERVICE}'"; then
+    log_warn "No verified fallback: stopped service and removed only the failed activation pointer"
+   else
+    log_error "Could not safely clear failed activation; inspect current release"
+   fi
   fi
  fi
  remote "rmdir /var/lock/jevnotjev-backstage-deploy" || log_error "Remote lock remains; inspect before retrying"

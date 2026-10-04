@@ -289,6 +289,12 @@ test("[unit] B8 neighbour HTTP headers cannot hide transport failure", () => {
 async function activationFixture(
   failRestart: boolean,
   corruptHtml = false,
+  options: {
+    promote?: boolean;
+    first?: boolean;
+    unverified?: boolean;
+    disabled?: boolean;
+  } = {},
 ): Promise<{ code: number; current: string; log: string; output: string }> {
   const dir = await mkdtemp(join(tmpdir(), "backstage-activation-"));
   const oldSha = "a".repeat(40),
@@ -307,10 +313,15 @@ async function activationFixture(
         join(dir, ".deploy", name),
         await Bun.file(`.deploy/${name}`).text(),
       );
-    for (const sha of [oldSha, newSha]) {
+    for (const sha of options.promote
+      ? options.first
+        ? []
+        : [oldSha]
+      : [oldSha, newSha]) {
       const release = join(dir, "www/jevnotjev-backstage-releases", sha);
       await mkdir(join(release, "site/backstage"), { recursive: true });
-      await Bun.write(join(release, ".verified"), "yes");
+      if (!(options.unverified && sha === oldSha))
+        await Bun.write(join(release, ".verified"), "yes");
       for (const file of ["app.js", "backstage.css", "index.html"])
         await Bun.write(
           join(release, "site/backstage", file),
@@ -318,24 +329,49 @@ async function activationFixture(
         );
     }
     const current = join(dir, "www/jevnotjev-backstage-current");
-    await symlink(
-      join(dir, "www/jevnotjev-backstage-releases", oldSha),
-      current,
-    );
+    if (!options.first)
+      await symlink(
+        join(dir, "www/jevnotjev-backstage-releases", oldSha),
+        current,
+      );
+    if (options.promote) {
+      await mkdir(join(dir, "scripts"));
+      const artifact = join(dir, "built");
+      await mkdir(join(artifact, "site/backstage"), { recursive: true });
+      for (const file of ["app.js", "backstage.css", "index.html"])
+        await Bun.write(
+          join(artifact, "site/backstage", file),
+          `${newSha}-${file}`,
+        );
+      await Bun.write(join(artifact, "server.js"), "server");
+      await Bun.write(
+        join(artifact, "release.json"),
+        JSON.stringify({ version: newSha }),
+      );
+      await Bun.write(
+        join(dir, "scripts/backstage-build.ts"),
+        `console.info(${JSON.stringify(artifact)});`,
+      );
+      await Bun.write(
+        join(dir, ".deploy/backstage-package.ts"),
+        await Bun.file(".deploy/backstage-package.ts").text(),
+      );
+    }
     await Bun.write(
       join(dir, ".deploy/config.sh"),
       `DOMAIN=own.test\nSERVER_HOST=127.0.0.1\nHEALTH_URL=https://own.test\nCURL_PIN=''\nVHOST_AVAILABLE=/fake/vhost\nremote(){ bun "$FIXTURE/remote.ts" "$1"; }\nfail(){ echo "$*" >&2; exit 1; }\nlog_info(){ :; }\nlog_success(){ :; }\nlog_warn(){ :; }\nlog_error(){ echo "$*" >&2; }\n`,
     );
     await Bun.write(
       join(dir, "remote.ts"),
-      `const root=process.env.FIXTURE??'';const command=process.argv[2]??'';if(command.startsWith('test -f /etc/systemd'))process.exit(0);if(command.startsWith('cat /etc/nginx/sites-enabled')){console.info('server_name neighbor.test;');process.exit(0);}const translated=command.replaceAll('/var/www',root+'/www').replaceAll('/var/lock',root+'/lock');const result=Bun.spawnSync(['bash','-c',translated],{env:process.env,stdout:'pipe',stderr:'pipe'});process.stdout.write(new TextDecoder().decode(result.stdout).replaceAll(root+'/www','/var/www'));process.stderr.write(result.stderr);process.exit(result.exitCode);`,
+      `const root=process.env.FIXTURE??'';const command=process.argv[2]??'';if(command.startsWith('test -f /etc/systemd'))process.exit(0);if(command.startsWith('cat /etc/nginx/sites-enabled')){console.info('server_name neighbor.test;');process.exit(0);}const translated=command.replaceAll('/var/www',root+'/www').replaceAll('/var/lock',root+'/lock');const result=Bun.spawnSync(['bash','-c',translated],{env:process.env,stdin:'inherit',stdout:'pipe',stderr:'pipe'});process.stdout.write(new TextDecoder().decode(result.stdout).replaceAll(root+'/www','/var/www'));process.stderr.write(result.stderr);process.exit(result.exitCode);`,
     );
     const commands: Record<string, string> = {
-      git: `#!/usr/bin/env bash\nprintf '%s\\n' '${newSha}'\n`,
+      git: `#!/usr/bin/env bash\ncase "$1" in rev-parse) echo ${newSha};; status|fetch) exit 0;; *) exit 1;; esac\n`,
+      gh: `#!/usr/bin/env bun\nconsole.info(JSON.stringify([{merged_at:"yes",base:{ref:"main"},body:"Closes #67"}]));`,
       sleep: "#!/usr/bin/env bash\nexit 0\n",
       mv: `#!/usr/bin/env bun\nimport {renameSync} from 'node:fs';const args=process.argv.slice(2).filter(a=>a!=='-T');renameSync(args[0]??'',args[1]??'');`,
       sha256sum: `#!/usr/bin/env bash\nshasum -a 256 "$@"\n`,
-      systemctl: `#!/usr/bin/env bun\nimport {appendFileSync,existsSync,writeFileSync} from 'node:fs';const root=process.env.FIXTURE??'';appendFileSync(root+'/actions',process.argv.slice(2).join(' ')+'\\n');if(process.argv[2]==='restart'&&process.env.FAIL_RESTART==='1'&&!existsSync(root+'/failed')){writeFileSync(root+'/failed','1');process.exit(1);}`,
+      systemctl: `#!/usr/bin/env bun\nimport {appendFileSync,existsSync,writeFileSync} from 'node:fs';const root=process.env.FIXTURE??'';appendFileSync(root+'/actions',process.argv.slice(2).join(' ')+'\\n');if(process.argv[2]==='is-enabled'&&process.env.DISABLED==='1')process.exit(1);if(process.argv[2]==='restart'&&process.env.FAIL_RESTART==='1'&&!existsSync(root+'/failed')){writeFileSync(root+'/failed','1');process.exit(1);}`,
       curl: `#!/usr/bin/env bun\nimport {readlinkSync,readFileSync} from 'node:fs';const args=process.argv.slice(2);const url=args.at(-1)??'';if(url.includes('neighbor.test')){process.stdout.write('200');process.exit(0);}const active=readlinkSync((process.env.FIXTURE??'')+'/www/jevnotjev-backstage-current');if(url.endsWith('/health')){process.stdout.write(JSON.stringify({protocol:'backstage/1',version:active.split('/').at(-1)}));}else{const path=url.endsWith('/')?'index.html':url.split('/').at(-1);if(path==='index.html'&&process.env.CORRUPT_HTML==='1')process.stdout.write('old html');else process.stdout.write(readFileSync(active+'/site/backstage/'+path));}`,
     };
     for (const [name, body] of Object.entries(commands)) {
@@ -344,7 +380,11 @@ async function activationFixture(
       await chmod(path, 0o755);
     }
     const result = Bun.spawnSync(
-      ["bash", ".deploy/backstage-deploy.sh", "--rollback", newSha],
+      [
+        "bash",
+        ".deploy/backstage-deploy.sh",
+        ...(options.promote ? [] : ["--rollback", newSha]),
+      ],
       {
         cwd: dir,
         env: {
@@ -354,6 +394,7 @@ async function activationFixture(
           TMPDIR: join(dir, "tmp"),
           FAIL_RESTART: failRestart ? "1" : "0",
           CORRUPT_HTML: corruptHtml ? "1" : "0",
+          DISABLED: options.disabled ? "1" : "0",
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -361,8 +402,11 @@ async function activationFixture(
     );
     return {
       code: result.exitCode,
-      current: (await readlink(current)).split("/").at(-1) ?? "",
-      log: await Bun.file(join(dir, "actions")).text(),
+      current:
+        (await readlink(current).catch(() => "")).split("/").at(-1) ?? "",
+      log: await Bun.file(join(dir, "actions"))
+        .text()
+        .catch(() => ""),
       output: new TextDecoder().decode(result.stderr),
     };
   } finally {
@@ -387,4 +431,38 @@ test("[integration] B8 wrong served HTML triggers actual deployment rollback", a
   expect(result.code).not.toBe(0);
   expect(result.current).toBe("a".repeat(40));
   expect(result.output).toContain("index.html differs");
+});
+test("[integration] B8 explicit rollback recovers a recognized unverified current release", async () => {
+  const result = await activationFixture(false, false, { unverified: true });
+  expect(result.code).toBe(0);
+  expect(result.current).toBe("b".repeat(40));
+});
+test("[integration] B8 failed rollback never reactivates an unverified fallback", async () => {
+  const result = await activationFixture(true, false, { unverified: true });
+  expect(result.code).not.toBe(0);
+  expect(result.current).toBe("");
+  expect(result.log.match(/restart/g)?.length).toBe(1);
+  expect(result.log).toContain("stop jevnotjev-backstage");
+});
+test("[integration] B8 promote uploads packages and activates a verified pair", async () => {
+  const result = await activationFixture(false, false, { promote: true });
+  expect(result.code).toBe(0);
+  expect(result.current).toBe("b".repeat(40));
+  expect(result.log).toContain("is-active --quiet");
+});
+test("[integration] B8 failed first promotion stops service and clears owned current link", async () => {
+  const result = await activationFixture(true, false, {
+    promote: true,
+    first: true,
+  });
+  expect(result.code).not.toBe(0);
+  expect(result.current).toBe("");
+  expect(result.log).toContain("stop jevnotjev-backstage");
+});
+test("[integration] B8 deployment refuses a service not enabled for reboot", async () => {
+  const result = await activationFixture(false, false, { disabled: true });
+  expect(result.code).not.toBe(0);
+  expect(result.current).toBe("a".repeat(40));
+  expect(result.log).not.toContain("restart");
+  expect(result.output).toContain("not enabled");
 });

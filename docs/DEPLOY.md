@@ -77,7 +77,10 @@ tag (`git push origin refs/tags/<v>`) and runs `gh release create <v> --verify-t
 metadata as notes. Only annotated tags named `vYYYY.MM.DD.N` count as releases (newest by
 version order, so `.10` beats `.9`). If one already points at S, ship.sh creates no new tag but
 still checks origin (`git ls-remote`) and the GitHub release (`gh release view`) and creates
-whichever is missing, so a rerun after a failed push or `gh` call finishes the record. Release
+whichever is missing, so a rerun after a failed push or `gh` call finishes the record. A tag
+already on origin must be the same tag object as the local one and peel to S, and an existing
+GitHub release must answer for that tag (a SHA target must be S); otherwise ship.sh exits 5
+naming both SHAs, before any push or `gh` create. Release
 files go to a private `mktemp -d` directory per run. A failed tag fetch, metadata generation or
 write refuses before tagging; a tag, push or `gh` failure after a verified deploy exits 5 and
 prints the exact, shell-quoted command that finishes the job; the deploy is never rolled back

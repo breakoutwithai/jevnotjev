@@ -106,10 +106,13 @@ esac
 EOF
 cat > "${FAKEBIN}/gh" <<'EOF'
 #!/usr/bin/env bash
-# `gh release view` answers whether the release exists (FAKE_GH_VIEW_RC, default 1 = absent).
+# `gh release view` answers whether the release exists (FAKE_GH_VIEW_RC, default 1 = absent) and,
+# when it does, "<tagName> <targetCommitish>" (FAKE_GH_VIEW_TAG / FAKE_GH_VIEW_TARGET).
 if [ "${1:-} ${2:-}" = "release view" ]; then
     printf 'gh %s\n' "$*" >> "${FAKE_STATE}/gh-view.log"
-    exit "${FAKE_GH_VIEW_RC:-1}"
+    rc="${FAKE_GH_VIEW_RC:-1}"
+    [ "$rc" != 0 ] || printf '%s %s\n' "${FAKE_GH_VIEW_TAG:-$3}" "${FAKE_GH_VIEW_TARGET:-main}"
+    exit "$rc"
 fi
 printf 'gh %s\n' "$*" >> "${FAKE_STATE}/gh.log"
 prev=""
@@ -129,7 +132,10 @@ case "\${1:-}" in
         exit "\${STUB_RC_PUSH:-0}" ;;
     diff) [ -z "\${FAKE_GIT_DIFF_FAIL:-}" ] || exit 128 ;;
     log) [ -z "\${FAKE_GIT_LOG_FAIL:-}" ] || exit 128 ;;
-    fetch) case "\$*" in *refs/tags/*) [ -z "\${FAKE_GIT_TAGFETCH_FAIL:-}" ] || exit 1 ;; esac ;;
+    fetch) case "\$*" in *refs/tags/*)
+        [ -z "\${FAKE_GIT_TAGFETCH_FAIL:-}" ] || exit 1
+        # The race: a remote tag created after this fetch is not seen locally.
+        [ -z "\${FAKE_GIT_TAGFETCH_NOOP:-}" ] || exit 0 ;; esac ;;
 esac
 exec "${REAL_GIT}" "\$@"
 EOF
@@ -799,6 +805,47 @@ out="$(ship --status --module backstage 2>&1)"
 bs="$(section backstage)"
 printf '%s\n' "$bs" | grep -Eq '^  release +v2026.01.01.10$' \
     && ok "#13 the newest release tag is .10, not .9" || nope "#13 sort: ${bs}"
+drop_fixture
+
+# Gate P1: the remote tag and the GitHub release must reference the same tag object and commit.
+make_fixture
+v="v${TODAY}.1"
+# Another run publishes the same name on C0 after this run's tag fetch (FAKE_GIT_TAGFETCH_NOOP).
+( cd "$WORK" && "$REAL_GIT" tag -a "$v" -m other "$C0" && "$REAL_GIT" push -q origin "refs/tags/${v}" \
+  && "$REAL_GIT" tag -d "$v" ) >/dev/null 2>&1
+out="$(FAKE_GIT_TAGFETCH_NOOP=1 ship 2>&1)"; rc=$?
+[[ $rc -eq 5 && -z "$(ghcalls)" && ! -s "${FAKE_STATE}/gh-view.log" && -z "$(pushes)" \
+   && "$out" == *"$C0"* && "$out" == *"$C2"* ]] \
+    && ok "P1 a remote tag of the same name on another commit: exit 5 naming both SHAs, no push, no gh call" \
+    || nope "P1 remote mismatch: rc=${rc}, push '$(pushes)', gh '$(ghcalls)'; out: ${out}"
+drop_fixture
+
+make_fixture
+v="v${TODAY}.1"
+( cd "$WORK" && "$REAL_GIT" tag -a "$v" -m other "$C2" && "$REAL_GIT" push -q origin "refs/tags/${v}" \
+  && "$REAL_GIT" tag -d "$v" ) >/dev/null 2>&1
+out="$(FAKE_GIT_TAGFETCH_NOOP=1 ship 2>&1)"; rc=$?
+[[ $rc -eq 5 && -z "$(ghcalls)" && -z "$(pushes)" ]] \
+    && ok "P1 a remote tag on S but a different tag object than the local one: exit 5, no gh call" \
+    || nope "P1 object mismatch: rc=${rc}, gh '$(ghcalls)'; out: ${out}"
+drop_fixture
+
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+"$REAL_GIT" -C "$WORK" tag -a v2026.01.01.1 -m r "$C2"
+"$REAL_GIT" -C "$WORK" push -q origin refs/tags/v2026.01.01.1 >/dev/null 2>&1
+out="$(FAKE_GH_VIEW_RC=0 FAKE_GH_VIEW_TARGET="$C0" ship 2>&1)"; rc=$?
+[[ $rc -eq 5 && -z "$(ghcalls)" && "$out" == *"$C0"* ]] \
+    && ok "P1 an existing GitHub release targeting another commit: exit 5 naming it, no gh create" \
+    || nope "P1 release target mismatch: rc=${rc}, gh '$(ghcalls)'; out: ${out}"
+out="$(FAKE_GH_VIEW_RC=0 FAKE_GH_VIEW_TAG=v2026.01.01.2 ship 2>&1)"; rc=$?
+[[ $rc -eq 5 && -z "$(ghcalls)" ]] \
+    && ok "P1 a GitHub release answering for another tag name: exit 5, no gh create" \
+    || nope "P1 release tag mismatch: rc=${rc}; out: ${out}"
+out="$(FAKE_GH_VIEW_RC=0 FAKE_GH_VIEW_TARGET="$C2" ship 2>&1)"; rc=$?
+[[ $rc -eq 0 && -z "$(ghcalls)" && -z "$(pushes)" ]] \
+    && ok "P1 matching remote tag object, peeled commit and release target: proceeds, nothing created" \
+    || nope "P1 matching: rc=${rc}, push '$(pushes)', gh '$(ghcalls)'; out: ${out}"
 drop_fixture
 
 # 14 LOW: docs describe status exit 0 as no detected module drift.

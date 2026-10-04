@@ -430,7 +430,8 @@ release_notes() {
 # Returns 5 on any failure, after printing the exact (quoted) command that finishes the job.
 # Never touches the deployed modules.
 release_record() {
-    local sha="$MAIN_SHA" version existing prev dir yaml msgfile notes push_cmd gh_cmd remote_rc
+    local sha="$MAIN_SHA" version existing prev dir yaml msgfile notes push_cmd gh_cmd
+    local local_obj local_peeled remote_out remote_obj remote_peeled gh_out gh_tag gh_target
     if ! $TAGS_FETCHED; then
         log_error "Deploy verified and live; release tags could not be fetched from origin, so the version and previous_tag cannot be trusted. Re-run .deploy/ship.sh once origin is reachable: modules already at origin/main are skipped."
         return 5
@@ -461,24 +462,42 @@ release_record() {
         echo "release: tagged ${version} on ${sha} (previous: ${prev:-none})"
     fi
 
-    remote_rc=0
-    git ls-remote --exit-code --tags origin "refs/tags/${version}" >/dev/null 2>&1 || remote_rc=$?
-    case "$remote_rc" in
-        0) echo "release: ${version} is on origin" ;;
-        2)
-            if ! git push origin "refs/tags/${version}"; then
-                log_error "Deploy verified and live; pushing tag ${version} failed. Finish with:"
-                echo "  ${push_cmd} && ${gh_cmd}" >&2
-                return 5
-            fi ;;
-        *)
-            log_error "Deploy verified and live; cannot ask origin whether ${version} exists. Finish with:"
+    # The NAME on origin is not enough: its tag object must be ours and peel to S. A same-named
+    # tag created elsewhere after our tag fetch must never get these release notes.
+    local_obj="$(git rev-parse -q --verify "refs/tags/${version}" 2>/dev/null)"
+    local_peeled="$(git rev-parse -q --verify "refs/tags/${version}^{commit}" 2>/dev/null)"
+    if [[ -z "$local_obj" || "$local_peeled" != "$sha" ]]; then
+        log_error "Deploy verified and live; local tag ${version} peels to '${local_peeled:-none}', not ${sha}. Refusing to publish."
+        return 5
+    fi
+    remote_out="$(git ls-remote origin "refs/tags/${version}" "refs/tags/${version}^{}")" || {
+        log_error "Deploy verified and live; cannot ask origin whether ${version} exists. Finish with:"
+        echo "  ${push_cmd} && ${gh_cmd}" >&2
+        return 5
+    }
+    remote_obj="$(printf '%s\n' "$remote_out" | awk -v r="refs/tags/${version}" '$2 == r {print $1}')"
+    remote_peeled="$(printf '%s\n' "$remote_out" | awk -v r="refs/tags/${version}^{}" '$2 == r {print $1}')"
+    if [[ -z "$remote_obj" ]]; then
+        if ! git push origin "refs/tags/${version}"; then
+            log_error "Deploy verified and live; pushing tag ${version} failed. Finish with:"
             echo "  ${push_cmd} && ${gh_cmd}" >&2
-            return 5 ;;
-    esac
+            return 5
+        fi
+    elif [[ "$remote_obj" != "$local_obj" || "$remote_peeled" != "$sha" ]]; then
+        log_error "Deploy verified and live; origin already has ${version} as tag object ${remote_obj} on commit ${remote_peeled:-none}, but this release is tag object ${local_obj} on ${sha}. Refusing to push or publish; resolve the tag by hand."
+        return 5
+    else
+        echo "release: ${version} is on origin (tag ${remote_obj}, commit ${sha})"
+    fi
 
-    if gh release view "$version" >/dev/null 2>&1; then
-        echo "release: GitHub release ${version} exists"
+    # An existing GitHub release must answer for this tag; a SHA target must be S.
+    if gh_out="$(gh release view "$version" --json tagName,targetCommitish --jq '.tagName + " " + .targetCommitish' 2>/dev/null)"; then
+        gh_tag="${gh_out%% *}"; gh_target="${gh_out#* }"
+        if [[ "$gh_tag" != "$version" ]] || { [[ "$gh_target" =~ ^[0-9a-f]{40}$ ]] && [[ "$gh_target" != "$sha" ]]; }; then
+            log_error "Deploy verified and live; the GitHub release for ${version} answers tag '${gh_tag}' target '${gh_target}', not ${version} at ${sha}. Refusing; resolve the release by hand."
+            return 5
+        fi
+        echo "release: GitHub release ${version} exists (target ${gh_target})"
     elif ! gh release create "$version" --verify-tag --title "$version" --notes-file "$notes"; then
         log_error "Deploy verified and live; tag ${version} is on origin; the GitHub release failed. Finish with:"
         echo "  ${gh_cmd}" >&2

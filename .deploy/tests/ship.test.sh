@@ -53,6 +53,8 @@ printf '%s\n---\n' "$cmd" >> "${FAKE_STATE}/ssh.log"
 st() { cat "${FAKE_STATE}/$1" 2>/dev/null || printf '%s' "$2"; }
 case "$cmd" in
     "echo ok") echo ok ;;
+    "mkdir /var/lock/jevnotjev-ship") [ -z "${FAKE_SHIP_LOCK_HELD:-}" ] || exit 1 ;;
+    "rmdir /var/lock/jevnotjev-ship") ;;
     *"uname -m"*)
         printf '%s\n' arch=x86_64 bun=1.3.0 user=absent port=free unit=absent snippet=absent \
             vhost=present vhost_link=yes include=absent enabled=no active=no \
@@ -68,11 +70,12 @@ case "$cmd" in
     *"jevnotjev-backstage-current"*)
         s="$(st backstage_served none)"
         if [ "$s" = none ]; then rel=none; else rel="/var/www/jevnotjev-backstage-releases/${s}"; fi
+        rel="$(st backstage_release "$rel")"
         printf '%s\n' "release=${rel}" "verified=$(st backstage_verified yes)" \
             "service=active, enabled" "setup=$(st backstage_setup yes)" ;;
     *"/var/www/jevnotjev"*)
         s="$(st static_served none)"
-        printf '%s\n' "release=/var/www/jevnotjev-releases/20261003T203100Z-${s:0:7}" "marker=${s}" \
+        printf '%s\n' "release=/var/www/jevnotjev-releases/20261003T203100Z-${s:0:7}" "marker=$(st static_marker "$s")" \
             "verified=$(st static_verified yes)" "service=nginx active" setup=yes ;;
     "cat '/etc/nginx/sites-available/jevnotjev.breakoutwithai.com'")
         printf '%s\n' 'server {' '    server_name jevnotjev.breakoutwithai.com;' '    root /var/www/jevnotjev;' \
@@ -89,17 +92,25 @@ case "$*" in
     *DEPLOYED_SHA*)
         s="$(st static_served none)"
         if [ "$s" = none ]; then echo "curl: (22) 404" >&2; exit 22; fi
-        echo "$s" ;;
+        echo "$s"
+        # A complete body followed by a transfer error (e.g. Content-Length mismatch).
+        [ -z "${FAKE_CURL_PARTIAL:-}" ] || exit 18 ;;
     *api/backstage/health*)
         s="$(st backstage_served none)"
         if [ "$s" = none ]; then echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; fi
         # Shape of the real health body: a nested catalog after the top-level release fields.
-        printf '{"protocol":"backstage/2","version":"%s","catalogVersion":"2026-10-04.1","catalog":{"version":"NESTED"}}\n' "$s" ;;
+        printf '{"protocol":"backstage/2","version":"%s","catalogVersion":"2026-10-04.1","catalog":{"version":"NESTED"}}\n' "$s"
+        [ -z "${FAKE_CURL_PARTIAL:-}" ] || exit 18 ;;
     *) printf 200 ;;
 esac
 EOF
 cat > "${FAKEBIN}/gh" <<'EOF'
 #!/usr/bin/env bash
+# `gh release view` answers whether the release exists (FAKE_GH_VIEW_RC, default 1 = absent).
+if [ "${1:-} ${2:-}" = "release view" ]; then
+    printf 'gh %s\n' "$*" >> "${FAKE_STATE}/gh-view.log"
+    exit "${FAKE_GH_VIEW_RC:-1}"
+fi
 printf 'gh %s\n' "$*" >> "${FAKE_STATE}/gh.log"
 prev=""
 for a in "$@"; do
@@ -110,11 +121,16 @@ exit "${STUB_RC_GH:-0}"
 EOF
 cat > "${FAKEBIN}/git" <<EOF
 #!/usr/bin/env bash
-# git push is logged and never reaches a remote; every other git command is the real git.
-if [ "\${1:-}" = push ]; then
-    printf 'git %s\n' "\$*" >> "\${FAKE_STATE}/push.log"
-    exit "\${STUB_RC_PUSH:-0}"
-fi
+# git push is logged and never reaches a remote; every other git command is the real git,
+# except the failures a case injects (diff, log, the tag fetch).
+case "\${1:-}" in
+    push)
+        printf 'git %s\n' "\$*" >> "\${FAKE_STATE}/push.log"
+        exit "\${STUB_RC_PUSH:-0}" ;;
+    diff) [ -z "\${FAKE_GIT_DIFF_FAIL:-}" ] || exit 128 ;;
+    log) [ -z "\${FAKE_GIT_LOG_FAIL:-}" ] || exit 128 ;;
+    fetch) case "\$*" in *refs/tags/*) [ -z "\${FAKE_GIT_TAGFETCH_FAIL:-}" ] || exit 1 ;; esac ;;
+esac
 exec "${REAL_GIT}" "\$@"
 EOF
 chmod +x "${FAKEBIN}/ssh" "${FAKEBIN}/curl" "${FAKEBIN}/gh" "${FAKEBIN}/git"
@@ -140,8 +156,13 @@ make_fixture() {
         "$REAL_GIT" config user.name "Fixture Actor"
         "$REAL_GIT" config commit.gpgsign false
         "$REAL_GIT" config tag.gpgsign false
-        mkdir -p site/backstage
+        mkdir -p site/backstage src/backstage src/core
         echo index > site/index.html; echo app > site/backstage/app.js; echo readme > README
+        # Backstage sources: main.ts imports src/core/verdict.ts; src/other.ts is outside the build.
+        printf '%s\n' 'import { verdict } from "../core/verdict.ts";' 'export const page = verdict;' > src/backstage/main.ts
+        printf '%s\n' 'export const server = 1;' > src/backstage/server.ts
+        printf '%s\n' 'export const verdict = 1;' > src/core/verdict.ts
+        printf '%s\n' 'export const other = 1;' > src/other.ts
         "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "chore: base (#10)"
         mkdir -p site/label; echo label > site/label/page.html
         "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "feat: label page (#11)"
@@ -151,14 +172,18 @@ make_fixture() {
         "$REAL_GIT" push -q origin main
         "$REAL_GIT" fetch -q origin
         "$REAL_GIT" branch -q --set-upstream-to=origin/main main
-        printf '%s\n' .deploy/ >> .git/info/exclude
+        printf '%s\n' .deploy/ scripts/ >> .git/info/exclude
     ) >/dev/null 2>&1
     C0="$("$REAL_GIT" -C "$WORK" rev-parse HEAD~2)"
     C1="$("$REAL_GIT" -C "$WORK" rev-parse HEAD~1)"
     C2="$("$REAL_GIT" -C "$WORK" rev-parse HEAD)"
-    mkdir -p "${WORK}/.deploy"
+    mkdir -p "${WORK}/.deploy" "${WORK}/scripts"
     cp "$SHIP" "${REPO_ROOT}/.deploy/config.sh" "${REPO_ROOT}/.deploy/lib.sh" \
-        "${REPO_ROOT}/.deploy/backstage-lib.sh" "${WORK}/.deploy/"
+        "${REPO_ROOT}/.deploy/backstage-lib.sh" "${REPO_ROOT}/.deploy/backstage-deps.ts" "${WORK}/.deploy/"
+    # The real build script: backstage-deps.ts reads its entrypoints from it.
+    cp "${REPO_ROOT}/scripts/backstage-build.ts" "${WORK}/scripts/"
+    # Release files and every other temp file of this fixture stay inside it.
+    export TMPDIR="${FIX}/tmp"; mkdir -p "$TMPDIR"
     CALLS="${FIX}/calls.log"; : > "$CALLS"
     local s var mod
     for s in deploy backstage-deploy provision backstage-setup; do
@@ -173,6 +198,7 @@ rc="\${${var}:-0}"
 case " \$* " in *" --dry-run "*|*" --rollback "*) exit "\$rc" ;; esac
 if [ "\$rc" = 0 ] && [ -n "${mod}" ] && [ -z "\${STUB_NO_UPDATE:-}" ]; then
     git -C "\$(dirname "\$0")/.." rev-parse origin/main > "${FAKE_STATE}/${mod}_served"
+    rm -f "${FAKE_STATE}/${mod}_marker" "${FAKE_STATE}/${mod}_release"
     echo yes > "${FAKE_STATE}/${mod}_verified"
 fi
 exit "\$rc"
@@ -180,8 +206,19 @@ EOF
     done
     serve static "$C1"; serve backstage "$C1"
 }
-drop_fixture() { [[ -n "${FIX:-}" && -d "$FIX" ]] && rm -rf "$FIX"; }
+ORIG_TMPDIR="${TMPDIR:-/tmp}"
+drop_fixture() { export TMPDIR="$ORIG_TMPDIR"; [[ -n "${FIX:-}" && -d "$FIX" ]] && rm -rf "$FIX"; }
 serve() { printf '%s\n' "$2" > "${FAKE_STATE}/$1_served"; }
+fake() { printf '%s\n' "$2" > "${FAKE_STATE}/$1"; }
+# Commit one file change on main and push it to the bare origin; prints the new SHA.
+advance_main() {
+    (
+        cd "$WORK" || exit 1
+        mkdir -p "$(dirname "$1")"; printf '%s\n' "$2" > "$1"
+        "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "$3" && "$REAL_GIT" push -q origin main
+    ) >/dev/null 2>&1
+    "$REAL_GIT" -C "$WORK" rev-parse HEAD
+}
 calls() { tr '\n' '|' < "$CALLS"; }
 ship() { (cd "$WORK" && PATH="${FAKEBIN}:${PATH}" bash .deploy/ship.sh "$@"); }
 tags() { "$REAL_GIT" -C "$WORK" tag -l | tr '\n' ' '; }
@@ -477,9 +514,10 @@ drop_fixture
 make_fixture
 serve static "$C2"; serve backstage "$C2"
 "$REAL_GIT" -C "$WORK" tag -a v2026.01.01.1 -m r "$C2"
-out="$(ship 2>&1)"; rc=$?
+"$REAL_GIT" -C "$WORK" push -q origin refs/tags/v2026.01.01.1 >/dev/null 2>&1
+out="$(FAKE_GH_VIEW_RC=0 ship 2>&1)"; rc=$?
 [[ $rc -eq 0 && "$(tags)" == "v2026.01.01.1 " && -z "$(pushes)" && -z "$(ghcalls)" && "$out" == *"v2026.01.01.1"* ]] \
-    && ok "a release tag already on S: no new tag, no push, no gh, prints the existing tag" \
+    && ok "a release tag already on S, on origin and published: no new tag, no push, no gh create" \
     || nope "existing tag: rc=${rc}, tags '$(tags)', push '$(pushes)', out: ${out}"
 drop_fixture
 
@@ -584,6 +622,190 @@ bs="$(section backstage)"
 drop_fixture
 rm -rf "$CFGDIR"
 
+echo
+echo "[T1] PR #82 discovery sweep: one case per finding"
+
+# 1 HIGH: Backstage drift follows the build's import graph, not a hand list.
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+NEW="$(advance_main src/core/verdict.ts 'export const verdict = 2;' 'fix: verdict (#13)')"
+out="$(ship --status --module backstage 2>&1)"; rc=$?
+bs="$(section backstage)"
+[[ $rc -eq 3 ]] && printf '%s\n' "$bs" | grep -Eq '^  drift +STALE \(1 commits behind; changed: src/core/verdict.ts\)$' \
+    && ok "#1 a change to src/core/verdict.ts (imported by the Backstage build) makes backstage STALE" \
+    || nope "#1 verdict change: rc=${rc}; ${bs}"
+NEW2="$(advance_main src/other.ts 'export const other = 2;' 'chore: other (#14)')"
+serve backstage "$NEW"
+out="$(ship --status --module backstage 2>&1)"; rc=$?
+bs="$(section backstage)"
+[[ $rc -eq 0 ]] && printf '%s\n' "$bs" | grep -Eq '^  drift +none \(sha differs, no module changes\)$' \
+    && ok "#1 a change outside the Backstage import graph (src/other.ts) is not backstage drift" \
+    || nope "#1 other change: rc=${rc}; ${bs}"
+drop_fixture
+
+# 2 HIGH: a failed git diff is UNKNOWN, never "no module changes".
+make_fixture
+out="$(FAKE_GIT_DIFF_FAIL=1 ship --status --module static 2>&1)"; rc=$?
+st="$(section static)"
+[[ $rc -eq 3 ]] && printf '%s\n' "$st" | grep -Eq '^  drift +UNKNOWN' \
+    && ok "#2 git diff failing makes drift UNKNOWN and status exit 3" \
+    || nope "#2 diff failure: rc=${rc}; ${st}"
+drop_fixture
+
+# 3 HIGH: an existing release tag is reconciled with origin and the GitHub release.
+make_fixture
+STUB_RC_PUSH=1 ship >/dev/null 2>&1; rc1=$?
+out="$(ship 2>&1)"; rc=$?
+v="v${TODAY}.1"
+[[ $rc1 -eq 5 && $rc -eq 0 && "$(grep -c "git push origin refs/tags/${v}" "${FAKE_STATE}/push.log")" -eq 2 \
+   && "$(ghcalls)" == "gh release create ${v} --verify-tag"* && "$(tags)" == "${v} " ]] \
+    && ok "#3 after a failed push, a rerun pushes the existing tag and creates the missing release" \
+    || nope "#3 rerun: rc1=${rc1} rc=${rc}, push '$(pushes)', gh '$(ghcalls)', tags '$(tags)'; out: ${out}"
+drop_fixture
+
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+"$REAL_GIT" -C "$WORK" tag -a v2026.01.01.1 -m r "$C2"
+"$REAL_GIT" -C "$WORK" push -q origin refs/tags/v2026.01.01.1 >/dev/null 2>&1
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 0 && -z "$(pushes)" && "$(ghcalls)" == "gh release create v2026.01.01.1 --verify-tag"* ]] \
+    && ok "#3 tag already on origin but no GitHub release: creates only the release" \
+    || nope "#3 release missing: rc=${rc}, push '$(pushes)', gh '$(ghcalls)'"
+drop_fixture
+
+make_fixture
+"$REAL_GIT" -C "$WORK" tag v1.0 "$C2"
+"$REAL_GIT" -C "$WORK" tag -a v1 -m notcalver "$C2"
+"$REAL_GIT" -C "$WORK" tag "v${TODAY}.7" "$C2"
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$("$REAL_GIT" -C "$WORK" cat-file -t "v${TODAY}.1" 2>/dev/null)" == tag ]] \
+    && ok "#3 lightweight or non-CalVer v* tags on S are not releases: v${TODAY}.1 is created" \
+    || nope "#3 invalid tags: rc=${rc}, tags '$(tags)'; out: ${out}"
+drop_fixture
+
+# 4 HIGH: release files live in a private per-run directory, never a predictable path.
+make_fixture
+printf 'precious\n' > "${FIX}/precious.txt"
+ln -s "${FIX}/precious.txt" "${TMPDIR}/jevnotjev-release-v${TODAY}.1"
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$(cat "${FIX}/precious.txt")" == precious && -L "${TMPDIR}/jevnotjev-release-v${TODAY}.1" ]] \
+    && ok "#4 a pre-created path at the old predictable location is untouched" \
+    || nope "#4 predictable path: rc=${rc}, precious '$(cat "${FIX}/precious.txt")'"
+drop_fixture
+
+# 5 HIGH: skip only when release dir, marker and served version all name origin/main.
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+fake backstage_release "/var/www/jevnotjev-backstage-releases/${C1}"
+fake static_marker "$C1"
+out="$(ship --no-release 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$(calls)" == "deploy.sh |backstage-deploy.sh |" ]] \
+    && ok "#5 served == main but the current release dir / marker names another SHA: deployed, not skipped" \
+    || nope "#5 mismatched release: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+
+# 6 HIGH: one host lock for the whole run, refused when held, taken by rollback too.
+make_fixture
+out="$(ship --no-release 2>&1)"; rc=$?
+first_lock="$(grep -n '^mkdir /var/lock/jevnotjev-ship$' "${FAKE_STATE}/ssh.log" | head -1 | cut -d: -f1)"
+first_probe="$(grep -n 'jevnotjev-backstage-current' "${FAKE_STATE}/ssh.log" | head -1 | cut -d: -f1)"
+last_unlock="$(grep -n '^rmdir /var/lock/jevnotjev-ship$' "${FAKE_STATE}/ssh.log" | tail -1 | cut -d: -f1)"
+last_probe="$(grep -n 'jevnotjev-backstage-current' "${FAKE_STATE}/ssh.log" | tail -1 | cut -d: -f1)"
+[[ $rc -eq 0 && -n "$first_lock" && -n "$last_unlock" && "$first_lock" -lt "$first_probe" && "$last_unlock" -gt "$last_probe" ]] \
+    && ok "#6 the ship lock is taken before the first state read and released after the final verification" \
+    || nope "#6 lock order: rc=${rc}, lock ${first_lock:-none}, unlock ${last_unlock:-none}, probes ${first_probe:-?}-${last_probe:-?}"
+drop_fixture
+
+make_fixture
+out="$(FAKE_SHIP_LOCK_HELD=1 ship 2>&1)"; rc=$?
+[[ $rc -ne 0 && -z "$(calls)" && "$out" == *"/var/lock/jevnotjev-ship"* && -z "$(tags)" ]] \
+    && ok "#6 a held ship lock refuses the deploy before any module runs" \
+    || nope "#6 lock held: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+
+make_fixture
+ship --module static --rollback >/dev/null 2>&1; rc=$?
+grep -qx 'mkdir /var/lock/jevnotjev-ship' "${FAKE_STATE}/ssh.log" && grep -qx 'rmdir /var/lock/jevnotjev-ship' "${FAKE_STATE}/ssh.log" \
+    && [[ $rc -eq 0 ]] \
+    && ok "#6 a rollback takes and releases the same ship lock" || nope "#6 rollback lock: rc=${rc}"
+out="$(FAKE_SHIP_LOCK_HELD=1 ship --module static --rollback 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(calls)" == "deploy.sh --rollback|" ]] \
+    && ok "#6 a rollback refuses while the ship lock is held" || nope "#6 rollback held: rc=${rc}, calls '$(calls)'"
+drop_fixture
+
+# 7 MEDIUM: a failed origin/main fetch is UNKNOWN and non-zero, never a cached all-clear.
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+"$REAL_GIT" -C "$WORK" remote set-url origin "${FIX}/missing.git"
+out="$(ship --status 2>&1)"; rc=$?
+st="$(section static)"
+[[ $rc -eq 3 ]] && printf '%s\n' "$st" | grep -Eq '^  drift +UNKNOWN \(origin/main fetch failed' \
+    && ok "#7 status after a failed fetch: drift UNKNOWN (with the cached comparison), exit 3" \
+    || nope "#7 fetch failure: rc=${rc}; out: ${out}"
+drop_fixture
+
+# 8 MEDIUM: release recording refuses when remote tags could not be fetched.
+make_fixture
+out="$(FAKE_GIT_TAGFETCH_FAIL=1 ship 2>&1)"; rc=$?
+[[ $rc -eq 5 && -z "$(tags)" && -z "$(pushes)" && "$(calls)" == "deploy.sh |backstage-deploy.sh |" && "$out" == *"tags"* ]] \
+    && ok "#8 tag fetch failed: modules deploy, release recording refuses with exit 5, no tag" \
+    || nope "#8 tag fetch: rc=${rc}, tags '$(tags)'; out: ${out}"
+drop_fixture
+
+# 9 MEDIUM: metadata generation is checked before tagging.
+make_fixture
+out="$(FAKE_GIT_LOG_FAIL=1 ship 2>&1)"; rc=$?
+[[ $rc -eq 5 && -z "$(tags)" && -z "$(pushes)" && -z "$(ghcalls)" ]] \
+    && ok "#9 release metadata generation failing exits 5 before any tag, push or gh call" \
+    || nope "#9 metadata: rc=${rc}, tags '$(tags)'; out: ${out}"
+drop_fixture
+
+# 10 MEDIUM: recovery commands are shell-quoted.
+make_fixture
+export TMPDIR="${FIX}/tmp with space"; mkdir -p "$TMPDIR"
+out="$(STUB_RC_PUSH=1 ship 2>&1)"; rc=$?
+line="$(printf '%s\n' "$out" | grep 'gh release create' | head -1)"
+[[ $rc -eq 5 && "$line" == *'tmp\ with\ space'* && "$line" != *'tmp with space'* ]] \
+    && ok "#10 the printed recovery command quotes a TMPDIR containing spaces" \
+    || nope "#10 quoting: rc=${rc}; line: ${line}"
+drop_fixture
+
+# 11 MEDIUM: a dirty tracked tree is refused before planning, even when every module is current.
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+echo dirty >> "${WORK}/README"
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && -z "$(calls)" && -z "$(tags)" && "$out" == *"ncommitted"* ]] \
+    && ok "#11 tracked changes refuse the deploy before planning; no skip, no release" \
+    || nope "#11 dirty: rc=${rc}, calls '$(calls)', tags '$(tags)'; out: ${out}"
+drop_fixture
+
+# 12 MEDIUM: a failed transfer is never parsed, even with a complete body.
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+out="$(FAKE_CURL_PARTIAL=1 ship --status 2>&1)"; rc=$?
+st="$(section static)"; bs="$(section backstage)"
+[[ $rc -eq 3 ]] && printf '%s\n' "$st" | grep -Eq '^  served +none$' && printf '%s\n' "$bs" | grep -Eq '^  served +none$' \
+    && ok "#12 curl exiting non-zero after a full body: served none for static and backstage, exit 3" \
+    || nope "#12 partial transfer: rc=${rc}; out: ${out}"
+drop_fixture
+
+# 13 LOW: version-aware ordering of release tags.
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+"$REAL_GIT" -C "$WORK" tag -a v2026.01.01.9 -m r "$C2"
+"$REAL_GIT" -C "$WORK" tag -a v2026.01.01.10 -m r "$C2"
+out="$(ship --status --module backstage 2>&1)"
+bs="$(section backstage)"
+printf '%s\n' "$bs" | grep -Eq '^  release +v2026.01.01.10$' \
+    && ok "#13 the newest release tag is .10, not .9" || nope "#13 sort: ${bs}"
+drop_fixture
+
+# 14 LOW: docs describe status exit 0 as no detected module drift.
+grep -q 'no detected module drift' docs/DEPLOY.md && grep -q 'no detected module drift' docs/backstage-deploy.md \
+    && ! grep -q 'every module serves origin/main; 3' docs/backstage-deploy.md \
+    && ok "#14 both deploy docs describe --status exit 0 as no detected module drift" \
+    || nope "#14 docs still promise exit 0 = every module at origin/main"
 echo
 echo "[T1] --setup --dry-run through the real scripts is read-only"
 FAKE_STATE="$(mktemp -d)"; export FAKE_STATE

@@ -23,20 +23,29 @@ against `origin/main`, the skip of modules already current, and the release reco
 | Roll back static to the previous verified release | `.deploy/ship.sh --module static --rollback` |
 | Roll back backstage to a verified release | `.deploy/ship.sh --module backstage --rollback <full SHA>` |
 
-The default deploy fetches `origin/main` and refuses unless HEAD is that commit. Per module it
-skips with `up to date` when the module already serves `origin/main` from a verified release
-(`backstage-deploy.sh` refuses to replace a verified live release, so the skip is required) and
-deploys the rest, static first. A static failure stops before backstage; a backstage failure
-leaves the verified static release live. After every module succeeds, ship.sh re-reads the box:
-every module must serve `origin/main`, else it exits 1 and records no release.
+The default deploy fetches `origin/main` and refuses unless HEAD is that commit and the tracked
+tree is clean. It then takes one host lock, `/var/lock/jevnotjev-ship`, held across every state
+read, module deploy, final check and release record (a rollback takes it too; a held lock
+refuses with exit 1). Per module it skips with `up to date` only when every observation names
+`origin/main`: the served SHA, a verified current release, and that release's own identity
+(static: its `DEPLOYED_SHA` marker; backstage: the release directory named by the SHA).
+`backstage-deploy.sh` refuses to replace a verified live release, so the skip is required. The
+rest deploy, static first. A static failure stops before backstage; a backstage failure leaves
+the verified static release live. After every module succeeds, ship.sh re-reads the box with
+the same test, else it exits 1 and records no release. A curl that fails is never parsed, even
+when it delivered a complete body first.
 `backstage-deploy.sh` also refuses until Backstage setup exists and unless HEAD's merged PR body
 references #67; plain `ship.sh` then reports backstage FAILED with its exit code.
 
 ### Drift and `--status`
 
-Module paths are defined once in `ship.sh`: backstage is `site/backstage/`, `src/backstage/`,
-`scripts/backstage-build.ts` and `.deploy/backstage*`; static is `site/` minus `site/backstage/`;
-`.deploy/lib.sh` and `.deploy/config.sh` count for both. `--status` prints, per module, the
+Module paths are defined once in `ship.sh`. Static is `site/` minus `site/backstage/`. Backstage
+is `site/backstage/`, `scripts/backstage-build.ts`, `.deploy/backstage*`, `package.json`,
+`bun.lock`, plus every source file the Backstage build bundles: `.deploy/backstage-deps.ts`
+walks the import graph of the entrypoints in `scripts/backstage-build.ts` on a `git archive`
+of `origin/main` (so `src/core/`, `src/format/` and `src/jev-answer.ts` count). If that graph
+cannot be read, backstage drift is UNKNOWN. `.deploy/lib.sh` and `.deploy/config.sh` count for
+both. `--status` prints, per module, the
 served SHA, `main <sha>`, `drift`, `release <tag>` when a release tag points at the served SHA,
 the current release directory, its verified marker, the service state, whether setup is present
 and, for backstage, `auth yes|no|unknown`. With the Basic Auth gate on the host, every Backstage
@@ -48,9 +57,11 @@ probe is sent, backstage drift is UNKNOWN and `--status` fails naming the variab
 | `none` | serves `origin/main` |
 | `none (sha differs, no module changes)` | serves an older SHA, but nothing under the module's paths changed since |
 | `STALE (<n> commits behind; changed: <paths, max 10>)` | merged changes to this module are not live |
-| `UNKNOWN (...)` | served SHA unreadable or not a known commit, or `origin/main` unresolved |
+| `UNKNOWN (...)` | served SHA unreadable or not a known commit, `origin/main` unresolved or its fetch failed (the cached comparison is shown), a failed `git diff`, or an unreadable Backstage import graph |
 
-`--status` exits 0 when no module is STALE or UNKNOWN, 3 otherwise (1 when the host cannot be
+`--status` exit 0 means no detected module drift: every module is `none`, which includes
+`none (sha differs, no module changes)`, so it does not prove every module serves the exact
+`origin/main` SHA. It exits 3 when any module is STALE or UNKNOWN (1 when the host cannot be
 probed). `--module X` refuses with exit 4 when any other module is STALE or UNKNOWN, naming it
 and its changed paths; `--allow-drift` overrides that for a deliberate partial deploy.
 
@@ -63,16 +74,21 @@ date) on S, whose message is a YAML block with `version`, `sha`, `utc`, `actor`,
 `catalogVersion`, `release_dir`), `prs` (`#N title` from first-parent commits in
 `previous_tag..S`, all history for the first release) and `previous_tag`. It pushes only that
 tag (`git push origin refs/tags/<v>`) and runs `gh release create <v> --verify-tag` with the same
-metadata as notes. If a release tag already points at S it tags nothing and prints that tag.
-A tag, push or `gh` failure after a verified deploy exits 5 and prints the exact command that
-finishes the job; the deploy is never rolled back for it. `--no-release` skips the record for
+metadata as notes. Only annotated tags named `vYYYY.MM.DD.N` count as releases (newest by
+version order, so `.10` beats `.9`). If one already points at S, ship.sh creates no new tag but
+still checks origin (`git ls-remote`) and the GitHub release (`gh release view`) and creates
+whichever is missing, so a rerun after a failed push or `gh` call finishes the record. Release
+files go to a private `mktemp -d` directory per run. A failed tag fetch, metadata generation or
+write refuses before tagging; a tag, push or `gh` failure after a verified deploy exits 5 and
+prints the exact, shell-quoted command that finishes the job; the deploy is never rolled back
+for it. `--no-release` skips the record for
 local testing only. `--dry-run` prints the per-module plan, drift and the tag it would create,
 reads the box, and makes no tag, push or `gh` call.
 
 | Exit | Meaning |
 |---|---|
-| 0 | done (or `--status`: no drift) |
-| 1 | preflight failed (HEAD not `origin/main`, fetch failed) or a module is not serving `origin/main` after the deploy |
+| 0 | done (or `--status`: no detected module drift) |
+| 1 | preflight failed (HEAD not `origin/main`, tracked changes, fetch failed, ship lock held) or a module is not current at `origin/main` after the deploy |
 | 2 | usage |
 | 3 | `--status`: a module is STALE or UNKNOWN |
 | 4 | `--module X` refused: another module is STALE or UNKNOWN |
@@ -128,7 +144,7 @@ git fetch origin main --no-tags
 git worktree add --detach <dir> origin/main
 <dir>/.deploy/ship.sh --dry-run
 <dir>/.deploy/ship.sh
-<dir>/.deploy/ship.sh --status    # exit 0: every module serves origin/main
+<dir>/.deploy/ship.sh --status    # exit 0: no detected module drift
 ```
 
 Static runs `deploy.sh`, which refuses unless HEAD is `origin/main`, the tracked tree is clean, and

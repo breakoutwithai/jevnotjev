@@ -289,14 +289,14 @@ export function buildProviderRequest(
         generationConfig: {
           maxOutputTokens: params.maxOutputTokens,
           candidateCount: 1,
-          thinkingConfig: {
-            thinkingLevel:
-              params.reasoningEffort === "low"
-                ? "LOW"
-                : params.reasoningEffort === "none"
-                  ? "MINIMAL"
-                  : "THINKING_LEVEL_UNSPECIFIED",
-          },
+          ...(params.reasoningEffort === null
+            ? {}
+            : {
+                thinkingConfig: {
+                  thinkingLevel:
+                    params.reasoningEffort === "low" ? "LOW" : "MINIMAL",
+                },
+              }),
         },
       },
     };

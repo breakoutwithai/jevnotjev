@@ -1,3 +1,4 @@
+import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { expect, test, spyOn } from "bun:test";
 import { buildBackstage } from "../../scripts/backstage-build.ts";
 import { join } from "node:path";
@@ -152,7 +153,7 @@ test("[integration] JF1 browser transport sends paid requests only to the same-o
           provider: "jev",
           modelId: entry.modelId,
           catalogVersion: CATALOG_VERSION,
-          promptVersion: "binary-choice/1",
+          promptVersion: PROMPT_TEMPLATE_VERSION,
           key: "test-routing-key",
           question: "Keep?",
           choices: [

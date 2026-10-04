@@ -1,7 +1,11 @@
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { CATALOG_VERSION, MODEL_CATALOG } from "./catalog.ts";
 import { test, expect, spyOn } from "bun:test";
-import { callProvider, parseAnswerRequest } from "./providers.ts";
+import {
+  buildProviderRequest,
+  callProvider,
+  parseAnswerRequest,
+} from "./providers.ts";
 import type { AnswerRequest } from "./contracts.ts";
 const request: AnswerRequest = {
   version: "backstage/2",
@@ -35,10 +39,9 @@ test("[unit] B4 strict requests reject malformed and secret-bearing inputs", () 
   ).toBeNull();
 });
 test("[unit] B3 Jev pins model and captures real usage from allowlisted fields", async () => {
+  const captured: { url: string; options: RequestInit }[] = [];
   const result = await callProvider(request, async (url, options) => {
-    expect(String(url)).toBe("https://api.typesafe.ai/v1/systemone");
-    expect(options?.redirect).toBe("error");
-    expect(String(options?.body)).not.toContain(request.key);
+    captured.push({ url: String(url), options });
     return Response.json({
       model: "jev-1.13.0",
       answers: { q1: { choice: "keep" } },
@@ -47,6 +50,10 @@ test("[unit] B3 Jev pins model and captures real usage from allowlisted fields",
     });
   });
   expect(result.ok).toBe(true);
+  expect(captured).toHaveLength(1);
+  expect(captured[0]?.url).toBe("https://api.typesafe.ai/v1/systemone");
+  expect(captured[0]?.options.redirect).toBe("error");
+  expect(String(captured[0]?.options.body)).not.toContain(request.key);
   expect(result.tokensIn).toBe(100);
   expect(result.costUsd).toBeCloseTo(0.0000042);
   expect(JSON.stringify(result)).not.toContain(request.key);
@@ -270,19 +277,11 @@ test("[unit] JF2 Responses adapters use selected native endpoints and store fals
   ]) {
     if ((provider !== "openai" && provider !== "xai") || !modelId)
       throw new Error("fixture");
+    const captured: { url: string; options: RequestInit }[] = [];
     const result = await callProvider(
       { ...request, provider, armId: modelId, modelId },
       async (url, options) => {
-        expect(url).toBe(
-          provider === "openai"
-            ? "https://api.openai.com/v1/responses"
-            : "https://api.x.ai/v1/responses",
-        );
-        const body = JSON.parse(String(options.body));
-        expect(body.store).toBe(false);
-        expect(body.tools).toEqual([]);
-        expect(body.max_output_tokens).toBe(1024);
-        expect(String(options.body)).not.toContain(request.key);
+        captured.push({ url: String(url), options });
         return Response.json({
           model: modelId,
           status: "completed",
@@ -299,6 +298,21 @@ test("[unit] JF2 Responses adapters use selected native endpoints and store fals
         });
       },
     );
+    expect(captured).toHaveLength(1);
+    const sent = captured[0];
+    if (!sent) throw new Error("Provider did not dispatch");
+    expect(sent.url).toBe(
+      provider === "openai"
+        ? "https://api.openai.com/v1/responses"
+        : "https://api.x.ai/v1/responses",
+    );
+    const wire: unknown = JSON.parse(String(sent.options.body));
+    expect(wire).toMatchObject({
+      store: false,
+      tools: [],
+      max_output_tokens: 1024,
+    });
+    expect(String(sent.options.body)).not.toContain(request.key);
     expect(result.ok).toBe(true);
     expect(result.returnedModel).toBe(modelId);
     expect(JSON.stringify(result)).not.toContain(request.key);
@@ -307,16 +321,11 @@ test("[unit] JF2 Responses adapters use selected native endpoints and store fals
 test("[unit] JF2 Google uses header key and rejects blocked/truncated/mismatched answers", async () => {
   const modelId = "gemini-3.8-flash";
   for (const finishReason of ["STOP", "MAX_TOKENS", "SAFETY"]) {
+    const captured: { url: string; options: RequestInit }[] = [];
     const result = await callProvider(
       { ...request, provider: "google", armId: modelId, modelId },
       async (url, options) => {
-        expect(url).toBe(
-          `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent`,
-        );
-        expect(url).not.toContain(request.key);
-        expect(new Headers(options.headers).get("x-goog-api-key")).toBe(
-          request.key,
-        );
+        captured.push({ url: String(url), options });
         return Response.json({
           modelVersion: modelId,
           candidates: [
@@ -332,6 +341,16 @@ test("[unit] JF2 Google uses header key and rejects blocked/truncated/mismatched
           },
         });
       },
+    );
+    expect(captured).toHaveLength(1);
+    const sent = captured[0];
+    if (!sent) throw new Error("Provider did not dispatch");
+    expect(sent.url).toBe(
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent`,
+    );
+    expect(sent.url).not.toContain(request.key);
+    expect(new Headers(sent.options.headers).get("x-goog-api-key")).toBe(
+      request.key,
     );
     expect(result.ok).toBe(finishReason === "STOP");
     expect(result.costUsd).toBeNull();
@@ -353,12 +372,11 @@ test("[unit] JF2 adaptive Anthropic text survives reasoning blocks without expor
     "claude-opus-5-5",
     "claude-fable-5-1",
   ]) {
+    const captured: { url: string; options: RequestInit }[] = [];
     const result = await callProvider(
       { ...request, provider: "anthropic", armId: modelId, modelId },
-      async (_url, options) => {
-        const body = JSON.parse(String(options.body));
-        expect(body.thinking.type).toBe("adaptive");
-        expect(body.output_config.effort).toBe("low");
+      async (url, options) => {
+        captured.push({ url: String(url), options });
         return Response.json({
           model: modelId,
           stop_reason: "end_turn",
@@ -370,6 +388,15 @@ test("[unit] JF2 adaptive Anthropic text survives reasoning blocks without expor
         });
       },
     );
+    expect(captured).toHaveLength(1);
+    const sent = captured[0];
+    if (!sent) throw new Error("Provider did not dispatch");
+    const wire: unknown = JSON.parse(String(sent.options.body));
+    expect(wire).toMatchObject({
+      thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
+      max_tokens: 1024,
+    });
     expect(result.ok).toBe(true);
     expect(JSON.stringify(result)).not.toContain(request.key);
   }
@@ -461,35 +488,70 @@ test("[unit] JF2 Google nonblocking safety feedback is valid but model mismatch 
 test("[unit] JF2 catalog generation controls are the actual outgoing native parameters", async () => {
   for (const armId of [
     "claude-haiku-4-5-20251001",
+    "claude-sonnet-5-5",
     "gemini-3.8-flash",
     "gpt-6.1-sol",
     "grok-4.7",
   ]) {
     const entry = MODEL_CATALOG.find((model) => model.id === armId);
     if (!entry) throw new Error("fixture");
-    await callProvider(
+    const captured: string[] = [];
+    const result = await callProvider(
       { ...request, provider: entry.provider, armId, modelId: entry.modelId },
       async (_url, options) => {
-        const wire = JSON.parse(String(options.body));
-        if (entry.provider === "anthropic") {
-          expect(wire.thinking).toEqual({ type: "disabled" });
-          expect(wire.max_tokens).toBe(entry.parameters.maxOutputTokens);
-        } else if (entry.provider === "google") {
-          expect(wire.generationConfig).toEqual({
-            maxOutputTokens: entry.parameters.maxOutputTokens,
-            candidateCount: 1,
-            thinkingConfig: { thinkingLevel: "LOW" },
-          });
-        } else {
-          expect(wire.reasoning).toEqual({
-            effort: entry.parameters.reasoningEffort,
-          });
-          expect(wire.max_output_tokens).toBe(entry.parameters.maxOutputTokens);
-        }
+        captured.push(String(options.body));
         return new Response("", { status: 401 });
       },
     );
+    expect(result).toMatchObject({
+      ok: false,
+      code: "http-401",
+      charge: "none",
+    });
+    expect(captured).toHaveLength(1);
+    const raw = captured[0];
+    if (!raw) throw new Error("Provider did not dispatch");
+    const wire: unknown = JSON.parse(raw);
+    if (entry.provider === "anthropic") {
+      expect(wire).toMatchObject({
+        thinking: { type: entry.parameters.thinking },
+        max_tokens: entry.parameters.maxOutputTokens,
+      });
+      if (entry.parameters.thinking === "adaptive")
+        expect(wire).toMatchObject({
+          output_config: { effort: entry.parameters.reasoningEffort },
+        });
+    } else if (entry.provider === "google") {
+      expect(wire).toMatchObject({
+        generationConfig: {
+          maxOutputTokens: entry.parameters.maxOutputTokens,
+          candidateCount: 1,
+          thinkingConfig: { thinkingLevel: "LOW" },
+        },
+      });
+    } else {
+      expect(wire).toMatchObject({
+        reasoning: { effort: entry.parameters.reasoningEffort },
+        max_output_tokens: entry.parameters.maxOutputTokens,
+      });
+    }
   }
+});
+test("[unit] JF2 Google omits unsupported thinking parameters", () => {
+  const entry = MODEL_CATALOG.find((model) => model.id === "gemini-3.8-flash");
+  if (!entry) throw new Error("fixture");
+  const outgoing = buildProviderRequest(request, {
+    ...entry,
+    parameters: { ...entry.parameters, reasoningEffort: null },
+  });
+  const wire: unknown = outgoing.body;
+  expect(wire).toMatchObject({
+    generationConfig: {
+      maxOutputTokens: entry.parameters.maxOutputTokens,
+      candidateCount: 1,
+    },
+  });
+  expect(JSON.stringify(wire)).not.toContain("thinkingConfig");
 });
 test("[unit] JF2 provider deadline clamps caller timeout to thirty seconds", async () => {
   const durations: number[] = [];

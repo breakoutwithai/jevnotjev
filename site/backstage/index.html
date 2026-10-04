@@ -175,8 +175,8 @@
         </fieldset>
         <p class="fine">
           List-price estimates: Jev $0.042 / million input tokens, output free;
-          Haiku $1 input / $5 output. Dated 3 October 2026. Your invoice may
-          differ.
+          <span id="llm-price" hidden>Haiku $1 input / $5 output.</span> Dated 3
+          October 2026. Your invoice may differ.
         </p>
       </section>
       <section data-panel="2" aria-labelledby="lines-title" hidden>
@@ -217,6 +217,7 @@
           Retry is a new paid attempt; previous attempts stay in your evidence.
         </p>
         <div id="progress" aria-live="polite"></div>
+        <div id="solo-answers"></div>
       </section>
       <section data-panel="3" aria-labelledby="rehearsal-title" hidden>
         <p class="eyebrow">ACT III / YOUR JUDGMENT</p>

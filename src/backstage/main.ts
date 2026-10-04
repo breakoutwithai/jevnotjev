@@ -229,6 +229,7 @@ async function render() {
   const running = current?.running ?? false;
   const comparison = (current?.manifest.mode ?? mode()) === "compare";
   element("llm-player").hidden = !comparison;
+  element("llm-price").hidden = !comparison;
   element("rule-fields").hidden = !comparison;
   element("comparison-note").hidden = !comparison;
   text(
@@ -295,12 +296,14 @@ async function render() {
       );
     }
   }
+  const soloAnswers = element("solo-answers");
+  soloAnswers.replaceChildren();
   if (
     current?.manifest.mode === "jev-only" &&
     !current.revealed &&
     current.results().length
   ) {
-    progress.append(node("h3", "Jev answers"), answerTable(current));
+    soloAnswers.append(node("h3", "Jev answers"), answerTable(current));
   }
   renderCard();
   if (!current) return;
@@ -326,7 +329,10 @@ async function render() {
     if (epoch !== renderEpoch || current !== run) return;
     const metrics = element("metrics");
     metrics.replaceChildren(
-      node("h3", "All successful answers"),
+      node(
+        "h3",
+        current.completed ? "All successful answers" : "No successful answers",
+      ),
       table(
         ["Player", "Kept / labelled", "Unlabelled", "Spend", "Cost / kept"],
         report.metrics.arms.map((a) => [
@@ -372,7 +378,9 @@ async function render() {
         node("h3", "Jev-only rehearsal"),
         node(
           "p",
-          "Your answers and labels are ready. No comparative recommendation: this run contains only Jev.",
+          current.completed
+            ? "Your answers and labels are ready. No comparative recommendation: this run contains only Jev."
+            : "No Jev answers completed. Download the run evidence to inspect failed or interrupted attempts and charges. No comparative recommendation is available.",
         ),
       );
       return;
@@ -404,9 +412,11 @@ function renderCard() {
         "p",
         current?.running
           ? "Let the run stop before judging."
-          : current?.manifest.mode === "jev-only"
-            ? "Complete your retry decisions before opening judging. You may leave every answer unlabelled; finishing this step unlocks exports."
-            : "Complete your retry decisions before opening blind judging. After that, this set of answers cannot change.",
+          : current?.labeling
+            ? "No successful answers to judge. Finish judging to unlock the failed-attempt evidence."
+            : current?.manifest.mode === "jev-only"
+              ? "Complete your retry decisions before opening judging. You may leave every answer unlabelled; finishing this step unlocks exports."
+              : "Complete your retry decisions before opening blind judging. After that, this set of answers cannot change.",
       ),
     );
     if (

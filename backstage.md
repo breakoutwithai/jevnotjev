@@ -29,7 +29,7 @@ Cost estimates use returned usage and list prices checked 2026-10-03: [TypeSafe 
 
 Finish any retries, then choose **Open judging and lock retries** in Rehearsals (or **Open blind judging and lock retries** for comparison). Label answers if desired; every answer may remain unlabelled. Choose **Finish judging and unlock downloads** for Jev only, or **Reveal results and lock labels** for comparison. This locks labels and unlocks the CSV and evidence downloads. Solo answers are visible before this step; comparison identities remain hidden until reveal.
 
-The CSV preserves the existing `jnj-record/1` schema and contains successful answers only. Download the evidence JSON alongside it: `manifest.mode` and `manifest.arms` distinguish a Jev-only run from a comparison with missing answers. The JSON also retains failed and uncertain attempts. Unlabelled answers stay unlabelled.
+The CSV preserves the existing `jnj-record/1` schema and contains successful answers only. Download the evidence JSON alongside it: `manifest.mode` and `manifest.arms` distinguish a Jev-only run from a comparison with missing answers. The JSON also retains failed and uncertain attempts. You can finish judging and download evidence even when every call failed; the CSV then contains its header and no answer rows. `manifest.arms` is authoritative: rule-related scene fields are inert in Jev-only mode. Unlabelled answers stay unlabelled.
 
 ## Verification and rollout
 

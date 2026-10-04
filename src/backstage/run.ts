@@ -11,7 +11,7 @@ import {
 } from "./contracts.ts";
 import { COLUMNS, validate } from "../format/validate.ts";
 import { formatRows, readDictRows } from "../format/csv.ts";
-import { cohortMetrics } from "../core/metrics.ts";
+import { cohortMetrics, type CohortMetrics } from "../core/metrics.ts";
 import { fileSeed } from "../core/calc.ts";
 import { verdict } from "../core/verdict.ts";
 
@@ -453,7 +453,11 @@ export class BackstageRun {
       throw new Error(
         "This run contains a provider key. Start a new scene without the key.",
       );
-    if (this.running || !this.#answers.length || this.#unsafe)
+    if (
+      this.running ||
+      (!this.#answers.length && !this.#attempts.length) ||
+      this.#unsafe
+    )
       throw new Error("Finish or stop the run before opening blind judging.");
     this.#labeling = true;
   }
@@ -463,7 +467,7 @@ export class BackstageRun {
   reveal(): void {
     if (
       this.running ||
-      !this.#answers.length ||
+      (!this.#answers.length && !this.#attempts.length) ||
       this.#unsafe ||
       !this.#labeling
     )
@@ -781,10 +785,25 @@ export class BackstageRun {
   }
   async report() {
     const csv = this.csv();
-    const parsed = validate(csv);
+    const parsed = this.#answers.length
+      ? validate(csv)
+      : { rows: [], errors: [] };
     if (parsed.errors.length) throw new Error("Run records failed validation.");
-    if (!parsed.rows.length) throw new Error("Run has no completed answers.");
-    const metrics = cohortMetrics(parsed.rows, this.manifest);
+    if (!parsed.rows.length && !this.#attempts.length)
+      throw new Error("Run has no attempts.");
+    const metrics: CohortMetrics = parsed.rows.length
+      ? cohortMetrics(parsed.rows, this.manifest)
+      : {
+          key: this.manifest,
+          question: this.manifest.scene.question,
+          answerSet: this.manifest.scene.choices
+            .map((choice) => choice.name)
+            .join("|"),
+          cases: 0,
+          arms: [],
+          jevVsLlm: null,
+          jevVsRule: null,
+        };
     return {
       csv,
       metrics,

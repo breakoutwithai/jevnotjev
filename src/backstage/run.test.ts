@@ -569,3 +569,48 @@ test("[unit] JO1 unused rule fields cannot block a solo scene with custom choice
   expect(run.manifest.scene.keywords).toEqual([]);
   expect(() => new BackstageRun(custom, "test", "compare")).toThrow("rule");
 });
+
+test("[integration] JO6 all-failed solo runs unlock evidence without inventing successful answers", async () => {
+  const run = new BackstageRun(scene(), "test", "jev-only");
+  await run.start({ jev: keys.jev, llm: "" }, async (request) => ({
+    ...(await success(request)),
+    ok: false,
+    code: "http-401",
+    message: "Rejected",
+    charge: "none",
+    costUsd: 0,
+  }));
+  expect(run.completed).toBe(0);
+  expect(run.attempts).toHaveLength(2);
+  run.beginLabeling();
+  run.reveal();
+  expect(run.revealed).toBe(true);
+  const report = await run.report();
+  expect(report.metrics.cases).toBe(0);
+  expect(report.metrics.arms).toEqual([]);
+  expect(report.verdict).toBeNull();
+  expect(report.extraSpend).toEqual({ knownUsd: 0, unknown: 0 });
+  expect(run.evidence().attempts).toHaveLength(2);
+  expect(run.evidence().labels).toEqual([]);
+  expect(validate(run.csv()).rows).toEqual([]);
+  expect(JSON.stringify(run.evidence())).not.toContain(keys.jev);
+});
+
+test("[integration] JO6 stopped solo attempt exports its uncertain charge without successful answers", async () => {
+  const run = new BackstageRun(scene(), "test", "jev-only");
+  await run.start({ jev: keys.jev, llm: "" }, async (request) => {
+    run.stop();
+    return success(request);
+  });
+  expect(run.completed).toBe(0);
+  run.beginLabeling();
+  run.reveal();
+  expect(run.evidence().attempts).toHaveLength(1);
+  expect(run.evidence().attempts[0]).toMatchObject({
+    ok: false,
+    code: "stopped",
+    charge: "unknown",
+  });
+  expect((await run.report()).extraSpend).toEqual({ knownUsd: 0, unknown: 1 });
+  expect((await run.report()).verdict).toBeNull();
+});

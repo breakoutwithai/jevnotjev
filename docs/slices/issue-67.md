@@ -1,3 +1,5 @@
+> The mandatory three-arm flow below is superseded by [Jev-first scope](issue-67-jev-only.md). Jev-only is the default; comparison is optional.
+
 ## Problem
 
 Backstage's design in #55 and #56 is an offline walkthrough. The requested MVP must instead let testers bring their own keys and run real comparisons while retaining the site's theatre style.

@@ -4,37 +4,36 @@
 # (#86). The deploy tests replay these files through fixture-curl.sh instead of hand-written stubs.
 #
 # Usage: .deploy/tests/capture-fixtures.sh --scan <path to the private public-scan.sh> [--out DIR]
-#   --scan  REQUIRED. The private-content scanner (its term list is not in this repo). Every line it
-#           flags is replaced by "[REDACTED: public-scan term]"; the capture is published only when a
-#           second scan exits 0 with an OK verdict covering every file.
+#   --scan  REQUIRED. The private-content scanner (its term list is not in this repo). The capture is
+#           published only when it exits 0 with an OK verdict counting every file; any hit fails it.
 #   --out   default .deploy/tests/fixtures/<UTC date>/live; refused when it exists, even empty.
 #   Needs BACKSTAGE_CURL_CONFIG (the private 0600 curl config) for the authenticated Backstage routes.
 #
-# What it reads, all through the existing wrappers (config.sh `remote` over the configured SSH key,
-# curl pinned with CURL_PIN, backstage_curl for the gated routes):
-#   remote: `nginx -T` (effective config), `ls -la /etc/nginx/sites-enabled/`, the Backstage snippet,
-#           and the sites-enabled server_names (list_neighbours)
-#   HTTP:   every co-tenant's https://<name>/ (status and curl exit, no body, never with credentials),
-#           and on this domain /, /label/, /little-shop/, /DEPLOYED_SHA, /backstage/,
-#           /api/backstage/health without credentials, then /backstage/ and /api/backstage/health with.
-# Nothing on the host is written, restarted or reloaded.
+# ALLOWLIST: no raw `nginx -T`, snippet text or response body is ever written. The capture writes
+# only these facts, each parsed and validated (scripts/capture-extract.ts); input that does not
+# parse fails the capture instead of being copied:
+#   nginx.json      server_name values and listen ports per server block, the `user` directive, and
+#                   for our Backstage snippet only its auth state (backstage_snippet_auth) and sha256
+#   neighbours.txt  the co-tenant server_names (hostnames only)
+#   http/*.txt      fixture-curl.sh format: http code and curl exit per request. The only bodies are
+#                   /DEPLOYED_SHA (a 40-hex SHA) and the authenticated health route, reduced to
+#                   version, protocol, catalogVersion and trial.available
+# Reads go through the existing wrappers (config.sh `remote`, CURL_PIN, backstage_curl). Nothing on
+# the host is written, restarted or reloaded.
 #
-# Everything is captured into a private staging directory (mode 0700, under TMPDIR) and copied to
-# --out only after the scan passes. The destination is claimed with an atomic `mkdir`, so two
-# captures can never share it; an interruption or any failed step removes this run's staging and
-# its own claimed destination, nothing else. Credentials are redacted at capture: any line naming a
-# password, secret, token, API key, cookie, bearer or Authorization value (nginx `set $api_key ...;`
-# and header directives included), a curl `user =` line or a password hash is replaced by
-# "[REDACTED: credential]"; `auth_basic` and `auth_basic_user_file` (a path) are kept.
+# Everything is staged in a private directory (mode 0700, under TMPDIR) and copied to --out only
+# after the scan passes. The destination is claimed with an atomic `mkdir`; an interruption or any
+# failed step removes this run's staging and its own claimed destination, nothing else.
 # Bash 3.2 compatible.
 set -uo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
+EXTRACT="${REPO_ROOT}/scripts/capture-extract.ts"
 SCAN=""
 OUT=""
 
-usage() { sed -n '4,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '4,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --scan) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; SCAN="$2"; shift 2 ;;
@@ -75,89 +74,90 @@ abort() { log_error "$1"; exit 1; }
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/jevnotjev-capture.XXXXXX")" || abort "Cannot create a private staging directory"
 chmod 700 "$STAGE" && mkdir "${STAGE}/http" || abort "Cannot prepare the staging directory"
 SOURCE="source: captured ${STAMP} from ${SERVER_HOST} by .deploy/tests/capture-fixtures.sh"
+HOSTNAME_RE='^[A-Za-z0-9_][A-Za-z0-9_.-]*$'
+SHA_RE='^[0-9a-f]{40}$'
 
-redact_credentials() {
-    awk '
-    # redact-credentials: replace every line that carries a credential value
-    function cred(s) {
-        s = tolower(s)
-        return (s ~ /(api[_-]?key|secret|token|passw|authoriz|credential|cookie|bearer)/ \
-            || s ~ /^[[:space:]]*user[[:space:]]*=/ || s ~ /\$(apr1|2[aby]|1|5|6)\$/)
-    }
+# write_http <key> <url> <code> <curl exit> [body] - one fixture-curl.sh file. The body, if any, is
+# an already validated allowlisted value.
+write_http() {
+    [[ "$3" =~ ^[0-9]{3}$ && "$4" =~ ^[0-9]+$ ]] || abort "A request to ${2} returned no 3-digit status; nothing captured"
     {
-        # Kept verbatim only when the line is exactly ONE auth_basic / auth_basic_user_file
-        # statement, optionally followed by a comment that itself names no credential. The
-        # htpasswd path is not a secret; anything else on the line goes through the check.
-        if (match($0, /^[[:space:]]*(auth_basic|auth_basic_user_file)[[:space:]]+[^;#]+;[[:space:]]*/)) {
-            rest = substr($0, RLENGTH + 1)
-            if (rest == "" || (substr(rest, 1, 1) == "#" && !cred(rest))) { print; next }
-        }
-        if (cred($0)) { print "[REDACTED: credential]"; next }
-        print
-    }'
+        printf '%s\nurl: %s\nhttp_code: %s\ncurl_exit: %s\n---\n' "$SOURCE" "$2" "$3" "$4"
+        if [[ -n "${5:-}" ]]; then printf '%s\n' "$5"; fi
+    } > "${STAGE}/http/${1}.txt" || abort "Writing http/${1}.txt failed"
 }
 
-# capture_remote <file> <command> - one read-only remote command, redacted, into <file>.
-capture_remote() {
-    local text
-    text="$(remote "$2" 2>&1)" || abort "Remote read failed: $2"
-    printf '%s\n' "$text" | redact_credentials > "${STAGE}/$1" || abort "Redacting or writing $1 failed"
-}
+# key_for <url> - the fixture-curl.sh key (scheme dropped, '/' -> '_').
+key_for() { local k="${1#https://}"; printf '%s' "${k//\//_}"; }
 
-# capture_http <anon|auth|probe> <url> - one GET into http/<key>.txt in fixture-curl.sh format.
-capture_http() {
-    local who="$1" url="$2" host key code rc=0 body tmp label=""
-    host="${url#https://}"; host="${host%%/*}"
-    key="${url#https://}"; key="${key//\//_}"
-    tmp="$(mktemp "${STAGE}/.body.XXXXXX")" || abort "mktemp failed"
-    case "$who" in
-        probe) code="$(curl -q -sS -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${host}:443:${SERVER_HOST}" "$url" 2>/dev/null)" || rc=$? ;;
-        anon) code="$(curl -q -sS -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "$url" 2>/dev/null)" || rc=$? ;;
-        auth) key="${key}@auth"; label=" (with BACKSTAGE_CURL_CONFIG)"
-              code="$(backstage_curl -sS -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "$url" 2>/dev/null)" || rc=$? ;;
-    esac
-    body="$(head -200 "$tmp" | redact_credentials)" || abort "Redacting the body of ${url} failed"
-    rm -f "$tmp" || abort "Removing ${tmp} failed"
-    {
-        printf '%s\nurl: %s%s\nhttp_code: %s\ncurl_exit: %s\n---\n' "$SOURCE" "$url" "$label" "${code:-000}" "$rc"
-        if [[ -n "$body" ]]; then printf '%s\n' "$body"; fi
-    } > "${STAGE}/http/${key}.txt" || abort "Writing http/${key}.txt failed"
-}
-
-# run_scan <clean|any> - runs the scanner over every staged file and sets SCAN_OUT. The scanner must
-# exit 0 with an OK verdict, or (any) exit 1 with a HITS verdict, and the verdict must count every file.
-run_scan() {
-    local rc=0 verdict state count
-    SCAN_OUT="$(bash "$SCAN" "$STAGE" "${files[@]}" 2>/dev/null)" || rc=$?
-    verdict="$(printf '%s\n' "$SCAN_OUT" | tail -1)"
-    if [[ ! "$verdict" =~ ^VERDICT\ public-scan\ (OK|HITS)\ files=([0-9]+)\ hits=([0-9]+)$ ]]; then
-        abort "Public scan printed no valid verdict (exit ${rc}); capture removed"
-    fi
-    state="${BASH_REMATCH[1]}"; count="${BASH_REMATCH[2]}"
-    [[ "$count" -eq "${#files[@]}" ]] || abort "Public scan covered ${count} of ${#files[@]} files; capture removed"
-    if [[ "$rc" -eq 0 && "$state" == OK ]]; then return 0; fi
-    if [[ "$1" == any && "$rc" -eq 1 && "$state" == HITS ]]; then return 0; fi
-    abort "Public scan ${state} with exit ${rc}; capture removed"
-}
-
-log_info "Capturing from ${SERVER} into ${OUT} (read-only, staged privately until scanned)"
+log_info "Capturing from ${SERVER} into ${OUT} (read-only, allowlisted facts only, staged until scanned)"
 remote 'echo ok' >/dev/null 2>&1 || abort "Cannot SSH to ${SERVER}. Check user, key and IP, then stop."
-capture_remote nginx-T.txt 'nginx -T 2>&1'
-capture_remote sites-enabled.txt 'ls -la /etc/nginx/sites-enabled/'
-capture_remote backstage-snippet.conf "cat /etc/nginx/snippets/jevnotjev-backstage.conf"
+
+# nginx: parsed facts only. The raw text lives in shell variables, never in a file.
+nginx_text="$(remote 'nginx -T 2>/dev/null')" || abort "Remote read failed: nginx -T"
+snippet="$(remote "cat /etc/nginx/snippets/jevnotjev-backstage.conf")" || abort "Remote read failed: the Backstage snippet"
+snippet_auth="$(printf '%s\n' "$snippet" | backstage_snippet_auth)" || abort "Reading the snippet's auth state failed"
+snippet_sha="$(printf '%s\n' "$snippet" | shasum -a 256 | awk '{print $1}')" || abort "Hashing the snippet failed"
+unset snippet
+printf '%s\n' "$nginx_text" | bun "$EXTRACT" nginx "$snippet_auth" "$snippet_sha" > "${STAGE}/nginx.json" \
+    || abort "nginx -T did not parse into the allowlisted facts; nothing captured"
+unset nginx_text
 
 neighbours="$(list_neighbours "$DOMAIN")" || abort "Reading the co-tenant server_names failed"
 [[ -n "$neighbours" ]] || abort "No co-tenant server_names read from /etc/nginx/sites-enabled"
-printf '%s\n' "$neighbours" > "${STAGE}/neighbours.txt" || abort "Writing neighbours.txt failed"
 while IFS= read -r name; do
-    [[ -z "$name" ]] || capture_http probe "https://${name}/"
+    [[ "$name" =~ $HOSTNAME_RE ]] || abort "A co-tenant server_name is not a plain hostname; nothing captured"
 done <<< "$neighbours"
-for path in / /label/ /little-shop/ /DEPLOYED_SHA /backstage/ /api/backstage/health; do
-    capture_http anon "${HEALTH_URL}${path}"
+printf '%s\n' "$neighbours" > "${STAGE}/neighbours.txt" || abort "Writing neighbours.txt failed"
+
+# Co-tenants: status and curl exit only, never with credentials.
+while IFS= read -r name; do
+    rc=0
+    code="$(curl -q -sS -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${name}:443:${SERVER_HOST}" "https://${name}/" 2>/dev/null)" || rc=$?
+    write_http "$(key_for "https://${name}/")" "https://${name}/" "${code:-000}" "$rc"
+done <<< "$neighbours"
+
+# This domain without credentials: status only, except the DEPLOYED_SHA value.
+for path in / /label/ /little-shop/ /backstage/; do
+    rc=0
+    code="$(curl -q -sS -o /dev/null -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || rc=$?
+    write_http "$(key_for "${HEALTH_URL}${path}")" "${HEALTH_URL}${path}" "${code:-000}" "$rc"
 done
-for path in /backstage/ /api/backstage/health; do
-    capture_http auth "${HEALTH_URL}${path}"
-done
+rc=0
+sha_out="$(curl -q -sS -w '\n%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}/DEPLOYED_SHA" 2>/dev/null)" || rc=$?
+code="$(printf '%s\n' "$sha_out" | tail -1)"; served="$(printf '%s\n' "$sha_out" | sed '$d' | tr -d '[:space:]')"
+unset sha_out
+if [[ "$code" == 200 && "$rc" -eq 0 ]]; then
+    [[ "$served" =~ $SHA_RE ]] || abort "/DEPLOYED_SHA answered 200 without a 40-hex SHA; nothing captured"
+    write_http "$(key_for "${HEALTH_URL}/DEPLOYED_SHA")" "${HEALTH_URL}/DEPLOYED_SHA" "$code" "$rc" "$served"
+else
+    write_http "$(key_for "${HEALTH_URL}/DEPLOYED_SHA")" "${HEALTH_URL}/DEPLOYED_SHA" "${code:-000}" "$rc"
+fi
+
+# capture_health <anon|auth> - the health route's status; a 200 body is reduced to its four fields.
+capture_health() {
+    local out code health="" rc=0 key label=""
+    key="$(key_for "${HEALTH_URL}/api/backstage/health")"
+    if [[ "$1" == auth ]]; then
+        key="${key}@auth"; label=" (with BACKSTAGE_CURL_CONFIG)"
+        out="$(backstage_curl -sS -w '\n%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" 2>/dev/null)" || rc=$?
+    else
+        out="$(curl -q -sS -w '\n%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" 2>/dev/null)" || rc=$?
+    fi
+    code="$(printf '%s\n' "$out" | tail -1)"
+    if [[ "$code" == 200 && "$rc" -eq 0 ]]; then
+        health="$(printf '%s\n' "$out" | sed '$d' | bun "$EXTRACT" health)" \
+            || abort "The health body did not parse into the allowlisted fields; nothing captured"
+    fi
+    write_http "$key" "${HEALTH_URL}/api/backstage/health${label}" "${code:-000}" "$rc" "$health"
+}
+capture_health anon
+
+# This domain with credentials: the page's status; the health route reduced to its four fields.
+rc=0
+code="$(backstage_curl -sS -o /dev/null -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}/backstage/" 2>/dev/null)" || rc=$?
+write_http "$(key_for "${HEALTH_URL}/backstage/")@auth" "${HEALTH_URL}/backstage/ (with BACKSTAGE_CURL_CONFIG)" "${code:-000}" "$rc"
+capture_health auth
 
 listing="$(cd "$STAGE" && find . -type f | sed 's#^\./##' | sort)" || abort "Listing the staged files failed"
 files=()
@@ -169,32 +169,34 @@ while IFS= read -r f; do [[ -z "$f" ]] || files+=("$f"); done <<< "$listing"
     echo "- source: captured ${STAMP} from ${SERVER_HOST} (${DOMAIN})"
     echo "- command: \`.deploy/tests/capture-fixtures.sh --scan <private public-scan.sh>\` with BACKSTAGE_CURL_CONFIG set"
     echo "- capture tree: $(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
-    echo "- redacted at capture: credential lines; lines flagged by the operator's public scan"
+    echo "- allowlist only: parsed nginx facts, co-tenant names and statuses, route statuses, the served SHA, four health fields"
     echo
     echo "| File | What |"
     echo "|---|---|"
     for f in "${files[@]}"; do
-        if [[ "$f" == http/* ]]; then what="GET $(sed -n 's/^url: //p' "${STAGE}/${f}" | head -1)"; else what="remote read"; fi
+        case "$f" in
+            http/*) what="GET $(sed -n 's/^url: //p' "${STAGE}/${f}" | head -1)" ;;
+            nginx.json) what="parsed from nginx -T and the Backstage snippet" ;;
+            *) what="co-tenant server_names" ;;
+        esac
         echo "| \`${f}\` | ${what} |"
     done
 } > "${STAGE}/MANIFEST.md" || abort "Writing MANIFEST.md failed"
 files+=(MANIFEST.md)
 
-# Private terms: the operator's scanner flags lines; each is replaced, then the capture must scan
-# clean. The scanner's own output (it echoes the matched text) is never printed.
-run_scan any
-redacted=0
-while IFS= read -r hit; do
-    [[ "$hit" =~ ^[^:]+:[0-9]+: ]] || continue
-    f="${hit%%:*}"; rest="${hit#*:}"; n="${rest%%:*}"
-    [[ -f "${STAGE}/${f}" ]] || abort "Unparseable scan hit; capture removed"
-    sed -i.bak "${n}s/.*/[REDACTED: public-scan term]/" "${STAGE}/${f}" && rm -f "${STAGE}/${f}.bak" \
-        || abort "Redacting a scan hit in ${f} failed; capture removed"
-    redacted=$((redacted + 1))
-done <<< "$SCAN_OUT"
-run_scan clean
-verdict="$(printf '%s\n' "$SCAN_OUT" | tail -1)"
+# The operator's private scan must exit 0 with an OK verdict counting every file. A hit fails the
+# capture: there is nothing raw to redact, so a hit means an allowlisted value is itself private.
+# The scanner's own output (it echoes the matched text) is never printed.
+scan_rc=0
+scan_out="$(bash "$SCAN" "$STAGE" "${files[@]}" 2>/dev/null)" || scan_rc=$?
+verdict="$(printf '%s\n' "$scan_out" | tail -1)"
+unset scan_out
+if [[ ! "$verdict" =~ ^VERDICT\ public-scan\ (OK|HITS)\ files=([0-9]+)\ hits=([0-9]+)$ ]]; then
+    abort "Public scan printed no valid verdict (exit ${scan_rc}); capture removed"
+fi
+[[ "${BASH_REMATCH[2]}" -eq "${#files[@]}" ]] || abort "Public scan covered ${BASH_REMATCH[2]} of ${#files[@]} files; capture removed"
+[[ "$scan_rc" -eq 0 && "${BASH_REMATCH[1]}" == OK ]] || abort "Public scan ${BASH_REMATCH[1]} with exit ${scan_rc}; capture removed"
 
 cp -R "${STAGE}/." "${OUT}/" || abort "Publishing the capture to ${OUT} failed"
 PUBLISHED=true
-log_success "Captured ${#files[@]} files into ${OUT}; ${redacted} line(s) redacted by the public scan. ${verdict}"
+log_success "Captured ${#files[@]} allowlisted files into ${OUT}. ${verdict}"

@@ -3,4 +3,3 @@ url: https://jevnotjev.breakoutwithai.com/
 http_code: 200
 curl_exit: 0
 ---
-<!doctype html>

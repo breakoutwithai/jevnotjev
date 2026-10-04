@@ -1,9 +1,9 @@
 {
-  "minFiles": 53,
+  "minFiles": 54,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 89,
     ".deploy/tests/branch-guard.test.sh": 15,
-    ".deploy/tests/capture-fixtures.test.sh": 33,
+    ".deploy/tests/capture-fixtures.test.sh": 38,
     ".deploy/tests/live-failures.test.sh": 18,
     ".deploy/tests/nginx-vhost.test.sh": 19,
     ".deploy/tests/release.test.sh": 33,
@@ -12,6 +12,7 @@
     "docs/research/2026-09-29-verdict-minimums/sim.test.ts": 6,
     "scripts/backstage-deps.test.ts": 6,
     "scripts/backstage-package.test.ts": 34,
+    "scripts/capture-extract.test.ts": 8,
     "scripts/gate.test.ts": 14,
     "scripts/hand-check.test.ts": 23,
     "scripts/little-shop-seating.test.ts": 14,
@@ -34,7 +35,7 @@
     "src/backstage/catalog.test.ts": 3,
     "src/backstage/confirm.test.ts": 21,
     "src/backstage/copy.test.ts": 2,
-    "src/backstage/page.test.ts": 3,
+    "src/backstage/page.test.ts": 4,
     "src/backstage/providers.test.ts": 22,
     "src/backstage/run.test.ts": 44,
     "src/backstage/server.test.ts": 24,

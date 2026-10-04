@@ -3,4 +3,3 @@ url: https://jevnotjev.breakoutwithai.com/little-shop/
 http_code: 404
 curl_exit: 0
 ---
-<html><head><title>404 Not Found</title></head></html>

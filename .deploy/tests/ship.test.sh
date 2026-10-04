@@ -436,7 +436,7 @@ out="$(ship --status --module backstage 2>&1)"; rc=$?
 bs="$(section backstage)"
 printf '%s\n' "$bs" | grep -Eq "^  served +${C2}$" \
     && printf '%s\n' "$bs" | grep -Eq '^  release +v2026.01.01.1$' \
-    && ok "--status names the release tag on the served SHA and reads the top-level version, not a nested one" \
+    && ok "--status names the release tag on the served SHA (nested versions are dropped at capture: scripts/capture-extract.test.ts)" \
     || nope "--status release tag missing: ${bs}"
 drop_fixture
 

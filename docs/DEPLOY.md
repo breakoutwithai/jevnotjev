@@ -231,13 +231,16 @@ export BACKSTAGE_CURL_CONFIG="$HOME/.config/jevnotjev/backstage-curl"
 ```
 
 It writes `.deploy/tests/fixtures/<UTC date>/live/`, claimed with an atomic `mkdir` (an existing
-directory, even empty, is refused): `nginx -T`, the `sites-enabled` listing, the Backstage snippet,
-every co-tenant's status and curl exit, and this domain's public, gated and authenticated answers.
-Everything is staged in a private temporary directory first. Credential lines (including nginx
-`set $api_key ...;` and credential headers) are redacted at capture; every line the scanner flags is
-redacted, and the capture is copied to its destination only when a second scan exits 0 with an OK
-verdict counting every file. Any failed step or an interruption removes the staging directory and
-the claimed destination.
+directory, even empty, is refused). It is an ALLOWLIST: no raw `nginx -T`, snippet text or response
+body is ever written. `scripts/capture-extract.ts` parses and validates the only facts kept:
+`nginx.json` (server_name values and listen ports per server block, the `user` directive, and the
+Backstage snippet's auth state and sha256), `neighbours.txt` (co-tenant hostnames), and `http/*.txt`
+(status and curl exit per request; the only bodies are the `/DEPLOYED_SHA` value and the health
+route reduced to `version`, `protocol`, `catalogVersion` and `trial.available`). Input that does not
+parse into those shapes fails the capture; error messages never echo it. Everything is staged in a
+private temporary directory and copied to its destination only when the scan exits 0 with an OK
+verdict counting every file (a hit fails the capture: there is nothing raw to redact). Any failed
+step or an interruption removes the staging directory and the claimed destination.
 
 ## Tests
 

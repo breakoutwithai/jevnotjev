@@ -9,8 +9,8 @@ rules are in that script's header. No file here was captured from the host yet.
   writes `.deploy/tests/fixtures/<UTC date>/live/` with its own MANIFEST.md. Until it runs, the files
   below stand in for it, each marked on line 1:
   - `source: transcribed-from-live-log 2026-10-04`: what the host did on 2026-10-04 as recorded in
-    issues #85 and #86 (status and curl exit only); bodies were not recorded and are left empty or
-    shaped like the gated fixture
+    issues #85 and #86 (status and curl exit only); bodies were not recorded; a 200 health body is
+    shaped like the gated fixture's allowlisted fields
   - `source: hand-built from spec`: the answer docs/DEPLOY.md "Seams under test" requires; replace
     with the captured file
 
@@ -26,5 +26,8 @@ rules are in that script's header. No file here was captured from the host yet.
 | no-static-release | `http/jevnotjev.breakoutwithai.com_.txt`, `_label_`, `_little-shop_`, `_DEPLOYED_SHA` | hand-built | 404 before the first static deploy (`.deploy/provision.sh:140`) |
 | backstage-no-release | `http/jevnotjev.breakoutwithai.com_backstage_@auth.txt`, `..._api_backstage_health@auth.txt` | hand-built | 502 with the curl config while no Backstage release exists (`docs/backstage-deploy.md:53`) |
 
-Bodies carrying `{{STATIC_SHA}}` / `{{BACKSTAGE_SHA}}` are filled by the double from the test's served
-state, so one file serves every SHA a test sets up.
+Every file has the capture's allowlisted shape: no page bodies; a 200 health body holds only
+`version`, `protocol`, `catalogVersion` and `trial.available`; a 200 `/DEPLOYED_SHA` holds only the
+SHA (`scripts/capture-extract.test.ts` checks this). Bodies carrying `{{STATIC_SHA}}` /
+`{{BACKSTAGE_SHA}}` are filled by the double from the test's served state, so one file serves every
+SHA a test sets up.

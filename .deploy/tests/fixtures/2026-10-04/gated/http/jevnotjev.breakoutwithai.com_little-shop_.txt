@@ -3,4 +3,3 @@ url: https://jevnotjev.breakoutwithai.com/little-shop/
 http_code: 200
 curl_exit: 0
 ---
-<!doctype html>

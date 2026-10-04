@@ -3,4 +3,4 @@ url: https://jevnotjev.breakoutwithai.com/api/backstage/health (with BACKSTAGE_C
 http_code: 200
 curl_exit: 0
 ---
-{"protocol":"backstage/2","version":"{{BACKSTAGE_SHA}}","catalogVersion":"2026-10-04.1","catalog":{"version":"NESTED"}}
+{"version":"{{BACKSTAGE_SHA}}","protocol":"backstage/2","catalogVersion":"2026-10-04.1","trial":{"available":true}}

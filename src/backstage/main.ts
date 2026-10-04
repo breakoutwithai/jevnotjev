@@ -164,7 +164,9 @@ async function start(firstOnly: boolean, retry = false) {
     else await current.start(supplied, undefined, refresh);
     if (run === current)
       notice(
-        "Calls stopped. Decide whether to retry unfinished calls, then open blind judging in Rehearsals.",
+        current.manifest.mode === "compare"
+          ? "Calls stopped. Decide whether to retry unfinished calls, then open blind judging in Rehearsals."
+          : "Calls stopped. Jev answers appear below. Retry unfinished calls or open judging in Rehearsals to label and export.",
       );
   } catch (error) {
     notice(error instanceof Error ? error.message : "Could not start the run.");
@@ -254,6 +256,9 @@ async function render() {
   button("download-csv").disabled = !current || running || !current.revealed;
   button("download-evidence").disabled =
     !current || running || !current.revealed;
+  button("reveal").textContent = comparison
+    ? "Reveal results and lock labels"
+    : "Finish judging and unlock downloads";
   button("reveal").disabled =
     !current || running || starting || !current.labeling || current.revealed;
   const count = current?.manifest.scene.cases.length ?? cases().length;
@@ -274,7 +279,7 @@ async function render() {
       progress.append(
         node(
           "p",
-          `${current.total - current.completed} provider calls remain unfinished. Failed attempts: ${money(extra.knownUsd)} known spend, ${extra.unknown} with unknown charges. Provider details stay hidden until results are revealed.`,
+          `${current.total - current.completed} provider calls remain unfinished. Failed attempts: ${money(extra.knownUsd)} known spend, ${extra.unknown} with unknown charges. ${comparison ? "Provider details stay hidden until results are revealed." : "Completed Jev answers and returned confidence appear below."}`,
         ),
       );
     }
@@ -307,7 +312,12 @@ async function render() {
       ),
     );
     element("verdict").replaceChildren(
-      node("p", "Results stay hidden until you reveal them in Rehearsals."),
+      node(
+        "p",
+        comparison
+          ? "Results stay hidden until you reveal them in Rehearsals."
+          : "Jev answers are visible in Learning Lines. Finish judging in Rehearsals to unlock the summary and downloads; labels are optional.",
+      ),
     );
     return;
   }
@@ -394,7 +404,9 @@ function renderCard() {
         "p",
         current?.running
           ? "Let the run stop before judging."
-          : "Complete your retry decisions before opening blind judging. After that, this set of answers cannot change.",
+          : current?.manifest.mode === "jev-only"
+            ? "Complete your retry decisions before opening judging. You may leave every answer unlabelled; finishing this step unlocks exports."
+            : "Complete your retry decisions before opening blind judging. After that, this set of answers cannot change.",
       ),
     );
     if (
@@ -405,7 +417,10 @@ function renderCard() {
     ) {
       const begin = document.createElement("button");
       begin.type = "button";
-      begin.textContent = "Open blind judging and lock retries";
+      begin.textContent =
+        current.manifest.mode === "compare"
+          ? "Open blind judging and lock retries"
+          : "Open judging and lock retries";
       begin.onclick = () => {
         if (
           !confirm(
@@ -476,7 +491,9 @@ button("reveal").onclick = () => {
   if (!run || run.running || !run.labeling) return;
   if (
     !confirm(
-      "Reveal the players and lock your labels? You can leave answers unlabelled. Unfinished calls remain missing.",
+      run.manifest.mode === "compare"
+        ? "Reveal the players and lock your labels? You can leave answers unlabelled. Unfinished calls remain missing."
+        : "Finish judging and unlock downloads? Labels and retries will lock. You can leave answers unlabelled. Unfinished calls remain missing.",
     )
   )
     return;

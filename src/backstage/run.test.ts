@@ -540,6 +540,11 @@ test("[integration] JO3 stop and retry retain solo selection and never add unsel
   expect(calls).toEqual(["jev", "jev", "jev"]);
   expect(run.completed).toBe(run.total);
   expect(run.manifest.mode).toBe("jev-only");
+  expect((await run.report()).verdict).toBeNull();
+  expect(run.results().map((answer) => answer.confidence)).toEqual([
+    null,
+    null,
+  ]);
   expect(run.evidence().labels.every((row) => row.provider === "jev")).toBe(
     true,
   );

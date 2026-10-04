@@ -134,3 +134,35 @@ test("[unit] B1 legacy local pages retain scripts while Backstage keeps strict C
     "unsafe-inline",
   );
 });
+
+test("[integration] JO5 configured origin accepts its exact host and rejects other origins before dispatch", async () => {
+  let calls = 0;
+  const handler = createHandler({
+    version: "test",
+    origin: "http://127.0.0.1:3456",
+    providerFetch: async () => {
+      calls++;
+      return new Response("Unauthorized", { status: 401 });
+    },
+  });
+  for (const origin of [
+    "http://localhost:3456",
+    "https://evil.test",
+    "http://127.0.0.1:3457",
+  ]) {
+    const rejected = await handler(request(origin));
+    expect(rejected.status).toBe(403);
+    expect(await rejected.json()).toEqual({
+      error: "Same-origin requests required.",
+    });
+  }
+  expect(calls).toBe(0);
+  const accepted = await handler(request("http://127.0.0.1:3456"));
+  expect(accepted.status).toBe(200);
+  expect(await accepted.json()).toMatchObject({
+    ok: false,
+    code: "http-401",
+    provider: "jev",
+  });
+  expect(calls).toBe(1);
+});

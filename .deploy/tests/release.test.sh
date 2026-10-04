@@ -282,5 +282,34 @@ rm -rf "$lockdir"
     || nope "lock not enforced: $(printf '%s' "$res" | tail -2)"
 
 echo
+echo "[T1] static verify skips the Backstage module's paths"
+source .deploy/config.sh
+curl() {
+    local url="${*: -1}"
+    case "$url" in
+        *"/backstage/"*) printf '%s' "${FAKE_BACKSTAGE_CODE:-401}" ;;
+        *"/broken.html") printf '%s' "${FAKE_BROKEN_CODE:-200}" ;;
+        *) printf '200' ;;
+    esac
+}
+MF="$(printf 'backstage/app.js\nbackstage/backstage.css\nbackstage/index.html\nbroken.html\nindex.html\n')"
+paths="$(manifest_served_paths "$MF")"
+[[ "$paths" == "/"$'\n'"/broken.html"$'\n'"/index.html" ]] \
+    && ok "served paths keep the root and non-backstage files" || nope "served paths: ${paths}"
+[[ "$paths" != *backstage* ]] && ok "served paths exclude every backstage/ file" || nope "backstage path still listed: ${paths}"
+out="$(verify_served_paths "$MF" 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" != *"backstage"* ]] \
+    && ok "backstage/* returning 401 does not fail the static verify" || nope "rc=${rc}: ${out}"
+out="$(FAKE_BROKEN_CODE=401 verify_served_paths "$MF" 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$out" == *"/broken.html -> 401"* ]] \
+    && ok "a non-backstage path returning 401 still fails the static verify" || nope "rc=${rc}: ${out}"
+out="$(verify_served_paths "$(printf 'index.html\nnotbackstage/x.js\n')" 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"/notbackstage/x.js -> 200"* ]] \
+    && ok "only the backstage/ prefix is skipped (notbackstage/ is verified)" || nope "rc=${rc}: ${out}"
+unset -f curl
+grep -q 'exclude)\${SITE_DIR}/\${BACKSTAGE_SITE_PREFIX}' .deploy/ship.sh \
+    && ok "ship.sh static pathspec uses the shared BACKSTAGE_SITE_PREFIX" || nope "ship.sh does not use the shared constant"
+
+echo
 echo "[T1] passed=${pass} failed=${fail}"
 [[ $fail -eq 0 ]]

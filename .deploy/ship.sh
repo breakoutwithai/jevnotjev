@@ -155,7 +155,7 @@ backstage_build_deps() {
 }
 module_paths() {
     case "$1" in
-        static) printf '%s\n' site/ ':(exclude)site/backstage/' "${SHARED_PATHS[@]}" ;;
+        static) printf '%s\n' site/ ":(exclude)${SITE_DIR}/${BACKSTAGE_SITE_PREFIX}" "${SHARED_PATHS[@]}" ;;
         backstage) printf '%s\n' "${BACKSTAGE_FIXED_PATHS[@]}" "$BACKSTAGE_DEPS" "${SHARED_PATHS[@]}" ;;
     esac
 }

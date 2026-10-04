@@ -253,17 +253,8 @@ fi
 log_success "Serving ${SHORT_SHA} (SHA matches)"
 
 # 2. Every shipped path, derived from the manifest, plus the root.
-pages_ok=true
-for path in / $(printf '%s\n' "$MANIFEST" | sed 's|^|/|'); do
-    code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null || true)"; code="${code:-000}"
-    if [[ "$code" == "200" ]]; then
-        log_success "${path} -> 200"
-    else
-        log_error "${path} -> ${code}"
-        pages_ok=false
-    fi
-done
-$pages_ok || fail "Marker matches but a shipped path is not served. Rolling back."
+#    site/backstage/ is the Backstage module's (Basic Auth, own service): not verified here.
+verify_served_paths "$MANIFEST" || fail "Marker matches but a shipped path is not served. Rolling back."
 
 # 3. Every co-tenant answers exactly as it did before.
 log_info "Confirming co-tenants are unchanged..."

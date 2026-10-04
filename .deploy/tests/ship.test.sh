@@ -211,7 +211,13 @@ cat > "${FAKEBIN}/curl" <<'EOF'
 printf 'curl %s\n' "$*" >> "${FAKE_SSH_LOG}.curl"
 case "$*" in
     *DEPLOYED_SHA*) echo SERVED_FROM_CURL ;;
-    *api/backstage/health*) echo "curl: (22) The requested URL returned error: 404" >&2; exit 22 ;;
+    *api/backstage/health*)
+        if [ -n "${FAKE_HEALTH_UP:-}" ]; then
+            # Shape of the real health body: a nested catalog version after the release version.
+            echo '{"version":"TOP_LEVEL_SHA","protocol":"backstage/2","catalog":{"version":"2026-10-04.1"}}'
+        else
+            echo "curl: (22) The requested URL returned error: 404" >&2; exit 22
+        fi ;;
     *) printf 200 ;;
 esac
 EOF
@@ -250,6 +256,11 @@ printf '%s\n' "$st" | grep -Eq '^  served +SERVED_FROM_CURL$' \
 printf '%s\n' "$bs" | grep -Eq '^  served +none$' && printf '%s\n' "$bs" | grep -Eq '^  setup +no$' \
     && ok "--status backstage: an unserved backstage reports served none and setup no" \
     || nope "--status backstage section wrong: ${bs}"
+out="$(FAKE_HEALTH_UP=1 PATH="${FAKEBIN}:${PATH}" bash "$SHIP" --status --module backstage 2>&1)"
+bs="$(section backstage)"
+printf '%s\n' "$bs" | grep -Eq '^  served +TOP_LEVEL_SHA$' \
+    && ok "--status backstage reads the top-level release version, not a nested catalog version" \
+    || nope "--status backstage served wrong with a live health body: ${bs}"
 
 echo
 echo "[T1] --setup --dry-run through the real scripts is read-only"

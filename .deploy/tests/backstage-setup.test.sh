@@ -97,7 +97,7 @@ case "$1" in
     is-enabled) if [ -f "$s/enabled_runtime" ]; then echo enabled-runtime
                 elif [ -f "$s/enabled" ]; then echo enabled; else echo disabled; exit 1; fi ;;
     is-active)  [ -f "$s/active" ] ;;
-    enable)     touch "$s/enabled" ;;
+    enable)     rm -f "$s/enabled_runtime"; touch "$s/enabled" ;;
     daemon-reload) touch "$s/daemon-reloaded" ;;
     reload)     [ "$2" = nginx ] && echo reload >> "$s/reloads" ;;
     *) exit 1 ;;
@@ -357,9 +357,41 @@ drop_box
 make_box yes
 touch "${BOX}/state/enabled_runtime"
 out="$( (setup_main) 2>&1)"; rc=$?
-grep -q "systemctl enable 'jevnotjev-backstage'" "$RLOG" \
-    && ok "runtime-only enablement (enabled-runtime) is converted to persistent enable" \
-    || nope "enabled-runtime accepted as enabled: ${out}"
+[[ $rc -eq 0 && ! -e "${BOX}/state/enabled_runtime" ]] && grep -q "systemctl enable 'jevnotjev-backstage'" "$RLOG" \
+    && ok "runtime-only enablement (enabled-runtime) is converted to persistent enable, exit 0" \
+    || nope "enabled-runtime: rc=${rc}: ${out}"
+drop_box
+
+echo
+echo "[T1] include placement and server_name parsing"
+make_box yes
+# Move the include from the HTTPS block into the HTTP redirect block.
+awk -v inc="    $INCLUDE_LINE" '$0 == inc {next} {print} /listen 80;/ {print inc}' "$VH" > "${VH}.x" && mv "${VH}.x" "$VH"
+out="$( (setup_main) 2>&1)"; rc=$?
+mut="$(mutating_commands)"
+[[ $rc -ne 0 && -z "$mut" && "$out" != *"already complete"* ]] \
+    && ok "an include sitting in the HTTP block is not accepted as complete (refuse, zero changes)" \
+    || nope "misplaced include: rc=${rc}, mutating: ${mut:-none}; out: ${out}"
+drop_box
+printf 'server {\n    listen 443 ssl;\n    server_name other.example.com; set $t jevnotjev.breakoutwithai.com;\n}\n' \
+    | insert_include "$INCLUDE_LINE" jevnotjev.breakoutwithai.com >/dev/null 2>&1 \
+    && nope "a name after server_name's semicolon was taken as served" \
+    || ok "only server_name's own arguments count (text after its ';' is ignored)"
+
+echo
+echo "[T1] interrupted during the reload"
+make_box no
+remote() {
+    if [[ "$*" == "systemctl reload nginx" && ! -e "${BOX}/state/reload_interrupted" ]]; then
+        touch "${BOX}/state/reload_interrupted"; fake_remote "$@"; exit 143
+    fi
+    fake_remote "$@"
+}
+out="$( (setup_main) 2>&1)"; rc=$?
+remote() { fake_remote "$@"; }
+[[ $rc -ne 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+    && ok "an interruption during the reload restores the vhost AND reloads it again" \
+    || nope "reload interrupt: rc=${rc}, reloads $(reloads); out: ${out}"
 drop_box
 make_box no
 sed -i.bak 's|listen 443 ssl; # managed by Certbot|listen 443 ssl; # include /etc/nginx/snippets/jevnotjev-backstage.conf;|' "$VH"; rm -f "${VH}.bak"

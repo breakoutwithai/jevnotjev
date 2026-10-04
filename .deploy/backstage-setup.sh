@@ -54,7 +54,7 @@ insert_include() {
         depth == 0 && c ~ /^[[:space:]]*server[[:space:]]*(\{|$)/ { blk++ }
         depth == 1 && c ~ /^[[:space:]]*listen[[:space:]]+([^;]*:)?443([^0-9]|$)/ && !(blk in at) { at[blk] = NR; n++ }
         depth == 1 && c ~ /^[[:space:]]*server_name[[:space:]]/ {
-            s = c; gsub(/;/, " ", s); k = split(s, f, /[[:space:]]+/)
+            s = c; sub(/;.*$/, "", s); k = split(s, f, /[[:space:]]+/)
             for (j = 1; j <= k; j++) if (f[j] == dom) named[blk] = 1
         }
         { o = gsub(/\{/, "{", c); x = gsub(/\}/, "}", c); depth += o - x; if (depth < 0) bad = 1 }
@@ -65,6 +65,23 @@ insert_include() {
             ind = line[target]; sub(/[^[:space:]].*$/, "", ind)
             for (i = 1; i <= NR; i++) { print line[i]; if (i == target) print ind inc }
         }'
+}
+
+# include_placed - pure. vhost on stdin. True only when the include directive ($1) appears
+# exactly once, uncommented, at server level of the single 443 block whose server_name has $2.
+include_placed() {
+    awk -v inc="$1" -v dom="$2" '
+        { c = $0; sub(/#.*/, "", c) }
+        depth == 0 && c ~ /^[[:space:]]*server[[:space:]]*(\{|$)/ { blk++ }
+        depth == 1 && c ~ /^[[:space:]]*listen[[:space:]]+([^;]*:)?443([^0-9]|$)/ { https[blk] = 1 }
+        depth == 1 && c ~ /^[[:space:]]*server_name[[:space:]]/ {
+            s = c; sub(/;.*$/, "", s); k = split(s, f, /[[:space:]]+/)
+            for (j = 1; j <= k; j++) if (f[j] == dom) named[blk] = 1
+        }
+        { t = c; gsub(/^[[:space:]]+|[[:space:]]+$/, "", t) }
+        t == inc { total++; if (depth == 1) { at = blk; good++ } }
+        { o = gsub(/\{/, "{", c); x = gsub(/\}/, "}", c); depth += o - x }
+        END { exit !(total == 1 && good == 1 && (at in https) && (at in named)) }'
 }
 
 # setup_probe - ONE read-only remote command; prints key=value lines.
@@ -148,9 +165,14 @@ print_plan() {
 # when this run already reloaded, and only after the restored config passes nginx -t.
 restore_nginx() {
     local backup="$1" snippet_new="$2" reloaded="$3"
-    BS_PENDING_BACKUP=""
     log_warn "Restoring ${VHOST_AVAILABLE} from ${backup}"
-    remote "cp -p '${backup}' '${VHOST_AVAILABLE}'" || log_error "RESTORE FAILED: copy ${backup} over ${VHOST_AVAILABLE} by hand."
+    if ! remote "cp -p '${backup}' '${VHOST_AVAILABLE}'"; then
+        # Keep the snippet the live vhost may still include; nginx stays as last validated.
+        log_error "RESTORE FAILED: copy ${backup} over ${VHOST_AVAILABLE} by hand, then nginx -t and reload."
+        BS_PENDING_BACKUP=""
+        return 1
+    fi
+    BS_PENDING_BACKUP=""
     if $snippet_new; then
         remote "rm -f '${BS_SNIPPET}'" || log_error "Could not remove ${BS_SNIPPET}."
     fi
@@ -198,9 +220,10 @@ apply_nginx() {
         restore_nginx "$backup" "$PLAN_SNIPPET" false
         return 1
     fi
+    # Set BEFORE the reload: an interruption mid-reload must still trigger a restoring reload.
+    BS_RELOADED=true
     remote "systemctl reload nginx" \
         || { log_error "nginx -t passed but the reload failed."; restore_nginx "$backup" "$PLAN_SNIPPET" true; return 1; }
-    BS_RELOADED=true
     log_success "nginx validated and reloaded"
 
     after="$(backstage_probe_neighbours "$SERVER_HOST" "${neighbours[@]}")" || after=""
@@ -244,6 +267,10 @@ setup_main() {
 
     probe="$(setup_probe)" || { log_error "Read-only probe failed; nothing changed."; return 1; }
     setup_plan "$probe" || { log_error "Refusing setup; nothing changed."; return 1; }
+    if ! $PLAN_INCLUDE; then
+        remote "cat '${VHOST_AVAILABLE}'" | include_placed "$BS_INCLUDE" "$DOMAIN" \
+            || { log_error "The Backstage include is in ${VHOST_AVAILABLE} but not exactly once inside the HTTPS server block for ${DOMAIN}. Inspect by hand; nothing changed."; return 1; }
+    fi
     if plan_is_empty; then
         log_success "Backstage setup already complete (user, unit enabled, snippet, include). No changes."
         return 0
@@ -293,7 +320,8 @@ setup_main() {
     fi
 
     probe="$(setup_probe)" || { log_error "Final probe failed; inspect the host."; return 1; }
-    { setup_plan "$probe" && plan_is_empty; } \
+    { setup_plan "$probe" && plan_is_empty \
+        && remote "cat '${VHOST_AVAILABLE}'" | include_placed "$BS_INCLUDE" "$DOMAIN"; } \
         || { log_error "Setup ran but the host is not fully configured; inspect it."; return 1; }
     log_success "Backstage setup complete. Next: ./.deploy/ship.sh --module backstage --dry-run"
     return 0

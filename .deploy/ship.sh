@@ -106,7 +106,7 @@ if [ -n \"\$L\" ] && [ -f \"\$L/.verified\" ]; then echo verified=yes; else echo
 echo \"service=\$(systemctl is-active jevnotjev-backstage 2>/dev/null || true), \$(systemctl is-enabled jevnotjev-backstage 2>/dev/null || true)\"
 if [ -f \"\$U\" ] && [ -f \"\$S\" ] && sed 's/#.*//' \"\$V\" 2>/dev/null | grep -qF \"include \$S;\"; then echo setup=yes; else echo setup=no; fi")" || return 1
     served="$(backstage_curl -sS --fail --max-time 15 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" 2>/dev/null \
-        | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' | head -1 || true)"
+        | bun -e 'const r=await Bun.stdin.json();if(typeof r?.version==="string")console.log(r.version)' 2>/dev/null || true)"
     print_status backstage "${served:-none}" "$probe"
 }
 

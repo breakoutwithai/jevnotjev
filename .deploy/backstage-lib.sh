@@ -87,5 +87,36 @@ backstage_list_neighbours() {
 
 backstage_check_curl_config() {
     [[ -n "${BACKSTAGE_CURL_CONFIG:-}" ]] || return 0
-    bun -e 'import {statSync} from "node:fs";const s=statSync(process.argv[1]);if(!s.isFile()||s.uid!==process.getuid()||(s.mode&0o077)!==0)process.exit(1)' "$BACKSTAGE_CURL_CONFIG"
+    bun -e 'import {statSync} from "node:fs";const s=statSync(process.argv[1]);if(!s.isFile()||s.uid!==process.getuid()||(s.mode&0o077)!==0)process.exit(1)' "$BACKSTAGE_CURL_CONFIG" 2>/dev/null
+}
+
+# backstage_auth_state - prints yes when the INSTALLED snippet gates Backstage with Basic Auth,
+# no when it does not. Fails closed: an unreadable snippet or a failed probe returns 1.
+backstage_auth_state() {
+    local out
+    out="$(remote "S='/etc/nginx/snippets/jevnotjev-backstage.conf'
+if [ ! -r \"\$S\" ]; then echo auth=unknown; elif grep -Eq '^[[:space:]]*auth_basic_user_file[[:space:]]' \"\$S\"; then echo auth=yes; else echo auth=no; fi")" || return 1
+    case "$(printf '%s\n' "$out" | sed -n 's/^auth=//p' | head -1)" in
+        yes) echo yes ;;
+        no) echo no ;;
+        *) return 1 ;;
+    esac
+}
+
+# backstage_require_curl_config - $1 is the auth state (yes|no). With auth on the host every
+# Backstage probe needs the private curl config; say so by name instead of failing on a bare 401.
+backstage_require_curl_config() {
+    case "$1" in
+        no) ;;
+        yes)
+            if [[ -z "${BACKSTAGE_CURL_CONFIG:-}" ]]; then
+                echo "Backstage is behind Basic Auth on the host: export BACKSTAGE_CURL_CONFIG=<absolute path to your private curl config> (see docs/backstage-deploy.md)." >&2
+                return 1
+            fi ;;
+        *) echo "Backstage auth state '${1}' is unknown; refusing." >&2; return 1 ;;
+    esac
+    backstage_check_curl_config || {
+        echo "BACKSTAGE_CURL_CONFIG must name a regular file owned by you with mode 0600: ${BACKSTAGE_CURL_CONFIG}" >&2
+        return 1
+    }
 }

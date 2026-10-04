@@ -104,7 +104,13 @@ L=\$(readlink \"\$C\" 2>/dev/null || true)
 echo \"release=\${L:-none}\"
 if [ -n \"\$L\" ] && [ -f \"\$L/.verified\" ]; then echo verified=yes; else echo verified=no; fi
 echo \"service=\$(systemctl is-active jevnotjev-backstage 2>/dev/null || true), \$(systemctl is-enabled jevnotjev-backstage 2>/dev/null || true)\"
-if [ -f \"\$U\" ] && [ -f \"\$S\" ] && sed 's/#.*//' \"\$V\" 2>/dev/null | grep -qF \"include \$S;\"; then echo setup=yes; else echo setup=no; fi")" || return 1
+if [ -f \"\$U\" ] && [ -f \"\$S\" ] && sed 's/#.*//' \"\$V\" 2>/dev/null | grep -qF \"include \$S;\"; then echo setup=yes; else echo setup=no; fi
+if [ ! -e \"\$S\" ]; then echo auth=no; elif [ ! -r \"\$S\" ]; then echo auth=unknown; elif grep -Eq '^[[:space:]]*auth_basic_user_file[[:space:]]' \"\$S\"; then echo auth=yes; else echo auth=no; fi")" || return 1
+    auth="$(printf '%s\n' "$probe" | sed -n 's/^auth=//p' | head -1)"
+    if ! backstage_require_curl_config "$auth"; then
+        print_status backstage unknown "$probe"
+        return 1
+    fi
     served="$(backstage_curl -sS --fail --max-time 15 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" 2>/dev/null \
         | bun -e 'const r=await Bun.stdin.json();if(typeof r?.version==="string")console.log(r.version)' 2>/dev/null || true)"
     print_status backstage "${served:-none}" "$probe"
@@ -114,7 +120,7 @@ print_status() {
     local name="$1" served="$2" probe="$3" key value
     echo "${name}"
     printf '  %-9s %s\n' served "$served"
-    for key in release marker verified service setup; do
+    for key in release marker verified service setup auth; do
         value="$(printf '%s\n' "$probe" | sed -n "s/^${key}=//p" | head -1)"
         [[ -z "$value" ]] || printf '  %-9s %s\n' "$key" "$value"
     done

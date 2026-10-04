@@ -7,19 +7,27 @@
 #      the vhost is installed and enabled as a link, and what is already configured
 #   2. service user jevnotjev-backstage (system, no login) if absent; unit installed if absent,
 #      daemon-reload, enable. Never started here: no release exists yet.
-#   3. snippet installed if absent; the include inserted ONLY if absent, inside the domain's
-#      HTTPS server block, after a timestamped backup of the installed vhost. The vhost is never
-#      replaced by the repo template (certbot owns its TLS lines, see provision.sh).
+#   3. snippet installed if absent, or UPDATED (after its own backup) when it differs from the
+#      repo copy; the include inserted ONLY if absent, inside the domain's HTTPS server block,
+#      after a timestamped backup of the installed vhost. The vhost is never replaced by the repo
+#      template (certbot owns its TLS lines, see provision.sh).
 #   4. nginx -t before the reload, `systemctl reload nginx` never restart, co-tenants probed
 #      before and after. nginx -t failure: restore, no reload. Changed co-tenant: restore,
 #      nginx -t, reload again.
+#   5. Basic Auth gate verified after the reload: unauthenticated GET of /backstage/ and
+#      /api/backstage/health must answer 401 (auth precedes the proxy, so 401 even with no
+#      release), and the same GETs with BACKSTAGE_CURL_CONFIG must not. Otherwise: restore.
 #
-# Installs only what is absent. An installed unit or snippet that differs from the repo is
-# reported and left alone. The funded-trial secret file is outside this script's scope.
+# The snippet gates both Backstage locations with /etc/jevnotjev-backstage/htpasswd. Setup never
+# creates credentials: it refuses, before any change, unless that file exists, is non-empty,
+# root:<nginx worker group> mode 0640, in a root-owned directory of mode 0750 or tighter, and
+# prints the command the operator runs to create it (the password is typed at a prompt).
+# An installed unit that differs from the repo is reported and left alone. The funded-trial
+# secret file is outside this script's scope.
 #
 # Usage:
 #   ./.deploy/backstage-setup.sh --dry-run   read-only probes, print planned commands + vhost diff
-#   ./.deploy/backstage-setup.sh             apply what is absent
+#   ./.deploy/backstage-setup.sh             apply what is absent or outdated (needs BACKSTAGE_CURL_CONFIG)
 # Bash 3.2 compatible. Sourcing this file defines functions only; the tests drive them.
 
 SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -42,6 +50,11 @@ readonly BS_PORT="3456"
 readonly BS_BACKUP_DIR="/var/backups/jevnotjev-backstage"
 # Same lock backstage-deploy.sh takes, so a setup and a deploy never overlap.
 readonly BS_LOCK="/var/lock/jevnotjev-backstage-deploy"
+# Basic Auth credentials: created by the operator on the host, never by this script.
+readonly BS_HTPASSWD_DIR="/etc/jevnotjev-backstage"
+readonly BS_HTPASSWD="${BS_HTPASSWD_DIR}/htpasswd"
+readonly BS_HTPASSWD_TOOL="/usr/bin/htpasswd"
+readonly BS_NGINX_CONF="/etc/nginx/nginx.conf"
 
 # insert_include - pure. vhost text on stdin, include line as $1. Prints the vhost with the
 # include added once, at server level, right after the first `listen ...443` line of the ONLY
@@ -97,7 +110,67 @@ if [ -f \"\$V\" ]; then echo vhost=present; else echo vhost=absent; fi
 if [ -L \"\$E\" ] && [ \"\$(readlink \"\$E\")\" = \"\$V\" ]; then echo vhost_link=yes; else echo vhost_link=no; fi
 if sed 's/#.*//' \"\$V\" 2>/dev/null | grep -qF \"\$I\"; then echo include=present; else echo include=absent; fi
 if [ \"\$(systemctl is-enabled \"\$N\" 2>/dev/null)\" = enabled ]; then echo enabled=yes; else echo enabled=no; fi
-if systemctl is-active --quiet \"\$N\" 2>/dev/null; then echo active=yes; else echo active=no; fi"
+if systemctl is-active --quiet \"\$N\" 2>/dev/null; then echo active=yes; else echo active=no; fi
+H='${BS_HTPASSWD}' D='${BS_HTPASSWD_DIR}' T='${BS_HTPASSWD_TOOL}' C='${BS_NGINX_CONF}'
+if [ -x \"\$T\" ]; then echo ht_tool=htpasswd; else echo ht_tool=openssl; fi
+g=\$(awk '\$1 == \"user\" { sub(/;.*/, \"\"); print (\$3 != \"\" ? \$3 : \$2); exit }' \"\$C\" 2>/dev/null)
+echo \"nginx_group=\${g:-www-data}\"
+if [ -L \"\$H\" ]; then echo htpasswd=symlink; elif [ ! -e \"\$H\" ]; then echo htpasswd=absent; elif [ ! -f \"\$H\" ]; then echo htpasswd=notfile
+elif m=\$(stat -c '%U %G %a %s' \"\$H\" 2>/dev/null); then echo \"htpasswd=\$(printf '%s' \"\$m\" | tr ' ' ':')\"; else echo htpasswd=unknown; fi
+if [ -L \"\$D\" ]; then echo htpasswd_dir=symlink; elif [ ! -d \"\$D\" ]; then echo htpasswd_dir=absent
+elif m=\$(stat -c '%U %G %a %s' \"\$D\" 2>/dev/null); then echo \"htpasswd_dir=\$(printf '%s' \"\$m\" | tr ' ' ':')\"; else echo htpasswd_dir=unknown; fi"
+}
+
+# htpasswd_command - the exact command the operator runs ON THE HOST, as root, to create the
+# credentials file. The password is typed at the tool's prompt: never an argument, env or log.
+# $1 = htpasswd|openssl (what the host has), $2 = nginx worker group.
+htpasswd_command() {
+    local make
+    if [[ "$1" == htpasswd ]]; then
+        make="htpasswd -B -c ${BS_HTPASSWD} tester"
+    else
+        make="h=\$(openssl passwd -apr1) && (umask 027; printf 'tester:%s\\n' \"\$h\" > ${BS_HTPASSWD})"
+    fi
+    printf '    install -d -o root -g %s -m 0750 %s && %s && chown root:%s %s && chmod 0640 %s\n' \
+        "$2" "$BS_HTPASSWD_DIR" "$make" "$2" "$BS_HTPASSWD" "$BS_HTPASSWD"
+}
+
+# htpasswd_ready - from the probe: the credentials file nginx will read is in place and private.
+# Logs the reason and the operator command, and returns 1, otherwise.
+htpasswd_ready() {
+    local probe="$1" group tool ht dir owner g mode size problem=""
+    group="$(probe_get "$probe" nginx_group)"
+    [[ "$group" =~ ^[a-z_][a-z0-9_-]*$ ]] || { log_error "Could not read the nginx worker group from ${BS_NGINX_CONF} ('${group}')."; return 1; }
+    tool="$(probe_get "$probe" ht_tool)"
+    ht="$(probe_get "$probe" htpasswd)"
+    dir="$(probe_get "$probe" htpasswd_dir)"
+    case "$ht" in
+        absent|"") problem="${BS_HTPASSWD} is absent." ;;
+        symlink|notfile|unknown) problem="${BS_HTPASSWD} is not a readable regular file (${ht})." ;;
+        *)
+            IFS=: read -r owner g mode size <<< "$ht"
+            if [[ ! "$size" =~ ^[0-9]+$ || "$size" -eq 0 ]]; then problem="${BS_HTPASSWD} is empty."
+            elif [[ "$owner" != root ]]; then problem="${BS_HTPASSWD} is owned by '${owner}'; required owner root."
+            elif [[ "$g" != "$group" ]]; then problem="${BS_HTPASSWD} has group '${g}'; nginx workers run as group '${group}' (${BS_NGINX_CONF}), required root:${group}."
+            elif [[ "$mode" != 640 ]]; then problem="${BS_HTPASSWD} is mode 0${mode}; required 0640."
+            fi ;;
+    esac
+    if [[ -z "$problem" ]]; then
+        case "$dir" in
+            ""|absent|symlink|unknown) problem="${BS_HTPASSWD_DIR} is not a directory (${dir:-unknown})." ;;
+            *)
+                IFS=: read -r owner g mode size <<< "$dir"
+                if [[ "$owner" != root ]]; then problem="${BS_HTPASSWD_DIR} is owned by '${owner}'; required owner root."
+                elif [[ ! "$mode" =~ ^[0-7]{3,4}$ ]] || (( 8#$mode & ~8#750 )); then problem="${BS_HTPASSWD_DIR} is mode 0${mode}; required 0750 or tighter."
+                elif [[ "$g" != "$group" ]] || ! (( 8#$mode & 8#010 )); then problem="${BS_HTPASSWD_DIR} (root:${g} 0${mode}) is not traversable by nginx group '${group}'; required root:${group} 0750 or 0710."
+                fi ;;
+        esac
+    fi
+    [[ -z "$problem" ]] && return 0
+    log_error "Basic Auth credentials not ready: ${problem}"
+    log_error "No nginx change was made. Create or fix the file on ${SERVER} as root (ssh -t), typing the password at the prompt; replace 'tester' with the login name:"
+    htpasswd_command "${tool:-openssl}" "$group" >&2
+    return 1
 }
 
 probe_get() { printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -1; }
@@ -121,8 +194,10 @@ setup_plan() {
     if [[ "$v" == used && "$(probe_get "$probe" active)" != yes ]]; then
         log_error "Port ${BS_PORT} is in use and ${BS_SERVICE} is not running: another process holds it."; return 1
     fi
+    # The snippet gates both locations with this file: without it nginx would answer 500.
+    htpasswd_ready "$probe" || return 1
 
-    PLAN_USER=false; PLAN_UNIT=false; PLAN_ENABLE=false; PLAN_SNIPPET=false; PLAN_INCLUDE=false
+    PLAN_USER=false; PLAN_UNIT=false; PLAN_ENABLE=false; PLAN_SNIPPET=false; PLAN_SNIPPET_UPDATE=false; PLAN_INCLUDE=false
     [[ "$(probe_get "$probe" user)" == present ]] || PLAN_USER=true
     v="$(probe_get "$probe" unit)"
     if [[ "$v" == absent ]]; then
@@ -135,7 +210,9 @@ setup_plan() {
     if [[ "$v" == absent ]]; then
         PLAN_SNIPPET=true
     elif [[ "$v" != "$(local_sha "$BS_SNIPPET_SRC")" ]]; then
-        log_error "Installed ${BS_SNIPPET} differs from .deploy/backstage-nginx.conf. Not overwriting; review the difference by hand."; return 1
+        # Same guarded path as the include: backup, nginx -t, reload, co-tenants, auth check.
+        log_info "Installed ${BS_SNIPPET} differs from .deploy/backstage-nginx.conf; it will be updated."
+        PLAN_SNIPPET=true; PLAN_SNIPPET_UPDATE=true
     fi
     [[ "$(probe_get "$probe" include)" == present ]] || PLAN_INCLUDE=true
     return 0
@@ -152,19 +229,22 @@ print_plan() {
     if $PLAN_SNIPPET || $PLAN_INCLUDE; then
         echo "$p probe every co-tenant in /etc/nginx/sites-enabled (baseline)"
         echo "$p cp -p ${VHOST_AVAILABLE} ${BS_BACKUP_DIR}/${DOMAIN}.<UTC>"
+        $PLAN_SNIPPET_UPDATE && echo "$p cp -p ${BS_SNIPPET} ${BS_BACKUP_DIR}/jevnotjev-backstage.conf.<UTC>   (installed snippet differs: update)"
         $PLAN_SNIPPET && echo "$p cat > ${BS_SNIPPET}.tmp < .deploy/backstage-nginx.conf, mv into place"
         $PLAN_INCLUDE && echo "$p insert '${BS_INCLUDE}' into the HTTPS server block of ${VHOST_AVAILABLE}"
         echo "$p nginx -t   (failure: restore the backup, no reload)"
         echo "$p systemctl reload nginx   (never restart)"
         echo "$p re-probe co-tenants   (changed: restore the backup, nginx -t, systemctl reload nginx)"
+        echo "$p GET /backstage/ and /api/backstage/health: 401 without credentials, not 401 with BACKSTAGE_CURL_CONFIG   (else: restore)"
     fi
     return 0
 }
 
-# restore_nginx - put the saved vhost back and remove a snippet this run created. Reloads only
+# restore_nginx - put the saved vhost back and undo this run's snippet change ($2: none, remove
+# for a snippet this run created, or the path of the saved previous snippet). Reloads only
 # when this run already reloaded, and only after the restored config passes nginx -t.
 restore_nginx() {
-    local backup="$1" snippet_new="$2" reloaded="$3"
+    local backup="$1" snippet_undo="$2" reloaded="$3"
     log_warn "Restoring ${VHOST_AVAILABLE} from ${backup}"
     if ! remote "cp -p '${backup}' '${VHOST_AVAILABLE}'"; then
         # Keep the snippet the live vhost may still include; nginx stays as last validated.
@@ -173,9 +253,12 @@ restore_nginx() {
         return 1
     fi
     BS_PENDING_BACKUP=""
-    if $snippet_new; then
-        remote "rm -f '${BS_SNIPPET}'" || log_error "Could not remove ${BS_SNIPPET}."
-    fi
+    case "$snippet_undo" in
+        none) ;;
+        remove) remote "rm -f '${BS_SNIPPET}'" || log_error "Could not remove ${BS_SNIPPET}." ;;
+        *) remote "cp -p '${snippet_undo}' '${BS_SNIPPET}'" \
+               || log_error "Could not restore ${BS_SNIPPET}: copy ${snippet_undo} over it by hand." ;;
+    esac
     if remote "nginx -t" 2>&1; then
         if $reloaded; then
             remote "systemctl reload nginx" || log_error "Reload after restore FAILED. Inspect nginx now."
@@ -202,28 +285,37 @@ apply_nginx() {
     remote "mkdir -p '${BS_BACKUP_DIR}' && chmod 0700 '${BS_BACKUP_DIR}' && cp -p '${VHOST_AVAILABLE}' '${backup}'" \
         || { log_error "Could not back up ${VHOST_AVAILABLE}; nginx unchanged."; return 1; }
     log_success "Backup: ${backup}"
-    BS_PENDING_BACKUP="$backup"; BS_RELOADED=false
+    BS_PENDING_BACKUP="$backup"; BS_RELOADED=false; BS_SNIPPET_UNDO=none
 
+    if $PLAN_SNIPPET_UPDATE; then
+        local sbackup="${BS_BACKUP_DIR}/jevnotjev-backstage.conf.${stamp}"
+        remote "cp -p '${BS_SNIPPET}' '${sbackup}'" \
+            || { log_error "Could not back up ${BS_SNIPPET}; nginx unchanged."; restore_nginx "$backup" none false; return 1; }
+        log_success "Snippet backup: ${sbackup}"
+        BS_SNIPPET_UNDO="$sbackup"
+    elif $PLAN_SNIPPET; then
+        BS_SNIPPET_UNDO=remove
+    fi
     if $PLAN_SNIPPET; then
         remote "mkdir -p '$(dirname "$BS_SNIPPET")' && cat > '${BS_SNIPPET}.tmp' && chmod 0644 '${BS_SNIPPET}.tmp' && mv '${BS_SNIPPET}.tmp' '${BS_SNIPPET}'" < "$BS_SNIPPET_SRC" \
-            || { log_error "Could not install ${BS_SNIPPET}."; restore_nginx "$backup" true false; return 1; }
+            || { log_error "Could not install ${BS_SNIPPET}."; restore_nginx "$backup" "$BS_SNIPPET_UNDO" false; return 1; }
     fi
     if $PLAN_INCLUDE; then
         newvhost="$(remote "cat '${VHOST_AVAILABLE}'" | insert_include "$BS_INCLUDE" "$DOMAIN")" \
-            || { log_error "No unique HTTPS server block in ${VHOST_AVAILABLE}; add the include by hand."; restore_nginx "$backup" "$PLAN_SNIPPET" false; return 1; }
+            || { log_error "No unique HTTPS server block in ${VHOST_AVAILABLE}; add the include by hand."; restore_nginx "$backup" "$BS_SNIPPET_UNDO" false; return 1; }
         printf '%s\n' "$newvhost" | remote "cat > '${VHOST_AVAILABLE}.backstage-new' && chmod 0644 '${VHOST_AVAILABLE}.backstage-new' && mv '${VHOST_AVAILABLE}.backstage-new' '${VHOST_AVAILABLE}'" \
-            || { log_error "Could not write ${VHOST_AVAILABLE}."; restore_nginx "$backup" "$PLAN_SNIPPET" false; return 1; }
+            || { log_error "Could not write ${VHOST_AVAILABLE}."; restore_nginx "$backup" "$BS_SNIPPET_UNDO" false; return 1; }
     fi
 
     if ! remote "nginx -t" 2>&1; then
         log_error "nginx -t failed with the Backstage include. Restoring; nginx was NOT reloaded."
-        restore_nginx "$backup" "$PLAN_SNIPPET" false
+        restore_nginx "$backup" "$BS_SNIPPET_UNDO" false
         return 1
     fi
     # Set BEFORE the reload: an interruption mid-reload must still trigger a restoring reload.
     BS_RELOADED=true
     remote "systemctl reload nginx" \
-        || { log_error "nginx -t passed but the reload failed."; restore_nginx "$backup" "$PLAN_SNIPPET" true; return 1; }
+        || { log_error "nginx -t passed but the reload failed."; restore_nginx "$backup" "$BS_SNIPPET_UNDO" true; return 1; }
     log_success "nginx validated and reloaded"
 
     after="$(backstage_probe_neighbours "$SERVER_HOST" "${neighbours[@]}")" || after=""
@@ -231,23 +323,51 @@ apply_nginx() {
     if ! changed="$(neighbour_status_changes "$before" "$after")"; then
         printf '%s\n' "$changed" | sed 's/^/    CHANGED: /' >&2
         log_error "A co-tenant's status changed after the reload. Restoring the vhost."
-        restore_nginx "$backup" "$PLAN_SNIPPET" true
+        restore_nginx "$backup" "$BS_SNIPPET_UNDO" true
+        return 1
+    fi
+    log_success "All ${#neighbours[@]} co-tenant(s) unchanged"
+    if ! verify_auth_gate; then
+        log_error "The Basic Auth gate did not verify. Restoring the vhost and snippet."
+        restore_nginx "$backup" "$BS_SNIPPET_UNDO" true
         return 1
     fi
     BS_PENDING_BACKUP=""
-    log_success "All ${#neighbours[@]} co-tenant(s) unchanged"
     return 0
 }
 
+# verify_auth_gate - step 5. Probes pinned to the host just changed. Without credentials both
+# Backstage routes must answer 401 (auth runs before the proxy, so even with no release); with
+# BACKSTAGE_CURL_CONFIG they must not. The credentials stay in that file (backstage_curl).
+verify_auth_gate() {
+    local path code good=true
+    for path in /backstage/ /api/backstage/health; do
+        code="$(curl -q -sS -o /dev/null -w '%{http_code}' --max-time 10 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || true
+        if [[ "$code" == 401 ]]; then
+            log_success "unauthenticated GET ${path}: 401"
+        else
+            log_error "unauthenticated GET ${path}: ${code:-none}, expected 401 before the proxy."; good=false
+        fi
+        code="$(backstage_curl -sS -o /dev/null -w '%{http_code}' --max-time 10 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || true
+        if [[ "$code" =~ ^[1-5][0-9][0-9]$ && "$code" != 401 ]]; then
+            log_success "authenticated GET ${path}: ${code} (passed Basic Auth)"
+        else
+            log_error "authenticated GET ${path} with BACKSTAGE_CURL_CONFIG: ${code:-none}; the credentials do not match ${BS_HTPASSWD}."; good=false
+        fi
+    done
+    $good
+}
+
 # setup_on_exit - EXIT trap while the lock is held. An interruption between the vhost backup and
-# the co-tenant check leaves BS_PENDING_BACKUP set: restore it before releasing the lock, so an
+# the auth check leaves BS_PENDING_BACKUP set: restore it before releasing the lock, so an
 # unvalidated include never survives to make the next run report "already complete".
 BS_PENDING_BACKUP=""
 BS_RELOADED=false
+BS_SNIPPET_UNDO=none
 setup_on_exit() {
     if [[ -n "$BS_PENDING_BACKUP" ]]; then
         log_error "Interrupted mid nginx change; restoring the vhost."
-        restore_nginx "$BS_PENDING_BACKUP" "$PLAN_SNIPPET" "$BS_RELOADED"
+        restore_nginx "$BS_PENDING_BACKUP" "$BS_SNIPPET_UNDO" "$BS_RELOADED"
     fi
     remote "rmdir '${BS_LOCK}'" || log_error "Could not release ${BS_LOCK}; inspect it before retrying."
 }
@@ -283,11 +403,25 @@ setup_main() {
         printf '%s\n' "$current" | insert_include "$BS_INCLUDE" "$DOMAIN" >/dev/null \
             || { log_error "${VHOST_AVAILABLE} has no single HTTPS server block for ${DOMAIN}; refusing, nothing changed."; return 1; }
     fi
+    # Step 5 verifies the gate with the operator's credentials, so a real nginx change needs them.
+    if $PLAN_SNIPPET || $PLAN_INCLUDE; then
+        if ! backstage_require_curl_config yes; then
+            if $dry_run; then
+                log_warn "BACKSTAGE_CURL_CONFIG is not usable; the real run will refuse until it is set (docs/backstage-deploy.md)."
+            else
+                log_error "Refusing setup; nothing changed."; return 1
+            fi
+        fi
+    fi
     if $dry_run; then
         if $PLAN_INCLUDE; then
             echo "  vhost diff (${VHOST_AVAILABLE}):"
             diff -u <(printf '%s\n' "$current") <(printf '%s\n' "$current" | insert_include "$BS_INCLUDE" "$DOMAIN") \
                 | sed '1,2d; s/^/    /'
+        fi
+        if $PLAN_SNIPPET_UPDATE; then
+            echo "  snippet diff (${BS_SNIPPET}):"
+            diff -u <(remote "cat '${BS_SNIPPET}'") "$BS_SNIPPET_SRC" | sed '1,2d; s/^/    /'
         fi
         log_info "Dry run complete. Nothing was changed."
         return 0

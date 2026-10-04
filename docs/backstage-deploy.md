@@ -4,26 +4,57 @@ Backstage is an additional Bun service. The existing static deploy script cannot
 
 Read-only inspection on 2026-10-03 confirmed Linux x86_64, `/usr/local/bin/bun`, the existing domain's Certbot-managed TLS vhost, and no listener on port 3456. `--setup --dry-run` rechecks those facts; they are not permission to change production. No setup or deploy has been executed for this change.
 
+## Basic Auth gate (required)
+
+Both Backstage locations, the page (`/backstage/`) and the API (`/api/backstage/`), carry `auth_basic "Backstage";` and `auth_basic_user_file /etc/jevnotjev-backstage/htpasswd;` in `.deploy/backstage-nginx.conf`. The credentials live only on the host and in one private file on the operator's workstation; no release artifact, repository file, command argument, environment value or log carries them. Operator sequence, in order:
+
+1. Create the htpasswd on the host, as root, in an interactive session (`ssh -t`). The password is typed at the prompt. Replace `tester` with the login name. With apache2-utils installed (`/usr/bin/htpasswd`):
+
+   ```sh
+   install -d -o root -g www-data -m 0750 /etc/jevnotjev-backstage && htpasswd -B -c /etc/jevnotjev-backstage/htpasswd tester && chown root:www-data /etc/jevnotjev-backstage/htpasswd && chmod 0640 /etc/jevnotjev-backstage/htpasswd
+   ```
+
+   Without apache2-utils, `openssl passwd -apr1` prompts instead; setup prints that variant when it refuses. `-c` replaces any existing file. `www-data` is nginx's worker group on this host; setup reads the `user` directive in `/etc/nginx/nginx.conf` and refuses on a mismatch.
+
+2. Create the local curl config on the workstation, typing the same login and password (`read -s` keeps the password off the screen and out of shell history):
+
+   ```sh
+   umask 077; read -r -s -p 'Backstage password: ' BP; echo; printf 'user = "tester:%s"\n' "$BP" > $HOME/.config/jevnotjev/backstage-curl; unset BP
+   ```
+
+   Create `$HOME/.config/jevnotjev` first if needed; any absolute path outside the repository works. The file must be owned by you, mode 0600. Avoid `"` and `\` in the password: curl config quoting would need escaping.
+
+3. `export BACKSTAGE_CURL_CONFIG=$HOME/.config/jevnotjev/backstage-curl` (absolute path).
+
+4. `.deploy/ship.sh --setup --module backstage --dry-run`, then `.deploy/ship.sh --setup --module backstage`. Setup installs or updates the gated snippet and then verifies the gate (below).
+
+5. Confirm the gate from outside: `curl -s -o /dev/null -w '%{http_code}\n' https://jevnotjev.breakoutwithai.com/backstage/` and the same for `/api/backstage/health` print `401`.
+
+Setup refuses, before any change, unless `/etc/jevnotjev-backstage/htpasswd` exists, is non-empty, is owned by root with nginx's worker group and mode 0640, and its directory is owned by root with mode 0750 or tighter and traversable by that group. The refusal prints the command above. The directory also holds the optional funded-trial `trial.env`, which stays root-owned mode 0600; nginx's group can traverse the directory but cannot read that file.
+
+With the gate on the host, `ship.sh --status --module backstage` and every Backstage deploy and rollback probe read `BACKSTAGE_CURL_CONFIG`; when it is unset they fail naming the variable instead of reporting a bare 401. Co-tenant probes never use it.
+
 ## One-time setup after authorization
 
 Two operator commands, after reading the dry run's plan and vhost diff:
 
 ```sh
-.deploy/ship.sh --status --module backstage          # read-only: setup present yes/no
-.deploy/ship.sh --setup --module backstage --dry-run # read-only probes, planned commands, vhost diff
-.deploy/ship.sh --setup --module backstage           # apply only what is absent
+.deploy/ship.sh --status --module backstage          # read-only: setup present yes/no, auth yes/no
+.deploy/ship.sh --setup --module backstage --dry-run # read-only probes, planned commands, vhost and snippet diff
+.deploy/ship.sh --setup --module backstage           # apply what is absent or outdated
 ```
 
 `--setup --module backstage` runs `.deploy/backstage-setup.sh`, which uses `.deploy/config.sh` for the SSH target and key and does, in order:
 
-1. One read-only probe: Linux x86_64, `/usr/local/bin/bun` runs, port 3456 is free (or held by the running `jevnotjev-backstage` service), the vhost is installed and `sites-enabled` links to it, and which of the steps below are already done. It refuses, changing nothing, on any mismatch, or when an installed unit or snippet differs from the repository copy (never overwritten).
+1. One read-only probe: Linux x86_64, `/usr/local/bin/bun` runs, port 3456 is free (or held by the running `jevnotjev-backstage` service), the vhost is installed and `sites-enabled` links to it, the htpasswd is ready (see Basic Auth gate), and which of the steps below are already done. It refuses, changing nothing, on any mismatch, when an installed unit differs from the repository copy (never overwritten), or, for a real run that changes nginx, when `BACKSTAGE_CURL_CONFIG` is unset or not a private file.
 2. Creates the non-login system user/group `jevnotjev-backstage` if absent. Installs `.deploy/backstage.service` as `/etc/systemd/system/jevnotjev-backstage.service` if absent, runs `systemctl daemon-reload` and `systemctl enable jevnotjev-backstage`. It runs as `jevnotjev-backstage`, bound to loopback. `StateDirectory=jevnotjev-backstage` with mode 0700 grants only that service writable state under `/var/lib/jevnotjev-backstage`, compatible with `ProtectSystem=strict`. Enable configures reboot recovery; the service is not started until a release exists.
-3. Probes every co-tenant in `/etc/nginx/sites-enabled`, saves a timestamped backup of the installed vhost under `/var/backups/jevnotjev-backstage/`, installs `.deploy/backstage-nginx.conf` as `/etc/nginx/snippets/jevnotjev-backstage.conf` if absent, and inserts exactly `include /etc/nginx/snippets/jevnotjev-backstage.conf;` if absent, inside this domain's only HTTPS server block. Every certificate directive and other location is kept; the vhost is never replaced by the repository HTTP-only template, which would remove Certbot's TLS configuration. No other domain is edited.
+3. Probes every co-tenant in `/etc/nginx/sites-enabled`, saves a timestamped backup of the installed vhost under `/var/backups/jevnotjev-backstage/`, installs `.deploy/backstage-nginx.conf` as `/etc/nginx/snippets/jevnotjev-backstage.conf` if absent or, when the installed snippet differs, saves it under the same backup directory and replaces it, and inserts exactly `include /etc/nginx/snippets/jevnotjev-backstage.conf;` if absent, inside this domain's only HTTPS server block. Every certificate directive and other location is kept; the vhost is never replaced by the repository HTTP-only template, which would remove Certbot's TLS configuration. No other domain is edited.
 4. Runs `nginx -t`. On failure it restores the saved vhost and never reloads. On success it runs `systemctl reload nginx`, never restart, and re-probes all neighbours. A changed neighbour restores the vhost, validates it and reloads again. Either failure exits non-zero.
+5. Verifies the gate, pinned to the host: unauthenticated GET of `/backstage/` and `/api/backstage/health` must return 401 (auth runs before the proxy, so 401 even before the first release), and the same requests with `BACKSTAGE_CURL_CONFIG` must not. Otherwise it restores the vhost and the previous snippet (or removes a new one), validates and reloads again, and exits non-zero.
 
-Re-running on a configured host changes nothing and exits 0. Then run the guarded deployment below. Before the initial release starts, the new Backstage locations return a gateway error; the main site continues to serve its static release. If setup is abandoned, copy the backup back over the vhost, run `nginx -t` and reload.
+Re-running on a configured host changes nothing and exits 0. Then run the guarded deployment below. Before the initial release starts, authenticated requests to the Backstage locations return a gateway error; the main site continues to serve its static release. If setup is abandoned, copy the backup back over the vhost, run `nginx -t` and reload.
 
-The MVP has no account service. For a private tester rollout, add an operator-managed nginx Basic Auth gate to BOTH Backstage locations, with credentials stored outside release artifacts. Never put tester BYOK keys into that gate, deployment configuration or shell arguments. The dedicated funded key is the explicit exception: it belongs only in the protected external configuration described below.
+The MVP has no account service; the Basic Auth gate above is its private tester boundary. Never put tester BYOK keys into that gate, deployment configuration or shell arguments. The dedicated funded key is the explicit exception: it belongs only in the protected external configuration described below.
 
 ## Build and promote
 
@@ -53,7 +84,7 @@ Rollback requires the target's `.verified` marker and restores its complete brow
 
 Version and HTTP checks do not prove inference. After deployment, enter tester-owned keys in the browser and run an authorized small comparison. Download sanitized evidence, inspect actual model IDs/usage and apply human labels. This has provider charges and is distinct from the deterministic adapter tests. No live calls were made while preparing this deployment contract.
 
-For Basic Auth rollout, set `BACKSTAGE_CURL_CONFIG` to an absolute, user-owned mode-0600 curl configuration file containing the tester `user` credential. Every protected-route deploy and rollback probe reads this private file; credentials never appear in process arguments or deploy output. The config is not used for co-tenant probes. Keep it outside the repository.
+`BACKSTAGE_CURL_CONFIG` must name an absolute, user-owned mode-0600 curl configuration file containing the tester `user` credential (Basic Auth gate, step 2). Every protected-route deploy, rollback and status probe reads this private file; credentials never appear in process arguments or deploy output. The deploy reads the installed snippet first and refuses, naming the variable, when the snippet has auth and the variable is unset; an unreadable snippet also refuses. The config is not used for co-tenant probes. Keep it outside the repository.
 
 Interrupted uploads remain in unique hidden staging directories. Retrying an inactive, unverified SHA quarantines its previous directory without deleting evidence; live or verified releases are never replaced. These directories require a separate reviewed cleanup. Concurrent local builds have distinct outputs; `bun run backstage:start` builds and serves its own immutable pair.
 
@@ -62,7 +93,7 @@ Interrupted uploads remain in unique hidden staging directories. Retrying an ina
 
 M1 BYOK works without funding. M2 must remain behind tester Basic Auth on both page and API; no-provider-key trial does not mean public unauthenticated access. Public exposure requires a separate abuse review and deployment authorization. Support one Bun process only; SQLite accounting does not replace the shared process admission limiter or make replicas supported.
 
-The unit optionally loads `/etc/jevnotjev-backstage/trial.env` via systemd. An operator must provision this external file as root-owned mode 0600 inside a root-owned mode-0700 directory. Systemd reads it before dropping to the service user. Never place funded credentials/signing secrets in per-release `runtime.env`: the deploy helper deliberately makes release artifacts readable and must never copy or change permissions on the protected file. Deployment does not provision funding.
+The unit optionally loads `/etc/jevnotjev-backstage/trial.env` via systemd. An operator must provision this external file as root-owned mode 0600 inside the root-owned `/etc/jevnotjev-backstage` directory. That directory is mode 0750 with nginx's worker group so nginx can read the Basic Auth htpasswd; the group can list it but cannot read `trial.env`. Systemd reads it before dropping to the service user. Never place funded credentials/signing secrets in per-release `runtime.env`: the deploy helper deliberately makes release artifacts readable and must never copy or change permissions on the protected file. Deployment does not provision funding.
 
 Backend configuration uses these explicit variables; missing/invalid values disable the trial:
 

@@ -45,6 +45,8 @@ fi
 backstage_check_curl_config || fail "Curl credential config must be a private file owned by the current user"
 remote "test -f /etc/systemd/system/${SERVICE}.service && test -f /etc/nginx/snippets/jevnotjev-backstage.conf && grep -q 'include /etc/nginx/snippets/jevnotjev-backstage.conf;' '${VHOST_AVAILABLE}'" || fail "One-time reviewed setup is missing; see docs/backstage-deploy.md"
 remote "systemctl is-enabled --quiet '${SERVICE}'" || fail "Backstage service is not enabled for reboot recovery; complete one-time setup"
+auth_state="$(backstage_auth_state)" || fail "Cannot read whether the Backstage snippet on the host requires Basic Auth; refusing"
+backstage_require_curl_config "$auth_state" || fail "BACKSTAGE_CURL_CONFIG is required for every Backstage probe while the snippet requires Basic Auth"
 remote "mkdir /var/lock/jevnotjev-backstage-deploy" || fail "Another host deploy is active; inspect the existing lock before retrying"
 trap 'remote "rmdir /var/lock/jevnotjev-backstage-deploy" || true; rmdir "$LOCK" 2>/dev/null || true' EXIT
 neighbours=()

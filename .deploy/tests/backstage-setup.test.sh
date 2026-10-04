@@ -81,6 +81,7 @@ touch "${FAKE_BOX}/state/user"
 EOF
     cat > "${STUB}/ss" <<'EOF'
 #!/usr/bin/env bash
+[ -f "${FAKE_BOX}/state/ss_broken" ] && exit 127
 [ -f "${FAKE_BOX}/state/port_used" ] && echo 'LISTEN 0 511 127.0.0.1:3456 0.0.0.0:*'
 exit 0
 EOF
@@ -92,7 +93,9 @@ EOF
 #!/usr/bin/env bash
 s="${FAKE_BOX}/state"
 case "$1" in
-    is-enabled) [ -f "$s/enabled" ] ;;
+    # Real systemctl prints the state; enabled-runtime also exits 0 but is not persistent.
+    is-enabled) if [ -f "$s/enabled_runtime" ]; then echo enabled-runtime
+                elif [ -f "$s/enabled" ]; then echo enabled; else echo disabled; exit 1; fi ;;
     is-active)  [ -f "$s/active" ] ;;
     enable)     touch "$s/enabled" ;;
     daemon-reload) touch "$s/daemon-reloaded" ;;
@@ -131,7 +134,7 @@ make_box() {
         touch "${BOX}/state/user" "${BOX}/state/enabled"
         cp "${REPO_ROOT}/.deploy/backstage.service" "${BOX}/etc/systemd/system/jevnotjev-backstage.service"
         cp "${REPO_ROOT}/.deploy/backstage-nginx.conf" "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
-        insert_include "$INCLUDE_LINE" < "$VH" > "${VH}.x" && mv "${VH}.x" "$VH"
+        insert_include "$INCLUDE_LINE" jevnotjev.breakoutwithai.com < "$VH" > "${VH}.x" && mv "${VH}.x" "$VH"
     fi
     ORIGINAL_VHOST="$(cat "$VH")"
 }
@@ -140,6 +143,10 @@ drop_box() { [[ -n "${BOX:-}" && -d "$BOX" ]] && rm -rf "$BOX"; }
 fake_remote() {
     local cmd="$*" real
     printf '%s\n---\n' "$cmd" >> "$RLOG"
+    # Simulate the operator's session dying at the first `nginx -t` (after the vhost write).
+    if [[ -n "${INTERRUPT_AT_NGINX_T:-}" && "$cmd" == "nginx -t" && ! -e "${BOX}/state/interrupted" ]]; then
+        touch "${BOX}/state/interrupted"; exit 143
+    fi
     # Rewrite host paths into the box, except the include line: that is vhost CONTENT, not a path.
     real="$(printf '%s' "$cmd" | sed -E "s#include /#include@KEEP@#g; s#(^|[[:space:]'\"=])/(etc|var|usr/local)/#\\1${BOX}/\\2/#g; s#include@KEEP@#include /#g")"
     PATH="${STUB}:${PATH}" FAKE_BOX="$BOX" bash -c "$real"
@@ -186,7 +193,7 @@ SHA40=0123456789abcdef0123456789abcdef01234567
 
 echo
 echo "[T1] insert_include (pure)"
-got="$(certbot_vhost | insert_include "$INCLUDE_LINE")"; rc=$?
+got="$(certbot_vhost | insert_include "$INCLUDE_LINE" jevnotjev.breakoutwithai.com)"; rc=$?
 tmpf="$(mktemp)"; printf '%s\n' "$got" > "$tmpf"
 [[ $rc -eq 0 ]] && include_in_https_block "$tmpf" \
     && ok "the include lands once, at server level, inside the HTTPS (443) block" \
@@ -195,10 +202,19 @@ tmpf="$(mktemp)"; printf '%s\n' "$got" > "$tmpf"
     && ok "every other line of the certbot vhost (certificates, redirect block) is unchanged" \
     || nope "insert_include changed other lines"
 rm -f "$tmpf"
-printf 'server {\n    listen 80;\n}\n' | insert_include "$INCLUDE_LINE" >/dev/null 2>&1 \
+printf 'server {\n    listen 80;\n}\n' | insert_include "$INCLUDE_LINE" jevnotjev.breakoutwithai.com >/dev/null 2>&1 \
     && nope "a vhost with no HTTPS block was edited" || ok "no HTTPS server block -> refuse (non-zero)"
-printf 'server {\n    listen 443 ssl;\n}\nserver {\n    listen 443 ssl;\n}\n' | insert_include "$INCLUDE_LINE" >/dev/null 2>&1 \
+printf 'server {\n    listen 443 ssl;\n}\nserver {\n    listen 443 ssl;\n}\n' | insert_include "$INCLUDE_LINE" jevnotjev.breakoutwithai.com >/dev/null 2>&1 \
     && nope "a vhost with two HTTPS blocks was edited" || ok "two HTTPS server blocks -> refuse (ambiguous)"
+printf 'server {\n    listen 443 ssl;\n    server_name other.example.com;\n}\nserver {\n    listen 80;\n    server_name jevnotjev.breakoutwithai.com;\n}\n' \
+    | insert_include "$INCLUDE_LINE" jevnotjev.breakoutwithai.com >/dev/null 2>&1 \
+    && nope "the include went into another domain's HTTPS block" || ok "an HTTPS block serving another domain -> refuse"
+printf 'server\n{\n    listen 443 ssl;\n    server_name jevnotjev.breakoutwithai.com;\n}\nserver\n{\n    listen 443 ssl;\n    server_name jevnotjev.breakoutwithai.com;\n}\n' \
+    | insert_include "$INCLUDE_LINE" jevnotjev.breakoutwithai.com >/dev/null 2>&1 \
+    && nope "brace-on-next-line blocks were miscounted" || ok "server with the brace on the next line is still counted (two blocks -> refuse)"
+printf 'server {\n    listen 443 ssl;\n    server_name jevnotjev.breakoutwithai.com;\n    return 200 "{";\n}\n' \
+    | insert_include "$INCLUDE_LINE" jevnotjev.breakoutwithai.com >/dev/null 2>&1 \
+    && nope "an unbalanced (quoted) brace was accepted" || ok "unbalanced brace count (quoted brace) -> refuse"
 
 echo
 echo "[T1] fully configured host: no changes"
@@ -272,7 +288,21 @@ out="$(BREAK_AFTER_RELOAD=1; (setup_main) 2>&1)"; rc=$?
 [[ $rc -ne 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
     && ok "a changed neighbour restores the vhost, validates and reloads again, exits non-zero" \
     || nope "neighbour change: rc=${rc}, reloads $(reloads); out: ${out}"
-[[ "$out" == *"a.example.com"* ]] && ok "the changed neighbour is named" || nope "changed neighbour not named"
+[[ "$out" == *"CHANGED: a.example.com 200 -> 502"* ]] && ok "the changed neighbour is named with its status change" || nope "changed neighbour not named"
+drop_box
+
+echo
+echo "[T1] interrupted between vhost write and validation"
+make_box no
+out="$(INTERRUPT_AT_NGINX_T=1; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && ! -e "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" && ! -e "${BOX}/var/lock/jevnotjev-backstage-deploy" ]] \
+    && ok "an interruption mid nginx change restores the vhost, removes the snippet and releases the lock" \
+    || nope "interrupt: rc=${rc}, vhost restored? $([[ "$(cat "$VH")" == "$ORIGINAL_VHOST" ]] && echo yes || echo no); out: ${out}"
+: > "$RLOG"
+out="$( (setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" != *"already complete"* ]] && include_in_https_block "$VH" \
+    && ok "the next run after an interruption completes the setup instead of reporting it done" \
+    || nope "post-interrupt run: rc=${rc}; out: ${out}"
 drop_box
 
 echo
@@ -301,6 +331,43 @@ mut="$(mutating_commands)"
 [[ $rc -ne 0 && -z "$mut" ]] \
     && ok "sites-enabled entry that is not a link to sites-available -> refuse, zero changes" \
     || nope "non-link enabled vhost: rc=${rc}, mutating: ${mut:-none}"
+drop_box
+make_box no
+touch "${BOX}/state/ss_broken"
+out="$( (setup_main) 2>&1)"; rc=$?
+mut="$(mutating_commands)"
+[[ $rc -ne 0 && -z "$mut" ]] && ok "socket inspection failing (ss exit 127) -> refuse, zero changes" \
+    || nope "ss broken: rc=${rc}, mutating: ${mut:-none}"
+drop_box
+make_box no
+printf '#!/usr/bin/env bash\necho 1.3.0\nexit 1\n' > "${BOX}/usr/local/bin/bun"
+out="$( (setup_main) 2>&1)"; rc=$?
+mut="$(mutating_commands)"
+[[ $rc -ne 0 && -z "$mut" ]] && ok "bun that prints a version but exits non-zero -> refuse, zero changes" \
+    || nope "broken bun: rc=${rc}, mutating: ${mut:-none}"
+drop_box
+make_box no
+printf 'server {\n    listen 80;\n    server_name jevnotjev.breakoutwithai.com;\n}\n' > "$VH"
+out="$( (setup_main) 2>&1)"; rc=$?
+mut="$(mutating_commands)"
+[[ $rc -ne 0 && -z "$mut" && ! -f "${BOX}/state/user" ]] \
+    && ok "a vhost with no HTTPS block refuses before the user or unit is created" \
+    || nope "HTTP-only vhost: rc=${rc}, mutating: ${mut:-none}"
+drop_box
+make_box yes
+touch "${BOX}/state/enabled_runtime"
+out="$( (setup_main) 2>&1)"; rc=$?
+grep -q "systemctl enable 'jevnotjev-backstage'" "$RLOG" \
+    && ok "runtime-only enablement (enabled-runtime) is converted to persistent enable" \
+    || nope "enabled-runtime accepted as enabled: ${out}"
+drop_box
+make_box no
+sed -i.bak 's|listen 443 ssl; # managed by Certbot|listen 443 ssl; # include /etc/nginx/snippets/jevnotjev-backstage.conf;|' "$VH"; rm -f "${VH}.bak"
+ORIGINAL_VHOST="$(cat "$VH")"
+out="$( (setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && include_in_https_block "$VH" \
+    && ok "a commented-out include is not taken as present" \
+    || nope "commented include: rc=${rc}; out: ${out}"
 drop_box
 
 echo

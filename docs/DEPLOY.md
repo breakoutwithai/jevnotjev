@@ -20,6 +20,9 @@ and adds no release logic of its own.
 
 `--module all` is the default. A static failure stops before backstage; a backstage failure
 leaves the verified static release live. The exit code is the first failing module's own code.
+`backstage-deploy.sh` refuses until Backstage setup exists and unless HEAD's merged PR body
+references #67, so plain `ship.sh` reports backstage FAILED (non-zero) in either case; use
+`--module static` for a static-only release.
 `--status` prints, per module, the served SHA, the current release, its verified marker, the
 service state and whether setup is present. Backstage specifics: `docs/backstage-deploy.md`.
 

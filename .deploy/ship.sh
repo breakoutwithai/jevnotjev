@@ -92,7 +92,7 @@ echo \"release=\${L:-none}\"
 if [ -n \"\$L\" ]; then echo \"marker=\$(cat \"\$L/DEPLOYED_SHA\" 2>/dev/null)\"; fi
 if [ -n \"\$L\" ] && [ -f \"\$L/.verified\" ]; then echo verified=yes; else echo verified=no; fi
 echo \"service=nginx \$(systemctl is-active nginx 2>/dev/null || true)\"
-if [ -f \"\$V\" ] && [ -e \"\$E\" ] && [ -d \"\$C\" ]; then echo setup=yes; else echo setup=no; fi")" || return 1
+if [ -f \"\$V\" ] && [ \"\$(readlink \"\$E\" 2>/dev/null)\" = \"\$V\" ] && [ -d \"\$C\" ]; then echo setup=yes; else echo setup=no; fi")" || return 1
     served="$(curl -sS --fail --max-time 15 ${CURL_PIN} "${HEALTH_URL}/DEPLOYED_SHA" 2>/dev/null | tr -d '[:space:]' || true)"
     print_status static "${served:-none}" "$probe"
 }
@@ -104,7 +104,7 @@ L=\$(readlink \"\$C\" 2>/dev/null || true)
 echo \"release=\${L:-none}\"
 if [ -n \"\$L\" ] && [ -f \"\$L/.verified\" ]; then echo verified=yes; else echo verified=no; fi
 echo \"service=\$(systemctl is-active jevnotjev-backstage 2>/dev/null || true), \$(systemctl is-enabled jevnotjev-backstage 2>/dev/null || true)\"
-if [ -f \"\$U\" ] && [ -f \"\$S\" ] && grep -q \"include \$S;\" \"\$V\" 2>/dev/null; then echo setup=yes; else echo setup=no; fi")" || return 1
+if [ -f \"\$U\" ] && [ -f \"\$S\" ] && sed 's/#.*//' \"\$V\" 2>/dev/null | grep -qF \"include \$S;\"; then echo setup=yes; else echo setup=no; fi")" || return 1
     served="$(backstage_curl -sS --fail --max-time 15 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" 2>/dev/null \
         | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' | head -1 || true)"
     print_status backstage "${served:-none}" "$probe"

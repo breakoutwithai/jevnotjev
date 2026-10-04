@@ -210,7 +210,7 @@ cat > "${FAKEBIN}/curl" <<'EOF'
 #!/usr/bin/env bash
 printf 'curl %s\n' "$*" >> "${FAKE_SSH_LOG}.curl"
 case "$*" in
-    *DEPLOYED_SHA*) echo 80cf0a1full ;;
+    *DEPLOYED_SHA*) echo SERVED_FROM_CURL ;;
     *api/backstage/health*) echo "curl: (22) The requested URL returned error: 404" >&2; exit 22 ;;
     *) printf 200 ;;
 esac
@@ -240,12 +240,16 @@ mut="$(mutating_commands)"
 [[ $rc -eq 0 && "$n_cmds" -gt 0 && -z "$mut" ]] \
     && ok "--status issued ${n_cmds} remote command(s), zero mutating" \
     || nope "--status rc=${rc}, ${n_cmds} command(s), mutating: ${mut:-none}; out: ${out}"
-[[ "$out" == *"static"*"80cf0a1"* && "$out" == *"backstage"* && "$out" == *"setup"* ]] \
-    && ok "--status reports both modules: served SHA, release, verified, service, setup" \
-    || nope "--status output incomplete: ${out}"
-[[ "$out" == *"backstage"*"served"*"none"* || "$out" == *"backstage"*"none"* ]] \
-    && ok "--status reports an unserved backstage as none, not as a version" \
-    || nope "--status backstage served value wrong: ${out}"
+# Exact field lines per module section: a value that appears elsewhere cannot satisfy them.
+section() { printf '%s\n' "$out" | awk -v m="$1" '$0 == m {on=1; next} /^[a-z]/ {on=0} on'; }
+st="$(section static)"; bs="$(section backstage)"
+printf '%s\n' "$st" | grep -Eq '^  served +SERVED_FROM_CURL$' \
+    && printf '%s\n' "$st" | grep -Eq '^  verified +yes$' && printf '%s\n' "$st" | grep -Eq '^  setup +yes$' \
+    && ok "--status static: served SHA comes from the pinned curl, plus verified and setup fields" \
+    || nope "--status static section wrong: ${st}"
+printf '%s\n' "$bs" | grep -Eq '^  served +none$' && printf '%s\n' "$bs" | grep -Eq '^  setup +no$' \
+    && ok "--status backstage: an unserved backstage reports served none and setup no" \
+    || nope "--status backstage section wrong: ${bs}"
 
 echo
 echo "[T1] --setup --dry-run through the real scripts is read-only"

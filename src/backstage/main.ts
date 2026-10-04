@@ -238,6 +238,8 @@ async function start(firstOnly: boolean, retry = false, funded = false) {
     notice("Wait for the case import or edit the cases to cancel it.");
     return;
   }
+  // A pending confirmation must not outlive a run start.
+  if (openConfirmStep) closeConfirm(openConfirmStep, false);
   starting = true;
   const controller = new AbortController();
   startup = controller;
@@ -645,7 +647,11 @@ function confirmJudging() {
   closeConfirm("judging", false);
   if (!current) return;
   try {
-    resolveConfirm("judging", "yes", current);
+    const outcome = resolveConfirm("judging", "yes", current, starting);
+    if (outcome.kind === "blocked") {
+      notice(outcome.notice);
+      return;
+    }
     void render();
     element("rehearsal-title").focus();
   } catch (error) {
@@ -662,8 +668,12 @@ button("reveal").onclick = () => {
 };
 function confirmReveal() {
   closeConfirm("reveal", false);
-  if (!run || run.running || !run.labeling) return;
-  resolveConfirm("reveal", "yes", run);
+  if (!run) return;
+  const outcome = resolveConfirm("reveal", "yes", run, starting);
+  if (outcome.kind === "blocked") {
+    notice(outcome.notice);
+    return;
+  }
   notice("Results revealed. Labels and retries are now locked for this run.");
   showRoom(4);
 }
@@ -682,7 +692,11 @@ button("new-scene").onclick = () => {
 };
 function confirmNewScene() {
   closeConfirm("new-scene", false);
-  if (run && resolveConfirm("new-scene", "yes", run).kind !== "cleared") return;
+  if (run) {
+    const outcome = resolveConfirm("new-scene", "yes", run, starting);
+    if (outcome.kind === "blocked") notice(outcome.notice);
+    if (outcome.kind !== "cleared") return;
+  }
   clearScene();
 }
 const confirmYes: Record<ConfirmStep, () => void> = {

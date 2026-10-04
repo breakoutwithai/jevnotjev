@@ -16,7 +16,15 @@ export interface ConfirmSource {
   readonly total: number;
   readonly pending: number;
 }
-export interface ConfirmTarget {
+export interface ConfirmLockState {
+  readonly running: boolean;
+  readonly labeling: boolean;
+  readonly revealed: boolean;
+}
+export interface ConfirmGuardState extends ConfirmLockState {
+  readonly starting: boolean;
+}
+export interface ConfirmTarget extends ConfirmLockState {
   beginLabeling(): void;
   reveal(): void;
 }
@@ -32,7 +40,27 @@ export interface ConfirmPanel {
 export type ConfirmOutcome =
   | { readonly kind: "cancelled" }
   | { readonly kind: "locked" }
-  | { readonly kind: "cleared" };
+  | { readonly kind: "cleared" }
+  | { readonly kind: "blocked"; readonly notice: string };
+
+// A panel can stay open while the page moves on (a Run or Retry starts from another
+// room). Checked at Confirm time: null allows the step, otherwise the notice to show.
+export function confirmBlocked(
+  step: ConfirmStep,
+  state: ConfirmGuardState,
+): string | null {
+  if (state.starting || state.running)
+    return step === "new-scene"
+      ? "Stop the run before starting a new scene. Nothing was cleared."
+      : "Let the calls stop before locking this run. Nothing was locked.";
+  if (step === "judging" && state.labeling)
+    return "Judging is already open for this run.";
+  if (step === "reveal" && (!state.labeling || state.revealed))
+    return state.revealed
+      ? "Results are already revealed for this run."
+      : "Open judging before revealing results. Nothing was locked.";
+  return null;
+}
 
 function wording(
   step: ConfirmStep,
@@ -80,14 +108,23 @@ export function confirmPanel(
   };
 }
 
-// Confirm runs exactly the lock the native confirm() guarded; Cancel touches nothing.
+// Confirm runs exactly the lock the old native dialog guarded; Cancel touches nothing.
 // New scene returns "cleared" so the page drops its reference to the run.
+// "blocked" means nothing was applied; the page shows the notice.
 export function resolveConfirm(
   step: ConfirmStep,
   choice: ConfirmChoice,
   run: ConfirmTarget,
+  starting: boolean,
 ): ConfirmOutcome {
   if (choice === "no") return { kind: "cancelled" };
+  const notice = confirmBlocked(step, {
+    starting,
+    running: run.running,
+    labeling: run.labeling,
+    revealed: run.revealed,
+  });
+  if (notice !== null) return { kind: "blocked", notice };
   if (step === "judging") {
     run.beginLabeling();
     return { kind: "locked" };

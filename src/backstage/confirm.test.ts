@@ -2,7 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { BackstageRun, inputFingerprint } from "./run.ts";
 import { type AnswerRequest, type Scene } from "./contracts.ts";
 import { getModelEntry } from "./catalog.ts";
-import { confirmPanel, resolveConfirm, CONFIRM_STEPS } from "./confirm.ts";
+import {
+  confirmBlocked,
+  confirmPanel,
+  resolveConfirm,
+  CONFIRM_STEPS,
+  type ConfirmStep,
+} from "./confirm.ts";
 
 const compareSelection = { arms: ["jev", "claude-haiku-4-5-20251001"] };
 const keys = { jev: "test-secret-jev", anthropic: "test-secret-llm" };
@@ -125,7 +131,7 @@ describe("Backstage in-page confirm panels", () => {
   test("[unit] I88 Cancel leaves the run unchanged at every step", async () => {
     const atJudging = await stoppedRun(true);
     const before = snapshot(atJudging);
-    expect(resolveConfirm("judging", "no", atJudging)).toEqual({
+    expect(resolveConfirm("judging", "no", atJudging, false)).toEqual({
       kind: "cancelled",
     });
     expect(snapshot(atJudging)).toEqual(before);
@@ -133,14 +139,14 @@ describe("Backstage in-page confirm panels", () => {
     const atReveal = await stoppedRun(true);
     atReveal.beginLabeling();
     const beforeReveal = snapshot(atReveal);
-    expect(resolveConfirm("reveal", "no", atReveal)).toEqual({
+    expect(resolveConfirm("reveal", "no", atReveal, false)).toEqual({
       kind: "cancelled",
     });
     expect(snapshot(atReveal)).toEqual(beforeReveal);
 
     const atNew = await stoppedRun(false);
     const beforeNew = snapshot(atNew);
-    expect(resolveConfirm("new-scene", "no", atNew)).toEqual({
+    expect(resolveConfirm("new-scene", "no", atNew, false)).toEqual({
       kind: "cancelled",
     });
     expect(snapshot(atNew)).toEqual(beforeNew);
@@ -149,7 +155,7 @@ describe("Backstage in-page confirm panels", () => {
   test("[unit] I88 Confirm at judging applies exactly beginLabeling", async () => {
     const run = await stoppedRun(true);
     const before = snapshot(run);
-    expect(resolveConfirm("judging", "yes", run)).toEqual({ kind: "locked" });
+    expect(resolveConfirm("judging", "yes", run, false)).toEqual({ kind: "locked" });
     expect(snapshot(run)).toEqual({ ...before, labeling: true });
     await expect(run.retry(keys, answer)).rejects.toThrow(
       "Retries are locked",
@@ -160,7 +166,7 @@ describe("Backstage in-page confirm panels", () => {
     const run = await stoppedRun(false);
     run.beginLabeling();
     const before = snapshot(run);
-    expect(resolveConfirm("reveal", "yes", run)).toEqual({ kind: "locked" });
+    expect(resolveConfirm("reveal", "yes", run, false)).toEqual({ kind: "locked" });
     expect(snapshot(run)).toEqual({ ...before, revealed: true });
     const card = run.cards()[0];
     if (!card) throw new Error("expected a card");
@@ -170,17 +176,126 @@ describe("Backstage in-page confirm panels", () => {
   test("[unit] I88 Confirm at new scene clears without touching run labels", async () => {
     const run = await stoppedRun(false);
     const before = snapshot(run);
-    expect(resolveConfirm("new-scene", "yes", run)).toEqual({
+    expect(resolveConfirm("new-scene", "yes", run, false)).toEqual({
       kind: "cleared",
     });
     expect(snapshot(run)).toEqual(before);
   });
 
-  test("[unit] I88 Confirm surfaces the run's own lock errors unchanged", async () => {
+  test("[unit] I88 Confirm at reveal before judging opens is blocked, not applied", async () => {
     const run = await stoppedRun(true);
-    expect(() => resolveConfirm("reveal", "yes", run)).toThrow(
-      "Finish or stop a safe run before revealing results.",
+    const before = snapshot(run);
+    const outcome = resolveConfirm("reveal", "yes", run, false);
+    expect(outcome.kind).toBe("blocked");
+    expect(snapshot(run)).toEqual(before);
+  });
+});
+
+function spyTarget(state: {
+  running: boolean;
+  labeling: boolean;
+  revealed: boolean;
+}) {
+  const calls: string[] = [];
+  return {
+    calls,
+    target: {
+      ...state,
+      beginLabeling() {
+        calls.push("beginLabeling");
+      },
+      reveal() {
+        calls.push("reveal");
+      },
+    },
+  };
+}
+// The lock state each step is legitimately confirmed from.
+const idle: Record<
+  ConfirmStep,
+  { running: boolean; labeling: boolean; revealed: boolean }
+> = {
+  judging: { running: false, labeling: false, revealed: false },
+  reveal: { running: false, labeling: true, revealed: false },
+  "new-scene": { running: false, labeling: false, revealed: false },
+};
+
+describe("Backstage confirm guard while calls start or run", () => {
+  for (const step of CONFIRM_STEPS) {
+    test(`[unit] I88 ${step} Confirm is blocked while a run is starting`, () => {
+      const state = { ...idle[step], starting: true };
+      const notice = confirmBlocked(step, state);
+      expect(notice).toBeString();
+      expect(notice?.length).toBeGreaterThan(0);
+      const spy = spyTarget(idle[step]);
+      expect(resolveConfirm(step, "yes", spy.target, true)).toEqual({
+        kind: "blocked",
+        notice: notice ?? "",
+      });
+      expect(spy.calls).toEqual([]);
+    });
+
+    test(`[unit] I88 ${step} Confirm is blocked while calls are running`, () => {
+      const state = { ...idle[step], running: true };
+      const notice = confirmBlocked(step, { ...state, starting: false });
+      expect(notice).toBeString();
+      const spy = spyTarget(state);
+      expect(resolveConfirm(step, "yes", spy.target, false)).toEqual({
+        kind: "blocked",
+        notice: notice ?? "",
+      });
+      expect(spy.calls).toEqual([]);
+    });
+
+    test(`[unit] I88 ${step} Confirm is allowed when idle`, () => {
+      expect(confirmBlocked(step, { ...idle[step], starting: false })).toBe(
+        null,
+      );
+      const spy = spyTarget(idle[step]);
+      expect(resolveConfirm(step, "yes", spy.target, false).kind).not.toBe(
+        "blocked",
+      );
+    });
+  }
+
+  test("[unit] I88 judging Confirm during a retry's runner check never calls beginLabeling", async () => {
+    const run = await stoppedRun(true);
+    const calls: string[] = [];
+    const target = {
+      get running() {
+        return run.running;
+      },
+      get labeling() {
+        return run.labeling;
+      },
+      get revealed() {
+        return run.revealed;
+      },
+      beginLabeling() {
+        calls.push("beginLabeling");
+        run.beginLabeling();
+      },
+      reveal() {
+        run.reveal();
+      },
+    };
+    const before = snapshot(run);
+    expect(resolveConfirm("judging", "yes", target, true).kind).toBe(
+      "blocked",
     );
-    expect(run.revealed).toBe(false);
+    expect(calls).toEqual([]);
+    expect(snapshot(run)).toEqual(before);
+    await run.retry(keys, answer);
+    expect(run.labeling).toBe(false);
+  });
+
+  test("[unit] I88 Cancel is never blocked", () => {
+    for (const step of CONFIRM_STEPS) {
+      const spy = spyTarget({ ...idle[step], running: true });
+      expect(resolveConfirm(step, "no", spy.target, true)).toEqual({
+        kind: "cancelled",
+      });
+      expect(spy.calls).toEqual([]);
+    }
   });
 });

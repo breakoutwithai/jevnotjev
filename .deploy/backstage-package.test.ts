@@ -367,8 +367,18 @@ async function activationFixture(
     disabled?: boolean;
     wrongProtocol?: boolean;
     currentV2?: boolean;
+    authSnippet?: boolean;
+    authAfterLock?: boolean;
+    curlConfig?: string;
   } = {},
-): Promise<{ code: number; current: string; log: string; output: string }> {
+): Promise<{
+  code: number;
+  current: string;
+  log: string;
+  output: string;
+  curlLog: string;
+  remoteLog: string;
+}> {
   const dir = await mkdtemp(join(tmpdir(), "backstage-activation-"));
   const oldSha = "a".repeat(40),
     newSha = "b".repeat(40);
@@ -444,7 +454,17 @@ async function activationFixture(
     );
     await Bun.write(
       join(dir, "remote.ts"),
-      `const root=process.env.FIXTURE??'';const command=process.argv[2]??'';if(command.startsWith('test -f /etc/systemd'))process.exit(0);if(command.startsWith('cat /etc/nginx/sites-enabled')){console.info('server_name neighbor.test;');process.exit(0);}const translated=command.replaceAll('/var/www',root+'/www').replaceAll('/var/lock',root+'/lock');const result=Bun.spawnSync(['bash','-c',translated],{env:process.env,stdin:'inherit',stdout:'pipe',stderr:'pipe'});process.stdout.write(new TextDecoder().decode(result.stdout).replaceAll(root+'/www','/var/www'));process.stderr.write(result.stderr);process.exit(result.exitCode);`,
+      `import {appendFileSync,existsSync} from 'node:fs';const root=process.env.FIXTURE??'';const command=process.argv[2]??'';appendFileSync(root+'/remote.log',command+'\\n---\\n');if(command.startsWith('test -f /etc/systemd'))process.exit(0);if(command.startsWith('cat /etc/nginx/sites-enabled')){console.info('server_name neighbor.test;');process.exit(0);}const gated=process.env.AUTH_AFTER_LOCK==='1'?existsSync(root+'/lock/jevnotjev-backstage-deploy'):process.env.AUTH_SNIPPET==='1';const snippet=root+(gated?'/snippet-auth.conf':'/snippet-open.conf');const translated=command.replaceAll('/etc/nginx/snippets/jevnotjev-backstage.conf',snippet).replaceAll('/var/www',root+'/www').replaceAll('/var/lock',root+'/lock');const result=Bun.spawnSync(['bash','-c',translated],{env:process.env,stdin:'inherit',stdout:'pipe',stderr:'pipe'});process.stdout.write(new TextDecoder().decode(result.stdout).replaceAll(root+'/www','/var/www'));process.stderr.write(result.stderr);process.exit(result.exitCode);`,
+    );
+    // The installed snippet the real remote auth-state command reads: gated (repo copy) or open.
+    const repoSnippet = await Bun.file(".deploy/backstage-nginx.conf").text();
+    await Bun.write(join(dir, "snippet-auth.conf"), repoSnippet);
+    await Bun.write(
+      join(dir, "snippet-open.conf"),
+      repoSnippet
+        .split("\n")
+        .filter((line) => !line.includes("auth_basic"))
+        .join("\n"),
     );
     const commands: Record<string, string> = {
       git: `#!/usr/bin/env bash\ncase "$1" in rev-parse) echo ${newSha};; status|fetch) exit 0;; *) exit 1;; esac\n`,
@@ -453,43 +473,49 @@ async function activationFixture(
       mv: `#!/usr/bin/env bun\nimport {renameSync} from 'node:fs';const args=process.argv.slice(2).filter(a=>a!=='-T');renameSync(args[0]??'',args[1]??'');`,
       sha256sum: `#!/usr/bin/env bash\nshasum -a 256 "$@"\n`,
       systemctl: `#!/usr/bin/env bun\nimport {appendFileSync,existsSync,writeFileSync} from 'node:fs';const root=process.env.FIXTURE??'';appendFileSync(root+'/actions',process.argv.slice(2).join(' ')+'\\n');if(process.argv[2]==='is-enabled'&&process.env.DISABLED==='1')process.exit(1);if(process.argv[2]==='restart'&&process.env.FAIL_RESTART==='1'&&!existsSync(root+'/failed')){writeFileSync(root+'/failed','1');process.exit(1);}`,
-      curl: `#!/usr/bin/env bun\nimport {readlinkSync,readFileSync} from 'node:fs';const args=process.argv.slice(2);const url=args.at(-1)??'';if(url.includes('neighbor.test')){process.stdout.write('200');process.exit(0);}const active=readlinkSync((process.env.FIXTURE??'')+'/www/jevnotjev-backstage-current');if(url.endsWith('/health')){process.stdout.write(JSON.stringify({protocol:process.env.WRONG_PROTOCOL==='1'&&active.endsWith('b'.repeat(40))?'backstage/999':JSON.parse(readFileSync(active+'/release.json','utf8')).protocol,version:active.split('/').at(-1)}));}else{const path=url.endsWith('/')?'index.html':url.split('/').at(-1);if(path==='index.html'&&process.env.CORRUPT_HTML==='1')process.stdout.write('old html');else process.stdout.write(readFileSync(active+'/site/backstage/'+path));}`,
+      curl: `#!/usr/bin/env bun\nimport {appendFileSync,readlinkSync,readFileSync} from 'node:fs';const args=process.argv.slice(2);appendFileSync((process.env.FIXTURE??'')+'/curl.log',args.join(' ')+'\\n');const url=args.at(-1)??'';if(url.includes('neighbor.test')){process.stdout.write('200');process.exit(0);}const active=readlinkSync((process.env.FIXTURE??'')+'/www/jevnotjev-backstage-current');if(url.endsWith('/health')){process.stdout.write(JSON.stringify({protocol:process.env.WRONG_PROTOCOL==='1'&&active.endsWith('b'.repeat(40))?'backstage/999':JSON.parse(readFileSync(active+'/release.json','utf8')).protocol,version:active.split('/').at(-1)}));}else{const path=url.endsWith('/')?'index.html':url.split('/').at(-1);if(path==='index.html'&&process.env.CORRUPT_HTML==='1')process.stdout.write('old html');else process.stdout.write(readFileSync(active+'/site/backstage/'+path));}`,
     };
     for (const [name, body] of Object.entries(commands)) {
       const path = join(dir, "bin", name);
       await Bun.write(path, body);
       await chmod(path, 0o755);
     }
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      FIXTURE: dir,
+      PATH: `${dir}/bin:${process.env.PATH}`,
+      TMPDIR: join(dir, "tmp"),
+      FAIL_RESTART: failRestart ? "1" : "0",
+      CORRUPT_HTML: corruptHtml ? "1" : "0",
+      DISABLED: options.disabled ? "1" : "0",
+      WRONG_PROTOCOL: options.wrongProtocol ? "1" : "0",
+      AUTH_SNIPPET: options.authSnippet ? "1" : "0",
+      AUTH_AFTER_LOCK: options.authAfterLock ? "1" : "0",
+    };
+    delete env.BACKSTAGE_CURL_CONFIG;
+    if (options.curlConfig) env.BACKSTAGE_CURL_CONFIG = options.curlConfig;
     const result = Bun.spawnSync(
       [
         "bash",
         ".deploy/backstage-deploy.sh",
         ...(options.promote ? [] : ["--rollback", newSha]),
       ],
-      {
-        cwd: dir,
-        env: {
-          ...process.env,
-          FIXTURE: dir,
-          PATH: `${dir}/bin:${process.env.PATH}`,
-          TMPDIR: join(dir, "tmp"),
-          FAIL_RESTART: failRestart ? "1" : "0",
-          CORRUPT_HTML: corruptHtml ? "1" : "0",
-          DISABLED: options.disabled ? "1" : "0",
-          WRONG_PROTOCOL: options.wrongProtocol ? "1" : "0",
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-      },
+      { cwd: dir, env, stdout: "pipe", stderr: "pipe" },
     );
+    const readLog = (name: string) =>
+      Bun.file(join(dir, name))
+        .text()
+        .catch(() => "");
     return {
       code: result.exitCode,
       current:
         (await readlink(current).catch(() => "")).split("/").at(-1) ?? "",
-      log: await Bun.file(join(dir, "actions"))
-        .text()
-        .catch(() => ""),
-      output: new TextDecoder().decode(result.stderr),
+      log: await readLog("actions"),
+      output:
+        new TextDecoder().decode(result.stderr) +
+        new TextDecoder().decode(result.stdout),
+      curlLog: await readLog("curl.log"),
+      remoteLog: await readLog("remote.log"),
     };
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -547,6 +573,181 @@ test("[integration] B8 deployment refuses a service not enabled for reboot", asy
   expect(result.current).toBe("a".repeat(40));
   expect(result.log).not.toContain("restart");
   expect(result.output).toContain("not enabled");
+});
+
+test("[integration] A3 auth snippet without BACKSTAGE_CURL_CONFIG fails before any change, naming the variable", async () => {
+  for (const promote of [true, false]) {
+    const result = await activationFixture(false, false, {
+      promote,
+      authSnippet: true,
+    });
+    expect(result.code).not.toBe(0);
+    expect(result.current).toBe("a".repeat(40));
+    expect(result.log).not.toContain("restart");
+    expect(result.output).toContain("BACKSTAGE_CURL_CONFIG");
+    expect(result.curlLog).not.toContain("backstage");
+    expect(result.remoteLog).not.toContain(".stage-");
+    expect(result.remoteLog).not.toContain("ln -sfn");
+  }
+});
+test("[integration] sweep #6 auth state is read under the host lock, so a gate installed meanwhile is seen", async () => {
+  for (const promote of [true, false]) {
+    const result = await activationFixture(false, false, {
+      promote,
+      authAfterLock: true,
+    });
+    expect(result.code).not.toBe(0);
+    expect(result.current).toBe("a".repeat(40));
+    expect(result.log).not.toContain("restart");
+    expect(result.output).toContain("BACKSTAGE_CURL_CONFIG");
+    expect(result.remoteLog).not.toContain(".stage-");
+    expect(result.remoteLog).not.toContain("ln -sfn");
+    const lock = result.remoteLog.indexOf("mkdir /var/lock/jevnotjev-backstage-deploy");
+    const read = result.remoteLog.indexOf("S='/etc/nginx/snippets/jevnotjev-backstage.conf'");
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(read).toBeGreaterThan(lock);
+    expect(result.remoteLog).toContain("rmdir /var/lock/jevnotjev-backstage-deploy");
+  }
+});
+test("[integration] A3 every Backstage probe passes the curl config; credentials stay in the file", async () => {
+  const cfgDir = await mkdtemp(join(tmpdir(), "backstage-cfg-"));
+  const config = join(cfgDir, "curl");
+  const sentinel = "pw-deploy-NEVER-LOGGED";
+  try {
+    await Bun.write(config, `user = "tester:${sentinel}"\n`);
+    await chmod(config, 0o600);
+    for (const promote of [true, false]) {
+      const result = await activationFixture(false, false, {
+        promote,
+        authSnippet: true,
+        curlConfig: config,
+      });
+      expect(result.code).toBe(0);
+      expect(result.current).toBe("b".repeat(40));
+      const lines = result.curlLog.split("\n").filter((l) => l !== "");
+      const backstage = lines.filter((l) => l.includes("backstage"));
+      expect(backstage.length).toBeGreaterThanOrEqual(5);
+      for (const line of backstage) expect(line).toContain(`--config ${config}`);
+      for (const line of lines.filter((l) => l.includes("neighbor.test")))
+        expect(line).not.toContain("--config");
+      for (const text of [result.curlLog, result.remoteLog, result.output])
+        expect(text).not.toContain(sentinel);
+    }
+  } finally {
+    await rm(cfgDir, { recursive: true, force: true });
+  }
+});
+// Runs the REAL remote auth-state command locally against a snippet file (sweep #4/#5).
+async function authState(
+  snippet: string | null,
+  mode = 0o644,
+): Promise<{ code: number; out: string }> {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-auth-"));
+  const path = join(dir, "snippet.conf");
+  try {
+    if (snippet !== null) {
+      await Bun.write(path, snippet);
+      await chmod(path, mode);
+    }
+    const result = Bun.spawnSync(
+      [
+        "bash",
+        "-c",
+        'source .deploy/backstage-lib.sh; remote(){ bash -c "${1//\\/etc\\/nginx\\/snippets\\/jevnotjev-backstage.conf/$SNIP}"; }; backstage_auth_state',
+      ],
+      { env: { ...process.env, SNIP: path }, stdout: "pipe", stderr: "pipe" },
+    );
+    return {
+      code: result.exitCode,
+      out: new TextDecoder().decode(result.stdout).trim(),
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+test("[unit] sweep #4/#5 auth state reflects effective auth in the supported layout, else fails closed", async () => {
+  const repo = await Bun.file(".deploy/backstage-nginx.conf").text();
+  const open = repo
+    .split("\n")
+    .filter((line) => !line.includes("auth_basic"))
+    .join("\n");
+  expect(await authState(repo)).toEqual({ code: 0, out: "yes" });
+  expect(await authState(open)).toEqual({ code: 0, out: "no" });
+  expect(await authState(null)).toEqual({ code: 0, out: "no" });
+  expect(
+    await authState(repo.replaceAll('auth_basic "Backstage";', "auth_basic off;")),
+  ).toEqual({ code: 0, out: "no" });
+  const inline =
+    'location = /backstage { return 308 /backstage/; }\nlocation ^~ /backstage/ { auth_basic "Backstage"; auth_basic_user_file /etc/jevnotjev-backstage/htpasswd; proxy_pass http://127.0.0.1:3456; }\nlocation ^~ /api/backstage/ { auth_basic "Backstage"; auth_basic_user_file /etc/jevnotjev-backstage/htpasswd; proxy_pass http://127.0.0.1:3456; }\n';
+  expect(await authState(inline)).toEqual({ code: 0, out: "yes" });
+  const failClosed = [
+    // gate on one location only
+    repo.replace('    auth_basic "Backstage";\n', "").replace(
+      "    auth_basic_user_file /etc/jevnotjev-backstage/htpasswd;\n",
+      "",
+    ),
+    // auth_basic without a user file
+    repo.replaceAll(
+      "    auth_basic_user_file /etc/jevnotjev-backstage/htpasswd;\n",
+      "",
+    ),
+    // directives outside the two Backstage locations
+    `auth_basic "Backstage";\n${open}`,
+    // the API location missing
+    open.replace("location ^~ /api/backstage/", "location ^~ /api/other/"),
+  ];
+  for (const snippet of failClosed) expect((await authState(snippet)).code).not.toBe(0);
+  if (process.getuid?.() !== 0)
+    expect((await authState(repo, 0o000)).code).not.toBe(0);
+});
+test("[integration] sweep #8 the documented curl-config command never exposes the password", async () => {
+  const docLine = (text: string) =>
+    text
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.includes("backstage-curl.XXXXXX"));
+  const command = docLine(await Bun.file("docs/backstage-deploy.md").text());
+  expect(command).toBeDefined();
+  expect(docLine(await Bun.file("docs/DEPLOY.md").text())).toBe(command);
+  const home = join(await mkdtemp(join(tmpdir(), "backstage-home-")), "with space");
+  const dest = join(home, ".config/jevnotjev/backstage-curl");
+  try {
+    await mkdir(join(home, ".config/jevnotjev"), { recursive: true });
+    await Bun.write(dest, "stale\n");
+    await chmod(dest, 0o644);
+    const result = Bun.spawnSync(["bash", "-c", command ?? "exit 9"], {
+      env: { ...process.env, HOME: home },
+      stdin: new TextEncoder().encode("doc-test-pw\n"),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(await Bun.file(dest).text()).toBe('user = "tester:doc-test-pw"\n');
+    const { stat } = await import("node:fs/promises");
+    expect((await stat(dest)).mode & 0o777).toBe(0o600);
+    expect((await stat(join(home, ".config/jevnotjev"))).mode & 0o077).toBe(0);
+    expect(await readdir(join(home, ".config/jevnotjev"))).toEqual(["backstage-curl"]);
+    expect(new TextDecoder().decode(result.stdout)).not.toContain("doc-test-pw");
+  } finally {
+    await rm(join(home, ".."), { recursive: true, force: true });
+  }
+});
+test("[unit] A3 the curl config is required exactly when the snippet has auth", () => {
+  const require = (auth: string, config?: string) => {
+    const env: Record<string, string | undefined> = { ...process.env };
+    delete env.BACKSTAGE_CURL_CONFIG;
+    if (config !== undefined) env.BACKSTAGE_CURL_CONFIG = config;
+    return Bun.spawnSync(
+      ["bash", "-c", 'source .deploy/backstage-lib.sh; backstage_require_curl_config "$1"', "t", auth],
+      { env, stdout: "pipe", stderr: "pipe" },
+    );
+  };
+  const missing = require("yes");
+  expect(missing.exitCode).not.toBe(0);
+  expect(new TextDecoder().decode(missing.stderr)).toContain("BACKSTAGE_CURL_CONFIG");
+  expect(require("no").exitCode).toBe(0);
+  expect(require("unknown").exitCode).not.toBe(0);
+  expect(require("yes", "/nonexistent/backstage-curl").exitCode).not.toBe(0);
 });
 
 test("[unit] JF6 service isolates durable ledger and funded secrets outside release permissions", async () => {

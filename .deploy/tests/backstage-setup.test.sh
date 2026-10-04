@@ -22,6 +22,12 @@ nope() { echo "  FAIL - $1"; fail=$((fail+1)); }
 export JEVNOTJEV_SERVER_HOST=192.0.2.1
 KEYDIR="$(mktemp -d)"; : > "${KEYDIR}/key"
 export JEVNOTJEV_SSH_KEY="${KEYDIR}/key"
+# A private curl config, as the operator creates it. The password must never reach a remote
+# command, a curl argument or any output.
+TEST_PASSWORD="pw-NEVER-LOGGED-7f3a"
+CURLCFG="${KEYDIR}/backstage-curl"
+( umask 077; printf 'user = "tester:%s"\n' "$TEST_PASSWORD" > "$CURLCFG" )
+export BACKSTAGE_CURL_CONFIG="$CURLCFG"
 
 echo "[T1] backstage one-time setup"
 
@@ -103,9 +109,28 @@ case "$1" in
     *) exit 1 ;;
 esac
 EOF
+    # stat: metadata the box records next to the path (owner, group, mode, size), since the
+    # fixture files are owned by the test user, not root.
+    cat > "${STUB}/stat" <<'EOF'
+#!/usr/bin/env bash
+for p in "$@"; do last="$p"; done
+[ -f "${last}.statmeta" ] && [ -e "$last" ] && { cat "${last}.statmeta"; exit 0; }
+exit 1
+EOF
     cat > "${STUB}/nginx" <<'EOF'
 #!/usr/bin/env bash
 v="${FAKE_BOX}/etc/nginx/sites-available/jevnotjev.breakoutwithai.com"
+if [ "$1" = -T ]; then
+    # Effective config dump: nginx.conf plus everything it includes.
+    [ -f "${FAKE_BOX}/state/nginx_T_fail" ] && { echo 'nginx: [emerg] dump failed' >&2; exit 1; }
+    echo 'nginx: configuration file /etc/nginx/nginx.conf test is successful' >&2
+    echo '# configuration file /etc/nginx/nginx.conf:'
+    cat "${FAKE_BOX}/etc/nginx/nginx.conf"
+    for f in "${FAKE_BOX}"/etc/nginx/conf.d/*.conf; do
+        [ -f "$f" ] && { echo "# configuration file ${f#${FAKE_BOX}}:"; cat "$f"; }
+    done
+    exit 0
+fi
 if [ "$1" = -t ]; then
     if [ -f "${FAKE_BOX}/state/nginx_t_fail" ] && grep -q 'jevnotjev-backstage.conf' "$v"; then
         echo 'nginx: [emerg] test failure' >&2; exit 1
@@ -123,8 +148,16 @@ make_box() {
     BOX="$(mktemp -d)"
     RLOG="${BOX}/remote.log"; : > "$RLOG"
     mkdir -p "${BOX}/etc/nginx/sites-available" "${BOX}/etc/nginx/sites-enabled" "${BOX}/etc/nginx/snippets" \
-             "${BOX}/etc/systemd/system" "${BOX}/usr/local/bin" "${BOX}/var/lock" "${BOX}/var/backups" "${BOX}/state"
+             "${BOX}/etc/systemd/system" "${BOX}/usr/local/bin" "${BOX}/usr/bin" "${BOX}/var/lock" "${BOX}/var/backups" "${BOX}/state" \
+             "${BOX}/etc/jevnotjev-backstage"
     printf '#!/usr/bin/env bash\necho 1.3.0\n' > "${BOX}/usr/local/bin/bun"; chmod +x "${BOX}/usr/local/bin/bun"
+    printf 'user www-data;\nworker_processes auto;\n' > "${BOX}/etc/nginx/nginx.conf"
+    # apache2-utils present; the operator-created htpasswd is in place with the required metadata.
+    printf '#!/usr/bin/env bash\nexit 0\n' > "${BOX}/usr/bin/htpasswd"; chmod +x "${BOX}/usr/bin/htpasswd"
+    HT="${BOX}/etc/jevnotjev-backstage/htpasswd"
+    printf 'tester:$2y$05$hashhashhashhashhashhu\n' > "$HT"
+    printf 'root www-data 640 44\n' > "${HT}.statmeta"
+    printf 'root www-data 750 4096\n' > "${BOX}/etc/jevnotjev-backstage.statmeta"
     VH="${BOX}/etc/nginx/sites-available/jevnotjev.breakoutwithai.com"
     certbot_vhost > "$VH"
     ln -s "$VH" "${BOX}/etc/nginx/sites-enabled/jevnotjev.breakoutwithai.com"
@@ -148,7 +181,7 @@ fake_remote() {
         touch "${BOX}/state/interrupted"; exit 143
     fi
     # Rewrite host paths into the box, except the include line: that is vhost CONTENT, not a path.
-    real="$(printf '%s' "$cmd" | sed -E "s#include /#include@KEEP@#g; s#(^|[[:space:]'\"=])/(etc|var|usr/local)/#\\1${BOX}/\\2/#g; s#include@KEEP@#include /#g")"
+    real="$(printf '%s' "$cmd" | sed -E "s#include /#include@KEEP@#g; s#(^|[[:space:]'\"=])/(etc|var|usr/local|usr/bin)/#\\1${BOX}/\\2/#g; s#include@KEEP@#include /#g")"
     PATH="${STUB}:${PATH}" FAKE_BOX="$BOX" bash -c "$real"
 }
 remote() { fake_remote "$@"; }
@@ -157,11 +190,28 @@ remote() { fake_remote "$@"; }
 # FAIL_NAME fails one co-tenant's probe like a TLS error (curl -w prints 000, exit 60) before and after
 # the reload; FAIL_NAME_BEFORE / FAIL_NAME_AFTER fail it on one side of the reload only.
 curl() {
-    local arg host="" reloaded=false
+    local arg host="" reloaded=false url="" authed=false
+    printf 'curl %s\n' "$*" >> "${BOX}/curl.log"
     for arg in "$@"; do
-        if [[ "$arg" == https://* ]]; then host="${arg#https://}"; host="${host%/}"; fi
+        if [[ "$arg" == https://* ]]; then url="$arg"; host="${arg#https://}"; host="${host%/}"; fi
+        [[ "$arg" == --config ]] && authed=true
     done
     [[ -s "${BOX}/state/reloads" ]] && reloaded=true
+    # Backstage routes: nginx answers 401 before the proxy whenever the INSTALLED snippet carries
+    # auth_basic; with the curl config the request passes auth and reaches the upstream: 200 when
+    # the service runs, 502 when it does not. UNAUTH_CODE / AUTHED_CODE override what the host
+    # answers; BS_CURL_RC makes the transfer fail with that curl exit after the status line.
+    if [[ "$url" == */backstage/* || "$url" == */api/backstage/* ]]; then
+        local code
+        if $authed; then
+            if [[ -n "${AUTHED_CODE:-}" ]]; then code="$AUTHED_CODE"
+            elif [[ -f "${BOX}/state/active" ]]; then code=200; else code=502; fi
+        elif [[ -n "${UNAUTH_CODE:-}" ]]; then code="$UNAUTH_CODE"
+        elif grep -q 'auth_basic_user_file' "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" 2>/dev/null; then code=401
+        else code=502; fi
+        printf '%s' "$code"
+        return "${BS_CURL_RC:-0}"
+    fi
     if [[ -n "$host" ]] && { [[ "$host" == "${FAIL_NAME:-}" ]] \
         || { [[ "$host" == "${FAIL_NAME_BEFORE:-}" ]] && ! $reloaded; } \
         || { [[ "$host" == "${FAIL_NAME_AFTER:-}" ]] && $reloaded; }; }; then
@@ -502,12 +552,251 @@ mut="$(mutating_commands)"
 drop_box
 
 echo
+echo "[T1] Basic Auth gate: snippet (A1)"
+# Print the body of one location block of the repo snippet.
+location_body() {
+    awk -v want="$1" '
+        { c=$0; sub(/#.*/, "", c) }
+        !on && index(c, want) { on=1; depth=0 }
+        on { print c; o=gsub(/\{/, "{", c); x=gsub(/\}/, "}", c); depth += o - x; if (depth == 0) exit }' \
+        "${REPO_ROOT}/.deploy/backstage-nginx.conf"
+}
+for loc in "location ^~ /backstage/" "location ^~ /api/backstage/"; do
+    body="$(location_body "$loc")"
+    [[ "$(printf '%s\n' "$body" | grep -cE '^[[:space:]]*auth_basic "Backstage";$')" == 1 \
+        && "$(printf '%s\n' "$body" | grep -cE '^[[:space:]]*auth_basic_user_file /etc/jevnotjev-backstage/htpasswd;$')" == 1 ]] \
+        && ok "'${loc}' carries auth_basic \"Backstage\" and the htpasswd file once" \
+        || nope "'${loc}' is not gated: ${body}"
+done
+grep -q 'proxy_set_header X-Backstage-Client-IP $remote_addr;' "${REPO_ROOT}/.deploy/backstage-nginx.conf" \
+    && ok "the rest of the snippet is kept (client IP header still overwritten)" || nope "snippet lost its client IP header"
+
+echo
+echo "[T1] Basic Auth gate: htpasswd precondition (A2)"
+HT_CMD_PATH="/etc/jevnotjev-backstage/htpasswd"
+refuses_untouched() {  # $1 label, $2 expected text in output
+    local out rc mut
+    out="$( (setup_main) 2>&1)"; rc=$?
+    mut="$(mutating_commands)"
+    [[ $rc -ne 0 && -z "$mut" && "$(reloads)" == 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" \
+        && ! -e "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" && "$out" == *"$2"* ]] \
+        && ok "$1" || nope "$1: rc=${rc}, mutating: ${mut:-none}; out: ${out}"
+}
+make_box no
+rm -f "$HT" "${HT}.statmeta"
+refuses_untouched "missing htpasswd -> refuse before any change, zero nginx changes" "$HT_CMD_PATH"
+out="$( (setup_main) 2>&1)"
+[[ "$out" == *"htpasswd -B -c ${HT_CMD_PATH}"* && "$out" == *"chown root:www-data ${HT_CMD_PATH}"* && "$out" == *"chmod 0640 ${HT_CMD_PATH}"* ]] \
+    && ok "the refusal prints the exact operator command (htpasswd -B, chown root:www-data, chmod 0640)" \
+    || nope "operator command missing: ${out}"
+drop_box
+make_box no
+rm -f "$HT" "${HT}.statmeta" "${BOX}/usr/bin/htpasswd"
+out="$( (setup_main) 2>&1)"
+[[ "$out" == *"openssl passwd -apr1"* && "$out" != *"htpasswd -B"* ]] \
+    && ok "without apache2-utils the printed command uses openssl passwd -apr1 (password prompted, never an argument)" \
+    || nope "openssl fallback missing: ${out}"
+drop_box
+make_box no
+: > "$HT"; printf 'root www-data 640 0\n' > "${HT}.statmeta"
+refuses_untouched "an empty htpasswd -> refuse, zero changes" "$HT_CMD_PATH"
+drop_box
+make_box no
+printf 'root www-data 644 44\n' > "${HT}.statmeta"
+refuses_untouched "htpasswd mode 0644 -> refuse, zero changes" "0640"
+drop_box
+make_box no
+printf 'www-data www-data 640 44\n' > "${HT}.statmeta"
+refuses_untouched "htpasswd owned by www-data -> refuse, zero changes" "root"
+drop_box
+make_box no
+printf 'root root 640 44\n' > "${HT}.statmeta"
+refuses_untouched "htpasswd group root (nginx cannot read it) -> refuse, zero changes" "www-data"
+drop_box
+make_box no
+printf 'root www-data 755 4096\n' > "${BOX}/etc/jevnotjev-backstage.statmeta"
+refuses_untouched "htpasswd directory mode 0755 (looser than 0750) -> refuse, zero changes" "0750"
+drop_box
+make_box no
+printf 'user nginx;\n' > "${BOX}/etc/nginx/nginx.conf"
+refuses_untouched "nginx worker group read from nginx.conf (nginx), htpasswd group www-data -> refuse" "group 'nginx'"
+printf 'root nginx 640 44\n' > "${HT}.statmeta"; printf 'root nginx 710 4096\n' > "${BOX}/etc/jevnotjev-backstage.statmeta"
+out="$( (setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && ok "htpasswd group matching nginx.conf's worker group, dir 0710 (tighter) -> accepted" \
+    || nope "nginx group / 0710 dir: rc=${rc}; out: ${out}"
+drop_box
+
+echo
+echo "[T1] Basic Auth gate: curl config precondition"
+make_box no
+out="$( (unset BACKSTAGE_CURL_CONFIG; setup_main) 2>&1)"; rc=$?
+mut="$(mutating_commands)"
+[[ $rc -ne 0 && -z "$mut" && "$out" == *"BACKSTAGE_CURL_CONFIG"* ]] \
+    && ok "setup without BACKSTAGE_CURL_CONFIG refuses before any change and names the variable" \
+    || nope "no curl config: rc=${rc}, mutating: ${mut:-none}; out: ${out}"
+: > "$RLOG"
+out="$( (unset BACKSTAGE_CURL_CONFIG; setup_main --dry-run) 2>&1)"; rc=$?
+mut="$(mutating_commands)"
+[[ $rc -eq 0 && -z "$mut" && "$out" == *"BACKSTAGE_CURL_CONFIG"* ]] \
+    && ok "--dry-run without BACKSTAGE_CURL_CONFIG still plans, warning by name" \
+    || nope "dry-run no curl config: rc=${rc}; out: ${out}"
+drop_box
+
+echo
+echo "[T1] Basic Auth gate: installed snippet update (A2)"
+OLD_SNIPPET="$(grep -v 'auth_basic' "${REPO_ROOT}/.deploy/backstage-nginx.conf")"
+make_box yes
+printf '%s\n' "$OLD_SNIPPET" > "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
+out="$( (setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && cmp -s "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" "${REPO_ROOT}/.deploy/backstage-nginx.conf" \
+    && ok "an installed snippet that differs is updated to the repo copy, exit 0" \
+    || nope "snippet update: rc=${rc}; out: ${out}"
+sbackup="$(find "${BOX}/var/backups/jevnotjev-backstage" -name 'jevnotjev-backstage.conf.*' -type f 2>/dev/null | head -1)"
+[[ -n "$sbackup" && "$(cat "$sbackup")" == "$OLD_SNIPPET" ]] \
+    && ok "the previous snippet is backed up before the update ($(basename "${sbackup:-none}"))" \
+    || nope "no snippet backup holding the old snippet"
+t_line="$(grep -n '^nginx -t' "$RLOG" | tail -1 | cut -d: -f1)"
+r_line="$(grep -n 'systemctl reload nginx' "$RLOG" | head -1 | cut -d: -f1)"
+[[ "$(reloads)" == 1 && -n "$t_line" && -n "$r_line" && "$t_line" -lt "$r_line" ]] \
+    && ok "the update runs nginx -t before exactly one reload" || nope "update reloads=$(reloads), -t ${t_line:-none}, reload ${r_line:-none}"
+[[ "$out" == *"before: a.example.com"* && "$out" == *"after:  a.example.com"* ]] \
+    && ok "co-tenants are probed before and after the update" || nope "no co-tenant compare on update: ${out}"
+[[ "$(cat "$VH")" == "$ORIGINAL_VHOST" ]] && ok "the vhost (include already placed) is left as it was" || nope "vhost changed on snippet update"
+: > "$RLOG"
+out="$( (setup_main) 2>&1)"; rc=$?
+mut="$(mutating_commands)"
+[[ $rc -eq 0 && -z "$mut" && "$(reloads)" == 1 ]] \
+    && ok "re-running after the update is a no-op (identical snippet)" || nope "post-update rerun: rc=${rc}, mutating: ${mut:-none}"
+drop_box
+
+echo
+echo "[T1] Basic Auth gate: post-setup verification (A4)"
+make_box no
+out="$( (setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"/backstage/"*"401"* && "$out" == *"/api/backstage/health"*"401"* ]] \
+    && ok "setup verifies unauthenticated /backstage/ and /api/backstage/health return 401" \
+    || nope "verification not reported: rc=${rc}; out: ${out}"
+grep -E 'https://jevnotjev\.breakoutwithai\.com/(api/)?backstage/' "${BOX}/curl.log" | grep -q -- '--config' \
+    && ok "the authenticated probe uses the curl config file" || nope "no authenticated probe: $(cat "${BOX}/curl.log")"
+grep -E 'https://jevnotjev\.breakoutwithai\.com/(api/)?backstage/' "${BOX}/curl.log" | grep -qv -- '--resolve jevnotjev.breakoutwithai.com:443:192.0.2.1' \
+    && nope "a Backstage probe is not pinned to the host" || ok "every Backstage probe is pinned to the host just changed"
+drop_box
+make_box yes
+printf '%s\n' "$OLD_SNIPPET" > "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
+out="$(UNAUTH_CODE=200; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(cat "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf")" == "$OLD_SNIPPET" && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+    && ok "unauthenticated 200 after the reload -> previous snippet and vhost restored, reloaded again, exit non-zero" \
+    || nope "unauth 200 (update): rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
+make_box no
+out="$(UNAUTH_CODE=502; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && ! -e "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+    && ok "unauthenticated 502 (auth not ahead of the proxy) on a fresh install -> snippet removed, vhost restored" \
+    || nope "unauth 502 (install): rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
+make_box no
+out="$(AUTHED_CODE=401; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && ! -e "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+    && ok "authenticated probe still 401 (wrong credentials) -> restore, exit non-zero" \
+    || nope "authed 401: rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
+
+echo
+echo "[T1] sweep #1: authenticated probe must prove it reached the upstream"
+for c in 403 500; do
+    make_box no
+    out="$(AUTHED_CODE=$c; (setup_main) 2>&1)"; rc=$?
+    [[ $rc -ne 0 && ! -e "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+        && ok "authenticated ${c} (nginx auth handler failure, e.g. unreadable htpasswd) -> restore, exit non-zero" \
+        || nope "authed ${c}: rc=${rc}, reloads $(reloads); out: ${out}"
+    drop_box
+done
+make_box yes
+touch "${BOX}/state/active" "${BOX}/state/port_used"
+printf '%s\n' "$OLD_SNIPPET" > "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
+out="$( (setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"authenticated GET /api/backstage/health: 200"* ]] \
+    && ok "release running: authenticated 200 from the upstream passes" || nope "active 200: rc=${rc}; out: ${out}"
+drop_box
+make_box yes
+touch "${BOX}/state/active" "${BOX}/state/port_used"
+printf '%s\n' "$OLD_SNIPPET" > "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
+out="$(AUTHED_CODE=502; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(cat "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf")" == "$OLD_SNIPPET" && "$(reloads)" == 2 ]] \
+    && ok "release running: authenticated 502 is not accepted (502 is allowed only with no release) -> restore" \
+    || nope "active 502: rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
+
+echo
+echo "[T1] sweep #2: a failed transfer never verifies, whatever status it printed"
+make_box no
+out="$(BS_CURL_RC=28; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && ! -e "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" && "$(reloads)" == 2 && "$out" == *"curl exit 28"* ]] \
+    && ok "401/502 followed by curl exit 28 -> verification fails, restore, the curl exit is reported" \
+    || nope "curl 28: rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
+
+echo
+echo "[T1] sweep #3: a failed snippet restore stops before any reload"
+make_box yes
+printf '%s\n' "$OLD_SNIPPET" > "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
+remote() {
+    if [[ "$*" == "cp -p '/var/backups/jevnotjev-backstage/jevnotjev-backstage.conf."*"' '/etc/nginx/snippets/jevnotjev-backstage.conf'" ]]; then
+        printf '%s\n---\n' "$*" >> "$RLOG"; return 1
+    fi
+    fake_remote "$@"
+}
+out="$(UNAUTH_CODE=200; (setup_main) 2>&1)"; rc=$?
+remote() { fake_remote "$@"; }
+[[ $rc -ne 0 && "$(reloads)" == 1 && "$out" == *"RESTORE FAILED"* ]] \
+    && ok "snippet restore failure -> exit non-zero, no further reload, operator told to restore by hand" \
+    || nope "restore failure: rc=${rc}, reloads $(reloads); out: ${out}"
+[[ "$(grep -c "^cp -p '/var/backups/jevnotjev-backstage/jevnotjev-backstage.conf\." "$RLOG")" -ge 2 ]] \
+    && ok "recovery state is kept: the exit trap retries the restore" || nope "no restore retry: $(grep -c 'jevnotjev-backstage.conf\.' "$RLOG")"
+drop_box
+
+echo
+echo "[T1] sweep #7: nginx worker group comes from the effective config"
+make_box no
+printf 'worker_processes auto;\ninclude /etc/nginx/conf.d/*.conf;\n' > "${BOX}/etc/nginx/nginx.conf"
+mkdir -p "${BOX}/etc/nginx/conf.d"; printf 'user nginx;\n' > "${BOX}/etc/nginx/conf.d/00-user.conf"
+printf 'root nginx 640 44\n' > "${HT}.statmeta"; printf 'root nginx 750 4096\n' > "${BOX}/etc/jevnotjev-backstage.statmeta"
+out="$( (setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && ok "a user directive in an included file is found (nginx -T): group nginx accepted" \
+    || nope "included user: rc=${rc}; out: ${out}"
+drop_box
+make_box no
+printf 'worker_processes auto;\n' > "${BOX}/etc/nginx/nginx.conf"
+refuses_untouched "no user directive in the effective config -> refuse, no www-data guess" "worker group"
+drop_box
+make_box no
+touch "${BOX}/state/nginx_T_fail"
+refuses_untouched "nginx -T failing -> refuse, no www-data guess" "worker group"
+drop_box
+
+echo
+echo "[T1] Basic Auth gate: credentials never leave the curl config"
+leaks=0
+for scenario in yes no; do
+    make_box "$scenario"
+    [[ "$scenario" == yes ]] && printf '%s\n' "$OLD_SNIPPET" > "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
+    out="$( (setup_main) 2>&1)"
+    for f in "$RLOG" "${BOX}/curl.log"; do grep -qF "$TEST_PASSWORD" "$f" && leaks=$((leaks+1)); done
+    [[ "$out" == *"$TEST_PASSWORD"* ]] && leaks=$((leaks+1))
+    grep -qF "tester:" "${BOX}/curl.log" && leaks=$((leaks+1))
+    drop_box
+done
+[[ $leaks -eq 0 ]] && ok "the password is in no remote command, no curl argument and no output (install and update runs)" \
+    || nope "credential leaked ${leaks} time(s)"
+
+echo
 echo "[T1] secret boundary"
 trial_hits=0
 for scenario in yes no; do
     make_box "$scenario"
     (setup_main) >/dev/null 2>&1
-    grep -Eq 'trial\.env|/etc/jevnotjev-backstage' "$RLOG" && trial_hits=$((trial_hits+1))
+    # /etc/jevnotjev-backstage also holds the operator's htpasswd, which setup must inspect.
+    grep -q 'trial\.env' "$RLOG" && trial_hits=$((trial_hits+1))
     drop_box
 done
 code_refs="$(grep -c 'trial\.env' "$SETUP")"

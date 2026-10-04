@@ -19,6 +19,7 @@ ok()   { echo "  ok   - $1"; pass=$((pass+1)); }
 nope() { echo "  FAIL - $1"; fail=$((fail+1)); }
 
 export JEVNOTJEV_SERVER_HOST=192.0.2.1
+unset BACKSTAGE_CURL_CONFIG
 
 # A remote command mutates when, after its harmless redirections are removed, it writes,
 # moves, deletes, creates, or changes a service or nginx state.
@@ -193,9 +194,18 @@ case "$cmd" in
     "echo ok") echo ok ;;
     *"uname -m"*)
         printf '%s\n' arch=x86_64 bun=1.3.0 user=absent port=free unit=absent snippet=absent \
-            vhost=present vhost_link=yes include=absent enabled=no active=no ;;
+            vhost=present vhost_link=yes include=absent enabled=no active=no \
+            ht_tool=htpasswd nginx_group=www-data htpasswd=root:www-data:640:44 htpasswd_dir=root:www-data:750 ;;
     *"jevnotjev-backstage-current"*)
         printf '%s\n' release=none verified=no service=inactive enabled=no setup=no ;;
+    "S='/etc/nginx/snippets/jevnotjev-backstage.conf'"*)
+        # The installed snippet: the repo copy (auth), auth switched off, unreadable, or absent.
+        case "${FAKE_AUTH:-}" in
+            1) cat "${FAKE_REPO}/.deploy/backstage-nginx.conf" ;;
+            off) sed 's/auth_basic "Backstage";/auth_basic off;/' "${FAKE_REPO}/.deploy/backstage-nginx.conf" ;;
+            readfail) echo 'cat: Permission denied' >&2; exit 1 ;;
+            *) exit 10 ;;
+        esac ;;
     *"/var/www/jevnotjev"*)
         printf '%s\n' release=/var/www/jevnotjev-releases/20261003T203100Z-80cf0a1 marker=80cf0a1full \
             verified=yes service=active setup=yes ;;
@@ -223,6 +233,7 @@ esac
 EOF
 chmod +x "${FAKEBIN}/ssh" "${FAKEBIN}/curl"
 export FAKE_SSH_LOG="$SSHLOG"
+export FAKE_REPO="$REPO_ROOT"
 
 # Split the log into commands and report the mutating ones.
 mutating_commands() {
@@ -261,6 +272,44 @@ bs="$(section backstage)"
 printf '%s\n' "$bs" | grep -Eq '^  served +TOP_LEVEL_SHA$' \
     && ok "--status backstage reads the top-level release version, not a nested catalog version" \
     || nope "--status backstage served wrong with a live health body: ${bs}"
+
+echo
+echo "[T1] --status with the Basic Auth snippet installed"
+CFGDIR="$(mktemp -d)"
+STATUS_PW="pw-status-NEVER-LOGGED"
+( umask 077; printf 'user = "tester:%s"\n' "$STATUS_PW" > "${CFGDIR}/curl" )
+: > "${SSHLOG}.curl"
+out="$(unset BACKSTAGE_CURL_CONFIG; FAKE_AUTH=1 FAKE_HEALTH_UP=1 PATH="${FAKEBIN}:${PATH}" bash "$SHIP" --status --module backstage 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$out" == *"BACKSTAGE_CURL_CONFIG"* && "$out" != *"401"* ]] \
+    && ok "auth snippet + BACKSTAGE_CURL_CONFIG unset -> status fails naming the variable, not a bare 401" \
+    || nope "status auth no config: rc=${rc}; out: ${out}"
+grep -q 'api/backstage' "${SSHLOG}.curl" \
+    && nope "an unauthenticated Backstage probe was still sent" || ok "no Backstage probe is sent without credentials"
+: > "${SSHLOG}.curl"
+out="$(BACKSTAGE_CURL_CONFIG="${CFGDIR}/curl" FAKE_AUTH=1 FAKE_HEALTH_UP=1 PATH="${FAKEBIN}:${PATH}" bash "$SHIP" --status --module backstage 2>&1)"; rc=$?
+bs="$(section backstage)"
+[[ $rc -eq 0 ]] && printf '%s\n' "$bs" | grep -Eq '^  served +TOP_LEVEL_SHA$' && printf '%s\n' "$bs" | grep -Eq '^  auth +yes$' \
+    && ok "with the curl config set, status reads the served version and reports auth yes" \
+    || nope "status auth with config: rc=${rc}; out: ${out}"
+grep 'api/backstage/health' "${SSHLOG}.curl" | grep -qF -- "--config ${CFGDIR}/curl" \
+    && ok "the Backstage status probe passes the curl config file" || nope "status probe without --config: $(cat "${SSHLOG}.curl")"
+grep -qF "$STATUS_PW" "${SSHLOG}.curl" "$SSHLOG" || [[ "$out" == *"$STATUS_PW"* ]] \
+    && nope "the password reached a command line or output" || ok "the password is in no curl argument, remote command or output"
+grep 'https://' "${SSHLOG}.curl" | grep -v 'api/backstage' | grep -q -- '--config' \
+    && nope "a non-Backstage probe carried the curl config" || ok "non-Backstage probes never carry the curl config"
+out="$(unset BACKSTAGE_CURL_CONFIG; PATH="${FAKEBIN}:${PATH}" bash "$SHIP" --status --module backstage 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && ok "no auth snippet on the host -> status needs no curl config" || nope "status open: rc=${rc}; out: ${out}"
+out="$(unset BACKSTAGE_CURL_CONFIG; FAKE_AUTH=off PATH="${FAKEBIN}:${PATH}" bash "$SHIP" --status --module backstage 2>&1)"; rc=$?
+bs="$(section backstage)"
+[[ $rc -eq 0 ]] && printf '%s\n' "$bs" | grep -Eq '^  auth +no$' \
+    && ok "sweep #5: a snippet with 'auth_basic off;' reports auth no (the file directive alone is not auth)" \
+    || nope "auth off: rc=${rc}; out: ${out}"
+out="$(BACKSTAGE_CURL_CONFIG="${CFGDIR}/curl" FAKE_AUTH=readfail PATH="${FAKEBIN}:${PATH}" bash "$SHIP" --status --module backstage 2>&1)"; rc=$?
+bs="$(section backstage)"
+[[ $rc -ne 0 ]] && printf '%s\n' "$bs" | grep -Eq '^  auth +unknown$' \
+    && ok "sweep #4: an unreadable snippet reports auth unknown and fails, never auth no" \
+    || nope "read failure: rc=${rc}; out: ${out}"
+rm -rf "$CFGDIR"
 
 echo
 echo "[T1] --setup --dry-run through the real scripts is read-only"

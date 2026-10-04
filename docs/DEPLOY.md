@@ -26,6 +26,29 @@ references #67, so plain `ship.sh` reports backstage FAILED (non-zero) in either
 `--status` prints, per module, the served SHA, the current release, its verified marker, the
 service state and whether setup is present. Backstage specifics: `docs/backstage-deploy.md`.
 
+## Backstage Basic Auth (before `--setup --module backstage`)
+
+Both Backstage locations require Basic Auth. Run these in order (full detail and the openssl
+variant in `docs/backstage-deploy.md` § Basic Auth gate):
+
+```bash
+# On the host as root (ssh -t), password typed at the prompt, tester replaced with the login
+install -d -o root -g www-data -m 0750 /etc/jevnotjev-backstage && htpasswd -B -c /etc/jevnotjev-backstage/htpasswd tester && chown root:www-data /etc/jevnotjev-backstage/htpasswd && chmod 0640 /etc/jevnotjev-backstage/htpasswd
+# On the workstation: private curl config holding the same login and password
+d="$HOME/.config/jevnotjev"; mkdir -p "$d" && chmod 700 "$d" && t="$(mktemp "$d/.backstage-curl.XXXXXX")" && chmod 600 "$t" && read -r -s -p 'Backstage password: ' BP && echo && printf 'user = "tester:%s"\n' "$BP" > "$t" && mv -f "$t" "$d/backstage-curl"; unset BP
+export BACKSTAGE_CURL_CONFIG="$HOME/.config/jevnotjev/backstage-curl"
+./.deploy/ship.sh --setup --module backstage --dry-run
+./.deploy/ship.sh --setup --module backstage
+# Both print 401
+curl -s -o /dev/null -w '%{http_code}\n' https://jevnotjev.breakoutwithai.com/backstage/
+curl -s -o /dev/null -w '%{http_code}\n' https://jevnotjev.breakoutwithai.com/api/backstage/health
+```
+
+Setup refuses, changing nothing, until the htpasswd is root:<nginx group> 0640 and non-empty, and
+verifies after the reload that both routes answer 401 without credentials and reach the upstream with them,
+restoring the previous nginx config otherwise. Backstage deploy, rollback and `--status` fail
+naming `BACKSTAGE_CURL_CONFIG` when the host has the gate and the variable is unset.
+
 ## First time only: vhost and certificate
 
 ```bash
@@ -90,3 +113,4 @@ for t in .deploy/tests/*.test.sh; do bash "$t" || echo "RED: $t"; done
 | `JEVNOTJEV_SERVER_USER` | `root` |
 | `DEPLOY_ALLOW_BRANCH` | `main` (the commit must still exist on a remote branch) |
 | `CERTBOT_EMAIL` | none, required by `provision.sh` when a certificate is issued |
+| `BACKSTAGE_CURL_CONFIG` | none, required by Backstage setup, deploy, rollback and status once the Basic Auth gate is on the host |

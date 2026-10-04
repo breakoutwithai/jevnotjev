@@ -87,5 +87,89 @@ backstage_list_neighbours() {
 
 backstage_check_curl_config() {
     [[ -n "${BACKSTAGE_CURL_CONFIG:-}" ]] || return 0
-    bun -e 'import {statSync} from "node:fs";const s=statSync(process.argv[1]);if(!s.isFile()||s.uid!==process.getuid()||(s.mode&0o077)!==0)process.exit(1)' "$BACKSTAGE_CURL_CONFIG"
+    bun -e 'import {statSync} from "node:fs";const s=statSync(process.argv[1]);if(!s.isFile()||s.uid!==process.getuid()||(s.mode&0o077)!==0)process.exit(1)' "$BACKSTAGE_CURL_CONFIG" 2>/dev/null
+}
+
+# backstage_snippet_auth - pure. Snippet text on stdin; prints the EFFECTIVE auth of the supported
+# layout: exactly one top-level `location ^~ /backstage/` and one `location ^~ /api/backstage/`.
+#   yes      both locations carry auth_basic (not off) and auth_basic_user_file
+#   no       neither location has auth, or auth_basic is off in both
+#   unknown  anything else: one location only, auth_basic without a file, auth directives outside
+#            those two locations or in nested blocks, missing/duplicate locations, unbalanced braces
+# Statements are split on ; { } so one-line and multi-line blocks parse the same.
+backstage_snippet_auth() {
+    awk '
+    { sub(/#.*/, ""); buf = buf " " $0 }
+    END {
+        gsub(/[{};]/, "&\n", buf)
+        n = split(buf, st, "\n"); depth = 0; cur = ""; bad = 0
+        for (i = 1; i <= n; i++) {
+            s = st[i]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", s)
+            if (s == "") continue
+            last = substr(s, length(s), 1)
+            if (last == "{") {
+                h = substr(s, 1, length(s) - 1); gsub(/[[:space:]]+$/, "", h); gsub(/[[:space:]]+/, " ", h)
+                if (depth == 0) {
+                    if (h == "location ^~ /backstage/") { cur = "page"; seen["page"]++ }
+                    else if (h == "location ^~ /api/backstage/") { cur = "api"; seen["api"]++ }
+                    else cur = "other"
+                } else if (cur == "page" || cur == "api") bad = 1
+                depth++
+            } else if (s == "}") {
+                depth--; if (depth < 0) bad = 1; if (depth == 0) cur = ""
+            } else if (last == ";") {
+                s = substr(s, 1, length(s) - 1); split(s, w, /[[:space:]]+/); d = w[1]
+                if (d != "auth_basic" && d != "auth_basic_user_file") continue
+                if (depth != 1 || (cur != "page" && cur != "api") || ((cur, d) in dir)) { bad = 1; continue }
+                v = s; sub(/^[^[:space:]]+[[:space:]]*/, "", v); gsub(/["\047]/, "", v)
+                dir[cur, d] = v
+            } else bad = 1
+        }
+        if (depth != 0 || bad || seen["page"] != 1 || seen["api"] != 1) { print "unknown"; exit }
+        for (k = 1; k <= 2; k++) {
+            loc = (k == 1 ? "page" : "api")
+            ab = ((loc, "auth_basic") in dir); uf = ((loc, "auth_basic_user_file") in dir)
+            if (ab && dir[loc, "auth_basic"] == "off") r[loc] = "no"
+            else if (ab && uf && dir[loc, "auth_basic"] != "" && dir[loc, "auth_basic_user_file"] != "") r[loc] = "yes"
+            else if (!ab && !uf) r[loc] = "no"
+            else r[loc] = "unknown"
+        }
+        print (r["page"] == r["api"] ? r["page"] : "unknown")
+    }'
+}
+
+# backstage_auth_state - prints yes when the INSTALLED snippet gates both Backstage locations with
+# Basic Auth, no when it gates neither (or is absent). Fails closed (returns 1): a read error, a
+# failed probe, or a layout backstage_snippet_auth does not recognise.
+backstage_auth_state() {
+    local text rc=0 state
+    text="$(remote "S='/etc/nginx/snippets/jevnotjev-backstage.conf'; test -e \"\$S\" || exit 10; cat \"\$S\"")" || rc=$?
+    case "$rc" in
+        0) ;;
+        10) echo no; return 0 ;;
+        *) return 1 ;;
+    esac
+    state="$(printf '%s\n' "$text" | backstage_snippet_auth)" || return 1
+    case "$state" in
+        yes|no) echo "$state" ;;
+        *) return 1 ;;
+    esac
+}
+
+# backstage_require_curl_config - $1 is the auth state (yes|no). With auth on the host every
+# Backstage probe needs the private curl config; say so by name instead of failing on a bare 401.
+backstage_require_curl_config() {
+    case "$1" in
+        no) ;;
+        yes)
+            if [[ -z "${BACKSTAGE_CURL_CONFIG:-}" ]]; then
+                echo "Backstage is behind Basic Auth on the host: export BACKSTAGE_CURL_CONFIG=<absolute path to your private curl config> (see docs/backstage-deploy.md)." >&2
+                return 1
+            fi ;;
+        *) echo "Backstage auth state '${1}' is unknown; refusing." >&2; return 1 ;;
+    esac
+    backstage_check_curl_config || {
+        echo "BACKSTAGE_CURL_CONFIG must name a regular file owned by you with mode 0600: ${BACKSTAGE_CURL_CONFIG}" >&2
+        return 1
+    }
 }

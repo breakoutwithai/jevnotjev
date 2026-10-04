@@ -4,15 +4,34 @@ The site is the committed `site/` folder, served as static files by nginx on the
 `breakout-apps` host (178.62.69.200). Scripts live in `.deploy/`, forked from lakelife's deploy
 for the same host.
 
+## One command per action
+
+`.deploy/ship.sh` is the entrypoint for every module. It dispatches to the module scripts below
+and adds no release logic of its own.
+
+| Action | Command |
+|---|---|
+| Live state, read-only | `.deploy/ship.sh --status` |
+| One-time setup (static: vhost + TLS; backstage: user, unit, nginx include) | `.deploy/ship.sh --setup --module static` or `--module backstage`, each with `--dry-run` first |
+| Deploy every module (static, then backstage) | `.deploy/ship.sh --dry-run`, then `.deploy/ship.sh` |
+| Deploy one module | `.deploy/ship.sh --module static` or `.deploy/ship.sh --module backstage` |
+| Roll back static to the previous verified release | `.deploy/ship.sh --module static --rollback` |
+| Roll back backstage to a verified release | `.deploy/ship.sh --module backstage --rollback <full SHA>` |
+
+`--module all` is the default. A static failure stops before backstage; a backstage failure
+leaves the verified static release live. The exit code is the first failing module's own code.
+`--status` prints, per module, the served SHA, the current release, its verified marker, the
+service state and whether setup is present. Backstage specifics: `docs/backstage-deploy.md`.
+
 ## First time only: vhost and certificate
 
 ```bash
-./.deploy/preflight.sh                                  # read-only audit, mutates nothing
-./.deploy/provision.sh --dry-run                        # what provisioning would do
-CERTBOT_EMAIL=<acme contact> ./.deploy/provision.sh     # install vhost, nginx -t, reload, certbot
+./.deploy/preflight.sh                                                    # read-only audit
+./.deploy/ship.sh --setup --module static --dry-run                       # what provisioning would do
+CERTBOT_EMAIL=<acme contact> ./.deploy/ship.sh --setup --module static    # vhost, nginx -t, reload, certbot
 ```
 
-`provision.sh` installs only `/etc/nginx/sites-available/jevnotjev.breakoutwithai.com` (plus its
+`--setup --module static` runs `provision.sh`, which installs only `/etc/nginx/sites-available/jevnotjev.breakoutwithai.com` (plus its
 `sites-enabled` link), runs `nginx -t` before every reload, never restarts nginx, and issues a
 certificate for this one domain. It refuses if DNS does not point at the host, and it refuses
 without `CERTBOT_EMAIL` when a certificate is needed.
@@ -24,9 +43,11 @@ Deploy from a clean worktree pinned to `origin/main`:
 ```bash
 git fetch origin main --no-tags
 git worktree add --detach <dir> origin/main
-<dir>/.deploy/deploy.sh --dry-run
-<dir>/.deploy/deploy.sh
+<dir>/.deploy/ship.sh --module static --dry-run
+<dir>/.deploy/ship.sh --module static
 ```
+
+`--module static` runs `deploy.sh`.
 
 The deploy refuses unless HEAD is `origin/main`, the tracked tree is clean, and
 `/var/www/jevnotjev` is absent or a symlink into `/var/www/jevnotjev-releases`. It ships
@@ -43,8 +64,8 @@ active and previous ones.
 ## Rollback
 
 ```bash
-./.deploy/deploy.sh --rollback --dry-run
-./.deploy/deploy.sh --rollback
+./.deploy/ship.sh --module static --rollback --dry-run
+./.deploy/ship.sh --module static --rollback
 ```
 
 Swaps to the newest other release that has a `DEPLOYED_SHA` marker and verifies the served SHA.

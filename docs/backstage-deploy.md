@@ -2,17 +2,26 @@
 
 Backstage is an additional Bun service. The existing static deploy script cannot deploy its API. Its main-stage release and guards remain unchanged. The Backstage browser files and API travel together in one locally built release; both `/backstage/` and `/api/backstage/` proxy to that service, taking priority over the static root. Each process uses its immutable release directory for static files, so the old process cannot serve the new frontend during a symlink swap. A restart briefly interrupts Backstage only. The browser also checks the release version before accepting a run.
 
-Read-only inspection on 2026-10-03 confirmed Linux x86_64, `/usr/local/bin/bun`, the existing domain's Certbot-managed TLS vhost, and no listener on port 3456. Recheck those facts before setup; they are not permission to change production. No setup or deploy has been executed for this change.
+Read-only inspection on 2026-10-03 confirmed Linux x86_64, `/usr/local/bin/bun`, the existing domain's Certbot-managed TLS vhost, and no listener on port 3456. `--setup --dry-run` rechecks those facts; they are not permission to change production. No setup or deploy has been executed for this change.
 
 ## One-time setup after authorization
 
-Use `.deploy/config.sh` for the SSH target and key. Read the installed `/etc/nginx/sites-available/jevnotjev.breakoutwithai.com` first. Do not replace it with the repository HTTP-only template: that would remove Certbot's TLS configuration.
+Two operator commands, after reading the dry run's plan and vhost diff:
 
-1. Confirm port 3456 is unused, the installed Bun supports the built server, and a dedicated non-login `jevnotjev-backstage` user/group exists (create it only during authorized setup). Capture the existing vhost and all co-tenant status codes using `.deploy/lib.sh` `list_neighbours` and `probe_neighbours`.
-2. Install `.deploy/backstage.service` as `/etc/systemd/system/jevnotjev-backstage.service`. It runs as `jevnotjev-backstage`, bound to loopback. `StateDirectory=jevnotjev-backstage` with mode 0700 grants only that service writable state under `/var/lib/jevnotjev-backstage`, compatible with `ProtectSystem=strict`. Run `systemctl daemon-reload` and `systemctl enable jevnotjev-backstage`; verify with `systemctl is-enabled jevnotjev-backstage`. Enable configures reboot recovery; do not start it until a release exists.
-3. Install `.deploy/backstage-nginx.conf` as `/etc/nginx/snippets/jevnotjev-backstage.conf`. Add exactly `include /etc/nginx/snippets/jevnotjev-backstage.conf;` inside this domain's existing HTTPS server block. Keep every certificate directive and other location unchanged. Review the installed diff. Do not edit another domain.
-4. Run `nginx -t`. On failure restore the saved vhost before doing anything else. On success use `systemctl reload nginx`, never restart. Re-probe all neighbours. A changed neighbour means restore the vhost, validate it and reload again.
-5. Run the guarded deployment below. Before the initial release starts, the new Backstage locations will return a gateway error; the main site continues to serve its static release. If setup is abandoned, restore the original vhost and reload after validation.
+```sh
+.deploy/ship.sh --status --module backstage          # read-only: setup present yes/no
+.deploy/ship.sh --setup --module backstage --dry-run # read-only probes, planned commands, vhost diff
+.deploy/ship.sh --setup --module backstage           # apply only what is absent
+```
+
+`--setup --module backstage` runs `.deploy/backstage-setup.sh`, which uses `.deploy/config.sh` for the SSH target and key and does, in order:
+
+1. One read-only probe: Linux x86_64, `/usr/local/bin/bun` runs, port 3456 is free (or held by the running `jevnotjev-backstage` service), the vhost is installed and `sites-enabled` links to it, and which of the steps below are already done. It refuses, changing nothing, on any mismatch, or when an installed unit or snippet differs from the repository copy (never overwritten).
+2. Creates the non-login system user/group `jevnotjev-backstage` if absent. Installs `.deploy/backstage.service` as `/etc/systemd/system/jevnotjev-backstage.service` if absent, runs `systemctl daemon-reload` and `systemctl enable jevnotjev-backstage`. It runs as `jevnotjev-backstage`, bound to loopback. `StateDirectory=jevnotjev-backstage` with mode 0700 grants only that service writable state under `/var/lib/jevnotjev-backstage`, compatible with `ProtectSystem=strict`. Enable configures reboot recovery; the service is not started until a release exists.
+3. Probes every co-tenant in `/etc/nginx/sites-enabled`, saves a timestamped backup of the installed vhost under `/var/backups/jevnotjev-backstage/`, installs `.deploy/backstage-nginx.conf` as `/etc/nginx/snippets/jevnotjev-backstage.conf` if absent, and inserts exactly `include /etc/nginx/snippets/jevnotjev-backstage.conf;` if absent, inside this domain's only HTTPS server block. Every certificate directive and other location is kept; the vhost is never replaced by the repository HTTP-only template, which would remove Certbot's TLS configuration. No other domain is edited.
+4. Runs `nginx -t`. On failure it restores the saved vhost and never reloads. On success it runs `systemctl reload nginx`, never restart, and re-probes all neighbours. A changed neighbour restores the vhost, validates it and reloads again. Either failure exits non-zero.
+
+Re-running on a configured host changes nothing and exits 0. Then run the guarded deployment below. Before the initial release starts, the new Backstage locations return a gateway error; the main site continues to serve its static release. If setup is abandoned, copy the backup back over the vhost, run `nginx -t` and reload.
 
 The MVP has no account service. For a private tester rollout, add an operator-managed nginx Basic Auth gate to BOTH Backstage locations, with credentials stored outside release artifacts. Never put tester BYOK keys into that gate, deployment configuration or shell arguments. The dedicated funded key is the explicit exception: it belongs only in the protected external configuration described below.
 
@@ -21,9 +30,11 @@ The MVP has no account service. For a private tester rollout, add an operator-ma
 Run the local test/typecheck/build gate before promotion. A production release requires a merged PR linked to #67, a clean checkout at freshly fetched `origin/main`, and separate deploy authorization.
 
 ```sh
-.deploy/backstage-deploy.sh --dry-run
-.deploy/backstage-deploy.sh
+.deploy/ship.sh --module backstage --dry-run
+.deploy/ship.sh --module backstage
 ```
+
+`--module backstage` runs `.deploy/backstage-deploy.sh`; `.deploy/ship.sh` with no `--module` deploys static first, then Backstage.
 
 The helper rebuilds with `bun scripts/backstage-build.ts --committed` on the workstation from a temporary `git archive` snapshot of the approved SHA, so concurrent working-file edits cannot enter the payload. Each build returns a unique `dist/backstage-build-<suffix>` directory containing `site`, `server.js` and `release.json`; `.deploy/backstage-package.ts` rejects wrong version, missing browser/backend files, symlinks and unexpected files. The helper packages and verifies transferred archive bytes, then extracts under `/var/www/jevnotjev-backstage-releases/<SHA>`. Production never builds.
 
@@ -32,8 +43,8 @@ Activation swaps `/var/www/jevnotjev-backstage-current`, restarts only `jevnotje
 ## Rollback
 
 ```sh
-.deploy/backstage-deploy.sh --rollback FULL_PREVIOUS_SHA --dry-run
-.deploy/backstage-deploy.sh --rollback FULL_PREVIOUS_SHA
+.deploy/ship.sh --module backstage --rollback FULL_PREVIOUS_SHA --dry-run
+.deploy/ship.sh --module backstage --rollback FULL_PREVIOUS_SHA
 ```
 
 Rollback requires the target's `.verified` marker and restores its complete browser/backend pair. Verification is the same as promotion. A failed promotion restores the previous pair and checks its API version. A failed first release stops only the Backstage service and removes its current symlink only after checking it still names that failed release; restore the setup vhost backup if Backstage should be removed entirely. A failed rollback or unreachable host is reported for inspection, never treated as success.

@@ -22,6 +22,9 @@ rules are in that script's header. No file here was captured from the host yet.
 | health-start | `http/jevnotjev.breakoutwithai.com_api_backstage_health@auth.2.txt` | transcribed | 200 once it is up |
 | no-auth | `http/jevnotjev.breakoutwithai.com_backstage_.txt`, `..._api_backstage_health.txt` | transcribed | Backstage page and API served without auth (before #83) |
 | gated | `http/jevnotjev.breakoutwithai.com_*.txt` | hand-built | S1/S2 answers: `/`, `/label/`, `/little-shop/` 200; `/backstage/` and `/api/backstage/health` 401 anonymous, 200 with the curl config; `/DEPLOYED_SHA` and health `version` carry the served SHA token |
+| page-start | `http/jevnotjev.breakoutwithai.com_backstage_@auth.1.txt`, `.2.txt` | hand-built | the Backstage page 502 then 200 while the service starts (same upstream as health) |
+| no-static-release | `http/jevnotjev.breakoutwithai.com_.txt`, `_label_`, `_little-shop_`, `_DEPLOYED_SHA` | hand-built | 404 before the first static deploy (`.deploy/provision.sh:140`) |
+| backstage-no-release | `http/jevnotjev.breakoutwithai.com_backstage_@auth.txt`, `..._api_backstage_health@auth.txt` | hand-built | 502 with the curl config while no Backstage release exists (`docs/backstage-deploy.md:53`) |
 
 Bodies carrying `{{STATIC_SHA}}` / `{{BACKSTAGE_SHA}}` are filled by the double from the test's served
 state, so one file serves every SHA a test sets up.

@@ -29,12 +29,35 @@ export function parseJunit(xml: string): Map<string, Counts> {
     const name = attr(tag, "name");
     const file = attr(tag, "file");
     if (name === undefined || name !== file || attr(tag, "line") !== undefined) continue;
-    const tests = Number(attr(tag, "tests") ?? "0");
-    const failed = Number(attr(tag, "failures") ?? "0");
-    const skipped = Number(attr(tag, "skipped") ?? "0");
+    const tests = count(tag, "tests", file);
+    const failed = count(tag, "failures", file);
+    const skipped = count(tag, "skipped", file);
+    if (failed + skipped > tests) throw new Error(`${file}: failures ${failed} + skipped ${skipped} exceed tests ${tests}`);
     out.set(file, { passed: tests - failed - skipped, failed });
   }
   return out;
+}
+
+// A count attribute must be a whole number written in digits; anything else (NaN, a fraction, a
+// negative) would compare false against every floor and pass silently.
+function count(tag: string, name: string, file: string): number {
+  const raw = attr(tag, name);
+  if (raw === undefined || !/^\d+$/.test(raw)) throw new Error(`${file}: ${name}="${raw ?? ""}" is not a whole number`);
+  return Number(raw);
+}
+
+export type SeedResult = { manifest: Manifest } | { error: string };
+
+// The manifest a real run supports: only from a bun run that exited 0 with a report, and only when
+// no test failed anywhere.
+export function buildSeed(bun: { ok: boolean; results: Map<string, Counts> }, shell: Map<string, Counts>): SeedResult {
+  if (!bun.ok) return { error: "bun test failed; no seed" };
+  if (bun.results.size === 0) return { error: "bun test produced no report; no seed" };
+  const all = new Map<string, Counts>([...bun.results, ...shell]);
+  for (const [file, got] of all) if (got.failed > 0) return { error: `${file}: ${got.failed} failed; no seed` };
+  const files: Record<string, number> = {};
+  for (const file of [...all.keys()].sort()) files[file] = all.get(file)?.passed ?? 0;
+  return { manifest: { minFiles: all.size, files } };
 }
 
 export function parseShellSummary(output: string): Counts | null {
@@ -74,19 +97,28 @@ export function checkCounts(manifest: Manifest, results: Map<string, Counts>): s
   return problems;
 }
 
-function runBun(root: string): { results: Map<string, Counts>; ok: boolean; tail: string } {
+function runBun(root: string): { results: Map<string, Counts>; ok: boolean; tail: string; error: string | null } {
   const dir = mkdtempSync(join(tmpdir(), "jevnotjev-gate-"));
   const report = join(dir, "junit.xml");
   const run = Bun.spawnSync(["bun", "test", "--reporter=junit", `--reporter-outfile=${report}`], { cwd: root, stdout: "pipe", stderr: "pipe" });
   const tail = `${run.stdout.toString()}${run.stderr.toString()}`.trim().split("\n").slice(-6).join("\n");
   let results = new Map<string, Counts>();
+  let error: string | null = null;
+  let xml: string | null = null;
   try {
-    results = parseJunit(readFileSync(report, "utf8"));
+    xml = readFileSync(report, "utf8");
   } catch {
-    // No report: every bun file shows up as "not run".
+    error = "bun test wrote no junit report";
+  }
+  if (xml !== null) {
+    try {
+      results = parseJunit(xml);
+    } catch (e) {
+      error = `bun junit report rejected: ${e instanceof Error ? e.message : String(e)}`;
+    }
   }
   rmSync(dir, { recursive: true, force: true });
-  return { results, ok: run.exitCode === 0, tail };
+  return { results, ok: run.exitCode === 0 && error === null, tail, error };
 }
 
 function runShell(root: string): Map<string, Counts> {
@@ -110,12 +142,16 @@ function main(): number {
   const root = join(import.meta.dir, "..");
   const seed = process.argv.includes("--seed");
   const bun = runBun(root);
-  const results = new Map<string, Counts>([...bun.results, ...runShell(root)]);
+  const shell = runShell(root);
+  const results = new Map<string, Counts>([...bun.results, ...shell]);
   if (seed) {
-    const files: Record<string, number> = {};
-    for (const file of [...results.keys()].sort()) files[file] = results.get(file)?.passed ?? 0;
-    console.log(JSON.stringify({ minFiles: results.size, files }, null, 2));
-    return [...results.values()].some((r) => r.failed > 0) ? 1 : 0;
+    const built = buildSeed(bun, shell);
+    if ("error" in built) {
+      console.error(`gate --seed: ${built.error}${bun.error ? ` (${bun.error})` : ""}\n${bun.tail}`);
+      return 1;
+    }
+    console.log(JSON.stringify(built.manifest, null, 2));
+    return 0;
   }
   const manifest = parseManifest(readFileSync(join(root, MANIFEST_PATH), "utf8"));
   const names = [...new Set([...Object.keys(manifest.files), ...results.keys()])].sort();
@@ -127,6 +163,7 @@ function main(): number {
     console.log(`${String(got?.passed ?? "-").padStart(4)} / ${String(floor ?? "-").padStart(4)}  ${got?.failed ? `${got.failed} FAILED  ` : ""}${file}`);
   }
   const problems = checkCounts(manifest, results);
+  if (bun.error !== null) problems.push(bun.error);
   if (!bun.ok && problems.length === 0) problems.push(`bun test exited non-zero:\n${bun.tail}`);
   if (problems.length > 0) {
     console.log(`gate: FAIL (${problems.length} problem${problems.length === 1 ? "" : "s"})`);

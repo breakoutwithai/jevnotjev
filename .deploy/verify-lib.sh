@@ -65,17 +65,37 @@ verify_static_sha() {
     fi
 }
 
-# verify_backstage_health <expected version or empty> <release yes|none> - the authenticated health
-# route: 200 with a running release (502 accepted only when no release exists, docs/backstage-deploy.md:53).
-# A 502 while a release exists is retried (the service may be starting): VERIFY_ATTEMPTS x VERIFY_SLEEP s.
-verify_backstage_health() {
-    local want="$1" release="$2" attempt=1 attempts="${VERIFY_ATTEMPTS:-5}" version
+
+# verify_backstage_auth <expected version or empty> <release yes|none> - both authenticated routes,
+# /backstage/ and /api/backstage/health: 200 with a running release, 502 only while none exists
+# (docs/backstage-deploy.md:53). While a release exists, a 502 on EITHER route is retried (the service
+# may be starting) and BOTH routes are re-read on every attempt: VERIFY_ATTEMPTS x VERIFY_SLEEP s.
+verify_backstage_auth() {
+    local want="$1" release="$2" attempt=1 attempts="${VERIFY_ATTEMPTS:-5}" version page_code page_rc
     while :; do
+        verify_get auth /backstage/
+        page_code="$VERIFY_CODE"; page_rc="$VERIFY_RC"
         verify_get auth /api/backstage/health
-        [[ "$release" == yes && "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == "$VERIFY_NO_RELEASE_CODE" && "$attempt" -lt "$attempts" ]] || break
-        attempt=$((attempt + 1))
-        sleep "${VERIFY_SLEEP:-2}"
+        if [[ "$release" == yes && "$attempt" -lt "$attempts" ]] \
+            && { [[ "$page_rc" -eq 0 && "$page_code" == "$VERIFY_NO_RELEASE_CODE" ]] \
+                 || [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == "$VERIFY_NO_RELEASE_CODE" ]]; }; then
+            attempt=$((attempt + 1))
+            sleep "${VERIFY_SLEEP:-2}"
+            continue
+        fi
+        break
     done
+
+    if [[ "$page_rc" -eq 0 && "$page_code" == "$VERIFY_OK_CODE" ]]; then
+        verify_pass "S2 auth /backstage/ ${VERIFY_OK_CODE}"
+    elif [[ "$release" != yes && "$page_rc" -eq 0 && "$page_code" == "$VERIFY_NO_RELEASE_CODE" ]]; then
+        verify_pass "S2 auth /backstage/ ${VERIFY_NO_RELEASE_CODE} (no release yet)"
+    elif [[ "$page_rc" -eq 0 ]]; then
+        verify_fail "S2 auth /backstage/: expected ${VERIFY_OK_CODE}, got ${page_code} after ${attempt} attempt(s)"
+    else
+        verify_fail "S2 auth /backstage/: expected ${VERIFY_OK_CODE}, got ${page_code}, curl exit ${page_rc} after ${attempt} attempt(s)"
+    fi
+
     if [[ "$release" != yes && "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == "$VERIFY_NO_RELEASE_CODE" ]]; then
         verify_pass "S2 auth /api/backstage/health ${VERIFY_NO_RELEASE_CODE} (no release yet)"
         [[ -z "$want" ]] || verify_fail "S1 backstage version: expected ${want}, no release is running"
@@ -112,39 +132,49 @@ verify_release_tag() {
     fi
 }
 
-# verify_live <expected static SHA|""> <expected backstage SHA|""> <require tag yes|no> <backstage release yes|none>
-# An empty expected SHA means that module's SHA is not asserted by this caller (a partial deploy or
-# setup); the S2 gate and public paths are always asserted. Prints one PASS/FAIL line per assertion
-# and a summary; returns 1 when any assertion failed.
+# verify_live <expected static SHA|""> <expected backstage SHA|""> <require tag yes|no>
+#             [backstage release yes|none] [scope all|static|backstage] [static release yes|none]
+# An empty expected SHA means that module's SHA is not asserted by this caller. Scope `all` (deploy,
+# rollback, --status, --verify) asserts the S2 gate and the public paths; `static` (static setup)
+# asserts only the public paths, and `backstage` (Backstage setup) only the gate. The public paths
+# answer 200, or 404 while static has no release (.deploy/provision.sh:140). Prints one PASS/FAIL
+# line per assertion and a summary; returns 1 when any assertion failed.
 verify_live() {
-    local want_static="$1" want_backstage="$2" want_tag="$3" release="${4:-yes}" path tag_sha
+    local want_static="$1" want_backstage="$2" want_tag="$3" release="${4:-yes}" scope="${5:-all}"
+    local static_release="${6:-yes}" path tag_sha public_code public_note=""
     VERIFY_PASSED=0; VERIFY_FAILED=0
-    echo "verify (read-only, live): static ${want_static:-not asserted}, backstage ${want_backstage:-not asserted}, release tag $([[ "$want_tag" == yes ]] && echo required || echo 'not required')"
+    echo "verify (read-only, live, scope ${scope}): static ${want_static:-not asserted}, backstage ${want_backstage:-not asserted}, release tag $([[ "$want_tag" == yes ]] && echo required || echo 'not required')"
 
     [[ -z "$want_static" ]] || verify_static_sha "$want_static"
 
-    for path in "${VERIFY_GATED_PATHS[@]}"; do
-        verify_code anon "$path" "$VERIFY_UNAUTH_CODE" "S2 anon ${path}"
-    done
-
-    if [[ -z "${BACKSTAGE_CURL_CONFIG:-}" ]] || ! backstage_check_curl_config; then
-        verify_fail "S2 auth: BACKSTAGE_CURL_CONFIG must name a private (0600, yours) curl config holding the Backstage login (docs/backstage-deploy.md § Basic Auth gate)"
-        [[ -z "$want_backstage" ]] || verify_fail "S1 backstage version: not read without BACKSTAGE_CURL_CONFIG"
-    else
-        verify_get auth /backstage/
-        if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == "$VERIFY_OK_CODE" ]]; then
-            verify_pass "S2 auth /backstage/ ${VERIFY_OK_CODE}"
-        elif [[ "$release" != yes && "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == "$VERIFY_NO_RELEASE_CODE" ]]; then
-            verify_pass "S2 auth /backstage/ ${VERIFY_NO_RELEASE_CODE} (no release yet)"
+    if [[ "$scope" == all || "$scope" == backstage ]]; then
+        for path in "${VERIFY_GATED_PATHS[@]}"; do
+            verify_code anon "$path" "$VERIFY_UNAUTH_CODE" "S2 anon ${path}"
+        done
+        if [[ -z "${BACKSTAGE_CURL_CONFIG:-}" ]] || ! backstage_check_curl_config; then
+            verify_fail "S2 auth: BACKSTAGE_CURL_CONFIG must name a private (0600, yours) curl config holding the Backstage login (docs/backstage-deploy.md § Basic Auth gate)"
+            [[ -z "$want_backstage" ]] || verify_fail "S1 backstage version: not read without BACKSTAGE_CURL_CONFIG"
         else
-            verify_fail "S2 auth /backstage/: expected ${VERIFY_OK_CODE}, $(verify_got)"
+            verify_backstage_auth "$want_backstage" "$release"
         fi
-        verify_backstage_health "$want_backstage" "$release"
+    else
+        verify_note "S2 gate: Backstage is not the module being set up"
     fi
 
-    for path in "${VERIFY_PUBLIC_PATHS[@]}"; do
-        verify_code anon "$path" "$VERIFY_OK_CODE" "S2 public ${path}"
-    done
+    if [[ "$scope" == all || "$scope" == static ]]; then
+        public_code="$VERIFY_OK_CODE"
+        if [[ "$static_release" != yes ]]; then public_code=404; public_note=" (no static release yet)"; fi
+        for path in "${VERIFY_PUBLIC_PATHS[@]}"; do
+            verify_get anon "$path"
+            if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == "$public_code" ]]; then
+                verify_pass "S2 public ${path} ${public_code}${public_note}"
+            else
+                verify_fail "S2 public ${path}: expected ${public_code}${public_note}, $(verify_got)"
+            fi
+        done
+    else
+        verify_note "S2 public paths: static is not the module being set up"
+    fi
 
     if [[ "$want_tag" == yes ]]; then
         tag_sha="${want_static:-$want_backstage}"
@@ -155,6 +185,16 @@ verify_live() {
         fi
     fi
 
+    echo "verify: ${VERIFY_PASSED} passed, ${VERIFY_FAILED} failed"
+    [[ "$VERIFY_FAILED" -eq 0 ]]
+}
+
+# verify_live_tag <sha> - S1's release-tag assertion alone, run after the release is recorded
+# (the deploy verifies S1/S2 first and publishes only when they pass).
+verify_live_tag() {
+    VERIFY_PASSED=0; VERIFY_FAILED=0
+    echo "verify release tag (read-only): ${1}"
+    verify_release_tag "$1"
     echo "verify: ${VERIFY_PASSED} passed, ${VERIFY_FAILED} failed"
     [[ "$VERIFY_FAILED" -eq 0 ]]
 }

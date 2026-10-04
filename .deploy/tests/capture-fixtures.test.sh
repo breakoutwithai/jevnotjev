@@ -34,8 +34,13 @@ case "$cmd" in
         printf '%s\n' 'nginx: the configuration file /etc/nginx/nginx.conf syntax is ok' \
             'server { server_name a.example.com; proxy_set_header Authorization "Basic dGVzdDpzM2NyZXQ="; }' \
             'server { server_name jevnotjev.breakoutwithai.com; include /etc/nginx/snippets/jevnotjev-backstage.conf; }' \
+            '    set $api_key live-secret-value;' \
+            '    proxy_set_header X-Api-Key live-secret-value;' \
+            '    proxy_set_header  X-Auth-Token   tok-value-123 ;' \
             '# PRIVATE-TERM appears in a comment' ;;
-    "ls -la /etc/nginx/sites-enabled/") printf '%s\n' 'lrwxrwxrwx 1 root root 40 Oct  4 a.example.com -> ../sites-available/a.example.com' ;;
+    "ls -la /etc/nginx/sites-enabled/")
+        if [ -n "${FAKE_SLOW:-}" ]; then : > "${FAKE_STATE}/slow"; sleep 3; fi
+        printf '%s\n' 'lrwxrwxrwx 1 root root 40 Oct  4 a.example.com -> ../sites-available/a.example.com' ;;
     "cat /etc/nginx/snippets/jevnotjev-backstage.conf") cat "${FAKE_REPO}/.deploy/backstage-nginx.conf" ;;
     *"sites-enabled/*"*) printf '%s\n' 'server {' '    server_name a.example.com;' '}' 'server {' '    server_name jevnotjev.breakoutwithai.com;' '}' ;;
     *) echo "unexpected remote command" >&2; exit 1 ;;
@@ -66,9 +71,19 @@ cat > "${STUB}/scan.sh" <<'EOF'
 tree="$1"; shift
 hits="$(cd "$tree" && grep -n -e "${SCAN_TERM:-PRIVATE-TERM}" -- "$@" 2>/dev/null || true)"
 [ -z "$hits" ] || printf '%s\n' "$hits"
-if [ -z "$hits" ]; then echo "VERDICT public-scan OK files=$# hits=0"; else echo "VERDICT public-scan HITS files=$# hits=$(printf '%s\n' "$hits" | grep -c .)"; fi
+if [ -z "$hits" ]; then echo "VERDICT public-scan OK files=$# hits=0"; exit 0; fi
+echo "VERDICT public-scan HITS files=$# hits=$(printf '%s\n' "$hits" | grep -c .)"; exit 1
 EOF
-chmod +x "${STUB}/ssh" "${STUB}/curl" "${STUB}/scan.sh"
+# awk double: the real awk, except the credential redactor fails when FAKE_REDACT_FAIL is set.
+REAL_AWK="$(command -v awk)"
+cat > "${STUB}/awk" <<EOF
+#!/usr/bin/env bash
+case "\$*" in *redact-credentials*) [ -z "\${FAKE_REDACT_FAIL:-}" ] || exit 1 ;; esac
+exec "${REAL_AWK}" "\$@"
+EOF
+chmod +x "${STUB}/ssh" "${STUB}/curl" "${STUB}/scan.sh" "${STUB}/awk"
+export TMPDIR="${STUB}/tmp"; mkdir -p "$TMPDIR"
+staging_left() { find "$TMPDIR" -maxdepth 1 -name 'jevnotjev-capture.*' | head -1; }
 : > "${STUB}/key"
 CFG="${STUB}/curl-config"; printf 'user = "tester:s3cretpass"\n' > "$CFG"; chmod 600 "$CFG"
 export JEVNOTJEV_SSH_KEY="${STUB}/key" JEVNOTJEV_SERVER_HOST=192.0.2.1 FAKE_REPO="$REPO_ROOT"
@@ -92,6 +107,13 @@ for f in nginx-T.txt sites-enabled.txt backstage-snippet.conf neighbours.txt \
 done
 leaks="$(grep -rl -e 'dGVzdDpzM2NyZXQ=' -e 'hunter2hunter2' -e 's3cretpass' -e 'PRIVATE-TERM' "$OUT" 2>/dev/null)"
 [[ -z "$leaks" ]] && ok "no credential, password or public-scan term survives the capture" || nope "leaked into: ${leaks}"
+leaks="$(grep -rl -e 'live-secret-value' -e 'tok-value-123' "$OUT" 2>/dev/null)"
+[[ -z "$leaks" ]] && ok "sweep #1: nginx 'set \$api_key ...;' and whitespace-separated credential headers are redacted" \
+    || nope "sweep #1 nginx credential syntax leaked into: ${leaks}"
+grep -q 'auth_basic_user_file /etc/jevnotjev-backstage/htpasswd;' "${OUT}/backstage-snippet.conf" \
+    && ok "the htpasswd path line survives (a path, not a credential), so the snippet still parses" \
+    || nope "snippet over-redacted: $(cat "${OUT}/backstage-snippet.conf")"
+[[ -z "$(staging_left)" ]] && ok "sweep #4: no staging directory is left after a capture" || nope "staging left: $(staging_left)"
 grep -q '\[REDACTED: credential\]' "${OUT}/nginx-T.txt" && grep -q '\[REDACTED: public-scan term\]' "${OUT}/nginx-T.txt" \
     && ok "redacted lines are marked, so the fixture shows where content was removed" || nope "redaction markers missing"
 [[ "$out" != *PRIVATE-TERM* && "$out" != *s3cretpass* ]] && ok "the console output carries no flagged text" || nope "console leaked: ${out}"
@@ -124,6 +146,36 @@ echo "VERDICT public-scan HITS files=$(($# - 1)) hits=1"
 EOF
 out="$(BACKSTAGE_CURL_CONFIG="$CFG" capture --scan "${STUB}/scan-dirty.sh" --out "${STUB}/o5" 2>&1)"; rc=$?
 [[ $rc -ne 0 && ! -e "${STUB}/o5" ]] && ok "a scan that stays dirty removes the capture" || nope "dirty scan: rc=${rc}, exists $( [[ -e "${STUB}/o5" ]] && echo yes || echo no)"
+
+echo "[T1] sweep #2: the scanner must succeed and cover every file"
+cat > "${STUB}/scan-crash.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "VERDICT public-scan OK files=0 hits=0"; exit 2
+EOF
+out="$(BACKSTAGE_CURL_CONFIG="$CFG" capture --scan "${STUB}/scan-crash.sh" --out "${STUB}/o6" 2>&1)"; rc=$?
+[[ $rc -ne 0 && ! -e "${STUB}/o6" && -z "$(staging_left)" ]] && ok "a scanner exiting 2 with an OK line is a failure: nothing kept" || nope "scanner rc 2: rc=${rc}; ${out}"
+cat > "${STUB}/scan-short.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "VERDICT public-scan OK files=1 hits=0"; exit 0
+EOF
+out="$(BACKSTAGE_CURL_CONFIG="$CFG" capture --scan "${STUB}/scan-short.sh" --out "${STUB}/o7" 2>&1)"; rc=$?
+[[ $rc -ne 0 && ! -e "${STUB}/o7" ]] && ok "a verdict covering fewer files than captured is a failure" || nope "short verdict: rc=${rc}; ${out}"
+
+echo "[T1] sweep #5 / #6: exclusive destination, every step checked"
+mkdir -p "${STUB}/o8"
+out="$(BACKSTAGE_CURL_CONFIG="$CFG" capture --scan "${STUB}/scan.sh" --out "${STUB}/o8" 2>&1)"; rc=$?
+[[ $rc -ne 0 && -z "$(ls -A "${STUB}/o8")" && -d "${STUB}/o8" ]] && ok "an existing destination, even empty, is refused and left alone" || nope "empty dest: rc=${rc}"
+out="$(FAKE_REDACT_FAIL=1 BACKSTAGE_CURL_CONFIG="$CFG" capture --scan "${STUB}/scan.sh" --out "${STUB}/o9" 2>&1)"; rc=$?
+[[ $rc -ne 0 && ! -e "${STUB}/o9" && -z "$(staging_left)" ]] && ok "a failing redactor aborts the capture: nothing kept" || nope "redactor fail: rc=${rc}; ${out}"
+
+echo "[T1] sweep #4: an interrupted capture leaves nothing behind"
+rm -f "${FAKE_STATE}/slow"
+FAKE_SLOW=1 BACKSTAGE_CURL_CONFIG="$CFG" PATH="${STUB}:${PATH}" bash "$CAPTURE" --scan "${STUB}/scan.sh" --out "${STUB}/o10" >/dev/null 2>&1 &
+pid=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -e "${FAKE_STATE}/slow" ]] && break; sleep 0.5; done
+kill -TERM "$pid" 2>/dev/null; wait "$pid"; rc=$?
+[[ $rc -ne 0 && ! -e "${STUB}/o10" && -z "$(staging_left)" ]] && ok "TERM mid-capture: exit ${rc}, no destination, no staging" \
+    || nope "interrupted: rc=${rc}, dest $( [[ -e "${STUB}/o10" ]] && echo yes || echo no), staging '$(staging_left)'"
 
 rm -rf "$STUB"
 echo "[T1] passed=${pass} failed=${fail}"

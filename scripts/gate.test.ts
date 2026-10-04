@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkCounts, parseJunit, parseManifest, parseShellSummary, type Counts } from "./gate.ts";
+import { buildSeed, checkCounts, parseJunit, parseManifest, parseShellSummary, type Counts } from "./gate.ts";
 
 // #87: a per-file test-count floor. Expected values come from recorded tool output (a bun junit
 // report and a shell suite summary line captured on 2026-10-04) and from the issue's literal
@@ -26,6 +26,29 @@ describe("gate parsing", () => {
       'file="scripts/theatre.test.ts" tests="8" assertions="32" failures="1" skipped="2"',
     );
     expect(parseJunit(failing).get("scripts/theatre.test.ts")).toEqual({ passed: 5, failed: 1 });
+  });
+
+  test("[unit] #87 sweep #12 junit: a non-numeric or impossible count is an error, never a NaN that passes a floor", () => {
+    const theatre = 'file="scripts/theatre.test.ts" tests="8" assertions="32" failures="0" skipped="0"';
+    expect(() => parseJunit(junit.replace(theatre, 'file="scripts/theatre.test.ts" tests="garbage" assertions="32" failures="0" skipped="0"'))).toThrow(
+      "scripts/theatre.test.ts",
+    );
+    expect(() => parseJunit(junit.replace(theatre, 'file="scripts/theatre.test.ts" tests="8" assertions="32" failures="-1" skipped="0"'))).toThrow();
+    expect(() => parseJunit(junit.replace(theatre, 'file="scripts/theatre.test.ts" tests="8" assertions="32" failures="5" skipped="4"'))).toThrow();
+    expect(() => parseJunit(junit.replace(theatre, 'file="scripts/theatre.test.ts" tests="8.5" assertions="32" failures="0" skipped="0"'))).toThrow();
+  });
+
+  test("[unit] #87 sweep #11 seed: a failed or empty bun run yields no manifest", () => {
+    const shell = results([[".deploy/tests/ship.test.sh", 91, 0]]);
+    const bun = results([["scripts/a.test.ts", 3, 0]]);
+    expect(buildSeed({ ok: false, results: bun }, shell)).toEqual({ error: "bun test failed; no seed" });
+    expect(buildSeed({ ok: true, results: new Map() }, shell)).toEqual({ error: "bun test produced no report; no seed" });
+    expect(buildSeed({ ok: true, results: bun }, results([[".deploy/tests/ship.test.sh", 90, 1]]))).toEqual({
+      error: ".deploy/tests/ship.test.sh: 1 failed; no seed",
+    });
+    expect(buildSeed({ ok: true, results: bun }, shell)).toEqual({
+      manifest: { minFiles: 2, files: { ".deploy/tests/ship.test.sh": 91, "scripts/a.test.ts": 3 } },
+    });
   });
 
   test("[unit] #87 shell summary: the last [T1] passed=N failed=M line, or null when absent", () => {

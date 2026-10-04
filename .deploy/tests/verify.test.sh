@@ -53,6 +53,7 @@ exit 99
 EOF
 cat > "${FAKEBIN}/git" <<EOF
 #!/usr/bin/env bash
+if [ "\${1:-}" = fetch ] && [ -n "\${FAKE_GIT_FETCH_FAIL:-}" ]; then exit 1; fi
 if [ "\${1:-}" = push ]; then printf 'git %s\n' "\$*" >> "\${FAKE_STATE}/push.log"; exit 1; fi
 exec "${REAL_GIT}" "\$@"
 EOF
@@ -178,6 +179,18 @@ make_fixture 1
 out="$(FAKE_CURL_EXIT=18 verify 2>&1)"; rc=$?
 [[ $rc -eq 6 && "$out" == *"FAIL S1 static /DEPLOYED_SHA"*"curl exit 18"* ]] \
     && ok "a complete body followed by curl exit 18 fails S1 static" || nope "partial transfer: rc=${rc}; out: ${out}"
+drop_fixture
+
+echo "[T1] sweep #7: a failed origin/main fetch never verifies against the cached ref"
+make_fixture 1
+out="$(FAKE_GIT_FETCH_FAIL=1 verify 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$out" == *"origin/main could not be fetched"* && "$out" != *"PASS S1"* ]] \
+    && ok "default --verify with the fetch failing exits 6 and asserts nothing against the stale ref" \
+    || nope "fetch fail default: rc=${rc}; out: ${out}"
+out="$(FAKE_GIT_FETCH_FAIL=1 verify "$M" 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"PASS S1 static /DEPLOYED_SHA ${M}"* ]] \
+    && ok "an explicit SHA still verifies without fetching origin/main" \
+    || nope "fetch fail explicit SHA: rc=${rc}; out: ${out}"
 drop_fixture
 
 echo "[T1] usage"

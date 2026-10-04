@@ -75,7 +75,8 @@ case "$cmd" in
             "service=active, enabled" "setup=$(st backstage_setup yes)" ;;
     *"/var/www/jevnotjev"*)
         s="$(st static_served none)"
-        printf '%s\n' "release=/var/www/jevnotjev-releases/20261003T203100Z-${s:0:7}" "marker=$(st static_marker "$s")" \
+        if [ "$s" = none ]; then rel=none; else rel="/var/www/jevnotjev-releases/20261003T203100Z-${s:0:7}"; fi
+        printf '%s\n' "release=${rel}" "marker=$(st static_marker "$s")" \
             "verified=$(st static_verified yes)" "service=nginx active" setup=yes ;;
     "cat '/etc/nginx/sites-available/jevnotjev.breakoutwithai.com'")
         printf '%s\n' 'server {' '    server_name jevnotjev.breakoutwithai.com;' '    root /var/www/jevnotjev;' \
@@ -91,6 +92,8 @@ cat > "${FAKEBIN}/curl" <<EOF
 # Backstage routes without auth, as recorded live on 2026-10-04 (no-auth scenario).
 F="${REPO_ROOT}/.deploy/tests/fixtures/2026-10-04"
 if [ "\${FAKE_AUTH:-}" = 1 ]; then export FIXTURE_DIRS="\$F/gated"; else export FIXTURE_DIRS="\$F/no-auth:\$F/gated"; fi
+# FIXTURE_EXTRA names one more scenario searched first (e.g. no-static-release).
+[ -z "\${FIXTURE_EXTRA:-}" ] || export FIXTURE_DIRS="\$F/\${FIXTURE_EXTRA}:\${FIXTURE_DIRS}"
 # A complete body followed by a transfer error (e.g. Content-Length mismatch).
 [ -z "\${FAKE_CURL_PARTIAL:-}" ] || export FAKE_CURL_EXIT=18
 exec bash "${REPO_ROOT}/.deploy/tests/fixture-curl.sh" "\$@"
@@ -905,8 +908,8 @@ echo "[T1] #85 AC2: every deploy, setup and rollback closes with the live verify
 # and docs/backstage-deploy.md:53 (401 without credentials). FAKE_AUTH= is a host with no gate.
 make_fixture
 out="$(ship 2>&1)"; rc=$?
-[[ $rc -eq 0 && "$out" == *"PASS S1 release tag v${TODAY}.1 on ${C2}"* && "$out" == *"verify: 10 passed, 0 failed"* ]] \
-    && ok "a full-stack deploy ends with the live verify: 10 assertions passed, release tag found on origin" \
+[[ $rc -eq 0 && "$out" == *"verify: 9 passed, 0 failed"*"release: tagged v${TODAY}.1"*"PASS S1 release tag v${TODAY}.1 on ${C2}"* ]] \
+    && ok "a full-stack deploy verifies S1/S2 (9 assertions) BEFORE tagging, then finds the release tag on origin" \
     || nope "closing verify on success: rc=${rc}; out: ${out}"
 drop_fixture
 make_fixture
@@ -914,6 +917,25 @@ out="$(FAKE_AUTH= ship 2>&1)"; rc=$?
 [[ $rc -eq 6 && "$out" == *"FAIL S2 anon /backstage/: expected 401, got 200"* && "$(calls)" == "deploy.sh |backstage-deploy.sh |" && "$(calls)" != *"--rollback"* ]] \
     && ok "deploy onto an ungated host: both modules deploy, the closing verify fails S2, exit 6, nothing rolled back" \
     || nope "deploy ungated: rc=${rc}, calls '$(calls)'; out: ${out}"
+[[ -z "$(tags)" && -z "$(pushes)" && -z "$(ghcalls)" ]] \
+    && ok "sweep #3: an ungated host gets no tag, no push and no GitHub release" \
+    || nope "sweep #3 published before verify: tags '$(tags)', push '$(pushes)', gh '$(ghcalls)'"
+drop_fixture
+make_fixture
+serve backstage none
+out="$(FIXTURE_EXTRA=backstage-no-release ship --module static --allow-drift 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"PASS S2 auth /api/backstage/health 502 (no release yet)"* && "$out" == *"PASS S2 auth /backstage/ 502 (no release yet)"* ]] \
+    && ok "sweep #10: a static-only deploy observes that Backstage has no release; its 502 is the spec answer (docs/backstage-deploy.md:53)" \
+    || nope "sweep #10 static-only, no backstage release: rc=${rc}; out: ${out}"
+drop_fixture
+make_fixture
+serve static none
+out="$(FIXTURE_EXTRA=no-static-release ship --setup --module static 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"PASS S2 public / 404 (no static release yet)"* && "$out" == *"PASS S2 public /little-shop/ 404 (no static release yet)"* && "$out" == *"verify: 3 passed, 0 failed"* ]] \
+    && ok "sweep #8: first-time static setup expects 404 until the first deploy (.deploy/provision.sh:140) and asserts only its own module" \
+    || nope "sweep #8 first static setup: rc=${rc}; out: ${out}"
+[[ "$(sed -n 140p .deploy/provision.sh)" == *"404 is expected until the first"* ]] \
+    && ok ".deploy/provision.sh:140 states the 404-before-first-deploy literal" || nope ".deploy/provision.sh:140 moved"
 drop_fixture
 make_fixture
 out="$(FAKE_AUTH= ship --module backstage 2>&1)"; rc=$?
@@ -929,9 +951,13 @@ out="$(FAKE_AUTH= ship --setup --module backstage 2>&1)"; rc=$?
 drop_fixture
 make_fixture
 out="$(ship --setup --module static 2>&1)"; rc=$?
-[[ $rc -eq 0 && "$out" == *"static not asserted"* && "$out" == *"verify: 7 passed, 0 failed"* ]] \
-    && ok "setup asserts no SHA (it ships no release) but the gate and public paths: 7 assertions (2 anon, 2 auth, 3 public) passed" \
+[[ $rc -eq 0 && "$out" == *"static not asserted"* && "$out" == *"PASS S2 public / 200"* && "$out" == *"verify: 3 passed, 0 failed"* ]] \
+    && ok "static setup asserts no SHA (it ships no release), only its public paths: 3 passed" \
     || nope "setup gated: rc=${rc}; out: ${out}"
+out="$(ship --setup --module backstage 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"PASS S2 anon /backstage/ 401"* && "$out" == *"verify: 4 passed, 0 failed"* ]] \
+    && ok "backstage setup asserts its gate: 2 anon 401 + 2 auth 200 passed" \
+    || nope "setup backstage gated: rc=${rc}; out: ${out}"
 drop_fixture
 make_fixture
 out="$(FAKE_AUTH= ship --module static --rollback 2>&1)"; rc=$?

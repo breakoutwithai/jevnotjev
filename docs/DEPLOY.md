@@ -195,22 +195,28 @@ recomputed from the scripts.
 
 `.deploy/ship.sh --verify [SHA]` is read-only (HTTP pinned to the host, plus `git ls-remote`; no ssh)
 and asserts S1 and S2 for the whole stack, one `PASS`/`FAIL` line per assertion, exit 6 on any
-failure. SHA defaults to `origin/main`; pass another to check a specific release (a wrong SHA is the
-negative control: it must fail). It needs `BACKSTAGE_CURL_CONFIG`; without it the authenticated
-assertions fail by name. An authenticated health 502 with a release present is retried
+failure. SHA defaults to `origin/main` as fetched now: if the fetch fails it exits 6 rather than
+verify against a cached ref, so pass the SHA explicitly to verify offline. Passing another SHA checks
+a specific release (a wrong SHA is the negative control: it must fail). It needs
+`BACKSTAGE_CURL_CONFIG`; without it the authenticated assertions fail by name. While a Backstage
+release exists, a 502 on either authenticated route (page or health) is retried and both are re-read
 (`VERIFY_ATTEMPTS`, default 5, every `VERIFY_SLEEP` seconds, default 2) because the service may be
-starting.
+starting; with no release, 502 is the spec answer (`docs/backstage-deploy.md:53`).
 
 The same check closes every live action, which exits 6 when it fails:
 
-| Action | Expected SHA | Release tag |
-|---|---|---|
-| deploy (default) | every module at `origin/main` | required |
-| deploy `--module X` or `--no-release` | the deployed module(s) at `origin/main` | not required |
-| setup | none (setup ships no release); Backstage 502 accepted while no release exists | not required |
-| rollback static | the rolled-back release's own `DEPLOYED_SHA` marker | not required |
-| rollback backstage | the given SHA | not required |
-| `--status` | the selected modules at `origin/main` | required for the whole stack |
+| Action | Expected SHA | Asserted | Release tag |
+|---|---|---|---|
+| deploy (default) | every module at `origin/main` | gate and public paths, BEFORE the tag and GitHub release are published | verified on origin after publishing |
+| deploy `--module X` or `--no-release` | the deployed module(s) at `origin/main` | gate (Backstage release state as observed) and public paths | not required |
+| setup static | none (setup ships no release) | public paths only: 200, or 404 while static has no release (`.deploy/provision.sh:140`) | not required |
+| setup backstage | none | the gate only; 502 accepted while no Backstage release exists | not required |
+| rollback static | the rolled-back release's own `DEPLOYED_SHA` marker | gate and public paths | not required |
+| rollback backstage | the given SHA | gate and public paths | not required |
+| `--status` | the selected modules at `origin/main` | gate and public paths | required for the whole stack |
+
+A deploy whose gate or public paths fail is never tagged or released: it exits 6 before
+`release_record` runs.
 
 ## Fixtures
 
@@ -224,10 +230,14 @@ export BACKSTAGE_CURL_CONFIG="$HOME/.config/jevnotjev/backstage-curl"
 .deploy/tests/capture-fixtures.sh --scan <path to the private public-scan.sh>
 ```
 
-It writes `.deploy/tests/fixtures/<UTC date>/live/` (refusing an existing one): `nginx -T`, the
-`sites-enabled` listing, the Backstage snippet, every co-tenant's status and curl exit, and this
-domain's public, gated and authenticated answers. Credential lines are redacted at capture; every
-line the scanner flags is redacted and the capture is kept only when a second scan is clean.
+It writes `.deploy/tests/fixtures/<UTC date>/live/`, claimed with an atomic `mkdir` (an existing
+directory, even empty, is refused): `nginx -T`, the `sites-enabled` listing, the Backstage snippet,
+every co-tenant's status and curl exit, and this domain's public, gated and authenticated answers.
+Everything is staged in a private temporary directory first. Credential lines (including nginx
+`set $api_key ...;` and credential headers) are redacted at capture; every line the scanner flags is
+redacted, and the capture is copied to its destination only when a second scan exits 0 with an OK
+verdict counting every file. Any failed step or an interruption removes the staging directory and
+the claimed destination.
 
 ## Tests
 

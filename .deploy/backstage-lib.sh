@@ -28,14 +28,16 @@ backstage_remove_failed_initial() {
     remote "test -L '${current}' && test \"\$(readlink '${current}')\" = '${release}' && ${stop_command} && rm '${current}'"
 }
 
-# Never accept an unreachable neighbour as a stable baseline.
+# A neighbour that cannot be probed (TLS or transport error) is recorded as 000, exactly as the static
+# deploy's probe_neighbours does. Stability is the before/after comparison in neighbour_status_changes:
+# 000 -> 000 passes, 000 -> 200 and 200 -> 000 both fail. Only an empty list is an error.
 backstage_probe_neighbours() {
     local ip="$1" name code probes=""
     shift
     [[ "$#" -gt 0 ]] || return 1
     for name in "$@"; do
-        code="$(curl -q -sS -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${name}:443:${ip}" "https://${name}/")" || return 1
-        [[ "$code" =~ ^[1-5][0-9][0-9]$ ]] || return 1
+        code="$(curl -q -sS -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${name}:443:${ip}" "https://${name}/" 2>/dev/null)" || code=000
+        [[ "$code" =~ ^[1-5][0-9][0-9]$ ]] || code=000
         probes="${probes}${name} ${code}
 "
     done

@@ -164,20 +164,28 @@ test("[unit] B8 failed first deploy removes only its own current link", async ()
     await rm(dir, { recursive: true, force: true });
   }
 });
-test("[unit] B8 neighbour network failures cannot pass deployment", () => {
+test("[unit] B8 neighbour network failures are recorded as 000, like the static deploy", () => {
   const script =
     'source .deploy/backstage-lib.sh; curl(){ printf "%s" "$PROBES"; }; backstage_probe_neighbours 127.0.0.1 example.test';
-  for (const probes of ["000", "000000", ""])
-    expect(
-      Bun.spawnSync(["bash", "-c", script], {
-        env: { ...process.env, PROBES: probes },
-      }).exitCode,
-    ).not.toBe(0);
+  for (const probes of ["000", "000000", ""]) {
+    const result = Bun.spawnSync(["bash", "-c", script], {
+      env: { ...process.env, PROBES: probes },
+      stdout: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(new TextDecoder().decode(result.stdout)).toBe("example.test 000\n");
+  }
+  const ok = Bun.spawnSync(["bash", "-c", script], {
+    env: { ...process.env, PROBES: "200" },
+    stdout: "pipe",
+  });
+  expect(ok.exitCode).toBe(0);
+  expect(new TextDecoder().decode(ok.stdout)).toBe("example.test 200\n");
+});
+test("[unit] B8 an empty neighbour list is still rejected", () => {
   expect(
-    Bun.spawnSync(["bash", "-c", script], {
-      env: { ...process.env, PROBES: "200" },
-    }).exitCode,
-  ).toBe(0);
+    Bun.spawnSync(["bash", "-c", "source .deploy/backstage-lib.sh; backstage_probe_neighbours 127.0.0.1"]).exitCode,
+  ).not.toBe(0);
 });
 test("[unit] B8 partial failed neighbour enumeration is rejected", () => {
   const result = Bun.spawnSync(
@@ -281,8 +289,8 @@ test("[unit] B8 neighbour HTTP headers cannot hide transport failure", () => {
     ],
     { stdout: "pipe", stderr: "pipe" },
   );
-  expect(result.exitCode).not.toBe(0);
-  expect(new TextDecoder().decode(result.stdout)).toBe("");
+  expect(result.exitCode).toBe(0);
+  expect(new TextDecoder().decode(result.stdout)).toBe("example.test 000\n");
 });
 
 // Run the real entrypoint and EXIT trap; only OS/network commands cross fixture boundaries.

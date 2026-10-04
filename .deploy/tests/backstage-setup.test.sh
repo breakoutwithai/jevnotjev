@@ -154,8 +154,20 @@ fake_remote() {
 remote() { fake_remote "$@"; }
 
 # Neighbour probe: 200 for everyone, unless BREAK_AFTER_RELOAD is set and nginx was reloaded.
+# FAIL_NAME fails one co-tenant's probe like a TLS error (curl -w prints 000, exit 60) before and after
+# the reload; FAIL_NAME_BEFORE / FAIL_NAME_AFTER fail it on one side of the reload only.
 curl() {
-    if [[ -n "${BREAK_AFTER_RELOAD:-}" && -s "${BOX}/state/reloads" ]]; then printf 502; else printf 200; fi
+    local arg host="" reloaded=false
+    for arg in "$@"; do
+        if [[ "$arg" == https://* ]]; then host="${arg#https://}"; host="${host%/}"; fi
+    done
+    [[ -s "${BOX}/state/reloads" ]] && reloaded=true
+    if [[ -n "$host" ]] && { [[ "$host" == "${FAIL_NAME:-}" ]] \
+        || { [[ "$host" == "${FAIL_NAME_BEFORE:-}" ]] && ! $reloaded; } \
+        || { [[ "$host" == "${FAIL_NAME_AFTER:-}" ]] && $reloaded; }; }; then
+        printf 000; return 60
+    fi
+    if [[ -n "${BREAK_AFTER_RELOAD:-}" ]] && $reloaded; then printf 502; else printf 200; fi
 }
 
 is_mutating() {
@@ -289,6 +301,36 @@ out="$(BREAK_AFTER_RELOAD=1; (setup_main) 2>&1)"; rc=$?
     && ok "a changed neighbour restores the vhost, validates and reloads again, exits non-zero" \
     || nope "neighbour change: rc=${rc}, reloads $(reloads); out: ${out}"
 [[ "$out" == *"CHANGED: a.example.com 200 -> 502"* ]] && ok "the changed neighbour is named with its status change" || nope "changed neighbour not named"
+drop_box
+
+echo
+echo "[T1] co-tenant failing TLS at baseline and after (static-deploy parity: recorded as 000)"
+make_box no
+out="$(FAIL_NAME=a.example.com; (setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$(reloads)" == 1 ]] && include_in_https_block "$VH" \
+    && ok "a co-tenant failing identically before and after the reload does not block setup" \
+    || nope "000 baseline: rc=${rc}, reloads $(reloads); out: ${out}"
+[[ "$out" == *"before: a.example.com 000"* && "$out" == *"after:  a.example.com 000"* ]] \
+    && ok "the failing co-tenant is recorded as 000 on both sides" || nope "000 not recorded: ${out}"
+drop_box
+
+echo
+echo "[T1] co-tenant 200 at baseline, failing after the reload"
+make_box no
+out="$(FAIL_NAME_AFTER=a.example.com; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+    && ok "200 -> 000 restores the vhost, reloads again, exits non-zero" \
+    || nope "200->000: rc=${rc}, reloads $(reloads); out: ${out}"
+[[ "$out" == *"CHANGED: a.example.com 200 -> 000"* ]] && ok "the 200 -> 000 change is named" || nope "200->000 not named: ${out}"
+drop_box
+
+echo
+echo "[T1] co-tenant failing at baseline, answering after the reload"
+make_box no
+out="$(FAIL_NAME_BEFORE=a.example.com; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+    && ok "000 -> 200 is still a status change: restore path fires" \
+    || nope "000->200: rc=${rc}, reloads $(reloads); out: ${out}"
 drop_box
 
 echo

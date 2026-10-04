@@ -32,6 +32,11 @@ readonly HEALTH_URL="https://${DOMAIN}"
 # The committed folder that IS the site. Only files git tracks under it ship.
 readonly SITE_DIR="site"
 
+# site/backstage/ belongs to the Backstage module (served by its own service behind Basic Auth).
+# The static module is site/ minus this prefix: ship.sh's drift pathspec and deploy.sh's served-path
+# verification both read it from here.
+readonly BACKSTAGE_SITE_PREFIX="backstage/"
+
 # The committed vhost source, installed once by provision.sh.
 readonly VHOST_SRC=".deploy/nginx-jevnotjev.conf"
 readonly VHOST_AVAILABLE="/etc/nginx/sites-available/${DOMAIN}"

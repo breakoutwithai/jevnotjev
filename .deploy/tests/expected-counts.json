@@ -6,7 +6,7 @@
     ".deploy/tests/capture-fixtures.test.sh": 38,
     ".deploy/tests/live-failures.test.sh": 18,
     ".deploy/tests/nginx-vhost.test.sh": 19,
-    ".deploy/tests/release.test.sh": 33,
+    ".deploy/tests/release.test.sh": 39,
     ".deploy/tests/ship.test.sh": 96,
     ".deploy/tests/verify.test.sh": 29,
     "docs/research/2026-09-29-verdict-minimums/sim.test.ts": 6,

@@ -90,6 +90,29 @@ prune_release_list() {
     done
 }
 
+# manifest_served_paths MANIFEST - the URL paths the static deploy must see served: the root plus
+# every manifest file except the Backstage module's (BACKSTAGE_SITE_PREFIX), which nginx routes to
+# the Backstage service behind Basic Auth and so answers 401 here.
+manifest_served_paths() {
+    printf '/\n'
+    printf '%s\n' "$1" | grep -v "^${BACKSTAGE_SITE_PREFIX}" | sed 's|^|/|' || true
+}
+
+# verify_served_paths MANIFEST - curl each served path (pinned); return 1 if any is not 200.
+verify_served_paths() {
+    local path code ok=true
+    for path in $(manifest_served_paths "$1"); do
+        code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null || true)"; code="${code:-000}"
+        if [[ "$code" == "200" ]]; then
+            log_success "${path} -> 200"
+        else
+            log_error "${path} -> ${code}"
+            ok=false
+        fi
+    done
+    $ok
+}
+
 # release_is_verified - a release qualifies as a rollback target only if a deploy verified it
 # end to end (served SHA, every path, co-tenants unchanged). DEPLOYED_SHA alone is written
 # before activation, so a failed or half-staged release carries it too.

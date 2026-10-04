@@ -6,7 +6,7 @@
     <title>Backstage Pass | Jev!Jev</title>
     <meta
       name="description"
-      content="Bring your own keys. Rehearse one real decision with Jev, an LLM and a simple rule."
+      content="Bring your own keys. Rehearse one real decision with Jev. Compare with an LLM and a simple rule when you choose."
     />
     <link rel="stylesheet" href="./backstage.css" />
     <script type="module" src="./app.js"></script>
@@ -26,7 +26,8 @@
         <span class="stub">BRING YOUR OWN KEYS</span>
       </div>
       <p class="intro">
-        One decision. Three players. Your cases, your calls, your judgment.
+        One decision. Jev first. Comparisons optional. Your cases, your calls,
+        your judgment.
       </p>
       <nav aria-label="Backstage rooms" id="rooms">
         <button data-room="0" aria-current="step">
@@ -111,8 +112,20 @@
         <p class="eyebrow">ACT II / ENTER THE PLAYERS</p>
         <h2 id="casting-title" tabindex="-1">Casting</h2>
         <p class="direction">
-          The same question. The same cases. Three ways to answer.
+          Start with Jev alone. Add the other players when you want a
+          comparison.
         </p>
+        <fieldset id="mode-fields">
+          <legend>Choose your cast</legend>
+          <label
+            ><input id="compare" type="checkbox" /> Compare with Claude Haiku
+            and a local rule</label
+          >
+          <p class="fine">
+            Unchecked: Jev only. No Anthropic key needed. This choice locks when
+            your run starts.
+          </p>
+        </fieldset>
         <div class="cast">
           <article>
             <h3>Jev decides</h3>
@@ -125,7 +138,7 @@
                 spellcheck="false"
             /></label>
           </article>
-          <article>
+          <article id="llm-player" hidden>
             <h3>The LLM</h3>
             <p class="model">claude-haiku-4-5-20251001</p>
             <label
@@ -146,7 +159,7 @@
         <button id="clear-keys" class="secondary" type="button">
           Clear keys
         </button>
-        <fieldset id="rule-fields">
+        <fieldset id="rule-fields" hidden>
           <legend>A simple rule</legend>
           <label
             >Literal keywords, one per line<textarea
@@ -208,7 +221,9 @@
       <section data-panel="3" aria-labelledby="rehearsal-title" hidden>
         <p class="eyebrow">ACT III / YOUR JUDGMENT</p>
         <h2 id="rehearsal-title" tabindex="-1">Rehearsals</h2>
-        <p class="direction">Judge the answer before you learn who gave it.</p>
+        <p id="judging-direction" class="direction">
+          Judge Jev’s answer against your acceptance rule.
+        </p>
         <p id="rubric"></p>
         <div id="blind-card">
           <p>Run your cases first. Answers appear here when the run stops.</p>
@@ -222,15 +237,15 @@
           <button id="previous-card" class="secondary">Previous answer</button
           ><button id="next-card" class="secondary">Next answer</button>
         </div>
-        <p class="fine">
+        <p id="judging-note" class="fine">
           Player, model, confidence, cost and timing are hidden here. Order is
           shuffled. Labels are yours; no model grades itself.
         </p>
         <button id="reveal" disabled>Reveal results and lock labels</button>
         <p class="fine">
-          Revealing unlocks the comparisons and downloads. It ends this blind
-          labeling pass; labels and retries are then locked. You can leave
-          answers unlabelled.
+          Revealing unlocks results and downloads. It ends this blind labeling
+          pass; labels and retries are then locked. You can leave answers
+          unlabelled.
         </p>
       </section>
       <section data-panel="4" aria-labelledby="dress-title" hidden>
@@ -258,7 +273,7 @@
         <div id="verdict">
           <p>No run yet. The verdict follows your actual answers and labels.</p>
         </div>
-        <aside>
+        <aside id="comparison-note" hidden>
           <h3>A pilot is a beginning.</h3>
           <p>
             The shared verdict needs at least 30 paired, human-labelled cases.

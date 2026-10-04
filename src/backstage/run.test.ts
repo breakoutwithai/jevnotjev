@@ -469,3 +469,98 @@ test("[unit] B4 unsafe run cannot enter judging and gives recovery guidance", as
   ).rejects.toThrow();
   expect(() => run.beginLabeling()).toThrow("Start a new scene");
 });
+
+test("[integration] JO1 Jev-only runs without competitor key and exports only actual Jev answers", async () => {
+  const run = new BackstageRun(scene(), "test", "jev-only");
+  const calls: string[] = [];
+  await run.start({ jev: keys.jev, llm: "" }, async (request) => {
+    calls.push(request.provider);
+    return { ...(await success(request)), confidence: 0.87 };
+  });
+  expect(calls).toEqual(["jev", "jev"]);
+  expect(run.total).toBe(2);
+  expect(run.completed).toBe(2);
+  expect(run.running).toBe(false);
+  expect(run.cards()).toHaveLength(2);
+  expect(
+    run.results().map((answer) => [answer.output, answer.confidence]),
+  ).toEqual([
+    ["yes", 0.87],
+    ["yes", 0.87],
+  ]);
+  run.beginLabeling();
+  for (const card of run.cards()) run.label(card.id, "accept");
+  run.reveal();
+  const parsed = validate(run.csv());
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.rows).toHaveLength(2);
+  expect(run.evidence().labels.map((row) => row.provider)).toEqual([
+    "jev",
+    "jev",
+  ]);
+  expect(run.evidence().manifest.mode).toBe("jev-only");
+  expect(Object.isFrozen(run.manifest.arms)).toBe(true);
+  expect(run.manifest.arms).toEqual(["jev"]);
+  expect((await run.report()).verdict).toBeNull();
+  expect(
+    run.attempts.every((attempt) => attempt.ok && attempt.confidence === 0.87),
+  ).toBe(true);
+});
+test("[integration] JO2 explicit comparison requires competitor key before any calls", async () => {
+  const run = new BackstageRun(scene(), "test", "compare");
+  let calls = 0;
+  await expect(
+    run.start({ jev: keys.jev, llm: "" }, async (request) => {
+      calls++;
+      return success(request);
+    }),
+  ).rejects.toThrow("llm key");
+  expect(calls).toBe(0);
+  expect(run.cards()).toHaveLength(0);
+  await run.start(keys, success);
+  expect(run.cards()).toHaveLength(6);
+  expect(run.manifest.arms).toEqual(["rule", "jev", "llm"]);
+  expect(run.results()).toEqual([]);
+  expect((await run.report()).verdict).not.toBeNull();
+});
+test("[integration] JO3 stop and retry retain solo selection and never add unselected arms", async () => {
+  const run = new BackstageRun(scene(), "test", "jev-only");
+  const calls: string[] = [];
+  await run.start({ jev: keys.jev, llm: "" }, async (request) => {
+    calls.push(request.provider);
+    run.stop();
+    return success(request);
+  });
+  expect(run.completed).toBe(0);
+  expect(run.cards()).toHaveLength(0);
+  await run.retry({ jev: keys.jev, llm: "" }, async (request) => {
+    calls.push(request.provider);
+    return success(request);
+  });
+  expect(calls).toEqual(["jev", "jev", "jev"]);
+  expect(run.completed).toBe(run.total);
+  expect(run.manifest.mode).toBe("jev-only");
+  expect(run.evidence().labels.every((row) => row.provider === "jev")).toBe(
+    true,
+  );
+});
+
+test("[unit] JO1 unused rule fields cannot block a solo scene with custom choices", () => {
+  const custom: Scene = {
+    ...scene(),
+    choices: [
+      { name: "keep", definition: "Keep" },
+      { name: "cut", definition: "Cut" },
+    ],
+    matchChoice: "",
+    otherwiseChoice: "",
+    keywords: ["x".repeat(201)],
+  };
+  const run = new BackstageRun(custom, "test", "jev-only");
+  expect(run.manifest.scene.choices.map((choice) => choice.name)).toEqual([
+    "keep",
+    "cut",
+  ]);
+  expect(run.manifest.scene.keywords).toEqual([]);
+  expect(() => new BackstageRun(custom, "test", "compare")).toThrow("rule");
+});

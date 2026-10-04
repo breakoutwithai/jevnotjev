@@ -28,9 +28,10 @@ backstage_remove_failed_initial() {
     remote "test -L '${current}' && test \"\$(readlink '${current}')\" = '${release}' && ${stop_command} && rm '${current}'"
 }
 
-# A neighbour that cannot be reached is an OBSERVATION, recorded as "000/<curl exit>" so that
-# neighbour_status_changes compares the failure category too: 000/60 -> 000/60 passes, while
-# 000/60 -> 000/7 (TLS fault became connection refused), 200 -> 000/x and 000/x -> 200 all fail.
+# A neighbour that cannot be reached is an OBSERVATION, recorded as "<http code>/<curl exit>" (the code
+# curl printed before failing, 000 when it got none) so neighbour_status_changes compares the failure
+# category and any status too: 000/60 -> 000/60 passes, while 000/60 -> 000/7, 200/28 -> 502/28,
+# 200 -> 000/x and 000/x -> 200 all fail.
 # Only network-level curl exits count as observations: 6 resolve, 7 connect, 28 timeout, 35 TLS
 # handshake, 52 empty reply, 56 recv failure, 58/60 TLS cert problems. Anything else (126/127 curl
 # missing, 2/3/48 bad invocation, ...) is a LOCAL fault, not a fact about the co-tenant: it returns 1
@@ -47,7 +48,10 @@ backstage_probe_neighbours() {
             [[ "$code" =~ ^[1-5][0-9][0-9]$ ]] || { echo "Probe of ${name} returned no HTTP status: '${code}'" >&2; rm -f "$errfile"; return 1; }
         else
             case "$rc" in
-                6|7|28|35|52|56|58|60) code="000/${rc}" ;;
+                6|7|28|35|52|56|58|60)
+                    # Keep the status curl got before failing (000 = none): 200/28 and 502/28 differ.
+                    [[ "$code" =~ ^(000|[1-5][0-9][0-9])$ ]] || { echo "Probe of ${name} printed no 3-digit status: '${code}' (curl exit ${rc})" >&2; rm -f "$errfile"; return 1; }
+                    code="${code}/${rc}" ;;
                 *) cat "$errfile" >&2; echo "Probe of ${name} failed locally (curl exit ${rc})" >&2; rm -f "$errfile"; return 1 ;;
             esac
         fi

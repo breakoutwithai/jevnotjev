@@ -335,7 +335,25 @@ test("[unit] B8 neighbour HTTP headers cannot hide transport failure", () => {
     { stdout: "pipe", stderr: "pipe" },
   );
   expect(result.exitCode).toBe(0);
-  expect(new TextDecoder().decode(result.stdout)).toBe("example.test 000/28\n");
+  expect(new TextDecoder().decode(result.stdout)).toBe("example.test 200/28\n");
+});
+test("[unit] B8 an HTTP status printed before a network failure is kept, and must be 3 digits", () => {
+  const run = (printed: string) =>
+    Bun.spawnSync(
+      [
+        "bash",
+        "-c",
+        `source .deploy/backstage-lib.sh; curl(){ printf '%s' '${printed}'; return 28; }; backstage_probe_neighbours 127.0.0.1 example.test`,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+  for (const printed of ["200", "502", "000"]) {
+    const result = run(printed);
+    expect(result.exitCode).toBe(0);
+    expect(decode(result.stdout)).toBe(`example.test ${printed}/28\n`);
+  }
+  for (const printed of ["", "20", "2000", "abc", "200 "])
+    expect(run(printed).exitCode).not.toBe(0);
 });
 
 // Run the real entrypoint and EXIT trap; only OS/network commands cross fixture boundaries.

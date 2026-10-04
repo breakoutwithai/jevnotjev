@@ -166,8 +166,9 @@ curl() {
         || { [[ "$host" == "${FAIL_NAME_BEFORE:-}" ]] && ! $reloaded; } \
         || { [[ "$host" == "${FAIL_NAME_AFTER:-}" ]] && $reloaded; }; }; then
         # Exit code per side: FAIL_RC_BEFORE / FAIL_RC_AFTER (default 60, TLS name mismatch).
-        printf 000
-        if $reloaded; then return "${FAIL_RC_AFTER:-60}"; else return "${FAIL_RC_BEFORE:-60}"; fi
+        # HTTP code curl printed before failing: FAIL_HTTP_BEFORE / FAIL_HTTP_AFTER (default 000 = none).
+        if $reloaded; then printf '%s' "${FAIL_HTTP_AFTER:-000}"; return "${FAIL_RC_AFTER:-60}"
+        else printf '%s' "${FAIL_HTTP_BEFORE:-000}"; return "${FAIL_RC_BEFORE:-60}"; fi
     fi
     # LOCAL failures, not observations: FAIL_LOCAL_RC makes curl exit with that code (127 = not found)
     # and say so on stderr; FAIL_MALFORMED makes it exit 0 with output that is no HTTP status.
@@ -347,6 +348,16 @@ out="$(FAIL_NAME=a.example.com FAIL_RC_BEFORE=60 FAIL_RC_AFTER=7; (setup_main) 2
     && ok "000/60 -> 000/7 is a change: vhost restored, nginx reloaded again, exits non-zero" \
     || nope "000/60->000/7: rc=${rc}, reloads $(reloads); out: ${out}"
 [[ "$out" == *"CHANGED: a.example.com 000/60 -> 000/7"* ]] && ok "the failure-category change is named" || nope "000/60->000/7 not named: ${out}"
+drop_box
+
+echo
+echo "[T1] co-tenant HTTP 200 then timeout at baseline, HTTP 502 then timeout after the reload"
+make_box no
+out="$(FAIL_NAME=a.example.com FAIL_HTTP_BEFORE=200 FAIL_HTTP_AFTER=502 FAIL_RC_BEFORE=28 FAIL_RC_AFTER=28; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+    && ok "200/28 -> 502/28 is a change: vhost restored, nginx reloaded again, exits non-zero" \
+    || nope "200/28->502/28: rc=${rc}, reloads $(reloads); out: ${out}"
+[[ "$out" == *"CHANGED: a.example.com 200/28 -> 502/28"* ]] && ok "the HTTP status change behind the timeout is named" || nope "200/28->502/28 not named: ${out}"
 drop_box
 
 echo

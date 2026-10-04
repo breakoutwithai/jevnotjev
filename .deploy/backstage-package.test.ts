@@ -164,17 +164,62 @@ test("[unit] B8 failed first deploy removes only its own current link", async ()
     await rm(dir, { recursive: true, force: true });
   }
 });
-test("[unit] B8 neighbour network failures are recorded as 000, like the static deploy", () => {
+const decode = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
+test("[unit] B8 network-failure curl exits are recorded as 000/<exit>", () => {
+  for (const code of [6, 7, 28, 35, 52, 56, 58, 60]) {
+    const result = Bun.spawnSync(
+      [
+        "bash",
+        "-c",
+        `source .deploy/backstage-lib.sh; curl(){ printf 000; return ${code}; }; backstage_probe_neighbours 127.0.0.1 example.test`,
+      ],
+      { stdout: "pipe" },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(decode(result.stdout)).toBe(`example.test 000/${code}\n`);
+  }
+});
+test("[unit] B8 local curl failures and malformed output fail the probe", () => {
+  for (const code of [2, 3, 48, 126, 127]) {
+    const result = Bun.spawnSync(
+      [
+        "bash",
+        "-c",
+        `source .deploy/backstage-lib.sh; curl(){ echo curl-local-failure >&2; return ${code}; }; backstage_probe_neighbours 127.0.0.1 example.test`,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(decode(result.stdout)).toBe("");
+    expect(decode(result.stderr)).toContain("curl-local-failure");
+  }
   const script =
     'source .deploy/backstage-lib.sh; curl(){ printf "%s" "$PROBES"; }; backstage_probe_neighbours 127.0.0.1 example.test';
-  for (const probes of ["000", "000000", ""]) {
-    const result = Bun.spawnSync(["bash", "-c", script], {
-      env: { ...process.env, PROBES: probes },
-      stdout: "pipe",
-    });
-    expect(result.exitCode).toBe(0);
-    expect(new TextDecoder().decode(result.stdout)).toBe("example.test 000\n");
-  }
+  for (const probes of ["000", "000000", "", "garbage", "99"])
+    expect(
+      Bun.spawnSync(["bash", "-c", script], {
+        env: { ...process.env, PROBES: probes },
+      }).exitCode,
+    ).not.toBe(0);
+});
+test("[unit] B8 neighbour_status_changes parses the 000/<exit> token", () => {
+  const run = (after: string) =>
+    Bun.spawnSync(
+      [
+        "bash",
+        "-c",
+        `source .deploy/lib.sh; neighbour_status_changes "a 000/60" "${after}"`,
+      ],
+      { stdout: "pipe" },
+    );
+  expect(run("a 000/60").exitCode).toBe(0);
+  const changed = run("a 000/7");
+  expect(changed.exitCode).not.toBe(0);
+  expect(decode(changed.stdout)).toBe("a 000/60 -> 000/7\n");
+});
+test("[unit] B8 neighbour HTTP codes are recorded as returned", () => {
+  const script =
+    'source .deploy/backstage-lib.sh; curl(){ printf "%s" "$PROBES"; }; backstage_probe_neighbours 127.0.0.1 example.test';
   const ok = Bun.spawnSync(["bash", "-c", script], {
     env: { ...process.env, PROBES: "200" },
     stdout: "pipe",
@@ -290,7 +335,7 @@ test("[unit] B8 neighbour HTTP headers cannot hide transport failure", () => {
     { stdout: "pipe", stderr: "pipe" },
   );
   expect(result.exitCode).toBe(0);
-  expect(new TextDecoder().decode(result.stdout)).toBe("example.test 000\n");
+  expect(new TextDecoder().decode(result.stdout)).toBe("example.test 000/28\n");
 });
 
 // Run the real entrypoint and EXIT trap; only OS/network commands cross fixture boundaries.

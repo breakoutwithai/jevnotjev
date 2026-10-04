@@ -28,19 +28,33 @@ backstage_remove_failed_initial() {
     remote "test -L '${current}' && test \"\$(readlink '${current}')\" = '${release}' && ${stop_command} && rm '${current}'"
 }
 
-# A neighbour that cannot be probed (TLS or transport error) is recorded as 000, exactly as the static
-# deploy's probe_neighbours does. Stability is the before/after comparison in neighbour_status_changes:
-# 000 -> 000 passes, 000 -> 200 and 200 -> 000 both fail. Only an empty list is an error.
+# A neighbour that cannot be reached is an OBSERVATION, recorded as "000/<curl exit>" so that
+# neighbour_status_changes compares the failure category too: 000/60 -> 000/60 passes, while
+# 000/60 -> 000/7 (TLS fault became connection refused), 200 -> 000/x and 000/x -> 200 all fail.
+# Only network-level curl exits count as observations: 6 resolve, 7 connect, 28 timeout, 35 TLS
+# handshake, 52 empty reply, 56 recv failure, 58/60 TLS cert problems. Anything else (126/127 curl
+# missing, 2/3/48 bad invocation, ...) is a LOCAL fault, not a fact about the co-tenant: it returns 1
+# with curl's stderr shown. Exit 0 with output that is no HTTP status is also a failure. Empty list: 1.
 backstage_probe_neighbours() {
-    local ip="$1" name code probes=""
+    local ip="$1" name code rc errfile probes=""
     shift
     [[ "$#" -gt 0 ]] || return 1
+    errfile="$(mktemp)" || return 1
     for name in "$@"; do
-        code="$(curl -q -sS -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${name}:443:${ip}" "https://${name}/" 2>/dev/null)" || code=000
-        [[ "$code" =~ ^[1-5][0-9][0-9]$ ]] || code=000
+        rc=0
+        code="$(curl -q -sS -o /dev/null -w '%{http_code}' --max-time 10 --resolve "${name}:443:${ip}" "https://${name}/" 2>"$errfile")" || rc=$?
+        if [[ "$rc" -eq 0 ]]; then
+            [[ "$code" =~ ^[1-5][0-9][0-9]$ ]] || { echo "Probe of ${name} returned no HTTP status: '${code}'" >&2; rm -f "$errfile"; return 1; }
+        else
+            case "$rc" in
+                6|7|28|35|52|56|58|60) code="000/${rc}" ;;
+                *) cat "$errfile" >&2; echo "Probe of ${name} failed locally (curl exit ${rc})" >&2; rm -f "$errfile"; return 1 ;;
+            esac
+        fi
         probes="${probes}${name} ${code}
 "
     done
+    rm -f "$errfile"
     printf '%s' "$probes"
 }
 

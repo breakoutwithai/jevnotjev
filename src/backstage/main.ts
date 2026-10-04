@@ -103,6 +103,13 @@ function mode(): RunMode {
     ? "compare"
     : "jev-only";
 }
+const providerNames: Record<Provider, string> = {
+  jev: "Jev",
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  google: "Google",
+  xai: "xAI",
+};
 const providers: readonly Provider[] = [
   "jev",
   "anthropic",
@@ -136,7 +143,7 @@ function mountCatalog() {
   const keyContainer = element("provider-keys");
   for (const provider of providers.filter((p) => p !== "jev")) {
     const group = document.createElement("fieldset");
-    group.append(node("legend", provider));
+    group.append(node("legend", providerNames[provider]));
     for (const entry of MODEL_CATALOG.filter((e) => e.provider === provider)) {
       const label = document.createElement("label");
       const input = document.createElement("input");
@@ -160,7 +167,7 @@ function mountCatalog() {
     article.id = provider + "-key-player";
     article.hidden = true;
     const label = document.createElement("label");
-    label.append(document.createTextNode(provider + " API key"));
+    label.append(document.createTextNode(providerNames[provider] + " API key"));
     const input = document.createElement("input");
     input.id = provider + "-key";
     input.type = "password";
@@ -347,7 +354,11 @@ async function render() {
   button("new-scene").disabled = running || starting;
   button("download-csv").disabled =
     !current?.exportable || (!current.revealed && current.cards().length > 0);
-  button("download-evidence").disabled = !current?.exportable;
+  button("download-evidence").disabled =
+    !current?.exportable ||
+    (current.manifest.mode === "compare" &&
+      !current.revealed &&
+      current.cards().length > 0);
   button("reveal").textContent = comparison
     ? "Reveal results and lock labels"
     : "Finish judging and unlock downloads";
@@ -357,7 +368,7 @@ async function render() {
   text(
     "run-preview",
     current
-      ? `${count} frozen cases. ${current.completed} of ${current.total} selected calls settled; ${current.pending} have no answer.`
+      ? `${count} frozen cases. ${current.completed} of ${current.total} selected case/model cells processed; ${current.pending} have no answer.`
       : `${count} cases. Run all requests up to ${count * arms.filter((id) => id !== "rule").length} paid calls; first case up to ${arms.filter((id) => id !== "rule").length}. Missing competitor keys skip only those models.`,
   );
   const progress = element("progress");
@@ -507,10 +518,10 @@ function renderCard() {
     current && !current.running && current.labeling ? current.cards() : [];
   cardIndex = Math.max(0, Math.min(cardIndex, cards.length - 1));
   const card = cards[cardIndex];
+  button("unlabel").removeAttribute("aria-pressed");
   for (const [id, value] of [
     ["accept", "accept"],
     ["reject", "reject"],
-    ["unlabel", null],
   ])
     if (id)
       button(id).setAttribute(
@@ -668,7 +679,12 @@ button("download-csv").onclick = () => {
     download("records.csv", run.csv(), "text/csv;charset=utf-8");
 };
 button("download-evidence").onclick = () => {
-  if (run?.exportable)
+  if (
+    run?.exportable &&
+    (run.manifest.mode !== "compare" ||
+      run.revealed ||
+      run.cards().length === 0)
+  )
     download(
       "backstage-evidence.json",
       JSON.stringify(run.evidence(), null, 2),

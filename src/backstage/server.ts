@@ -111,6 +111,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     context?: RequestContext,
   ): Promise<Response> => {
     const url = new URL(request.url);
+    const trialHeld = trial.available && (fundingHeld || trial.ledger.held());
     if (url.pathname === "/api/backstage/health")
       return request.method === "GET"
         ? json({
@@ -120,7 +121,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
             catalog: MODEL_CATALOG,
             origin: options.origin ?? url.origin,
             trial:
-              trial.available && !fundingHeld
+              trial.available && !trialHeld
                 ? {
                     available: true,
                     limits: {
@@ -132,7 +133,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
                   }
                 : {
                     available: false,
-                    reason: fundingHeld
+                    reason: trialHeld
                       ? "Trial accounting is unavailable."
                       : trial.available
                         ? "Trial unavailable."
@@ -196,7 +197,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
               ),
               503,
             );
-          if (!trial.available || fundingHeld || !funded)
+          if (!trial.available || trialHeld || !funded)
             return json(
               dispatchError(
                 "trial-unavailable",
@@ -212,8 +213,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
               .find((v) => v.startsWith(`${cookieName}=`))
               ?.slice(cookieName.length + 1) ?? "";
           if (url.pathname.endsWith("/mint")) {
-            if (/^[a-f0-9-]{36}\.[a-f0-9]{64}$/.test(token))
-              return json({ available: true });
+            if (trial.ledger.verify(token)) return json({ available: true });
             const socket = context?.remoteAddress,
               loopback =
                 socket === "127.0.0.1" ||

@@ -1,3 +1,4 @@
+import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { CATALOG_VERSION, MODEL_CATALOG } from "./catalog.ts";
 import { test, expect } from "bun:test";
 import { createHandler } from "./server.ts";
@@ -7,7 +8,7 @@ const body = {
   catalogVersion: CATALOG_VERSION,
   armId: "jev",
   modelId: "jev-1.13.0",
-  promptVersion: "1",
+  promptVersion: PROMPT_TEMPLATE_VERSION,
   runId: "run-1",
   caseId: "case-1",
   question: "Keep?",
@@ -556,5 +557,87 @@ test("[integration] JF7 funded auth failures trip durable hold and prevent subse
         return new Response("", { status: 401 });
       },
     },
+  );
+});
+test("[unit] JF2 claimed prompt version mismatch cannot reach inference", async () => {
+  let calls = 0;
+  const handler = createHandler({
+    version: "test",
+    providerFetch: async () => {
+      calls++;
+      return Response.json({});
+    },
+  });
+  const response = await handler(
+    request("http://localhost:3456", {
+      ...body,
+      promptVersion: "invented-version",
+    }),
+  );
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({
+    code: "prompt-mismatch",
+    dispatched: false,
+    charge: "none",
+  });
+  expect(calls).toBe(0);
+});
+test("[integration] JF7 mint replaces a forged shaped cookie but keeps a verified used allowance", async () => {
+  await withTrial(async (handler) => {
+    const forged = `backstage_trial=${"0".repeat(8)}-${"0".repeat(4)}-${"0".repeat(4)}-${"0".repeat(4)}-${"0".repeat(12)}.${"0".repeat(64)}`;
+    const minted = await handler(trialRequest("mint", {}, forged), {
+      remoteAddress: "203.0.113.1",
+    });
+    expect(minted.status).toBe(200);
+    expect(minted.headers.get("set-cookie")).not.toBeNull();
+    const cookie = minted.headers.get("set-cookie")?.split(";")[0] ?? "";
+    await handler(trialRequest("answer", trialDecision(), cookie));
+    const reused = await handler(trialRequest("mint", {}, cookie), {
+      remoteAddress: "203.0.113.1",
+    });
+    expect(reused.status).toBe(200);
+    expect(reused.headers.get("set-cookie")).toBeNull();
+    expect(
+      (await handler(trialRequest("answer", trialDecision("fresh-id"), cookie)))
+        .status,
+    ).toBe(429);
+  });
+});
+test("[integration] JF7 expired or rotated-signature cookies are replaced through rate-limited mint", async () => {
+  for (const change of ["expired", "rotated"])
+    await withTrial(async (handler, config, create) => {
+      const cookie = await mint(handler);
+      handler.close();
+      const replacement = create({
+        trialConfig: {
+          ...config,
+          ...(change === "expired"
+            ? { now: () => Date.now() + 91 * 86400000 }
+            : { signingSecret: "r".repeat(40) }),
+        },
+      });
+      const response = await replacement(trialRequest("mint", {}, cookie), {
+        remoteAddress: "198.51.100.2",
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("set-cookie")).not.toBeNull();
+      expect(response.headers.get("set-cookie")).not.toContain(cookie);
+    });
+});
+test("[integration] JF7 health reports durable funding hold after restart", async () => {
+  await withTrial(
+    async (handler, _config, create) => {
+      const cookie = await mint(handler);
+      await handler(trialRequest("answer", trialDecision(), cookie));
+      handler.close();
+      const restarted = create();
+      const response = await restarted(
+        new Request("http://localhost:3456/api/backstage/health"),
+      );
+      expect(await response.json()).toMatchObject({
+        trial: { available: false },
+      });
+    },
+    { providerFetch: async () => new Response("", { status: 401 }) },
   );
 });

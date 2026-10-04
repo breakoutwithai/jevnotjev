@@ -179,6 +179,32 @@ export class TrialLedger {
     if (!timingSafeEqual(expected, Buffer.from(signature, "hex"))) return;
     return id;
   }
+  /** Reusing a valid consumed cookie must never mint a fresh allowance. */
+  verify(token: string): boolean {
+    try {
+      const id = this.#tokenId(token);
+      if (!id) return false;
+      const allowance = this.#db
+        .query<
+          { created: number },
+          [string]
+        >("SELECT created FROM allowances WHERE id=?")
+        .get(id);
+      return (
+        !!allowance && allowance.created + TOKEN_LIFETIME_MS > this.#clock()
+      );
+    } catch {
+      return false;
+    }
+  }
+  /** Durable circuit state; an unreadable ledger cannot authorize funding. */
+  held(): boolean {
+    try {
+      return this.#held();
+    } catch {
+      return true;
+    }
+  }
   #prune() {
     this.#prunedDay = this.#day();
     const cutoff = this.#clock() - TOKEN_LIFETIME_MS;

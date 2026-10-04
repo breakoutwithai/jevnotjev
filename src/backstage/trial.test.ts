@@ -319,3 +319,60 @@ test("[integration] JF6 unsupported schema fails closed and ledger never stores 
     f.cleanup();
   }
 });
+
+test("[integration] JF6 token verification rejects forged, rotated, missing and expired allowances but preserves consumed cookies", () => {
+  let now = Date.UTC(2026, 9, 4);
+  const f = setup({ now: () => now });
+  try {
+    const token = mint(f.ledger);
+    expect(f.ledger.verify(token)).toBe(true);
+    const unrelated = setup();
+    try {
+      expect(unrelated.ledger.verify(token)).toBe(false);
+    } finally {
+      unrelated.cleanup();
+    }
+    expect(f.ledger.verify(token + "x")).toBe(false);
+    expect(f.ledger.reserve(token, "first", small).kind).toBe("reserved");
+    expect(f.ledger.verify(token)).toBe(true);
+    f.ledger.close();
+    const rotated = openTrial({
+      ...f.config,
+      signingSecret: "rotated-signing-secret-at-least-thirty-two-characters",
+    });
+    if (!rotated.available) throw Error(rotated.reason);
+    try {
+      expect(rotated.ledger.verify(token)).toBe(false);
+      const replacement = mint(rotated.ledger);
+      expect(rotated.ledger.verify(replacement)).toBe(true);
+      now += 90 * 86400000;
+      expect(rotated.ledger.verify(replacement)).toBe(false);
+    } finally {
+      rotated.ledger.close();
+    }
+    expect(f.ledger.verify(token)).toBe(false);
+  } finally {
+    f.cleanup();
+  }
+});
+test("[integration] JF6 held accessor persists funding hold and fails closed after ledger loss", () => {
+  const f = setup();
+  try {
+    expect(f.ledger.held()).toBe(false);
+    const r = f.ledger.reserve(mint(f.ledger), "first", small);
+    if (r.kind !== "reserved") throw Error("reserve");
+    f.ledger.settle(r.reservationId, { kind: "unknown", code: "http-403" });
+    expect(f.ledger.held()).toBe(true);
+    f.ledger.close();
+    expect(f.ledger.held()).toBe(true);
+    const reopened = openTrial(f.config);
+    if (!reopened.available) throw Error(reopened.reason);
+    try {
+      expect(reopened.ledger.held()).toBe(true);
+    } finally {
+      reopened.ledger.close();
+    }
+  } finally {
+    f.cleanup();
+  }
+});

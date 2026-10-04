@@ -11,12 +11,12 @@ import {
 } from "./contracts.ts";
 import {
   CATALOG_VERSION,
-  MODEL_CATALOG,
   getModelEntry,
   JEV_ARM_ID,
   MAX_SELECTED_ARMS,
   MAX_RUN_REQUESTS,
 } from "./catalog.ts";
+import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { requestFingerprint } from "./fingerprint.ts";
 import { COLUMNS, validate } from "../format/validate.ts";
 import { formatRows, readDictRows } from "../format/csv.ts";
@@ -384,6 +384,7 @@ export async function dispatchFailure(
 ): Promise<AnswerFailure | null> {
   const codes = [
     "protocol-mismatch",
+    "prompt-mismatch",
     "unknown-arm",
     "catalog-mismatch",
     "trial-exhausted",
@@ -488,31 +489,18 @@ export class BackstageRun {
   constructor(
     scene: Scene,
     revision = "test",
-    selection: Selection | RunMode = "jev-only",
+    selection: Selection = { arms: [JEV_ARM_ID] },
   ) {
     if (!/^[A-Za-z0-9_.-]{1,64}$/.test(revision))
       throw new Error("Invalid run revision.");
-    const arms =
-      typeof selection === "string"
-        ? selection === "jev-only"
-          ? [JEV_ARM_ID]
-          : selection === "compare"
-            ? [
-                JEV_ARM_ID,
-                MODEL_CATALOG.find(
-                  (e) => e.provider === "anthropic" && e.enabled,
-                )?.id ?? "",
-                "rule",
-              ]
-            : []
-        : [...selection.arms];
+    const arms = [...selection.arms];
     if (
       !arms.includes(JEV_ARM_ID) ||
       arms.filter((id) => id !== "rule").length > MAX_SELECTED_ARMS ||
       new Set(arms).size !== arms.length
     )
       throw new Error(
-        "Select Jev and at most twelve distinct comparison arms.",
+        "Select Jev and at most eleven distinct provider comparison arms.",
       );
     const models = arms
       .filter((id) => id !== "rule")
@@ -558,7 +546,7 @@ export class BackstageRun {
       catalogVersion: CATALOG_VERSION,
       runId: crypto.randomUUID(),
       revision,
-      promptVersion: "backstage-v2",
+      promptVersion: PROMPT_TEMPLATE_VERSION,
       questionId: "decision",
       createdAt: new Date().toISOString(),
       scene: frozen,
@@ -953,10 +941,69 @@ export class BackstageRun {
           (b) => a.caseId === b.caseId && a.armId === b.armId,
         ),
     );
-    if (!failed.length) return [];
-    return [
-      "Some selected calls have no answer. Check selected provider keys, access and account usage before explicit retry. A stopped or timed-out call may have incurred charges.",
-    ];
+    const advice = new Set<string>();
+    for (const attempt of failed) {
+      if (attempt.ok) continue;
+      switch (attempt.code) {
+        case "missing-key":
+        case "invalid-key":
+        case "provider-blocked":
+          advice.add(
+            "Some selected provider keys are missing, invalid or blocked. Correct them before explicit retry; these skipped calls were not charged.",
+          );
+          break;
+        case "http-401":
+        case "http-403":
+          advice.add(
+            "Check selected provider keys and account permissions before explicit retry.",
+          );
+          break;
+        case "http-429":
+          advice.add(
+            "Wait for the provider rate limit to reset and check account limits before explicit retry.",
+          );
+          break;
+        case "revision-mismatch":
+        case "protocol-mismatch":
+        case "catalog-mismatch":
+        case "prompt-mismatch":
+          advice.add(
+            "Reload the matching page and runner before a new run. These rejected requests were not sent to providers.",
+          );
+          break;
+        case "runner-busy":
+        case "busy":
+          advice.add(
+            "Wait for runner capacity before retrying. Rejected requests were not sent to providers.",
+          );
+          break;
+        case "trial-unavailable":
+        case "trial-exhausted":
+        case "trial-replay":
+        case "trial-budget":
+        case "trial-limit":
+          advice.add(
+            "The funded trial is unavailable or consumed. Use your own key in a new run or copy the decision to Playground.",
+          );
+          break;
+        case "not-run":
+          advice.add(
+            "Remaining calls were stopped before dispatch and were not charged. Retry explicitly when ready.",
+          );
+          break;
+        default:
+          advice.add(
+            attempt.charge === "none"
+              ? "A request was rejected before a provider call. Check inputs and selected keys before retrying."
+              : "Check provider account usage before retrying a failed response.",
+          );
+      }
+      if (attempt.charge === "unknown")
+        advice.add(
+          "A dispatched call has unknown charges. Check provider account usage before retrying; another call may incur another charge.",
+        );
+    }
+    return [...advice].sort();
   }
   extraSpend() {
     let knownUsd = 0,
@@ -1037,6 +1084,12 @@ export class BackstageRun {
     };
   }
   evidence() {
+    if (
+      this.manifest.mode === "compare" &&
+      !this.#revealed &&
+      this.#answers.length > 0
+    )
+      throw new Error("Reveal results before downloading comparison evidence.");
     if (this.#unsafe)
       throw new Error("Export blocked: this run contains a provider key.");
     return {

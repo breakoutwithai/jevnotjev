@@ -18,6 +18,14 @@ import { validate } from "../format/validate.ts";
 import { cohortMetrics } from "../core/metrics.ts";
 import { fileSeed } from "../core/calc.ts";
 import { verdict } from "../core/verdict.ts";
+const compareSelection = { arms: ["jev", "claude-haiku-4-5-20251001", "rule"] };
+function evidenceAfterReveal(run: BackstageRun) {
+  if (run.manifest.mode === "compare" && !run.revealed && run.cards().length) {
+    if (!run.labeling) run.beginLabeling();
+    run.reveal();
+  }
+  return run.evidence();
+}
 function scene(): Scene {
   return {
     question: "Qualified?",
@@ -67,7 +75,7 @@ async function success(r: AnswerRequest): Promise<AnswerSuccess> {
 describe("Backstage run", () => {
   test("[unit] B2 validates and freezes inputs, rejects duplicate cases", () => {
     const s = scene();
-    const run = new BackstageRun(s, "test", "compare");
+    const run = new BackstageRun(s, "test", compareSelection);
     expect(Object.isFrozen(run.manifest.scene.cases)).toBe(true);
     expect(
       () =>
@@ -84,7 +92,7 @@ describe("Backstage run", () => {
     ).toEqual([]);
   });
   test("[unit] B7 executes actual transport, blind labels, exact CSV core parity", async () => {
-    const run = new BackstageRun(scene(), "test", "compare");
+    const run = new BackstageRun(scene(), "test", compareSelection);
     await run.start(keys, success);
     expect(run.cards()).toHaveLength(6);
     expect(run.cards().every((c) => !("provider" in c))).toBe(true);
@@ -100,10 +108,12 @@ describe("Backstage run", () => {
     expect(report.verdict).toEqual(
       verdict(report.metrics, await fileSeed(report.csv)),
     );
-    expect(JSON.stringify(run.evidence())).not.toContain("test-secret");
+    expect(JSON.stringify(evidenceAfterReveal(run))).not.toContain(
+      "test-secret",
+    );
   });
   test("[unit] B2 double-run prevented; stop keeps unknown attempt and discards late result", async () => {
-    const run = new BackstageRun(scene(), "test", "compare");
+    const run = new BackstageRun(scene(), "test", compareSelection);
     let release: ((v: AnswerSuccess) => void) | undefined;
     let request: AnswerRequest | undefined;
     let began: (() => void) | undefined;
@@ -134,7 +144,7 @@ describe("Backstage run", () => {
     expect(run.attempts).toHaveLength(8);
   });
   test("[unit] B5 retry never recharges success and retains known failed spend", async () => {
-    const run = new BackstageRun(scene(), "test", "compare");
+    const run = new BackstageRun(scene(), "test", compareSelection);
     let count = 0;
     await run.start(keys, async (r) => {
       count++;
@@ -158,7 +168,7 @@ describe("Backstage run", () => {
     });
   });
   test("[unit] B4 rejects stale identity, off-model and hostile echoed fields without leaking keys", async () => {
-    const run = new BackstageRun(scene(), "test", "compare");
+    const run = new BackstageRun(scene(), "test", compareSelection);
     await run.start(keys, async (r) => ({
       ...(await success(r)),
       model: "wrong",
@@ -166,11 +176,13 @@ describe("Backstage run", () => {
       secret: r.key,
     }));
     expect(run.cards()).toHaveLength(2);
-    expect(JSON.stringify(run.evidence())).not.toContain("test-secret");
+    expect(JSON.stringify(evidenceAfterReveal(run))).not.toContain(
+      "test-secret",
+    );
     expect((await run.report()).extraSpend.unknown).toBe(4);
   });
   test("[unit] B6 missing cost stays incomplete; no implicit human labels", async () => {
-    const run = new BackstageRun(scene(), "test", "compare");
+    const run = new BackstageRun(scene(), "test", compareSelection);
     await run.start(keys, async (r) => ({
       ...(await success(r)),
       tokensIn: null,
@@ -191,16 +203,18 @@ describe("Backstage run", () => {
         success,
       ),
     ).rejects.toThrow();
-    const run = new BackstageRun(s, "test", "compare");
+    const run = new BackstageRun(s, "test", compareSelection);
     await run.start(keys, async (r) => ({
       ...(await success(r)),
       priceVersion: keys[r.provider === "jev" ? "anthropic" : "jev"],
     }));
     expect(run.cards()).toHaveLength(2);
-    expect(JSON.stringify(run.evidence())).not.toContain("test-secret");
+    expect(JSON.stringify(evidenceAfterReveal(run))).not.toContain(
+      "test-secret",
+    );
   });
   test("[unit] B5 stop before dispatch makes no provider request", async () => {
-    const run = new BackstageRun(scene(), "test", "compare");
+    const run = new BackstageRun(scene(), "test", compareSelection);
     let calls = 0;
     const promise = run.start(keys, async (r) => {
       calls++;
@@ -213,7 +227,7 @@ describe("Backstage run", () => {
     expect(run.attempts.every((a) => !a.ok && a.charge === "none")).toBe(true);
   });
   test("[unit] B5 backend hyphenated failure codes preserve no-charge evidence", async () => {
-    const run = new BackstageRun(scene(), "test", "compare");
+    const run = new BackstageRun(scene(), "test", compareSelection);
     await run.start(keys, async (r) => ({
       ...(await success(r)),
       ok: false,
@@ -247,7 +261,7 @@ test("[unit] B4 secret rejection blocks exports including escaped keys and retry
   expect(() => run.csv()).toThrow();
   expect(() => run.evidence()).toThrow();
   await expect(run.start(keys, success)).rejects.toThrow();
-  const retryRun = new BackstageRun(scene(), "test", "compare");
+  const retryRun = new BackstageRun(scene(), "test", compareSelection);
   await retryRun.start(keys, success);
   await expect(
     retryRun.retry({ jev: "Qualified?", anthropic: keys.anthropic }, success),
@@ -255,7 +269,7 @@ test("[unit] B4 secret rejection blocks exports including escaped keys and retry
   expect(() => retryRun.evidence()).toThrow();
 });
 test("[unit] B6 reveal irreversibly locks labels and retries", async () => {
-  const run = new BackstageRun(scene(), "test", "compare");
+  const run = new BackstageRun(scene(), "test", compareSelection);
   expect(() => run.reveal()).toThrow();
   await run.start(keys, success);
   const card = run.cards()[0];
@@ -304,7 +318,7 @@ test("[unit] B4 controls and malformed keys fail before calls", async () => {
     ).toThrow();
   }
   await expect(
-    new BackstageRun(scene(), "test", "compare").start(
+    new BackstageRun(scene(), "test", compareSelection).start(
       { jev: "tiny", anthropic: keys.anthropic },
       success,
     ),
@@ -332,7 +346,7 @@ test("[unit] B5 confirmed local rejections are uncharged, unknown HTTP failures 
         cases: [{ id: "x", input: "test" }],
       },
       "test",
-      "compare",
+      compareSelection,
     );
     await run.start(keys);
     expect(run.extraSpend()).toEqual({ knownUsd: 0, unknown: 0 });
@@ -346,7 +360,7 @@ test("[unit] B5 confirmed local rejections are uncharged, unknown HTTP failures 
         cases: [{ id: "x", input: "test" }],
       },
       "test",
-      "compare",
+      compareSelection,
     );
     await uncertain.start(keys);
     expect(uncertain.extraSpend()).toEqual({ knownUsd: 0, unknown: 2 });
@@ -356,7 +370,7 @@ test("[unit] B5 confirmed local rejections are uncharged, unknown HTTP failures 
 });
 
 test("[unit] B5 first progress callback enables stopping before initial call", async () => {
-  const run = new BackstageRun(scene(), "test", "compare");
+  const run = new BackstageRun(scene(), "test", compareSelection);
   let calls = 0;
   const states: boolean[] = [];
   await run.start(
@@ -381,7 +395,7 @@ test("[unit] B7 quoted combined CSV header is not two columns", () => {
   expect(() => parseCases('"case_id,case_input"\na,b\n')).toThrow();
 });
 test("[unit] B6 labeling locks retry decisions before first card judgment", async () => {
-  const run = new BackstageRun(scene(), "test", "compare");
+  const run = new BackstageRun(scene(), "test", compareSelection);
   await run.start(keys, success);
   const card = run.cards()[0];
   if (!card) throw new Error("missing card");
@@ -483,7 +497,7 @@ test("[unit] B7 rejects malformed quoted CSV without repairing cases", () => {
   ).toEqual([{ id: "a", input: 'a "quote"\r\nnext line' }]);
 });
 test("[unit] B5 retry advice is actionable without provider or answer mapping", async () => {
-  const run = new BackstageRun(scene(), "test", "compare");
+  const run = new BackstageRun(scene(), "test", compareSelection);
   await run.start(keys, async (request) => ({
     ...(await success(request)),
     ok: false,
@@ -493,18 +507,17 @@ test("[unit] B5 retry advice is actionable without provider or answer mapping", 
     costUsd: null,
   }));
   const advice = run.retryAdvice();
-  expect(advice).toHaveLength(1);
+  // Key rejection, later provider-blocked cells, and rate limiting have distinct recovery advice.
+  expect(advice).toHaveLength(3);
   expect(advice.some((message) => message.includes("keys"))).toBe(true);
-  expect(advice.some((message) => message.includes("account usage"))).toBe(
-    true,
-  );
+  expect(advice.some((message) => message.includes("Wait"))).toBe(true);
   expect(advice.join(" ")).not.toMatch(/jev|llm|c1|c2|sensitive|yes|no choice/);
   expect(run.labeling).toBe(false);
   await run.retry(keys, success);
   expect(run.retryAdvice()).toEqual([]);
 });
 test("[unit] B4 unsafe run cannot enter judging and gives recovery guidance", async () => {
-  const run = new BackstageRun(scene(), "test", "compare");
+  const run = new BackstageRun(scene(), "test", compareSelection);
   await run.start(keys, success);
   await expect(
     run.retry({ jev: "Qualified?", anthropic: keys.anthropic }, success),
@@ -512,8 +525,8 @@ test("[unit] B4 unsafe run cannot enter judging and gives recovery guidance", as
   expect(() => run.beginLabeling()).toThrow("Start a new scene");
 });
 
-test("[integration] JO1 Jev-only runs without competitor key and exports only actual Jev answers", async () => {
-  const run = new BackstageRun(scene(), "test", "jev-only");
+test("[integration] JF1 Jev-only runs without competitor key and exports only actual Jev answers", async () => {
+  const run = new BackstageRun(scene(), "test", { arms: ["jev"] });
   const calls: string[] = [];
   await run.start({ jev: keys.jev, anthropic: "" }, async (request) => {
     calls.push(request.provider);
@@ -548,8 +561,8 @@ test("[integration] JO1 Jev-only runs without competitor key and exports only ac
     run.attempts.every((attempt) => attempt.ok && attempt.confidence === 0.87),
   ).toBe(true);
 });
-test("[integration] JO2 missing competitor key fails its arms while Jev completes", async () => {
-  const run = new BackstageRun(scene(), "test", "compare");
+test("[integration] JF1 missing competitor key fails its arms while Jev completes", async () => {
+  const run = new BackstageRun(scene(), "test", compareSelection);
   const calls: string[] = [];
   await run.start({ jev: keys.jev }, async (request) => {
     calls.push(request.provider);
@@ -564,8 +577,8 @@ test("[integration] JO2 missing competitor key fails its arms while Jev complete
   await run.retry(keys, success);
   expect(run.cards()).toHaveLength(6);
 });
-test("[integration] JO3 stop and retry retain solo selection and never add unselected arms", async () => {
-  const run = new BackstageRun(scene(), "test", "jev-only");
+test("[integration] JF7 stop and retry retain solo selection and never add unselected arms", async () => {
+  const run = new BackstageRun(scene(), "test", { arms: ["jev"] });
   const calls: string[] = [];
   await run.start({ jev: keys.jev, anthropic: "" }, async (request) => {
     calls.push(request.provider);
@@ -591,7 +604,7 @@ test("[integration] JO3 stop and retry retain solo selection and never add unsel
   );
 });
 
-test("[unit] JO1 unused rule fields cannot block a solo scene with custom choices", () => {
+test("[unit] JF1 unused rule fields cannot block a solo scene with custom choices", () => {
   const custom: Scene = {
     ...scene(),
     choices: [
@@ -602,13 +615,15 @@ test("[unit] JO1 unused rule fields cannot block a solo scene with custom choice
     otherwiseChoice: "",
     keywords: ["x".repeat(201)],
   };
-  const run = new BackstageRun(custom, "test", "jev-only");
+  const run = new BackstageRun(custom, "test", { arms: ["jev"] });
   expect(run.manifest.scene.choices.map((choice) => choice.name)).toEqual([
     "keep",
     "cut",
   ]);
   expect(run.manifest.scene.keywords).toEqual([]);
-  expect(() => new BackstageRun(custom, "test", "compare")).toThrow("rule");
+  expect(() => new BackstageRun(custom, "test", compareSelection)).toThrow(
+    "rule",
+  );
 });
 
 test("[integration] JF2 same-provider models stay distinct and missing competitor keys do not block Jev", async () => {
@@ -769,7 +784,7 @@ test("[integration] JF5 clearing mutable keys stops dispatch without erasing in-
   expect(run.attempts.filter((a) => !a.ok && a.charge === "none")).toHaveLength(
     3,
   );
-  expect(JSON.stringify(run.evidence())).not.toContain("test-secret");
+  expect(JSON.stringify(evidenceAfterReveal(run))).not.toContain("test-secret");
 });
 
 test("[unit] JF1 selection limits and rule configuration fail before dispatch", () => {
@@ -844,4 +859,73 @@ test("[integration] JF6 failed mint is definitely uncharged and cannot dispatch 
   expect(urls).toEqual(["/api/backstage/trial/mint"]);
   expect(run.extraSpend()).toEqual({ knownUsd: 0, unknown: 0 });
   expect(run.attempts[0]?.ok).toBe(false);
+});
+
+test("[integration] JF5 comparison evidence cannot reveal identities before judging is locked", async () => {
+  const run = new BackstageRun(scene(), "test", {
+    arms: ["jev", "claude-sonnet-5-5"],
+  });
+  await run.start(keys, success);
+  expect(() => run.evidence()).toThrow("Reveal");
+  run.beginLabeling();
+  expect(() => run.evidence()).toThrow("Reveal");
+  run.reveal();
+  expect(run.evidence().attempts).toHaveLength(4);
+});
+
+test("[integration] JF5 key getter is re-read after keys clear without Stop", async () => {
+  const run = new BackstageRun(scene(), "test", {
+    arms: ["jev", "claude-sonnet-5-5"],
+  });
+  let holder: import("./contracts.ts").ProviderKeys = { ...keys };
+  let calls = 0;
+  await run.start(
+    () => holder,
+    async (request) => {
+      calls++;
+      holder = {};
+      return success(request);
+    },
+  );
+  expect(calls).toBe(1);
+  expect(
+    run.attempts.filter(
+      (attempt) =>
+        !attempt.ok &&
+        attempt.code === "missing-key" &&
+        attempt.charge === "none",
+    ),
+  ).toHaveLength(3);
+  expect(run.attempts.filter((attempt) => attempt.ok)).toHaveLength(1);
+});
+
+test("[integration] JF7 local key and version failures give specific no-charge recovery", async () => {
+  const missing = new BackstageRun(scene(), "test", {
+    arms: ["jev", "claude-sonnet-5-5"],
+  });
+  await missing.start({ jev: keys.jev }, success);
+  expect(missing.retryAdvice().join(" ")).toContain("not charged");
+  expect(missing.retryAdvice().join(" ")).not.toContain("unknown charges");
+  const stale = new BackstageRun(scene());
+  await stale.start(keys, async (request) => ({
+    ...(await success(request)),
+    ok: false,
+    code: "prompt-mismatch",
+    message: "Mismatch",
+    charge: "none",
+    costUsd: 0,
+  }));
+  expect(stale.retryAdvice().join(" ")).toContain("Reload");
+  expect(stale.retryAdvice().join(" ")).not.toContain("unknown charges");
+});
+
+test("[integration] JF5 failed-only comparison evidence remains available without revealing", async () => {
+  const run = new BackstageRun(scene(), "test", {
+    arms: ["jev", "claude-sonnet-5-5"],
+  });
+  await run.start(keys, async () => {
+    throw Error("offline");
+  });
+  expect(run.cards()).toHaveLength(0);
+  expect(run.evidence().attempts).toHaveLength(4);
 });

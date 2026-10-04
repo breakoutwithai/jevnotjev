@@ -28,7 +28,7 @@ test("[smoke] B1 six accessible rooms and real key/run controls", async () => {
   expect(page).not.toContain("onclick=");
 });
 
-test("[smoke] JO4 Jev-only is the initial cast and comparisons require opt-in", async () => {
+test("[smoke] JF1 Jev-only is the initial cast and comparisons require opt-in", async () => {
   const page = await Bun.file("site/backstage/index.html").text();
   expect(page).toContain('<input id="compare" type="checkbox" />');
   expect(page).toContain('id="llm-player" hidden');

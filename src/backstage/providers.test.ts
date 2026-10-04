@@ -1,5 +1,6 @@
+import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { CATALOG_VERSION, MODEL_CATALOG } from "./catalog.ts";
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import { callProvider, parseAnswerRequest } from "./providers.ts";
 import type { AnswerRequest } from "./contracts.ts";
 const request: AnswerRequest = {
@@ -8,7 +9,7 @@ const request: AnswerRequest = {
   catalogVersion: CATALOG_VERSION,
   armId: "jev",
   modelId: "jev-1.13.0",
-  promptVersion: "1",
+  promptVersion: PROMPT_TEMPLATE_VERSION,
   runId: "run-1",
   caseId: "case-1",
   question: "Keep?",
@@ -455,5 +456,57 @@ test("[unit] JF2 Google nonblocking safety feedback is valid but model mismatch 
         }),
     );
     expect(result.ok).toBe(modelVersion === modelId);
+  }
+});
+test("[unit] JF2 catalog generation controls are the actual outgoing native parameters", async () => {
+  for (const armId of [
+    "claude-haiku-4-5-20251001",
+    "gemini-3.8-flash",
+    "gpt-6.1-sol",
+    "grok-4.7",
+  ]) {
+    const entry = MODEL_CATALOG.find((model) => model.id === armId);
+    if (!entry) throw new Error("fixture");
+    await callProvider(
+      { ...request, provider: entry.provider, armId, modelId: entry.modelId },
+      async (_url, options) => {
+        const wire = JSON.parse(String(options.body));
+        if (entry.provider === "anthropic") {
+          expect(wire.thinking).toEqual({ type: "disabled" });
+          expect(wire.max_tokens).toBe(entry.parameters.maxOutputTokens);
+        } else if (entry.provider === "google") {
+          expect(wire.generationConfig).toEqual({
+            maxOutputTokens: entry.parameters.maxOutputTokens,
+            candidateCount: 1,
+            thinkingConfig: { thinkingLevel: "LOW" },
+          });
+        } else {
+          expect(wire.reasoning).toEqual({
+            effort: entry.parameters.reasoningEffort,
+          });
+          expect(wire.max_output_tokens).toBe(entry.parameters.maxOutputTokens);
+        }
+        return new Response("", { status: 401 });
+      },
+    );
+  }
+});
+test("[unit] JF2 provider deadline clamps caller timeout to thirty seconds", async () => {
+  const durations: number[] = [];
+  const spy = spyOn(AbortSignal, "timeout").mockImplementation(
+    (milliseconds) => {
+      durations.push(milliseconds);
+      return new AbortController().signal;
+    },
+  );
+  try {
+    await callProvider(
+      request,
+      async () => new Response("", { status: 401 }),
+      90000,
+    );
+    expect(durations).toEqual([30000]);
+  } finally {
+    spy.mockRestore();
   }
 });

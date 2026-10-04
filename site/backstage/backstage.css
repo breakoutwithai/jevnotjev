@@ -216,6 +216,9 @@ textarea:disabled {
   grid-template-columns: 1fr 1fr;
   gap: 24px;
 }
+.cast {
+  align-items: start;
+}
 .cast article,
 aside,
 .answer-card {
@@ -380,15 +383,29 @@ footer {
   text-decoration: underline;
 }
 #model-options fieldset {
-  margin: 1rem 0;
+  margin: 0.75rem 0;
 }
-#model-options label {
-  display: block;
-  padding: 0.4rem 0;
+#model-options legend {
+  font-size: 18px;
+  margin: 12px 0 6px;
+}
+#model-options label,
+#model-fields > label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 6px 0;
+  padding: 4px 0;
 }
 #model-options input[type="checkbox"],
-#mode-fields input[type="checkbox"],
 #model-fields > label input {
+  flex: 0 0 auto;
+  display: inline-block;
   width: auto;
-  margin-right: 0.5rem;
+  margin: 2px 0 0;
+  padding: 0;
+}
+#provider-keys {
+  display: grid;
+  gap: 12px;
 }

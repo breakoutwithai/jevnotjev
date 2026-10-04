@@ -10,7 +10,7 @@ import type {
 } from "./contracts.ts";
 import { MODEL_CATALOG, CATALOG_VERSION, getModelEntry } from "./catalog.ts";
 import { requestFingerprint } from "./fingerprint.ts";
-import { decisionPrompt } from "./prompt.ts";
+import { decisionPrompt, PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 export { requestFingerprint } from "./fingerprint.ts";
 export type ProviderFetch = (
   url: string,
@@ -89,6 +89,11 @@ export function validateAnswerRequest(
     modelId,
     promptVersion,
   } = value;
+  if (promptVersion !== PROMPT_TEMPLATE_VERSION)
+    return fail(
+      "prompt-mismatch",
+      "Prompt template changed. Reload before running.",
+    );
   const entry =
     typeof armId === "string" ? catalog.find((e) => e.id === armId) : undefined;
   if (!entry || !entry.enabled)
@@ -284,7 +289,14 @@ export function buildProviderRequest(
         generationConfig: {
           maxOutputTokens: params.maxOutputTokens,
           candidateCount: 1,
-          thinkingConfig: { thinkingLevel: "LOW" },
+          thinkingConfig: {
+            thinkingLevel:
+              params.reasoningEffort === "low"
+                ? "LOW"
+                : params.reasoningEffort === "none"
+                  ? "MINIMAL"
+                  : "THINKING_LEVEL_UNSPECIFIED",
+          },
         },
       },
     };

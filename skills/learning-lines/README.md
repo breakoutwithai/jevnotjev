@@ -5,7 +5,8 @@ Rehearse your own lines with Jev and with the model you already use, and see on 
 You write a question, its choices and a few cases. The skill sends each case to Jev (TypeSafe
 `jev-1.13.0`) and to Claude or Codex through your own CLI login, then prints one line per case
 (agree or differ) and a short summary: answered, matches with your expected answers, tokens,
-estimated cost per 1,000 calls and median latency. It writes no files.
+estimated cost per 1,000 calls and median latency. The script writes no files; the Claude and Codex
+CLIs keep their own state in their home folders as usual.
 
 ## Install
 
@@ -34,7 +35,9 @@ cd ~/.claude/skills/learning-lines && bun run.ts example-refund.json --limit 2
 Add `--with codex` for Codex, `--model <id>` for another model. `SKILL.md` has the cases file format.
 
 Limits: model token counts include the CLI's own system prompt, and model cost is a list-price
-estimate, not what you pay on a subscription. Two or forty cases show a pattern, not proof.
+estimate, not what you pay on a subscription. One CLI call per case; the CLI may retry internally.
+Codex runs with its tools switched off but still loads the AGENTS.md in its home folder. Two or forty
+cases show a pattern, not proof.
 
 ## Feedback
 

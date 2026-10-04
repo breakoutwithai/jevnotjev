@@ -1,6 +1,6 @@
 ---
 name: learning-lines
-description: "Rehearse your own choice-question cases with Jev (TypeSafe jev-1.13.0) and with the model you already use (Claude Code or Codex on your own subscription login), and see side by side on screen where they agree, where they differ, tokens, estimated cost and latency. Writes no files. Use for 'learning lines <cases.json>', 'try Jev on my cases', 'compare Jev with Claude on <file>', 'compare Jev with Codex on <file>'."
+description: "Rehearse your own choice-question cases with Jev (TypeSafe jev-1.13.0) and with the model you already use (Claude Code or Codex on your own subscription login), and see side by side on screen where they agree, where they differ, tokens, estimated cost and latency. The script writes no files. Use for 'learning lines <cases.json>', 'try Jev on my cases', 'compare Jev with Claude on <file>', 'compare Jev with Codex on <file>'."
 argument-hint: "<cases.json> [--with claude|codex] [--model <id>] [--limit N] [--skip-jev]"
 user-invocable: true
 allowed-tools: Read, Bash
@@ -9,8 +9,8 @@ allowed-tools: Read, Bash
 # /learning-lines
 
 Learning lines: you write the lines (your cases), Jev and your usual model read them, and the
-screen shows how each one delivered them. One cases file in, a table on screen out. Nothing is
-saved.
+screen shows how each one delivered them. One cases file in, a table on screen out. This script
+writes no files; the Claude and Codex CLIs keep their own state in their home folders as usual.
 
 ## Run
 
@@ -30,7 +30,12 @@ bun run.ts <cases.json> --skip-jev                  # model arm only, no Jev key
   Codex runs through your own `codex` CLI and must be logged in using ChatGPT. API-key logins are
   refused, and API keys are stripped from the CLI's environment, so no API credits are billed.
 - Codex models: `gpt-6-luna`, `gpt-6-sol` (default), `gpt-6-astra`.
-- Calls run one at a time, no retries. The first error stops the run with a message naming the case.
+- One CLI call per case, one case at a time; the script never retries, but the CLI may retry internally.
+  The first error stops the run with a message naming the case.
+- Prompts go to the CLI on stdin. For Codex, shell, file, image, app, browser and web-search tools are
+  switched off, and a case fails if Codex reports any tool use. Codex still loads the AGENTS.md in its
+  home folder; codex-cli 0.160.0 has no switch for that, so keep it short or expect it in the context.
+- Limits per cases file: question, each definition and each case text up to 20,000 characters.
 
 ## Cases file
 

@@ -148,3 +148,22 @@ test("[integration] U1 changed acceptance rules invalidate old labels", async ()
   expect(changed.get("status").textContent).toContain("0 of 40 labelled");
   expect(changed.get("saveStatus").textContent).toContain("changed");
 });
+test("[integration] U4 shop call buttons expose the current call and a completed seat stays editable after reload", async () => {
+  const store = new Store(); const p = await page("little-shop", store);
+  p.seat("m01");
+  expect(p.get("sayAnswer").getAttribute("aria-pressed")).toBe("false");
+  expect(p.get("sayHand").getAttribute("aria-pressed")).toBe("false");
+  expect(p.get("callHint").textContent).toBe("");
+  p.get("sayHand").click();
+  expect(p.get("sayHand").getAttribute("aria-pressed")).toBe("true");
+  expect(p.get("sayAnswer").getAttribute("aria-pressed")).toBe("false");
+  expect(p.get("callHint").textContent).toContain("Change this call");
+  const reloaded = await page("little-shop", store); reloaded.seat("m01");
+  expect(reloaded.get("ask").hidden).toBe(false);
+  expect(reloaded.get("sayHand").getAttribute("aria-pressed")).toBe("true");
+  reloaded.get("sayAnswer").click();
+  expect(reloaded.get("sayAnswer").getAttribute("aria-pressed")).toBe("true");
+  expect(reloaded.get("sayHand").getAttribute("aria-pressed")).toBe("false");
+  expect(reloaded.get("taken").textContent).toBe("3");
+  expect(store.data.get("jnj.little-shop.call.v1.m01")).toBe("answer");
+});

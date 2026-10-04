@@ -1,3 +1,4 @@
+import { renderPage } from "./run-arms.ts";
 // Builds the stage-door demo data (site/uc13-demo.js) and the live labelling page (site/label/index.html) from the
 // recorded UC13 run. Nothing is typed by hand: every answer, count and cost comes from records.csv.
 //
@@ -277,7 +278,8 @@ export async function build(runDir = RUN_DIR, exampleDir = EXAMPLE_DIR): Promise
   const html = await Bun.file(join(runDir, "label.html")).text();
   const recorded = recordedInputs(html);
   checkInputs(recorded, await loadExample(exampleDir), rows);
-  return { demo: demoScript(buildDemo(rows, recorded.factSheet)), label: labelPage(html) };
+  const template = await Bun.file(join(exampleDir, "label.template.html")).text();
+  return { demo: demoScript(buildDemo(rows, recorded.factSheet)), label: labelPage(renderPage(template, recorded.factSheet, recorded.cases)) };
 }
 
 export const USAGE = "usage: bun scripts/uc13/stage-demo.ts [--check]";

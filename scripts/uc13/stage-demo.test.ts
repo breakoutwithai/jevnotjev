@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Answer, type Column, type RecordRow, applyLabels, formatRecords, parseRecords, record, ruleOutput } from "./arms.ts";
 import {
-  ARMS, DEMO_IDS, DEMO_OUT, EXAMPLE_DIR, LABEL_OUT, RUN_DIR, build, buildDemo, judge, labelPage, readDemoScript,
+  ARMS, DEMO_IDS, DEMO_OUT, EXAMPLE_DIR, LABEL_OUT, RUN_DIR, build, buildDemo, judge, labelPage, readDemoScript, recordedInputs,
 } from "./stage-demo.ts";
 import { renderPage } from "./run-arms.ts";
 
@@ -165,9 +165,11 @@ describe("stage-door demo data", () => {
     expect(pending).toBe(unlabelled);
   });
 
-  test("[integration] UC13-STAGE-6 the live label page is the run's page plus a back link, self-contained, no dashes", async () => {
+  test("[integration] UC13-STAGE-6 the live label page uses the current template and recorded inputs, self-contained, no dashes", async () => {
     const page = await readFile(LABEL_OUT, "utf8");
-    expect(page).toBe(labelPage(await readFile(join(RUN_DIR, "label.html"), "utf8")));
+    const recorded = recordedInputs(await readFile(join(RUN_DIR, "label.html"), "utf8"));
+    const currentTemplate = await readFile(join(EXAMPLE_DIR, "label.template.html"), "utf8");
+    expect(page).toBe(labelPage(renderPage(currentTemplate, recorded.factSheet, recorded.cases)));
     // One closing script tag: the page's own. A hostile message rendered through the same renderer cannot add one.
     expect(page.match(/<\/script/gi)?.length).toBe(1);
     const template = await readFile(join(EXAMPLE_DIR, "label.template.html"), "utf8");

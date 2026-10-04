@@ -79,12 +79,20 @@ SOURCE="source: captured ${STAMP} from ${SERVER_HOST} by .deploy/tests/capture-f
 redact_credentials() {
     awk '
     # redact-credentials: replace every line that carries a credential value
+    function cred(s) {
+        s = tolower(s)
+        return (s ~ /(api[_-]?key|secret|token|passw|authoriz|credential|cookie|bearer)/ \
+            || s ~ /^[[:space:]]*user[[:space:]]*=/ || s ~ /\$(apr1|2[aby]|1|5|6)\$/)
+    }
     {
-        l = tolower($0)
-        if ($1 == "auth_basic" || $1 == "auth_basic_user_file") { print; next }
-        if (l ~ /(api[_-]?key|secret|token|passw|authoriz|credential|cookie|bearer)/ \
-            || l ~ /^[[:space:]]*user[[:space:]]*=/ \
-            || $0 ~ /\$(apr1|2[aby]|1|5|6)\$/) { print "[REDACTED: credential]"; next }
+        # Kept verbatim only when the line is exactly ONE auth_basic / auth_basic_user_file
+        # statement, optionally followed by a comment that itself names no credential. The
+        # htpasswd path is not a secret; anything else on the line goes through the check.
+        if (match($0, /^[[:space:]]*(auth_basic|auth_basic_user_file)[[:space:]]+[^;#]+;[[:space:]]*/)) {
+            rest = substr($0, RLENGTH + 1)
+            if (rest == "" || (substr(rest, 1, 1) == "#" && !cred(rest))) { print; next }
+        }
+        if (cred($0)) { print "[REDACTED: credential]"; next }
         print
     }'
 }

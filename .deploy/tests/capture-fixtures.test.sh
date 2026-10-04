@@ -37,6 +37,11 @@ case "$cmd" in
             '    set $api_key live-secret-value;' \
             '    proxy_set_header X-Api-Key live-secret-value;' \
             '    proxy_set_header  X-Auth-Token   tok-value-123 ;' \
+            '    auth_basic "Restricted"; proxy_set_header Authorization "Basic SYNTHETIC_CREDENTIAL";' \
+            '    auth_basic_user_file /etc/x/htpasswd; # token=SYNTHETIC_TOKEN_COMMENT' \
+            '    auth_basic "Kept-Realm";' \
+            '    auth_basic off;  # gate disabled here' \
+            '    auth_basic_user_file /etc/kept/htpasswd;' \
             '# PRIVATE-TERM appears in a comment' ;;
     "ls -la /etc/nginx/sites-enabled/")
         if [ -n "${FAKE_SLOW:-}" ]; then : > "${FAKE_STATE}/slow"; sleep 3; fi
@@ -110,6 +115,14 @@ leaks="$(grep -rl -e 'dGVzdDpzM2NyZXQ=' -e 'hunter2hunter2' -e 's3cretpass' -e '
 leaks="$(grep -rl -e 'live-secret-value' -e 'tok-value-123' "$OUT" 2>/dev/null)"
 [[ -z "$leaks" ]] && ok "sweep #1: nginx 'set \$api_key ...;' and whitespace-separated credential headers are redacted" \
     || nope "sweep #1 nginx credential syntax leaked into: ${leaks}"
+leaks="$(grep -rl -e 'SYNTHETIC_CREDENTIAL' -e 'SYNTHETIC_TOKEN_COMMENT' "$OUT" 2>/dev/null)"
+[[ -z "$leaks" ]] && ok "gate P1: an auth_basic line carrying a second directive or a credential comment is redacted" \
+    || nope "gate P1 auth_basic exemption leaked into: ${leaks}"
+grep -qxF '    auth_basic "Kept-Realm";' "${OUT}/nginx-T.txt" \
+    && grep -qxF '    auth_basic off;  # gate disabled here' "${OUT}/nginx-T.txt" \
+    && grep -qxF '    auth_basic_user_file /etc/kept/htpasswd;' "${OUT}/nginx-T.txt" \
+    && ok "a lone auth_basic / auth_basic_user_file directive (optional safe comment) is kept verbatim" \
+    || nope "safe auth_basic lines were not kept: $(grep -n 'auth_basic\|REDACTED' "${OUT}/nginx-T.txt")"
 grep -q 'auth_basic_user_file /etc/jevnotjev-backstage/htpasswd;' "${OUT}/backstage-snippet.conf" \
     && ok "the htpasswd path line survives (a path, not a credential), so the snippet still parses" \
     || nope "snippet over-redacted: $(cat "${OUT}/backstage-snippet.conf")"

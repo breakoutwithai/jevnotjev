@@ -4,7 +4,7 @@ import {
   checkRunnerHealth,
   validateSceneKeys,
 } from "./run.ts";
-import type { Scene } from "./contracts.ts";
+import type { Scene, RunMode } from "./contracts.ts";
 import type { Spend, CostPerAccepted } from "../core/metrics.ts";
 declare const BACKSTAGE_BUILD_VERSION: string;
 function element(id: string): HTMLElement {
@@ -94,6 +94,12 @@ function scene(firstOnly: boolean): Scene {
     cases: firstOnly ? all.slice(0, 1) : all,
   };
 }
+function mode(): RunMode {
+  const input = field("compare");
+  return input instanceof HTMLInputElement && input.checked
+    ? "compare"
+    : "jev-only";
+}
 function keys() {
   return {
     jev: field("jev-key").value.trim(),
@@ -101,7 +107,12 @@ function keys() {
   };
 }
 function freezeFields(frozen: boolean) {
-  for (const id of ["scene-fields", "rule-fields", "case-fields"]) {
+  for (const id of [
+    "scene-fields",
+    "rule-fields",
+    "case-fields",
+    "mode-fields",
+  ]) {
     const value = element(id);
     if (value instanceof HTMLFieldSetElement) value.disabled = frozen;
   }
@@ -126,8 +137,13 @@ async function start(firstOnly: boolean, retry = false) {
         );
       // Capture and validate before the first asynchronous operation: Run authorizes these exact inputs.
       const candidate = scene(firstOnly);
-      validateSceneKeys(candidate, supplied);
-      current = new BackstageRun(candidate, BACKSTAGE_BUILD_VERSION);
+      const selectedMode = mode();
+      validateSceneKeys(candidate, supplied, selectedMode);
+      current = new BackstageRun(
+        candidate,
+        BACKSTAGE_BUILD_VERSION,
+        selectedMode,
+      );
       imports.invalidate();
       freezeFields(true);
     } else if (!current || current.labeling)
@@ -170,6 +186,18 @@ function spend(value: Spend) {
 function cpa(value: CostPerAccepted) {
   return value.kind === "value" ? money(value.usd) : value.reason;
 }
+function answerTable(current: BackstageRun): HTMLElement {
+  return table(
+    ["Case", "Jev answer", "Returned confidence"],
+    current
+      .results()
+      .map((answer) => [
+        answer.caseId,
+        answer.output,
+        answer.confidence === null ? "Not returned" : String(answer.confidence),
+      ]),
+  );
+}
 function table(headers: string[], rows: string[][]): HTMLElement {
   const wrap = node("div", "");
   wrap.className = "table-wrap";
@@ -197,6 +225,22 @@ async function render() {
   const epoch = ++renderEpoch;
   const current = run;
   const running = current?.running ?? false;
+  const comparison = (current?.manifest.mode ?? mode()) === "compare";
+  element("llm-player").hidden = !comparison;
+  element("rule-fields").hidden = !comparison;
+  element("comparison-note").hidden = !comparison;
+  text(
+    "judging-direction",
+    comparison
+      ? "Judge the answer before you learn who gave it."
+      : "Judge Jev’s answer against your acceptance rule.",
+  );
+  text(
+    "judging-note",
+    comparison
+      ? "Player, model, confidence, cost and timing are hidden here. Order is shuffled. Labels are yours; no model grades itself."
+      : "This run contains Jev only. Confidence is the model’s score, not measured accuracy. Your labels are optional and remain separate.",
+  );
   button("run-one").disabled = starting || imports.pending || !!current;
   button("run-all").disabled = starting || imports.pending || !!current;
   button("stop").disabled = !running && !starting;
@@ -217,7 +261,7 @@ async function render() {
     "run-preview",
     current
       ? `${count} frozen cases. ${current.completed} of ${current.total} provider answers completed.`
-      : `${count} cases. Run all makes ${count * 2} paid calls plus the local rule. First case makes 2 paid calls.`,
+      : `${count} cases. Run all makes ${count * (comparison ? 2 : 1)} paid calls${comparison ? " plus the local rule" : " to Jev only"}. First case makes ${comparison ? 2 : 1} paid call${comparison ? "s" : ""}.`,
   );
   const progress = element("progress");
   progress.replaceChildren();
@@ -245,6 +289,13 @@ async function render() {
         ),
       );
     }
+  }
+  if (
+    current?.manifest.mode === "jev-only" &&
+    !current.revealed &&
+    current.results().length
+  ) {
+    progress.append(node("h3", "Jev answers"), answerTable(current));
   }
   renderCard();
   if (!current) return;
@@ -277,6 +328,9 @@ async function render() {
         ]),
       ),
     );
+    if (current.manifest.mode === "jev-only") {
+      metrics.append(node("h3", "Jev answers"), answerTable(current));
+    }
     for (const pair of [report.metrics.jevVsLlm, report.metrics.jevVsRule]) {
       if (!pair) continue;
       metrics.append(
@@ -303,6 +357,16 @@ async function render() {
       ),
     );
     const result = element("verdict");
+    if (!report.verdict) {
+      result.replaceChildren(
+        node("h3", "Jev-only rehearsal"),
+        node(
+          "p",
+          "Your answers and labels are ready. No comparative recommendation: this run contains only Jev.",
+        ),
+      );
+      return;
+    }
     result.replaceChildren(
       node("h3", report.verdict.verdict),
       node("p", `Rule ${report.verdict.rule}: ${report.verdict.reason}`),
@@ -503,6 +567,7 @@ field("import-cases").addEventListener("change", async () => {
     void render();
   }
 });
+field("compare").addEventListener("change", () => void render());
 button("theme").onclick = () => {
   document.documentElement.dataset.theme =
     document.documentElement.dataset.theme === "dark" ? "light" : "dark";

@@ -5,6 +5,8 @@ import {
   type AnswerResult,
   type AnswerFailure,
   type Provider,
+  type RunMode,
+  type Arm,
   type Scene,
 } from "./contracts.ts";
 import { COLUMNS, validate } from "../format/validate.ts";
@@ -23,6 +25,8 @@ export type Transport = (
 ) => Promise<unknown>;
 export type Label = "accept" | "reject" | null;
 export interface Manifest {
+  readonly mode: RunMode;
+  readonly arms: readonly Arm[];
   readonly revision: string;
   readonly runId: string;
   readonly promptVersion: string;
@@ -59,12 +63,18 @@ function containsKey(value: unknown, keys: readonly string[]): boolean {
     return Object.values(value).some((item) => containsKey(item, keys));
   return false;
 }
-export function validateSceneKeys(scene: Scene, keys: Keys): void {
+export function validateSceneKeys(
+  scene: Scene,
+  keys: Keys,
+  mode: RunMode = "compare",
+): void {
   if (containsKey(scene, Object.values(keys)))
     throw new Error(
       "A provider key appears in the scene. Remove it before running.",
     );
-  for (const provider of providers)
+  for (const provider of providers.filter(
+    (p) => mode === "compare" || p === "jev",
+  ))
     if (!/^[\x21-\x7e]{8,512}$/.test(keys[provider]))
       throw new Error(
         `Supply a valid ${provider} key (8-512 printable characters, no spaces).`,
@@ -373,11 +383,26 @@ export class BackstageRun {
   #labeling = false;
   #unsafe = false;
   #notify: (() => void) | undefined;
-  constructor(scene: Scene, revision = "test") {
+  constructor(scene: Scene, revision = "test", mode: RunMode = "compare") {
+    if (mode !== "jev-only" && mode !== "compare")
+      throw new Error("Invalid run mode.");
     if (!/^[A-Za-z0-9_.-]{1,64}$/.test(revision))
       throw new Error("Invalid run revision.");
-    const frozen = freezeScene(scene);
+    const frozen = freezeScene(
+      mode === "jev-only"
+        ? {
+            ...scene,
+            keywords: [],
+            matchChoice: scene.choices[0].name,
+            otherwiseChoice: scene.choices[1].name,
+          }
+        : scene,
+    );
     this.manifest = Object.freeze({
+      mode,
+      arms: Object.freeze<Arm[]>(
+        mode === "jev-only" ? ["jev"] : ["rule", "jev", "llm"],
+      ),
       runId: crypto.randomUUID(),
       revision,
       promptVersion: "backstage-v1",
@@ -387,7 +412,7 @@ export class BackstageRun {
     });
     // Shuffle slots before results arrive: completion order and provider order cannot reveal identity.
     const slots = frozen.cases.flatMap((c) =>
-      ["rule", "jev", "llm"].map((p) => `${c.id}:${p}`),
+      this.manifest.arms.map((p) => `${c.id}:${p}`),
     );
     for (let i = slots.length - 1; i > 0; i--) {
       const random = new Uint32Array(1);
@@ -412,7 +437,10 @@ export class BackstageRun {
     return this.#answers.filter((a) => a.provider !== "rule").length;
   }
   get total(): number {
-    return this.manifest.scene.cases.length * 2;
+    return (
+      this.manifest.scene.cases.length *
+      this.manifest.arms.filter((arm) => arm !== "rule").length
+    );
   }
   get started(): boolean {
     return this.#started;
@@ -457,6 +485,16 @@ export class BackstageRun {
         output: a.output,
         label: this.#labels.get(a.id) ?? null,
       }));
+  }
+  /** Solo answers are visible immediately; comparisons remain blind until reveal. */
+  results(): readonly Pick<RowAnswer, "caseId" | "output" | "confidence">[] {
+    if (this.#unsafe || (this.manifest.mode === "compare" && !this.#revealed))
+      return [];
+    return this.#answers.map(({ caseId, output, confidence }) => ({
+      caseId,
+      output,
+      confidence,
+    }));
   }
   label(id: string, label: Label): void {
     if (!this.#labeling)
@@ -519,12 +557,12 @@ export class BackstageRun {
         "A provider key appears in run data. Start a new scene without the key.",
       );
     }
-    validateSceneKeys(scene, keys);
+    validateSceneKeys(scene, keys, this.manifest.mode);
     this.#started = true;
     const controller = new AbortController();
     this.#controller = controller;
     this.#notify = onChange;
-    if (!this.#answers.length)
+    if (!this.#answers.length && this.manifest.arms.includes("rule"))
       for (const c of scene.cases) {
         const ruleStarted = performance.now();
         const output = scene.keywords.some((k) =>
@@ -549,7 +587,9 @@ export class BackstageRun {
     try {
       this.#notify?.();
       for (const c of scene.cases)
-        for (const provider of providers) {
+        for (const provider of providers.filter((p) =>
+          this.manifest.arms.includes(p),
+        )) {
           if (controller.signal.aborted) return;
           if (
             this.#answers.some(
@@ -688,7 +728,7 @@ export class BackstageRun {
         case "http-401":
         case "http-403":
           advice.add(
-            "A call rejected a key or account permission. Check both provider keys and account access in Casting before retrying.",
+            "A call rejected a key or account permission. Check selected provider keys and account access in Casting before retrying.",
           );
           break;
         case "http-429":
@@ -723,7 +763,7 @@ export class BackstageRun {
           break;
         default:
           advice.add(
-            "A call failed or was interrupted. Check both provider dashboards for charges before retrying unfinished calls.",
+            "A call failed or was interrupted. Check selected provider dashboards for charges before retrying unfinished calls.",
           );
       }
     }
@@ -748,7 +788,10 @@ export class BackstageRun {
     return {
       csv,
       metrics,
-      verdict: verdict(metrics, await fileSeed(csv)),
+      verdict:
+        this.manifest.mode === "compare"
+          ? verdict(metrics, await fileSeed(csv))
+          : null,
       extraSpend: this.extraSpend(),
     };
   }

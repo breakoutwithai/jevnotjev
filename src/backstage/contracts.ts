@@ -1,6 +1,8 @@
 export const PROTOCOL_VERSION = "backstage/1";
 export const MODELS = { jev: "jev-1.13.0", llm: "claude-haiku-4-5-20251001" };
 export type Provider = "jev" | "llm";
+export type RunMode = "jev-only" | "compare";
+export type Arm = Provider | "rule";
 export interface Choice {
   readonly name: string;
   readonly definition: string;

@@ -359,3 +359,10 @@ footer {
     flex-grow: 1;
   }
 }
+
+#compare {
+  display: inline-block;
+  width: auto;
+  margin: 0 8px 0 0;
+  accent-color: var(--ink);
+}

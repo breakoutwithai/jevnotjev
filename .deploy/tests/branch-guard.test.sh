@@ -17,7 +17,7 @@ export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER
 
 # The promotion block verbatim from deploy.sh. Extracted, never reimplemented, so a drift in
 # the shipped code is what gets tested.
-guard_block="$(sed -n '/^if \[\[ "\$BRANCH" == "HEAD" \]\]; then$/,/^fi$/p' .deploy/deploy.sh)"
+guard_block="$(awk '/^if \[\[ "\$BRANCH" != "\$ALLOWED_BRANCH" \]\]; then$/ { on=1 } on { print } on && /^fi$/ { exit }' .deploy/deploy.sh)"
 if [[ -n "$guard_block" ]]; then
     ok "the promotion block is extractable from deploy.sh"
 else
@@ -43,6 +43,10 @@ run_guard_at() {
             at-main) git checkout -q --detach origin/main ;;
             older)   git checkout -q --detach origin/main~1 ;;
             feature) git checkout -q -b feature-x origin/main ;;
+            feature-ahead)
+                git checkout -q -b feature-x origin/main && echo ahead > g && git add g \
+                    && git -c commit.gpgsign=false commit -qm ahead ;;
+            feature-older) git checkout -q -b feature-x origin/main~1 ;;
         esac
         BRANCH="$(git rev-parse --abbrev-ref HEAD)"
         SHA="$(git rev-parse HEAD)"
@@ -66,9 +70,19 @@ r="$(run_guard_at older)"
     || nope "an older detached commit resolved to '${r#RESOLVED=}' - it would have deployed"
 
 r="$(run_guard_at feature)"
+[[ "$r" == "RESOLVED=main" ]] \
+    && ok "a NAMED branch whose HEAD is exactly fresh origin/main resolves to 'main' (wt.sh worktree deploys)" \
+    || nope "named branch at origin/main resolved to '${r#RESOLVED=}', expected main"
+
+r="$(run_guard_at feature-ahead)"
 [[ "$r" == "RESOLVED=feature-x" ]] \
-    && ok "a named feature branch is untouched by the guard (deploy refuses)" \
-    || nope "feature branch resolved to '${r#RESOLVED=}'"
+    && ok "a named branch AHEAD of origin/main stays 'feature-x' (deploy refuses)" \
+    || nope "a named branch ahead of main resolved to '${r#RESOLVED=}' - it would have deployed"
+
+r="$(run_guard_at feature-older)"
+[[ "$r" == "RESOLVED=feature-x" ]] \
+    && ok "a named branch BEHIND origin/main stays 'feature-x' (deploy refuses)" \
+    || nope "a named branch behind main resolved to '${r#RESOLVED=}' - it would have deployed"
 
 awk '!/^[[:space:]]*#/ && /verify_head_is_remote_main/ {f=1} END {exit !f}' .deploy/deploy.sh \
     && ok "deploy.sh still calls verify_head_is_remote_main after the guard" \
@@ -79,22 +93,38 @@ grep -q 'git worktree add' .deploy/deploy.sh \
     || nope "the refusal does not tell the operator the correct path"
 
 # Behavioural: a real --dry-run from a feature branch of a throwaway copy of THIS repo's .deploy
-# must refuse with the branch message (the dry-run flag does not bypass the name guard).
-tmp="$(mktemp -d)"
-(
-    cd "$tmp" || exit 1
-    make_upstream upstream >/dev/null 2>&1
-    git clone -q upstream work 2>/dev/null
-    cd work || exit 1
-    git checkout -q -b feature-y
-) >/dev/null 2>&1
-cp -R .deploy "$tmp/work/.deploy"
-out="$(cd "$tmp/work" && TMPDIR="$tmp" JEVNOTJEV_SSH_KEY=/nonexistent /bin/bash .deploy/deploy.sh --dry-run 2>&1)"; rc=$?
-rm -rf "$tmp"
-if [[ $rc -ne 0 && "$out" == *"Refusing to deploy from 'feature-y'"* ]]; then
-    ok "deploy.sh --dry-run on a feature branch refuses (rc=${rc})"
+# must refuse with the branch message (the dry-run flag does not bypass the name guard), unless
+# the named branch sits exactly on origin/main.
+dry_run_on_branch() {
+    # $1 = ahead|at-main. Prints deploy.sh output, then "RC=<rc>".
+    local tmp out rc
+    tmp="$(mktemp -d)"
+    (
+        cd "$tmp" || exit 1
+        make_upstream upstream >/dev/null 2>&1
+        git clone -q upstream work 2>/dev/null
+        cd work || exit 1
+        git checkout -q -b feature-y
+        if [[ "$1" == ahead ]]; then
+            echo ahead > g && git add g && git -c commit.gpgsign=false commit -qm ahead
+        fi
+    ) >/dev/null 2>&1
+    cp -R .deploy "$tmp/work/.deploy"
+    out="$(cd "$tmp/work" && TMPDIR="$tmp" JEVNOTJEV_SSH_KEY=/nonexistent /bin/bash .deploy/deploy.sh --dry-run 2>&1)"; rc=$?
+    rm -rf "$tmp"
+    printf '%s\nRC=%s\n' "$out" "$rc"
+}
+out="$(dry_run_on_branch ahead)"; rc="${out##*RC=}"
+if [[ "$rc" != 0 && "$out" == *"Refusing to deploy from 'feature-y'"* ]]; then
+    ok "deploy.sh --dry-run on a feature branch ahead of main refuses (rc=${rc})"
 else
-    nope "deploy.sh --dry-run on a feature branch did not refuse: rc=${rc}, out: $(printf '%s' "$out" | tail -2)"
+    nope "deploy.sh --dry-run on a feature branch did not refuse: rc=${rc}, out: $(printf '%s' "$out" | tail -3)"
+fi
+out="$(dry_run_on_branch at-main)"
+if [[ "$out" != *"Refusing to deploy from"* && "$out" == *"treating as 'main'"* ]]; then
+    ok "deploy.sh --dry-run on a named branch at origin/main passes the branch guard"
+else
+    nope "named branch at origin/main was refused by the branch guard: $(printf '%s' "$out" | tail -3)"
 fi
 
 # ------------------------------------------------ verify_head_is_remote_main (real lib.sh)

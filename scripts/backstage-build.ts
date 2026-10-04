@@ -2,6 +2,12 @@ import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 
+/** Entrypoint, target, output dir and file name of each bundle. ship.sh drift reads the entrypoints. */
+export const BACKSTAGE_BUILD_TARGETS = [
+  ["src/backstage/main.ts", "browser", "site/backstage", "app.js"],
+  ["src/backstage/server.ts", "bun", "", "server.js"],
+] as const;
+
 /** Build both sides off-host from the same revision. No credentials are read. */
 export async function buildBackstage(
   root = process.cwd(),
@@ -55,10 +61,7 @@ export async function buildBackstage(
       await mkdir(dirname(join(out, path)), { recursive: true });
       await copyFile(join(sourceRoot, path), join(out, path));
     }
-    for (const [entry, target, outdir, naming] of [
-      ["src/backstage/main.ts", "browser", "site/backstage", "app.js"],
-      ["src/backstage/server.ts", "bun", "", "server.js"],
-    ]) {
+    for (const [entry, target, outdir, naming] of BACKSTAGE_BUILD_TARGETS) {
       if (
         !entry ||
         (!outdir && outdir !== "") ||

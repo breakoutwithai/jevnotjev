@@ -69,15 +69,16 @@ log_info "Branch ${BRANCH} at ${SHORT_SHA}"
 # Override deliberately with DEPLOY_ALLOW_BRANCH=<name>; the commit must still be pushed.
 readonly ALLOWED_BRANCH="${DEPLOY_ALLOW_BRANCH:-main}"
 
-# A DETACHED HEAD whose SHA is exactly origin/main satisfies the guard's intent - "ship only
-# what main has" - more strictly than a branch name can. A clean throwaway worktree pinned to
-# origin/main (the mandated deploy procedure) is always detached, and `--abbrev-ref` returns
-# the literal "HEAD" for it, so resolve identity by commit before comparing names.
-if [[ "$BRANCH" == "HEAD" ]]; then
+# A HEAD whose SHA is exactly freshly fetched origin/main satisfies the guard's intent - "ship
+# only what main has" - more strictly than a branch name can. Resolve identity by commit before
+# comparing names: a clean worktree pinned to origin/main is either detached (`--abbrev-ref`
+# returns the literal "HEAD") or on the named branch `wt.sh new` always creates. Any other
+# commit, on any branch, keeps its name and is refused below.
+if [[ "$BRANCH" != "$ALLOWED_BRANCH" ]]; then
     git fetch origin main --no-tags >/dev/null 2>&1 || true
-    detached_main_sha="$(git rev-parse origin/main 2>/dev/null || true)"
-    if [[ -n "$detached_main_sha" && "$SHA" == "$detached_main_sha" ]]; then
-        log_info "Detached HEAD at origin/main (${SHORT_SHA}) - treating as '${ALLOWED_BRANCH}'."
+    fresh_main_sha="$(git rev-parse origin/main 2>/dev/null || true)"
+    if [[ -n "$fresh_main_sha" && "$SHA" == "$fresh_main_sha" ]]; then
+        log_info "HEAD '${BRANCH}' is origin/main (${SHORT_SHA}) - treating as '${ALLOWED_BRANCH}'."
         BRANCH="$ALLOWED_BRANCH"
     fi
 fi

@@ -294,6 +294,8 @@ async function activationFixture(
     first?: boolean;
     unverified?: boolean;
     disabled?: boolean;
+    wrongProtocol?: boolean;
+    currentV2?: boolean;
   } = {},
 ): Promise<{ code: number; current: string; log: string; output: string }> {
   const dir = await mkdtemp(join(tmpdir(), "backstage-activation-"));
@@ -320,6 +322,14 @@ async function activationFixture(
       : [oldSha, newSha]) {
       const release = join(dir, "www/jevnotjev-backstage-releases", sha);
       await mkdir(join(release, "site/backstage"), { recursive: true });
+      await Bun.write(
+        join(release, "release.json"),
+        JSON.stringify({
+          version: sha,
+          protocol:
+            options.currentV2 && sha === oldSha ? "backstage/2" : "backstage/1",
+        }),
+      );
       if (!(options.unverified && sha === oldSha))
         await Bun.write(join(release, ".verified"), "yes");
       for (const file of ["app.js", "backstage.css", "index.html"])
@@ -346,7 +356,7 @@ async function activationFixture(
       await Bun.write(join(artifact, "server.js"), "server");
       await Bun.write(
         join(artifact, "release.json"),
-        JSON.stringify({ version: newSha }),
+        JSON.stringify({ version: newSha, protocol: "backstage/2" }),
       );
       await Bun.write(
         join(dir, "scripts/backstage-build.ts"),
@@ -372,7 +382,7 @@ async function activationFixture(
       mv: `#!/usr/bin/env bun\nimport {renameSync} from 'node:fs';const args=process.argv.slice(2).filter(a=>a!=='-T');renameSync(args[0]??'',args[1]??'');`,
       sha256sum: `#!/usr/bin/env bash\nshasum -a 256 "$@"\n`,
       systemctl: `#!/usr/bin/env bun\nimport {appendFileSync,existsSync,writeFileSync} from 'node:fs';const root=process.env.FIXTURE??'';appendFileSync(root+'/actions',process.argv.slice(2).join(' ')+'\\n');if(process.argv[2]==='is-enabled'&&process.env.DISABLED==='1')process.exit(1);if(process.argv[2]==='restart'&&process.env.FAIL_RESTART==='1'&&!existsSync(root+'/failed')){writeFileSync(root+'/failed','1');process.exit(1);}`,
-      curl: `#!/usr/bin/env bun\nimport {readlinkSync,readFileSync} from 'node:fs';const args=process.argv.slice(2);const url=args.at(-1)??'';if(url.includes('neighbor.test')){process.stdout.write('200');process.exit(0);}const active=readlinkSync((process.env.FIXTURE??'')+'/www/jevnotjev-backstage-current');if(url.endsWith('/health')){process.stdout.write(JSON.stringify({protocol:'backstage/1',version:active.split('/').at(-1)}));}else{const path=url.endsWith('/')?'index.html':url.split('/').at(-1);if(path==='index.html'&&process.env.CORRUPT_HTML==='1')process.stdout.write('old html');else process.stdout.write(readFileSync(active+'/site/backstage/'+path));}`,
+      curl: `#!/usr/bin/env bun\nimport {readlinkSync,readFileSync} from 'node:fs';const args=process.argv.slice(2);const url=args.at(-1)??'';if(url.includes('neighbor.test')){process.stdout.write('200');process.exit(0);}const active=readlinkSync((process.env.FIXTURE??'')+'/www/jevnotjev-backstage-current');if(url.endsWith('/health')){process.stdout.write(JSON.stringify({protocol:process.env.WRONG_PROTOCOL==='1'&&active.endsWith('b'.repeat(40))?'backstage/999':JSON.parse(readFileSync(active+'/release.json','utf8')).protocol,version:active.split('/').at(-1)}));}else{const path=url.endsWith('/')?'index.html':url.split('/').at(-1);if(path==='index.html'&&process.env.CORRUPT_HTML==='1')process.stdout.write('old html');else process.stdout.write(readFileSync(active+'/site/backstage/'+path));}`,
     };
     for (const [name, body] of Object.entries(commands)) {
       const path = join(dir, "bin", name);
@@ -395,6 +405,7 @@ async function activationFixture(
           FAIL_RESTART: failRestart ? "1" : "0",
           CORRUPT_HTML: corruptHtml ? "1" : "0",
           DISABLED: options.disabled ? "1" : "0",
+          WRONG_PROTOCOL: options.wrongProtocol ? "1" : "0",
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -465,4 +476,38 @@ test("[integration] B8 deployment refuses a service not enabled for reboot", asy
   expect(result.current).toBe("a".repeat(40));
   expect(result.log).not.toContain("restart");
   expect(result.output).toContain("not enabled");
+});
+
+test("[unit] JF6 service isolates durable ledger and funded secrets outside release permissions", async () => {
+  const service = await Bun.file(".deploy/backstage.service").text();
+  expect(service).toContain("User=jevnotjev-backstage");
+  expect(service).toContain("StateDirectory=jevnotjev-backstage");
+  expect(service).toContain("StateDirectoryMode=0700");
+  expect(service).toContain(
+    "EnvironmentFile=-/etc/jevnotjev-backstage/trial.env",
+  );
+  const nginx = await Bun.file(".deploy/backstage-nginx.conf").text();
+  expect(nginx).toContain(
+    "proxy_set_header X-Backstage-Client-IP $remote_addr;",
+  );
+  const deploy = await Bun.file(".deploy/backstage-deploy.sh").text();
+  expect(deploy).not.toContain("/etc/jevnotjev-backstage/trial.env");
+});
+
+test("[integration] JF6 wrong served protocol fails promotion and restores the prior pair", async () => {
+  const result = await activationFixture(false, false, {
+    promote: true,
+    wrongProtocol: true,
+  });
+  expect(result.code).not.toBe(0);
+  expect(result.current).toBe("a".repeat(40));
+  expect(result.log.match(/restart/g)?.length).toBe(2);
+  expect(result.output).toContain("New API version did not verify");
+  expect(result.output).not.toContain("Rollback version did not verify");
+});
+test("[integration] JF6 explicit rollback from a v2 release accepts the verified v1 target", async () => {
+  const result = await activationFixture(false, false, { currentV2: true });
+  expect(result.code).toBe(0);
+  expect(result.current).toBe("b".repeat(40));
+  expect(result.log).toContain("is-active --quiet");
 });

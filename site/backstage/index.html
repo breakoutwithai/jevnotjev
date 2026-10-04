@@ -6,7 +6,7 @@
     <title>Backstage Pass | Jev!Jev</title>
     <meta
       name="description"
-      content="Bring your own keys. Rehearse one real decision with Jev, an LLM and a simple rule."
+      content="Bring your own keys. Rehearse one real decision with Jev. Compare with an LLM and a simple rule when you choose."
     />
     <link rel="stylesheet" href="./backstage.css" />
     <script type="module" src="./app.js"></script>
@@ -26,7 +26,8 @@
         <span class="stub">BRING YOUR OWN KEYS</span>
       </div>
       <p class="intro">
-        One decision. Three players. Your cases, your calls, your judgment.
+        One decision. Jev first. Comparisons optional. Your cases, your calls,
+        your judgment.
       </p>
       <nav aria-label="Backstage rooms" id="rooms">
         <button data-room="0" aria-current="step">
@@ -111,8 +112,20 @@
         <p class="eyebrow">ACT II / ENTER THE PLAYERS</p>
         <h2 id="casting-title" tabindex="-1">Casting</h2>
         <p class="direction">
-          The same question. The same cases. Three ways to answer.
+          Start with Jev alone. Add the other players when you want a
+          comparison.
         </p>
+        <fieldset id="mode-fields">
+          <legend>Choose your cast</legend>
+          <label
+            ><input id="compare" type="checkbox" /> Choose optional
+            comparisons</label
+          >
+          <p class="fine">
+            Unchecked: Jev only. No Anthropic key needed. Select only models you
+            want to call. Your cast locks when the run starts.
+          </p>
+        </fieldset>
         <div class="cast">
           <article>
             <h3>Jev decides</h3>
@@ -125,28 +138,46 @@
                 spellcheck="false"
             /></label>
           </article>
-          <article>
-            <h3>The LLM</h3>
-            <p class="model">claude-haiku-4-5-20251001</p>
-            <label
-              >Anthropic API key<input
-                id="llm-key"
-                type="password"
-                autocomplete="off"
-                spellcheck="false"
-            /></label>
-          </article>
+          <div id="llm-player" hidden>
+            <fieldset id="model-fields">
+              <legend>Optional models</legend>
+              <div id="model-options"></div>
+              <label
+                ><input id="include-rule" type="checkbox" /> Include a local
+                keyword rule</label
+              >
+            </fieldset>
+            <div id="provider-keys"></div>
+          </div>
         </div>
-        <p class="fine">
-          Your key and case travel through this site's server to the selected
-          provider over HTTPS. Keys stay in memory for this session; they are
-          not saved or included in downloads. Each Run makes billable calls on
-          your accounts.
-        </p>
+        <aside class="trust-sign" aria-label="Keys and privacy">
+          <strong>Your keys. Your call.</strong>
+          <p>
+            Your request goes through this server to the provider you select.
+            Prefer testing directly in the
+            <a
+              href="https://console.typesafe.ai/playground"
+              target="_blank"
+              rel="noreferrer"
+              >TypeSafe Playground</a
+            >
+            or your own CLI. Do not submit sensitive cases.
+          </p>
+          <p>
+            This app does not intentionally persist provider keys.
+            Infrastructure and provider retention are not independently
+            verified. Clear keys stops further calls; requests already sent may
+            still be charged.
+          </p>
+          <p>
+            Need help?
+            <a href="mailto:jev@breakoutwithai.com">jev@breakoutwithai.com</a>
+          </p>
+        </aside>
         <button id="clear-keys" class="secondary" type="button">
           Clear keys
         </button>
-        <fieldset id="rule-fields">
+        <fieldset id="rule-fields" hidden>
           <legend>A simple rule</legend>
           <label
             >Literal keywords, one per line<textarea
@@ -160,11 +191,7 @@
             answer; otherwise, the second. No API cost.
           </p>
         </fieldset>
-        <p class="fine">
-          List-price estimates: Jev $0.042 / million input tokens, output free;
-          Haiku $1 input / $5 output. Dated 3 October 2026. Your invoice may
-          differ.
-        </p>
+        <p class="fine" id="catalog-note"></p>
       </section>
       <section data-panel="2" aria-labelledby="lines-title" hidden>
         <p class="eyebrow">ACT III / THE CASES</p>
@@ -191,6 +218,26 @@
           /></label>
         </fieldset>
         <p id="run-preview">No cases yet.</p>
+        <p class="fine">
+          Only selected providers receive your case. Calls use your accounts.
+          <a href="https://console.typesafe.ai/playground"
+            >Prefer the Playground?</a
+          >
+        </p>
+        <div class="actions">
+          <button id="copy-case" type="button" class="secondary">
+            Copy first case for Playground</button
+          ><button id="copy-cli" type="button" class="secondary">
+            Copy own-key CLI
+          </button>
+        </div>
+        <button id="run-trial" type="button" class="secondary" disabled>
+          Try one small Jev query
+        </button>
+        <p id="trial-status" class="fine">
+          No funded trial is configured here. Bring your Jev key, or copy the
+          case to Playground.
+        </p>
         <div class="actions">
           <button id="run-one">Run first case</button
           ><button id="run-all">Run all cases</button
@@ -208,7 +255,9 @@
       <section data-panel="3" aria-labelledby="rehearsal-title" hidden>
         <p class="eyebrow">ACT III / YOUR JUDGMENT</p>
         <h2 id="rehearsal-title" tabindex="-1">Rehearsals</h2>
-        <p class="direction">Judge the answer before you learn who gave it.</p>
+        <p id="judging-direction" class="direction">
+          Judge Jev’s answer against your acceptance rule.
+        </p>
         <p id="rubric"></p>
         <div id="blind-card">
           <p>Run your cases first. Answers appear here when the run stops.</p>
@@ -216,21 +265,21 @@
         <div class="actions" id="label-actions" hidden>
           <button id="accept" class="keep">Accept</button
           ><button id="reject" class="cut">Reject</button
-          ><button id="unlabel" class="secondary">No label</button>
+          ><button id="unlabel" class="secondary">Clear label</button>
         </div>
         <div class="actions">
           <button id="previous-card" class="secondary">Previous answer</button
           ><button id="next-card" class="secondary">Next answer</button>
         </div>
-        <p class="fine">
+        <p id="judging-note" class="fine">
           Player, model, confidence, cost and timing are hidden here. Order is
           shuffled. Labels are yours; no model grades itself.
         </p>
         <button id="reveal" disabled>Reveal results and lock labels</button>
         <p class="fine">
-          Revealing unlocks the comparisons and downloads. It ends this blind
-          labeling pass; labels and retries are then locked. You can leave
-          answers unlabelled.
+          Revealing unlocks results and downloads. It ends this blind labeling
+          pass; labels and retries are then locked. You can leave answers
+          unlabelled.
         </p>
       </section>
       <section data-panel="4" aria-labelledby="dress-title" hidden>
@@ -258,7 +307,7 @@
         <div id="verdict">
           <p>No run yet. The verdict follows your actual answers and labels.</p>
         </div>
-        <aside>
+        <aside id="comparison-note" hidden>
           <h3>A pilot is a beginning.</h3>
           <p>
             The shared verdict needs at least 30 paired, human-labelled cases.

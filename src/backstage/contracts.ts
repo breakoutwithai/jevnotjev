@@ -1,6 +1,8 @@
-export const PROTOCOL_VERSION = "backstage/1";
-export const MODELS = { jev: "jev-1.13.0", llm: "claude-haiku-4-5-20251001" };
-export type Provider = "jev" | "llm";
+export const PROTOCOL_VERSION = "backstage/2";
+export type Provider = "jev" | "anthropic" | "openai" | "google" | "xai";
+export type RunMode = "jev-only" | "compare";
+export type Arm = string;
+export type ProviderKeys = Partial<Record<Provider, string>>;
 export interface Choice {
   readonly name: string;
   readonly definition: string;
@@ -15,15 +17,47 @@ export interface Scene {
   readonly otherwiseChoice: string;
   readonly cases: readonly { readonly id: string; readonly input: string }[];
 }
+export interface GenerationParameters {
+  readonly maxOutputTokens: number;
+  readonly reasoningEffort: "low" | "none" | null;
+  readonly thinking: "adaptive" | "disabled" | null;
+}
+export interface ModelPricing {
+  readonly inputUsdPerMillion: number;
+  readonly outputUsdPerMillion: number;
+  readonly version: string;
+  readonly sourceUrl: string;
+}
+export interface ModelEntry {
+  readonly id: string;
+  readonly label: string;
+  readonly provider: Provider;
+  readonly modelId: string;
+  readonly acceptedResponseModelIds: readonly string[];
+  readonly parameters: GenerationParameters;
+  readonly catalogVersion: string;
+  readonly checkedDate: string;
+  readonly sourceUrl: string;
+  readonly enabled: boolean;
+  readonly preview: boolean;
+  readonly pricing: ModelPricing | null;
+}
+export interface SelectedArm {
+  readonly catalogEntryId: string;
+}
 export interface AnswerRequest {
-  readonly revision: string;
   readonly version: typeof PROTOCOL_VERSION;
+  readonly revision: string;
   readonly runId: string;
   readonly caseId: string;
+  readonly catalogVersion: string;
+  readonly armId: string;
+  readonly provider: Provider;
+  readonly modelId: string;
+  readonly promptVersion: string;
   readonly question: string;
   readonly choices: readonly [Choice, Choice];
   readonly input: string;
-  readonly provider: Provider;
   readonly key: string;
 }
 export interface AttemptEvidence {
@@ -31,12 +65,18 @@ export interface AttemptEvidence {
   readonly runId: string;
   readonly caseId: string;
   readonly provider: Provider;
+  readonly armId: string;
+  readonly catalogVersion: string;
+  readonly promptVersion: string;
+  readonly requestedModel: string;
+  readonly returnedModel: string | null;
+  readonly parameters: GenerationParameters;
   readonly attemptId: string;
   readonly fingerprint: string;
   readonly startedAt: string;
   readonly finishedAt: string;
   readonly latencyMs: number;
-  /** Requested pin. A successful result also verifies the returned model matches. */
+  /** Requested model retained for record-v1 export compatibility. */
   readonly model: string;
   readonly tokensIn: number | null;
   readonly tokensOut: number | null;
@@ -55,3 +95,11 @@ export interface AnswerFailure extends AttemptEvidence {
   readonly charge: "none" | "unknown" | "known";
 }
 export type AnswerResult = AnswerSuccess | AnswerFailure;
+export interface DispatchError {
+  readonly dispatched: false;
+  readonly ok: false;
+  readonly code: string;
+  readonly message: string;
+  readonly error: string;
+  readonly charge: "none";
+}

@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
+import { expect, test, spyOn } from "bun:test";
 import { buildBackstage } from "../../scripts/backstage-build.ts";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -18,7 +19,12 @@ test("[integration] B8 browser/backend build reproduces exact bytes and excludes
     before,
   );
   const bundle = await Bun.file(`${out}/site/backstage/app.js`).text();
-  expect(bundle).not.toContain("api.typesafe.ai");
+  expect(bundle).toContain("curl https://api.typesafe.ai/v1/systemone");
+  expect(bundle).toContain("$TYPESAFE_API_KEY");
+  expect(bundle).toContain("/api/backstage/answer");
+  expect(bundle).not.toContain("x-api-key");
+  expect(bundle).not.toContain("BACKSTAGE_TRIAL_KEY");
+  expect(bundle).not.toContain("bun:sqlite");
   expect(bundle).not.toContain("api.anthropic.com");
   expect(bundle).not.toContain("node:");
   expect(bundle).not.toContain("test-secret");
@@ -75,6 +81,10 @@ test("[integration] B8 production build ignores dirty working sources and uses a
       await Bun.write(join(fixture, path), "committed-asset");
     for (const path of ["src/backstage/main.ts", "src/backstage/server.ts"])
       await Bun.write(join(fixture, path), 'console.info("committed-source");');
+    await Bun.write(
+      join(fixture, "src/backstage/contracts.ts"),
+      'export const PROTOCOL_VERSION = "backstage/1";',
+    );
     for (const args of [
       ["init"],
       ["add", "."],
@@ -103,7 +113,14 @@ test("[integration] B8 production build ignores dirty working sources and uses a
       join(fixture, "site/backstage/index.html"),
       "unapproved-asset",
     );
+    await Bun.write(
+      join(fixture, "src/backstage/contracts.ts"),
+      'export const PROTOCOL_VERSION = "backstage/2";',
+    );
     const out = await buildBackstage(fixture, true);
+    expect(await Bun.file(`${out}/release.json`).json()).toMatchObject({
+      protocol: "backstage/1",
+    });
     expect(await Bun.file(`${out}/site/backstage/index.html`).text()).toBe(
       "committed-asset",
     );
@@ -112,5 +129,52 @@ test("[integration] B8 production build ignores dirty working sources and uses a
     );
   } finally {
     await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test("[integration] JF1 browser transport sends paid requests only to the same-origin backend", async () => {
+  const { answerTransport } = await import("./run.ts");
+  const { PROTOCOL_VERSION } = await import("./contracts.ts");
+  const { CATALOG_VERSION, getModelEntry } = await import("./catalog.ts");
+  const entry = getModelEntry("jev");
+  if (!entry) throw Error("missing Jev");
+  const fetcher = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({ test: true }),
+  );
+  try {
+    expect(
+      await answerTransport(
+        {
+          version: PROTOCOL_VERSION,
+          revision: "test",
+          runId: "test",
+          caseId: "c1",
+          armId: entry.id,
+          provider: "jev",
+          modelId: entry.modelId,
+          catalogVersion: CATALOG_VERSION,
+          promptVersion: PROMPT_TEMPLATE_VERSION,
+          key: "test-routing-key",
+          question: "Keep?",
+          choices: [
+            { name: "yes", definition: "keep" },
+            { name: "no", definition: "cut" },
+          ],
+          input: "A case",
+        },
+        new AbortController().signal,
+      ),
+    ).toEqual({ test: true });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const call = fetcher.mock.calls[0];
+    expect(call?.[0]).toBe("/api/backstage/answer");
+    const init = call?.[1];
+    expect(init?.method).toBe("POST");
+    const headers = new Headers(init?.headers);
+    expect(headers.get("authorization")).toBeNull();
+    expect(headers.get("x-api-key")).toBeNull();
+    expect(init?.redirect).toBe("error");
+  } finally {
+    fetcher.mockRestore();
   }
 });

@@ -77,9 +77,17 @@ export async function buildBackstage(
       if (!built.success)
         throw new AggregateError(built.logs, "Backstage build failed.");
     }
+    const contracts = await Bun.file(
+      join(sourceRoot, "src/backstage/contracts.ts"),
+    ).text();
+    const protocol =
+      /export const PROTOCOL_VERSION = "(backstage\/[12])";/.exec(
+        contracts,
+      )?.[1];
+    if (!protocol) throw new Error("Cannot identify source protocol.");
     await Bun.write(
       join(out, "release.json"),
-      JSON.stringify({ version, protocol: "backstage/1", issue: 67 }) + "\n",
+      JSON.stringify({ version, protocol, issue: 67 }) + "\n",
     );
     return out;
   } finally {

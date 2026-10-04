@@ -11,7 +11,9 @@ test("[smoke] B1 six accessible rooms and real key/run controls", async () => {
     "Opening Night",
   ])
     expect(page).toContain(title);
-  expect(page.match(/type="password"/g)).toHaveLength(2);
+  expect(page).toContain('id="jev-key"');
+  expect(page).toContain('id="provider-keys"');
+  expect(page).toContain('id="model-options"');
   for (const id of [
     "run-one",
     "run-all",
@@ -24,4 +26,24 @@ test("[smoke] B1 six accessible rooms and real key/run controls", async () => {
     expect(page).toContain(`id="${id}"`);
   expect(page).toContain('aria-live="polite"');
   expect(page).not.toContain("onclick=");
+});
+
+test("[smoke] JF1 Jev-only is the initial cast and comparisons require opt-in", async () => {
+  const page = await Bun.file("site/backstage/index.html").text();
+  expect(page).toContain('<input id="compare" type="checkbox" />');
+  expect(page).toContain('id="llm-player" hidden');
+  expect(page).toContain('id="rule-fields" hidden');
+  expect(page).toContain("No Anthropic key needed");
+  expect(page).toContain('id="comparison-note" hidden');
+});
+
+test("[smoke] JF5 privacy and copy guidance precede billable run controls", async () => {
+  const page = await Bun.file("site/backstage/index.html").text();
+  expect(page.indexOf('class="trust-sign"')).toBeLessThan(
+    page.indexOf('id="run-one"'),
+  );
+  expect(page).toContain("mailto:jev@breakoutwithai.com");
+  expect(page).toContain('id="copy-case"');
+  expect(page).toContain('id="copy-cli"');
+  expect(page).not.toContain("not saved or included in downloads");
 });

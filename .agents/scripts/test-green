@@ -1,0 +1,11 @@
+#!/usr/bin/env bun
+for (const command of [
+  ["bun", "test"],
+  ["bun", "test", "./.deploy/backstage-package.test.ts"],
+]) {
+  const result = Bun.spawnSync(command, {
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  if (result.exitCode !== 0) process.exit(result.exitCode);
+}

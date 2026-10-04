@@ -1,0 +1,21 @@
+#!/usr/bin/env bun
+import { buildBackstage } from "../../scripts/backstage-build.ts";
+const directory = await buildBackstage();
+const release: unknown = await Bun.file(`${directory}/release.json`).json();
+if (
+  typeof release !== "object" ||
+  release === null ||
+  !("version" in release) ||
+  typeof release.version !== "string"
+)
+  throw new Error("Invalid build.");
+const proc = Bun.spawn(["bun", `${directory}/server.js`], {
+  env: {
+    ...process.env,
+    BACKSTAGE_VERSION: release.version,
+    BACKSTAGE_STATIC_ROOT: `${directory}/site`,
+  },
+  stdout: "inherit",
+  stderr: "inherit",
+});
+process.exit(await proc.exited);

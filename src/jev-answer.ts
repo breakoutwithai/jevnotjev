@@ -68,7 +68,7 @@ export function checkJevResponse(
       for (const k of keys) {
         const v = rawProbs[k];
         if (!inUnitRange(v)) return fail(id, "prob-range");
-        probs[k] = v;
+        Object.defineProperty(probs, k, { value: v, enumerable: true });
       }
       const values = Object.values(probs);
       if (Math.abs(values.reduce((s, v) => s + v, 0) - 1) > MASS_TOLERANCE) return fail(id, "mass");

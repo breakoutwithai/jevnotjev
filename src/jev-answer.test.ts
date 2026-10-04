@@ -130,3 +130,10 @@ describe("shared vectors", () => {
     expect([...seen].sort()).toEqual([...JEV_REASONS].sort());
   });
 });
+
+test("[unit] JA-1 prototype-named choices retain probabilities", () => {
+  const probabilities = Object.fromEntries([["__proto__", 0.8], ["other", 0.2]]);
+  const checked = checkJevResponse({model:JEV_PIN,answers:{q1:{choice:"__proto__",probabilities}}}, {q1:["__proto__","other"]});
+  expect(checked.ok).toBe(true);
+  if(checked.ok)expect(checked.answers.q1?.probabilities).toEqual(probabilities);
+});

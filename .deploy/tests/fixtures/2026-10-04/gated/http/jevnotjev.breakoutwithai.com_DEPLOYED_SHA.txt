@@ -1,0 +1,6 @@
+source: hand-built from spec (docs/DEPLOY.md "Seams under test"); replace with a capture
+url: https://jevnotjev.breakoutwithai.com/DEPLOYED_SHA
+http_code: 200
+curl_exit: 0
+---
+{{STATIC_SHA}}

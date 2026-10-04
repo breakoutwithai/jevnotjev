@@ -1,0 +1,5 @@
+source: transcribed-from-live-log 2026-10-04 (TLS name mismatch: no status, curl exit 60)
+url: https://showngrow.groit.global/
+http_code: 000
+curl_exit: 60
+---

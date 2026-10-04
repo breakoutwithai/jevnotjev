@@ -1,0 +1,5 @@
+source: hand-built from spec (docs/DEPLOY.md "Seams under test"); replace with a capture
+url: https://jevnotjev.breakoutwithai.com/label/
+http_code: 200
+curl_exit: 0
+---

@@ -1,0 +1,5 @@
+source: hand-built from spec (docs/backstage-deploy.md:53, 502 only while none runs); replace with a capture
+url: https://jevnotjev.breakoutwithai.com/api/backstage/health (with BACKSTAGE_CURL_CONFIG)
+http_code: 502
+curl_exit: 0
+---

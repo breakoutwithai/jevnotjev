@@ -7,6 +7,7 @@ What the product is: [README.md](README.md). Scope and metrics: [FLOW.md](FLOW.m
 - No Python: no `.py` files, pytest, pip, venv or requirements files. A new need is written in TypeScript. `src/docs/stack.test.ts` fails on a tracked `.py` file or a doc that names the old stack.
 - Keep it simple: Node built-ins and Bun first; add a dependency only when the built-ins cannot do the job.
 - `bun install`, then `bun test` (every tier) and `bun run typecheck`. Test titles start with the tier in brackets (`[smoke]`, `[unit]`, `[integration]`), then the criterion id.
+- The test gate is `bun scripts/gate.ts`: it runs `bun test` and every `.deploy/tests/*.test.sh`, and fails when any file passes fewer tests than its floor in `.deploy/tests/expected-counts.json`, when a floored file did not run, when fewer files ran, or when a test file has no floor. A PR that adds tests raises the floors in the same PR (`bun scripts/gate.ts --seed` prints the observed counts).
 
 ## Demo data
 - Mock and demo data: every value shown, including verdict text, is extracted from a live run (raw responses kept); hand-worked fixtures like examples/d06-tiny are test fixtures only.

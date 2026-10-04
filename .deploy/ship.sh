@@ -17,10 +17,12 @@
 #   - A static failure stops before backstage. A backstage failure never touches the verified
 #     static release. A failed tag or GitHub release never rolls a verified deploy back.
 #   - `--dry-run` prints the plan and passes --dry-run to every module script it would run.
+#   - `--verify [SHA]` is the read-only live check (.deploy/verify-lib.sh): spec literals for seams
+#     S1 and S2 in docs/DEPLOY.md. It also closes every deploy, setup, rollback and --status.
 #
 # Exit codes: 0 ok, 1 preflight or post-deploy check failed, 2 usage, 3 --status found a STALE
-# or UNKNOWN module, 4 partial deploy refused, 5 deploy verified but the release record failed;
-# a failing module script's own exit code is passed through unchanged.
+# or UNKNOWN module, 4 partial deploy refused, 5 deploy verified but the release record failed,
+# 6 the live verify failed; a failing module script's own exit code is passed through unchanged.
 #
 # Bash 3.2 compatible.
 set -uo pipefail
@@ -49,10 +51,16 @@ Usage: .deploy/ship.sh [--module static|backstage|all] [ACTION] [--dry-run]
     --rollback [SHA]              per module, never with all:
                                   static: previous verified release (no SHA)
                                   backstage: --rollback <full 40-char verified SHA>
+    --verify [SHA]                read-only live check, whole stack: every module serves SHA
+                                  (default origin/main), Backstage 401 without and 200 with
+                                  BACKSTAGE_CURL_CONFIG, /, /label/, /little-shop/ 200, and a release
+                                  tag on origin. Also runs at the end of every deploy, setup,
+                                  rollback and --status.
   -h, --help                      this text
 
 Exit: 0 ok, 1 preflight/post-check failed, 2 usage, 3 status drift, 4 partial deploy refused,
-      5 deployed but tag/release failed (recovery command printed); else the module's own code.
+      5 deployed but tag/release failed (recovery command printed), 6 live verify failed;
+      else the module's own code.
 Go live:  --status, --setup --dry-run, --setup, --dry-run, then the deploy itself.
 EOF
 }
@@ -65,6 +73,8 @@ DRY_RUN=false
 ALLOW_DRIFT=false
 NO_RELEASE=false
 ROLLBACK_SHA=""
+VERIFY_SHA=""
+MODULE_GIVEN=false
 
 set_action() {
     [[ -z "$ACTION" ]] || usage_error "choose one action; got --${ACTION} and --$1"
@@ -75,7 +85,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --module)
             [[ $# -ge 2 ]] || usage_error "--module needs static, backstage or all"
-            MODULE="$2"; shift 2 ;;
+            MODULE="$2"; MODULE_GIVEN=true; shift 2 ;;
         --dry-run) DRY_RUN=true; shift ;;
         --allow-drift) ALLOW_DRIFT=true; shift ;;
         --no-release) NO_RELEASE=true; shift ;;
@@ -84,6 +94,9 @@ while [[ $# -gt 0 ]]; do
         --rollback)
             set_action rollback
             if [[ $# -ge 2 && "$2" != --* ]]; then ROLLBACK_SHA="$2"; shift 2; else shift; fi ;;
+        --verify)
+            set_action verify
+            if [[ $# -ge 2 && "$2" != --* ]]; then VERIFY_SHA="$2"; shift 2; else shift; fi ;;
         -h|--help) usage; exit 0 ;;
         *) usage_error "unknown argument: $1" ;;
     esac
@@ -103,6 +116,11 @@ if [[ "$ACTION" == rollback ]]; then
     if [[ "$MODULE" == backstage && ! "$ROLLBACK_SHA" =~ ^[a-f0-9]{40}$ ]]; then
         usage_error "backstage --rollback needs the full 40-character SHA of a verified release"
     fi
+fi
+if [[ "$ACTION" == verify ]]; then
+    ! $MODULE_GIVEN || usage_error "--verify checks the whole stack; drop --module"
+    ! $DRY_RUN || usage_error "--verify is already read-only; drop --dry-run"
+    [[ -z "$VERIFY_SHA" || "$VERIFY_SHA" =~ ^[a-f0-9]{40}$ ]] || usage_error "--verify takes the full 40-character SHA the stack must serve"
 fi
 
 cd "${DEPLOY_DIR}/.." || exit 1
@@ -149,11 +167,29 @@ setv() { printf -v "ST_$1_$2" '%s' "$3"; }
 getv() { local n="ST_$1_$2"; printf '%s' "${!n:-}"; }
 probe_value() { printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -1; }
 
+CONFIG_LOADED=false
 load_config() {
+    ! $CONFIG_LOADED || return 0
+    CONFIG_LOADED=true
     # shellcheck source=/dev/null
     source "${DEPLOY_DIR}/config.sh"
     # shellcheck source=/dev/null
     source "${DEPLOY_DIR}/backstage-lib.sh"
+    # shellcheck source=/dev/null
+    source "${DEPLOY_DIR}/verify-lib.sh"
+}
+
+# The closing live check (seams S1 and S2, docs/DEPLOY.md). Args as verify_live. Returns 1 on any
+# failed assertion; the caller exits 6.
+closing_verify() {
+    echo
+    verify_live "$@" && return 0
+    log_error "Live verify failed (see the FAIL lines above)."
+    return 1
+}
+# The Backstage release state for verify: none only when the host has no current release.
+backstage_release_state() {
+    if [[ "$(getv backstage current)" == none ]]; then echo none; else echo yes; fi
 }
 
 # Fetch origin/main and the release tags. Sets MAIN_SHA (empty when unresolvable), FETCH_FAILED
@@ -329,14 +365,44 @@ run_status() {
             log_error "${m} status probe failed"; rc=1
         fi
     done
-    [[ "$rc" -eq 0 ]] || return 1
+    # A status that could not read the host stops here (exit 1); the live check would repeat it.
+    if [[ "$rc" -ne 0 ]]; then
+        echo; echo "verify: not run (a status probe failed)"
+        return 1
+    fi
+    # The live check closes every --status: the selected modules must serve origin/main itself.
+    local want_static="" want_backstage="" want_tag=no release=yes vrc=0
+    for m in "${MODULES[@]}"; do
+        case "$m" in
+            static) want_static="${MAIN_SHA:-origin/main-unresolved}" ;;
+            backstage) want_backstage="${MAIN_SHA:-origin/main-unresolved}"; release="$(backstage_release_state)" ;;
+        esac
+    done
+    [[ "$MODULE" != all ]] || want_tag=yes
+    closing_verify "$want_static" "$want_backstage" "$want_tag" "$release" || vrc=6
     [[ "$drifted" -eq 0 ]] || return 3
-    return 0
+    return "$vrc"
 }
 
 if [[ "$ACTION" == status ]]; then
     run_status
     exit $?
+fi
+
+# ------------------------------------------------------------------ live verify (read-only)
+if [[ "$ACTION" == verify ]]; then
+    load_config
+    # The default target is origin/main as fetched now; a cached ref may be behind what was merged.
+    if [[ -n "$VERIFY_SHA" ]]; then
+        want="$VERIFY_SHA"
+    elif refresh_main && [[ -n "$MAIN_SHA" ]]; then
+        want="$MAIN_SHA"
+    else
+        log_error "origin/main could not be fetched; refusing to verify against a cached ref. Pass the SHA explicitly: .deploy/ship.sh --verify <SHA>"
+        exit 6
+    fi
+    verify_live "$want" "$want" yes yes || exit 6
+    exit 0
 fi
 
 # ------------------------------------------------------------------ release record
@@ -653,7 +719,25 @@ summary() {
 
 if [[ "$ACTION" != deploy || "$FINAL_RC" -ne 0 ]]; then
     summary
-    exit "$FINAL_RC"
+    [[ "$FINAL_RC" -eq 0 ]] && ! $DRY_RUN || exit "$FINAL_RC"
+    # Setup and rollback close with the live check. Setup asserts no SHA (it ships no release) and
+    # only the module it set up, in its observed state; a rollback asserts the SHA it rolled back to.
+    load_config
+    want_static=""; want_backstage=""; scope=all
+    read_backstage >/dev/null 2>&1 || true
+    read_static >/dev/null 2>&1 || true
+    static_release=yes
+    [[ "$(getv static current)" != none ]] || static_release=none
+    if [[ "$ACTION" == setup ]]; then
+        scope="$MODULE"
+    elif [[ "$MODULE" == static ]]; then
+        want_static="$(getv static marker)"
+        [[ -n "$want_static" ]] || want_static="unreadable-release-marker"
+    else
+        want_backstage="$ROLLBACK_SHA"
+    fi
+    closing_verify "$want_static" "$want_backstage" no "$(backstage_release_state)" "$scope" "$static_release" || exit 6
+    exit 0
 fi
 
 if $DRY_RUN; then
@@ -685,7 +769,23 @@ done
 summary
 $post_ok || exit 1
 
+# The live check runs BEFORE anything is published: the deployed modules serve origin/main, the
+# gate holds and the public paths answer (S1 without the tag, S2). Only then is the release
+# recorded, and the tag on origin verified after it.
+want_static=""; want_backstage=""
+for m in "${MODULES[@]}"; do
+    case "$m" in
+        static) want_static="$MAIN_SHA" ;;
+        backstage) want_backstage="$MAIN_SHA" ;;
+    esac
+done
+# Backstage's release state as observed: a static-only deploy may leave Backstage with no release.
+[[ " ${MODULES[*]} " == *" backstage "* ]] || read_backstage >/dev/null 2>&1 || true
+closing_verify "$want_static" "$want_backstage" no "$(backstage_release_state)" || exit 6
+
 if [[ "$MODULE" == all && "$NO_RELEASE" == false ]]; then
     release_record || exit 5
+    echo
+    verify_live_tag "$MAIN_SHA" || { log_error "Live verify failed: the release tag is not on origin."; exit 6; }
 fi
 exit 0

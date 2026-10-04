@@ -1,0 +1,5 @@
+source: hand-built from spec (.deploy/provision.sh:140, 404 is expected until the first deploy); replace with a capture
+url: https://jevnotjev.breakoutwithai.com/label/
+http_code: 404
+curl_exit: 0
+---

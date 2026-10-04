@@ -84,15 +84,21 @@
     var cur = state.cur ? byId[state.cur] : null;
     idle.hidden = !!cur;
     act.hidden = !cur;
+    idle.textContent = S.count(state.calls) === ids.length
+      ? "All " + ids.length + " calls are complete. Choose any seat to review or change your call, or read your verdict below."
+      : "Choose any empty seat. A customer's message takes the stage.";
     if (!cur) return;
     var call = state.calls[state.cur];
     $("curCode").textContent = cur.code;
     $("queueLeft").textContent = state.queue.length ? " · " + state.queue.length + " more in the queue" : "";
     $("curText").textContent = "“" + cur.m.text + "”";
-    $("ask").hidden = !!call;
+    $("ask").hidden = false;
+    $("sayAnswer").setAttribute("aria-pressed", String(call === "answer"));
+    $("sayHand").setAttribute("aria-pressed", String(call === "hand_off"));
     var yc = $("yourCall");
     yc.hidden = !call;
     yc.textContent = call ? "Your call: " + word(call) : "";
+    $("callHint").textContent = call ? "Change this call with either button. Your other calls stay as they are." : "";
     $("clerks").innerHTML = D.arms.map(function (a) {
       var out = cur.m.outputs[a.key];
       var mark = !call ? '<span class="mark wait">Waiting for your call</span>'

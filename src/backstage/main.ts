@@ -7,6 +7,12 @@ import {
 } from "./run.ts";
 import { MODEL_CATALOG, CATALOG_CHECKED_DATE, JEV_ARM_ID } from "./catalog.ts";
 import { copyDecision } from "./copy.ts";
+import {
+  confirmPanel,
+  resolveConfirm,
+  CONFIRM_STEPS,
+  type ConfirmStep,
+} from "./confirm.ts";
 import type { Scene, RunMode, Provider, ProviderKeys } from "./contracts.ts";
 import type { Spend, CostPerAccepted } from "../core/metrics.ts";
 declare const BACKSTAGE_BUILD_VERSION: string;
@@ -46,6 +52,30 @@ const imports = new CaseImportState();
 let startup: AbortController | undefined;
 function notice(message: string) {
   text("notice", message);
+}
+// Stable ids of the buttons that open each confirm panel; focus returns there on Cancel.
+const confirmOpener: Record<ConfirmStep, string> = {
+  judging: "open-judging",
+  reveal: "reveal",
+  "new-scene": "new-scene",
+};
+let openConfirmStep: ConfirmStep | undefined;
+function fillConfirm(step: ConfirmStep, current: BackstageRun) {
+  const panel = confirmPanel(step, current);
+  text(panel.id + "-title", panel.title);
+  text(panel.id + "-message", panel.message);
+}
+function openConfirm(step: ConfirmStep, current: BackstageRun) {
+  for (const other of CONFIRM_STEPS)
+    element("confirm-" + other).hidden = other !== step;
+  fillConfirm(step, current);
+  openConfirmStep = step;
+  element("confirm-" + step).focus();
+}
+function closeConfirm(step: ConfirmStep, restoreFocus: boolean) {
+  element("confirm-" + step).hidden = true;
+  if (openConfirmStep === step) openConfirmStep = undefined;
+  if (restoreFocus) document.getElementById(confirmOpener[step])?.focus();
 }
 function showRoom(next: number) {
   room = Math.max(0, Math.min(5, next));
@@ -315,6 +345,10 @@ function table(headers: string[], rows: string[][]): HTMLElement {
 async function render() {
   const epoch = ++renderEpoch;
   const current = run;
+  if (openConfirmStep) {
+    if (current) fillConfirm(openConfirmStep, current);
+    else closeConfirm(openConfirmStep, false);
+  }
   const running = current?.running ?? false;
   const comparison = (current?.manifest.mode ?? mode()) === "compare";
   element("llm-player").hidden = !comparison;
@@ -551,28 +585,13 @@ function renderCard() {
     ) {
       const begin = document.createElement("button");
       begin.type = "button";
+      begin.id = confirmOpener.judging;
+      begin.setAttribute("aria-controls", "confirm-judging");
       begin.textContent =
         current.manifest.mode === "compare"
           ? "Open blind judging and lock retries"
           : "Open judging and lock retries";
-      begin.onclick = () => {
-        if (
-          !confirm(
-            "Finish retrying and judge this fixed set of answers? Any unfinished calls will remain missing. You cannot retry after opening judging.",
-          )
-        )
-          return;
-        try {
-          current.beginLabeling();
-          void render();
-        } catch (error) {
-          notice(
-            error instanceof Error
-              ? error.message
-              : "Could not open blind judging. Start a new scene.",
-          );
-        }
-      };
+      begin.onclick = () => openConfirm("judging", current);
       container.append(begin);
     }
     return;
@@ -621,20 +640,33 @@ button("stop").onclick = () => {
   );
   void render();
 };
+function confirmJudging() {
+  const current = run;
+  closeConfirm("judging", false);
+  if (!current) return;
+  try {
+    resolveConfirm("judging", "yes", current);
+    void render();
+    element("rehearsal-title").focus();
+  } catch (error) {
+    notice(
+      error instanceof Error
+        ? error.message
+        : "Could not open blind judging. Start a new scene.",
+    );
+  }
+}
 button("reveal").onclick = () => {
   if (!run || run.running || !run.labeling) return;
-  if (
-    !confirm(
-      run.manifest.mode === "compare"
-        ? "Reveal the players and lock your labels? You can leave answers unlabelled. Unfinished calls remain missing."
-        : "Finish judging and unlock downloads? Labels and retries will lock. You can leave answers unlabelled. Unfinished calls remain missing.",
-    )
-  )
-    return;
-  run.reveal();
+  openConfirm("reveal", run);
+};
+function confirmReveal() {
+  closeConfirm("reveal", false);
+  if (!run || run.running || !run.labeling) return;
+  resolveConfirm("reveal", "yes", run);
   notice("Results revealed. Labels and retries are now locked for this run.");
   showRoom(4);
-};
+}
 button("clear-keys").onclick = () => {
   activeKeys = {};
   startup?.abort();
@@ -645,13 +677,29 @@ button("clear-keys").onclick = () => {
   );
 };
 button("new-scene").onclick = () => {
-  if (
-    run &&
-    !confirm(
-      "Start a new scene? Download your records and evidence first; this clears the current run.",
-    )
-  )
-    return;
+  if (run) openConfirm("new-scene", run);
+  else clearScene();
+};
+function confirmNewScene() {
+  closeConfirm("new-scene", false);
+  if (run && resolveConfirm("new-scene", "yes", run).kind !== "cleared") return;
+  clearScene();
+}
+const confirmYes: Record<ConfirmStep, () => void> = {
+  judging: confirmJudging,
+  reveal: confirmReveal,
+  "new-scene": confirmNewScene,
+};
+for (const step of CONFIRM_STEPS) {
+  button(`confirm-${step}-yes`).onclick = () => confirmYes[step]();
+  button(`confirm-${step}-no`).onclick = () => closeConfirm(step, true);
+  element(`confirm-${step}`).addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    closeConfirm(step, true);
+  });
+}
+function clearScene() {
   startup?.abort();
   imports.invalidate();
   run?.stop();
@@ -662,7 +710,7 @@ button("new-scene").onclick = () => {
   element("verdict").replaceChildren(node("p", "No run yet."));
   notice("Scene unlocked. Your next run gets a new identity.");
   showRoom(0);
-};
+}
 button("accept").onclick = () => label("accept");
 button("reject").onclick = () => label("reject");
 button("unlabel").onclick = () => label(null);

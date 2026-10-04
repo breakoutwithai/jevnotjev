@@ -47,3 +47,21 @@ test("[smoke] JF5 privacy and copy guidance precede billable run controls", asyn
   expect(page).toContain('id="copy-cli"');
   expect(page).not.toContain("not saved or included in downloads");
 });
+
+test("[smoke] I88 irreversible steps use in-page confirm panels, not native dialogs", async () => {
+  const page = await Bun.file("site/backstage/index.html").text();
+  for (const step of ["judging", "reveal", "new-scene"]) {
+    const id = `confirm-${step}`;
+    expect(page).toContain(`id="${id}"`);
+    expect(page).toContain(`id="${id}-yes"`);
+    expect(page).toContain(`id="${id}-no"`);
+    expect(page).toContain(`id="${id}-title"`);
+    expect(page).toContain(`id="${id}-message"`);
+    expect(page).toContain(`aria-labelledby="${id}-title"`);
+    expect(page).toContain(`aria-describedby="${id}-message"`);
+  }
+  expect(page.match(/role="alertdialog"/g)?.length).toBe(3);
+  const main = await Bun.file("src/backstage/main.ts").text();
+  expect(main).not.toMatch(/\bconfirm\(/);
+  expect(main).not.toMatch(/\balert\(|\bprompt\(/);
+});

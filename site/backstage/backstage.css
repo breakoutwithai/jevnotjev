@@ -174,6 +174,22 @@ section {
 [hidden] {
   display: none !important;
 }
+.confirm-panel {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--brass);
+  background: var(--paper);
+  padding: 18px 22px 4px;
+  margin: 16px 0;
+  font: 14px/1.5 var(--sans);
+}
+.confirm-panel:focus-visible {
+  outline: 3px solid var(--brass);
+  outline-offset: 3px;
+}
+.confirm-title {
+  font-weight: 600;
+  margin: 0 0 6px;
+}
 fieldset {
   border: 0;
   padding: 0;

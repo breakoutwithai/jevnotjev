@@ -154,8 +154,27 @@ fake_remote() {
 remote() { fake_remote "$@"; }
 
 # Neighbour probe: 200 for everyone, unless BREAK_AFTER_RELOAD is set and nginx was reloaded.
+# FAIL_NAME fails one co-tenant's probe like a TLS error (curl -w prints 000, exit 60) before and after
+# the reload; FAIL_NAME_BEFORE / FAIL_NAME_AFTER fail it on one side of the reload only.
 curl() {
-    if [[ -n "${BREAK_AFTER_RELOAD:-}" && -s "${BOX}/state/reloads" ]]; then printf 502; else printf 200; fi
+    local arg host="" reloaded=false
+    for arg in "$@"; do
+        if [[ "$arg" == https://* ]]; then host="${arg#https://}"; host="${host%/}"; fi
+    done
+    [[ -s "${BOX}/state/reloads" ]] && reloaded=true
+    if [[ -n "$host" ]] && { [[ "$host" == "${FAIL_NAME:-}" ]] \
+        || { [[ "$host" == "${FAIL_NAME_BEFORE:-}" ]] && ! $reloaded; } \
+        || { [[ "$host" == "${FAIL_NAME_AFTER:-}" ]] && $reloaded; }; }; then
+        # Exit code per side: FAIL_RC_BEFORE / FAIL_RC_AFTER (default 60, TLS name mismatch).
+        # HTTP code curl printed before failing: FAIL_HTTP_BEFORE / FAIL_HTTP_AFTER (default 000 = none).
+        if $reloaded; then printf '%s' "${FAIL_HTTP_AFTER:-000}"; return "${FAIL_RC_AFTER:-60}"
+        else printf '%s' "${FAIL_HTTP_BEFORE:-000}"; return "${FAIL_RC_BEFORE:-60}"; fi
+    fi
+    # LOCAL failures, not observations: FAIL_LOCAL_RC makes curl exit with that code (127 = not found)
+    # and say so on stderr; FAIL_MALFORMED makes it exit 0 with output that is no HTTP status.
+    if [[ -n "${FAIL_LOCAL_RC:-}" ]]; then echo "curl: simulated local failure" >&2; return "$FAIL_LOCAL_RC"; fi
+    if [[ -n "${FAIL_MALFORMED:-}" ]]; then printf 'garbage'; return 0; fi
+    if [[ -n "${BREAK_AFTER_RELOAD:-}" ]] && $reloaded; then printf 502; else printf 200; fi
 }
 
 is_mutating() {
@@ -289,6 +308,72 @@ out="$(BREAK_AFTER_RELOAD=1; (setup_main) 2>&1)"; rc=$?
     && ok "a changed neighbour restores the vhost, validates and reloads again, exits non-zero" \
     || nope "neighbour change: rc=${rc}, reloads $(reloads); out: ${out}"
 [[ "$out" == *"CHANGED: a.example.com 200 -> 502"* ]] && ok "the changed neighbour is named with its status change" || nope "changed neighbour not named"
+drop_box
+
+echo
+echo "[T1] co-tenant failing TLS at baseline and after (static-deploy parity: recorded as 000)"
+make_box no
+out="$(FAIL_NAME=a.example.com; (setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$(reloads)" == 1 ]] && include_in_https_block "$VH" \
+    && ok "a co-tenant failing identically before and after the reload does not block setup" \
+    || nope "000 baseline: rc=${rc}, reloads $(reloads); out: ${out}"
+[[ "$out" == *"before: a.example.com 000/60"* && "$out" == *"after:  a.example.com 000/60"* ]] \
+    && ok "the failing co-tenant is recorded as 000 on both sides" || nope "000 not recorded: ${out}"
+drop_box
+
+echo
+echo "[T1] co-tenant 200 at baseline, failing after the reload"
+make_box no
+out="$(FAIL_NAME_AFTER=a.example.com; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+    && ok "200 -> 000 restores the vhost, reloads again, exits non-zero" \
+    || nope "200->000: rc=${rc}, reloads $(reloads); out: ${out}"
+[[ "$out" == *"CHANGED: a.example.com 200 -> 000/60"* ]] && ok "the 200 -> 000 change is named" || nope "200->000 not named: ${out}"
+drop_box
+
+echo
+echo "[T1] co-tenant failing at baseline, answering after the reload"
+make_box no
+out="$(FAIL_NAME_BEFORE=a.example.com; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+    && ok "000 -> 200 is still a status change: restore path fires" \
+    || nope "000->200: rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
+
+echo
+echo "[T1] co-tenant TLS failure at baseline, connection refused after the reload"
+make_box no
+out="$(FAIL_NAME=a.example.com FAIL_RC_BEFORE=60 FAIL_RC_AFTER=7; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+    && ok "000/60 -> 000/7 is a change: vhost restored, nginx reloaded again, exits non-zero" \
+    || nope "000/60->000/7: rc=${rc}, reloads $(reloads); out: ${out}"
+[[ "$out" == *"CHANGED: a.example.com 000/60 -> 000/7"* ]] && ok "the failure-category change is named" || nope "000/60->000/7 not named: ${out}"
+drop_box
+
+echo
+echo "[T1] co-tenant HTTP 200 then timeout at baseline, HTTP 502 then timeout after the reload"
+make_box no
+out="$(FAIL_NAME=a.example.com FAIL_HTTP_BEFORE=200 FAIL_HTTP_AFTER=502 FAIL_RC_BEFORE=28 FAIL_RC_AFTER=28; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(reloads)" == 2 ]] \
+    && ok "200/28 -> 502/28 is a change: vhost restored, nginx reloaded again, exits non-zero" \
+    || nope "200/28->502/28: rc=${rc}, reloads $(reloads); out: ${out}"
+[[ "$out" == *"CHANGED: a.example.com 200/28 -> 502/28"* ]] && ok "the HTTP status change behind the timeout is named" || nope "200/28->502/28 not named: ${out}"
+drop_box
+
+echo
+echo "[T1] local probe failures are not observations"
+make_box no
+out="$(FAIL_LOCAL_RC=127; (setup_main) 2>&1)"; rc=$?
+mut="$(mutating_commands)"
+[[ $rc -ne 0 && "$(reloads)" == 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && ! -e "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" && "$out" == *"simulated local failure"* ]] \
+    && ok "curl exit 127 fails the probe, shows curl's stderr, and setup refuses before changing nginx" \
+    || nope "curl 127: rc=${rc}, reloads $(reloads), mutating: ${mut:-none}; out: ${out}"
+drop_box
+make_box no
+out="$(FAIL_MALFORMED=1; (setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(reloads)" == 0 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && ! -e "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" ]] \
+    && ok "malformed probe output fails the probe and setup refuses before changing nginx" \
+    || nope "malformed: rc=${rc}, reloads $(reloads); out: ${out}"
 drop_box
 
 echo

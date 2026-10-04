@@ -169,6 +169,8 @@ make_fixture() {
         printf '%s\n' 'export const server = 1;' > src/backstage/server.ts
         printf '%s\n' 'export const verdict = 1;' > src/core/verdict.ts
         printf '%s\n' 'export const other = 1;' > src/other.ts
+        # The real build script, committed: drift reads its entrypoints from the archived revision.
+        mkdir -p scripts; cp "${REPO_ROOT}/scripts/backstage-build.ts" scripts/
         "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "chore: base (#10)"
         mkdir -p site/label; echo label > site/label/page.html
         "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "feat: label page (#11)"
@@ -178,16 +180,14 @@ make_fixture() {
         "$REAL_GIT" push -q origin main
         "$REAL_GIT" fetch -q origin
         "$REAL_GIT" branch -q --set-upstream-to=origin/main main
-        printf '%s\n' .deploy/ scripts/ >> .git/info/exclude
+        printf '%s\n' .deploy/ >> .git/info/exclude
     ) >/dev/null 2>&1
     C0="$("$REAL_GIT" -C "$WORK" rev-parse HEAD~2)"
     C1="$("$REAL_GIT" -C "$WORK" rev-parse HEAD~1)"
     C2="$("$REAL_GIT" -C "$WORK" rev-parse HEAD)"
-    mkdir -p "${WORK}/.deploy" "${WORK}/scripts"
+    mkdir -p "${WORK}/.deploy"
     cp "$SHIP" "${REPO_ROOT}/.deploy/config.sh" "${REPO_ROOT}/.deploy/lib.sh" \
         "${REPO_ROOT}/.deploy/backstage-lib.sh" "${REPO_ROOT}/.deploy/backstage-deps.ts" "${WORK}/.deploy/"
-    # The real build script: backstage-deps.ts reads its entrypoints from it.
-    cp "${REPO_ROOT}/scripts/backstage-build.ts" "${WORK}/scripts/"
     # Release files and every other temp file of this fixture stay inside it.
     export TMPDIR="${FIX}/tmp"; mkdir -p "$TMPDIR"
     CALLS="${FIX}/calls.log"; : > "$CALLS"
@@ -647,6 +647,33 @@ bs="$(section backstage)"
 [[ $rc -eq 0 ]] && printf '%s\n' "$bs" | grep -Eq '^  drift +none \(sha differs, no module changes\)$' \
     && ok "#1 a change outside the Backstage import graph (src/other.ts) is not backstage drift" \
     || nope "#1 other change: rc=${rc}; ${bs}"
+drop_fixture
+
+# Gate P2: entrypoints come from the ARCHIVED origin/main build script, not the local checkout.
+# origin/main (pushed from a side branch) adds a third entrypoint src/backstage/extra.ts that
+# imports src/core/extra-dep.ts; the local checkout stays at C2 with the two-entrypoint script.
+make_fixture
+(
+    cd "$WORK" || exit 1
+    "$REAL_GIT" checkout -q -b side
+    awk '{print} /\["src\/backstage\/server.ts", "bun", "", "server.js"\],/ {print "  [\"src/backstage/extra.ts\", \"bun\", \"\", \"extra.js\"],"}' \
+        scripts/backstage-build.ts > scripts/b.tmp && mv scripts/b.tmp scripts/backstage-build.ts
+    printf '%s\n' 'import { dep } from "../core/extra-dep.ts";' 'export const extra = dep;' > src/backstage/extra.ts
+    printf '%s\n' 'export const dep = 1;' > src/core/extra-dep.ts
+    "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "feat: third entrypoint (#15)"
+    printf '%s\n' 'export const dep = 2;' > src/core/extra-dep.ts
+    "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "fix: extra dep (#16)"
+    "$REAL_GIT" push -q origin side:main
+    "$REAL_GIT" checkout -q main
+) >/dev/null 2>&1
+A="$("$REAL_GIT" -C "$WORK" rev-parse side~1)"
+grep -c 'src/backstage/extra.ts' "${WORK}/scripts/backstage-build.ts" >/dev/null && echo "    (fixture error: local script has the third entrypoint)"
+serve static "$A"; serve backstage "$A"
+out="$(ship --status --module backstage 2>&1)"; rc=$?
+bs="$(section backstage)"
+[[ $rc -eq 3 ]] && printf '%s\n' "$bs" | grep -Eq '^  drift +STALE \(1 commits behind; changed: src/core/extra-dep.ts\)$' \
+    && ok "P2 a dependency of an entrypoint only origin/main's build script defines makes backstage STALE" \
+    || nope "P2 archived entrypoints: rc=${rc}; ${bs}"
 drop_fixture
 
 # 2 HIGH: a failed git diff is UNKNOWN, never "no module changes".

@@ -97,7 +97,42 @@ function validCases(cases: Scene["cases"]): Scene["cases"] {
     }),
   );
 }
+/** Strict import boundary; the shared historical record reader remains permissive. */
+function checkCaseCsvSyntax(csv: string): void {
+  let state: "start" | "plain" | "quoted" | "closed" = "start";
+  for (const char of csv) {
+    if (state === "quoted") {
+      if (char === '"') state = "closed";
+      continue;
+    }
+    if (state === "closed") {
+      if (char === '"') {
+        state = "quoted";
+        continue;
+      }
+      if (char === "," || char === "\r" || char === "\n") {
+        state = "start";
+        continue;
+      }
+      throw new Error(
+        "Invalid case CSV: unexpected text after a closing quote.",
+      );
+    }
+    if (char === "," || char === "\r" || char === "\n") {
+      state = "start";
+      continue;
+    }
+    if (char === '"') {
+      if (state !== "start")
+        throw new Error("Invalid case CSV: quote inside an unquoted field.");
+      state = "quoted";
+    } else state = "plain";
+  }
+  if (state === "quoted")
+    throw new Error("Invalid case CSV: quoted field was not closed.");
+}
 export function parseCases(csv: string): Scene["cases"] {
+  checkCaseCsvSyntax(csv);
   const parsed = readDictRows(csv);
   if (
     parsed.header?.length !== 2 ||
@@ -386,6 +421,10 @@ export class BackstageRun {
     return this.#labeling;
   }
   beginLabeling(): void {
+    if (this.#unsafe)
+      throw new Error(
+        "This run contains a provider key. Start a new scene without the key.",
+      );
     if (this.running || !this.#answers.length || this.#unsafe)
       throw new Error("Finish or stop the run before opening blind judging.");
     this.#labeling = true;
@@ -631,6 +670,64 @@ export class BackstageRun {
       );
     });
     return formatRows([COLUMNS, ...rows]);
+  }
+  /** Fixed recovery advice only: never identifiers, raw errors or answer mappings. */
+  retryAdvice(): readonly string[] {
+    const advice = new Set<string>();
+    for (const attempt of this.#attempts) {
+      if (
+        attempt.ok ||
+        this.#answers.some(
+          (answer) =>
+            answer.caseId === attempt.caseId &&
+            answer.provider === attempt.provider,
+        )
+      )
+        continue;
+      switch (attempt.code) {
+        case "http-401":
+        case "http-403":
+          advice.add(
+            "A call rejected a key or account permission. Check both provider keys and account access in Casting before retrying.",
+          );
+          break;
+        case "http-429":
+          advice.add(
+            "A call was rate limited. Wait and check account limits before retrying unfinished calls.",
+          );
+          break;
+        case "local-409":
+          advice.add(
+            "The page and runner versions differ. Preserve this run's results, then reload before starting a new scene.",
+          );
+          break;
+        case "local-503":
+          advice.add(
+            "The runner is busy. Wait before retrying unfinished calls; rejected requests were not sent to providers.",
+          );
+          break;
+        case "local-400":
+        case "local-403":
+        case "local-413":
+        case "local-415":
+          advice.add(
+            "The runner rejected a request before calling a provider. Check scene inputs and credentials, or reload the page.",
+          );
+          break;
+        case "model-mismatch":
+        case "invalid-answer":
+        case "invalid-response":
+          advice.add(
+            "A response could not be accepted. Check account usage before retrying; another call may incur another charge.",
+          );
+          break;
+        default:
+          advice.add(
+            "A call failed or was interrupted. Check both provider dashboards for charges before retrying unfinished calls.",
+          );
+      }
+    }
+    return [...advice].sort();
   }
   extraSpend(): { knownUsd: number; unknown: number } {
     let knownUsd = 0;

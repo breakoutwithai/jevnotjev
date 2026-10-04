@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { buildBackstage } from "../../scripts/backstage-build.ts";
-import { open, unlink } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { open, unlink, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 async function digest(path: string) {
   return createHash("sha256")
@@ -59,5 +61,56 @@ test("[integration] B8 built server rejects an environment revision differing fr
   } finally {
     clearTimeout(timer);
     child.kill();
+  }
+});
+test("[integration] B8 production build ignores dirty working sources and uses approved Git snapshot", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "backstage-source-test-"));
+  try {
+    for (const directory of ["site/backstage", "src/backstage"])
+      await mkdir(join(fixture, directory), { recursive: true });
+    for (const path of [
+      "site/backstage/index.html",
+      "site/backstage/backstage.css",
+    ])
+      await Bun.write(join(fixture, path), "committed-asset");
+    for (const path of ["src/backstage/main.ts", "src/backstage/server.ts"])
+      await Bun.write(join(fixture, path), 'console.info("committed-source");');
+    for (const args of [
+      ["init"],
+      ["add", "."],
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-m",
+        "fixture",
+      ],
+    ]) {
+      const result = Bun.spawnSync(["git", ...args], {
+        cwd: fixture,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(result.exitCode).toBe(0);
+    }
+    await Bun.write(
+      join(fixture, "src/backstage/main.ts"),
+      "invalid working source that cannot compile",
+    );
+    await Bun.write(
+      join(fixture, "site/backstage/index.html"),
+      "unapproved-asset",
+    );
+    const out = await buildBackstage(fixture, true);
+    expect(await Bun.file(`${out}/site/backstage/index.html`).text()).toBe(
+      "committed-asset",
+    );
+    expect(await Bun.file(`${out}/site/backstage/app.js`).text()).toContain(
+      "committed-source",
+    );
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
   }
 });

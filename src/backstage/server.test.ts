@@ -21,7 +21,7 @@ function request(origin = "http://localhost:3456", data: unknown = body) {
     body: JSON.stringify(data),
   });
 }
-test("[unit] B67 server rejects cross-origin and malformed requests without calling upstream", async () => {
+test("[unit] B4 server rejects cross-origin and malformed requests without calling upstream", async () => {
   let calls = 0;
   const handler = createHandler({
     version: "test",
@@ -40,7 +40,7 @@ test("[unit] B67 server rejects cross-origin and malformed requests without call
   ).toBe(400);
   expect(calls).toBe(0);
 });
-test("[unit] B67 server health negotiates protocol/version and hardens response headers", async () => {
+test("[unit] B8 server health negotiates protocol/version and hardens response headers", async () => {
   const handler = createHandler({ version: "test" });
   const response = await handler(
     new Request("http://localhost:3456/api/backstage/health"),
@@ -52,7 +52,7 @@ test("[unit] B67 server health negotiates protocol/version and hardens response 
   });
   expect(response.headers.get("cache-control")).toBe("no-store");
 });
-test("[unit] B67 server bounds concurrency and keeps failures sanitized", async () => {
+test("[unit] B4 server bounds concurrency and keeps failures sanitized", async () => {
   let release: () => void = () => {};
   const pending = new Promise<void>((resolve) => {
     release = resolve;
@@ -73,7 +73,7 @@ test("[unit] B67 server bounds concurrency and keeps failures sanitized", async 
   expect(response.status).toBe(200);
   expect(await response.text()).not.toContain(body.key);
 });
-test("[unit] B67 unsupported methods and traversal never serve source files", async () => {
+test("[unit] B4 unsupported methods and traversal never serve source files", async () => {
   const handler = createHandler({ version: "test", staticRoot: "site" });
   expect(
     (await handler(new Request("http://localhost:3456/api/backstage/answer")))
@@ -93,11 +93,16 @@ test("[unit] B67 unsupported methods and traversal never serve source files", as
 
 test("[unit] B8 stale browser revision is rejected before paid dispatch", async () => {
   let calls = 0;
-  const handler = createHandler({ version: "new-revision", providerFetch: async () => {
-    calls++;
-    return Response.json({});
-  }});
-  const response = await handler(request("http://localhost:3456", { ...body, revision: "old-revision" }));
+  const handler = createHandler({
+    version: "new-revision",
+    providerFetch: async () => {
+      calls++;
+      return Response.json({});
+    },
+  });
+  const response = await handler(
+    request("http://localhost:3456", { ...body, revision: "old-revision" }),
+  );
   expect(response.status).toBe(409);
   expect(calls).toBe(0);
 });
@@ -106,7 +111,26 @@ test("[unit] B8 runtime cannot relabel a compiled server artifact", async () => 
   const { runtimeVersion } = await import("./server.ts");
   const compiled = "a".repeat(40);
   expect(runtimeVersion(compiled, compiled)).toBe(compiled);
-  expect(() => runtimeVersion("b".repeat(40), compiled)).toThrow("compiled server revision");
+  expect(() => runtimeVersion("b".repeat(40), compiled)).toThrow(
+    "compiled server revision",
+  );
   expect(() => runtimeVersion(undefined, compiled)).toThrow();
   expect(() => runtimeVersion("test", "test")).toThrow();
+});
+
+test("[unit] B1 legacy local pages retain scripts while Backstage keeps strict CSP", async () => {
+  const handler = createHandler({ version: "test", staticRoot: "site" });
+  const legacy = await handler(new Request("http://localhost:3456/"));
+  expect(legacy.status).toBe(200);
+  expect(legacy.headers.get("content-security-policy")).toBeNull();
+  const backstage = await handler(
+    new Request("http://localhost:3456/backstage/"),
+  );
+  expect(backstage.status).toBe(200);
+  expect(backstage.headers.get("content-security-policy")).toContain(
+    "script-src 'self';",
+  );
+  expect(backstage.headers.get("content-security-policy")).not.toContain(
+    "unsafe-inline",
+  );
 });

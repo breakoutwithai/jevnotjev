@@ -234,6 +234,9 @@ async function render() {
         ),
       );
     }
+    if (!current.revealed)
+      for (const message of current.retryAdvice())
+        progress.append(node("p", message));
     for (const attempt of current.revealed ? current.attempts : []) {
       progress.append(
         node(
@@ -346,8 +349,16 @@ function renderCard() {
           )
         )
           return;
-        current.beginLabeling();
-        void render();
+        try {
+          current.beginLabeling();
+          void render();
+        } catch (error) {
+          notice(
+            error instanceof Error
+              ? error.message
+              : "Could not open blind judging. Start a new scene.",
+          );
+        }
       };
       container.append(begin);
     }

@@ -1,6 +1,6 @@
 # Backstage deployment
 
-Backstage is an additional Bun service. The existing static deploy script cannot deploy its API. Its main-stage release and guards remain unchanged. The Backstage browser files and API travel together in one locally built release; both `/backstage/` and `/api/backstage/` proxy to that service, taking priority over the static root. A restart briefly interrupts Backstage only. The browser also checks the release version before accepting a run.
+Backstage is an additional Bun service. The existing static deploy script cannot deploy its API. Its main-stage release and guards remain unchanged. The Backstage browser files and API travel together in one locally built release; both `/backstage/` and `/api/backstage/` proxy to that service, taking priority over the static root. Each process uses its immutable release directory for static files, so the old process cannot serve the new frontend during a symlink swap. A restart briefly interrupts Backstage only. The browser also checks the release version before accepting a run.
 
 Read-only inspection on 2026-10-03 confirmed Linux x86_64, `/usr/local/bin/bun`, the existing domain's Certbot-managed TLS vhost, and no listener on port 3456. Recheck those facts before setup; they are not permission to change production. No setup or deploy has been executed for this change.
 
@@ -9,7 +9,7 @@ Read-only inspection on 2026-10-03 confirmed Linux x86_64, `/usr/local/bin/bun`,
 Use `.deploy/config.sh` for the SSH target and key. Read the installed `/etc/nginx/sites-available/jevnotjev.breakoutwithai.com` first. Do not replace it with the repository HTTP-only template: that would remove Certbot's TLS configuration.
 
 1. Confirm port 3456 is unused, the installed Bun supports the built server, and `www-data` exists. Capture the existing vhost and all co-tenant status codes using `.deploy/lib.sh` `list_neighbours` and `probe_neighbours`.
-2. Install `.deploy/backstage.service` as `/etc/systemd/system/jevnotjev-backstage.service`. It runs as `www-data`, bound to loopback. Run `systemctl daemon-reload`; do not start it until a release exists.
+2. Install `.deploy/backstage.service` as `/etc/systemd/system/jevnotjev-backstage.service`. It runs as `www-data`, bound to loopback. Run `systemctl daemon-reload` and `systemctl enable jevnotjev-backstage`; verify with `systemctl is-enabled jevnotjev-backstage`. Enable configures reboot recovery; do not start it until a release exists.
 3. Install `.deploy/backstage-nginx.conf` as `/etc/nginx/snippets/jevnotjev-backstage.conf`. Add exactly `include /etc/nginx/snippets/jevnotjev-backstage.conf;` inside this domain's existing HTTPS server block. Keep every certificate directive and other location unchanged. Review the installed diff. Do not edit another domain.
 4. Run `nginx -t`. On failure restore the saved vhost before doing anything else. On success use `systemctl reload nginx`, never restart. Re-probe all neighbours. A changed neighbour means restore the vhost, validate it and reload again.
 5. Run the guarded deployment below. Before the initial release starts, the new Backstage locations will return a gateway error; the main site continues to serve its static release. If setup is abandoned, restore the original vhost and reload after validation.
@@ -25,9 +25,9 @@ Run the local test/typecheck/build gate before promotion. A production release r
 .deploy/backstage-deploy.sh
 ```
 
-The helper rebuilds with `bun scripts/backstage-build.ts` on the workstation. Each build returns a unique `dist/backstage-build-<suffix>` directory containing `site`, `server.js` and `release.json`; `.deploy/backstage-package.ts` rejects wrong version, missing browser/backend files, symlinks and unexpected files. The helper packages and verifies transferred archive bytes, then extracts under `/var/www/jevnotjev-backstage-releases/<SHA>`. Production never builds.
+The helper rebuilds with `bun scripts/backstage-build.ts --committed` on the workstation from a temporary `git archive` snapshot of the approved SHA, so concurrent working-file edits cannot enter the payload. Each build returns a unique `dist/backstage-build-<suffix>` directory containing `site`, `server.js` and `release.json`; `.deploy/backstage-package.ts` rejects wrong version, missing browser/backend files, symlinks and unexpected files. The helper packages and verifies transferred archive bytes, then extracts under `/var/www/jevnotjev-backstage-releases/<SHA>`. Production never builds.
 
-Activation swaps `/var/www/jevnotjev-backstage-current`, restarts only `jevnotjev-backstage`, checks the served API version, exact browser bundle bytes, page response, service status and co-tenants. Only then is `.verified` written with SHA, UTC time, actor and issue. No nginx reload is needed for subsequent releases. Keep previous releases; this helper does not prune them.
+Activation swaps `/var/www/jevnotjev-backstage-current`, restarts only `jevnotjev-backstage`, checks the served API version, exact browser bundle, stylesheet and HTML bytes, page response, service status and co-tenants. Only then is `.verified` written with SHA, UTC time, actor and issue. No nginx reload is needed for subsequent releases. Keep previous releases; this helper does not prune them.
 
 ## Rollback
 

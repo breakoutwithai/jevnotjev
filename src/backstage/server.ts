@@ -3,9 +3,14 @@ import { MODELS, PROTOCOL_VERSION } from "./contracts.ts";
 import { boundedText, callProvider, parseAnswerRequest } from "./providers.ts";
 import type { ProviderFetch } from "./providers.ts";
 declare const BACKSTAGE_BUILD_VERSION: string;
-export function runtimeVersion(configured: string | undefined, compiled: string): string {
+export function runtimeVersion(
+  configured: string | undefined,
+  compiled: string,
+): string {
   if (!/^[a-f0-9]{40}$/.test(compiled) || configured !== compiled)
-    throw new Error("BACKSTAGE_VERSION must match the compiled server revision.");
+    throw new Error(
+      "BACKSTAGE_VERSION must match the compiled server revision.",
+    );
   return compiled;
 }
 export interface ServerOptions {
@@ -75,7 +80,12 @@ export function createHandler(
             400,
           );
         if (input.revision !== options.version)
-          return json({ error: "Page and runner versions differ. Reload before running." }, 409);
+          return json(
+            {
+              error: "Page and runner versions differ. Reload before running.",
+            },
+            409,
+          );
         return json(
           await callProvider(input, options.providerFetch, options.timeoutMs),
         );
@@ -105,13 +115,25 @@ export function createHandler(
       return json({ error: "Not found." }, 404);
     const file = Bun.file(target);
     if (!(await file.exists())) return json({ error: "Not found." }, 404);
-    return new Response(request.method === "HEAD" ? null : file, {
-      headers: { ...HEADERS, "content-type": file.type },
-    });
+    const headers: Record<string, string> = {
+      ...HEADERS,
+      "content-type": file.type,
+    };
+    // Legacy stage pages already rely on inline scripts. Scope the new policy to Backstage.
+    if (
+      !target
+        .toLowerCase()
+        .startsWith(`${resolve(root, "backstage").toLowerCase()}${sep}`)
+    )
+      delete headers["content-security-policy"];
+    return new Response(request.method === "HEAD" ? null : file, { headers });
   };
 }
 if (import.meta.main) {
-  const version = runtimeVersion(process.env.BACKSTAGE_VERSION, BACKSTAGE_BUILD_VERSION);
+  const version = runtimeVersion(
+    process.env.BACKSTAGE_VERSION,
+    BACKSTAGE_BUILD_VERSION,
+  );
   const port = Number(process.env.PORT ?? "3456");
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("Invalid PORT.");

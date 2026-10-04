@@ -15,7 +15,7 @@ const request: AnswerRequest = {
   provider: "jev",
   key: "secret-test-key",
 };
-test("[unit] B67 strict requests reject malformed and secret-bearing inputs", () => {
+test("[unit] B4 strict requests reject malformed and secret-bearing inputs", () => {
   expect(parseAnswerRequest(request)).not.toBeNull();
   expect(
     parseAnswerRequest({ ...request, endpoint: "https://evil.test" }),
@@ -28,7 +28,7 @@ test("[unit] B67 strict requests reject malformed and secret-bearing inputs", ()
     }),
   ).toBeNull();
 });
-test("[unit] B67 Jev pins model and captures real usage from allowlisted fields", async () => {
+test("[unit] B3 Jev pins model and captures real usage from allowlisted fields", async () => {
   const result = await callProvider(request, async (url, options) => {
     expect(String(url)).toBe("https://api.typesafe.ai/v1/systemone");
     expect(options?.redirect).toBe("error");
@@ -45,7 +45,7 @@ test("[unit] B67 Jev pins model and captures real usage from allowlisted fields"
   expect(result.costUsd).toBeCloseTo(0.0000042);
   expect(JSON.stringify(result)).not.toContain(request.key);
 });
-test("[unit] B67 off-model and unsafe outputs fail without forwarding upstream bodies", async () => {
+test("[unit] B3 off-model and unsafe outputs fail without forwarding upstream bodies", async () => {
   for (const payload of [
     { model: "wrong", error: request.key },
     { model: "jev-1.13.0", answers: { q1: { choice: request.key } } },
@@ -57,7 +57,7 @@ test("[unit] B67 off-model and unsafe outputs fail without forwarding upstream b
     expect(JSON.stringify(result)).not.toContain(request.key);
   }
 });
-test("[unit] B67 provider errors preserve charge uncertainty with no retry or leaked body", async () => {
+test("[unit] B5 provider errors preserve charge uncertainty with no retry or leaked body", async () => {
   let calls = 0;
   const result = await callProvider(request, async () => {
     calls++;
@@ -68,7 +68,7 @@ test("[unit] B67 provider errors preserve charge uncertainty with no retry or le
   if (!result.ok) expect(result.charge).toBe("unknown");
   expect(JSON.stringify(result)).not.toContain(request.key);
 });
-test("[unit] B67 Anthropic exact output and token usage, missing usage stays unknown", async () => {
+test("[unit] B3 Anthropic exact output and token usage, missing usage stays unknown", async () => {
   for (const usage of [{ input_tokens: 10, output_tokens: 2 }, undefined]) {
     const result = await callProvider(
       { ...request, provider: "llm" },
@@ -84,7 +84,7 @@ test("[unit] B67 Anthropic exact output and token usage, missing usage stays unk
     expect(result.costUsd).toBe(usage ? 0.00002 : null);
   }
 });
-test("[unit] B67 charged malformed answer preserves usage; off-model never uses pinned price", async () => {
+test("[unit] B5 charged malformed answer preserves usage; off-model never uses pinned price", async () => {
   const result = await callProvider({ ...request, provider: "llm" }, async () =>
     Response.json({
       model: "claude-haiku-4-5-20251001",
@@ -105,7 +105,7 @@ test("[unit] B67 charged malformed answer preserves usage; off-model never uses 
   expect(wrong.costUsd).toBeNull();
   expect(wrong.tokensIn).toBe(100);
 });
-test("[unit] B67 oversized and truncated provider responses never become answers", async () => {
+test("[unit] B4 oversized and truncated provider responses never become answers", async () => {
   const huge = await callProvider(
     request,
     async () => new Response("x".repeat(65537)),
@@ -122,7 +122,7 @@ test("[unit] B67 oversized and truncated provider responses never become answers
   );
   expect(truncated.ok).toBe(false);
 });
-test("[unit] B67 timeout retains uncertainty and cache usage is never underpriced", async () => {
+test("[unit] B5 timeout retains uncertainty and cache usage is never underpriced", async () => {
   const timeout = await callProvider(
     request,
     async (_url, options) => {
@@ -155,7 +155,7 @@ test("[unit] B67 timeout retains uncertainty and cache usage is never underprice
   expect(cache.ok).toBe(true);
   expect(cache.costUsd).toBeNull();
 });
-test("[unit] B67 identifier and choice bounds match CSV constraints", () => {
+test("[unit] B4 identifier and choice bounds match CSV constraints", () => {
   expect(parseAnswerRequest({ ...request, runId: "r".repeat(65) })).toBeNull();
   expect(
     parseAnswerRequest({
@@ -170,7 +170,7 @@ test("[unit] B67 identifier and choice bounds match CSV constraints", () => {
     }),
   ).toBeNull();
 });
-test("[unit] B67 timeout cancels a stalled provider response body", async () => {
+test("[unit] B4 timeout cancels a stalled provider response body", async () => {
   let cancelled = false;
   const result = await callProvider(
     request,
@@ -191,11 +191,33 @@ test("[unit] B67 timeout cancels a stalled provider response body", async () => 
 
 test("[unit] B4 malformed cache usage cannot become a known cost", async () => {
   for (const cache of ["100", null, -1, 1.5, {}, false]) {
-    const result = await callProvider({ ...request, provider: "llm" }, async () => Response.json({
-      model: "claude-haiku-4-5-20251001", stop_reason: "end_turn",
-      content: [{ type: "text", text: "keep" }],
-      usage: { input_tokens: 100, output_tokens: 1, cache_read_input_tokens: cache },
-    }));
+    const result = await callProvider(
+      { ...request, provider: "llm" },
+      async () =>
+        Response.json({
+          model: "claude-haiku-4-5-20251001",
+          stop_reason: "end_turn",
+          content: [{ type: "text", text: "keep" }],
+          usage: {
+            input_tokens: 100,
+            output_tokens: 1,
+            cache_read_input_tokens: cache,
+          },
+        }),
+    );
     expect(result.costUsd).toBeNull();
   }
+});
+
+test("[unit] B3 Anthropic must return the exact choice without whitespace repair", async () => {
+  const result = await callProvider({ ...request, provider: "llm" }, async () =>
+    Response.json({
+      model: "claude-haiku-4-5-20251001",
+      content: [{ type: "text", text: " keep\n" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10, output_tokens: 2 },
+    }),
+  );
+  expect(result.ok).toBe(false);
+  expect(result.costUsd).toBe(0.00002);
 });

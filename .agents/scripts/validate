@@ -1,5 +1,13 @@
 #!/usr/bin/env bun
-for (const command of [["bun", "run", "typecheck"], ["bun", "scripts/backstage-build.ts"], ["bun", "test", "./.deploy/backstage-package.test.ts"], ["bash", "-n", ".deploy/backstage-deploy.sh"]]) {
+import { buildBackstage } from "../../scripts/backstage-build.ts";
+import { checkRelease } from "../../.deploy/backstage-package.ts";
+for (const command of [["bun", "run", "typecheck"], ["bash", "-n", ".deploy/backstage-deploy.sh"]]) {
   const result = Bun.spawnSync(command, { stdout: "inherit", stderr: "inherit" });
   if (result.exitCode !== 0) process.exit(result.exitCode);
 }
+const revision = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
+if (revision.exitCode !== 0) throw new Error("Cannot identify validated revision.");
+const sha = revision.stdout.toString().trim();
+const directory = await buildBackstage(process.cwd(), true);
+const files = await checkRelease(directory, sha);
+console.info(`Validated ${sha}: typecheck, shell syntax, ${files.length} committed release files (${directory}).`);

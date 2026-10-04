@@ -1,6 +1,14 @@
 import { test, expect } from "bun:test";
 import { checkRelease } from "./backstage-package.ts";
-import { mkdtemp, rm, mkdir, readdir, chmod } from "node:fs/promises";
+import {
+  mkdtemp,
+  rm,
+  mkdir,
+  readdir,
+  chmod,
+  symlink,
+  readlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 test("[unit] B67 release package requires matching SHA and complete paired artifacts", async () => {
@@ -275,4 +283,108 @@ test("[unit] B8 neighbour HTTP headers cannot hide transport failure", () => {
   );
   expect(result.exitCode).not.toBe(0);
   expect(new TextDecoder().decode(result.stdout)).toBe("");
+});
+
+// Run the real entrypoint and EXIT trap; only OS/network commands cross fixture boundaries.
+async function activationFixture(
+  failRestart: boolean,
+  corruptHtml = false,
+): Promise<{ code: number; current: string; log: string; output: string }> {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-activation-"));
+  const oldSha = "a".repeat(40),
+    newSha = "b".repeat(40);
+  try {
+    for (const name of [
+      ".deploy",
+      "bin",
+      "www/jevnotjev-backstage-releases",
+      "lock",
+      "tmp",
+    ])
+      await mkdir(join(dir, name), { recursive: true });
+    for (const name of ["backstage-deploy.sh", "backstage-lib.sh", "lib.sh"])
+      await Bun.write(
+        join(dir, ".deploy", name),
+        await Bun.file(`.deploy/${name}`).text(),
+      );
+    for (const sha of [oldSha, newSha]) {
+      const release = join(dir, "www/jevnotjev-backstage-releases", sha);
+      await mkdir(join(release, "site/backstage"), { recursive: true });
+      await Bun.write(join(release, ".verified"), "yes");
+      for (const file of ["app.js", "backstage.css", "index.html"])
+        await Bun.write(
+          join(release, "site/backstage", file),
+          `${sha}-${file}`,
+        );
+    }
+    const current = join(dir, "www/jevnotjev-backstage-current");
+    await symlink(
+      join(dir, "www/jevnotjev-backstage-releases", oldSha),
+      current,
+    );
+    await Bun.write(
+      join(dir, ".deploy/config.sh"),
+      `DOMAIN=own.test\nSERVER_HOST=127.0.0.1\nHEALTH_URL=https://own.test\nCURL_PIN=''\nVHOST_AVAILABLE=/fake/vhost\nremote(){ bun "$FIXTURE/remote.ts" "$1"; }\nfail(){ echo "$*" >&2; exit 1; }\nlog_info(){ :; }\nlog_success(){ :; }\nlog_warn(){ :; }\nlog_error(){ echo "$*" >&2; }\n`,
+    );
+    await Bun.write(
+      join(dir, "remote.ts"),
+      `const root=process.env.FIXTURE??'';const command=process.argv[2]??'';if(command.startsWith('test -f /etc/systemd'))process.exit(0);if(command.startsWith('cat /etc/nginx/sites-enabled')){console.info('server_name neighbor.test;');process.exit(0);}const translated=command.replaceAll('/var/www',root+'/www').replaceAll('/var/lock',root+'/lock');const result=Bun.spawnSync(['bash','-c',translated],{env:process.env,stdout:'pipe',stderr:'pipe'});process.stdout.write(new TextDecoder().decode(result.stdout).replaceAll(root+'/www','/var/www'));process.stderr.write(result.stderr);process.exit(result.exitCode);`,
+    );
+    const commands: Record<string, string> = {
+      git: `#!/usr/bin/env bash\nprintf '%s\\n' '${newSha}'\n`,
+      sleep: "#!/usr/bin/env bash\nexit 0\n",
+      mv: `#!/usr/bin/env bun\nimport {renameSync} from 'node:fs';const args=process.argv.slice(2).filter(a=>a!=='-T');renameSync(args[0]??'',args[1]??'');`,
+      sha256sum: `#!/usr/bin/env bash\nshasum -a 256 "$@"\n`,
+      systemctl: `#!/usr/bin/env bun\nimport {appendFileSync,existsSync,writeFileSync} from 'node:fs';const root=process.env.FIXTURE??'';appendFileSync(root+'/actions',process.argv.slice(2).join(' ')+'\\n');if(process.argv[2]==='restart'&&process.env.FAIL_RESTART==='1'&&!existsSync(root+'/failed')){writeFileSync(root+'/failed','1');process.exit(1);}`,
+      curl: `#!/usr/bin/env bun\nimport {readlinkSync,readFileSync} from 'node:fs';const args=process.argv.slice(2);const url=args.at(-1)??'';if(url.includes('neighbor.test')){process.stdout.write('200');process.exit(0);}const active=readlinkSync((process.env.FIXTURE??'')+'/www/jevnotjev-backstage-current');if(url.endsWith('/health')){process.stdout.write(JSON.stringify({protocol:'backstage/1',version:active.split('/').at(-1)}));}else{const path=url.endsWith('/')?'index.html':url.split('/').at(-1);if(path==='index.html'&&process.env.CORRUPT_HTML==='1')process.stdout.write('old html');else process.stdout.write(readFileSync(active+'/site/backstage/'+path));}`,
+    };
+    for (const [name, body] of Object.entries(commands)) {
+      const path = join(dir, "bin", name);
+      await Bun.write(path, body);
+      await chmod(path, 0o755);
+    }
+    const result = Bun.spawnSync(
+      ["bash", ".deploy/backstage-deploy.sh", "--rollback", newSha],
+      {
+        cwd: dir,
+        env: {
+          ...process.env,
+          FIXTURE: dir,
+          PATH: `${dir}/bin:${process.env.PATH}`,
+          TMPDIR: join(dir, "tmp"),
+          FAIL_RESTART: failRestart ? "1" : "0",
+          CORRUPT_HTML: corruptHtml ? "1" : "0",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    return {
+      code: result.exitCode,
+      current: (await readlink(current)).split("/").at(-1) ?? "",
+      log: await Bun.file(join(dir, "actions")).text(),
+      output: new TextDecoder().decode(result.stderr),
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+test("[integration] B8 real deploy EXIT trap restores previous pair after restart failure", async () => {
+  const result = await activationFixture(true);
+  expect(result.code).not.toBe(0);
+  expect(result.current).toBe("a".repeat(40));
+  expect(result.log.match(/restart/g)?.length).toBe(2);
+  expect(result.output).not.toContain("Rollback version did not verify");
+});
+test("[integration] B8 explicit rollback verifies and keeps requested pair", async () => {
+  const result = await activationFixture(false);
+  expect(result.code).toBe(0);
+  expect(result.current).toBe("b".repeat(40));
+  expect(result.log).toContain("is-active --quiet");
+});
+test("[integration] B8 wrong served HTML triggers actual deployment rollback", async () => {
+  const result = await activationFixture(false, true);
+  expect(result.code).not.toBe(0);
+  expect(result.current).toBe("a".repeat(40));
+  expect(result.output).toContain("index.html differs");
 });

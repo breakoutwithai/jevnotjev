@@ -39,7 +39,7 @@ if [[ -z "$ROLLBACK_SHA" ]]; then
  # A merged PR and issue link are required even when main contains the SHA.
  PR_JSON="$(gh api "repos/breakoutwithai/jevnotjev/commits/${SHA}/pulls")"
  printf '%s' "$PR_JSON" | bun -e 'const p=await Bun.stdin.json();if(!Array.isArray(p)||!p.some(x=>x.merged_at&&x.base?.ref==="main"&&/#67\b/.test(x.body??"")))process.exit(1)' || fail "No merged main PR linked to #67 for HEAD"
- BUILD_DIR="$(bun scripts/backstage-build.ts)"
+ BUILD_DIR="$(bun scripts/backstage-build.ts --committed)"
  ARCHIVE="$(bun .deploy/backstage-package.ts "$BUILD_DIR" "$SHA")"
 fi
 backstage_check_curl_config || fail "Curl credential config must be a private file owned by the current user"
@@ -66,7 +66,7 @@ else
  archive_sha="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
  remote "cat > '${stage}/payload.tar.gz'" < "$ARCHIVE"
  remote "cd '${stage}' && printf '%s\n' '${archive_sha}  payload.tar.gz' | sha256sum -c - && tar -xzf payload.tar.gz --no-same-owner && rm payload.tar.gz"
- remote "printf '%s\n' 'BACKSTAGE_VERSION=${SHA}' 'BACKSTAGE_ORIGIN=${HEALTH_URL}' 'BACKSTAGE_STATIC_ROOT=${CURRENT}/site' 'PORT=3456' > '${stage}/runtime.env' && chmod -R a+rX '${stage}' && mv '${stage}' '${release}'"
+ remote "printf '%s\n' 'BACKSTAGE_VERSION=${SHA}' 'BACKSTAGE_ORIGIN=${HEALTH_URL}' 'BACKSTAGE_STATIC_ROOT=${release}/site' 'PORT=3456' > '${stage}/runtime.env' && chmod -R a+rX '${stage}' && mv '${stage}' '${release}'"
 fi
 activated=false
 restore(){
@@ -96,9 +96,10 @@ for attempt in 1 2 3 4 5; do
 done
 $healthy || fail "New API version did not verify"
 # Compare actual served bundle bytes to the immutable on-box artifact for rollback as well.
-for asset in app.js backstage.css; do
+for asset in app.js backstage.css index.html; do
  expected="$(remote "sha256sum '${release}/site/backstage/${asset}'" | awk '{print $1}')"
- actual="$(backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/backstage/${asset}" | shasum -a 256 | awk '{print $1}')"
+ asset_path="$asset"; [[ "$asset" != index.html ]] || asset_path=""
+ actual="$(backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/backstage/${asset_path}" | shasum -a 256 | awk '{print $1}')"
  [[ -n "$expected" && "$expected" == "$actual" ]] || fail "Served browser asset ${asset} differs"
 done
 backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/backstage/" >/dev/null

@@ -294,7 +294,7 @@ export async function callProvider(
       raw.content[0].type === "text" &&
       typeof raw.content[0].text === "string"
     )
-      output = raw.content[0].text.trim();
+      output = raw.content[0].text;
     if (
       output === null ||
       output.includes(request.key) ||

@@ -58,7 +58,7 @@ async function success(r: AnswerRequest): Promise<AnswerSuccess> {
   };
 }
 describe("Backstage run", () => {
-  test("[unit] B67 validates and freezes inputs, rejects duplicate cases", () => {
+  test("[unit] B2 validates and freezes inputs, rejects duplicate cases", () => {
     const s = scene();
     const run = new BackstageRun(s);
     expect(Object.isFrozen(run.manifest.scene.cases)).toBe(true);
@@ -76,7 +76,7 @@ describe("Backstage run", () => {
       new BackstageRun({ ...s, keywords: [] }).manifest.scene.keywords,
     ).toEqual([]);
   });
-  test("[unit] B67 executes actual transport, blind labels, exact CSV core parity", async () => {
+  test("[unit] B7 executes actual transport, blind labels, exact CSV core parity", async () => {
     const run = new BackstageRun(scene());
     await run.start(keys, success);
     expect(run.cards()).toHaveLength(6);
@@ -95,7 +95,7 @@ describe("Backstage run", () => {
     );
     expect(JSON.stringify(run.evidence())).not.toContain("test-secret");
   });
-  test("[unit] B67 double-run prevented; stop keeps unknown attempt and discards late result", async () => {
+  test("[unit] B2 double-run prevented; stop keeps unknown attempt and discards late result", async () => {
     const run = new BackstageRun(scene());
     let release: ((v: AnswerSuccess) => void) | undefined;
     let request: AnswerRequest | undefined;
@@ -123,7 +123,7 @@ describe("Backstage run", () => {
     expect(run.cards()).toHaveLength(6);
     expect(run.attempts).toHaveLength(5);
   });
-  test("[unit] B67 retry never recharges success and retains known failed spend", async () => {
+  test("[unit] B5 retry never recharges success and retains known failed spend", async () => {
     const run = new BackstageRun(scene());
     let count = 0;
     await run.start(keys, async (r) => {
@@ -147,7 +147,7 @@ describe("Backstage run", () => {
       unknown: 0,
     });
   });
-  test("[unit] B67 rejects stale identity, off-model and hostile echoed fields without leaking keys", async () => {
+  test("[unit] B4 rejects stale identity, off-model and hostile echoed fields without leaking keys", async () => {
     const run = new BackstageRun(scene());
     await run.start(keys, async (r) => ({
       ...(await success(r)),
@@ -159,7 +159,7 @@ describe("Backstage run", () => {
     expect(JSON.stringify(run.evidence())).not.toContain("test-secret");
     expect((await run.report()).extraSpend.unknown).toBe(4);
   });
-  test("[unit] B67 missing cost stays incomplete; no implicit human labels", async () => {
+  test("[unit] B6 missing cost stays incomplete; no implicit human labels", async () => {
     const run = new BackstageRun(scene());
     await run.start(keys, async (r) => ({
       ...(await success(r)),
@@ -173,7 +173,7 @@ describe("Backstage run", () => {
     );
     expect(report.metrics.arms.every((a) => a.labelled === 0)).toBe(true);
   });
-  test("[unit] B67 both keys are excluded from scene and cross-provider response evidence", async () => {
+  test("[unit] B4 both keys are excluded from scene and cross-provider response evidence", async () => {
     const s = scene();
     await expect(
       new BackstageRun({ ...s, acceptance: keys.llm }).start(keys, success),
@@ -186,7 +186,7 @@ describe("Backstage run", () => {
     expect(run.cards()).toHaveLength(2);
     expect(JSON.stringify(run.evidence())).not.toContain("test-secret");
   });
-  test("[unit] B67 stop before dispatch makes no provider request", async () => {
+  test("[unit] B5 stop before dispatch makes no provider request", async () => {
     const run = new BackstageRun(scene());
     let calls = 0;
     const promise = run.start(keys, async (r) => {
@@ -198,7 +198,7 @@ describe("Backstage run", () => {
     expect(calls).toBe(0);
     expect(run.attempts).toHaveLength(0);
   });
-  test("[unit] B67 backend hyphenated failure codes preserve no-charge evidence", async () => {
+  test("[unit] B5 backend hyphenated failure codes preserve no-charge evidence", async () => {
     const run = new BackstageRun(scene());
     await run.start(keys, async (r) => ({
       ...(await success(r)),
@@ -215,7 +215,7 @@ describe("Backstage run", () => {
     );
     expect(run.extraSpend()).toEqual({ knownUsd: 0, unknown: 0 });
   });
-  test("[unit] B67 CSV case import preserves quoted multiline text and rejects extra columns", () => {
+  test("[unit] B7 CSV case import preserves quoted multiline text and rejects extra columns", () => {
     expect(parseCases('case_id,case_input\na,"hello\nworld"\n')).toEqual([
       { id: "a", input: "hello\nworld" },
     ]);
@@ -223,7 +223,7 @@ describe("Backstage run", () => {
   });
 });
 
-test("[unit] B67 secret rejection blocks exports including escaped keys and retry evidence", async () => {
+test("[unit] B4 secret rejection blocks exports including escaped keys and retry evidence", async () => {
   const escaped = { jev: 'secret"with\\escape', llm: "other-secret" };
   const run = new BackstageRun({ ...scene(), acceptance: escaped.jev });
   await expect(run.start(escaped, success)).rejects.toThrow();
@@ -237,7 +237,7 @@ test("[unit] B67 secret rejection blocks exports including escaped keys and retr
   ).rejects.toThrow();
   expect(() => retryRun.evidence()).toThrow();
 });
-test("[unit] B67 reveal irreversibly locks labels and retries", async () => {
+test("[unit] B6 reveal irreversibly locks labels and retries", async () => {
   const run = new BackstageRun(scene());
   expect(() => run.reveal()).toThrow();
   await run.start(keys, success);
@@ -251,7 +251,7 @@ test("[unit] B67 reveal irreversibly locks labels and retries", async () => {
   await expect(run.retry(keys, success)).rejects.toThrow();
   expect(run.cards()[0]?.label).toBe("accept");
 });
-test("[unit] B67 choice names have the same strict bounds as backend", () => {
+test("[unit] B4 choice names have the same strict bounds as backend", () => {
   const s = scene();
   for (const name of ["x".repeat(65), " yes", "yes ", "yes\t", "yes\0"]) {
     expect(
@@ -265,7 +265,7 @@ test("[unit] B67 choice names have the same strict bounds as backend", () => {
   }
 });
 
-test("[unit] B67 controls and malformed keys fail before calls", async () => {
+test("[unit] B4 controls and malformed keys fail before calls", async () => {
   for (const control of ["\0", "\b", "\v", "\f", "\x1f"]) {
     const s = scene();
     expect(
@@ -290,7 +290,7 @@ test("[unit] B67 controls and malformed keys fail before calls", async () => {
     new BackstageRun(scene()).start({ jev: "tiny", llm: keys.llm }, success),
   ).rejects.toThrow();
 });
-test("[unit] B67 confirmed local rejections are uncharged, unknown HTTP failures stay uncertain", async () => {
+test("[unit] B5 confirmed local rejections are uncharged, unknown HTTP failures stay uncertain", async () => {
   const fetchSpy = spyOn(globalThis, "fetch");
   try {
     for (let i = 0; i < 2; i++)
@@ -321,7 +321,7 @@ test("[unit] B67 confirmed local rejections are uncharged, unknown HTTP failures
   }
 });
 
-test("[unit] B67 first progress callback enables stopping before initial call", async () => {
+test("[unit] B5 first progress callback enables stopping before initial call", async () => {
   const run = new BackstageRun(scene());
   let calls = 0;
   const states: boolean[] = [];
@@ -341,10 +341,10 @@ test("[unit] B67 first progress callback enables stopping before initial call", 
   expect(run.attempts).toHaveLength(0);
 });
 
-test("[unit] B67 quoted combined CSV header is not two columns", () => {
+test("[unit] B7 quoted combined CSV header is not two columns", () => {
   expect(() => parseCases('"case_id,case_input"\na,b\n')).toThrow();
 });
-test("[unit] B67 labeling locks retry decisions before first card judgment", async () => {
+test("[unit] B6 labeling locks retry decisions before first card judgment", async () => {
   const run = new BackstageRun(scene());
   await run.start(keys, success);
   const card = run.cards()[0];
@@ -355,7 +355,7 @@ test("[unit] B67 labeling locks retry decisions before first card judgment", asy
   run.label(card.id, "accept");
   await expect(run.retry(keys, success)).rejects.toThrow();
 });
-test("[unit] B67 stale backend revision cannot enter frozen run", async () => {
+test("[unit] B8 stale backend revision cannot enter frozen run", async () => {
   const run = new BackstageRun(scene(), "release-a");
   await run.start(keys, async (request) => ({
     ...(await success(request)),
@@ -365,7 +365,7 @@ test("[unit] B67 stale backend revision cannot enter frozen run", async () => {
   expect(run.extraSpend().unknown).toBe(4);
 });
 
-test("[unit] B67 health deadline and stop cover stalled response body", async () => {
+test("[unit] B8 health deadline and stop cover stalled response body", async () => {
   const signal = new AbortController();
   const stalled = () =>
     Promise.resolve(
@@ -390,7 +390,7 @@ test("[unit] B67 health deadline and stop cover stalled response body", async ()
     ),
   ).resolves.toBeUndefined();
 });
-test("[unit] B67 import generations ignore stale files and edits", async () => {
+test("[unit] B2 import generations ignore stale files and edits", async () => {
   const state = new CaseImportState();
   let first: ((text: string) => void) | undefined;
   const stale = state.read(
@@ -417,7 +417,7 @@ test("[unit] B67 import generations ignore stale files and edits", async () => {
   expect(state.pending).toBe(false);
 });
 
-test("[unit] B67 frozen scene cannot change while handshake is pending", async () => {
+test("[unit] B2 frozen scene cannot change while handshake is pending", async () => {
   const original = { ...scene(), cases: [{ id: "x", input: "before" }] };
   const run = new BackstageRun(original, "revision");
   original.question = "changed";
@@ -429,4 +429,43 @@ test("[unit] B67 frozen scene cannot change while handshake is pending", async (
     return success(request);
   });
   expect(received).toEqual(["Qualified?:before", "Qualified?:before"]);
+});
+
+test("[unit] B7 rejects malformed quoted CSV without repairing cases", () => {
+  for (const csv of [
+    'case_id,case_input\na,"unfinished',
+    'case_id,case_input\na,"finished"trailing\n',
+    'case_id,case_input\na,stray"quote\n',
+  ])
+    expect(() => parseCases(csv)).toThrow();
+  expect(
+    parseCases('case_id,case_input\r\na,"a ""quote""\r\nnext line"\r\n'),
+  ).toEqual([{ id: "a", input: 'a "quote"\r\nnext line' }]);
+});
+test("[unit] B5 retry advice is actionable without provider or answer mapping", async () => {
+  const run = new BackstageRun(scene());
+  await run.start(keys, async (request) => ({
+    ...(await success(request)),
+    ok: false,
+    code: request.provider === "jev" ? "http-401" : "http-429",
+    message: "sensitive failure details",
+    charge: "none",
+    costUsd: null,
+  }));
+  const advice = run.retryAdvice();
+  expect(advice).toHaveLength(2);
+  expect(advice.some((message) => message.includes("keys"))).toBe(true);
+  expect(advice.some((message) => message.includes("Wait"))).toBe(true);
+  expect(advice.join(" ")).not.toMatch(/jev|llm|c1|c2|sensitive|yes|no choice/);
+  expect(run.labeling).toBe(false);
+  await run.retry(keys, success);
+  expect(run.retryAdvice()).toEqual([]);
+});
+test("[unit] B4 unsafe run cannot enter judging and gives recovery guidance", async () => {
+  const run = new BackstageRun(scene());
+  await run.start(keys, success);
+  await expect(
+    run.retry({ jev: "Qualified?", llm: keys.llm }, success),
+  ).rejects.toThrow();
+  expect(() => run.beginLabeling()).toThrow("Start a new scene");
 });

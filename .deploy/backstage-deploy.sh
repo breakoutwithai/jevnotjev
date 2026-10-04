@@ -78,6 +78,7 @@ else
  remote "cd '${stage}' && printf '%s\n' '${archive_sha}  payload.tar.gz' | sha256sum -c - && tar -xzf payload.tar.gz --no-same-owner && rm payload.tar.gz"
  remote "printf '%s\n' 'BACKSTAGE_VERSION=${SHA}' 'BACKSTAGE_ORIGIN=${HEALTH_URL}' 'BACKSTAGE_STATIC_ROOT=${release}/site' 'PORT=3456' > '${stage}/runtime.env' && chmod -R a+rX '${stage}' && mv '${stage}' '${release}'"
 fi
+expected_protocol="$(remote "cat '${release}/release.json'" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||!["backstage/1","backstage/2"].includes(r.protocol))process.exit(1);console.log(r.protocol)' "$SHA")" || fail "Invalid target release protocol"
 activated=false
 restore(){
  local rc="$?"
@@ -105,7 +106,7 @@ remote "systemctl restart '${SERVICE}'"
 # Version endpoint and served page asset each prove the newly promoted pair.
 healthy=false
 for attempt in 1 2 3 4 5; do
- if backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||r.protocol!=="backstage/1")process.exit(1)' "$SHA"; then healthy=true; break; fi
+ if backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||r.protocol!==process.argv[2])process.exit(1)' "$SHA" "$expected_protocol"; then healthy=true; break; fi
  sleep 1
 done
 $healthy || fail "New API version did not verify"

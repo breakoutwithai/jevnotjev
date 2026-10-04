@@ -1,7 +1,16 @@
 import { resolve, sep } from "node:path";
-import { MODELS, PROTOCOL_VERSION } from "./contracts.ts";
-import { boundedText, callProvider, parseAnswerRequest } from "./providers.ts";
+import { isIP } from "node:net";
+import { CATALOG_VERSION, MODEL_CATALOG, getModelEntry } from "./catalog.ts";
+import { PROTOCOL_VERSION } from "./contracts.ts";
+import {
+  boundedText,
+  callProvider,
+  validateAnswerRequest,
+  dispatchError,
+} from "./providers.ts";
 import type { ProviderFetch } from "./providers.ts";
+import { openTrial, validTrialInput } from "./trial.ts";
+import type { TrialConfig } from "./trial.ts";
 declare const BACKSTAGE_BUILD_VERSION: string;
 export function runtimeVersion(
   configured: string | undefined,
@@ -20,6 +29,35 @@ export interface ServerOptions {
   readonly maxConcurrent?: number;
   readonly providerFetch?: ProviderFetch;
   readonly timeoutMs?: number;
+  readonly trialConfig?: TrialConfig;
+  readonly trialPricingVersion?: string;
+  readonly trustProxy?: boolean;
+}
+export interface RequestContext {
+  readonly remoteAddress?: string;
+}
+export interface BackstageHandler {
+  (request: Request, context?: RequestContext): Promise<Response>;
+  close(): void;
+}
+export const TRIAL_MIN_RESERVATION_MICRO_USD = 2753;
+export function trialConfigFromEnvironment(
+  env: Readonly<Record<string, string | undefined>>,
+): TrialConfig | undefined {
+  if (!env.BACKSTAGE_TRIAL_KEY) return undefined;
+  return {
+    path: env.BACKSTAGE_TRIAL_LEDGER_PATH ?? "",
+    fundedKey: env.BACKSTAGE_TRIAL_KEY,
+    signingSecret: env.BACKSTAGE_TRIAL_SIGNING_SECRET ?? "",
+    pricingVerified: env.BACKSTAGE_TRIAL_PRICING_VERSION === CATALOG_VERSION,
+    worstCostMicroUsd: Number(env.BACKSTAGE_TRIAL_WORST_COST_MICRO_USD),
+    dailyBudgetMicroUsd: Number(env.BACKSTAGE_TRIAL_DAILY_BUDGET_MICRO_USD),
+    dailyMintLimit: Number(env.BACKSTAGE_TRIAL_DAILY_MINT_LIMIT),
+    dailyNetworkMintLimit: Number(env.BACKSTAGE_TRIAL_DAILY_NETWORK_MINT_LIMIT),
+    dailyNetworkAttemptLimit: Number(
+      env.BACKSTAGE_TRIAL_DAILY_NETWORK_ATTEMPT_LIMIT,
+    ),
+  };
 }
 const HEADERS = {
   "cache-control": "no-store",
@@ -28,62 +66,282 @@ const HEADERS = {
   "content-security-policy":
     "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
 };
-function json(value: unknown, status = 200) {
-  return Response.json(value, { status, headers: HEADERS });
+function json(value: unknown, status = 200): Response {
+  const payload =
+    status >= 400 &&
+    typeof value === "object" &&
+    value !== null &&
+    "error" in value &&
+    !("code" in value) &&
+    typeof value.error === "string"
+      ? dispatchError(
+          status === 403
+            ? "origin-rejected"
+            : status === 503
+              ? "runner-busy"
+              : "request-rejected",
+          value.error,
+        )
+      : value;
+  return Response.json(payload, { status, headers: HEADERS });
 }
-export function createHandler(
-  options: ServerOptions,
-): (request: Request) => Promise<Response> {
-  let active = 0;
-  const root = resolve(options.staticRoot ?? "site");
-  return async (request) => {
+export function createHandler(options: ServerOptions): BackstageHandler {
+  let active = 0,
+    activeTrial = 0,
+    activeByok = 0,
+    fundingHeld = false;
+  const entry = getModelEntry("jev"),
+    funded = options.trialConfig;
+  // Reserve the entire documented 64K input context, not a guessed character/token ratio.
+  const trial = openTrial(
+    funded &&
+      options.trialPricingVersion === CATALOG_VERSION &&
+      funded.worstCostMicroUsd >= TRIAL_MIN_RESERVATION_MICRO_USD &&
+      entry?.modelId === "jev-1.13.0" &&
+      entry.pricing?.inputUsdPerMillion === 0.042 &&
+      entry.pricing.outputUsdPerMillion === 0 &&
+      /^[\x21-\x7e]{8,512}$/.test(funded.fundedKey)
+      ? funded
+      : undefined,
+  );
+  const root = resolve(options.staticRoot ?? "site"),
+    cookieName = "backstage_trial";
+  const handler = async (
+    request: Request,
+    context?: RequestContext,
+  ): Promise<Response> => {
     const url = new URL(request.url);
     if (url.pathname === "/api/backstage/health")
       return request.method === "GET"
         ? json({
             protocol: PROTOCOL_VERSION,
             version: options.version,
-            models: MODELS,
+            catalogVersion: CATALOG_VERSION,
+            catalog: MODEL_CATALOG,
+            origin: options.origin ?? url.origin,
+            trial:
+              trial.available && !fundingHeld
+                ? {
+                    available: true,
+                    limits: {
+                      question: 200,
+                      choiceName: 32,
+                      choiceDefinition: 200,
+                      input: 1000,
+                    },
+                  }
+                : {
+                    available: false,
+                    reason: fundingHeld
+                      ? "Trial accounting is unavailable."
+                      : trial.available
+                        ? "Trial unavailable."
+                        : trial.reason,
+                  },
           })
         : json({ error: "Method not allowed." }, 405);
-    if (url.pathname === "/api/backstage/answer") {
+    if (
+      [
+        "/api/backstage/answer",
+        "/api/backstage/trial/mint",
+        "/api/backstage/trial/answer",
+      ].includes(url.pathname)
+    ) {
+      const trialRoute = url.pathname.startsWith("/api/backstage/trial/");
       if (request.method !== "POST")
         return json({ error: "Method not allowed." }, 405);
-      if (request.headers.get("origin") !== (options.origin ?? url.origin))
-        return json({ error: "Same-origin requests required." }, 403);
-      if (request.headers.get("sec-fetch-site") === "cross-site")
+      if (
+        request.headers.get("origin") !== (options.origin ?? url.origin) ||
+        request.headers.get("sec-fetch-site") === "cross-site"
+      )
         return json({ error: "Same-origin requests required." }, 403);
       if (
         request.headers.get("content-type")?.split(";")[0]?.trim() !==
         "application/json"
       )
         return json({ error: "JSON required." }, 415);
-      if (active >= (options.maxConcurrent ?? 8))
+      if (
+        active >= (options.maxConcurrent ?? 8) ||
+        (trialRoute ? activeTrial >= 2 : activeByok >= 6)
+      )
         return json(
-          { error: "Runner busy. Retry explicitly when ready." },
+          dispatchError(
+            "runner-busy",
+            "Runner busy. Retry explicitly when ready.",
+          ),
           503,
         );
       active++;
+      if (trialRoute) activeTrial++;
+      else activeByok++;
       try {
         if (Number(request.headers.get("content-length") ?? 0) > 65536)
           return json({ error: "Request too large." }, 413);
-        // Bound both byte size and upload time before parsing. No user data is logged.
         const raw = await boundedText(
           new Response(request.body),
           65536,
           AbortSignal.timeout(5000),
         );
-        const input = parseAnswerRequest(JSON.parse(raw));
-        if (!input)
-          return json(
-            { error: "Invalid request. Check case, options and credentials." },
-            400,
+        const decoded: unknown = JSON.parse(raw);
+        if (trialRoute) {
+          const publicOrigin = new URL(options.origin ?? url.origin);
+          if (
+            publicOrigin.protocol !== "https:" &&
+            !["localhost", "127.0.0.1", "[::1]"].includes(publicOrigin.hostname)
+          )
+            return json(
+              dispatchError(
+                "trial-unavailable",
+                "Funded trials require a secure public origin.",
+              ),
+              503,
+            );
+          if (!trial.available || fundingHeld || !funded)
+            return json(
+              dispatchError(
+                "trial-unavailable",
+                "The funded trial is unavailable. Use your own key or Playground.",
+              ),
+              503,
+            );
+          const token =
+            request.headers
+              .get("cookie")
+              ?.split(";")
+              .map((v) => v.trim())
+              .find((v) => v.startsWith(`${cookieName}=`))
+              ?.slice(cookieName.length + 1) ?? "";
+          if (url.pathname.endsWith("/mint")) {
+            if (/^[a-f0-9-]{36}\.[a-f0-9]{64}$/.test(token))
+              return json({ available: true });
+            const socket = context?.remoteAddress,
+              loopback =
+                socket === "127.0.0.1" ||
+                socket === "::1" ||
+                socket === "::ffff:127.0.0.1";
+            const address =
+              options.trustProxy && loopback
+                ? request.headers.get("x-backstage-client-ip")
+                : socket;
+            if (!address || !isIP(address))
+              return json(
+                dispatchError(
+                  "trial-unavailable",
+                  "Trial network identity is unavailable.",
+                ),
+                503,
+              );
+            const minted = trial.ledger.mint(address);
+            if (minted.kind === "denied")
+              return json(
+                dispatchError(
+                  minted.code,
+                  "Trial allowance is unavailable or exhausted.",
+                ),
+                429,
+              );
+            const response = json({ available: true });
+            response.headers.set(
+              "set-cookie",
+              `${cookieName}=${minted.token}; HttpOnly; SameSite=Strict; Path=/api/backstage/trial; Max-Age=7776000${publicOrigin.protocol === "https:" ? "; Secure" : ""}`,
+            );
+            return response;
+          }
+          if (
+            typeof decoded !== "object" ||
+            decoded === null ||
+            Array.isArray(decoded) ||
+            !("idempotencyKey" in decoded) ||
+            typeof decoded.idempotencyKey !== "string" ||
+            "key" in decoded
+          )
+            return json(
+              dispatchError("invalid-request", "Invalid trial request."),
+              400,
+            );
+          const { idempotencyKey, ...decision } = decoded;
+          const checked = validateAnswerRequest({
+            ...decision,
+            key: funded.fundedKey,
+          });
+          if (!checked.ok) return json(checked.error, 400);
+          const input = checked.request;
+          if (input.revision !== options.version)
+            return json(
+              dispatchError(
+                "revision-mismatch",
+                "Page and runner versions differ. Reload before running.",
+              ),
+              409,
+            );
+          if (input.armId !== "jev" || !validTrialInput(input))
+            return json(
+              dispatchError(
+                "invalid-request",
+                "Trial supports one small Jev case only.",
+              ),
+              400,
+            );
+          const reservation = trial.ledger.reserve(
+            token,
+            idempotencyKey,
+            input,
           );
+          if (reservation.kind !== "reserved")
+            return json(
+              dispatchError(
+                reservation.kind === "replay"
+                  ? "trial-replay"
+                  : reservation.code,
+                reservation.kind === "replay"
+                  ? "This trial request was already submitted; it will not be charged again."
+                  : "Trial allowance is unavailable or exhausted.",
+              ),
+              429,
+            );
+          // A dispatched failure never restores the browser allowance automatically.
+          const result = await callProvider(
+            input,
+            options.providerFetch,
+            options.timeoutMs,
+          );
+          const fundingFailure =
+            !result.ok &&
+            ["http-401", "http-403", "http-429"].includes(result.code);
+          if (fundingFailure) fundingHeld = true;
+          try {
+            trial.ledger.settle(
+              reservation.reservationId,
+              fundingFailure && !result.ok
+                ? { kind: "unknown", code: result.code }
+                : result.costUsd !== null
+                  ? {
+                      kind: "known",
+                      costMicroUsd: Math.ceil(result.costUsd * 1e6),
+                    }
+                  : {
+                      kind: "unknown",
+                      code: result.ok ? "missing-cost" : result.code,
+                    },
+            );
+          } catch {
+            fundingHeld = true;
+          }
+          return json(result);
+        }
+        const validated = validateAnswerRequest(decoded);
+        if (!validated.ok)
+          return json(
+            validated.error,
+            validated.error.code.endsWith("mismatch") ? 409 : 400,
+          );
+        const input = validated.request;
         if (input.revision !== options.version)
           return json(
-            {
-              error: "Page and runner versions differ. Reload before running.",
-            },
+            dispatchError(
+              "revision-mismatch",
+              "Page and runner versions differ. Reload before running.",
+            ),
             409,
           );
         return json(
@@ -93,6 +351,8 @@ export function createHandler(
         return json({ error: "Invalid or oversized request." }, 400);
       } finally {
         active--;
+        if (trialRoute) activeTrial--;
+        else activeByok--;
       }
     }
     if (url.pathname.startsWith("/api/"))
@@ -128,6 +388,11 @@ export function createHandler(
       delete headers["content-security-policy"];
     return new Response(request.method === "HEAD" ? null : file, { headers });
   };
+  return Object.assign(handler, {
+    close() {
+      if (trial.available) trial.ledger.close();
+    },
+  });
 }
 if (import.meta.main) {
   const version = runtimeVersion(
@@ -140,16 +405,24 @@ if (import.meta.main) {
   const origin = process.env.BACKSTAGE_ORIGIN ?? `http://localhost:${port}`;
   if (new URL(origin).origin !== origin)
     throw new Error("BACKSTAGE_ORIGIN must be an origin.");
+  const trialConfig = trialConfigFromEnvironment(process.env);
+  const handler = createHandler({
+    version,
+    origin,
+    staticRoot: process.env.BACKSTAGE_STATIC_ROOT ?? "site",
+    ...(trialConfig ? { trialConfig } : {}),
+    trialPricingVersion: process.env.BACKSTAGE_TRIAL_PRICING_VERSION ?? "",
+    trustProxy: process.env.BACKSTAGE_TRUST_PROXY === "loopback",
+  });
   Bun.serve({
     hostname: "127.0.0.1",
     port,
     maxRequestBodySize: 65536,
     idleTimeout: 40,
-    fetch: createHandler({
-      version,
-      origin,
-      staticRoot: process.env.BACKSTAGE_STATIC_ROOT ?? "site",
-    }),
+    fetch(request, server) {
+      const address = server.requestIP(request)?.address;
+      return handler(request, address ? { remoteAddress: address } : undefined);
+    },
   });
   console.info(`Backstage ${version} listening on 127.0.0.1:${port}`);
 }

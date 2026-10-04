@@ -366,3 +366,29 @@ footer {
   margin: 0 8px 0 0;
   accent-color: var(--ink);
 }
+
+.trust-sign {
+  border: 2px solid #00a872;
+  padding: 1rem;
+  margin: 1rem 0;
+  box-shadow: 0 0 0.8rem #00a87244;
+}
+.trust-sign strong {
+  font-size: 1.2rem;
+}
+.trust-sign a {
+  text-decoration: underline;
+}
+#model-options fieldset {
+  margin: 1rem 0;
+}
+#model-options label {
+  display: block;
+  padding: 0.4rem 0;
+}
+#model-options input[type="checkbox"],
+#mode-fields input[type="checkbox"],
+#model-fields > label input {
+  width: auto;
+  margin-right: 0.5rem;
+}

@@ -79,8 +79,14 @@ test("[smoke] D11 Learning Lines asks for synthetic or redacted cases before cas
   );
   expect(notice?.index ?? -1).toBeGreaterThan(title);
   expect(notice?.index ?? Infinity).toBeLessThan(cases);
-  expect(notice?.[1] ?? "").not.toMatch(/\bhidden\b|display:\s*none/);
-  expect((notice?.[2] ?? "").replace(/\s+/g, " ")).toContain(
-    "synthetic or redacted",
+  expect(` ${notice?.[1] ?? ""}`).not.toMatch(
+    /\shidden(\s|=|$)|display:\s*none|\bsr-only\b/,
   );
+  const shown = (notice?.[2] ?? "").replace(/\s+/g, " ");
+  for (const message of [
+    "synthetic or redacted",
+    "personal or customer data",
+    "sent to every provider you select",
+  ])
+    expect(shown).toContain(message);
 });

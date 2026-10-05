@@ -1,5 +1,28 @@
 import { expect, test } from "bun:test";
 
+test("[smoke] SO1 header sign-out and hidden kept-login warning", async () => {
+  const page = await Bun.file("site/backstage/index.html").text();
+  const header = page.match(/<header>([\s\S]*?)<\/header>/)?.[1] ?? "";
+  expect(header).toMatch(/<button\b[^>]*\bid="sign-out"[^>]*\btype="button"[^>]*>Sign out<\/button>/);
+  expect(header).toMatch(/<button\b[^>]*\bid="theme"[^>]*>House Lights<\/button>/);
+  expect((header.match(/id="sign-out"/g) ?? []).length).toBe(1);
+  expect((header.match(/id="theme"/g) ?? []).length).toBe(1);
+  const warning = page.match(/<main>\s*(<p\b[^>]*\bid="signed-out"[^>]*>[\s\S]*?<\/p>)/)?.[1] ?? "";
+  expect(warning).toContain("hidden");
+  expect(warning).toContain('role="alert"');
+  expect(warning).toContain("Quit the browser");
+  expect(page).not.toContain("onclick=");
+});
+
+test("[smoke] SO5 sign-out shares clearKeys and clears the scene", async () => {
+  const main = await Bun.file("src/backstage/main.ts").text();
+  expect(main).toMatch(/from "\.\/signout\.ts"/);
+  expect(main).toMatch(/button\("clear-keys"\)\.onclick\s*=\s*\(\)\s*=>\s*\{\s*clearKeys\(\)/);
+  expect(main).toMatch(/button\("sign-out"\)\.onclick[\s\S]*?clear:\s*\(\)\s*=>\s*\{\s*clearKeys\(\);\s*clearScene\(\)/);
+  expect(main).toContain("location.replace(url)");
+  expect(main).not.toMatch(/\b(?:alert|confirm|prompt)\(/);
+});
+
 test("[smoke] B1 six accessible rooms and real key/run controls", async () => {
   const page = await Bun.file("site/backstage/index.html").text();
   for (const title of [

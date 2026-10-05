@@ -7,6 +7,7 @@ import {
 } from "./run.ts";
 import { MODEL_CATALOG, CATALOG_CHECKED_DATE, JEV_ARM_ID } from "./catalog.ts";
 import { copyDecision } from "./copy.ts";
+import { keptLogin, replaceCachedLogin, signOut, signOutPassword } from "./signout.ts";
 import {
   confirmPanel,
   resolveConfirm,
@@ -677,14 +678,29 @@ function confirmReveal() {
   notice("Results revealed. Labels and retries are now locked for this run.");
   showRoom(4);
 }
-button("clear-keys").onclick = () => {
+function clearKeys() {
   activeKeys = {};
   startup?.abort();
   run?.stop();
   for (const provider of providers) field(provider + "-key").value = "";
+}
+button("clear-keys").onclick = () => {
+  clearKeys();
   notice(
     "Keys cleared and further calls stopped. Already dispatched calls may still be charged.",
   );
+};
+button("sign-out").onclick = () => {
+  const control = button("sign-out");
+  control.disabled = true;
+  void signOut({
+    clear: () => { clearKeys(); clearScene(); },
+    request: () => replaceCachedLogin(new XMLHttpRequest(), signOutPassword(crypto.getRandomValues(new Uint8Array(16)))),
+    navigate: (url) => location.replace(url),
+    notice,
+  }).then((result) => {
+    if (result.kind === "no-gate") control.disabled = false;
+  });
 };
 button("new-scene").onclick = () => {
   if (run) openConfirm("new-scene", run);
@@ -846,6 +862,10 @@ async function loadTrialAvailability() {
 }
 void loadTrialAvailability();
 mountCatalog();
+if (keptLogin(location.search)) {
+  element("signed-out").hidden = false;
+  history.replaceState(null, "", location.pathname);
+}
 if (matchMedia("(prefers-color-scheme: dark)").matches)
   document.documentElement.dataset.theme = "dark";
 window.addEventListener("beforeunload", (event) => {

@@ -10,16 +10,28 @@ test("[smoke] SO1 header sign-out and hidden kept-login warning", async () => {
   const warning = page.match(/<main>\s*(<p\b[^>]*\bid="signed-out"[^>]*>[\s\S]*?<\/p>)/)?.[1] ?? "";
   expect(warning).toContain("hidden");
   expect(warning).toContain('role="alert"');
+  expect(warning).toContain('tabindex="-1"');
   expect(warning).toContain("Quit the browser");
   expect(page).not.toContain("onclick=");
 });
 
 test("[smoke] SO5 sign-out shares clearKeys and clears the scene", async () => {
   const main = await Bun.file("src/backstage/main.ts").text();
+  const clearKeys = main.match(/function clearKeys\(\)\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  const signOutHandler = main.match(/button\("sign-out"\)\.onclick = \(\) => \{([\s\S]*?)\n\};/)?.[1] ?? "";
   expect(main).toMatch(/from "\.\/signout\.ts"/);
+  expect(clearKeys).toMatch(/for \(const provider of providers\) field\(provider \+ "-key"\)\.value = ""/);
   expect(main).toMatch(/button\("clear-keys"\)\.onclick\s*=\s*\(\)\s*=>\s*\{\s*clearKeys\(\)/);
   expect(main).toMatch(/button\("sign-out"\)\.onclick[\s\S]*?clear:\s*\(\)\s*=>\s*\{\s*clearKeys\(\);\s*clearScene\(\)/);
+  expect(signOutHandler).toContain("crypto.getRandomValues(new Uint8Array(16))");
   expect(main).toContain("location.replace(url)");
+  expect(main).toMatch(/if \(starting \|\| run\?\.running \|\| signingOut\) return/);
+  expect(main).toMatch(/if \(run && !signingOut\) \{\s*event\.preventDefault\(\)/);
+  const keptLoginBlock = main.match(/if \(keptLogin\(location\.search\)\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+  expect(keptLoginBlock).toContain('element("signed-out")');
+  expect(keptLoginBlock).toMatch(/warning\.hidden = false;\s*warning\.focus\(\)/);
+  expect(main.indexOf("if (keptLogin(location.search))")).toBeGreaterThan(main.lastIndexOf("showRoom(0);"));
+  expect(keptLoginBlock).toContain('history.replaceState(null, "", location.pathname)');
   expect(main).not.toMatch(/\b(?:alert|confirm|prompt)\(/);
 });
 

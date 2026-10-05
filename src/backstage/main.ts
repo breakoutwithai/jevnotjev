@@ -232,9 +232,10 @@ function freezeFields(frozen: boolean) {
   }
 }
 let starting = false;
+let signingOut = false;
 let trialAvailable = false;
 async function start(firstOnly: boolean, retry = false, funded = false) {
-  if (starting || run?.running) return;
+  if (starting || run?.running || signingOut) return;
   if (imports.pending) {
     notice("Wait for the case import or edit the cases to cancel it.");
     return;
@@ -691,6 +692,7 @@ button("clear-keys").onclick = () => {
   );
 };
 button("sign-out").onclick = () => {
+  signingOut = true;
   const control = button("sign-out");
   control.disabled = true;
   void signOut({
@@ -698,8 +700,6 @@ button("sign-out").onclick = () => {
     request: () => replaceCachedLogin(new XMLHttpRequest(), signOutPassword(crypto.getRandomValues(new Uint8Array(16)))),
     navigate: (url) => location.replace(url),
     notice,
-  }).then((result) => {
-    if (result.kind === "no-gate") control.disabled = false;
   });
 };
 button("new-scene").onclick = () => {
@@ -862,16 +862,18 @@ async function loadTrialAvailability() {
 }
 void loadTrialAvailability();
 mountCatalog();
-if (keptLogin(location.search)) {
-  element("signed-out").hidden = false;
-  history.replaceState(null, "", location.pathname);
-}
 if (matchMedia("(prefers-color-scheme: dark)").matches)
   document.documentElement.dataset.theme = "dark";
 window.addEventListener("beforeunload", (event) => {
-  if (run) {
+  if (run && !signingOut) {
     event.preventDefault();
     event.returnValue = "";
   }
 });
 showRoom(0);
+if (keptLogin(location.search)) {
+  const warning = element("signed-out");
+  warning.hidden = false;
+  warning.focus();
+  history.replaceState(null, "", location.pathname);
+}

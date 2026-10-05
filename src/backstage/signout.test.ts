@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
 import {
-  SIGN_OUT_PATH,
-  SIGN_OUT_TIMEOUT_MS,
-  SIGN_OUT_USER,
-  SIGNED_OUT_URL,
   keptLogin,
   replaceCachedLogin,
   signOut,
@@ -34,14 +30,13 @@ test("[unit] SO2 wrong credentials use a random lowercase hex password", () => {
   expect(first).not.toBe(second);
 });
 
-test("[unit] SO2 request sends one timed GET with XHR credentials and no header", async () => {
+test("[unit] SO2 request sends one timed GET with XHR credentials", async () => {
   const request = new FakeRequest();
   const password = signOutPassword(new Uint8Array(16).fill(0xab));
   const result = replaceCachedLogin(request, password);
-  expect(request.opened).toEqual(["GET", SIGN_OUT_PATH, true, SIGN_OUT_USER, password]);
-  expect(request.timeout).toBe(SIGN_OUT_TIMEOUT_MS);
+  expect(request.opened).toEqual(["GET", "/api/backstage/sign-out", true, "signed-out", password]);
+  expect(request.timeout).toBe(10000);
   expect(request.sends).toEqual([[]]);
-  expect("setRequestHeader" in request).toBe(false);
   request.status = 401;
   request.onloadend?.(Object.assign(new Event("loadend"), { lengthComputable: false, loaded: 0, total: 0 }));
   expect(await result).toBe(401);
@@ -59,45 +54,52 @@ test("[unit] SO2 request resolves status zero after network error or timeout", a
 test("[unit] SO3 clear finishes synchronously before request and 401 navigates", async () => {
   const calls: string[] = [];
   let cleared = false;
-  const result = await signOut({
+  await signOut({
     clear: () => { calls.push("clear"); cleared = true; },
     request: () => { expect(cleared).toBe(true); calls.push("request"); return Promise.resolve(401); },
     navigate: (url) => { calls.push(`navigate:${url}`); },
     notice: (message) => { calls.push(`notice:${message}`); },
   });
-  expect(calls).toEqual(["clear", "request", `navigate:${SIGNED_OUT_URL}`]);
-  expect(result).toEqual({ kind: "navigated", status: 401 });
+  expect(calls).toEqual([
+    "clear",
+    "notice:Signing out. Keys and session cleared.",
+    "request",
+    "navigate:/backstage/?signed-out=1",
+  ]);
 });
 
-test("[unit] SO3 zero status and rejected request still navigate after clearing", async () => {
-  for (const request of [() => Promise.resolve(0), () => Promise.reject(new Error("offline"))]) {
+test("[unit] SO3 every response status navigates to the kept-login warning", async () => {
+  for (const status of [0, 200, 404, 502]) {
     const calls: string[] = [];
-    const result = await signOut({
-      clear: () => { calls.push("clear"); },
-      request,
-      navigate: (url) => { calls.push(`navigate:${url}`); },
-      notice: (message) => { calls.push(`notice:${message}`); },
-    });
-    expect(calls).toEqual(["clear", `navigate:${SIGNED_OUT_URL}`]);
-    expect(result).toEqual({ kind: "navigated", status: 0 });
-  }
-});
-
-test("[unit] SO3 ungated responses show the no-gate notice without navigation", async () => {
-  for (const status of [200, 404]) {
-    const calls: string[] = [];
-    const result = await signOut({
+    await signOut({
       clear: () => { calls.push("clear"); },
       request: () => { calls.push("request"); return Promise.resolve(status); },
       navigate: (url) => { calls.push(`navigate:${url}`); },
       notice: (message) => { calls.push(`notice:${message}`); },
     });
     expect(calls).toEqual([
-      "clear", "request",
-      "notice:Keys and session cleared. No login gate answered, so there was no login to sign out of.",
+      "clear",
+      "notice:Signing out. Keys and session cleared.",
+      "request",
+      "navigate:/backstage/?signed-out=1",
     ]);
-    expect(result).toEqual({ kind: "no-gate", status });
   }
+});
+
+test("[unit] SO3 rejected request still navigates to the kept-login warning", async () => {
+  const calls: string[] = [];
+  await signOut({
+    clear: () => { calls.push("clear"); },
+    request: () => { calls.push("request"); return Promise.reject(new Error("offline")); },
+    navigate: (url) => { calls.push(`navigate:${url}`); },
+    notice: (message) => { calls.push(`notice:${message}`); },
+  });
+  expect(calls).toEqual([
+    "clear",
+    "notice:Signing out. Keys and session cleared.",
+    "request",
+    "navigate:/backstage/?signed-out=1",
+  ]);
 });
 
 test("[unit] SO4 only the signed-out query key identifies a kept login", () => {

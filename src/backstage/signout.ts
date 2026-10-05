@@ -32,24 +32,15 @@ export interface SignOutDeps {
   notice(message: string): void;
 }
 
-export type SignOutResult =
-  | { kind: "navigated"; status: number }
-  | { kind: "no-gate"; status: number };
-
-export async function signOut(deps: SignOutDeps): Promise<SignOutResult> {
+export async function signOut(deps: SignOutDeps): Promise<void> {
   deps.clear();
-  let status: number;
+  deps.notice("Signing out. Keys and session cleared.");
   try {
-    status = await deps.request();
+    await deps.request();
   } catch {
-    status = 0;
+    // A failed request has status 0; still show the kept-login warning.
   }
-  if (status === 401 || status === 0) {
-    deps.navigate(SIGNED_OUT_URL);
-    return { kind: "navigated", status };
-  }
-  deps.notice("Keys and session cleared. No login gate answered, so there was no login to sign out of.");
-  return { kind: "no-gate", status };
+  deps.navigate(SIGNED_OUT_URL);
 }
 
 export function keptLogin(search: string): boolean {

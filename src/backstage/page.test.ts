@@ -65,3 +65,28 @@ test("[smoke] I88 irreversible steps use in-page confirm panels, not native dial
   expect(main).not.toMatch(/\bconfirm\(/);
   expect(main).not.toMatch(/\balert\(|\bprompt\(/);
 });
+
+test("[smoke] D11 Learning Lines asks for synthetic or redacted cases before case entry", async () => {
+  const page = (await Bun.file("site/backstage/index.html").text()).replace(
+    /<!--[\s\S]*?-->/g,
+    "",
+  );
+  const title = page.indexOf('id="lines-title"');
+  const cases = page.indexOf('id="cases"');
+  expect(title).toBeGreaterThan(-1);
+  const notice = [...page.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)].find((m) =>
+    /\bid="case-safety"/.test(m[1] ?? ""),
+  );
+  expect(notice?.index ?? -1).toBeGreaterThan(title);
+  expect(notice?.index ?? Infinity).toBeLessThan(cases);
+  expect(` ${notice?.[1] ?? ""}`).not.toMatch(
+    /\shidden(\s|=|$)|display:\s*none|\bsr-only\b/,
+  );
+  const shown = (notice?.[2] ?? "").replace(/\s+/g, " ");
+  for (const message of [
+    "synthetic or redacted",
+    "personal or customer data",
+    "sent to every provider you select",
+  ])
+    expect(shown).toContain(message);
+});

@@ -929,3 +929,20 @@ test("[integration] JF5 failed-only comparison evidence remains available withou
   expect(run.cards()).toHaveLength(0);
   expect(run.evidence().attempts).toHaveLength(4);
 });
+
+test("[unit] D11 three cases load from CSV and malformed input names the problem", () => {
+  expect(
+    parseCases("case_id,case_input\nc1,first\nc2,second\nc3,third\n").map(
+      (c) => c.id,
+    ),
+  ).toEqual(["c1", "c2", "c3"]);
+  const errors: [string, string][] = [
+    ["id,text\nc1,a\n", "Use exactly the CSV columns case_id,case_input."],
+    ["case_id,case_input\nc1,a\nc2,b,extra\n", "Invalid case CSV at line 3."],
+    ['case_id,case_input\nc1,"open\n', "quoted field was not closed"],
+    ["case_id,case_input\nc1,a\nc1,b\n", "Case IDs must be unique"],
+    ["case_id,case_input\n", "Add between 1 and 100 cases."],
+  ];
+  for (const [csv, message] of errors)
+    expect(() => parseCases(csv)).toThrow(message);
+});

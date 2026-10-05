@@ -71,9 +71,16 @@ test("[smoke] D11 Learning Lines asks for synthetic or redacted cases before cas
     /<!--[\s\S]*?-->/g,
     "",
   );
-  const notice = page.indexOf('id="case-safety"');
-  expect(notice).toBeGreaterThan(page.indexOf('id="lines-title"'));
-  expect(notice).toBeLessThan(page.indexOf('id="cases"'));
-  const body = /<p id="case-safety"[^>]*>([\s\S]*?)<\/p>/.exec(page)?.[1] ?? "";
-  expect(body.replace(/\s+/g, " ")).toContain("synthetic or redacted");
+  const title = page.indexOf('id="lines-title"');
+  const cases = page.indexOf('id="cases"');
+  expect(title).toBeGreaterThan(-1);
+  const notice = [...page.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)].find((m) =>
+    /\bid="case-safety"/.test(m[1] ?? ""),
+  );
+  expect(notice?.index ?? -1).toBeGreaterThan(title);
+  expect(notice?.index ?? Infinity).toBeLessThan(cases);
+  expect(notice?.[1] ?? "").not.toMatch(/\bhidden\b|display:\s*none/);
+  expect((notice?.[2] ?? "").replace(/\s+/g, " ")).toContain(
+    "synthetic or redacted",
+  );
 });

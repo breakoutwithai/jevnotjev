@@ -65,3 +65,11 @@ test("[smoke] I88 irreversible steps use in-page confirm panels, not native dial
   expect(main).not.toMatch(/\bconfirm\(/);
   expect(main).not.toMatch(/\balert\(|\bprompt\(/);
 });
+
+test("[smoke] D11 Learning Lines asks for synthetic or redacted cases before case entry", async () => {
+  const page = await Bun.file("site/backstage/index.html").text();
+  const notice = page.indexOf('id="case-safety"');
+  expect(notice).toBeGreaterThan(page.indexOf('id="lines-title"'));
+  expect(notice).toBeLessThan(page.indexOf('id="cases"'));
+  expect(page).toContain("synthetic or redacted");
+});

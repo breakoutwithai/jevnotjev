@@ -184,7 +184,10 @@ function checkCaseCsvSyntax(csv: string): void {
 }
 /** First line of a record: readDictRows reports the line it ends on. */
 function startLine(record: { line: number; fields: readonly string[] }): number {
-  return record.line - (record.fields.join("").match(/\r\n|\r|\n/g)?.length ?? 0);
+  return record.fields.reduce(
+    (line, field) => line - (field.match(/\r\n|\r|\n/g)?.length ?? 0),
+    record.line,
+  );
 }
 export function parseCases(csv: string): Scene["cases"] {
   checkCaseCsvSyntax(csv);

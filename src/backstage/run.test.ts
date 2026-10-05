@@ -988,6 +988,10 @@ test("[unit] D11 three cases load from CSV and malformed input names the problem
       "case_id,case_input\nc1,\"two\nlines\"\nc1,b\n",
       [/line 4/i, /already used on line 2/i],
     ],
+    [
+      'case_id,case_input\nc1,"a\r","\nb"\n',
+      [/^Line 2 has 3 columns/],
+    ],
   ];
   for (const [csv, parts] of errors) {
     let message = "";

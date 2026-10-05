@@ -64,3 +64,19 @@ No `alert`, `confirm` or `prompt`. Sign-out asks for no confirmation: it does wh
 | SO5 | smoke | main.ts wires `#sign-out` to the same key clear as `#clear-keys` and to `clearScene`, blocks run starts and the unload guard while signing out, reveals and focuses the warning after the first room renders, and uses no native dialog. These are source assertions; the DOM behaviour is proven by the real-browser run below, outside the gate. |
 | Gate | - | `.deploy/backstage-nginx.conf` is unchanged, so the existing gated-location tests (backstage-setup A1, B67, the auth-state parser) cover it as before. |
 | Real browser | manual / scratch | Throwaway nginx with a generated test-only htpasswd in front of the built page: curl 401 unauthenticated on both locations and 200 with the test credential; Chrome over CDP: log in, fill keys, click Sign out, keys blank, reload asks for credentials. Firefox and Safari recorded NOT RUN. |
+
+## Real-browser results (head 91bc704)
+
+Setup: the built page (`bun .agents/scripts/preview`, release 91bc704) behind nginx 1.27.5 in a throwaway local container, running `.deploy/backstage-nginx.conf` with only the `proxy_pass` target changed, and a generated test-only login in a scratch file, deleted after. Chrome driven over CDP; `Fetch.authRequired` stands for the login dialog, answered with the test login or Cancel.
+
+curl, no credentials: `/backstage/` 401, `/api/backstage/health` 401, `/api/backstage/sign-out` 401 with `WWW-Authenticate: Basic realm="Backstage"`. With the test login: 200, 200, 404 (no such route on the server). With the sign-out's wrong credentials: 401, and nginx logged `user "signed-out" was not found`.
+
+| Browser | Scenario | Result |
+|---|---|---|
+| Chrome 154.0.8037.98 | Log in, fill all 5 key fields, click Sign out, Cancel at the prompt (3 runs) | PASS 3 of 3: key fields 0 of 5 filled right after the click, the sign-out request got 401 with no prompt, the reload to `/backstage/?signed-out=1` asked for the login, a fresh visit to `/backstage/` asked again, no native dialog. |
+| Chrome 154.0.8037.98 | Same, but sign in again at the prompt | Warning `#signed-out` shown, address reset to `/backstage/`. |
+| Chrome 154.0.8037.98 | Control: no sign-out | Login kept: no prompt on a fresh visit. |
+| Firefox | - | NOT RUN: not installed on this machine. |
+| Safari | - | NOT RUN: needs a person at the login dialog. |
+
+Not run: the live host, a browser that keeps the login on its own (the warning was exercised only by signing in again), and screen-reader announcement and focus of the warning.

@@ -117,13 +117,16 @@ function bounded(value: string, limit: number, name: string): string {
     throw new Error(`${name} is required (maximum ${limit} characters).`);
   return value;
 }
+const CASE_HEADER = "case_id,case_input";
+const CASE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/;
 function validCases(cases: Scene["cases"]): Scene["cases"] {
   if (cases.length < 1 || cases.length > 100)
-    throw new Error("Add between 1 and 100 cases.");
+    throw new Error(`Add between 1 and 100 cases (found ${cases.length}).`);
   const ids = new Set<string>();
   return Object.freeze(
     cases.map((c) => {
-      if (!/^[A-Za-z0-9_-]{1,64}$/.test(c.id) || ids.has(c.id))
+      if (!CASE_ID.test(c.id) || ids.has(c.id))
         throw new Error(
           "Case IDs must be unique: letters, numbers, underscores or hyphens, at most 64 characters.",
         );
@@ -138,7 +141,12 @@ function validCases(cases: Scene["cases"]): Scene["cases"] {
 /** Strict import boundary; the shared historical record reader remains permissive. */
 function checkCaseCsvSyntax(csv: string): void {
   let state: "start" | "plain" | "quoted" | "closed" = "start";
+  let line = 1;
+  let opened = 1;
+  let previous = "";
   for (const char of csv) {
+    if (char === "\n" ? previous !== "\r" : char === "\r") line += 1;
+    previous = char;
     if (state === "quoted") {
       if (char === '"') state = "closed";
       continue;
@@ -153,7 +161,7 @@ function checkCaseCsvSyntax(csv: string): void {
         continue;
       }
       throw new Error(
-        "Invalid case CSV: unexpected text after a closing quote.",
+        `Line ${line}: text appears after a closing quote. Put the whole field inside the quotes, for example c1,"one, two".`,
       );
     }
     if (char === "," || char === "\r" || char === "\n") {
@@ -162,27 +170,74 @@ function checkCaseCsvSyntax(csv: string): void {
     }
     if (char === '"') {
       if (state !== "start")
-        throw new Error("Invalid case CSV: quote inside an unquoted field.");
+        throw new Error(
+          `Line ${line}: a " appears inside an unquoted field. Wrap the whole field in quotes and double the inner quote (""), for example c1,"say ""hi""".`,
+        );
       state = "quoted";
+      opened = line;
     } else state = "plain";
   }
   if (state === "quoted")
-    throw new Error("Invalid case CSV: quoted field was not closed.");
+    throw new Error(
+      `Line ${opened}: a quoted field starts here but is not closed. Add the closing " at the end of the case text.`,
+    );
+}
+/** First line of a record: readDictRows reports the line it ends on. */
+function startLine(record: { line: number; fields: readonly string[] }): number {
+  return record.fields.reduce(
+    (line, field) => line - (field.match(/\r\n|\r|\n/g)?.length ?? 0),
+    record.line,
+  );
 }
 export function parseCases(csv: string): Scene["cases"] {
   checkCaseCsvSyntax(csv);
   const parsed = readDictRows(csv);
-  if (
-    parsed.header?.length !== 2 ||
-    parsed.header[0] !== "case_id" ||
-    parsed.header[1] !== "case_input"
-  )
-    throw new Error("Use exactly the CSV columns case_id,case_input.");
+  if (parsed.header === null)
+    throw new Error(`The CSV file is empty. Its first row must be the header ${CASE_HEADER}.`);
+  if (parsed.header.join(",") !== CASE_HEADER || parsed.header.length !== 2)
+    throw new Error(
+      `The header row is "${parsed.header.join(",").slice(0, 80)}". It must be exactly ${CASE_HEADER}.`,
+    );
+  if (parsed.rows.length === 0)
+    throw new Error(
+      `The CSV has a header but no case rows. Add at least one row, for example c1,Please refund my order.`,
+    );
+  if (parsed.rows.length > 100)
+    throw new Error(
+      `The CSV has ${parsed.rows.length} case rows. Import at most 100.`,
+    );
+  const seen = new Map<string, number>();
   return validCases(
     parsed.rows.map((r) => {
-      if (r.fields.length !== 2)
-        throw new Error(`Invalid case CSV at line ${r.line}.`);
-      return { id: r.fields[0] ?? "", input: r.fields[1] ?? "" };
+      const line = startLine(r);
+      const count = r.fields.length;
+      if (count !== 2)
+        throw new Error(
+          `Line ${line} has ${count} ${count === 1 ? "column" : "columns"}; expected 2 (${CASE_HEADER}). If the case text contains a comma, wrap it in quotes, for example c1,"one, two".`,
+        );
+      const id = r.fields[0] ?? "";
+      const input = r.fields[1] ?? "";
+      if (!CASE_ID.test(id))
+        throw new Error(
+          `Line ${line}: case_id "${id.slice(0, 80)}" is not allowed. Use 1 to 64 letters, numbers, underscores or hyphens.`,
+        );
+      const first = seen.get(id);
+      if (first !== undefined)
+        throw new Error(
+          `Line ${line}: case_id "${id}" is already used on line ${first}. Each case_id must be unique.`,
+        );
+      seen.set(id, line);
+      if (CONTROL.test(input))
+        throw new Error(
+          `Line ${line}: case_input contains an invisible control character (for example a null byte). Remove it and import again.`,
+        );
+      if (!input.trim())
+        throw new Error(`Line ${line}: case_input is empty. Add the case text after the comma.`);
+      if (input.length > 8000)
+        throw new Error(
+          `Line ${line}: case_input is ${input.length} characters. Keep each case at most 8000 characters.`,
+        );
+      return { id, input };
     }),
   );
 }

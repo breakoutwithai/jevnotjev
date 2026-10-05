@@ -936,13 +936,70 @@ test("[unit] D11 three cases load from CSV and malformed input names the problem
       (c) => c.id,
     ),
   ).toEqual(["c1", "c2", "c3"]);
-  const errors: [string, string][] = [
-    ["id,text\nc1,a\n", "Use exactly the CSV columns case_id,case_input."],
-    ["case_id,case_input\nc1,a\nc2,b,extra\n", "Invalid case CSV at line 3."],
-    ['case_id,case_input\nc1,"open\n', "quoted field was not closed"],
-    ["case_id,case_input\nc1,a\nc1,b\n", "Case IDs must be unique"],
-    ["case_id,case_input\n", "Add between 1 and 100 cases."],
+  // Each message must say where (line), what is wrong (with the found value)
+  // and what is expected, per the D11 Done-when "a clear error for malformed
+  // input" and UAT 2026-10-05 (extra comma named only the line).
+  const errors: [string, RegExp[]][] = [
+    ["", [/empty/i, /case_id,case_input/]],
+    ["id,text\nc1,a\n", [/header/i, /"id,text"/, /case_id,case_input/]],
+    [
+      "case_id,case_input\nc1,a\nc2,b,extra\n",
+      [/line 3/i, /3 columns/, /expected 2/i, /case_id,case_input/, /quote/i],
+    ],
+    ["case_id,case_input\nc1,a\nc2\n", [/line 3/i, /1 column\b/, /expected 2/i]],
+    [
+      "case_id,case_input\nc1,a\nc2,\"open\n",
+      [/line 3/i, /not closed/i, /closing "/],
+    ],
+    [
+      "case_id,case_input\nc1,a\nc2,stray\"quote\n",
+      [/line 3/i, /inside an unquoted field/i, /""/],
+    ],
+    [
+      "case_id,case_input\nc1,\"done\"tail\n",
+      [/line 2/i, /after a closing quote/i, /inside the quotes/i],
+    ],
+    [
+      "case_id,case_input\nc1,a\nc1,b\n",
+      [/line 3/i, /"c1"/, /already used on line 2/i, /unique/i],
+    ],
+    [
+      "case_id,case_input\nc1,a\nbad id,b\n",
+      [/line 3/i, /"bad id"/, /letters, numbers, underscores or hyphens/i],
+    ],
+    ["case_id,case_input\nc1,a\nc2,\n", [/line 3/i, /case_input/, /empty/i]],
+    [
+      "case_id,case_input\nc1,a\nc2,bad\u0001byte\n",
+      [/line 3/i, /control character/i, /remove it/i],
+    ],
+    [
+      "case_id,case_input\n",
+      [/no case rows/i, /c1,/],
+    ],
+    [
+      `case_id,case_input\n${Array.from({ length: 101 }, (_, i) => `c${i},x`).join("\n")}\n`,
+      [/101 case rows/, /at most 100/i],
+    ],
+    [
+      `case_id,case_input\nc1,${"x".repeat(8001)}\n`,
+      [/line 2/i, /8001 characters/, /at most 8000/i],
+    ],
+    [
+      "case_id,case_input\nc1,\"two\nlines\"\nc1,b\n",
+      [/line 4/i, /already used on line 2/i],
+    ],
+    [
+      'case_id,case_input\nc1,"a\r","\nb"\n',
+      [/^Line 2 has 3 columns/],
+    ],
   ];
-  for (const [csv, message] of errors)
-    expect(() => parseCases(csv)).toThrow(message);
+  for (const [csv, parts] of errors) {
+    let message = "";
+    try {
+      parseCases(csv);
+    } catch (error) {
+      message = error instanceof Error ? error.message : "";
+    }
+    for (const part of parts) expect(message).toMatch(part);
+  }
 });

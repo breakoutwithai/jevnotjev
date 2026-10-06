@@ -9,6 +9,17 @@ import { MODEL_CATALOG, CATALOG_CHECKED_DATE, JEV_ARM_ID } from "./catalog.ts";
 import { copyDecision } from "./copy.ts";
 import { signOut, signOutRequest } from "./signout.ts";
 import {
+  SCENE_DRAFT_FIELDS,
+  clearSceneDraft,
+  draftStatusText,
+  importedDisplay,
+  judgingRules,
+  loadSceneDraft,
+  saveSceneDraft,
+  type DraftStatus,
+  type DraftStorage,
+} from "./scene-draft.ts";
+import {
   confirmPanel,
   resolveConfirm,
   CONFIRM_STEPS,
@@ -569,6 +580,10 @@ function renderCard() {
   element("label-actions").hidden = !card || !!current?.revealed;
   button("previous-card").disabled = !card || cardIndex === 0;
   button("next-card").disabled = !card || cardIndex >= cards.length - 1;
+  // No active card (no run, new scene, still running): nothing from an earlier scene may stay on screen.
+  const rules = judgingRules(card ? current?.manifest.scene : undefined);
+  text("rubric", rules.keep);
+  text("leave-out", rules.leaveOut);
   if (!card) {
     container.replaceChildren(
       node(
@@ -600,7 +615,6 @@ function renderCard() {
     }
     return;
   }
-  text("rubric", `Keep when: ${current?.manifest.scene.acceptance ?? ""}`);
   container.className = "answer-card";
   const answer = node("p", card.output);
   answer.className = "answer";
@@ -697,9 +711,12 @@ button("sign-out").onclick = () => {
   const control = button("sign-out");
   control.disabled = true;
   void signOut({
-    clear: () => { clearKeys(); clearScene(); },
+    clear: () => { clearKeys(); clearScene(); removeDraft(); },
     request: () => signOutRequest(fetch),
-    navigate: (url) => location.replace(url),
+    navigate: (url) => {
+      removeDraft();
+      location.replace(url);
+    },
     notice,
   }).then((success) => {
     if (!success) {
@@ -797,9 +814,8 @@ field("import-cases").addEventListener("change", async () => {
     const loaded = await reading;
     if (!loaded || starting || run) return;
     imported = loaded;
-    field("cases").value = loaded
-      .map((c) => c.input.replaceAll("\n", " / "))
-      .join("\n");
+    field("cases").value = importedDisplay(loaded);
+    persistDraft();
     notice(
       `Imported ${loaded.length} cases; original multiline text is preserved.`,
     );
@@ -890,4 +906,33 @@ window.addEventListener("beforeunload", (event) => {
     event.returnValue = "";
   }
 });
+// Scene text only, kept for this tab so a reload before a run does not lose it. Key fields are never read here.
+// Every storage outcome (saved, save failed, clear failed) goes through this one status line, which later notices cannot overwrite.
+function showDraftStatus(status: DraftStatus) {
+  text("draft-status", draftStatusText(status));
+}
+function persistDraft() {
+  // Once sign-out starts nothing may recreate the draft it removed.
+  if (signingOut) return;
+  showDraftStatus(
+    saveSceneDraft(draftStorage(), (name) => field(name).value, imported),
+  );
+}
+function removeDraft() {
+  if (!clearSceneDraft(draftStorage())) showDraftStatus("clear-failed");
+}
+function draftStorage(): DraftStorage | undefined {
+  try {
+    return typeof sessionStorage === "undefined" ? undefined : sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+const savedDraft = loadSceneDraft(draftStorage());
+for (const id of SCENE_DRAFT_FIELDS) {
+  const saved = savedDraft.fields[id];
+  if (saved !== undefined) field(id).value = saved;
+  field(id).addEventListener("input", persistDraft);
+}
+imported = savedDraft.imported;
 showRoom(0);

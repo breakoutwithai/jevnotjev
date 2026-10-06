@@ -991,6 +991,9 @@
   var NUMBER_TEXT = /^[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?\n?$/;
   var METHODS = ["llm", "rule", "jev"];
   var IDENTITY = new Set(["case_id", "question_id", "answerer", "run_id", "prompt_version"]);
+  function plain(value) {
+    return value.replace(/[\u0000-\u001f\u007f]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  }
   function parseCell(column, raw) {
     if (raw === "")
       return null;
@@ -1090,7 +1093,7 @@
       if (!identityBad && typeof rowCase === "string" && typeof rowQuestion === "string" && typeof rowAnswerer === "string" && typeof rowRun === "string" && typeof rowPrompt === "string") {
         const caseKey = JSON.stringify([rowRun, rowPrompt, rowQuestion, rowCase]);
         const entry = answered.get(caseKey) ?? {
-          label: `case ${rowCase} (question ${rowQuestion}, run ${rowRun}, prompt ${rowPrompt})`,
+          label: `case ${plain(rowCase)} (question ${plain(rowQuestion)}, run ${plain(rowRun)}, prompt ${plain(rowPrompt)})`,
           methods: new Set
         };
         entry.methods.add(rowAnswerer);

@@ -253,6 +253,36 @@ describe("three methods per case", () => {
     expect(report(result).lines.filter((line) => line.startsWith("VALID") || line.startsWith("INVALID"))).toHaveLength(1);
   });
 
+  test.each(
+    ["case_id", "question_id", "answerer", "run_id", "prompt_version"].flatMap((column) => [
+      [column, "\n"],
+      [column, "\r"],
+    ]),
+  )("[unit] %s ending in %j never puts a line break in a GAP", (column, ending) => {
+    const rows = readExample();
+    const row = at(rows, 0);
+    row[column] = `${row[column]}${ending}`;
+    const result = validate(write(rows));
+    // The schema's `$` also matches before one final newline (the Python-compatible contract; the loader rejects it,
+    // see src/db/tests/constraints.test.ts), so a trailing \n is not a validator error: the GAP text must escape it.
+    if (ending === "\r" || column === "answerer") {
+      expect(result.errors.some((error) => new RegExp(`^line \\d+: ${column}`).test(error))).toBe(true);
+    } else {
+      expect(result.errors).toEqual([]);
+      expect(result.gaps.some((gap) => gap.includes("\\u000a"))).toBe(true);
+    }
+    for (const gap of result.gaps) expect(gap).not.toMatch(/[\r\n]/);
+    for (const line of report(result).lines) expect(line).not.toMatch(/[\r\n]/);
+  });
+
+  test("[unit] a malformed identifier is an error and is never quoted in a GAP", () => {
+    const rows = readExample();
+    at(rows, 0)["case_id"] = "bad id";
+    const result = validate(write(rows));
+    expect(result.errors.some((error) => error.includes("case_id"))).toBe(true);
+    expect(result.gaps.some((gap) => gap.includes("bad id"))).toBe(false);
+  });
+
   test("[unit] an error in an unrelated column still counts the row as that method's", () => {
     const rows = readExample();
     at(rows, 0)["confidence"] = "1.5";

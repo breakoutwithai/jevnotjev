@@ -22,7 +22,12 @@ const METHODS: readonly string[] = ["llm", "rule", "jev"];
 /** Columns that name a case; a schema error in one keeps the row out of the per-method presence check. */
 const IDENTITY: ReadonlySet<string> = new Set(["case_id", "question_id", "answerer", "run_id", "prompt_version"]);
 
-export type Row =ReadonlyMap<string, Value>;
+/** Control characters as \uXXXX, so an identifier can never break a GAP message across lines. */
+function plain(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+export type Row = ReadonlyMap<string, Value>;
 
 export interface ParsedRow {
   /** CSV line the row ends on. */
@@ -150,7 +155,7 @@ export function validate(csvText: string): Validation {
       // Same cohort as src/core/metrics.ts cohortId (run, prompt version, question) so the validator and the view agree.
       const caseKey = JSON.stringify([rowRun, rowPrompt, rowQuestion, rowCase]);
       const entry = answered.get(caseKey) ?? {
-        label: `case ${rowCase} (question ${rowQuestion}, run ${rowRun}, prompt ${rowPrompt})`,
+        label: `case ${plain(rowCase)} (question ${plain(rowQuestion)}, run ${plain(rowRun)}, prompt ${plain(rowPrompt)})`,
         methods: new Set<string>(),
       };
       entry.methods.add(rowAnswerer);

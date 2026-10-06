@@ -55,7 +55,7 @@
     "src/docs/stack.test.ts": 18,
     "src/format/cli.test.ts": 3,
     "src/format/quote.test.ts": 4,
-    "src/format/validate.test.ts": 36,
+    "src/format/validate.test.ts": 47,
     "src/jev-answer.test.ts": 14
   }
 }

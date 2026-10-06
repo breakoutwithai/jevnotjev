@@ -10,14 +10,38 @@ function serviceSection(source: string): string {
   return source.split("[Service]\n")[1]?.split(/\n\[/)[0] ?? "";
 }
 
+const confInstall = "install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf";
+const unitInstall = "install -m 0644 " + ".deploy/backstage.service";
+
 // Match command lines and Markdown inline commands, not quoted fixture strings in this test.
 function staleBackstageReader(line: string): boolean {
-  const command = line.match(/(?:^|[\s`])journalctl\b([^`\n]*)/);
-  if (!command) return false;
-  const args = command[1] ?? "";
-  if (/(?:^|\s)--namespace(?:=|\s+)jevnotjev-backstage(?:\s|$)/.test(args)) return false;
-  return /(?:^|\s)(?:-u\s+|--unit(?:=|\s+))jevnotjev-backstage(?:\.service)?(?=\s|$|[|;])/.test(args)
-    || /(?:^|\s)_SYSTEMD_UNIT=jevnotjev-backstage\.service(?=\s|$|[|;])/.test(args);
+  return line.split(/\|\||&&|[|;]/).some((segment) => {
+    const commands = [...segment.matchAll(/(?:^|[\s`])journalctl\b/g)];
+    return commands.some((command, index) => {
+      const start = (command.index ?? 0) + command[0].length;
+      const end = commands[index + 1]?.index ?? segment.length;
+      const args = segment.slice(start, end).split("`")[0] ?? "";
+      if (/(?:^|\s)--namespace(?:=|\s+)jevnotjev-backstage(?:\s|$)/.test(args)) return false;
+      const unit = /(?:^|\s)(?:-u\s*|--unit(?:=|\s+))(?:("[^"]*"|'[^']*'|\$\{[^}]+\}|\$[A-Za-z_][A-Za-z_0-9]*|[^\s]+))/.exec(args)?.[1];
+      if (unit !== undefined) {
+        const value = unit.replace(/^["']|["']$/g, "");
+        if (value === namespace || value === `${namespace}.service` || value.startsWith("$")) return true;
+      }
+      return /(?:^|\s)_SYSTEMD_UNIT=(?:jevnotjev-backstage(?:\.service)?)(?=\s|$)/.test(args);
+    });
+  });
+}
+
+function unsafeUnitInstall(source: string): boolean {
+  let fenced = false;
+  let previous = "";
+  for (const line of source.split("\n")) {
+    if (/^\s*```/.test(line)) { fenced = !fenced; previous = ""; continue; }
+    const unitAt = line.indexOf(unitInstall);
+    if (unitAt >= 0 && !line.slice(0, unitAt).includes(confInstall) && !(fenced && previous.includes(confInstall))) return true;
+    if (line.trim()) previous = line;
+  }
+  return false;
 }
 
 describe("Backstage journal namespace", () => {
@@ -41,10 +65,18 @@ describe("Backstage journal namespace", () => {
     for (const command of [
       "journalctl -u jevnotjev-backstage",
       "journalctl -u jevnotjev-backstage.service",
+      "journalctl -ujevnotjev-backstage",
+      "journalctl -u \"jevnotjev-backstage\"",
+      "journalctl -u 'jevnotjev-backstage.service'",
       "journalctl --unit=jevnotjev-backstage",
+      "journalctl --unit=\"jevnotjev-backstage\"",
       "journalctl --unit jevnotjev-backstage",
+      "journalctl _SYSTEMD_UNIT=jevnotjev-backstage",
       "journalctl _SYSTEMD_UNIT=jevnotjev-backstage.service",
       "journalctl -o cat -u jevnotjev-backstage",
+      "journalctl -u \"$BS_SERVICE\"",
+      "journalctl -u ${BS_SERVICE}",
+      "journalctl -u jevnotjev-backstage -n 5 | cat; journalctl --namespace=jevnotjev-backstage -n 5",
     ]) expect(staleBackstageReader(command)).toBe(true);
     for (const command of [
       "journalctl -u jevnotjev-backstage-restarts",
@@ -76,7 +108,7 @@ describe("Backstage journal namespace", () => {
   test("[unit] BJ4 operator commands and systemd 255 citations", () => {
     for (const command of [
       "install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf",
-      "install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service",
+      `${unitInstall} /etc/systemd/system/jevnotjev-backstage.service`,
       "systemctl daemon-reload",
       "systemctl restart jevnotjev-backstage",
       "systemctl show -p LogNamespace jevnotjev-backstage",
@@ -88,5 +120,20 @@ describe("Backstage journal namespace", () => {
     for (const page of ["systemd.exec", "journald.conf", "systemd-journald.service"]) {
       expect(logs).toContain(`freedesktop.org/software/systemd/man/255/${page}`);
     }
+  });
+
+  test("[unit] BJ5 every tracked unit install first installs namespace conf", () => {
+    expect(unsafeUnitInstall(`${confInstall} && ${unitInstall} /etc/systemd/system/jevnotjev-backstage.service`)).toBe(false);
+    expect(unsafeUnitInstall(`\`\`\`sh\n${confInstall}\n\n${unitInstall} /etc/systemd/system/jevnotjev-backstage.service\n\`\`\``)).toBe(false);
+    expect(unsafeUnitInstall(`${unitInstall} /etc/systemd/system/jevnotjev-backstage.service && ${confInstall}`)).toBe(true);
+    const paths = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
+    const hits: string[] = [];
+    for (const path of paths) {
+      let content: string;
+      try { content = readFileSync(path, "utf8"); } catch { continue; }
+      if (content.includes("\0")) continue;
+      if (unsafeUnitInstall(content)) hits.push(path);
+    }
+    expect(hits).toEqual([]);
   });
 });

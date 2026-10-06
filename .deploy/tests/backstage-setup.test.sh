@@ -39,12 +39,6 @@ fi
 
 # shellcheck source=/dev/null
 source "$SETUP"
-# Bun's default discovery skips hidden .deploy; run the journal contract explicitly here so
-# the repository gate executes it and this shell file's floor protects its four cases.
-journal_test_out="$(bun test ./.deploy/backstage-journal.test.ts 2>&1)"; journal_test_rc=$?
-[[ $journal_test_rc -eq 0 && "$journal_test_out" == *"4 pass"* && "$journal_test_out" == *"0 fail"* ]] \
-    && ok "[unit] BJ1-BJ4 journal namespace contract passes all four Bun tests" \
-    || nope "[unit] BJ1-BJ4 journal namespace contract failed: ${journal_test_out}"
 BASIC_SNIPPET="${KEYDIR}/basic-nginx.conf"
 git -C "$REPO_ROOT" show d73ed18:.deploy/backstage-nginx.conf > "$BASIC_SNIPPET" || exit 1
 BS_SNIPPET_SRC="$BASIC_SNIPPET"
@@ -102,6 +96,7 @@ exit 0
 EOF
     cat > "${STUB}/sha256sum" <<'EOF'
 #!/usr/bin/env bash
+[ -f "${FAKE_BOX}/state/empty_journald_probe" ] && [[ "$1" == *journald@jevnotjev-backstage.conf ]] && { printf '  %s\n' "$1"; exit 0; }
 shasum -a 256 "$@"
 EOF
     cat > "${STUB}/systemctl" <<'EOF'
@@ -114,6 +109,7 @@ case "$1" in
     is-active)  [ -f "$s/active" ] ;;
     enable)     rm -f "$s/enabled_runtime"; touch "$s/enabled" ;;
     daemon-reload) touch "$s/daemon-reloaded" ;;
+    try-restart) echo "$2" >> "$s/try-restarts" ;;
     reload)     [ "$2" = nginx ] && echo reload >> "$s/reloads" ;;
     *) exit 1 ;;
 esac
@@ -194,7 +190,7 @@ make_box() {
     if [[ "$configured" == yes ]]; then
         touch "${BOX}/state/user" "${BOX}/state/enabled"
         cp "${REPO_ROOT}/.deploy/backstage.service" "${BOX}/etc/systemd/system/jevnotjev-backstage.service"
-        [[ ! -f "${REPO_ROOT}/.deploy/journald@jevnotjev-backstage.conf" ]] || cp "${REPO_ROOT}/.deploy/journald@jevnotjev-backstage.conf" "${BOX}/etc/systemd/journald@jevnotjev-backstage.conf"
+        cp "${REPO_ROOT}/.deploy/journald@jevnotjev-backstage.conf" "${BOX}/etc/systemd/journald@jevnotjev-backstage.conf"
         cp "$BS_SNIPPET_SRC" "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
         insert_include "$INCLUDE_LINE" jevnotjev.breakoutwithai.com < "$VH" > "${VH}.x" && mv "${VH}.x" "$VH"
     fi
@@ -259,7 +255,7 @@ curl() {
 is_mutating() {
     local c="$1"
     c="$(printf '%s' "$c" | sed -E 's#[0-9]?>&[0-9]##g; s#[0-9]?>[[:space:]]*/dev/null##g')"
-    printf '%s' "$c" | grep -Eq '>|(^|[^a-z-])(mv|cp|rm|rmdir|ln|mkdir|touch|chmod|chown|tee|useradd|groupadd|install|tar)([[:space:]]|$)|systemctl[[:space:]]+(enable|disable|reload|restart|start|stop|daemon-reload)|nginx[[:space:]]+-s'
+    printf '%s' "$c" | grep -Eq '>|(^|[^a-z-])(mv|cp|rm|rmdir|ln|mkdir|touch|chmod|chown|tee|useradd|groupadd|install|tar)([[:space:]]|$)|systemctl[[:space:]]+(enable|disable|reload|restart|try-restart|start|stop|daemon-reload)|nginx[[:space:]]+-s'
 }
 # Print each logged remote command (one per line) that mutates.
 mutating_commands() {
@@ -338,6 +334,13 @@ cmp -s "${BOX}/etc/systemd/system/jevnotjev-backstage.service" "${REPO_ROOT}/.de
 cmp -s "${BOX}/etc/systemd/journald@jevnotjev-backstage.conf" "${REPO_ROOT}/.deploy/journald@jevnotjev-backstage.conf" \
     && ok "[unit] BJ5 fresh setup installs namespace conf byte-identically" \
     || nope "[unit] BJ5 namespace conf missing or different"
+conf_line="$(grep -n "mv .*journald@jevnotjev-backstage.conf" "$RLOG" | head -1 | cut -d: -f1)"
+restart_line="$(grep -n '^systemctl try-restart systemd-journald@jevnotjev-backstage.service$' "$RLOG" | head -1 | cut -d: -f1)"
+[[ -n "$conf_line" && -n "$restart_line" && "$conf_line" -lt "$restart_line" ]] \
+    && [[ "$(cat "${BOX}/state/try-restarts")" == systemd-journald@jevnotjev-backstage.service ]] \
+    && ! grep -Eq 'systemctl restart jevnotjev-backstage([[:space:]]|$)' "$RLOG" \
+    && ok "[unit] BJ9 namespace instance try-restarts after conf install; Backstage does not restart" \
+    || nope "[unit] BJ9 activation order or target wrong: ${out}"
 grep -Eq 'systemctl[[:space:]]+(start|restart)' "$RLOG" \
     && nope "setup started the service before a release exists" \
     || ok "step 2: the service is enabled but never started"
@@ -367,7 +370,7 @@ grep -Eq 'restart nginx|nginx -s' "$RLOG" && nope "nginx was restarted" || ok "s
 out="$( (setup_main) 2>&1)"; rc=$?
 mut="$(mutating_commands)"
 [[ $rc -eq 0 && -z "$mut" && "$(reloads)" == 1 ]] \
-    && ok "[unit] BJ8 identical namespace conf is not rewritten on rerun" \
+    && ok "re-running setup on the host it just configured changes nothing (BJ8: identical namespace conf not rewritten)" \
     || nope "re-run: rc=${rc}, mutating: ${mut:-none}"
 drop_box
 
@@ -474,6 +477,14 @@ drop_box
 
 echo
 echo "[T1] refusals before any change"
+make_box yes
+touch "${BOX}/state/empty_journald_probe"
+out="$( (setup_main) 2>&1)"; rc=$?
+mut="$(mutating_commands)"
+[[ $rc -ne 0 && -z "$mut" && "$out" == *"probe returned no journald state; refusing"* ]] \
+    && ok "[unit] BJ10 empty journald probe refuses with zero changes" \
+    || nope "[unit] BJ10 empty journald probe: rc=${rc}, mutating: ${mut:-none}; out: ${out}"
+drop_box
 make_box no
 printf '# hand edited\n' >> "${BOX}/etc/systemd/system/jevnotjev-backstage.service"
 out="$( (setup_main) 2>&1)"; rc=$?

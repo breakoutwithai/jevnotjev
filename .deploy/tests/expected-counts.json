@@ -1,7 +1,7 @@
 {
   "minFiles": 69,
   "files": {
-    ".deploy/tests/backstage-setup.test.sh": 113,
+    ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
     ".deploy/tests/capture-fixtures.test.sh": 42,
     ".deploy/tests/live-failures.test.sh": 18,
@@ -13,6 +13,7 @@
     ".deploy/tests/verify.test.sh": 50,
     "docs/research/2026-09-29-verdict-minimums/sim.test.ts": 6,
     "scripts/backstage-deps.test.ts": 6,
+    "scripts/backstage-journal.test.ts": 5,
     "scripts/backstage-operator-password.test.ts": 1,
     "scripts/backstage-package.test.ts": 40,
     "scripts/capture-extract.test.ts": 8,

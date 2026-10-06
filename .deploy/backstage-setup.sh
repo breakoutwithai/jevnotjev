@@ -273,8 +273,10 @@ setup_plan() {
         log_error "Installed ${BS_UNIT} differs from .deploy/backstage.service. Install it by hand: install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"; return 1
     fi
     v="$(probe_get "$probe" journald)"
-    if [[ -z "$v" || "$v" == absent ]]; then
+    if [[ "$v" == absent ]]; then
         PLAN_JOURNAL=true
+    elif [[ ! "$v" =~ ^[[:xdigit:]]{64}$ ]]; then
+        log_error "probe returned no journald state; refusing"; return 1
     elif [[ "$v" != "$(local_sha "$BS_JOURNAL_SRC")" ]]; then
         log_error "Installed ${BS_JOURNAL} differs from .deploy/journald@jevnotjev-backstage.conf. Install it by hand: install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"; return 1
     fi
@@ -297,7 +299,7 @@ plan_is_empty() { ! $PLAN_USER && ! $PLAN_JOURNAL && ! $PLAN_UNIT && ! $PLAN_ENA
 print_plan() {
     local p="  ${YELLOW}[plan]${NC}"
     $PLAN_USER   && echo "$p useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ${BS_USER}"
-    $PLAN_JOURNAL && echo "$p cat > ${BS_JOURNAL}.tmp < .deploy/journald@jevnotjev-backstage.conf, mv into place"
+    $PLAN_JOURNAL && echo "$p cat > ${BS_JOURNAL}.tmp < .deploy/journald@jevnotjev-backstage.conf, mv into place, systemctl try-restart systemd-journald@jevnotjev-backstage.service"
     $PLAN_UNIT   && echo "$p cat > ${BS_UNIT}.tmp < .deploy/backstage.service, mv into place, systemctl daemon-reload"
     $PLAN_ENABLE && echo "$p systemctl enable ${BS_SERVICE}   (not started: no release yet)"
     if $PLAN_SNIPPET || $PLAN_INCLUDE; then
@@ -548,6 +550,8 @@ setup_main() {
     if $PLAN_JOURNAL; then
         remote "cat > '${BS_JOURNAL}.tmp' && chmod 0644 '${BS_JOURNAL}.tmp' && mv '${BS_JOURNAL}.tmp' '${BS_JOURNAL}'" < "$BS_JOURNAL_SRC" \
             || { log_error "Could not install ${BS_JOURNAL}."; return 1; }
+        remote "systemctl try-restart systemd-journald@jevnotjev-backstage.service" \
+            || { log_error "Could not activate ${BS_JOURNAL}."; return 1; }
         log_success "Namespace journal ${BS_JOURNAL} installed"
     fi
     if $PLAN_UNIT; then

@@ -8,6 +8,7 @@ import { bundleLoader, LOADER_OUT } from "../../scripts/build-loader.ts";
 import {
   attachLoader,
   IDS,
+  MAX_FILE_BYTES,
   type LoaderDocument,
   type LoaderElement,
   type LoaderEvent,
@@ -22,6 +23,7 @@ class FakeEl implements LoaderElement {
   hidden = true;
   disabled = true;
   files: LoaderFile[] | null = null;
+  value = "";
   readonly classes = new Set<string>(["is-off"]);
   readonly classList = {
     add: (c: string): void => { this.classes.add(c); },
@@ -47,7 +49,19 @@ function page(): { doc: LoaderDocument; zone: FakeEl; input: FakeEl; status: Fak
 
 function file(name: string, text: string): LoaderFile {
   const bytes = new TextEncoder().encode(text);
-  return { name, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+  return { name, size: bytes.length, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+}
+
+/** A file whose bytes arrive only when the test calls release(). */
+function slowFile(name: string, text: string): { file: LoaderFile; release: () => void } {
+  const inner = file(name, text);
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  return { file: { name, size: inner.size, arrayBuffer: async () => { await gate; return inner.arrayBuffer(); } }, release };
+}
+
+async function settle(): Promise<void> {
+  await Bun.sleep(60);
 }
 
 /** Choose a file as the visitor would, and wait for the page to show the outcome. */
@@ -86,6 +100,7 @@ describe("results loader (D12: load your own results CSV in the browser)", () =>
     expect(html).not.toContain("when the loader ships");
     expect(html).toContain('<script src="results-loader.js"></script>');
     expect(html).toContain('id="loadedResult"');
+    expect(html).toContain("up to 5 MB");
   });
 
   test("[unit] D12-L2 attaching enables a disabled input and an is-off zone", () => {
@@ -105,7 +120,8 @@ describe("results loader (D12: load your own results CSV in the browser)", () =>
       expect(p.panel.innerHTML).toContain(method);
     }
     expect(p.panel.innerHTML).toContain("Verdict per question");
-    expect(p.panel.innerHTML).toContain("use Jev");
+    expect(p.panel.innerHTML).toContain('<span class="ld-v">use Jev</span>');
+    expect(p.panel.innerHTML).not.toContain('<span class="ld-v">don&#39;t use Jev</span>');
     expect(p.status.textContent).toContain("VALID");
     expect(p.status.textContent).toContain("nothing uploaded");
   });
@@ -143,7 +159,7 @@ describe("results loader (D12: load your own results CSV in the browser)", () =>
 
   test("[unit] D12-L7 a file that is not UTF-8 is INVALID with a message, not a crash", async () => {
     const bytes = new Uint8Array([0xff, 0xfe, 0x41]);
-    const p = await choose({ name: "bin.csv", arrayBuffer: async () => bytes.buffer });
+    const p = await choose({ name: "bin.csv", size: bytes.length, arrayBuffer: async () => bytes.buffer });
     expect(p.panel.innerHTML).toContain(">INVALID<");
     expect(p.panel.innerHTML).toContain("ERROR file is not valid UTF-8");
   });
@@ -154,6 +170,67 @@ describe("results loader (D12: load your own results CSV in the browser)", () =>
     p.zone.fire("drop", { preventDefault: () => {}, dataTransfer: { files: [file("d.csv", await example(USE_JEV))] } });
     for (let i = 0; i < 200 && p.panel.hidden; i++) await Bun.sleep(5);
     expect(p.panel.innerHTML).toContain(">VALID<");
+  });
+
+  test("[unit] D12-L11 a slow older read never overwrites the newer file's result", async () => {
+    const p = page();
+    attachLoader(p.doc);
+    const slow = slowFile("older.csv", await example(USE_JEV));
+    p.input.files = [slow.file];
+    p.input.fire("change");
+    p.input.files = [file("newer.csv", await example(D06))];
+    p.input.fire("change");
+    await settle();
+    expect(p.panel.innerHTML).toContain("newer.csv");
+    slow.release();
+    await settle();
+    expect(p.panel.innerHTML).toContain("newer.csv");
+    expect(p.panel.innerHTML).not.toContain("older.csv");
+    expect(p.status.textContent).toContain("newer.csv");
+  });
+
+  test("[unit] D12-L12 each verdict names its run, prompt version and question id", async () => {
+    const base = await example(USE_JEV);
+    const rows = base.split("\n").filter((l) => l !== "");
+    const second = rows.slice(1).map((l) => l.replace("run-d08-r3-use-jev", "run-two"));
+    const p = await choose(file("two-runs.csv", [...rows, ...second].join("\n") + "\n"));
+    const items = p.panel.innerHTML.match(/<li><span class="ld-id">.*?<\/li>/g) ?? [];
+    expect(items.length).toBe(2);
+    expect(items[0]).toContain("run-d08-r3-use-jev");
+    expect(items[0]).toContain("d08.v1");
+    expect(items[0]).toContain("q1");
+    expect(items[1]).toContain("run run-two, prompt d08.v1, question q1");
+  });
+
+  test("[unit] D12-L13 a file over the size limit is refused before it is read, naming its size and the limit", async () => {
+    let read = false;
+    const big: LoaderFile = { name: "huge.csv", size: MAX_FILE_BYTES + 1024 * 1024, arrayBuffer: async () => { read = true; return new ArrayBuffer(0); } };
+    const p = await choose(big);
+    expect(read).toBe(false);
+    expect(p.panel.innerHTML).toContain(">INVALID<");
+    expect(p.panel.innerHTML).toContain("ERROR file is 6.0 MB; the limit is 5 MB");
+    expect(p.status.textContent).toContain("INVALID");
+    const ok = await choose({ ...file("edge.csv", await example(USE_JEV)), size: MAX_FILE_BYTES });
+    expect(ok.panel.innerHTML).toContain(">VALID<");
+  });
+
+  test("[unit] D12-L14 the picker is cleared after a selection, so choosing A, dropping B, choosing A again shows A", async () => {
+    const p = page();
+    attachLoader(p.doc);
+    const a = file("a.csv", await example(USE_JEV));
+    p.input.value = "C:\\fakepath\\a.csv";
+    p.input.files = [a];
+    p.input.fire("change");
+    await settle();
+    expect(p.input.value).toBe("");
+    p.zone.fire("drop", { preventDefault: () => {}, dataTransfer: { files: [file("b.csv", await example(D06))] } });
+    await settle();
+    expect(p.panel.innerHTML).toContain("b.csv");
+    p.input.files = [a];
+    p.input.fire("change");
+    await settle();
+    expect(p.panel.innerHTML).toContain("a.csv");
+    expect(p.panel.innerHTML).not.toContain("b.csv");
   });
 
   test("[unit] D12-L9 before any file is chosen the result panel stays hidden (sample play untouched)", () => {

@@ -9,8 +9,16 @@ import { cohortMetrics, cohorts } from "../core/metrics.ts";
 import { verdict } from "../core/verdict.ts";
 import { decodeUtf8, report, summary, validate, type Validation } from "../format/validate.ts";
 
+/** Largest file the page reads, in bytes. Validation runs on the page's thread, so a bigger file would freeze it. */
+export const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+function megabytes(bytes: number): string {
+  return (bytes / (1024 * 1024)).toFixed(1);
+}
+
 export interface QuestionVerdict {
   readonly question: string;
+  readonly questionId: string;
   readonly runId: string;
   readonly promptVersion: string;
   /** The verdict name, or null when no verdict could be computed. */
@@ -65,10 +73,10 @@ export async function evaluateText(fileName: string, text: string): Promise<Load
     const metrics = cohortMetrics(result.rows, key);
     try {
       const v = verdict(metrics, seed);
-      questions.push({ question: metrics.question, runId: key.runId, promptVersion: key.promptVersion, verdict: v.verdict, reason: v.reason });
+      questions.push({ question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, verdict: v.verdict, reason: v.reason });
     } catch (error) {
       const why = error instanceof Error ? error.message : "no verdict";
-      questions.push({ question: metrics.question, runId: key.runId, promptVersion: key.promptVersion, verdict: null, reason: why });
+      questions.push({ question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, verdict: null, reason: why });
     }
   }
   return { fileName, valid: true, errors: [], gaps: result.gaps, headline, methods: summary(result.rows), questions };
@@ -107,7 +115,8 @@ export function renderResult(r: LoadedResult): string {
     parts.push(el("h4", "ld-head", "Each method"), list("ld-methods", "", r.methods));
     const rows = r.questions.map(
       (q) =>
-        '<li><span class="ld-q">' + escapeHtml(q.question) + '</span> <span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") +
+        '<li><span class="ld-id">' + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId) + "</span> " +
+        '<span class="ld-q">' + escapeHtml(q.question) + '</span> <span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") +
         '</span> <span class="ld-why">' + escapeHtml(q.reason) + "</span></li>",
     );
     parts.push(el("h4", "ld-head", "Verdict per question"), '<ul class="ld-verdicts">' + rows.join("") + "</ul>");
@@ -118,6 +127,7 @@ export function renderResult(r: LoadedResult): string {
 /** What the page script needs from a file: a name and Blob's arrayBuffer. */
 export interface LoaderFile {
   readonly name: string;
+  readonly size: number;
   arrayBuffer(): Promise<ArrayBuffer>;
 }
 export interface LoaderEvent {
@@ -129,6 +139,7 @@ export interface LoaderElement {
   innerHTML: string;
   hidden: boolean | string;
   disabled?: boolean;
+  value?: string;
   files?: ArrayLike<LoaderFile> | null;
   readonly classList: { add(name: string): void; remove(name: string): void };
   addEventListener(type: string, listener: (event: LoaderEvent) => void): void;
@@ -152,22 +163,35 @@ export function attachLoader(doc: LoaderDocument): boolean {
   input.removeAttribute?.("disabled");
   zone.classList.remove("is-off");
 
+  /** Selection counter: only the newest selection may render, so a slow older read cannot overwrite it. */
+  let latest = 0;
+
   async function take(file: LoaderFile | undefined): Promise<void> {
     if (!file || !status || !panel) return;
+    latest += 1;
+    const mine = latest;
     status.textContent = "Reading " + file.name + " here in your browser. Nothing is uploaded.";
     let outcome: LoadedResult;
-    try {
-      outcome = await evaluateBytes(file.name, new Uint8Array(await file.arrayBuffer()));
-    } catch {
-      outcome = failure(file.name, "file could not be read");
+    if (file.size > MAX_FILE_BYTES) {
+      outcome = failure(file.name, "file is " + megabytes(file.size) + " MB; the limit is " + megabytes(MAX_FILE_BYTES).replace(/\.0$/, "") + " MB");
+    } else {
+      try {
+        outcome = await evaluateBytes(file.name, new Uint8Array(await file.arrayBuffer()));
+      } catch {
+        outcome = failure(file.name, "file could not be read");
+      }
     }
+    if (mine !== latest) return;
     panel.innerHTML = renderResult(outcome);
     panel.hidden = false;
     status.textContent = (outcome.valid ? "VALID" : "INVALID") + ": " + outcome.fileName + ", read in your browser, nothing uploaded.";
   }
 
   input.addEventListener("change", () => {
-    void take(input.files?.[0]);
+    const chosen = input.files?.[0];
+    // Clear the picker so choosing the same file again fires change again.
+    input.value = "";
+    void take(chosen);
   });
   for (const t of ["dragenter", "dragover"]) {
     zone.addEventListener(t, (e) => {

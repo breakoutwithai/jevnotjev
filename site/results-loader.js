@@ -1153,6 +1153,10 @@
   }
 
   // src/browser/results-loader.ts
+  var MAX_FILE_BYTES = 5 * 1024 * 1024;
+  function megabytes(bytes) {
+    return (bytes / (1024 * 1024)).toFixed(1);
+  }
   function failure(fileName, message) {
     return { fileName, valid: false, errors: [message], gaps: [], headline: "INVALID rows=0 cases=0 errors=1 gaps=0", methods: [], questions: [] };
   }
@@ -1183,10 +1187,10 @@
       const metrics = cohortMetrics(result.rows, key);
       try {
         const v = verdict(metrics, seed);
-        questions.push({ question: metrics.question, runId: key.runId, promptVersion: key.promptVersion, verdict: v.verdict, reason: v.reason });
+        questions.push({ question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, verdict: v.verdict, reason: v.reason });
       } catch (error) {
         const why = error instanceof Error ? error.message : "no verdict";
-        questions.push({ question: metrics.question, runId: key.runId, promptVersion: key.promptVersion, verdict: null, reason: why });
+        questions.push({ question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, verdict: null, reason: why });
       }
     }
     return { fileName, valid: true, errors: [], gaps: result.gaps, headline, methods: summary(result.rows), questions };
@@ -1212,7 +1216,7 @@
     ];
     if (r.valid) {
       parts.push(el("h4", "ld-head", "Each method"), list("ld-methods", "", r.methods));
-      const rows = r.questions.map((q) => '<li><span class="ld-q">' + escapeHtml(q.question) + '</span> <span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + '</span> <span class="ld-why">' + escapeHtml(q.reason) + "</span></li>");
+      const rows = r.questions.map((q) => '<li><span class="ld-id">' + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId) + "</span> " + '<span class="ld-q">' + escapeHtml(q.question) + '</span> <span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + '</span> <span class="ld-why">' + escapeHtml(q.reason) + "</span></li>");
       parts.push(el("h4", "ld-head", "Verdict per question"), '<ul class="ld-verdicts">' + rows.join("") + "</ul>");
     }
     return parts.join("");
@@ -1228,22 +1232,33 @@
     input.disabled = false;
     input.removeAttribute?.("disabled");
     zone.classList.remove("is-off");
+    let latest = 0;
     async function take(file) {
       if (!file || !status || !panel)
         return;
+      latest += 1;
+      const mine = latest;
       status.textContent = "Reading " + file.name + " here in your browser. Nothing is uploaded.";
       let outcome;
-      try {
-        outcome = await evaluateBytes(file.name, new Uint8Array(await file.arrayBuffer()));
-      } catch {
-        outcome = failure(file.name, "file could not be read");
+      if (file.size > MAX_FILE_BYTES) {
+        outcome = failure(file.name, "file is " + megabytes(file.size) + " MB; the limit is " + megabytes(MAX_FILE_BYTES).replace(/\.0$/, "") + " MB");
+      } else {
+        try {
+          outcome = await evaluateBytes(file.name, new Uint8Array(await file.arrayBuffer()));
+        } catch {
+          outcome = failure(file.name, "file could not be read");
+        }
       }
+      if (mine !== latest)
+        return;
       panel.innerHTML = renderResult(outcome);
       panel.hidden = false;
       status.textContent = (outcome.valid ? "VALID" : "INVALID") + ": " + outcome.fileName + ", read in your browser, nothing uploaded.";
     }
     input.addEventListener("change", () => {
-      take(input.files?.[0]);
+      const chosen = input.files?.[0];
+      input.value = "";
+      take(chosen);
     });
     for (const t of ["dragenter", "dragover"]) {
       zone.addEventListener(t, (e) => {

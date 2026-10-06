@@ -96,5 +96,8 @@ Validator and loader output is part of the format: scripts and people match on i
 - A stray quote is kept as text, not rejected: `a"b"` reads as `a"b"`, `"ab"cd` as `abcd`; an unterminated quoted field runs to the end of the file.
 - Writing quotes a field only when it holds `,`, `"`, `\r` or `\n`; a row that is one empty field is written `""`.
 
+### Size limit on the public page
+The page's "Load your own script (CSV)" refuses a file over 5 MB (`MAX_FILE_BYTES` in [src/browser/results-loader.ts](../src/browser/results-loader.ts)), checked before the file is read, with a message naming its size and the limit. Larger files: `bun run validate <file>`.
+
 ## Sample data
 Every message, answer, model, token count and price in `example-v1.csv` is invented. `example-llm` is not a real model. No real user data.

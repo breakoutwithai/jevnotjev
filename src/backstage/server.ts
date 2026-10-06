@@ -1,7 +1,10 @@
 import { join, resolve, sep } from "node:path";
 import { isIP } from "node:net";
-import { randomBytes } from "node:crypto";
-import { cookie, cookieName, credentialFingerprint, GoogleStates, isSameOrigin, LoginLimiter, normalizeEmail, OperatorStore, parseCookie, RevokedSessions, sanitizeNextPath, SESSION_TTL_MS, signSession, validateGoogleProfile, verifyPasswordHash, verifySession } from "./auth.ts";
+import { randomBytes, randomUUID } from "node:crypto";
+import { cookie, cookieName, credentialFingerprint, GoogleStates, inspectSession, isSameOrigin, LoginLimiter, normalizeEmail, OperatorStore, parseCookie, RevokedSessions, sanitizeNextPath, SESSION_TTL_MS, signSession, validateGoogleProfile, verifyPasswordHash } from "./auth.ts";
+import { createEventLogger } from "./log.ts";
+import type { AuthEvent, GoogleDeniedReason, SessionRejectedReason, RunEvent } from "./log.ts";
+import type { Provider } from "./contracts.ts";
 import { renderSignInPage } from "./sign-in-page.ts";
 import { CATALOG_VERSION, MODEL_CATALOG, getModelEntry } from "./catalog.ts";
 import { PROTOCOL_VERSION } from "./contracts.ts";
@@ -36,6 +39,7 @@ export interface ServerOptions {
   readonly trialPricingVersion?: string;
   readonly trustProxy?: boolean;
   readonly requireSession?: boolean;
+  readonly log?: (line: string) => void;
   readonly auth?: {
     readonly sessionSecret?: string | undefined;
     readonly operatorsPath?: string | undefined;
@@ -113,11 +117,26 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   const states = new GoogleStates(clock, secret);
   const revoked = new RevokedSessions(clock, options.auth?.operatorsPath);
   const googleReady = Boolean(options.auth?.googleClientId && options.auth.googleClientSecret && secret.length >= 32);
-  const sessionFrom = (request: Request) => {
-    const value = parseCookie(request.headers.get("cookie"), cookieName(origin, "session"));
-    const session = secret.length >= 32 ? verifySession(value, secret, clock()) : null;
-    const row = session ? operators.get(session.email) : undefined;
-    return session && row && !revoked.has(session.sid, session.iat) && session.cred === credentialFingerprint(row.password_hash ?? "google") ? session : null;
+  const logger = createEventLogger(clock, options.log);
+  const sessionFrom = (request: Request, emit: (event: "session.rejected", email: string, reason: SessionRejectedReason) => void) => {
+    const header = request.headers.get("cookie");
+    const name = cookieName(origin, "session");
+    const value = parseCookie(header, name);
+    if (secret.length < 32) return null;
+    if (!value) {
+      if (header?.split(";").some((part) => { const index = part.indexOf("="); return (index < 0 ? part : part.slice(0, index)).trim() === name; }))
+        emit("session.rejected", "unknown", "bad-signature");
+      return null;
+    }
+    const checked = inspectSession(value, secret, clock());
+    if (!checked.ok) { emit("session.rejected", checked.reason === "expired" ? operators.get(checked.email)?.email ?? "unknown" : "unknown", checked.reason); return null; }
+    const session = checked.session;
+    const row = operators.get(session.email);
+    if (!row || revoked.has(session.sid, session.iat) || session.cred !== credentialFingerprint(row.password_hash ?? "google")) {
+      emit("session.rejected", row?.email ?? "unknown", "revoked");
+      return null;
+    }
+    return session;
   };
   const redirect = (location: string, status = 303): Response => new Response(null, { status, headers: { ...HEADERS, location } });
   const denied = (): Response => Response.json({ code: "unauthenticated" }, { status: 401, headers: HEADERS });
@@ -147,6 +166,19 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     request: Request,
     context?: RequestContext,
   ): Promise<Response> => {
+    const rid = randomUUID();
+    const ip = clientAddress(request, context, options.trustProxy) ?? "unknown";
+    const emitAuth = (event: AuthEvent, email: string, reason?: GoogleDeniedReason | SessionRejectedReason): void => {
+      if (event === "session.rejected") {
+        logger.auth({ event, email, ip, rid, reason: reason === "expired" || reason === "revoked" ? reason : "bad-signature" });
+      } else if (event === "signin.google.denied") {
+        logger.auth({ event, email, ip, rid, reason: reason === "not-allowlisted" || reason === "unverified-email" || reason === "bad-state" || reason === "invalid-token" ? reason : "provider-error" });
+      } else logger.auth({ event, email, ip, rid });
+    };
+    const emitRun = (event: RunEvent, provider: Provider, armId: string): void => {
+      const entry = getModelEntry(armId);
+      logger.run({ event, rid, provider, model: entry?.provider === provider ? entry.modelId : "unknown" });
+    };
     const url = new URL(request.url);
     let pathname: string;
     try { pathname = decodeURIComponent(url.pathname); }
@@ -160,14 +192,14 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       const message = url.searchParams.get("signed-out") === "1" ? "signed-out" : url.searchParams.get("error");
       return renderSignInPage(sanitizeNextPath(url.searchParams.get("next")), message, googleReady, HEADERS["content-security-policy"]);
     }
-    if (pathname === "/api/auth/session") return request.method === "GET" ? (sessionFrom(request) ? new Response(null, { status: 204, headers: HEADERS }) : Response.json({ code: "unauthenticated", signIn: secret.length >= 32 ? "ready" : "unconfigured" }, { status: 401, headers: HEADERS })) : json({ error: "Method not allowed." }, 405);
+    if (pathname === "/api/auth/session") return request.method === "GET" ? (sessionFrom(request, emitAuth) ? new Response(null, { status: 204, headers: HEADERS }) : Response.json({ code: "unauthenticated", signIn: secret.length >= 32 ? "ready" : "unconfigured" }, { status: 401, headers: HEADERS })) : json({ error: "Method not allowed." }, 405);
     if (pathname === "/api/auth/password") {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       if (!isSameOrigin(request, origin)) return json({ error: "Forbidden." }, 403);
       let email = "", password = "", next = "/backstage/";
       const body = await request.text();
       if (body) {
-        if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/x-www-form-urlencoded") return authError("signin");
+        if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/x-www-form-urlencoded") { emitAuth("signin.password.fail", "unknown"); return authError("signin"); }
         const form = new URLSearchParams(body);
         email = form.get("email") ?? ""; password = form.get("password") ?? "";
         next = sanitizeNextPath(form.get("next"));
@@ -185,32 +217,35 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       const socket = context?.remoteAddress;
       const observed = options.trustProxy && (socket === "127.0.0.1" || socket === "::1" || socket === "::ffff:127.0.0.1") ? clientAddress(request, context, true) : null;
       const address = observed === "127.0.0.1" || observed === "::1" || observed === "::ffff:127.0.0.1" ? null : observed;
-      if (limiter.locked(email, address)) return authError("locked");
-      if (activeScrypt >= 8) return authError("busy");
-      if (!limiter.canAttempt(email, address)) return authError("busy");
       const row = operators.get(email);
+      const loggedEmail = row?.email ?? "unknown";
+      if (limiter.locked(email, address)) { emitAuth("signin.lockout", loggedEmail); return authError("locked"); }
+      if (activeScrypt >= 8) { emitAuth("signin.password.fail", loggedEmail); return authError("busy"); }
+      if (!limiter.canAttempt(email, address)) { emitAuth("signin.password.fail", loggedEmail); return authError("busy"); }
       activeScrypt++;
       let verified: boolean;
       try { verified = await verifyPasswordHash(password, row?.password_hash); }
       finally { activeScrypt--; }
       const valid = secret.length >= 32 && verified && Boolean(row);
-      if (!valid) { limiter.fail(email, address); return authError("signin"); }
+      if (!valid) { const failure = limiter.fail(email, address); emitAuth("signin.password.fail", loggedEmail); if (failure.locked) emitAuth("signin.lockout", loggedEmail); return authError("signin"); }
       limiter.success(email, address);
       const session = signSession({ email, auth: "password", iat: clock(), exp: clock() + SESSION_TTL_MS, sid: randomBytes(24).toString("base64url"), cred: credentialFingerprint(row?.password_hash ?? "google") }, secret);
       const response = redirect(next);
       response.headers.append("set-cookie", cookie(origin, "session", session, 43200));
+      emitAuth("signin.password.ok", loggedEmail);
       return response;
     }
     if (pathname === "/api/auth/sign-out") {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       if (!isSameOrigin(request, origin)) return json({ error: "Forbidden." }, 403);
-      const session = sessionFrom(request);
+      const session = sessionFrom(request, emitAuth);
       if (session) {
         try { revoked.revoke(session.sid, session.exp); }
         catch { return Response.json({ code: "signout-failed" }, { status: 500, headers: HEADERS }); }
       }
       const response = redirect("/backstage/sign-in?signed-out=1");
       response.headers.append("set-cookie", cookie(origin, "session", "", 0));
+      emitAuth("signout", session ? operators.get(session.email)?.email ?? "unknown" : "unknown");
       return response;
     }
     if (pathname === "/api/auth/google") {
@@ -236,7 +271,12 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       const clear = cookie(origin, "oauth", "", 0);
       const state = url.searchParams.get("state") ?? "";
       const next = states.take(state, parseCookie(request.headers.get("cookie"), cookieName(origin, "oauth")));
-      if (!next || url.searchParams.has("error") || !url.searchParams.get("code")) { responseError.headers.append("set-cookie", clear); return responseError; }
+      if (!next || url.searchParams.has("error") || !url.searchParams.get("code")) {
+        const reason = !next ? "bad-state" : url.searchParams.has("error") ? "provider-error" : "bad-state";
+        emitAuth("signin.google.denied", "unknown", reason);
+        responseError.headers.append("set-cookie", clear);
+        return responseError;
+      }
       try {
         // Ported from groit apps/booth/server.js:1720-1765 at bb29d8cc; test bypass omitted.
         const doFetch = options.auth.fetch ?? options.auth.googleFetch ?? fetch;
@@ -247,18 +287,19 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         const info = await doFetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokenData.id_token)}`, { signal: AbortSignal.timeout(10_000) });
         if (!info.ok) throw new Error("Tokeninfo failed");
         const profile: unknown = await info.json();
-        const email = validateGoogleProfile(profile, options.auth.googleClientId, operators);
-        if (!email) throw new Error("Invalid profile");
-        const row = operators.get(email);
-        if (!row) throw new Error("Operator removed");
-        const session = signSession({ email, auth: "google", iat: clock(), exp: clock() + SESSION_TTL_MS, sid: randomBytes(24).toString("base64url"), cred: credentialFingerprint(row.password_hash ?? "google") }, secret);
+        const checked = validateGoogleProfile(profile, options.auth.googleClientId, operators);
+        if (!checked.ok) { emitAuth("signin.google.denied", checked.email, checked.reason); responseError.headers.append("set-cookie", clear); return responseError; }
+        const row = operators.get(checked.email);
+        if (!row) { emitAuth("signin.google.denied", "unknown", "not-allowlisted"); responseError.headers.append("set-cookie", clear); return responseError; }
+        const session = signSession({ email: checked.email, auth: "google", iat: clock(), exp: clock() + SESSION_TTL_MS, sid: randomBytes(24).toString("base64url"), cred: credentialFingerprint(row.password_hash ?? "google") }, secret);
         const response = redirect(next);
         response.headers.append("set-cookie", clear);
         response.headers.append("set-cookie", cookie(origin, "session", session, 43200));
+        emitAuth("signin.google.ok", row.email);
         return response;
-      } catch { responseError.headers.append("set-cookie", clear); return responseError; }
+      } catch { emitAuth("signin.google.denied", "unknown", "provider-error"); responseError.headers.append("set-cookie", clear); return responseError; }
     }
-    if ((options.requireSession === true || request.headers.get("x-backstage-gate") === "session") && gatedPrefix && !sessionFrom(request)) {
+    if ((options.requireSession === true || request.headers.get("x-backstage-gate") === "session") && gatedPrefix && !sessionFrom(request, emitAuth)) {
       if (gatedPrefix === "/api/backstage/") return denied();
       return redirect(`/backstage/sign-in?next=${sanitizeNextPath(pathname)}`, 302);
     }
@@ -443,11 +484,11 @@ export function createHandler(options: ServerOptions): BackstageHandler {
               429,
             );
           // A dispatched failure never restores the browser allowance automatically.
-          const result = await callProvider(
-            input,
-            options.providerFetch,
-            options.timeoutMs,
-          );
+          emitRun("run.start", input.provider, input.armId);
+          let result;
+          try { result = await callProvider(input, options.providerFetch, options.timeoutMs); }
+          catch (error) { emitRun("run.error", input.provider, input.armId); throw error; }
+          emitRun(result.ok ? "run.done" : "run.error", input.provider, input.armId);
           const fundingFailure =
             !result.ok &&
             ["http-401", "http-403", "http-429"].includes(result.code);
@@ -487,9 +528,12 @@ export function createHandler(options: ServerOptions): BackstageHandler {
             ),
             409,
           );
-        return json(
-          await callProvider(input, options.providerFetch, options.timeoutMs),
-        );
+        emitRun("run.start", input.provider, input.armId);
+        try {
+          const result = await callProvider(input, options.providerFetch, options.timeoutMs);
+          emitRun(result.ok ? "run.done" : "run.error", input.provider, input.armId);
+          return json(result);
+        } catch (error) { emitRun("run.error", input.provider, input.armId); throw error; }
       } catch {
         return json({ error: "Invalid or oversized request." }, 400);
       } finally {

@@ -20,6 +20,20 @@ echo "[T1] nginx vhost + provision contract"
 source .deploy/backstage-lib.sh
 snippet="$(cat .deploy/backstage-nginx.conf)"
 [[ "$(printf '%s\n' "$snippet" | backstage_snippet_auth)" == session ]] && ok "repo Backstage snippet is a session gate" || nope "repo Backstage snippet is not a session gate"
+without_session_ip="$(printf '%s\n' "$snippet" | awk '
+    /^location = \/_backstage_session \{/ { in_session=1 }
+    in_session && /proxy_set_header X-Backstage-Client-IP \$remote_addr;/ { next }
+    { print }
+    in_session && /^}/ { in_session=0 }
+')"
+[[ "$(printf '%s\n' "$without_session_ip" | backstage_snippet_auth)" == session ]] && ok "installed session snippet without client IP header still parses" || nope "installed session snippet without client IP header rejected"
+duplicate_session_ip="$(printf '%s\n' "$snippet" | awk '
+    /^location = \/_backstage_session \{/ { in_session=1 }
+    in_session && /proxy_set_header X-Backstage-Client-IP \$remote_addr;/ { print; print; next }
+    { print }
+    in_session && /^}/ { in_session=0 }
+')"
+[[ "$(printf '%s\n' "$duplicate_session_ip" | backstage_snippet_auth)" == unknown ]] && ok "duplicate session client IP header rejected" || nope "duplicate session client IP header accepted"
 if printf '%s\n' "$snippet" | grep -Eq 'auth_basic|WWW-Authenticate|satisfy'; then nope "session snippet contains Basic gate or challenge"; else ok "session snippet has no Basic gate, challenge or satisfy"; fi
 session="$(printf '%s\n' "$snippet" | sed 's/#.*//' | tr '\n' ' ')"
 [[ "$(printf '%s\n' "$session" | backstage_snippet_auth)" == session ]] && ok "inline shipped session layout parses" || nope "inline shipped session layout rejected"

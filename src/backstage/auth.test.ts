@@ -100,7 +100,7 @@ test("[unit] AU8 Google state is signed, expires and has no storage cap", () => 
   expect(states.take(second.state, second.nonce)).toBeNull();
 });
 
-test("[unit] AU9 limiter skips untrusted address, bounds records and logs one redacted lock", () => {
+test("[unit] L2 limiter reports a new lock without writing output", () => {
   let now = 0;
   const limiter = new LoginLimiter(() => now);
   const warnings: string[] = [];
@@ -109,11 +109,11 @@ test("[unit] AU9 limiter skips untrusted address, bounds records and logs one re
   try {
     for (let index = 0; index < 20; index++) limiter.fail(`a${index}@example.com`, null);
     expect(limiter.locked("fresh@example.com", null)).toBe(false);
-    for (let index = 0; index < 5; index++) limiter.fail("secret@example.com", "203.0.113.9");
+    for (let index = 0; index < 4; index++) expect(limiter.fail("secret@example.com", "203.0.113.9").locked).toBe(false);
+    expect(limiter.fail("secret@example.com", "203.0.113.9").locked).toBe(true);
     expect(limiter.locked("secret@example.com", "203.0.113.9")).toBe(true);
     expect(limiter.locked("secret@example.com", "203.0.113.9")).toBe(true);
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]).toMatch(/^backstage auth: lock pair address=203\.0\.113\.9 email=[a-f0-9]{8}$/);
+    expect(warnings).toHaveLength(0);
     for (let index = 0; index < 20_000; index++) limiter.fail(`${randomBytes(8).toString("hex")}@example.com`, null);
     expect(limiter.sizes().emails).toBeLessThanOrEqual(10_000);
     now = 86_400_001;
@@ -189,7 +189,7 @@ test("[unit] AU14 a full limiter refuses new records without evicting a locked v
     expect(limiter.sizes().emails).toBe(10_000);
     expect(limiter.sizes().pairs).toBe(10_000);
     expect(limiter.canAttempt("overflow@example.com", "203.0.113.2")).toBe(false);
-    expect(limiter.fail("overflow@example.com", "203.0.113.2")).toBe(false);
+    expect(limiter.fail("overflow@example.com", "203.0.113.2").recorded).toBe(false);
     expect(limiter.sizes().pairs).toBe(10_000);
     expect(limiter.locked("victim@example.com", "203.0.113.1")).toBe(true);
     now = 60_000;

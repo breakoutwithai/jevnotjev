@@ -16,15 +16,16 @@ printf 'ActiveState=%s\nRestart=%s\nNRestarts=%s\n' "${FAKE_ACTIVE:-active}" "${
 SH
 cat > "$TMP/bin/curl" <<'SH'
 #!/usr/bin/env bash
+printf '%s\n' "$@" >> "$FAKE_ARGV_LOG"
 cat >> "$FAKE_ALERT_LOG"
 printf '\n' >> "$FAKE_ALERT_LOG"
 printf '%s' "${FAKE_ALERT_CODE:-200}"
 SH
 chmod +x "$TMP/bin/systemctl" "$TMP/bin/curl"
-export PATH="$TMP/bin:$PATH" MONITOR_ALERT_KIND=teams MONITOR_STATE_DIR="$TMP/state" FAKE_ALERT_LOG="$TMP/alerts"
+export PATH="$TMP/bin:$PATH" MONITOR_ALERT_KIND=teams MONITOR_STATE_DIR="$TMP/state" FAKE_ALERT_LOG="$TMP/alerts" FAKE_ARGV_LOG="$TMP/argv" FAKE_OUTPUT_LOG="$TMP/output"
 export MONITOR_ALERT_CURL_CONFIG="$TMP/alert.curl"
 printf 'url = "SENTINEL_HOST_ALERT"\n' > "$MONITOR_ALERT_CURL_CONFIG"; chmod 600 "$MONITOR_ALERT_CURL_CONFIG"
-run() { rc=0; out="$(bash "$ROOT/.deploy/monitor-host.sh" "$@" 2>&1)" || rc=$?; }
+run() { rc=0; out="$(bash "$ROOT/.deploy/monitor-host.sh" "$@" 2>&1)" || rc=$?; printf '%s\n' "$out" >> "$FAKE_OUTPUT_LOG"; }
 fresh() { rm -rf "$MONITOR_STATE_DIR"; : > "$FAKE_ALERT_LOG"; }
 echo '[T1] H1-H3 positive and negative controls'
 fresh; run --dry-run
@@ -38,7 +39,7 @@ FAKE_ACTIVE=failed; export FAKE_ACTIVE; run --dry-run
 [[ $rc -eq 1 && $out == *'FAIL H2'* ]] && ok 'H2 failed fails' || nope "H2 failed: $out"
 unset FAKE_ACTIVE
 export FAKE_NRESTARTS=1; run --dry-run
-[[ $rc -eq 1 && $out == *'FAIL H3 NRestarts grew'* ]] && ok 'H3 growth fails' || nope "H3 growth: $out"
+[[ $rc -eq 0 && $out == *'PASS H3'* && ! -e $MONITOR_STATE_DIR/host/nrestarts ]] && ok 'dry-run does not change restart baseline' || nope "dry-run baseline: $out"
 FAKE_NRESTARTS=0; export FAKE_NRESTARTS; run --dry-run
 [[ $rc -eq 0 && $out == *'PASS H3'* ]] && ok 'H3 lower count resets baseline' || nope "H3 reset: $out"
 export FAKE_SYSTEMCTL_BAD=yes; run --dry-run
@@ -49,12 +50,22 @@ fresh; FAKE_NRESTARTS=0; export FAKE_NRESTARTS; run
 [[ $rc -eq 0 && ! -s $FAKE_ALERT_LOG ]] && ok 'first run stores baseline without alert' || nope 'baseline'
 FAKE_NRESTARTS=1; export FAKE_NRESTARTS; run
 [[ $rc -eq 1 && ! -s $FAKE_ALERT_LOG ]] && ok 'first growth is pending' || nope "first growth: $out"
+cp "$MONITOR_STATE_DIR/host/alert.state" "$TMP/host-state-before"
+cp "$MONITOR_STATE_DIR/host/nrestarts" "$TMP/host-restarts-before"
+FAKE_NRESTARTS=2; export FAKE_NRESTARTS; run --dry-run
+[[ $rc -eq 1 && $out == *'ALERT (dry-run):'* ]] && ok 'host dry-run prints pending alert' || nope "host dry-run: $out"
+cmp -s "$TMP/host-state-before" "$MONITOR_STATE_DIR/host/alert.state" && cmp -s "$TMP/host-restarts-before" "$MONITOR_STATE_DIR/host/nrestarts" && ok 'host dry-run leaves both state files byte-identical' || nope 'host dry-run mutated state'
 FAKE_NRESTARTS=2; export FAKE_NRESTARTS; run
-[[ $rc -eq 1 && $(grep -c AdaptiveCard "$FAKE_ALERT_LOG") -eq 1 ]] && ok 'second growth sends one alert' || nope "second growth: $out"
+[[ $rc -eq 1 && $(grep -c AdaptiveCard "$FAKE_ALERT_LOG") -eq 1 && $out == *'FAIL H3'* ]] && ok 'second growth sends one alert' || nope "second growth: $out"
+grep -q 'FAIL H3' "$FAKE_ALERT_LOG" && ok 'host ALERT names failing check' || nope 'host ALERT lacks check id'
 run
 [[ $rc -eq 0 && $(grep -c AdaptiveCard "$FAKE_ALERT_LOG") -eq 2 ]] && ok 'quiet run sends recovery' || nope "quiet recovery: $out"
 run
 [[ $rc -eq 0 && $(grep -c AdaptiveCard "$FAKE_ALERT_LOG") -eq 2 ]] && ok 'subsequent quiet run sends nothing' || nope 'quiet repeat'
+if ! grep -r SENTINEL_HOST_ALERT "$FAKE_ARGV_LOG" "$FAKE_OUTPUT_LOG" "$FAKE_ALERT_LOG" "$MONITOR_STATE_DIR" >/dev/null; then ok 'host alert secret absent from argv output state'; else nope 'host alert secret leaked'; fi
+mkdir -p "$TMP/creds"; printf 'url = "SENTINEL_HOST_ALERT"\n' > "$TMP/creds/alert.curl"; chmod 640 "$TMP/creds/alert.curl"
+CREDENTIALS_DIRECTORY="$TMP/creds" run --dry-run
+[[ $rc -eq 0 ]] && ok 'credential directory accepts runner-readable non-world file' || nope "credential directory: $out"
 echo "monitor-host tests: ${pass} passed, ${fail} failed"
 echo "[T1] passed=${pass} failed=${fail}"
 [[ $fail -eq 0 ]]

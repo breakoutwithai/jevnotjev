@@ -3,6 +3,7 @@ Description=Jev Not Jev Backstage restart monitor
 
 [Service]
 Type=oneshot
+TimeoutStartSec=180
 DynamicUser=yes
 WorkingDirectory=/opt/jevnotjev
 Environment=MONITOR_ALERT_KIND=teams
@@ -14,4 +15,11 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 UMask=0077

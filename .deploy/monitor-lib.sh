@@ -6,11 +6,20 @@ monitor_private_file() {
     bun -e 'import {lstatSync} from "node:fs";const s=lstatSync(process.argv[1]);if(!s.isFile()||s.uid!==process.getuid()||(s.mode&0o077)!==0)process.exit(1)' "$1" 2>/dev/null
 }
 
+monitor_credential_file() {
+    [[ -n "$1" && -f "$1" && ! -L "$1" ]] || return 1
+    bun -e 'import {lstatSync} from "node:fs";const s=lstatSync(process.argv[1]);if(!s.isFile()||(s.mode&0o007)!==0)process.exit(1)' "$1" 2>/dev/null
+}
+
 monitor_config() {
     case "${MONITOR_ALERT_KIND:-}" in teams|telegram) ;; *) echo 'CONFIG: MONITOR_ALERT_KIND must be teams or telegram' >&2; return 2;; esac
     if [[ -n "${CREDENTIALS_DIRECTORY:-}" ]]; then MONITOR_ALERT_CURL_CONFIG="${CREDENTIALS_DIRECTORY}/alert.curl"; fi
     if [[ -n "${MONITOR_ALERT_CURL_CONFIG:-}" ]]; then
-        monitor_private_file "$MONITOR_ALERT_CURL_CONFIG" || { echo 'CONFIG: MONITOR_ALERT_CURL_CONFIG must be a private regular file owned by the runner' >&2; return 2; }
+        if [[ -n "${CREDENTIALS_DIRECTORY:-}" && "$MONITOR_ALERT_CURL_CONFIG" == "$CREDENTIALS_DIRECTORY/alert.curl" ]]; then
+            monitor_credential_file "$MONITOR_ALERT_CURL_CONFIG" || { echo 'CONFIG: alert credential must be a regular non-symlink file without world access' >&2; return 2; }
+        else
+            monitor_private_file "$MONITOR_ALERT_CURL_CONFIG" || { echo 'CONFIG: MONITOR_ALERT_CURL_CONFIG must be a private regular file owned by the runner' >&2; return 2; }
+        fi
     elif [[ "$MONITOR_DRY_RUN" != yes ]]; then
         echo 'CONFIG: MONITOR_ALERT_CURL_CONFIG is required' >&2; return 2
     fi
@@ -22,10 +31,45 @@ monitor_state_init() {
     (umask 077; mkdir -p "$MONITOR_DIR") || { echo 'CONFIG: cannot create monitor state directory' >&2; return 2; }
     chmod 700 "$MONITOR_DIR" || return 2
     if ! mkdir "$MONITOR_DIR/lock" 2>/dev/null; then
-        echo 'previous run active'
-        return 3
+        local owner=''
+        [[ ! -r "$MONITOR_DIR/lock/pid" ]] || read -r owner < "$MONITOR_DIR/lock/pid" || true
+        if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
+            echo 'previous run active'
+            return 3
+        fi
+        rm -f "$MONITOR_DIR/lock/pid" 2>/dev/null
+        rmdir "$MONITOR_DIR/lock" 2>/dev/null || { echo 'previous run active'; return 3; }
+        mkdir "$MONITOR_DIR/lock" 2>/dev/null || { echo 'previous run active'; return 3; }
     fi
-    trap 'rmdir "$MONITOR_DIR/lock" 2>/dev/null || true' EXIT
+    (umask 077; printf '%s\n' "$$" > "$MONITOR_DIR/lock/pid") || return 2
+    trap 'monitor_unlock' EXIT
+}
+
+monitor_unlock() {
+    [[ "${BASH_SUBSHELL:-0}" -eq 0 ]] || return 0
+    local owner=''
+    [[ ! -r "$MONITOR_DIR/lock/pid" ]] || read -r owner < "$MONITOR_DIR/lock/pid" || true
+    if [[ "$owner" == "$$" ]]; then
+        rm -f "$MONITOR_DIR/lock/pid"
+        rmdir "$MONITOR_DIR/lock" 2>/dev/null || true
+    fi
+}
+
+# Bash 3.2 compatible deadline for a single external command. The output file belongs to the caller.
+monitor_deadline() {
+    local output="$1" seconds="${MONITOR_CMD_TIMEOUT:-20}" pid guard rc=0
+    shift
+    [[ "$seconds" =~ ^[1-9][0-9]*$ ]] || return 2
+    "$@" > "$output" 2>/dev/null & pid=$!
+    (sleep "$seconds"; kill -TERM "$pid" 2>/dev/null || true; sleep 1; kill -KILL "$pid" 2>/dev/null || true) & guard=$!
+    wait "$pid" || rc=$?
+    kill "$guard" 2>/dev/null || true
+    wait "$guard" 2>/dev/null || true
+    return "$rc"
+}
+
+monitor_fail_rows() {
+    grep '^FAIL [MH][0-9]' "$1" | head -20 | tr -cd '[:print:]\n'
 }
 
 monitor_load_state() {
@@ -85,6 +129,8 @@ monitor_transition() {
             fi
         fi
     fi
-    monitor_save_state || { echo 'FAIL state save'; return 1; }
+    if [[ "$MONITOR_DRY_RUN" != yes ]]; then
+        monitor_save_state || { echo 'FAIL state save'; return 1; }
+    fi
     [[ "$delivery_failed" -eq 0 ]]
 }

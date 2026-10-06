@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Manual Docker proof for #106. Requires an already local nginx:1.27-alpine image.
+# macOS Docker Desktop only: the server binds loopback and native Linux containers cannot reach it.
 # Uses loopback only; never pulls an image or contacts a remote host.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -72,20 +73,20 @@ export MONITOR_RESOLVE="${HOST}:${TLS}:127.0.0.1" CURL_CA_BUNDLE="$TMP/conf/cert
 export MONITOR_STATE_DIR="$TMP/state/monitor" VERIFY_SLEEP=0 VERIFY_ATTEMPTS=1
 run() { rc=0; out="$(bash "$ROOT/.deploy/monitor.sh" --dry-run 2>&1)" || rc=$?; }
 run
-[[ $rc -eq 0 ]] && ok 'healthy run exits 0' || nope "healthy run: $out"
+[[ $rc -eq 0 && $out == *'PASS M5'* ]] && ok 'healthy run passes TLS check' || nope "healthy run: $out"
 kill "$SERVER"; wait "$SERVER" 2>/dev/null || true; SERVER=''
 run
 [[ $rc -eq 1 && $out == *'FAIL M2'* && $out == *'FAIL M4'* ]] && ok 'stopped Backstage fails M2 and M4' || nope "stopped Backstage: $out"
 start_server || exit 1
 git --git-dir="$TMP/repo.git" -c tag.gpgsign=false tag -a v2099.01.01.2 -m wrong-version "${VER}^" || exit 1
 run
-[[ $rc -eq 1 && $out == *'FAIL M4'* ]] && ok 'newer tag on wrong commit fails M4' || nope "wrong version: $out"
+[[ $rc -eq 1 && $out == *"FAIL S1 backstage version: expected $(git --git-dir="$TMP/repo.git" rev-parse "${VER}^")"* && $out == *"served ${VER}"* ]] && ok 'newer tag on wrong commit fails M4 version' || nope "wrong version: $out"
 git --git-dir="$TMP/repo.git" tag -d v2099.01.01.2 >/dev/null
 make_cert 7 || exit 1
 docker exec "$NAME" nginx -s reload >/dev/null 2>&1 || exit 1
 sleep 1
 run
-[[ $rc -eq 1 && $out == *'FAIL M5'* ]] && ok 'seven-day certificate fails M5' || nope "expiring cert: $out"
+[[ $rc -eq 1 && $out == *'FAIL M5 TLS certificate expires within 14 days'* ]] && ok 'seven-day certificate fails expiry check' || nope "expiring cert: $out"
 make_cert 30 || exit 1
 docker exec "$NAME" nginx -s reload >/dev/null 2>&1 || exit 1
 # The 401 is internally redirected to the named location, so inject at both locations.

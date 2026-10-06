@@ -22,7 +22,7 @@ Question: what does the estate already run for uptime checks, TLS expiry, restar
 | deploy-verify skill | `~/.claude/skills/deploy-verify/SKILL.md` | Reminds that the served SHA must match | Process nudge, no monitor |
 
 Negatives, with scope:
-- **Teams incoming webhook:** none in `~/projects` (grep for `webhook.office.com`, `outlook.office.com/webhook`, `logic.azure.com`, `TEAMS_WEBHOOK`, excluding `.env*`, `node_modules`, `.git`), `~/.claude/scripts`, `~/.claude/knowledge` or `~/.agents/skills`. Teams is the operator's channel (global config, "Comms: Teams") but has no webhook yet.
+- **Teams incoming webhook:** none in `~/projects` (scan for the Teams and Logic Apps webhook hostnames and `TEAMS_WEBHOOK`, excluding `.env*`, `node_modules`, `.git`), `~/.claude/scripts`, `~/.claude/knowledge` or `~/.agents/skills`. Teams is the operator's channel (global config, "Comms: Teams") but has no webhook yet.
 - **ntfy, Pushover, healthchecks.io, UptimeRobot, Better Stack:** no endpoint URL in the same `~/projects` grep. UptimeRobot and Better Uptime appear only as "configure manually" echo text in breakout-infra's `setup-monitoring.sh`.
 - **NRestarts, `OnFailure=`, `OnCalendar=` timers:** none in breakout-infra, groit or this repo.
 - **breakout-apps is not on the tailnet;** it is reached by public IP (`kb-tailnet-server-access.md:58`), so an external check uses the public hostname.
@@ -35,7 +35,7 @@ Security note from the survey: `openclaw-health-check.sh`, `stack-health-probe.s
 
 Nothing runs today, so there is nothing to wire into. Port the patterns and build the smallest missing piece:
 
-1. **Check logic is the repo's own S1/S2 verify.** `.deploy/monitor.sh` sources `.deploy/backstage-lib.sh` and `.deploy/verify-lib.sh` and calls `verify_live` with gate `session`, so the monitor asserts exactly what every deploy asserts (`docs/DEPLOY.md` S1 and S2). It never calls `ship.sh --verify`, because that reads the gate state over SSH (`ship.sh:407`, `backstage_auth_state`) and a monitor must not hold an SSH key to the host.
+1. **Check logic reuses the repo's S1/S2 functions.** `.deploy/monitor.sh` sources `.deploy/backstage-lib.sh` and `.deploy/verify-lib.sh` and runs the relevant checks in the parent shell with gate `session`. The forged-cookie check uses a constant garbage cookie so no near-valid signature enters command arguments. It never calls `ship.sh --verify`, because that reads the gate state over SSH (`ship.sh:407`, `backstage_auth_state`) and a monitor must not hold an SSH key to the host.
 2. **Expected version is the newest release tag,** read with `git ls-remote --tags` from the public repository: the newest annotated `vYYYY.MM.DD.N` tag's peeled SHA. The authenticated `/api/backstage/health` `version` must equal it.
 3. **TLS expiry** ports `openclaw-health-check.sh:187`: `openssl s_client` into `openssl x509 -checkend 1209600` (14 days).
 4. **Alert state** ports the last-status file from `openclaw-health-check.sh:236-282` and adds what no estate script has: a consecutive-failure counter. Alert after 2 consecutive failing runs, once; recovery notice once.
@@ -54,7 +54,8 @@ Each check has a passing case and a negative control that must make the run fail
 | M3 | anon `/api/backstage/health` 401, JSON `{"code":"unauthenticated"}`, no `WWW-Authenticate` | nginx adds a `WWW-Authenticate` header |
 | M4 | monitor session minted; authenticated `/api/backstage/health` `version` equals the newest release tag SHA | newest tag points at a different commit; tag listing unreachable |
 | M5 | certificate valid for at least 14 more days | a certificate expiring inside 14 days |
-| M6 | the private curl configs exist, are regular files owned by the runner, mode 0600 | group-readable config, missing config |
+| M6 | the Backstage curl config is private and owned by the runner; the alert config has the same rule except a systemd credential may be root-owned and ACL-readable with no world bits | group-readable Backstage config, missing alert config |
+| M7 | a constant garbage session cookie is rejected | garbage cookie accepted |
 | H1 | `Restart=` is `on-failure` or `always` | `Restart=no` |
 | H2 | `ActiveState=active` | `inactive` or `failed` |
 | H3 | `NRestarts` did not grow since the previous run; a lower value is a reset and becomes the baseline | `NRestarts` grew |
@@ -69,16 +70,17 @@ One state file per monitor: consecutive failure count and whether an alert is op
 | PENDING (1, closed) | OK, no message | send ALERT; on success ALERTING, on send failure stay closed with count 2 so the next failing run retries |
 | ALERTING (open) | send RECOVERED; on success OK, on send failure stay open so the next passing run retries | ALERTING, no repeat |
 
-A missing or unreadable state file is OK. Overlapping runs are refused by a lock directory. `--dry-run` prints the message instead of sending it.
+A missing or unreadable state file is OK. The lock records its owner PID: a live owner makes the run exit quietly; a dead or missing owner lets the next run reclaim the lock. `--dry-run` prints the message instead of sending it and never writes the alert state or host restart baseline.
 
 ## Operator steps
 
 Values in angle brackets are the operator's to choose; nothing here is created by the PR.
 
-1. **Monitor account.** `bun scripts/backstage-operator-password.ts monitor@jevnotjev.invalid` on the workstation; add the printed row to `operators.json` and install it as in `docs/backstage-deploy.md` step 3. Use this account for nothing else.
-2. **Monitor curl config** on the monitor box, mode 0600, owned by the user the timer runs as, outside any repository: one line `user = "monitor@jevnotjev.invalid:<printed password>"`.
-3. **Alert channel.** Teams: in the target channel, Workflows, "Send webhooks alerts to a channel", copy the URL. Alert curl config, mode 0600: `url = "<workflow URL>"`. Both services set `MONITOR_ALERT_KIND=teams`. Telegram instead: `url = "https://api.telegram.org/bot<token>/sendMessage"` and `data-urlencode = "chat_id=<chat id>"`; override `MONITOR_ALERT_KIND=telegram` in the relevant service unit.
-4. **External timer** on a Linux box other than breakout-apps: create the dedicated `jevnotjev-monitor` user and clone the repository at `/opt/jevnotjev` for that user. Install `.deploy/monitor/jevnotjev-monitor.service` and `.timer`; copy `.deploy/monitor/monitor.env.example` to `/etc/jevnotjev-monitor/monitor.env` and set the two private config paths there. Run `systemctl enable --now jevnotjev-monitor.timer`. First check: `systemctl start jevnotjev-monitor.service; journalctl -u jevnotjev-monitor -n 30`.
-5. **Host timer** on breakout-apps: install `.deploy/monitor-host.sh`, `.deploy/monitor-lib.sh` and `.deploy/monitor/jevnotjev-backstage-restarts.service` and `.timer` under `/opt/jevnotjev` as the unit file states, the alert config as `/etc/jevnotjev-monitor/alert.curl` (root, 0600), then `systemctl enable --now jevnotjev-backstage-restarts.timer`.
+1. **Monitor account.** Choose an unpublished local part for the monitor email, then run `bun scripts/backstage-operator-password.ts <chosen email>` on the workstation; add the printed row to `operators.json` and install it as in `docs/backstage-deploy.md` step 3. Use this account for nothing else. Keep the email private because the email-level login lock can be triggered by anyone who knows it.
+2. **Monitor curl config** on the monitor box, mode 0600, owned by the user the timer runs as, outside any repository: one line `user = "<chosen email>:<printed password>"`.
+3. **Alert channel.** Teams: in the target channel, add a Workflows flow that posts an incoming webhook request to the channel (the template name is UNVERIFIED here; the PR was not tested against a live Teams webhook), and copy its URL. Alert curl config, mode 0600: `url = "<workflow URL>"`. Both services set `MONITOR_ALERT_KIND=teams`. Telegram instead: `url = "https://api.telegram.org/bot<token>/sendMessage"` and `data-urlencode = "chat_id=<chat id>"`; override `MONITOR_ALERT_KIND=telegram` in the relevant service unit.
+4. **External timer** on a Linux box other than breakout-apps: install bun at `/usr/local/bin/bun`, plus git, curl and openssl. Create the dedicated `jevnotjev-monitor` user and clone the repository at `/opt/jevnotjev` for that user. Install `.deploy/monitor/jevnotjev-monitor.service` and `.timer`; copy `.deploy/monitor/monitor.env.example` to `/etc/jevnotjev-monitor/monitor.env` and set the two private config paths there. Run `systemd-analyze verify` on all four monitor units, then `systemctl enable --now jevnotjev-monitor.timer`. First check: `systemctl start jevnotjev-monitor.service; journalctl -u jevnotjev-monitor -n 30`.
+5. **Host timer** on breakout-apps: install `.deploy/monitor-host.sh`, `.deploy/monitor-lib.sh` and `.deploy/monitor/jevnotjev-backstage-restarts.service` and `.timer` under `/opt/jevnotjev` as the unit file states, the alert config as `/etc/jevnotjev-monitor/alert.curl` (root, 0600), then `systemctl enable --now jevnotjev-backstage-restarts.timer`. First check that the credential is accepted: `systemctl start jevnotjev-backstage-restarts.service; journalctl -u jevnotjev-backstage-restarts -n 20`.
 6. **Confirm the live restart policy:** `systemctl show jevnotjev-backstage -p Restart -p RestartUSec -p NRestarts` must print `Restart=on-failure`, `RestartUSec=2s`.
+   A crash loop can hit systemd's start limit and leave the service inactive, which fails H2. One restart alone is not alerted: H3 alerts after growth in two consecutive five-minute windows.
 7. **Rotate** the Telegram bot token that sits in plaintext in the three `~/.claude/scripts` files named in the survey, if Telegram is the chosen channel.

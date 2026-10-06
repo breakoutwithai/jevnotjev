@@ -7,7 +7,7 @@ import {
 } from "./run.ts";
 import { MODEL_CATALOG, CATALOG_CHECKED_DATE, JEV_ARM_ID } from "./catalog.ts";
 import { copyDecision } from "./copy.ts";
-import { keptLogin, replaceCachedLogin, signOut, signOutPassword } from "./signout.ts";
+import { signOut, signOutRequest } from "./signout.ts";
 import {
   confirmPanel,
   resolveConfirm,
@@ -697,7 +697,7 @@ button("sign-out").onclick = () => {
   control.disabled = true;
   void signOut({
     clear: () => { clearKeys(); clearScene(); },
-    request: () => replaceCachedLogin(new XMLHttpRequest(), signOutPassword(crypto.getRandomValues(new Uint8Array(16)))),
+    request: () => signOutRequest(fetch),
     navigate: (url) => location.replace(url),
     notice,
   });
@@ -838,6 +838,20 @@ async function loadTrialAvailability() {
     });
     const health: unknown = await response.json();
     if (
+      response.status === 401 &&
+      typeof health === "object" &&
+      health !== null &&
+      "code" in health &&
+      health.code === "unauthenticated"
+    ) {
+      const surface = element("notice");
+      surface.textContent = "Your sign-in has expired. ";
+      const link = node("a", "Sign in again.");
+      link.setAttribute("href", "/backstage/sign-in");
+      surface.append(link);
+      return;
+    }
+    if (
       typeof health !== "object" ||
       !health ||
       !("trial" in health) ||
@@ -871,9 +885,3 @@ window.addEventListener("beforeunload", (event) => {
   }
 });
 showRoom(0);
-if (keptLogin(location.search)) {
-  const warning = element("signed-out");
-  warning.hidden = false;
-  warning.focus();
-  history.replaceState(null, "", location.pathname);
-}

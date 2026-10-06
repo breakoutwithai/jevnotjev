@@ -1,5 +1,8 @@
-import { resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { isIP } from "node:net";
+import { randomBytes } from "node:crypto";
+import { cookie, cookieName, GoogleStates, isSameOrigin, LoginLimiter, normalizeEmail, OperatorStore, parseCookie, RevokedSessions, sanitizeNextPath, SESSION_TTL_MS, signSession, validateGoogleProfile, verifyPasswordHash, verifySession } from "./auth.ts";
+import { renderSignInPage } from "./sign-in-page.ts";
 import { CATALOG_VERSION, MODEL_CATALOG, getModelEntry } from "./catalog.ts";
 import { PROTOCOL_VERSION } from "./contracts.ts";
 import {
@@ -32,6 +35,15 @@ export interface ServerOptions {
   readonly trialConfig?: TrialConfig;
   readonly trialPricingVersion?: string;
   readonly trustProxy?: boolean;
+  readonly auth?: {
+    readonly sessionSecret?: string | undefined;
+    readonly operatorsPath?: string | undefined;
+    readonly googleClientId?: string | undefined;
+    readonly googleClientSecret?: string | undefined;
+    readonly fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    readonly googleFetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+    readonly clock?: () => number;
+  };
 }
 export interface RequestContext {
   readonly remoteAddress?: string;
@@ -66,6 +78,12 @@ const HEADERS = {
   "content-security-policy":
     "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
 };
+function clientAddress(request: Request, context: RequestContext | undefined, trustProxy: boolean | undefined): string | null {
+  const socket = context?.remoteAddress;
+  const loopback = socket === "127.0.0.1" || socket === "::1" || socket === "::ffff:127.0.0.1";
+  const address = trustProxy && loopback ? request.headers.get("x-backstage-client-ip") : socket;
+  return address && isIP(address) ? address : null;
+}
 function json(value: unknown, status = 200): Response {
   const payload =
     status >= 400 &&
@@ -86,6 +104,23 @@ function json(value: unknown, status = 200): Response {
   return Response.json(payload, { status, headers: HEADERS });
 }
 export function createHandler(options: ServerOptions): BackstageHandler {
+  const clock = options.auth?.clock ?? Date.now;
+  const secret = options.auth?.sessionSecret ?? "";
+  const origin = options.origin ?? "http://localhost:3456";
+  const operators = new OperatorStore(options.auth?.operatorsPath);
+  const limiter = new LoginLimiter(clock);
+  const states = new GoogleStates(clock);
+  const revoked = new RevokedSessions(clock);
+  const googleReady = Boolean(options.auth?.googleClientId && options.auth.googleClientSecret && secret.length >= 32);
+  const authConfigured = options.auth !== undefined;
+  const sessionFrom = (request: Request) => {
+    const value = parseCookie(request.headers.get("cookie"), cookieName(origin, "session"));
+    const session = secret.length >= 32 ? verifySession(value, secret, clock()) : null;
+    return session && !revoked.has(session.sid) && operators.get(session.email) ? session : null;
+  };
+  const redirect = (location: string, status = 303): Response => new Response(null, { status, headers: { ...HEADERS, location } });
+  const denied = (): Response => Response.json({ code: "unauthenticated" }, { status: 401, headers: HEADERS });
+  const authError = (code: string): Response => redirect(`/backstage/sign-in?error=${code}`);
   let active = 0,
     activeTrial = 0,
     activeByok = 0,
@@ -105,12 +140,106 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       : undefined,
   );
   const root = resolve(options.staticRoot ?? "site"),
-    cookieName = "backstage_trial";
+    trialCookieName = "backstage_trial";
   const handler = async (
     request: Request,
     context?: RequestContext,
   ): Promise<Response> => {
     const url = new URL(request.url);
+    if (url.pathname === "/backstage/sign-in" && request.method === "GET") {
+      const message = url.searchParams.get("signed-out") === "1" ? "signed-out" : url.searchParams.get("error");
+      return renderSignInPage(sanitizeNextPath(url.searchParams.get("next")), message, googleReady, HEADERS["content-security-policy"]);
+    }
+    if (url.pathname === "/api/auth/session") return request.method === "GET" ? (sessionFrom(request) ? new Response(null, { status: 204, headers: HEADERS }) : denied()) : json({ error: "Method not allowed." }, 405);
+    if (url.pathname === "/api/auth/password") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!isSameOrigin(request, origin)) return json({ error: "Forbidden." }, 403);
+      let email = "", password = "", next = "/backstage/";
+      const body = await request.text();
+      if (body) {
+        if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/x-www-form-urlencoded") return authError("signin");
+        const form = new URLSearchParams(body);
+        email = form.get("email") ?? ""; password = form.get("password") ?? "";
+        next = sanitizeNextPath(form.get("next"));
+      } else {
+        const basic = request.headers.get("authorization") ?? "";
+        if (basic.startsWith("Basic ")) {
+          try {
+            const decoded = Buffer.from(basic.slice(6), "base64").toString("utf8");
+            const separator = decoded.indexOf(":");
+            if (separator >= 0) { email = decoded.slice(0, separator); password = decoded.slice(separator + 1); }
+          } catch { /* Invalid credentials take the ordinary failure path. */ }
+        }
+      }
+      email = normalizeEmail(email);
+      const address = clientAddress(request, context, options.trustProxy) ?? "unknown";
+      if (limiter.locked(email, address)) return authError("locked");
+      const row = operators.get(email);
+      const valid = secret.length >= 32 && verifyPasswordHash(password, row?.password_hash) && Boolean(row);
+      if (!valid) { limiter.fail(email, address); return authError("signin"); }
+      limiter.success(email);
+      const session = signSession({ email, auth: "password", iat: clock(), exp: clock() + SESSION_TTL_MS, sid: randomBytes(24).toString("base64url") }, secret);
+      const response = redirect(next);
+      response.headers.append("set-cookie", cookie(origin, "session", session, 43200));
+      return response;
+    }
+    if (url.pathname === "/api/auth/sign-out") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!isSameOrigin(request, origin)) return json({ error: "Forbidden." }, 403);
+      const session = sessionFrom(request);
+      if (session) revoked.revoke(session.sid, session.exp);
+      const response = redirect("/backstage/sign-in?signed-out=1");
+      response.headers.append("set-cookie", cookie(origin, "session", "", 0));
+      return response;
+    }
+    if (url.pathname === "/api/auth/google") {
+      if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+      if (!googleReady || !options.auth?.googleClientId) return json({ error: "Google sign-in unavailable." }, 503);
+      const state = states.start(sanitizeNextPath(url.searchParams.get("next")));
+      if (!state) return json({ error: "Too many pending sign-in attempts." }, 429);
+      const target = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+      target.searchParams.set("client_id", options.auth.googleClientId);
+      target.searchParams.set("redirect_uri", `${origin}/api/auth/google/callback`);
+      target.searchParams.set("response_type", "code");
+      target.searchParams.set("scope", "openid email profile");
+      target.searchParams.set("state", state);
+      target.searchParams.set("access_type", "online");
+      target.searchParams.set("prompt", "select_account");
+      const response = redirect(target.toString(), 302);
+      response.headers.append("set-cookie", cookie(origin, "oauth", state, 600));
+      return response;
+    }
+    if (url.pathname === "/api/auth/google/callback") {
+      if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+      if (!googleReady || !options.auth?.googleClientId || !options.auth.googleClientSecret) return json({ error: "Google sign-in unavailable." }, 503);
+      const responseError = authError("google");
+      const clear = cookie(origin, "oauth", "", 0);
+      const state = url.searchParams.get("state") ?? "";
+      const next = states.take(state, parseCookie(request.headers.get("cookie"), cookieName(origin, "oauth")));
+      if (!next || url.searchParams.has("error") || !url.searchParams.get("code")) { responseError.headers.append("set-cookie", clear); return responseError; }
+      try {
+        // Ported from groit apps/booth/server.js:1720-1765 at bb29d8cc; test bypass omitted.
+        const doFetch = options.auth.fetch ?? options.auth.googleFetch ?? fetch;
+        const token = await doFetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code: url.searchParams.get("code") ?? "", client_id: options.auth.googleClientId, client_secret: options.auth.googleClientSecret, redirect_uri: `${origin}/api/auth/google/callback`, grant_type: "authorization_code" }) });
+        if (!token.ok) throw new Error("Token exchange failed");
+        const tokenData: unknown = await token.json();
+        if (typeof tokenData !== "object" || tokenData === null || !("id_token" in tokenData) || typeof tokenData.id_token !== "string" || !tokenData.id_token) throw new Error("Missing token");
+        const info = await doFetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokenData.id_token)}`);
+        if (!info.ok) throw new Error("Tokeninfo failed");
+        const profile: unknown = await info.json();
+        const email = validateGoogleProfile(profile, options.auth.googleClientId, operators);
+        if (!email) throw new Error("Invalid profile");
+        const session = signSession({ email, auth: "google", iat: clock(), exp: clock() + SESSION_TTL_MS, sid: randomBytes(24).toString("base64url") }, secret);
+        const response = redirect(next);
+        response.headers.append("set-cookie", clear);
+        response.headers.append("set-cookie", cookie(origin, "session", session, 43200));
+        return response;
+      } catch { responseError.headers.append("set-cookie", clear); return responseError; }
+    }
+    if (authConfigured && (url.pathname.startsWith("/backstage/") || url.pathname.startsWith("/api/backstage/")) && !sessionFrom(request)) {
+      if (url.pathname.startsWith("/api/")) return denied();
+      return redirect(`/backstage/sign-in?next=${sanitizeNextPath(url.pathname)}`, 302);
+    }
     const trialHeld = trial.available && (fundingHeld || trial.ledger.held());
     if (url.pathname === "/api/backstage/health")
       return request.method === "GET"
@@ -210,20 +339,12 @@ export function createHandler(options: ServerOptions): BackstageHandler {
               .get("cookie")
               ?.split(";")
               .map((v) => v.trim())
-              .find((v) => v.startsWith(`${cookieName}=`))
-              ?.slice(cookieName.length + 1) ?? "";
+              .find((v) => v.startsWith(`${trialCookieName}=`))
+              ?.slice(trialCookieName.length + 1) ?? "";
           if (url.pathname.endsWith("/mint")) {
             if (trial.ledger.verify(token)) return json({ available: true });
-            const socket = context?.remoteAddress,
-              loopback =
-                socket === "127.0.0.1" ||
-                socket === "::1" ||
-                socket === "::ffff:127.0.0.1";
-            const address =
-              options.trustProxy && loopback
-                ? request.headers.get("x-backstage-client-ip")
-                : socket;
-            if (!address || !isIP(address))
+            const address = clientAddress(request, context, options.trustProxy);
+            if (!address)
               return json(
                 dispatchError(
                   "trial-unavailable",
@@ -243,7 +364,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
             const response = json({ available: true });
             response.headers.set(
               "set-cookie",
-              `${cookieName}=${minted.token}; HttpOnly; SameSite=Strict; Path=/api/backstage/trial; Max-Age=7776000${publicOrigin.protocol === "https:" ? "; Secure" : ""}`,
+              `${trialCookieName}=${minted.token}; HttpOnly; SameSite=Strict; Path=/api/backstage/trial; Max-Age=7776000${publicOrigin.protocol === "https:" ? "; Secure" : ""}`,
             );
             return response;
           }
@@ -413,6 +534,12 @@ if (import.meta.main) {
     ...(trialConfig ? { trialConfig } : {}),
     trialPricingVersion: process.env.BACKSTAGE_TRIAL_PRICING_VERSION ?? "",
     trustProxy: process.env.BACKSTAGE_TRUST_PROXY === "loopback",
+    auth: {
+      sessionSecret: process.env.BACKSTAGE_SESSION_SECRET,
+      operatorsPath: process.env.BACKSTAGE_OPERATORS_PATH ?? (process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, "operators.json") : undefined),
+      googleClientId: process.env.BACKSTAGE_GOOGLE_CLIENT_ID,
+      googleClientSecret: process.env.BACKSTAGE_GOOGLE_CLIENT_SECRET,
+    },
   });
   Bun.serve({
     hostname: "127.0.0.1",

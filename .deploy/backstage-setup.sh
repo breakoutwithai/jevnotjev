@@ -14,14 +14,11 @@
 #   4. nginx -t before the reload, `systemctl reload nginx` never restart, co-tenants probed
 #      before and after. nginx -t failure: restore, no reload. Changed co-tenant: restore,
 #      nginx -t, reload again.
-#   5. Basic Auth gate verified after the reload: unauthenticated GET of /backstage/ and
-#      /api/backstage/health must answer 401 (auth precedes the proxy, so 401 even with no
-#      release), and the same GETs with BACKSTAGE_CURL_CONFIG must not. Otherwise: restore.
+#   5. The selected Basic or session gate is verified after the reload. Otherwise: restore.
 #
-# The snippet gates both Backstage locations with /etc/jevnotjev-backstage/htpasswd. Setup never
-# creates credentials: it refuses, before any change, unless that file exists, is non-empty,
-# root:<nginx worker group> mode 0640, in a root-owned directory of mode 0750 or tighter, and
-# prints the command the operator runs to create it (the password is typed at a prompt).
+# A Basic snippet requires the operator's existing htpasswd. A session snippet requires nginx's
+# auth_request module, the running sign-in release, auth.env and operators.json. Setup never
+# creates credentials or secrets.
 # An installed unit that differs from the repo is reported and left alone. The funded-trial
 # secret file is outside this script's scope.
 #
@@ -37,11 +34,13 @@ source "${SETUP_DIR}/config.sh"
 source "${SETUP_DIR}/lib.sh"
 # shellcheck source=/dev/null
 source "${SETUP_DIR}/backstage-lib.sh"
+# shellcheck source=/dev/null
+source "${SETUP_DIR}/verify-lib.sh"
 
 readonly BS_SERVICE="jevnotjev-backstage"
 readonly BS_USER="jevnotjev-backstage"
 readonly BS_UNIT_SRC="${SETUP_DIR}/backstage.service"
-readonly BS_SNIPPET_SRC="${SETUP_DIR}/backstage-nginx.conf"
+BS_SNIPPET_SRC="${SETUP_DIR}/backstage-nginx.conf"
 readonly BS_UNIT="/etc/systemd/system/${BS_SERVICE}.service"
 readonly BS_SNIPPET="/etc/nginx/snippets/jevnotjev-backstage.conf"
 readonly BS_INCLUDE="include ${BS_SNIPPET};"
@@ -54,6 +53,8 @@ readonly BS_LOCK="/var/lock/jevnotjev-backstage-deploy"
 readonly BS_HTPASSWD_DIR="/etc/jevnotjev-backstage"
 readonly BS_HTPASSWD="${BS_HTPASSWD_DIR}/htpasswd"
 readonly BS_HTPASSWD_TOOL="/usr/bin/htpasswd"
+readonly BS_AUTH_ENV="/etc/jevnotjev-backstage/auth.env"
+readonly BS_OPERATORS="/var/lib/jevnotjev-backstage/operators.json"
 
 # insert_include - pure. vhost text on stdin, include line as $1. Prints the vhost with the
 # include added once, at server level, right after the first `listen ...443` line of the ONLY
@@ -98,7 +99,7 @@ include_placed() {
 
 # setup_probe - ONE read-only remote command; prints key=value lines.
 setup_probe() {
-    remote "U='${BS_UNIT}' S='${BS_SNIPPET}' I='${BS_INCLUDE}' V='${VHOST_AVAILABLE}' E='${VHOST_ENABLED}' B='${BS_BUN}' P='${BS_PORT}' N='${BS_USER}'
+    remote "U='${BS_UNIT}' S='${BS_SNIPPET}' I='${BS_INCLUDE}' V='${VHOST_AVAILABLE}' E='${VHOST_ENABLED}' B='${BS_BUN}' P='${BS_PORT}' N='${BS_USER}' A='${BS_AUTH_ENV}' O='${BS_OPERATORS}'
 echo \"arch=\$(uname -m)\"
 if [ ! -x \"\$B\" ]; then echo bun=absent; elif v=\$(\"\$B\" --version 2>/dev/null) && [ -n \"\$v\" ]; then echo \"bun=\$v\"; else echo bun=broken; fi
 if id -u \"\$N\" >/dev/null 2>&1; then echo user=present; else echo user=absent; fi
@@ -121,7 +122,41 @@ echo \"nginx_group=\$g\"
 if [ -L \"\$H\" ]; then echo htpasswd=symlink; elif [ ! -e \"\$H\" ]; then echo htpasswd=absent; elif [ ! -f \"\$H\" ]; then echo htpasswd=notfile
 elif m=\$(stat -c '%U %G %a %s' \"\$H\" 2>/dev/null); then echo \"htpasswd=\$(printf '%s' \"\$m\" | tr ' ' ':')\"; else echo htpasswd=unknown; fi
 if [ -L \"\$D\" ]; then echo htpasswd_dir=symlink; elif [ ! -d \"\$D\" ]; then echo htpasswd_dir=absent
-elif m=\$(stat -c '%U %G %a %s' \"\$D\" 2>/dev/null); then echo \"htpasswd_dir=\$(printf '%s' \"\$m\" | tr ' ' ':')\"; else echo htpasswd_dir=unknown; fi"
+elif m=\$(stat -c '%U %G %a %s' \"\$D\" 2>/dev/null); then echo \"htpasswd_dir=\$(printf '%s' \"\$m\" | tr ' ' ':')\"; else echo htpasswd_dir=unknown; fi
+if nginx -V 2>&1 | grep -q -- '--with-http_auth_request_module'; then echo auth_request=yes; else echo auth_request=no; fi
+code=unknown
+if code=\$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3456/api/auth/session); then :; else code=unknown; fi
+echo \"session_check=\$code\"
+for spec in auth_env:\"\$A\" operators:\"\$O\"; do
+    kind=\${spec%%:*}; file=\${spec#*:}
+    if [ -L \"\$file\" ]; then echo \"\$kind=symlink\"
+    elif [ ! -e \"\$file\" ]; then echo \"\$kind=absent\"
+    elif [ ! -f \"\$file\" ]; then echo \"\$kind=notfile\"
+    elif m=\$(stat -c '%U %G %a %s' \"\$file\" 2>/dev/null); then echo \"\$kind=\$(printf '%s' \"\$m\" | tr ' ' ':')\"
+    else echo \"\$kind=unknown\"; fi
+done"
+}
+
+session_ready() {
+    local probe="$1" kind value owner group mode size
+    for kind in auth_request session_check auth_env operators; do
+        value="$(probe_get "$probe" "$kind")"
+        case "$kind" in
+            auth_request) [[ "$value" == yes ]] || { log_error "Session precondition auth_request failed: nginx needs --with-http_auth_request_module. Refusing; nothing changed."; return 1; } ;;
+            session_check) [[ "$value" == 401 ]] || { log_error "Session precondition release failed: /api/auth/session must return 401 on loopback. Deploy the sign-in-capable release, then run operator step 5: install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage. Refusing; nothing changed."; return 1; } ;;
+            auth_env|operators)
+                IFS=: read -r owner group mode size <<< "$value"
+                if [[ "$kind" == auth_env ]]; then
+                    if [[ "$owner" != root || "$mode" != 600 || ! "$size" =~ ^[0-9]+$ ]]; then
+                        log_error "Session precondition auth_env failed: ${BS_AUTH_ENV} must be a regular, non-symlink root-owned mode 0600 file. Create it in an interactive root session with BACKSTAGE_SESSION_SECRET from openssl rand -hex 32, Google client ID and secret, and BACKSTAGE_TRUST_PROXY=loopback. Refusing; nothing changed."
+                        return 1
+                    fi
+                elif [[ "$owner" != "$BS_USER" || "$mode" != 600 || ! "$size" =~ ^[0-9]+$ || "$size" -eq 0 ]]; then
+                    log_error "Session precondition operators failed: ${BS_OPERATORS} must be a regular, non-empty, non-symlink ${BS_USER}-owned mode 0600 file. Run: install -o jevnotjev-backstage -g jevnotjev-backstage -m 0600 operators.json /var/lib/jevnotjev-backstage/operators.json. Refusing; nothing changed."
+                    return 1
+                fi ;;
+        esac
+    done
 }
 
 # htpasswd_command - the exact command the operator runs ON THE HOST, as root, to create the
@@ -200,8 +235,12 @@ setup_plan() {
     if [[ "$v" == used && "$(probe_get "$probe" active)" != yes ]]; then
         log_error "Port ${BS_PORT} is in use and ${BS_SERVICE} is not running: another process holds it."; return 1
     fi
-    # The snippet gates both locations with this file: without it nginx would answer 500.
-    htpasswd_ready "$probe" || return 1
+    PLAN_GATE="$(backstage_snippet_auth < "$BS_SNIPPET_SRC")" || return 1
+    case "$PLAN_GATE" in
+        yes) htpasswd_ready "$probe" || return 1 ;;
+        session) session_ready "$probe" || return 1 ;;
+        *) log_error "Repo snippet gate is '${PLAN_GATE}'; refusing setup."; return 1 ;;
+    esac
 
     PLAN_USER=false; PLAN_UNIT=false; PLAN_ENABLE=false; PLAN_SNIPPET=false; PLAN_SNIPPET_UPDATE=false; PLAN_INCLUDE=false
     [[ "$(probe_get "$probe" user)" == present ]] || PLAN_USER=true
@@ -209,7 +248,7 @@ setup_plan() {
     if [[ "$v" == absent ]]; then
         PLAN_UNIT=true
     elif [[ "$v" != "$(local_sha "$BS_UNIT_SRC")" ]]; then
-        log_error "Installed ${BS_UNIT} differs from .deploy/backstage.service. Not overwriting; review the difference by hand."; return 1
+        log_error "Installed ${BS_UNIT} differs from .deploy/backstage.service. Install it by hand: install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"; return 1
     fi
     [[ "$(probe_get "$probe" enabled)" == yes ]] || PLAN_ENABLE=true
     v="$(probe_get "$probe" snippet)"
@@ -241,7 +280,12 @@ print_plan() {
         echo "$p nginx -t   (failure: restore the backup, no reload)"
         echo "$p systemctl reload nginx   (never restart)"
         echo "$p re-probe co-tenants   (changed: restore the backup, nginx -t, systemctl reload nginx)"
-        echo "$p GET /backstage/ and /api/backstage/health: 401 without credentials; with BACKSTAGE_CURL_CONFIG 200 (release running) or 502 (none)   (else: restore)"
+        if [[ "$PLAN_GATE" == session ]]; then
+            echo "$p session preconditions: nginx --with-http_auth_request_module; loopback /api/auth/session 401; ${BS_AUTH_ENV} root 0600; ${BS_OPERATORS} ${BS_USER} 0600, non-empty"
+            echo "$p session S2: anon redirect, API 401 without Basic challenge, sign-in form, tampered cookie refused, minted session accepted   (else: restore)"
+        else
+            echo "$p GET /backstage/ and /api/backstage/health: 401 without credentials; with BACKSTAGE_CURL_CONFIG 200 (release running) or 502 (none)   (else: restore)"
+        fi
     fi
     return 0
 }
@@ -337,8 +381,8 @@ apply_nginx() {
         return 1
     fi
     log_success "All ${#neighbours[@]} co-tenant(s) unchanged"
-    if ! verify_auth_gate; then
-        log_error "The Basic Auth gate did not verify. Restoring the vhost and snippet."
+    if ! verify_auth_gate "$PLAN_GATE"; then
+        log_error "The ${PLAN_GATE} gate did not verify. Restoring the vhost and snippet."
         restore_nginx "$backup" "$BS_SNIPPET_UNDO" true
         return 1
     fi
@@ -354,6 +398,12 @@ apply_nginx() {
 # what nginx's auth handler itself returns for a missing or unreadable htpasswd: never accepted.
 # The credentials stay in the curl config file (backstage_curl).
 verify_auth_gate() {
+    if [[ "$1" == session ]]; then
+        export BACKSTAGE_GATE=session
+        backstage_session_reset || return 1
+        verify_live "" "" no yes backstage yes session
+        return $?
+    fi
     local path code rc want state good=true err
     state="$(remote "if systemctl is-active --quiet '${BS_SERVICE}'; then echo active; else echo inactive; fi")" || state=""
     case "$state" in
@@ -427,7 +477,7 @@ setup_main() {
     fi
     # Step 5 verifies the gate with the operator's credentials, so a real nginx change needs them.
     if $PLAN_SNIPPET || $PLAN_INCLUDE; then
-        if ! backstage_require_curl_config yes; then
+        if ! backstage_require_curl_config "$PLAN_GATE"; then
             if $dry_run; then
                 log_warn "BACKSTAGE_CURL_CONFIG is not usable; the real run will refuse until it is set (docs/backstage-deploy.md)."
             else

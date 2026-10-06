@@ -30,7 +30,7 @@ if $DRY_RUN; then
 fi
 LOCK="${TMPDIR:-/tmp}/jevnotjev-backstage-deploy.lock.d"
 mkdir "$LOCK" 2>/dev/null || fail "Backstage deploy already running"
-trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
+trap 'backstage_session_cleanup; rmdir "$LOCK" 2>/dev/null || true' EXIT
 if [[ -z "$ROLLBACK_SHA" ]]; then
  [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "Tracked changes present"
  backstage_clean_sources || fail "Dirty or untracked shippable sources present; refusing to build"
@@ -46,10 +46,12 @@ backstage_check_curl_config || fail "Curl credential config must be a private fi
 remote "test -f /etc/systemd/system/${SERVICE}.service && test -f /etc/nginx/snippets/jevnotjev-backstage.conf && grep -q 'include /etc/nginx/snippets/jevnotjev-backstage.conf;' '${VHOST_AVAILABLE}'" || fail "One-time reviewed setup is missing; see docs/backstage-deploy.md"
 remote "systemctl is-enabled --quiet '${SERVICE}'" || fail "Backstage service is not enabled for reboot recovery; complete one-time setup"
 remote "mkdir /var/lock/jevnotjev-backstage-deploy" || fail "Another host deploy is active; inspect the existing lock before retrying"
-trap 'remote "rmdir /var/lock/jevnotjev-backstage-deploy" || true; rmdir "$LOCK" 2>/dev/null || true' EXIT
+trap 'backstage_session_cleanup; remote "rmdir /var/lock/jevnotjev-backstage-deploy" || true; rmdir "$LOCK" 2>/dev/null || true' EXIT
 # Read under the lock setup also takes: a gate installed before the lock is seen here.
-auth_state="$(backstage_auth_state)" || fail "Cannot read whether the Backstage snippet on the host requires Basic Auth; refusing"
-backstage_require_curl_config "$auth_state" || fail "BACKSTAGE_CURL_CONFIG is required for every Backstage probe while the snippet requires Basic Auth"
+auth_state="$(backstage_auth_state)" || fail "Cannot read the Backstage gate state on the host; refusing"
+BACKSTAGE_GATE="$auth_state"; export BACKSTAGE_GATE
+backstage_require_curl_config "$auth_state" || fail "BACKSTAGE_CURL_CONFIG is required for every Backstage probe while the snippet has a gate"
+[[ "$auth_state" != session ]] || backstage_session_mint || fail "BACKSTAGE_CURL_CONFIG could not mint a Backstage session"
 neighbours=()
 neighbour_names="$(backstage_list_neighbours "$DOMAIN")" || fail "Cannot enumerate neighbours reliably"
 while IFS= read -r n; do [[ -z "$n" ]] || neighbours+=("$n"); done <<< "$neighbour_names"
@@ -99,6 +101,7 @@ restore(){
   fi
  fi
  remote "rmdir /var/lock/jevnotjev-backstage-deploy" || log_error "Remote lock remains; inspect before retrying"
+ backstage_session_cleanup
  rmdir "$LOCK" 2>/dev/null || true
  exit "$rc"
 }

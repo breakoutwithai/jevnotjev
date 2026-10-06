@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Backstage-specific preconditions; sourced by deploy and tested with command doubles.
+# A new shell must mint its own jar; never accept or delete a path inherited from the environment.
+BACKSTAGE_SESSION_JAR=""
 backstage_clean_sources() {
     local status
     status="$(git status --porcelain --untracked-files=all -- src site scripts .deploy package.json bun.lock tsconfig.json)" || return 1
@@ -71,11 +73,60 @@ backstage_prepare_destination() {
 
 # Credential file contents never enter command arguments or output.
 backstage_curl() {
+    if [[ "${BACKSTAGE_GATE:-}" == session ]]; then
+        backstage_session_mint || return 1
+        curl -q -b "$BACKSTAGE_SESSION_JAR" "$@"
+        return
+    fi
     if [[ -n "${BACKSTAGE_CURL_CONFIG:-}" ]]; then
         curl -q --config "$BACKSTAGE_CURL_CONFIG" "$@"
     else
         curl -q "$@"
     fi
+}
+
+# The caller owns the jar so command substitutions running curl can reuse it.
+backstage_session_cleanup() {
+    [[ -z "${BACKSTAGE_SESSION_JAR:-}" ]] || rm -f "$BACKSTAGE_SESSION_JAR"
+    BACKSTAGE_SESSION_JAR=""
+}
+backstage_session_reset() { backstage_session_cleanup; }
+backstage_session_on_exit() {
+    local rc=$?
+    backstage_session_cleanup
+    [[ -z "${BACKSTAGE_PRIOR_EXIT:-}" ]] || eval "$BACKSTAGE_PRIOR_EXIT"
+    return "$rc"
+}
+backstage_session_install_exit() {
+    local prior
+    prior="$(trap -p EXIT)"
+    [[ "$prior" != *backstage_session_cleanup* && "$prior" != *backstage_session_on_exit* ]] || return 0
+    if [[ -n "$prior" ]]; then
+        prior="${prior#trap -- \'}"
+        prior="${prior%\' EXIT}"
+    fi
+    BACKSTAGE_PRIOR_EXIT="$prior"
+    trap backstage_session_on_exit EXIT
+}
+backstage_session_mint() {
+    [[ "${BACKSTAGE_GATE:-}" == session ]] || return 0
+    [[ -z "${BACKSTAGE_SESSION_JAR:-}" ]] || return 0
+    backstage_require_curl_config session || return 1
+    local jar headers code rc=0 cookie
+    jar="$(mktemp "${TMPDIR:-/tmp}/jevnotjev-session.XXXXXX")" || return 1
+    headers="$(mktemp "${TMPDIR:-/tmp}/jevnotjev-mint.XXXXXX")" || { rm -f "$jar"; return 1; }
+    chmod 600 "$jar" "$headers" || { rm -f "$jar" "$headers"; return 1; }
+    code="$(curl -q --config "$BACKSTAGE_CURL_CONFIG" -sS -X POST -c "$jar" -D "$headers" -o /dev/null -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}/api/auth/password" 2>/dev/null)" || rc=$?
+    cookie="$(awk 'BEGIN{IGNORECASE=1} tolower($1)=="set-cookie:" && ($2 ~ /^(backstage_session|__Host-backstage_session)=/) {print "yes"; exit}' "$headers")"
+    rm -f "$headers"
+    if [[ "$rc" -ne 0 || "$code" != 303 || "$cookie" != yes ]]; then
+        rm -f "$jar"
+        echo "BACKSTAGE_CURL_CONFIG could not mint a Backstage session" >&2
+        return 1
+    fi
+    BACKSTAGE_SESSION_JAR="$jar"
+    export BACKSTAGE_SESSION_JAR
+    backstage_session_install_exit
 }
 
 backstage_list_neighbours() {
@@ -93,6 +144,7 @@ backstage_check_curl_config() {
 # backstage_snippet_auth - pure. Snippet text on stdin; prints the EFFECTIVE auth of the supported
 # layout: exactly one top-level `location ^~ /backstage/` and one `location ^~ /api/backstage/`.
 #   yes      both locations carry auth_basic (not off) and auth_basic_user_file
+#   session  both locations use auth_request to the internal session check
 #   no       neither location has auth, or auth_basic is off in both
 #   unknown  anything else: one location only, auth_basic without a file, auth directives outside
 #            those two locations or in nested blocks, missing/duplicate locations, unbalanced braces
@@ -101,7 +153,22 @@ backstage_snippet_auth() {
     awk '
     { sub(/#.*/, ""); buf = buf " " $0 }
     END {
-        gsub(/[{};]/, "&\n", buf)
+        # Braces in a quoted JSON return body are not nginx block delimiters.
+        parsed = ""; quote = ""; escaped = 0
+        for (j = 1; j <= length(buf); j++) {
+            c = substr(buf, j, 1)
+            if (quote != "") {
+                parsed = parsed c
+                if (escaped) escaped = 0
+                else if (c == "\\") escaped = 1
+                else if (c == quote) quote = ""
+            } else {
+                parsed = parsed c
+                if (c == "\047" || c == "\042") quote = c
+                else if (c == "{" || c == "}" || c == ";") parsed = parsed "\n"
+            }
+        }
+        buf = parsed
         n = split(buf, st, "\n"); depth = 0; cur = ""; bad = 0
         for (i = 1; i <= n; i++) {
             s = st[i]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", s)
@@ -112,6 +179,7 @@ backstage_snippet_auth() {
                 if (depth == 0) {
                     if (h == "location ^~ /backstage/") { cur = "page"; seen["page"]++ }
                     else if (h == "location ^~ /api/backstage/") { cur = "api"; seen["api"]++ }
+                    else if (h == "location = /_backstage_session") { cur = "session_check"; seen["session_check"]++ }
                     else cur = "other"
                 } else if (cur == "page" || cur == "api") bad = 1
                 depth++
@@ -119,7 +187,8 @@ backstage_snippet_auth() {
                 depth--; if (depth < 0) bad = 1; if (depth == 0) cur = ""
             } else if (last == ";") {
                 s = substr(s, 1, length(s) - 1); split(s, w, /[[:space:]]+/); d = w[1]
-                if (d != "auth_basic" && d != "auth_basic_user_file") continue
+                if (d == "internal" && cur == "session_check" && depth == 1) { if (internal++) bad = 1; continue }
+                if (d != "auth_basic" && d != "auth_basic_user_file" && d != "auth_request") continue
                 if (depth != 1 || (cur != "page" && cur != "api") || ((cur, d) in dir)) { bad = 1; continue }
                 v = s; sub(/^[^[:space:]]+[[:space:]]*/, "", v); gsub(/["\047]/, "", v)
                 dir[cur, d] = v
@@ -128,18 +197,25 @@ backstage_snippet_auth() {
         if (depth != 0 || bad || seen["page"] != 1 || seen["api"] != 1) { print "unknown"; exit }
         for (k = 1; k <= 2; k++) {
             loc = (k == 1 ? "page" : "api")
-            ab = ((loc, "auth_basic") in dir); uf = ((loc, "auth_basic_user_file") in dir)
+            ab = ((loc, "auth_basic") in dir); uf = ((loc, "auth_basic_user_file") in dir); ar = ((loc, "auth_request") in dir)
+            if (ar) {
+                if (!ab && !uf && dir[loc, "auth_request"] == "/_backstage_session") r[loc] = "session"
+                else r[loc] = "unknown"
+                continue
+            }
             if (ab && dir[loc, "auth_basic"] == "off") r[loc] = "no"
             else if (ab && uf && dir[loc, "auth_basic"] != "" && dir[loc, "auth_basic_user_file"] != "") r[loc] = "yes"
             else if (!ab && !uf) r[loc] = "no"
             else r[loc] = "unknown"
         }
-        print (r["page"] == r["api"] ? r["page"] : "unknown")
+        if (r["page"] != r["api"]) { print "unknown"; exit }
+        if (r["page"] == "session" && (seen["session_check"] != 1 || internal != 1)) { print "unknown"; exit }
+        print r["page"]
     }'
 }
 
-# backstage_auth_state - prints yes when the INSTALLED snippet gates both Backstage locations with
-# Basic Auth, no when it gates neither (or is absent). Fails closed (returns 1): a read error, a
+# backstage_auth_state - prints yes or session when the INSTALLED snippet gates both Backstage
+# locations, no when it gates neither (or is absent). Fails closed (returns 1): a read error, a
 # failed probe, or a layout backstage_snippet_auth does not recognise.
 backstage_auth_state() {
     local text rc=0 state
@@ -151,19 +227,19 @@ backstage_auth_state() {
     esac
     state="$(printf '%s\n' "$text" | backstage_snippet_auth)" || return 1
     case "$state" in
-        yes|no) echo "$state" ;;
+        yes|session|no) echo "$state" ;;
         *) return 1 ;;
     esac
 }
 
-# backstage_require_curl_config - $1 is the auth state (yes|no). With auth on the host every
+# backstage_require_curl_config - $1 is the auth state (yes|session|no). With auth on the host every
 # Backstage probe needs the private curl config; say so by name instead of failing on a bare 401.
 backstage_require_curl_config() {
     case "$1" in
         no) ;;
-        yes)
+        yes|session)
             if [[ -z "${BACKSTAGE_CURL_CONFIG:-}" ]]; then
-                echo "Backstage is behind Basic Auth on the host: export BACKSTAGE_CURL_CONFIG=<absolute path to your private curl config> (see docs/backstage-deploy.md)." >&2
+                echo "Backstage is behind a gate on the host: export BACKSTAGE_CURL_CONFIG=<absolute path to your private curl config> (see docs/DEPLOY.md)." >&2
                 return 1
             fi ;;
         *) echo "Backstage auth state '${1}' is unknown; refusing." >&2; return 1 ;;

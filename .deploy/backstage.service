@@ -12,6 +12,7 @@ StateDirectoryMode=0700
 WorkingDirectory=/var/www/jevnotjev-backstage-current
 EnvironmentFile=/var/www/jevnotjev-backstage-current/runtime.env
 EnvironmentFile=-/etc/jevnotjev-backstage/trial.env
+EnvironmentFile=-/etc/jevnotjev-backstage/auth.env
 ExecStart=/usr/local/bin/bun /var/www/jevnotjev-backstage-current/server.js
 Restart=on-failure
 RestartSec=2

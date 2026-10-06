@@ -21,19 +21,51 @@ verify_fail() { echo "  FAIL $1"; VERIFY_FAILED=$((VERIFY_FAILED + 1)); }
 verify_note() { echo "  n/a  $1"; }
 
 # verify_get <anon|auth> <path> - one GET pinned to the host. Sets VERIFY_CODE, VERIFY_RC and
-# VERIFY_BODY. Never --fail: the status is the observation; a non-zero curl exit is reported.
+# VERIFY_BODY and VERIFY_HEADERS. Never --fail: the status is the observation.
 verify_get() {
-    local who="$1" path="$2" tmp out
+    local who="$1" path="$2" tmp headers out
     tmp="$(mktemp "${TMPDIR:-/tmp}/jevnotjev-verify.XXXXXX")" || { VERIFY_RC=1; VERIFY_CODE=000; VERIFY_BODY=""; return; }
+    headers="$(mktemp "${TMPDIR:-/tmp}/jevnotjev-headers.XXXXXX")" || { rm -f "$tmp"; VERIFY_RC=1; VERIFY_CODE=000; VERIFY_BODY=""; return; }
     VERIFY_RC=0
     if [[ "$who" == auth ]]; then
-        out="$(backstage_curl -sS -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || VERIFY_RC=$?
+        out="$(backstage_curl -sS -D "$headers" -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || VERIFY_RC=$?
+    elif [[ "$who" == tampered ]]; then
+        out="$(curl -q -sS -H 'Cookie: __Host-backstage_session=x.y' -D "$headers" -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || VERIFY_RC=$?
     else
-        out="$(curl -q -sS -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || VERIFY_RC=$?
+        out="$(curl -q -sS -D "$headers" -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || VERIFY_RC=$?
     fi
     VERIFY_CODE="${out:-000}"
     VERIFY_BODY="$(cat "$tmp" 2>/dev/null)"
-    rm -f "$tmp"
+    VERIFY_HEADERS="$(cat "$headers" 2>/dev/null)"
+    rm -f "$tmp" "$headers"
+}
+
+verify_session_redirect() {
+    local who="$1" label="$2" location
+    verify_get "$who" /backstage/
+    location="$(printf '%s\n' "$VERIFY_HEADERS" | tr -d '\r' | sed -n '/^[Ll]ocation:[[:space:]]*/{s/^[^:]*:[[:space:]]*//;p;}' | tail -1)"
+    if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 302 && "$location" == */backstage/sign-in?next=/backstage/ ]]; then
+        verify_pass "S2 ${label} /backstage/ 302 sign-in"
+    else
+        verify_fail "S2 ${label} /backstage/: expected 302 Location ending /backstage/sign-in?next=/backstage/, $(verify_got)"
+    fi
+}
+verify_session_api_401() {
+    local who="$1" label="$2"
+    verify_get "$who" /api/backstage/health
+    if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 401 ]] && ! printf '%s\n' "$VERIFY_HEADERS" | grep -Eiq '^WWW-Authenticate:'; then
+        verify_pass "S2 ${label} /api/backstage/health 401 no WWW-Authenticate"
+    else
+        verify_fail "S2 ${label} /api/backstage/health: expected 401 without WWW-Authenticate, $(verify_got)"
+    fi
+}
+verify_session_sign_in() {
+    verify_get anon /backstage/sign-in
+    if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 200 && "$VERIFY_BODY" == *'action="/api/auth/password"'* && "$VERIFY_BODY" != *'id="sign-out"'* ]]; then
+        verify_pass "S2 anon /backstage/sign-in 200 password form without app markup"
+    else
+        verify_fail "S2 anon /backstage/sign-in: expected 200 password form without app markup, $(verify_got)"
+    fi
 }
 
 # "got <code>" plus the curl exit when the transfer failed.
@@ -133,7 +165,7 @@ verify_release_tag() {
 }
 
 # verify_live <expected static SHA|""> <expected backstage SHA|""> <require tag yes|no>
-#             [backstage release yes|none] [scope all|static|backstage] [static release yes|none]
+#             [backstage release yes|none] [scope all|static|backstage] [static release yes|none] [gate yes|session]
 # An empty expected SHA means that module's SHA is not asserted by this caller. Scope `all` (deploy,
 # rollback, --status, --verify) asserts the S2 gate and the public paths; `static` (static setup)
 # asserts only the public paths, and `backstage` (Backstage setup) only the gate. The public paths
@@ -141,21 +173,36 @@ verify_release_tag() {
 # line per assertion and a summary; returns 1 when any assertion failed.
 verify_live() {
     local want_static="$1" want_backstage="$2" want_tag="$3" release="${4:-yes}" scope="${5:-all}"
-    local static_release="${6:-yes}" path tag_sha public_code public_note=""
+    local static_release="${6:-yes}" gate="${7:-yes}" path tag_sha public_code public_note=""
     VERIFY_PASSED=0; VERIFY_FAILED=0
+    BACKSTAGE_GATE="$gate"; export BACKSTAGE_GATE
     echo "verify (read-only, live, scope ${scope}): static ${want_static:-not asserted}, backstage ${want_backstage:-not asserted}, release tag $([[ "$want_tag" == yes ]] && echo required || echo 'not required')"
 
     [[ -z "$want_static" ]] || verify_static_sha "$want_static"
 
     if [[ "$scope" == all || "$scope" == backstage ]]; then
-        for path in "${VERIFY_GATED_PATHS[@]}"; do
-            verify_code anon "$path" "$VERIFY_UNAUTH_CODE" "S2 anon ${path}"
-        done
+        if [[ "$gate" == session ]]; then
+            verify_session_redirect anon anon
+            verify_session_api_401 anon anon
+            verify_session_sign_in
+            verify_session_redirect tampered tampered
+            verify_session_api_401 tampered tampered
+        elif [[ "$gate" == yes ]]; then
+            for path in "${VERIFY_GATED_PATHS[@]}"; do
+                verify_code anon "$path" "$VERIFY_UNAUTH_CODE" "S2 anon ${path}"
+            done
+        else
+            verify_fail "S2 gate: expected yes or session, got ${gate}"
+        fi
         if [[ -z "${BACKSTAGE_CURL_CONFIG:-}" ]] || ! backstage_check_curl_config; then
             verify_fail "S2 auth: BACKSTAGE_CURL_CONFIG must name a private (0600, yours) curl config holding the Backstage login (docs/backstage-deploy.md § Basic Auth gate)"
             [[ -z "$want_backstage" ]] || verify_fail "S1 backstage version: not read without BACKSTAGE_CURL_CONFIG"
         else
-            verify_backstage_auth "$want_backstage" "$release"
+            if [[ "$gate" == session ]]; then
+                if backstage_session_mint; then verify_backstage_auth "$want_backstage" "$release"; else verify_fail "S2 auth: BACKSTAGE_CURL_CONFIG could not mint a session"; fi
+            elif [[ "$gate" == yes ]]; then
+                verify_backstage_auth "$want_backstage" "$release"
+            fi
         fi
     else
         verify_note "S2 gate: Backstage is not the module being set up"

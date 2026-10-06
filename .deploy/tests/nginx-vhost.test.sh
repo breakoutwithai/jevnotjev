@@ -16,6 +16,23 @@ nope() { echo "  FAIL - $1"; fail=$((fail+1)); }
 
 echo "[T1] nginx vhost + provision contract"
 
+# Session snippet recognition is a deploy safety boundary.
+source .deploy/backstage-lib.sh
+snippet="$(cat .deploy/backstage-nginx.conf)"
+[[ "$(printf '%s\n' "$snippet" | backstage_snippet_auth)" == session ]] && ok "repo Backstage snippet is a session gate" || nope "repo Backstage snippet is not a session gate"
+if printf '%s\n' "$snippet" | grep -Eq 'auth_basic|WWW-Authenticate|satisfy'; then nope "session snippet contains Basic gate or challenge"; else ok "session snippet has no Basic gate, challenge or satisfy"; fi
+session='location ^~ /backstage/ { auth_request /_backstage_session; } location ^~ /api/backstage/ { auth_request /_backstage_session; } location = /_backstage_session { internal; }'
+[[ "$(printf '%s\n' "$session" | backstage_snippet_auth)" == session ]] && ok "inline session layout parses" || nope "inline session layout rejected"
+for variant in \
+    "${session} location ^~ /api/auth/ { auth_basic off; }" \
+    "${session/auth_request \/_backstage_session;/auth_request off;}" \
+    "${session/auth_request \/_backstage_session;/auth_request \/other;}" \
+    "${session/location = \/_backstage_session { internal; }/}" \
+    "${session} location ^~ /api/auth/ { location /nested { auth_request /_backstage_session; } }"; do
+    [[ "$(printf '%s\n' "$variant" | backstage_snippet_auth)" == unknown ]] && ok "mixed or evasive session layout refused" || nope "mixed or evasive session layout accepted"
+done
+[[ "$(printf '%s\n' '# auth_basic off;' "$session" | backstage_snippet_auth)" == session ]] && ok "commented Basic directive has no effect" || nope "comment changed session classification"
+
 if [[ ! -f "$CONF" ]]; then
     nope "missing committed vhost at ${CONF}"
     echo "[T1] passed=${pass} failed=${fail}"; exit 1

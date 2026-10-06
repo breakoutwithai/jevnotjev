@@ -95,6 +95,29 @@ Version and HTTP checks do not prove inference. After deployment, enter tester-o
 Interrupted uploads remain in unique hidden staging directories. Retrying an inactive, unverified SHA quarantines its previous directory without deleting evidence; live or verified releases are never replaced. These directories require a separate reviewed cleanup. Concurrent local builds have distinct outputs; `bun run backstage:start` builds and serves its own immutable pair.
 
 
+## Logs
+
+Who signed in today:
+
+```sh
+journalctl -u jevnotjev-backstage --since today -o cat | grep '"event":"signin'
+journalctl -u jevnotjev-backstage -o cat | grep '"event":"signin'
+```
+
+The second command shows sign-in events across the retained journal. For failures and lockouts, append `| grep -E '"event":"(signin\.password\.fail|signin\.lockout|signin\.google\.denied)"'` to `journalctl -u jevnotjev-backstage -o cat`. For runs, append `| grep '"event":"run\.'`. The [line contract](design/backstage-logging.md#line-contract) lists the fields: auth has `ts`, `event`, `email`, `ip`, `rid`, and sometimes `reason`; runs have `ts`, `event`, `rid`, `provider`, `model`.
+
+One-time host retention step: journald retention is host-wide. systemd has no per-unit retention outside `LogNamespace=`, which would hide these lines from plain `journalctl -u`. This unit is not namespaced. Check the current state:
+
+```sh
+journalctl --disk-usage
+test -d /var/log/journal && echo persistent || echo volatile
+systemd-analyze cat-config systemd/journald.conf | grep -E 'Storage|MaxRetentionSec|SystemMaxUse'
+```
+
+The operator chooses the value for every unit on the shared host. The proposed default is 90 days. Create `/etc/systemd/journald.conf.d/retention.conf` with `[Journal]`, `Storage=persistent`, and `MaxRetentionSec=90day` on separate lines. Then run `systemctl restart systemd-journald`; journald has no reload, and its restart does not restart other services. For a one-off trim, run `journalctl --vacuum-time=90d`.
+
+Chosen value: not yet set
+
 ## Funded trial configuration (disabled until provisioned)
 
 M1 BYOK works without funding. M2 remains behind the tester sign-in gate on both page and API; no-provider-key trial does not mean public unauthenticated access. Public exposure requires a separate abuse review and deployment authorization. Support one Bun process only; SQLite accounting does not replace the shared process admission limiter or make replicas supported.

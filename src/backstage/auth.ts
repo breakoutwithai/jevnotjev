@@ -92,12 +92,12 @@ export function signSession(session: Session, secret: string): string {
   return `${encoded}.${signature}`;
 }
 
-export function verifySession(value: string | undefined, secret: string, now: number): Session | null {
-  if (!value || !secret) return null;
+export type SessionInspection = { ok: true; session: Session } | { ok: false; reason: "expired"; email: string } | { ok: false; reason: "bad-signature" };
+export function inspectSession(value: string, secret: string, now: number): SessionInspection {
   const parts = value.split(".");
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return { ok: false, reason: "bad-signature" };
   const expected = createHmac("sha256", secret).update(parts[0]).digest("base64url");
-  if (!safeEqual(parts[1], expected)) return null;
+  if (!safeEqual(parts[1], expected)) return { ok: false, reason: "bad-signature" };
   try {
     const data: unknown = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
     if (typeof data !== "object" || data === null || Array.isArray(data) ||
@@ -106,9 +106,15 @@ export function verifySession(value: string | undefined, secret: string, now: nu
       !("cred" in data) || typeof data.cred !== "string" || !/^[a-f0-9]{16}$/.test(data.cred) ||
       !("auth" in data) || (data.auth !== "google" && data.auth !== "password") ||
       !("iat" in data) || typeof data.iat !== "number" ||
-      !("exp" in data) || typeof data.exp !== "number" || !Number.isFinite(data.exp) || data.exp <= now) return null;
-    return { email: data.email, sid: data.sid, auth: data.auth, iat: data.iat, exp: data.exp, cred: data.cred };
-  } catch { return null; }
+      !("exp" in data) || typeof data.exp !== "number" || !Number.isFinite(data.exp)) return { ok: false, reason: "bad-signature" };
+    if (data.exp <= now) return { ok: false, reason: "expired", email: data.email };
+    return { ok: true, session: { email: data.email, sid: data.sid, auth: data.auth, iat: data.iat, exp: data.exp, cred: data.cred } };
+  } catch { return { ok: false, reason: "bad-signature" }; }
+}
+export function verifySession(value: string | undefined, secret: string, now: number): Session | null {
+  if (!value || !secret) return null;
+  const result = inspectSession(value, secret, now);
+  return result.ok ? result.session : null;
 }
 
 export function parseCookie(header: string | null, name: string): string | undefined {
@@ -227,31 +233,31 @@ export class LoginLimiter {
     const normalized = normalizeEmail(email);
     return this.check(this.emails, normalized) || (address !== null && (this.check(this.addresses, address) || this.check(this.pairs, `${normalized}\0${address}`)));
   }
-  private failure(map: Map<string, FailureRecord>, key: string, threshold: number, scope: string, email: string, address: string | null, doubling: boolean): void {
+  private failure(map: Map<string, FailureRecord>, key: string, threshold: number, doubling: boolean): boolean {
     const row = this.record(map, key);
     row.lastFailure = this.clock();
-    if (row.lockedUntil > this.clock()) return;
+    if (row.lockedUntil > this.clock()) return false;
     row.count++;
-    if (row.count < threshold) return;
+    if (row.count < threshold) return false;
     row.lockLevel = doubling ? row.lockLevel + 1 : 1;
     row.lockedUntil = this.clock() + (doubling ? Math.min(60_000 * 2 ** (row.lockLevel - 1), 3_600_000) : 60_000);
     row.count = 0;
     row.windowStart = this.clock();
-    console.warn(`backstage auth: lock ${scope} address=${address ?? "none"} email=${createHash("sha256").update(email).digest("hex").slice(0, 8)}`);
+    return true;
   }
-  fail(email: string, address: string | null): boolean {
-    if (!this.canAttempt(email, address)) return false;
+  fail(email: string, address: string | null): { recorded: boolean; locked: boolean } {
+    if (!this.canAttempt(email, address)) return { recorded: false, locked: false };
     const normalized = normalizeEmail(email);
     if (++this.failures % 256 === 0) {
       for (const map of [this.emails, this.addresses, this.pairs])
         this.prune(map);
     }
-    this.failure(this.emails, normalized, 100, "email", normalized, address, false);
+    let locked = this.failure(this.emails, normalized, 100, false);
     if (address !== null) {
-      this.failure(this.addresses, address, 20, "address", normalized, address, true);
-      this.failure(this.pairs, `${normalized}\0${address}`, 5, "pair", normalized, address, true);
+      locked = this.failure(this.addresses, address, 20, true) || locked;
+      locked = this.failure(this.pairs, `${normalized}\0${address}`, 5, true) || locked;
     }
-    return true;
+    return { recorded: true, locked };
   }
   success(email: string, address: string | null): void { if (address !== null) this.pairs.delete(`${normalizeEmail(email)}\0${address}`); }
 }
@@ -278,12 +284,13 @@ export class GoogleStates {
 }
 
 // Ported from groit apps/booth/server.js:1767-1774 at bb29d8cc.
-export function validateGoogleProfile(value: unknown, clientId: string, operators: OperatorStore): string | null {
+export function validateGoogleProfile(value: unknown, clientId: string, operators: OperatorStore): { ok: true; email: string } | { ok: false; reason: "invalid-token" | "unverified-email" | "not-allowlisted"; email: string } {
   if (typeof value !== "object" || value === null || Array.isArray(value) ||
     !("email" in value) || typeof value.email !== "string" || !value.email ||
-    !("email_verified" in value) || (value.email_verified !== true && value.email_verified !== "true") ||
     !("aud" in value) || value.aud !== clientId ||
-    !("iss" in value) || (value.iss !== "accounts.google.com" && value.iss !== "https://accounts.google.com")) return null;
+    !("iss" in value) || (value.iss !== "accounts.google.com" && value.iss !== "https://accounts.google.com")) return { ok: false, reason: "invalid-token", email: "unknown" };
   const email = normalizeEmail(value.email);
-  return operators.get(email) ? email : null;
+  const row = operators.get(email);
+  if (!("email_verified" in value) || (value.email_verified !== true && value.email_verified !== "true")) return { ok: false, reason: "unverified-email", email: row?.email ?? "unknown" };
+  return row ? { ok: true, email: row.email } : { ok: false, reason: "not-allowlisted", email: "unknown" };
 }

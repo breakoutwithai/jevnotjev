@@ -175,6 +175,7 @@ backstage_snippet_auth() {
         allow("session_check", "internal")
         allow("session_check", "proxy_pass http://127.0.0.1:3456/api/auth/session")
         allow("session_check", "proxy_set_header Host $host")
+        allow("session_check", "proxy_set_header X-Backstage-Client-IP $remote_addr")
         allow("session_check", "proxy_pass_request_body off")
         allow("session_check", "proxy_set_header Content-Length \"\"")
         allow("session_check", "proxy_set_header Cookie $http_cookie")

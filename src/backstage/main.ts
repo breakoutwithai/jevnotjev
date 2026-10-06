@@ -9,6 +9,14 @@ import { MODEL_CATALOG, CATALOG_CHECKED_DATE, JEV_ARM_ID } from "./catalog.ts";
 import { copyDecision } from "./copy.ts";
 import { signOut, signOutRequest } from "./signout.ts";
 import {
+  SCENE_DRAFT_FIELDS,
+  clearSceneDraft,
+  judgingRules,
+  loadSceneDraft,
+  saveSceneDraft,
+  type DraftStorage,
+} from "./scene-draft.ts";
+import {
   confirmPanel,
   resolveConfirm,
   CONFIRM_STEPS,
@@ -600,7 +608,12 @@ function renderCard() {
     }
     return;
   }
-  text("rubric", `Keep when: ${current?.manifest.scene.acceptance ?? ""}`);
+  const rules = judgingRules({
+    acceptance: current?.manifest.scene.acceptance ?? "",
+    exclusions: current?.manifest.scene.exclusions ?? "",
+  });
+  text("rubric", rules.keep);
+  text("leave-out", rules.leaveOut);
   container.className = "answer-card";
   const answer = node("p", card.output);
   answer.className = "answer";
@@ -697,7 +710,7 @@ button("sign-out").onclick = () => {
   const control = button("sign-out");
   control.disabled = true;
   void signOut({
-    clear: () => { clearKeys(); clearScene(); },
+    clear: () => { clearKeys(); clearScene(); clearSceneDraft(draftStorage()); },
     request: () => signOutRequest(fetch),
     navigate: (url) => location.replace(url),
     notice,
@@ -890,4 +903,20 @@ window.addEventListener("beforeunload", (event) => {
     event.returnValue = "";
   }
 });
+// Scene text only, kept for this tab so a reload before a run does not lose it. Key fields are never read here.
+function draftStorage(): DraftStorage | undefined {
+  try {
+    return typeof sessionStorage === "undefined" ? undefined : sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+const savedDraft = loadSceneDraft(draftStorage());
+for (const id of SCENE_DRAFT_FIELDS) {
+  const saved = savedDraft[id];
+  if (saved !== undefined) field(id).value = saved;
+  field(id).addEventListener("input", () =>
+    saveSceneDraft(draftStorage(), (name) => field(name).value),
+  );
+}
 showRoom(0);

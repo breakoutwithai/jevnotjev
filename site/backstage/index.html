@@ -49,6 +49,11 @@
         </p>
         <fieldset id="scene-fields">
           <legend class="sr-only">Your decision</legend>
+          <p id="scene-safety" class="trust-sign">
+            Keep API keys, passwords and private data out of the scene. Use
+            synthetic or redacted cases. Keys go only in the key field on the
+            Casting step.
+          </p>
           <label
             >One question<textarea
               id="question"
@@ -128,7 +133,8 @@
         </div>
         <p class="fine">
           Once a run starts, its scene is frozen. Download your work before
-          starting over; refreshing clears this session.
+          starting over. Refreshing keeps your scene text in this tab (never
+          keys or results); signing out or closing the tab clears it.
         </p>
       </section>
       <section data-panel="1" aria-labelledby="casting-title" hidden>
@@ -244,6 +250,7 @@
               id="import-cases"
               accept=".csv,text/csv"
           /></label>
+          <a href="./sample-cases.csv" download>Download a sample cases file</a>
         </fieldset>
         <p id="run-preview">No cases yet.</p>
         <p class="fine">
@@ -287,6 +294,7 @@
           Judge Jev’s answer against your acceptance rule.
         </p>
         <p id="rubric"></p>
+        <p id="leave-out"></p>
         <div id="blind-card">
           <p>Run your cases first. Answers appear here when the run stops.</p>
         </div>

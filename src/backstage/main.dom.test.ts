@@ -107,7 +107,13 @@ function redirectedResponse(): Response {
   Object.defineProperty(response, "redirected", { value: true });
   return response;
 }
-async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse()) {
+class FakeStorage {
+  readonly items = new Map<string, string>();
+  getItem(key: string) { return this.items.get(key) ?? null; }
+  setItem(key: string, value: string) { this.items.set(key, value); }
+  removeItem(key: string) { this.items.delete(key); }
+}
+async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage()) {
   const document = documentFromMarkup(await Bun.file("site/backstage/index.html").text());
   const urls: string[] = [];
   const requests: Array<{ input: string; init: RequestInit | undefined }> = [];
@@ -118,6 +124,7 @@ async function mount(health = new Response(JSON.stringify({ trial: { available: 
   Object.assign(window, { location });
   Object.assign(globalThis, {
     document, window, location,
+    sessionStorage: store,
     history: { replaceState: (...args: unknown[]) => historyCalls.push(args) },
     navigator: { clipboard: { writeText: async (_value: string) => {} } },
     matchMedia: (_query: string) => ({ matches: false }),
@@ -144,7 +151,7 @@ async function mount(health = new Response(JSON.stringify({ trial: { available: 
     if (!found) throw new Error(`Missing markup element: ${id}`);
     return found;
   };
-  return { document, get, urls, requests, replacements, historyCalls, window };
+  return { document, get, urls, requests, replacements, historyCalls, window, store };
 }
 
 const keyIds = ["jev-key", "anthropic-key", "openai-key", "google-key", "xai-key"];
@@ -237,4 +244,67 @@ test("[integration] A2 other health errors leave expiry message absent", async (
   await tick();
   expect(page.get("notice").textContent).not.toContain("Your sign-in has expired.");
   expect(page.get("notice").children).toEqual([]);
+});
+
+const sceneIds = ["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "exclusions", "keywords", "cases"];
+function typeInto(page: Awaited<ReturnType<typeof mount>>, id: string, value: string) {
+  page.get(id).value = value;
+  page.get(id).dispatchEvent(new Event("input"));
+}
+
+test("[integration] D10 a scene typed before a run is restored after a reload", async () => {
+  const first = await mount();
+  for (const id of sceneIds) typeInto(first, id, `typed ${id}`);
+  const second = await mount(undefined, undefined, first.store);
+  for (const id of sceneIds) expect(second.get(id).value).toBe(`typed ${id}`);
+  const blank = await mount();
+  for (const id of ["question", "acceptance", "exclusions", "cases"]) expect(blank.get(id).value).toBe("");
+});
+
+test("[integration] D10 no key value is ever written to storage or restored", async () => {
+  const first = await mount();
+  fillKeys(first.get);
+  for (const id of sceneIds) typeInto(first, id, `typed ${id}`);
+  for (const id of keyIds) first.get(id).dispatchEvent(new Event("input"));
+  expect(first.store.items.size).toBeGreaterThan(0);
+  const stored = [...first.store.items.entries()].flat().join("\n");
+  for (const id of keyIds) expect(stored).not.toContain(`${id}-secret-value`);
+  const second = await mount(undefined, undefined, first.store);
+  assertKeysBlank(second.get);
+});
+
+test("[integration] D10 sign-out removes the saved scene", async () => {
+  const page = await mount();
+  typeInto(page, "question", "Which choice?");
+  expect(page.store.items.size).toBe(1);
+  page.get("sign-out").click();
+  await tick();
+  expect(page.store.items.size).toBe(0);
+});
+
+async function importCsv(page: Awaited<ReturnType<typeof mount>>, csv: string) {
+  const input = page.get("import-cases");
+  if (!(input instanceof FakeInput)) throw new Error("import-cases is not an input");
+  input.files = [new File([csv], "cases.csv", { type: "text/csv" })];
+  input.dispatchEvent(new Event("change"));
+  await tick();
+  await tick();
+}
+
+test("[integration] D11 a malformed CSV import names the line, the problem and the expected form", async () => {
+  const page = await mount();
+  await importCsv(page, "case_id,case_input\nc1,fine\nc2,one,two\n");
+  const shown = page.get("notice").textContent;
+  expect(shown).toContain("Line 3");
+  expect(shown).toContain("3 columns");
+  expect(shown).toContain("expected 2 (case_id,case_input)");
+  expect(shown).not.toContain("Imported");
+  expect(page.get("cases").value).toBe("");
+});
+
+test("[integration] D11 a well-formed CSV import reports the count", async () => {
+  const page = await mount();
+  await importCsv(page, "case_id,case_input\nc1,fine\nc2,also fine\n");
+  expect(page.get("notice").textContent).toContain("Imported 2 cases");
+  expect(page.get("cases").value).toBe("fine\nalso fine");
 });

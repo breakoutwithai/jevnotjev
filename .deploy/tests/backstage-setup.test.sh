@@ -489,7 +489,8 @@ make_box no
 printf '# hand edited\n' >> "${BOX}/etc/systemd/system/jevnotjev-backstage.service"
 out="$( (setup_main) 2>&1)"; rc=$?
 mut="$(mutating_commands)"
-[[ $rc -ne 0 && -z "$mut" && "$out" == *"differs"* && "$out" == *"install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf"* && "$out" == *"install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service"* ]] \
+journal_recovery='install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && systemctl try-restart systemd-journald@jevnotjev-backstage.service'
+[[ $rc -ne 0 && -z "$mut" && "$out" == *"differs"* && "$out" == *"$journal_recovery"* && "$out" == *"install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service"* ]] \
     && ok "[unit] BJ7 differing unit refusal includes namespace conf install command" \
     || nope "differing unit: rc=${rc}, mutating: ${mut:-none}"
 drop_box
@@ -497,7 +498,7 @@ make_box yes
 printf '# hand edited\n' >> "${BOX}/etc/systemd/journald@jevnotjev-backstage.conf"
 out="$( (setup_main) 2>&1)"; rc=$?
 mut="$(mutating_commands)"
-[[ $rc -ne 0 && -z "$mut" && "$out" == *"differs"* && "$out" == *"install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf"* ]] \
+[[ $rc -ne 0 && -z "$mut" && "$out" == *"differs"* && "$out" == *"$journal_recovery"* ]] \
     && ok "[unit] BJ6 differing namespace conf refuses with zero changes" \
     || nope "[unit] BJ6 differing namespace conf: rc=${rc}, mutating: ${mut:-none}; out: ${out}"
 drop_box
@@ -891,7 +892,7 @@ for bad in release unconfigured secret_short trust_proxy_missing; do
     [[ $rc -ne 0 && -z "$mut" && "$out" == *"$expected"* ]] && ok "session ${bad}: running release or auth.env key refusal before mutation" \
         || nope "session ${bad}: rc=${rc}, mutating: ${mut:-none}; out: ${out}"
     if [[ "$bad" == release ]]; then
-        [[ "$out" == *"install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf"* ]] \
+        [[ "$out" == *"$journal_recovery"* ]] \
             && ok "[unit] BJ9 session refusal includes namespace conf install command" \
             || nope "[unit] BJ9 session refusal missing namespace conf install command"
     fi

@@ -11,6 +11,7 @@ function serviceSection(source: string): string {
 }
 
 const confInstall = "install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf";
+const journalRestart = "systemctl try-restart systemd-journald@jevnotjev-backstage.service";
 const unitInstall = "install -m 0644 " + ".deploy/backstage.service";
 
 // Match command lines and Markdown inline commands, not quoted fixture strings in this test.
@@ -39,7 +40,26 @@ function unsafeUnitInstall(source: string): boolean {
     if (/^\s*```/.test(line)) { fenced = !fenced; previous = ""; continue; }
     const unitAt = line.indexOf(unitInstall);
     if (unitAt >= 0 && !line.slice(0, unitAt).includes(confInstall) && !(fenced && previous.includes(confInstall))) return true;
-    if (line.trim()) previous = line;
+    if (line.trim() && line.trim() !== journalRestart) previous = line;
+  }
+  return false;
+}
+
+function unsafeConfInstall(source: string): boolean {
+  const lines = source.split("\n");
+  let fenced = false;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    if (/^\s*```/.test(line)) { fenced = !fenced; continue; }
+    const installAt = line.indexOf(confInstall);
+    if (installAt < 0) continue;
+    if (line.slice(installAt + confInstall.length).startsWith(` && ${journalRestart}`)) continue;
+    if (fenced) {
+      let next = index + 1;
+      while (lines[next]?.trim() === "") next++;
+      if (lines[next]?.trim() === journalRestart) continue;
+    }
+    return true;
   }
   return false;
 }
@@ -122,17 +142,22 @@ describe("Backstage journal namespace", () => {
     }
   });
 
-  test("[unit] BJ5 every tracked unit install first installs namespace conf", () => {
+  test("[unit] BJ5 every tracked unit install first installs namespace conf and activates it", () => {
     expect(unsafeUnitInstall(`${confInstall} && ${unitInstall} /etc/systemd/system/jevnotjev-backstage.service`)).toBe(false);
     expect(unsafeUnitInstall(`\`\`\`sh\n${confInstall}\n\n${unitInstall} /etc/systemd/system/jevnotjev-backstage.service\n\`\`\``)).toBe(false);
     expect(unsafeUnitInstall(`${unitInstall} /etc/systemd/system/jevnotjev-backstage.service && ${confInstall}`)).toBe(true);
+    expect(unsafeConfInstall(`\`\`\`sh\n${confInstall}\n\n${journalRestart}\n\`\`\``)).toBe(false);
+    expect(unsafeConfInstall(`${confInstall} && ${journalRestart} && ${unitInstall} /etc/systemd/system/jevnotjev-backstage.service`)).toBe(false);
+    expect(unsafeConfInstall(`${confInstall} && ${unitInstall} /etc/systemd/system/jevnotjev-backstage.service && ${journalRestart}`)).toBe(true);
+    expect(unsafeConfInstall(`\`\`\`sh\n${confInstall}\n${unitInstall} /etc/systemd/system/jevnotjev-backstage.service\n${journalRestart}\n\`\`\``)).toBe(true);
     const paths = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
     const hits: string[] = [];
     for (const path of paths) {
       let content: string;
       try { content = readFileSync(path, "utf8"); } catch { continue; }
       if (content.includes("\0")) continue;
-      if (unsafeUnitInstall(content)) hits.push(path);
+      if (/\.test\.(?:ts|sh)$/.test(path)) continue; // Fixture strings and assertions are not operator commands.
+      if (unsafeUnitInstall(content) || unsafeConfInstall(content)) hits.push(path);
     }
     expect(hits).toEqual([]);
   });

@@ -157,7 +157,7 @@ session_ready() {
             auth_request) [[ "$value" == yes ]] || { log_error "Session precondition auth_request failed: nginx needs --with-http_auth_request_module. Refusing; nothing changed."; return 1; } ;;
             session_check)
                 if [[ "$release" == running && "$value" != ready ]]; then
-                    log_error "Session precondition release failed: /api/auth/session must return 401 with \"signIn\":\"ready\" on loopback. Deploy the sign-in-capable release, then run operator step 5: install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage. Refusing; nothing changed."
+                    log_error "Session precondition release failed: /api/auth/session must return 401 with \"signIn\":\"ready\" on loopback. Deploy the sign-in-capable release, then run operator step 5: install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && systemctl try-restart systemd-journald@jevnotjev-backstage.service && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage. Refusing; nothing changed."
                     return 1
                 fi ;;
             auth_env|operators)
@@ -270,7 +270,7 @@ setup_plan() {
     if [[ "$v" == absent ]]; then
         PLAN_UNIT=true
     elif [[ "$v" != "$(local_sha "$BS_UNIT_SRC")" ]]; then
-        log_error "Installed ${BS_UNIT} differs from .deploy/backstage.service. Install it by hand: install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"; return 1
+        log_error "Installed ${BS_UNIT} differs from .deploy/backstage.service. Install it by hand: install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && systemctl try-restart systemd-journald@jevnotjev-backstage.service && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"; return 1
     fi
     v="$(probe_get "$probe" journald)"
     if [[ "$v" == absent ]]; then
@@ -278,7 +278,7 @@ setup_plan() {
     elif [[ ! "$v" =~ ^[[:xdigit:]]{64}$ ]]; then
         log_error "probe returned no journald state; refusing"; return 1
     elif [[ "$v" != "$(local_sha "$BS_JOURNAL_SRC")" ]]; then
-        log_error "Installed ${BS_JOURNAL} differs from .deploy/journald@jevnotjev-backstage.conf. Install it by hand: install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"; return 1
+        log_error "Installed ${BS_JOURNAL} differs from .deploy/journald@jevnotjev-backstage.conf. Install it by hand: install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && systemctl try-restart systemd-journald@jevnotjev-backstage.service && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"; return 1
     fi
     [[ "$(probe_get "$probe" enabled)" == yes ]] || PLAN_ENABLE=true
     v="$(probe_get "$probe" snippet)"

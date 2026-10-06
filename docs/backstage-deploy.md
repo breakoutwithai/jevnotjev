@@ -23,7 +23,7 @@ Operator steps, with exact values:
 2. In an interactive root session on the host, write `/etc/jevnotjev-backstage/auth.env`, root-owned mode 0600, with `BACKSTAGE_SESSION_SECRET=` followed by 64 hex characters from `openssl rand -hex 32`, `BACKSTAGE_GOOGLE_CLIENT_ID`, `BACKSTAGE_GOOGLE_CLIENT_SECRET`, and `BACKSTAGE_TRUST_PROXY=loopback`. Keep the secret stable; rotation signs everyone out.
 3. On the workstation, run `bun scripts/backstage-operator-password.ts <email>` for each password tester (`doorman` and `lutfiya`), give each printed password once, and assemble the rows into one JSON array. A Google-only tester has an `email` row without a password hash. On the host, run `install -o jevnotjev-backstage -g jevnotjev-backstage -m 0600 operators.json /var/lib/jevnotjev-backstage/operators.json`.
 4. Update `BACKSTAGE_CURL_CONFIG` so its `user` line has one operators-file email and its new password. Export its absolute path. Keep the password out of shell arguments, repository files, and deploy output.
-5. Install the changed unit by hand because setup refuses to overwrite a differing installed unit: `install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage`. Systemd reads `auth.env` only at start.
+5. Install the changed unit by hand because setup refuses to overwrite a differing installed unit: `install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && systemctl try-restart systemd-journald@jevnotjev-backstage.service && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage`. Systemd reads `auth.env` only at start.
 6. Run `.deploy/ship.sh --setup --module backstage --dry-run`, then without `--dry-run`.
 7. Optional: add `BACKSTAGE_REQUIRE_SESSION=1` to `auth.env` and run `systemctl restart jevnotjev-backstage` (rollout step 4).
 8. Afterward the htpasswd is unused. Deleting `/etc/jevnotjev-backstage/htpasswd` is optional and separate.
@@ -119,8 +119,8 @@ From a checkout of merged main, run as root on the host:
 
 ```sh
 install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf
-install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service
 systemctl try-restart systemd-journald@jevnotjev-backstage.service
+install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service
 systemctl daemon-reload
 systemctl restart jevnotjev-backstage
 systemctl show -p LogNamespace jevnotjev-backstage

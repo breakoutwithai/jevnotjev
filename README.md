@@ -6,6 +6,7 @@ Built in public for the Early AI-dopters 30 Day Challenge. The day-30 goal is **
 
 | Doc | What |
 |---|---|
+| [SCOPE.md](SCOPE.md), [docs/challenge/EVIDENCE.md](docs/challenge/EVIDENCE.md) | One-page scope; day-by-day evidence index D01 to D12 with PRs, tests and what is still open |
 | [FLOW.md](FLOW.md) | Scope, journey, the three arms, and the source of every metric |
 | [docs/product/flow/comparison.html](docs/product/flow/comparison.html) | The comparison flow diagram |
 | [format/](format/README.md) | Eval record format: cases, answers, labels, cost; schema, sample, validator |

@@ -37,6 +37,11 @@ the same test, else it exits 1 and records no release. A curl that fails is neve
 when it delivered a complete body first.
 `backstage-deploy.sh` also refuses until Backstage setup exists and unless HEAD's merged PR body
 references #67; plain `ship.sh` then reports backstage FAILED with its exit code.
+With the installed session gate, a promotion or rollback target must declare `"gate": "session"`
+in `release.json`; the deploy refuses it before activation otherwise. It writes
+`BACKSTAGE_REQUIRE_SESSION=1` into that release's `runtime.env` under the session gate and omits
+the switch under Basic. The session probe mints its cookie after activation, so a stopped
+service can be replaced.
 
 ### Drift and `--status`
 
@@ -108,7 +113,7 @@ Backstage specifics: `docs/backstage-deploy.md`.
 ## Backstage Basic Auth (staged rollout before the session setup)
 
 Both Backstage locations require Basic Auth. Run these in order (full detail and the openssl
-variant in `docs/backstage-deploy.md` § Basic Auth gate):
+variant in `docs/backstage-deploy.md` § Sign-in gate):
 
 ```bash
 # On the host as root (ssh -t), password typed at the prompt, tester replaced with the login
@@ -189,7 +194,7 @@ expected value in a seam test is a literal from this list or the spec line it ci
 recomputed from the scripts.
 
 - **S1 Operator command to served state.** After `.deploy/ship.sh` exits 0, every module serves `origin/main`: static `/DEPLOYED_SHA` and Backstage `/api/backstage/health` `version` both equal the `origin/main` SHA, and an annotated release tag `vYYYY.MM.DD.N` on origin points at it.
-- **S2 Security invariants.** With gate `yes` (Basic), anonymous `/backstage/` and `/api/backstage/health` return 401; with `BACKSTAGE_CURL_CONFIG` both return 200 (502 only while no Backstage release exists). With gate `session`, anonymous `/backstage/` returns 302 with `Location` ending `/backstage/sign-in?next=/backstage/`; anonymous `/api/backstage/health` returns 401 without `WWW-Authenticate`; anonymous `/backstage/sign-in` returns 200 containing `action="/api/auth/password"` and no Backstage app `id="sign-out"` markup; a tampered `__Host-backstage_session=x.y` cookie still returns 302 and 401 on the gated page and API; a minted session returns 200 on both gated paths (502 only while no Backstage release exists). The public paths `/`, `/label/` and `/little-shop/` return 200.
+- **S2 Security invariants.** With gate `yes` (Basic), anonymous `/backstage/` and `/api/backstage/health` return 401; with `BACKSTAGE_CURL_CONFIG` both return 200 (502 only while no Backstage release exists). With gate `session`, anonymous `/backstage/` returns 302 with `Location` exactly `${HEALTH_URL}/backstage/sign-in?next=/backstage/` or `/backstage/sign-in?next=/backstage/`; anonymous `/api/backstage/health` returns 401 with a JSON content type and body exactly `{"code":"unauthenticated"}`, without `WWW-Authenticate`; anonymous `/backstage/sign-in` returns 200 containing `action="/api/auth/password"` and no Backstage app `id="sign-out"` markup; both a garbage cookie and a well-formed cookie with a wrong signature still return 302 and 401 on the gated page and API; a minted session returns 200 on both gated paths (502 only while no Backstage release exists). The public paths `/`, `/label/` and `/little-shop/` return 200.
 - **S3 Co-tenant safety.** No other `server_name` on the host changes status across a deploy or setup (`docs/DEPLOY.md:164`, `docs/backstage-deploy.md:52`).
 
 | Seam | Tests |

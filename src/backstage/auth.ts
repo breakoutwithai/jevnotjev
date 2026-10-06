@@ -1,9 +1,13 @@
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { readFileSync, statSync, writeFileSync, renameSync, accessSync, constants, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export const SESSION_TTL_MS = 43_200_000;
 export const OAUTH_TTL_MS = 600_000;
 const DUMMY_HASH = `scrypt$0123456789abcdef0123456789abcdef$${"00".repeat(64)}`;
+const deriveScrypt = (password: string, salt: string, length: number): Promise<Buffer> => new Promise((resolve, reject) => {
+  scrypt(password, salt, length, (error, derived) => error ? reject(error) : resolve(derived));
+});
 
 // Ported from breakout-research-v3 src/lib/auth/dashboard-access.ts:94-111 at d40a5cc4.
 export function sanitizeNextPath(path: string | null | undefined): string {
@@ -32,17 +36,18 @@ export function safeEqual(left: string, right: string): boolean {
 }
 
 // Ported from groit apps/booth/server.js:1098-1121 at bb29d8cc.
-export function verifyPasswordHash(password: string, stored: string | undefined): boolean {
+export async function verifyPasswordHash(password: string, stored: string | undefined, derive: (password: string, salt: string, length: number) => Promise<Buffer> = deriveScrypt): Promise<boolean> {
   const parts = (stored?.startsWith("scrypt$") ? stored : DUMMY_HASH).split("$");
   const salt = parts[1] ?? "";
   const hash = parts[2] ?? "";
   const valid = parts.length === 3 && /^[a-f0-9]{32}$/i.test(salt) && /^[a-f0-9]{128}$/i.test(hash);
   const expected = Buffer.from(valid ? hash : DUMMY_HASH.split("$")[2] ?? "", "hex");
-  const actual = scryptSync(password, valid ? salt : "0123456789abcdef0123456789abcdef", 64);
+  const actual = await derive(password, valid ? salt : "0123456789abcdef0123456789abcdef", 64);
   return Boolean(stored && valid && password) && timingSafeEqual(actual, expected);
 }
 
 export interface Operator { readonly email: string; readonly displayName?: string; readonly password_hash?: string }
+export function credentialFingerprint(credential: string): string { return createHash("sha256").update(credential).digest("hex").slice(0, 16); }
 
 // Ported from groit apps/booth/server.js:1060-1094 at bb29d8cc. No env or bootstrap fallback.
 export class OperatorStore {
@@ -78,9 +83,9 @@ export class OperatorStore {
   }
 }
 
-export interface Session { readonly email: string; readonly auth: "password" | "google"; readonly iat: number; readonly exp: number; readonly sid: string }
+export interface Session { readonly email: string; readonly auth: "password" | "google"; readonly iat: number; readonly exp: number; readonly sid: string; readonly cred: string }
 
-// Ported from groit apps/booth/server.js:1336-1355 at bb29d8cc; sid adds revocation.
+// Ported from groit apps/booth/server.js:1336-1355 at bb29d8cc; sid and cred add revocation.
 export function signSession(session: Session, secret: string): string {
   const encoded = Buffer.from(JSON.stringify(session)).toString("base64url");
   const signature = createHmac("sha256", secret).update(encoded).digest("base64url");
@@ -98,10 +103,11 @@ export function verifySession(value: string | undefined, secret: string, now: nu
     if (typeof data !== "object" || data === null || Array.isArray(data) ||
       !("email" in data) || typeof data.email !== "string" || !data.email ||
       !("sid" in data) || typeof data.sid !== "string" || !data.sid ||
+      !("cred" in data) || typeof data.cred !== "string" || !/^[a-f0-9]{16}$/.test(data.cred) ||
       !("auth" in data) || (data.auth !== "google" && data.auth !== "password") ||
       !("iat" in data) || typeof data.iat !== "number" ||
       !("exp" in data) || typeof data.exp !== "number" || !Number.isFinite(data.exp) || data.exp <= now) return null;
-    return { email: data.email, sid: data.sid, auth: data.auth, iat: data.iat, exp: data.exp };
+    return { email: data.email, sid: data.sid, auth: data.auth, iat: data.iat, exp: data.exp, cred: data.cred };
   } catch { return null; }
 }
 
@@ -127,59 +133,103 @@ export function cookie(origin: string, kind: "session" | "oauth", value: string,
 
 export class RevokedSessions {
   private readonly entries = new Map<string, number>();
-  constructor(private readonly clock: () => number) {}
-  revoke(sid: string, exp: number): void { this.entries.set(sid, exp); }
+  private readonly file: string | undefined;
+  constructor(private readonly clock: () => number, operatorsPath?: string) {
+    if (!operatorsPath) return;
+    const directory = dirname(operatorsPath);
+    try { accessSync(directory, constants.W_OK); this.file = join(directory, "revoked-sessions.json"); }
+    catch { return; }
+    try {
+      const raw: unknown = JSON.parse(readFileSync(this.file, "utf8"));
+      if (typeof raw === "object" && raw !== null && !Array.isArray(raw))
+        for (const [sid, exp] of Object.entries(raw)) if (typeof exp === "number" && exp > clock()) this.entries.set(sid, exp);
+    } catch { /* Missing or invalid file starts with no revocations. */ }
+  }
+  revoke(sid: string, exp: number): void {
+    this.entries.set(sid, exp);
+    for (const [key, expiry] of this.entries) if (expiry <= this.clock()) this.entries.delete(key);
+    if (!this.file) return;
+    const temp = `${this.file}.${randomBytes(8).toString("hex")}.tmp`;
+    try { writeFileSync(temp, JSON.stringify(Object.fromEntries(this.entries)), { mode: 0o600 }); renameSync(temp, this.file); }
+    catch { try { rmSync(temp, { force: true }); } catch { /* Keep in-memory revocation. */ } }
+  }
   has(sid: string): boolean {
     for (const [key, exp] of this.entries) if (exp <= this.clock()) this.entries.delete(key);
     return this.entries.has(sid);
   }
 }
 
-interface FailureRecord { count: number; windowStart: number; lockedUntil: number; lockLevel: number }
+interface FailureRecord { count: number; windowStart: number; lockedUntil: number; lockLevel: number; lastFailure: number }
 export class LoginLimiter {
   private readonly emails = new Map<string, FailureRecord>();
   private readonly addresses = new Map<string, FailureRecord>();
+  private readonly pairs = new Map<string, FailureRecord>();
+  private failures = 0;
   constructor(private readonly clock: () => number) {}
-  private record(map: Map<string, FailureRecord>, key: string, threshold: number): FailureRecord {
+  sizes(): { emails: number; addresses: number; pairs: number } { return { emails: this.emails.size, addresses: this.addresses.size, pairs: this.pairs.size }; }
+  private prune(map: Map<string, FailureRecord>): void {
+    const now = this.clock();
+    if (map.size >= 10_000) for (const [key, row] of map) if (now - row.lastFailure > 900_000 && row.lockedUntil <= now) map.delete(key);
+    while (map.size >= 10_000) map.delete(map.keys().next().value ?? "");
+  }
+  private record(map: Map<string, FailureRecord>, key: string): FailureRecord {
     const now = this.clock();
     let row = map.get(key);
-    if (!row) { row = { count: 0, windowStart: now, lockedUntil: 0, lockLevel: 0 }; map.set(key, row); }
+    if (!row) { this.prune(map); row = { count: 0, windowStart: now, lockedUntil: 0, lockLevel: 0, lastFailure: now }; map.set(key, row); }
+    if (now - row.lastFailure >= 86_400_000) row.lockLevel = 0;
     if (now - row.windowStart >= 900_000) { row.count = 0; row.windowStart = now; }
-    if (row.count >= threshold && row.lockedUntil <= now) {
-      row.lockLevel++;
-      row.lockedUntil = now + Math.min(60_000 * 2 ** (row.lockLevel - 1), 3_600_000);
-      row.count = 0;
-      row.windowStart = now;
-    }
     return row;
   }
-  locked(email: string, address: string): boolean {
-    return this.record(this.emails, normalizeEmail(email), 5).lockedUntil > this.clock() ||
-      this.record(this.addresses, address, 20).lockedUntil > this.clock();
+  private check(map: Map<string, FailureRecord>, key: string): boolean { return (map.get(key)?.lockedUntil ?? 0) > this.clock(); }
+  locked(email: string, address: string | null): boolean {
+    const normalized = normalizeEmail(email);
+    return this.check(this.emails, normalized) || (address !== null && (this.check(this.addresses, address) || this.check(this.pairs, `${normalized}\0${address}`)));
   }
-  fail(email: string, address: string): void {
-    this.record(this.emails, normalizeEmail(email), 5).count++;
-    this.record(this.addresses, address, 20).count++;
+  private failure(map: Map<string, FailureRecord>, key: string, threshold: number, scope: string, email: string, address: string | null, doubling: boolean): void {
+    const row = this.record(map, key);
+    row.lastFailure = this.clock();
+    if (row.lockedUntil > this.clock()) return;
+    row.count++;
+    if (row.count < threshold) return;
+    row.lockLevel = doubling ? row.lockLevel + 1 : 1;
+    row.lockedUntil = this.clock() + (doubling ? Math.min(60_000 * 2 ** (row.lockLevel - 1), 3_600_000) : 60_000);
+    row.count = 0;
+    row.windowStart = this.clock();
+    console.warn(`backstage auth: lock ${scope} address=${address ?? "none"} email=${createHash("sha256").update(email).digest("hex").slice(0, 8)}`);
   }
-  success(email: string): void { this.emails.delete(normalizeEmail(email)); }
+  fail(email: string, address: string | null): void {
+    const normalized = normalizeEmail(email);
+    if (++this.failures % 256 === 0) {
+      for (const map of [this.emails, this.addresses, this.pairs])
+        for (const [key, row] of map) if (this.clock() - row.lastFailure > 900_000 && row.lockedUntil <= this.clock()) map.delete(key);
+    }
+    this.failure(this.emails, normalized, 100, "email", normalized, address, false);
+    if (address !== null) {
+      this.failure(this.addresses, address, 20, "address", normalized, address, true);
+      this.failure(this.pairs, `${normalized}\0${address}`, 5, "pair", normalized, address, true);
+    }
+  }
+  success(email: string, address: string | null): void { if (address !== null) this.pairs.delete(`${normalizeEmail(email)}\0${address}`); }
 }
 
-interface OAuthState { readonly exp: number; readonly next: string }
 export class GoogleStates {
-  // Pruning and cap ported from groit apps/booth/server.js:1685-1696 at bb29d8cc.
-  private readonly entries = new Map<string, OAuthState>();
-  constructor(private readonly clock: () => number, private readonly cap = 1000) {}
-  start(next: string): string | null {
-    for (const [key, value] of this.entries) if (value.exp <= this.clock()) this.entries.delete(key);
-    if (this.entries.size >= this.cap) return null;
-    const state = randomBytes(24).toString("base64url");
-    this.entries.set(state, { exp: this.clock() + OAUTH_TTL_MS, next });
-    return state;
+  constructor(private readonly clock: () => number, private readonly secret: string) {}
+  start(next: string): { state: string; nonce: string } {
+    const nonce = randomBytes(24).toString("base64url");
+    const payload = Buffer.from(JSON.stringify({ n: nonce, exp: this.clock() + OAUTH_TTL_MS, next })).toString("base64url");
+    const signature = createHmac("sha256", this.secret).update(`oauth:${payload}`).digest("base64url");
+    return { state: `${payload}.${signature}`, nonce };
   }
   take(state: string, cookieValue: string | undefined): string | null {
-    const value = this.entries.get(state);
-    this.entries.delete(state);
-    return value && value.exp > this.clock() && cookieValue && safeEqual(state, cookieValue) ? value.next : null;
+    const parts = state.split(".");
+    if (parts.length !== 2 || !parts[0] || !parts[1] || !cookieValue) return null;
+    const expected = createHmac("sha256", this.secret).update(`oauth:${parts[0]}`).digest("base64url");
+    if (!safeEqual(parts[1], expected)) return null;
+    try {
+      const value: unknown = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
+      if (typeof value !== "object" || value === null || Array.isArray(value) || !("n" in value) || typeof value.n !== "string" || !("exp" in value) || typeof value.exp !== "number" || value.exp <= this.clock() || !("next" in value) || typeof value.next !== "string" || !safeEqual(value.n, cookieValue)) return null;
+      return sanitizeNextPath(value.next);
+    } catch { return null; }
   }
 }
 

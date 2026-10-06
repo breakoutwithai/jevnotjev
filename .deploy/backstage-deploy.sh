@@ -51,7 +51,6 @@ trap 'backstage_session_cleanup; remote "rmdir /var/lock/jevnotjev-backstage-dep
 auth_state="$(backstage_auth_state)" || fail "Cannot read the Backstage gate state on the host; refusing"
 BACKSTAGE_GATE="$auth_state"; export BACKSTAGE_GATE
 backstage_require_curl_config "$auth_state" || fail "BACKSTAGE_CURL_CONFIG is required for every Backstage probe while the snippet has a gate"
-[[ "$auth_state" != session ]] || backstage_session_mint || fail "BACKSTAGE_CURL_CONFIG could not mint a Backstage session"
 neighbours=()
 neighbour_names="$(backstage_list_neighbours "$DOMAIN")" || fail "Cannot enumerate neighbours reliably"
 while IFS= read -r n; do [[ -z "$n" ]] || neighbours+=("$n"); done <<< "$neighbour_names"
@@ -81,9 +80,12 @@ else
  archive_sha="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
  remote "cat > '${stage}/payload.tar.gz'" < "$ARCHIVE"
  remote "cd '${stage}' && printf '%s\n' '${archive_sha}  payload.tar.gz' | sha256sum -c - && tar -xzf payload.tar.gz --no-same-owner && rm payload.tar.gz"
- remote "printf '%s\n' 'BACKSTAGE_VERSION=${SHA}' 'BACKSTAGE_ORIGIN=${HEALTH_URL}' 'BACKSTAGE_STATIC_ROOT=${release}/site' 'PORT=3456' > '${stage}/runtime.env' && chmod -R a+rX '${stage}' && mv '${stage}' '${release}'"
+ remote "chmod -R a+rX '${stage}' && mv '${stage}' '${release}'"
 fi
-expected_protocol="$(remote "cat '${release}/release.json'" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||!["backstage/1","backstage/2"].includes(r.protocol))process.exit(1);console.log(r.protocol)' "$SHA")" || fail "Invalid target release protocol"
+expected_protocol="$(remote "cat '${release}/release.json'" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||!["backstage/1","backstage/2"].includes(r.protocol)||process.argv[2]==="session"&&r.gate!=="session")process.exit(1);console.log(r.protocol)' "$SHA" "$auth_state")" || fail "Target release has invalid protocol or lacks gate=session for the installed session gate"
+runtime_lines="'BACKSTAGE_VERSION=${SHA}' 'BACKSTAGE_ORIGIN=${HEALTH_URL}' 'BACKSTAGE_STATIC_ROOT=${release}/site' 'PORT=3456'"
+[[ "$auth_state" != session ]] || runtime_lines="${runtime_lines} 'BACKSTAGE_REQUIRE_SESSION=1'"
+remote "printf '%s\n' ${runtime_lines} > '${release}/runtime.env' && chmod 0644 '${release}/runtime.env'" || fail "Cannot write target runtime environment"
 activated=false
 restore(){
  local rc="$?"
@@ -109,6 +111,7 @@ trap restore EXIT
 activated=true
 activate_release "$release" "$CURRENT"
 remote "systemctl restart '${SERVICE}'"
+[[ "$auth_state" != session ]] || backstage_session_mint || fail "BACKSTAGE_CURL_CONFIG could not mint a Backstage session after activation"
 # Version endpoint and served page asset each prove the newly promoted pair.
 healthy=false
 for attempt in 1 2 3 4 5; do

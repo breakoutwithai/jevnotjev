@@ -21,17 +21,37 @@ source .deploy/backstage-lib.sh
 snippet="$(cat .deploy/backstage-nginx.conf)"
 [[ "$(printf '%s\n' "$snippet" | backstage_snippet_auth)" == session ]] && ok "repo Backstage snippet is a session gate" || nope "repo Backstage snippet is not a session gate"
 if printf '%s\n' "$snippet" | grep -Eq 'auth_basic|WWW-Authenticate|satisfy'; then nope "session snippet contains Basic gate or challenge"; else ok "session snippet has no Basic gate, challenge or satisfy"; fi
-session='location ^~ /backstage/ { auth_request /_backstage_session; } location ^~ /api/backstage/ { auth_request /_backstage_session; } location = /_backstage_session { internal; }'
+session='location ^~ /backstage/ { auth_request /_backstage_session; } location ^~ /api/backstage/ { auth_request /_backstage_session; } location = /_backstage_session { internal; proxy_pass http://127.0.0.1:3456/api/auth/session; }'
 [[ "$(printf '%s\n' "$session" | backstage_snippet_auth)" == session ]] && ok "inline session layout parses" || nope "inline session layout rejected"
 for variant in \
     "${session} location ^~ /api/auth/ { auth_basic off; }" \
     "${session/auth_request \/_backstage_session;/auth_request off;}" \
     "${session/auth_request \/_backstage_session;/auth_request \/other;}" \
-    "${session/location = \/_backstage_session { internal; }/}" \
+    "${session/internal;/}" \
+    "${session/proxy_pass http:\/\/127.0.0.1:3456\/api\/auth\/session;/}" \
+    "${session/http:\/\/127.0.0.1:3456\/api\/auth\/session/http:\/\/127.0.0.1:3456\/api\/auth\/other}" \
+    "${session/internal;/internal; return 204;}" \
+    "${session/internal;/internal; location \/nested { return 204; }}" \
+    "${session/location ^~ \/backstage\/ { auth_request \/_backstage_session;/location ^~ \/backstage\/ { satisfy any; allow all; auth_request \/_backstage_session;}" \
+    "${session/location ^~ \/api\/backstage\/ { auth_request \/_backstage_session;/location ^~ \/api\/backstage\/ { allow all; auth_request \/_backstage_session;}" \
     "${session} location ^~ /api/auth/ { location /nested { auth_request /_backstage_session; } }"; do
     [[ "$(printf '%s\n' "$variant" | backstage_snippet_auth)" == unknown ]] && ok "mixed or evasive session layout refused" || nope "mixed or evasive session layout accepted"
 done
 [[ "$(printf '%s\n' '# auth_basic off;' "$session" | backstage_snippet_auth)" == session ]] && ok "commented Basic directive has no effect" || nope "comment changed session classification"
+for route in /backstage/sign-in /api/auth/password /api/auth/sign-out /api/auth/google /api/auth/google/callback; do
+    block="$(printf '%s\n' "$snippet" | sed -n "\\|^location = ${route} {|,/^}/p")"
+    [[ "$block" == *"proxy_pass http://127.0.0.1:3456${route};"* && "$block" == *'proxy_set_header Host $host;'* && "$block" == *'proxy_set_header X-Backstage-Client-IP $remote_addr;'* ]] \
+        && ok "exact ${route} normalises target and forwards trusted headers" || nope "unsafe ${route} proxy location"
+    if [[ "$route" == /api/auth/google/callback ]]; then
+        [[ "$block" == *'access_log off;'* ]] && ok "OAuth callback omits code from access log" || nope "OAuth callback logs code"
+    else
+        [[ "$block" != *'access_log off;'* ]] && ok "${route} keeps access log" || nope "${route} disables access log"
+    fi
+done
+[[ "$snippet" != *'location ^~ /api/auth/'* && "$snippet" == *'next=$request_uri;'* && "$snippet" != *'next=$uri;'* ]] \
+    && ok "no raw auth prefix or decoded redirect target" || nope "raw auth prefix or decoded redirect target"
+page="$(printf '%s\n' "$snippet" | sed -n '\|^location \^~ /backstage/ {|,/^}/p')"
+[[ "$page" == *'proxy_set_header X-Backstage-Client-IP $remote_addr;'* ]] && ok "gated page overwrites client address" || nope "gated page trusts visitor address"
 
 if [[ ! -f "$CONF" ]]; then
     nope "missing committed vhost at ${CONF}"

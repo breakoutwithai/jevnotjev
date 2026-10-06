@@ -17,7 +17,7 @@
 #   5. The selected Basic or session gate is verified after the reload. Otherwise: restore.
 #
 # A Basic snippet requires the operator's existing htpasswd. A session snippet requires nginx's
-# auth_request module, the running sign-in release, auth.env and operators.json. Setup never
+# auth_request module, auth.env and operators.json. A running release must be sign-in capable. Setup never
 # creates credentials or secrets.
 # An installed unit that differs from the repo is reported and left alone. The funded-trial
 # secret file is outside this script's scope.
@@ -55,6 +55,7 @@ readonly BS_HTPASSWD="${BS_HTPASSWD_DIR}/htpasswd"
 readonly BS_HTPASSWD_TOOL="/usr/bin/htpasswd"
 readonly BS_AUTH_ENV="/etc/jevnotjev-backstage/auth.env"
 readonly BS_OPERATORS="/var/lib/jevnotjev-backstage/operators.json"
+readonly BS_CURRENT="/var/www/jevnotjev-backstage-current"
 
 # insert_include - pure. vhost text on stdin, include line as $1. Prints the vhost with the
 # include added once, at server level, right after the first `listen ...443` line of the ONLY
@@ -99,7 +100,7 @@ include_placed() {
 
 # setup_probe - ONE read-only remote command; prints key=value lines.
 setup_probe() {
-    remote "U='${BS_UNIT}' S='${BS_SNIPPET}' I='${BS_INCLUDE}' V='${VHOST_AVAILABLE}' E='${VHOST_ENABLED}' B='${BS_BUN}' P='${BS_PORT}' N='${BS_USER}' A='${BS_AUTH_ENV}' O='${BS_OPERATORS}'
+    remote "U='${BS_UNIT}' S='${BS_SNIPPET}' I='${BS_INCLUDE}' V='${VHOST_AVAILABLE}' E='${VHOST_ENABLED}' B='${BS_BUN}' P='${BS_PORT}' N='${BS_USER}' A='${BS_AUTH_ENV}' O='${BS_OPERATORS}' C='${BS_CURRENT}'
 echo \"arch=\$(uname -m)\"
 if [ ! -x \"\$B\" ]; then echo bun=absent; elif v=\$(\"\$B\" --version 2>/dev/null) && [ -n \"\$v\" ]; then echo \"bun=\$v\"; else echo bun=broken; fi
 if id -u \"\$N\" >/dev/null 2>&1; then echo user=present; else echo user=absent; fi
@@ -111,6 +112,7 @@ if [ -L \"\$E\" ] && [ \"\$(readlink \"\$E\")\" = \"\$V\" ]; then echo vhost_lin
 if sed 's/#.*//' \"\$V\" 2>/dev/null | grep -qF \"\$I\"; then echo include=present; else echo include=absent; fi
 if [ \"\$(systemctl is-enabled \"\$N\" 2>/dev/null)\" = enabled ]; then echo enabled=yes; else echo enabled=no; fi
 if systemctl is-active --quiet \"\$N\" 2>/dev/null; then echo active=yes; else echo active=no; fi
+if systemctl is-active --quiet \"\$N\" 2>/dev/null && [ -L \"\$C\" ] && [ -d \"\$C\" ]; then echo release=running; else echo release=none; fi
 H='${BS_HTPASSWD}' D='${BS_HTPASSWD_DIR}' T='${BS_HTPASSWD_TOOL}'
 if [ -x \"\$T\" ]; then echo ht_tool=htpasswd; else echo ht_tool=openssl; fi
 g=unknown
@@ -124,9 +126,11 @@ elif m=\$(stat -c '%U %G %a %s' \"\$H\" 2>/dev/null); then echo \"htpasswd=\$(pr
 if [ -L \"\$D\" ]; then echo htpasswd_dir=symlink; elif [ ! -d \"\$D\" ]; then echo htpasswd_dir=absent
 elif m=\$(stat -c '%U %G %a %s' \"\$D\" 2>/dev/null); then echo \"htpasswd_dir=\$(printf '%s' \"\$m\" | tr ' ' ':')\"; else echo htpasswd_dir=unknown; fi
 if nginx -V 2>&1 | grep -q -- '--with-http_auth_request_module'; then echo auth_request=yes; else echo auth_request=no; fi
-code=unknown
-if code=\$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3456/api/auth/session); then :; else code=unknown; fi
-echo \"session_check=\$code\"
+if systemctl is-active --quiet \"\$N\" 2>/dev/null && [ -L \"\$C\" ] && [ -d \"\$C\" ]; then
+    payload=\$(curl -sS --max-time 5 -w '\\n%{http_code}' http://127.0.0.1:3456/api/auth/session 2>/dev/null) || payload=unknown
+    code=\$(printf '%s\\n' \"\$payload\" | tail -1)
+    if [ \"\$code\" = 401 ] && printf '%s\\n' \"\$payload\" | grep -Eq '\"signIn\"[[:space:]]*:[[:space:]]*\"ready\"'; then echo session_check=ready; else echo session_check=unready; fi
+else echo session_check=skipped; fi
 for spec in auth_env:\"\$A\" operators:\"\$O\"; do
     kind=\${spec%%:*}; file=\${spec#*:}
     if [ -L \"\$file\" ]; then echo \"\$kind=symlink\"
@@ -134,21 +138,35 @@ for spec in auth_env:\"\$A\" operators:\"\$O\"; do
     elif [ ! -f \"\$file\" ]; then echo \"\$kind=notfile\"
     elif m=\$(stat -c '%U %G %a %s' \"\$file\" 2>/dev/null); then echo \"\$kind=\$(printf '%s' \"\$m\" | tr ' ' ':')\"
     else echo \"\$kind=unknown\"; fi
-done"
+done
+if [ -f \"\$A\" ] && [ ! -L \"\$A\" ]; then
+    echo \"auth_secret=\$(grep -Ec '^BACKSTAGE_SESSION_SECRET=.{32,}$' \"\$A\" 2>/dev/null || true)\"
+    echo \"auth_trust_proxy=\$(grep -c '^BACKSTAGE_TRUST_PROXY=loopback$' \"\$A\" 2>/dev/null || true)\"
+else echo auth_secret=0; echo auth_trust_proxy=0; fi"
 }
 
 session_ready() {
-    local probe="$1" kind value owner group mode size
+    local probe="$1" kind value owner group mode size release
+    release="$(probe_get "$probe" release)"
     for kind in auth_request session_check auth_env operators; do
         value="$(probe_get "$probe" "$kind")"
         case "$kind" in
             auth_request) [[ "$value" == yes ]] || { log_error "Session precondition auth_request failed: nginx needs --with-http_auth_request_module. Refusing; nothing changed."; return 1; } ;;
-            session_check) [[ "$value" == 401 ]] || { log_error "Session precondition release failed: /api/auth/session must return 401 on loopback. Deploy the sign-in-capable release, then run operator step 5: install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage. Refusing; nothing changed."; return 1; } ;;
+            session_check)
+                if [[ "$release" == running && "$value" != ready ]]; then
+                    log_error "Session precondition release failed: /api/auth/session must return 401 with \"signIn\":\"ready\" on loopback. Deploy the sign-in-capable release, then run operator step 5: install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage. Refusing; nothing changed."
+                    return 1
+                fi ;;
             auth_env|operators)
+                [[ "$kind" != operators || "$release" == running ]] || continue
                 IFS=: read -r owner group mode size <<< "$value"
                 if [[ "$kind" == auth_env ]]; then
                     if [[ "$owner" != root || "$mode" != 600 || ! "$size" =~ ^[0-9]+$ ]]; then
                         log_error "Session precondition auth_env failed: ${BS_AUTH_ENV} must be a regular, non-symlink root-owned mode 0600 file. Create it in an interactive root session with BACKSTAGE_SESSION_SECRET from openssl rand -hex 32, Google client ID and secret, and BACKSTAGE_TRUST_PROXY=loopback. Refusing; nothing changed."
+                        return 1
+                    fi
+                    if [[ "$(probe_get "$probe" auth_secret)" != 1 || "$(probe_get "$probe" auth_trust_proxy)" != 1 ]]; then
+                        log_error "Session precondition auth_env failed: ${BS_AUTH_ENV} must set BACKSTAGE_SESSION_SECRET to 32+ characters and BACKSTAGE_TRUST_PROXY=loopback. Run operator step 2: write /etc/jevnotjev-backstage/auth.env in an interactive root session, root-owned mode 0600, with BACKSTAGE_SESSION_SECRET from openssl rand -hex 32, BACKSTAGE_GOOGLE_CLIENT_ID, BACKSTAGE_GOOGLE_CLIENT_SECRET, and BACKSTAGE_TRUST_PROXY=loopback. Refusing; nothing changed."
                         return 1
                     fi
                 elif [[ "$owner" != "$BS_USER" || "$mode" != 600 || ! "$size" =~ ^[0-9]+$ || "$size" -eq 0 ]]; then
@@ -236,6 +254,7 @@ setup_plan() {
         log_error "Port ${BS_PORT} is in use and ${BS_SERVICE} is not running: another process holds it."; return 1
     fi
     PLAN_GATE="$(backstage_snippet_auth < "$BS_SNIPPET_SRC")" || return 1
+    PLAN_RELEASE="$(probe_get "$probe" release)"
     case "$PLAN_GATE" in
         yes) htpasswd_ready "$probe" || return 1 ;;
         session) session_ready "$probe" || return 1 ;;
@@ -400,8 +419,10 @@ apply_nginx() {
 verify_auth_gate() {
     if [[ "$1" == session ]]; then
         export BACKSTAGE_GATE=session
+        local release=yes
+        if [[ "$PLAN_RELEASE" == none ]]; then release=none; fi
         backstage_session_reset || return 1
-        verify_live "" "" no yes backstage yes session
+        verify_live "" "" no "$release" backstage yes session
         return $?
     fi
     local path code rc want state good=true err
@@ -459,6 +480,9 @@ setup_main() {
 
     probe="$(setup_probe)" || { log_error "Read-only probe failed; nothing changed."; return 1; }
     setup_plan "$probe" || { log_error "Refusing setup; nothing changed."; return 1; }
+    if [[ "$PLAN_GATE" == session && "$PLAN_RELEASE" == none ]]; then
+        echo 'note: operators.json must exist before the first deploy'
+    fi
     if ! $PLAN_INCLUDE; then
         remote "cat '${VHOST_AVAILABLE}'" | include_placed "$BS_INCLUDE" "$DOMAIN" \
             || { log_error "The Backstage include is in ${VHOST_AVAILABLE} but not exactly once inside the HTTPS server block for ${DOMAIN}. Inspect by hand; nothing changed."; return 1; }

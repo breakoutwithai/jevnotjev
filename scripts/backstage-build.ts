@@ -90,7 +90,7 @@ export async function buildBackstage(
     if (!protocol) throw new Error("Cannot identify source protocol.");
     await Bun.write(
       join(out, "release.json"),
-      JSON.stringify({ version, protocol, issue: 67 }) + "\n",
+      JSON.stringify({ version, protocol, issue: 67, gate: "session" }) + "\n",
     );
     return out;
   } finally {

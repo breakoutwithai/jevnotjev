@@ -29,8 +29,12 @@ verify_get() {
     VERIFY_RC=0
     if [[ "$who" == auth ]]; then
         out="$(backstage_curl -sS -D "$headers" -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || VERIFY_RC=$?
-    elif [[ "$who" == tampered ]]; then
-        out="$(curl -q -sS -H 'Cookie: __Host-backstage_session=x.y' -D "$headers" -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || VERIFY_RC=$?
+    elif [[ "$who" == tampered || "$who" == forged ]]; then
+        local cookie='x.y'
+        if [[ "$who" == forged ]]; then
+            cookie='eyJlbWFpbCI6Im9wZXJhdG9yQGV4YW1wbGUudGVzdCIsImF1dGgiOiJwYXNzd29yZCIsImlhdCI6MSwiZXhwIjo5OTk5OTk5OTk5LCJzaWQiOiJmYWtlIiwiY3JlZCI6ImZha2UifQ.bad-signature'
+        fi
+        out="$(curl -q -sS -H "Cookie: __Host-backstage_session=${cookie}" -D "$headers" -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || VERIFY_RC=$?
     else
         out="$(curl -q -sS -D "$headers" -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || VERIFY_RC=$?
     fi
@@ -44,27 +48,48 @@ verify_session_redirect() {
     local who="$1" label="$2" location
     verify_get "$who" /backstage/
     location="$(printf '%s\n' "$VERIFY_HEADERS" | tr -d '\r' | sed -n '/^[Ll]ocation:[[:space:]]*/{s/^[^:]*:[[:space:]]*//;p;}' | tail -1)"
-    if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 302 && "$location" == */backstage/sign-in?next=/backstage/ ]]; then
+    if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 302 && ( "$location" == "${HEALTH_URL}/backstage/sign-in?next=/backstage/" || "$location" == '/backstage/sign-in?next=/backstage/' ) ]]; then
         verify_pass "S2 ${label} /backstage/ 302 sign-in"
     else
-        verify_fail "S2 ${label} /backstage/: expected 302 Location ending /backstage/sign-in?next=/backstage/, $(verify_got)"
+        verify_fail "S2 ${label} /backstage/: expected 302 exact sign-in Location, $(verify_got)"
     fi
 }
 verify_session_api_401() {
     local who="$1" label="$2"
     verify_get "$who" /api/backstage/health
-    if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 401 ]] && ! printf '%s\n' "$VERIFY_HEADERS" | grep -Eiq '^WWW-Authenticate:'; then
+    if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 401 && "$VERIFY_BODY" == '{"code":"unauthenticated"}' ]] \
+        && printf '%s\n' "$VERIFY_HEADERS" | tr -d '\r' | grep -Eiq '^Content-Type:[[:space:]]*application/json([[:space:]]*;|[[:space:]]*$)' \
+        && ! printf '%s\n' "$VERIFY_HEADERS" | grep -Eiq '^WWW-Authenticate:'; then
         verify_pass "S2 ${label} /api/backstage/health 401 no WWW-Authenticate"
     else
-        verify_fail "S2 ${label} /api/backstage/health: expected 401 without WWW-Authenticate, $(verify_got)"
+        verify_fail "S2 ${label} /api/backstage/health: expected JSON 401 with exact unauthenticated body and no WWW-Authenticate, $(verify_got)"
     fi
 }
 verify_session_sign_in() {
+    local release="$1"
     verify_get anon /backstage/sign-in
     if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 200 && "$VERIFY_BODY" == *'action="/api/auth/password"'* && "$VERIFY_BODY" != *'id="sign-out"'* ]]; then
         verify_pass "S2 anon /backstage/sign-in 200 password form without app markup"
+    elif [[ "$release" != yes && "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == "$VERIFY_NO_RELEASE_CODE" ]]; then
+        verify_pass "S2 anon /backstage/sign-in ${VERIFY_NO_RELEASE_CODE} (no release yet)"
     else
-        verify_fail "S2 anon /backstage/sign-in: expected 200 password form without app markup, $(verify_got)"
+        verify_fail "S2 anon /backstage/sign-in: expected 200 password form without app markup$([[ "$release" == yes ]] || printf ' or %s without a release' "$VERIFY_NO_RELEASE_CODE"), $(verify_got)"
+    fi
+}
+
+# verify_session_auth <expected version or empty> <release yes|none> - the minted-session rows of
+# the session gate. Without a release (fresh install) no service can mint a session: n/a, not FAIL.
+verify_session_auth() {
+    local want="$1" release="$2"
+    if [[ "$release" != yes ]]; then
+        verify_note "S2 auth: no release is running, so no session can be minted yet"
+        [[ -z "$want" ]] || verify_fail "S1 backstage version: expected ${want}, no release is running"
+        return
+    fi
+    if backstage_session_mint; then
+        verify_backstage_auth "$want" "$release"
+    else
+        verify_fail "S2 auth: BACKSTAGE_CURL_CONFIG could not mint a session"
     fi
 }
 
@@ -184,9 +209,11 @@ verify_live() {
         if [[ "$gate" == session ]]; then
             verify_session_redirect anon anon
             verify_session_api_401 anon anon
-            verify_session_sign_in
+            verify_session_sign_in "$release"
             verify_session_redirect tampered tampered
             verify_session_api_401 tampered tampered
+            verify_session_redirect forged forged
+            verify_session_api_401 forged forged
         elif [[ "$gate" == yes ]]; then
             for path in "${VERIFY_GATED_PATHS[@]}"; do
                 verify_code anon "$path" "$VERIFY_UNAUTH_CODE" "S2 anon ${path}"
@@ -195,11 +222,11 @@ verify_live() {
             verify_fail "S2 gate: expected yes or session, got ${gate}"
         fi
         if [[ -z "${BACKSTAGE_CURL_CONFIG:-}" ]] || ! backstage_check_curl_config; then
-            verify_fail "S2 auth: BACKSTAGE_CURL_CONFIG must name a private (0600, yours) curl config holding the Backstage login (docs/backstage-deploy.md § Basic Auth gate)"
+            verify_fail "S2 auth: BACKSTAGE_CURL_CONFIG must name a private (0600, yours) curl config holding the Backstage login (docs/backstage-deploy.md § Sign-in gate)"
             [[ -z "$want_backstage" ]] || verify_fail "S1 backstage version: not read without BACKSTAGE_CURL_CONFIG"
         else
             if [[ "$gate" == session ]]; then
-                if backstage_session_mint; then verify_backstage_auth "$want_backstage" "$release"; else verify_fail "S2 auth: BACKSTAGE_CURL_CONFIG could not mint a session"; fi
+                verify_session_auth "$want_backstage" "$release"
             elif [[ "$gate" == yes ]]; then
                 verify_backstage_auth "$want_backstage" "$release"
             fi

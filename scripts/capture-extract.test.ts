@@ -77,6 +77,7 @@ describe("nginx allowlist extraction", () => {
   });
 
   test("[unit] #86 the snippet facts are validated: auth yes|no|unknown, a 64-hex sha256", () => {
+    expect(JSON.parse(nginxRecord(NGINX_T, "session", "a".repeat(64))).snippet.auth).toBe("session");
     expect(() => nginxRecord(NGINX_T, "maybe", "a".repeat(64))).toThrow("auth");
     expect(() => nginxRecord(NGINX_T, "yes", "not-a-sha")).toThrow("sha256");
   });

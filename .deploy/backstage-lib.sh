@@ -94,7 +94,11 @@ backstage_session_reset() { backstage_session_cleanup; }
 backstage_session_on_exit() {
     local rc=$?
     backstage_session_cleanup
-    [[ -z "${BACKSTAGE_PRIOR_EXIT:-}" ]] || eval "$BACKSTAGE_PRIOR_EXIT"
+    if [[ -n "${BACKSTAGE_PRIOR_EXIT:-}" ]]; then
+        set +e
+        (exit "$rc")
+        eval "$BACKSTAGE_PRIOR_EXIT"
+    fi
     return "$rc"
 }
 backstage_session_install_exit() {
@@ -187,7 +191,12 @@ backstage_snippet_auth() {
                 depth--; if (depth < 0) bad = 1; if (depth == 0) cur = ""
             } else if (last == ";") {
                 s = substr(s, 1, length(s) - 1); split(s, w, /[[:space:]]+/); d = w[1]
-                if (d == "internal" && cur == "session_check" && depth == 1) { if (internal++) bad = 1; continue }
+                if (cur == "session_check" && depth == 1) {
+                    if (d == "internal") { if (internal++ || s != "internal") bad = 1; continue }
+                    if (d == "proxy_pass") { if (session_proxy++ || s != "proxy_pass http://127.0.0.1:3456/api/auth/session") bad = 1; continue }
+                    if (d == "return") { bad = 1; continue }
+                }
+                if ((cur == "page" || cur == "api") && depth == 1 && (d == "satisfy" || d == "allow" || d == "deny")) { bad = 1; continue }
                 if (d != "auth_basic" && d != "auth_basic_user_file" && d != "auth_request") continue
                 if (depth != 1 || (cur != "page" && cur != "api") || ((cur, d) in dir)) { bad = 1; continue }
                 v = s; sub(/^[^[:space:]]+[[:space:]]*/, "", v); gsub(/["\047]/, "", v)
@@ -209,7 +218,7 @@ backstage_snippet_auth() {
             else r[loc] = "unknown"
         }
         if (r["page"] != r["api"]) { print "unknown"; exit }
-        if (r["page"] == "session" && (seen["session_check"] != 1 || internal != 1)) { print "unknown"; exit }
+        if (r["page"] == "session" && (seen["session_check"] != 1 || internal != 1 || session_proxy != 1)) { print "unknown"; exit }
         print r["page"]
     }'
 }

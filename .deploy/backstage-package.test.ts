@@ -371,6 +371,9 @@ async function activationFixture(
     authSnippet?: boolean;
     authAfterLock?: boolean;
     curlConfig?: string;
+    sessionGate?: boolean;
+    missingTargetGate?: boolean;
+    stopped?: boolean;
   } = {},
 ): Promise<{
   code: number;
@@ -379,6 +382,7 @@ async function activationFixture(
   output: string;
   curlLog: string;
   remoteLog: string;
+  runtimeEnv: string;
 }> {
   const dir = await mkdtemp(join(tmpdir(), "backstage-activation-"));
   const oldSha = "a".repeat(40),
@@ -410,6 +414,7 @@ async function activationFixture(
           version: sha,
           protocol:
             options.currentV2 && sha === oldSha ? "backstage/2" : "backstage/1",
+          ...(options.sessionGate && !options.missingTargetGate && sha === newSha ? { gate: "session" } : {}),
         }),
       );
       if (!(options.unverified && sha === oldSha))
@@ -438,7 +443,7 @@ async function activationFixture(
       await Bun.write(join(artifact, "server.js"), "server");
       await Bun.write(
         join(artifact, "release.json"),
-        JSON.stringify({ version: newSha, protocol: "backstage/2" }),
+        JSON.stringify({ version: newSha, protocol: "backstage/2", ...(options.sessionGate && !options.missingTargetGate ? { gate: "session" } : {}) }),
       );
       await Bun.write(
         join(dir, "scripts/backstage-build.ts"),
@@ -460,6 +465,7 @@ async function activationFixture(
     // Rollback fixtures exercise the staged Basic gate separately from the repo session snippet.
     const basicSnippet = 'location ^~ /backstage/ { auth_basic "Backstage"; auth_basic_user_file /tmp/htpasswd; }\nlocation ^~ /api/backstage/ { auth_basic "Backstage"; auth_basic_user_file /tmp/htpasswd; }\n';
     await Bun.write(join(dir, "snippet-auth.conf"), basicSnippet);
+    if (options.sessionGate) await Bun.write(join(dir, "snippet-auth.conf"), await Bun.file(".deploy/backstage-nginx.conf").text());
     await Bun.write(
       join(dir, "snippet-open.conf"),
       'location ^~ /backstage/ {}\nlocation ^~ /api/backstage/ {}\n',
@@ -470,8 +476,8 @@ async function activationFixture(
       sleep: "#!/usr/bin/env bash\nexit 0\n",
       mv: `#!/usr/bin/env bun\nimport {renameSync} from 'node:fs';const args=process.argv.slice(2).filter(a=>a!=='-T');renameSync(args[0]??'',args[1]??'');`,
       sha256sum: `#!/usr/bin/env bash\nshasum -a 256 "$@"\n`,
-      systemctl: `#!/usr/bin/env bun\nimport {appendFileSync,existsSync,writeFileSync} from 'node:fs';const root=process.env.FIXTURE??'';appendFileSync(root+'/actions',process.argv.slice(2).join(' ')+'\\n');if(process.argv[2]==='is-enabled'&&process.env.DISABLED==='1')process.exit(1);if(process.argv[2]==='restart'&&process.env.FAIL_RESTART==='1'&&!existsSync(root+'/failed')){writeFileSync(root+'/failed','1');process.exit(1);}`,
-      curl: `#!/usr/bin/env bun\nimport {appendFileSync,readlinkSync,readFileSync} from 'node:fs';const args=process.argv.slice(2);appendFileSync((process.env.FIXTURE??'')+'/curl.log',args.join(' ')+'\\n');const url=args.at(-1)??'';if(url.includes('neighbor.test')){process.stdout.write('200');process.exit(0);}const active=readlinkSync((process.env.FIXTURE??'')+'/www/jevnotjev-backstage-current');if(url.endsWith('/health')){process.stdout.write(JSON.stringify({protocol:process.env.WRONG_PROTOCOL==='1'&&active.endsWith('b'.repeat(40))?'backstage/999':JSON.parse(readFileSync(active+'/release.json','utf8')).protocol,version:active.split('/').at(-1)}));}else{const path=url.endsWith('/')?'index.html':url.split('/').at(-1);if(path==='index.html'&&process.env.CORRUPT_HTML==='1')process.stdout.write('old html');else process.stdout.write(readFileSync(active+'/site/backstage/'+path));}`,
+      systemctl: `#!/usr/bin/env bun\nimport {appendFileSync,existsSync,writeFileSync} from 'node:fs';const root=process.env.FIXTURE??'';appendFileSync(root+'/actions',process.argv.slice(2).join(' ')+'\\n');if(process.argv[2]==='is-enabled'&&process.env.DISABLED==='1')process.exit(1);if(process.argv[2]==='restart'){writeFileSync(root+'/restarted','1');if(process.env.FAIL_RESTART==='1'&&!existsSync(root+'/failed')){writeFileSync(root+'/failed','1');process.exit(1);}}`,
+      curl: `#!/usr/bin/env bun\nimport {appendFileSync,readlinkSync,readFileSync,writeFileSync,existsSync} from 'node:fs';const args=process.argv.slice(2);const root=process.env.FIXTURE??'';appendFileSync(root+'/curl.log',args.join(' ')+'\\n');const url=args.at(-1)??'';if(url.includes('neighbor.test')){process.stdout.write('200');process.exit(0);}if(process.env.STOPPED==='1'&&!existsSync(root+'/restarted'))process.exit(7);if(url.endsWith('/api/auth/password')){const h=args.indexOf('-D'),j=args.indexOf('-c');if(h>=0)writeFileSync(args[h+1]??'', 'HTTP/1.1 303 See Other\\r\\nSet-Cookie: __Host-backstage_session=fake; Path=/; Secure\\r\\n\\r\\n');if(j>=0)writeFileSync(args[j+1]??'', '#HttpOnly_jevnotjev.breakoutwithai.com\\tTRUE\\t/\\tTRUE\\t0\\t__Host-backstage_session\\tfake-session\\n');process.stdout.write('303');process.exit(0);}const active=readlinkSync(root+'/www/jevnotjev-backstage-current');if(url.endsWith('/health')){process.stdout.write(JSON.stringify({protocol:process.env.WRONG_PROTOCOL==='1'&&active.endsWith('b'.repeat(40))?'backstage/999':JSON.parse(readFileSync(active+'/release.json','utf8')).protocol,version:active.split('/').at(-1)}));}else{const path=url.endsWith('/')?'index.html':url.split('/').at(-1);if(path==='index.html'&&process.env.CORRUPT_HTML==='1')process.stdout.write('old html');else process.stdout.write(readFileSync(active+'/site/backstage/'+path));}`,
     };
     for (const [name, body] of Object.entries(commands)) {
       const path = join(dir, "bin", name);
@@ -487,8 +493,9 @@ async function activationFixture(
       CORRUPT_HTML: corruptHtml ? "1" : "0",
       DISABLED: options.disabled ? "1" : "0",
       WRONG_PROTOCOL: options.wrongProtocol ? "1" : "0",
-      AUTH_SNIPPET: options.authSnippet ? "1" : "0",
+      AUTH_SNIPPET: options.authSnippet || options.sessionGate ? "1" : "0",
       AUTH_AFTER_LOCK: options.authAfterLock ? "1" : "0",
+      STOPPED: options.stopped ? "1" : "0",
     };
     delete env.BACKSTAGE_CURL_CONFIG;
     if (options.curlConfig) env.BACKSTAGE_CURL_CONFIG = options.curlConfig;
@@ -514,6 +521,7 @@ async function activationFixture(
         new TextDecoder().decode(result.stdout),
       curlLog: await readLog("curl.log"),
       remoteLog: await readLog("remote.log"),
+      runtimeEnv: await Bun.file(join(dir, "www/jevnotjev-backstage-releases", newSha, "runtime.env")).text().catch(() => ""),
     };
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -571,6 +579,41 @@ test("[integration] B8 deployment refuses a service not enabled for reboot", asy
   expect(result.current).toBe("a".repeat(40));
   expect(result.log).not.toContain("restart");
   expect(result.output).toContain("not enabled");
+});
+test("[integration] AU session gate rejects promotion and rollback without a session release before activation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-gate-"));
+  const config = join(dir, "curl");
+  try {
+    await Bun.write(config, 'user = "operator@example.test:fake-password"\n');
+    await chmod(config, 0o600);
+    for (const promote of [true, false]) {
+      const result = await activationFixture(false, false, { promote, sessionGate: true, missingTargetGate: true, curlConfig: config });
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('gate');
+      expect(result.current).toBe("a".repeat(40));
+      expect(result.log).not.toContain("restart");
+      expect(result.curlLog).not.toContain("api/auth/password");
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("[integration] AU stopped service can be replaced under a session gate and runtime enforces it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-gate-"));
+  const config = join(dir, "curl");
+  try {
+    await Bun.write(config, 'user = "operator@example.test:fake-password"\n');
+    await chmod(config, 0o600);
+    for (const promote of [true, false]) {
+      const result = await activationFixture(false, false, { promote, sessionGate: true, stopped: true, curlConfig: config });
+      expect(result.code).toBe(0);
+      expect(result.current).toBe("b".repeat(40));
+      expect(result.runtimeEnv).toContain("BACKSTAGE_REQUIRE_SESSION=1");
+      expect(result.curlLog.match(/api\/auth\/password/g)?.length).toBe(1);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("[integration] A3 auth snippet without BACKSTAGE_CURL_CONFIG fails before any change, naming the variable", async () => {
@@ -756,7 +799,7 @@ test("[unit] AU S2 session mint keeps credentials out of argv and removes its pr
     await chmod(config, 0o600);
     await Bun.write(curl, '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$MINT_LOG"\nheads=""; jar=""; prev=""; for arg in "$@"; do case "$prev" in -D) heads="$arg";; -c) jar="$arg";; esac; prev="$arg"; done\nif [[ -n "$jar" ]]; then printf "HTTP/1.1 303 See Other\\r\\nSet-Cookie: __Host-backstage_session=fake; Path=/; Secure\\r\\n\\r\\n" > "$heads"; printf "cookie" > "$jar"; printf 303; else printf 200; fi\n');
     await chmod(curl, 0o755);
-    const command = 'source .deploy/backstage-lib.sh; trap \'printf prior > "$MINT_PRIOR_TRAP"\' EXIT; BACKSTAGE_GATE=session; backstage_curl -o /dev/null -w "%{http_code}" "$HEALTH_URL/backstage/" >/dev/null; backstage_curl -o /dev/null -w "%{http_code}" "$HEALTH_URL/api/backstage/health" >/dev/null; first="$BACKSTAGE_SESSION_JAR"; stat -f "%Lp" "$first"; backstage_session_reset; [[ ! -e "$first" ]] || exit 8; backstage_curl -o /dev/null -w "%{http_code}" "$HEALTH_URL/backstage/" >/dev/null; printf "%s" "$BACKSTAGE_SESSION_JAR" > "$MINT_JAR_PATH"';
+    const command = 'source .deploy/backstage-lib.sh; trap \'printf prior > "$MINT_PRIOR_TRAP"\' EXIT; BACKSTAGE_GATE=session; backstage_curl -o /dev/null -w "%{http_code}" "$HEALTH_URL/backstage/" >/dev/null; backstage_curl -o /dev/null -w "%{http_code}" "$HEALTH_URL/api/backstage/health" >/dev/null; first="$BACKSTAGE_SESSION_JAR"; bun -e \'import {statSync} from "node:fs"; console.log((statSync(process.argv[1]).mode & 0o777).toString(8))\' "$first"; backstage_session_reset; [[ ! -e "$first" ]] || exit 8; backstage_curl -o /dev/null -w "%{http_code}" "$HEALTH_URL/backstage/" >/dev/null; printf "%s" "$BACKSTAGE_SESSION_JAR" > "$MINT_JAR_PATH"';
     const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`, BACKSTAGE_CURL_CONFIG: config, MINT_LOG: log, MINT_JAR_PATH: jarPath, MINT_PRIOR_TRAP: priorTrap, HEALTH_URL: "https://own.test", CURL_PIN: "" };
     const result = Bun.spawnSync(["bash", "-c", command], { env, stdout: "pipe", stderr: "pipe" });
     expect(result.exitCode).toBe(0);

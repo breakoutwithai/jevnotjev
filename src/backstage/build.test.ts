@@ -120,6 +120,7 @@ test("[integration] B8 production build ignores dirty working sources and uses a
     const out = await buildBackstage(fixture, true);
     expect(await Bun.file(`${out}/release.json`).json()).toMatchObject({
       protocol: "backstage/1",
+      gate: "session",
     });
     expect(await Bun.file(`${out}/site/backstage/index.html`).text()).toBe(
       "committed-asset",

@@ -9,7 +9,7 @@ export function escapeHtml(value: string): string {
 
 // Layout and copy shape ported from groit apps/booth/server.js:1549-1680 at bb29d8cc.
 export function renderSignInPage(next: string, message: string | null, googleConfigured: boolean, baseCsp: string): Response {
-  const note = message === "signed-out" ? "You are signed out" : message === "locked" ? "Too many attempts. Try again later." : message === "google" ? "Google sign-in failed. Try again." : message === "signin" ? "Sign-in failed. Check your details and try again." : "";
+  const note = message === "signed-out" ? "You are signed out" : message === "locked" ? "Too many attempts. Try again later." : message === "busy" ? "Sign-in is busy. Try again shortly." : message === "google" ? "Google sign-in failed. Try again." : message === "signin" ? "Sign-in failed. Check your details and try again." : "";
   const safeNext = escapeHtml(next);
   const google = googleConfigured
     ? `<a class="button" href="/api/auth/google?next=${encodeURIComponent(next)}">Continue with Google</a>`

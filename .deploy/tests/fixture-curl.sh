@@ -21,15 +21,15 @@ set -u
 
 printf 'curl %s\n' "$*" >> "${FAKE_STATE}/curl.log"
 
-url="" out="" heads="" jar="" wfmt="" auth=false session=false tampered=false mint=false failflag=false prev=""
+url="" out="" heads="" jar="" wfmt="" auth=false session=false tampered=false forged=false mint=false failflag=false prev=""
 for a in "$@"; do
     case "$prev" in
         -o) out="$a"; prev=""; continue ;;
         -w) wfmt="$a"; prev=""; continue ;;
         -D) heads="$a"; prev=""; continue ;;
         -c) jar="$a"; prev=""; continue ;;
-        -b) session=true; prev=""; continue ;;
-        -H) [[ "$a" != 'Cookie: __Host-backstage_session=x.y' ]] || tampered=true; prev=""; continue ;;
+        -b) [[ -f "$a" ]] && grep -Fqx $'#HttpOnly_jevnotjev.breakoutwithai.com\tTRUE\t/\tTRUE\t0\t__Host-backstage_session\tfake-session' "$a" && session=true; prev=""; continue ;;
+        -H) [[ "$a" != 'Cookie: __Host-backstage_session=x.y' ]] || tampered=true; [[ "$a" != Cookie:\ __Host-backstage_session=eyJ* ]] || forged=true; prev=""; continue ;;
         -X) [[ "$a" != POST ]] || mint=true; prev=""; continue ;;
         --config|--resolve|--max-time) prev=""; continue ;;
     esac
@@ -48,6 +48,7 @@ key="${url#*://}"
 key="${key//\//_}"
 if $mint; then key="${key}@mint"
 elif $tampered; then key="${key}@tampered"
+elif $forged; then key="${key}@forged"
 elif $session; then key="${key}@session"
 elif $auth; then key="${key}@auth"
 fi
@@ -83,7 +84,7 @@ body="$(sed '1,/^---$/d' "$file")"
 if [[ -n "$heads" ]]; then
     {
         printf 'HTTP/1.1 %s Fixture\r\n' "$code"
-        for field in location set_cookie www_authenticate; do
+        for field in location set_cookie www_authenticate content_type; do
             value="$(header "$field")"
             [[ -z "$value" ]] || printf '%s: %s\r\n' "$(printf '%s' "$field" | sed 's/_/-/g')" "$value"
         done

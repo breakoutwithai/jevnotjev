@@ -102,7 +102,12 @@ function documentFromMarkup(markup: string): FakeDocument {
 }
 
 let importNumber = 0;
-async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } })) {
+function redirectedResponse(): Response {
+  const response = new Response(null, { status: 200 });
+  Object.defineProperty(response, "redirected", { value: true });
+  return response;
+}
+async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse()) {
   const document = documentFromMarkup(await Bun.file("site/backstage/index.html").text());
   const urls: string[] = [];
   const requests: Array<{ input: string; init: RequestInit | undefined }> = [];
@@ -125,7 +130,10 @@ async function mount(health = new Response(JSON.stringify({ trial: { available: 
     fetch: async (input: string, init?: RequestInit) => {
       urls.push(input);
       requests.push({ input, init });
-      if (input === "/api/auth/sign-out") return new Response(null, { status: 303 });
+      if (input === "/api/auth/sign-out") {
+        if (signOutResponse instanceof Error) throw signOutResponse;
+        return signOutResponse;
+      }
       if (input !== "/api/backstage/health") throw new Error(`Unexpected fetch: ${input}`);
       return health;
     },
@@ -160,11 +168,25 @@ test("[integration] A2 sign-out clears keys and scene before POST and navigates"
   assertKeysBlank(page.get);
   expect(page.get("sign-out").disabled).toBe(true);
   expect(page.get("notice").textContent).toBe("Signing out. Keys and session cleared.");
-  expect(page.requests.filter((request) => request.input === "/api/auth/sign-out")).toEqual([
-    { input: "/api/auth/sign-out", init: { method: "POST", credentials: "same-origin" } },
-  ]);
+  const signOutRequests = page.requests.filter((request) => request.input === "/api/auth/sign-out");
+  expect(signOutRequests).toHaveLength(1);
+  expect(signOutRequests[0]?.init).toMatchObject({ method: "POST", credentials: "same-origin" });
+  expect(signOutRequests[0]?.init?.signal).toBeInstanceOf(AbortSignal);
   await tick();
   expect(page.replacements).toEqual(["/backstage/sign-in?signed-out=1"]);
+});
+
+test("[integration] A2 failed sign-out keeps keys cleared, stays put, and re-enables control", async () => {
+  const page = await mount(undefined, new Response(null, { status: 403 }));
+  fillKeys(page.get);
+  page.get("sign-out").click();
+  await tick();
+  assertKeysBlank(page.get);
+  expect(page.replacements).toEqual([]);
+  expect(page.get("notice").textContent).toBe("Sign-out failed. Your keys are cleared, but you are still signed in. Try again, or close the browser.");
+  expect(page.get("sign-out").disabled).toBe(false);
+  page.get("sign-out").click();
+  expect(page.requests.filter((request) => request.input === "/api/auth/sign-out")).toHaveLength(2);
 });
 
 test("[integration] SO6 pending sign-out blocks run controls and beforeunload", async () => {

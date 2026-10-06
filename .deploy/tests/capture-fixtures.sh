@@ -53,7 +53,7 @@ source "${DEPLOY_DIR}/lib.sh"
 source "${DEPLOY_DIR}/backstage-lib.sh"
 
 [[ -n "${BACKSTAGE_CURL_CONFIG:-}" ]] && backstage_check_curl_config \
-    || fail "BACKSTAGE_CURL_CONFIG must name your private 0600 curl config (docs/backstage-deploy.md § Basic Auth gate)."
+    || fail "BACKSTAGE_CURL_CONFIG must name your private 0600 curl config (docs/backstage-deploy.md § Sign-in gate)."
 [[ -f "$SSH_KEY" ]] || fail "SSH key not found: ${SSH_KEY}"
 
 STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -104,12 +104,7 @@ auth_suffix=auth
 [[ "$snippet_auth" != session ]] || auth_suffix=session
 snippet_sha="$(printf '%s\n' "$snippet" | shasum -a 256 | awk '{print $1}')" || abort "Hashing the snippet failed"
 unset snippet
-# The extraction helper predates the session gate and validates yes|no|unknown. Preserve its
-# nginx parser, then write the already-parsed session state into the allowlisted JSON fact.
-extract_auth="$snippet_auth"
-[[ "$extract_auth" != session ]] || extract_auth=no
-printf '%s\n' "$nginx_text" | bun "$EXTRACT" nginx "$extract_auth" "$snippet_sha" | \
-    bun -e 'const auth=process.argv[1];const d=await Bun.stdin.json();if(auth==="session")d.snippet.auth="session";console.log(JSON.stringify(d))' "$snippet_auth" > "${STAGE}/nginx.json" \
+printf '%s\n' "$nginx_text" | bun "$EXTRACT" nginx "$snippet_auth" "$snippet_sha" > "${STAGE}/nginx.json" \
     || abort "nginx -T did not parse into the allowlisted facts; nothing captured"
 unset nginx_text
 

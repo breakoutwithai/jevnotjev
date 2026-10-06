@@ -19,7 +19,7 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
   if (password.length < 8) { console.error("Password must be at least 8 characters."); return 2; }
   const salt = randomBytes(16).toString("hex");
   const hash = scryptSync(password, salt, 64).toString("hex");
-  console.log(`password: ${password}`);
+  if (args[1] !== "--stdin") console.log(`password: ${password}`);
   console.log(JSON.stringify({ email, password_hash: `scrypt$${salt}$${hash}` }));
   return 0;
 }

@@ -183,6 +183,10 @@ load_config() {
 # failed assertion; the caller exits 6.
 closing_verify() {
     echo
+    if [[ "${7:-yes}" == session ]]; then
+        BACKSTAGE_GATE=session; export BACKSTAGE_GATE
+        backstage_session_mint || return 1
+    fi
     verify_live "$@" && return 0
     log_error "Live verify failed (see the FAIL lines above)."
     return 1
@@ -406,6 +410,7 @@ if [[ "$ACTION" == verify ]]; then
     fi
     BACKSTAGE_GATE="$(backstage_auth_state)" || { log_error "Cannot read the Backstage gate state"; exit 6; }
     export BACKSTAGE_GATE
+    [[ "$BACKSTAGE_GATE" != session ]] || backstage_session_mint || exit 6
     verify_live "$want" "$want" yes yes all yes "$BACKSTAGE_GATE" || exit 6
     exit 0
 fi

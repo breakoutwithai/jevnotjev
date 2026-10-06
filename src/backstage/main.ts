@@ -692,6 +692,7 @@ button("clear-keys").onclick = () => {
   );
 };
 button("sign-out").onclick = () => {
+  if (signingOut) return;
   signingOut = true;
   const control = button("sign-out");
   control.disabled = true;
@@ -700,6 +701,11 @@ button("sign-out").onclick = () => {
     request: () => signOutRequest(fetch),
     navigate: (url) => location.replace(url),
     notice,
+  }).then((success) => {
+    if (!success) {
+      signingOut = false;
+      control.disabled = false;
+    }
   });
 };
 button("new-scene").onclick = () => {

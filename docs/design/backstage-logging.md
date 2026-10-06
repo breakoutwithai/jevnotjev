@@ -21,7 +21,7 @@ None of these four repos has a request id. Backstage creates one with `crypto.ra
 
 ## Line contract
 
-Auth line keys, in order: `ts`, `event`, `email`, `ip`, `rid`, then `reason` only for `signin.google.denied` and `session.rejected`. `email` is the normalised address only for a configured operator with proven identity. Otherwise it is `unknown`, including unverified Google email and a session whose operator was removed. A password typed into the email field is never recorded.
+Auth line keys, in order: `ts`, `event`, `email`, `ip`, `rid`, then `reason` only for `signin.google.denied` and `session.rejected`. `email` is the normalised address only when it is on the operator allowlist (`operators.json`); it names the account attempted, not a proven identity, so a failed password or lockout line can carry an operator address typed by anyone. Otherwise it is `unknown`, including unverified Google email and a session whose operator was removed. A password typed into the email field is never recorded.
 
 Run line keys, in order: `ts`, `event`, `rid`, `provider`, `model`. `model` is the catalog model id.
 

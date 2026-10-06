@@ -1,0 +1,29 @@
+[Unit]
+Description=External Jev Not Jev site monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# 11 HTTP requests x 15 s + git 20 s + TLS 20 s + delivery 15 s = 220 s; allow margin.
+TimeoutStartSec=270
+User=jevnotjev-monitor
+Group=jevnotjev-monitor
+WorkingDirectory=/opt/jevnotjev
+EnvironmentFile=/etc/jevnotjev-monitor/monitor.env
+Environment=MONITOR_ALERT_KIND=teams
+ExecStart=/opt/jevnotjev/.deploy/monitor.sh
+StateDirectory=jevnotjev-monitor
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077

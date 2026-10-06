@@ -1,0 +1,26 @@
+[Unit]
+Description=Jev Not Jev Backstage restart monitor
+
+[Service]
+Type=oneshot
+# External monitor ceiling: 11 HTTP requests x 15 s + git 20 s + TLS 20 s + delivery 15 s = 220 s; allow margin.
+TimeoutStartSec=270
+DynamicUser=yes
+WorkingDirectory=/opt/jevnotjev
+Environment=MONITOR_ALERT_KIND=teams
+ExecStart=/opt/jevnotjev/.deploy/monitor-host.sh
+StateDirectory=jevnotjev-monitor
+StateDirectoryMode=0700
+LoadCredential=alert.curl:/etc/jevnotjev-monitor/alert.curl
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077

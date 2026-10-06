@@ -105,4 +105,8 @@ test("[smoke] D10 the persistence copy is qualified by what the browser allows",
   const page = (await Bun.file("site/backstage/index.html").text()).replace(/\s+/g, " ");
   expect(page).toContain("When the browser allows storage, refreshing keeps your scene text in this tab");
   expect(page).toContain("a notice appears here if it cannot be kept");
+  const status = /<p id="draft-status"([^>]*)>/.exec(page);
+  expect(status).not.toBeNull();
+  expect(` ${status?.[1] ?? ""}`).not.toMatch(/\s(hidden|style)\b|sr-only/);
+  expect(status?.[1]).toContain('role="status"');
 });

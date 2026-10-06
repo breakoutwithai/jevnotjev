@@ -11,9 +11,12 @@ import { signOut, signOutRequest } from "./signout.ts";
 import {
   SCENE_DRAFT_FIELDS,
   clearSceneDraft,
+  draftStatusText,
+  importedDisplay,
   judgingRules,
   loadSceneDraft,
   saveSceneDraft,
+  type DraftStatus,
   type DraftStorage,
 } from "./scene-draft.ts";
 import {
@@ -708,10 +711,10 @@ button("sign-out").onclick = () => {
   const control = button("sign-out");
   control.disabled = true;
   void signOut({
-    clear: () => { clearKeys(); clearScene(); clearSceneDraft(draftStorage()); },
+    clear: () => { clearKeys(); clearScene(); removeDraft(); },
     request: () => signOutRequest(fetch),
     navigate: (url) => {
-      clearSceneDraft(draftStorage());
+      removeDraft();
       location.replace(url);
     },
     notice,
@@ -811,9 +814,7 @@ field("import-cases").addEventListener("change", async () => {
     const loaded = await reading;
     if (!loaded || starting || run) return;
     imported = loaded;
-    field("cases").value = loaded
-      .map((c) => c.input.replaceAll("\n", " / "))
-      .join("\n");
+    field("cases").value = importedDisplay(loaded);
     persistDraft();
     notice(
       `Imported ${loaded.length} cases; original multiline text is preserved.`,
@@ -906,18 +907,19 @@ window.addEventListener("beforeunload", (event) => {
   }
 });
 // Scene text only, kept for this tab so a reload before a run does not lose it. Key fields are never read here.
-let draftWarned = false;
+// Every storage outcome (saved, save failed, clear failed) goes through this one status line, which later notices cannot overwrite.
+function showDraftStatus(status: DraftStatus) {
+  text("draft-status", draftStatusText(status));
+}
 function persistDraft() {
   // Once sign-out starts nothing may recreate the draft it removed.
   if (signingOut) return;
-  const kept = saveSceneDraft(draftStorage(), (name) => field(name).value, imported);
-  if (kept) draftWarned = false;
-  else if (!draftWarned) {
-    draftWarned = true;
-    notice(
-      "Could not keep your scene in this tab, so a reload will lose it. Download or copy your text first.",
-    );
-  }
+  showDraftStatus(
+    saveSceneDraft(draftStorage(), (name) => field(name).value, imported),
+  );
+}
+function removeDraft() {
+  if (!clearSceneDraft(draftStorage())) showDraftStatus("clear-failed");
 }
 function draftStorage(): DraftStorage | undefined {
   try {

@@ -385,17 +385,69 @@ test("[integration] D10 editing another field after an import keeps the imported
   expect(sent.map((r) => [r.caseId, r.input])).toEqual([["case-1", "typed line"]]);
 });
 
-test("[integration] D10 a draft that cannot be stored shows a notice and leaves no stale draft", async () => {
+test("[integration] D10 a draft that cannot be stored shows a status and leaves no stale draft", async () => {
   const store = new FakeStorage();
   const page = await mount(undefined, undefined, store);
   typeInto(page, "question", "kept");
   expect(store.items.size).toBe(1);
+  expect(page.get("draft-status").textContent).toBe("");
   store.setItem = () => { throw new Error("quota"); };
   typeInto(page, "question", "not kept");
-  expect(page.get("notice").textContent).toContain("Could not keep your scene in this tab");
+  expect(page.get("draft-status").textContent).toContain("Could not keep your scene in this tab");
   expect(store.items.size).toBe(0);
   const reloaded = await mount(undefined, undefined, store);
   expect(reloaded.get("question").value).toBe("");
+});
+
+test("[integration] D10 a storage failure during CSV import stays visible after the import notice, until a save succeeds", async () => {
+  const store = new FakeStorage();
+  const working = store.setItem.bind(store);
+  store.setItem = () => { throw new Error("quota"); };
+  const page = await mount(undefined, undefined, store);
+  await importCsv(page, "case_id,case_input\nc1,fine\nc2,also fine\n");
+  expect(page.get("notice").textContent).toContain("Imported 2 cases");
+  expect(page.get("draft-status").textContent).toContain("Could not keep your scene in this tab");
+  typeInto(page, "question", "still failing");
+  expect(page.get("draft-status").textContent).toContain("Could not keep your scene in this tab");
+  store.setItem = working;
+  typeInto(page, "question", "works again");
+  expect(page.get("draft-status").textContent).toBe("");
+});
+
+test("[integration] D10 a saved scene that cannot be removed at sign-out says so", async () => {
+  const store = new FakeStorage();
+  const page = await mount(undefined, undefined, store);
+  typeInto(page, "question", "kept");
+  store.removeItem = () => { throw new Error("blocked"); };
+  page.get("sign-out").click();
+  expect(page.get("draft-status").textContent).toContain("Could not remove the saved scene");
+  await tick();
+  expect(page.get("draft-status").textContent).toContain("Could not remove the saved scene");
+});
+
+test("[integration] D10 a failed save whose cleanup also fails says the old draft may remain", async () => {
+  const store = new FakeStorage();
+  const page = await mount(undefined, undefined, store);
+  typeInto(page, "question", "kept");
+  store.setItem = () => { throw new Error("quota"); };
+  store.removeItem = () => { throw new Error("blocked"); };
+  typeInto(page, "question", "not kept");
+  expect(page.get("draft-status").textContent).toContain("Could not remove the saved scene");
+});
+
+test("[integration] D10 imported records are not restored when the saved cases text differs", async () => {
+  const first = await mount();
+  await importCsv(first, "case_id,case_input\nrow-a,imported one\n");
+  const saved = first.store.getItem(SCENE_DRAFT_KEY) ?? "";
+  const tampered = JSON.parse(saved);
+  tampered.fields.cases = "visible case";
+  first.store.setItem(SCENE_DRAFT_KEY, JSON.stringify(tampered));
+  const sent: AnswerRequest[] = [];
+  const second = await mount(undefined, undefined, first.store, async (request) => { sent.push(request); return answerYes(request); });
+  expect(second.get("cases").value).toBe("visible case");
+  fillScene(second);
+  await runFirstCase(second);
+  expect(sent.map((r) => [r.caseId, r.input])).toEqual([["case-1", "visible case"]]);
 });
 
 test("[integration] D10 typing while sign-out is pending never recreates the draft", async () => {

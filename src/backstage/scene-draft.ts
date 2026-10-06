@@ -34,13 +34,32 @@ function isDraftField(name: string): name is DraftField {
   return SCENE_DRAFT_FIELDS.some((field) => field === name);
 }
 
-/** Returns false when the draft could not be kept; any older draft is then dropped so a stale one never comes back. */
+/** The one storage status: what the page may say about the saved draft. */
+export type DraftStatus = "saved" | "save-failed" | "clear-failed";
+
+const STATUS_TEXT: Record<DraftStatus, string> = {
+  saved: "",
+  "save-failed":
+    "Could not keep your scene in this tab, so a reload will lose it. Download or copy your text first.",
+  "clear-failed":
+    "Could not remove the saved scene from this tab. Close the tab to clear it.",
+};
+export function draftStatusText(status: DraftStatus): string {
+  return STATUS_TEXT[status];
+}
+
+/** How imported cases appear in the cases box: multiline text is flattened. */
+export function importedDisplay(cases: readonly DraftCase[]): string {
+  return cases.map((c) => c.input.replaceAll("\n", " / ")).join("\n");
+}
+
+/** A failed save drops any older draft so a stale one never comes back; if that also fails the status says so. */
 export function saveSceneDraft(
   storage: DraftStorage | undefined,
   read: (id: DraftField) => string,
   imported?: readonly DraftCase[],
-): boolean {
-  if (!storage) return false;
+): DraftStatus {
+  if (!storage) return "save-failed";
   const fields: SceneDraft = {};
   for (const id of SCENE_DRAFT_FIELDS) fields[id] = read(id);
   try {
@@ -48,10 +67,9 @@ export function saveSceneDraft(
       SCENE_DRAFT_KEY,
       JSON.stringify({ fields, imported: imported ?? null }),
     );
-    return true;
+    return "saved";
   } catch {
-    clearSceneDraft(storage);
-    return false;
+    return clearSceneDraft(storage) ? "save-failed" : "clear-failed";
   }
 }
 
@@ -92,22 +110,27 @@ export function loadSceneDraft(storage: DraftStorage | undefined): LoadedDraft {
       for (const [name, value] of Object.entries(stored))
         if (isDraftField(name) && typeof value === "string")
           fields[name] = value;
+    // Records come back only when they are exactly what the cases box shows, so the box never differs from what runs.
+    const records = importedCases(Reflect.get(parsed, "imported"));
     return {
       fields,
-      imported: fields.cases
-        ? importedCases(Reflect.get(parsed, "imported"))
-        : undefined,
+      imported:
+        records && importedDisplay(records) === fields.cases
+          ? records
+          : undefined,
     };
   } catch {
     return empty;
   }
 }
 
-export function clearSceneDraft(storage: DraftStorage | undefined): void {
+/** True when no draft remains (or there is no storage); false when removal failed. */
+export function clearSceneDraft(storage: DraftStorage | undefined): boolean {
   try {
     storage?.removeItem(SCENE_DRAFT_KEY);
+    return true;
   } catch {
-    // Nothing to clear.
+    return false;
   }
 }
 

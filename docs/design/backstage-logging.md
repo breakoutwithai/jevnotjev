@@ -15,13 +15,13 @@ After #104, `journalctl -u jevnotjev-backstage --since "-30 min"` returned `-- N
 | clearance-dealmarket-v1 `backend/src/modules/buyers/lib/domain-events.ts` at `e2f7cefc` | Typed builders carry no raw email or secret. | Buyer domain event persistence. |
 | clearance-dealmarket-v1 `backend/src/api/admin/buyers/__tests__/route.unit.spec.ts:1027` at `e2f7cefc` | `expect(JSON.stringify(logger.info.mock.calls)).not.toContain(token)` becomes an absence check across all captured stdout and stderr. | Its test harness. |
 | breakout-research-v3 at `d40a5cc4` | Nothing. | There is no logger or auth audit under `src/lib/auth`, `src/app/auth/google`, or `src/middleware.ts`. |
-| cpr-vnext `cpr_vnext/api.py:519-527` at `f49df6d4` | The `unknown` address fallback. | Its first `X-Forwarded-For` entry, then socket extraction. Backstage's `clientAddress` in `src/backstage/server.ts` already reads only `X-Backstage-Client-IP` set by nginx and trusted from a loopback socket. `record_audit_event` in `cpr_vnext/auth.py:177-198` persists free-form metadata to a DB and is not ported. |
+| cpr-vnext API module, client-IP extraction, lines 519-527 at `f49df6d4` | The `unknown` address fallback. | Its first `X-Forwarded-For` entry, then socket extraction. Backstage's `clientAddress` in `src/backstage/server.ts` reads `X-Backstage-Client-IP` only from a loopback socket. The cpr-vnext auth module, `record_audit_event`, lines 177-198 persists free-form metadata to a DB and is not ported. |
 
 None of these four repos has a request id. Backstage creates one with `crypto.randomUUID()` per request.
 
 ## Line contract
 
-Auth line keys, in order: `ts`, `event`, `email`, `ip`, `rid`, then `reason` only for `signin.google.denied` and `session.rejected`. `email` is the normalised address only for a configured operator. Otherwise it is `unknown`, so a password typed into the email field is never recorded.
+Auth line keys, in order: `ts`, `event`, `email`, `ip`, `rid`, then `reason` only for `signin.google.denied` and `session.rejected`. `email` is the normalised address only for a configured operator with proven identity. Otherwise it is `unknown`, including unverified Google email and a session whose operator was removed. A password typed into the email field is never recorded.
 
 Run line keys, in order: `ts`, `event`, `rid`, `provider`, `model`. `model` is the catalog model id.
 
@@ -43,10 +43,10 @@ These lines use illustrative values:
 | `POST /api/auth/password` | wrong password or unknown email | `signin.password.fail` |
 | `POST /api/auth/password` | already locked | `signin.lockout` |
 | `POST /api/auth/password` | failure trips the lock | `signin.password.fail`, `signin.lockout` |
-| `GET /api/auth/google/callback` | bad state, provider error, invalid token, unverified email, or not allowlisted | `signin.google.denied` with the matching reason |
+| `GET /api/auth/google/callback` | bad state, provider error, invalid token, unverified email, or not allowlisted | `signin.google.denied` with the matching reason; bad state wins over a provider error parameter |
 | `GET /api/auth/google/callback` | accepted operator | `signin.google.ok` |
 | `POST /api/auth/sign-out` | with or without a session | `signout` |
-| `GET /api/auth/session` or gated request | expired, revoked, or bad signature | `session.rejected` with the matching reason, at most once per request |
+| `GET /api/auth/session` or gated request | expired, revoked, bad signature, undecodable or empty session cookie | `session.rejected` with the matching reason; an absent cookie emits nothing |
 | Run endpoint | after validation, before dispatch | `run.start` |
 | Run endpoint | completed run | `run.done` |
 | Run endpoint | failed run after validation | `run.error` |
@@ -56,6 +56,6 @@ Never log passwords, session cookies, OAuth codes, state, nonce, tokens, the Goo
 
 ## nginx and retention
 
-Add `proxy_set_header X-Backstage-Client-IP $remote_addr;` in `location = /_backstage_session`. The visitor cannot set the address on `session.rejected`. This takes effect on the host after `.deploy/backstage-setup.sh` updates the snippet; setup backs up and replaces a differing snippet.
+The repo snippet sets `proxy_set_header X-Backstage-Client-IP $remote_addr;` in `location = /_backstage_session`. Until `.deploy/backstage-setup.sh` reinstalls it, the host snippet omits that line, so `ip` on `session.rejected` is visitor-chosen, though it must be a valid IP. A forged cookie yields one `session.rejected` line per request with no rate limit. Journald's per-unit rate limit on the host is unverified.
 
 The [deploy log instructions](../backstage-deploy.md#logs) cover journald retention and queries.

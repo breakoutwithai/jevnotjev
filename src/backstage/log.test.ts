@@ -7,6 +7,23 @@ import { join } from "node:path";
 import { CATALOG_VERSION } from "./catalog.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { credentialFingerprint, signSession } from "./auth.ts";
+import { createEventLogger } from "./log.ts";
+import { LoginLimiter } from "./auth.ts";
+
+test("[unit] L0 default sink handles stdout errors and clock failures", () => {
+  const before = process.stdout.listeners("error");
+  const logger = createEventLogger(() => { throw new Error("clock unavailable"); });
+  createEventLogger(() => 0);
+  const added = process.stdout.listeners("error").filter((listener) => !before.includes(listener));
+  try {
+    expect(added.length).toBeLessThanOrEqual(1);
+    expect(process.stdout.listeners("error").length).toBeGreaterThan(0);
+    expect(() => logger.auth({ event: "signin.password.fail", email: "unknown", ip: "unknown", rid: "rid" })).not.toThrow();
+    expect(() => logger.run({ event: "run.start", rid: "rid", provider: "jev", model: "jev-1.13.0" })).not.toThrow();
+    expect(process.stdout.listeners("error")).toHaveLength(before.length + added.length);
+    expect(() => process.stdout.emit("error", new Error("EPIPE"))).not.toThrow();
+  } finally { for (const listener of added) process.stdout.removeListener("error", listener); }
+});
 
 test("[integration] L1 password failure emits one bounded JSON line", async () => {
   const lines: string[] = [];
@@ -25,7 +42,8 @@ test("[integration] L3 all captured auth and run output contains only contracted
   const methods = { log: console.log, info: console.info, warn: console.warn, error: console.error, debug: console.debug };
   process.stdout.write = (chunk) => { captured.push(String(chunk)); return true; };
   process.stderr.write = (chunk) => { captured.push(String(chunk)); return true; };
-  for (const name of ["log", "info", "warn", "error", "debug"] as const) console[name] = (...args: unknown[]) => { captured.push(JSON.stringify(args)); };
+  const consoleMethods: ("log" | "info" | "warn" | "error" | "debug")[] = ["log", "info", "warn", "error", "debug"];
+  for (const name of consoleMethods) console[name] = (...args: unknown[]) => { captured.push(JSON.stringify(args)); };
   const directory = mkdtempSync(join(tmpdir(), "backstage-log-"));
   const path = join(directory, "operators.json");
   const password = "PWMARK-password";
@@ -132,6 +150,7 @@ test("[integration] L3 all captured auth and run output contains only contracted
     expect(records[1]?.[0]?.email).toBe("operator@example.com");
     expect(events[11]).toEqual(["signin.password.fail", "signin.lockout"]);
     expect(events[12]).toEqual(["signin.lockout"]);
+    for (const index of [11, 12]) expect(records[index]?.find((line) => line.event === "signin.lockout")?.email).toBe("unknown");
     expect(events[13]).toEqual([]);
     expect(events[14]).toEqual([]);
     expect(events[15]).toEqual([]);
@@ -152,8 +171,10 @@ test("[integration] L3 all captured auth and run output contains only contracted
     expect(records[28]?.[0]?.reason).toBe("invalid-token");
     expect(records[29]?.[0]?.reason).toBe("invalid-token");
     expect(records[30]?.[0]?.reason).toBe("unverified-email");
-    expect(records[30]?.[0]?.email).toBe("operator@example.com");
+    expect(records[30]?.[0]?.email).toBe("unknown");
     expect(records[31]?.[0]?.reason).toBe("not-allowlisted");
+    expect(records[31]?.[0]?.email).toBe("unknown");
+    for (const index of [22, 24, 25, 26, 27, 28, 29, 30, 31]) expect(events[index]).toEqual(["signin.google.denied"]);
     expect(events[32]).toEqual(["signin.google.ok"]);
     expect(events[33]).toEqual(["run.start", "run.error"]);
     expect(records[33]?.[0]?.model).toBe("gpt-6.1-sol");
@@ -164,7 +185,7 @@ test("[integration] L3 all captured auth and run output contains only contracted
     const all = captured.join("");
     expect(all).toContain("CONTROL-MARK");
     // Ported from clearance-dealmarket-v1 route.unit.spec.ts:1027: search the entire captured output.
-    for (const value of [password, wrong, "PWMARK-basic", secret, mintedValue, "COOKIEMARK", "CLIENTSECRETMARK", "OAUTHCODEMARK", state, nonce, "ACCESSTOKENMARK", "IDTOKENMARK", "REFRESHMARK", "APIKEYMARK", "TRIALKEYMARK", "QUESTIONMARK", "CASETEXTMARK"]) expect(all).not.toContain(value);
+    for (const value of [password, wrong, "PWMARK-basic", "absent@example.com", "locked@example.com", secret, mintedValue, "COOKIEMARK", "CLIENTSECRETMARK", "OAUTHCODEMARK", state, nonce, "ACCESSTOKENMARK", "IDTOKENMARK", "REFRESHMARK", "APIKEYMARK", "TRIALKEYMARK", "QUESTIONMARK", "CASETEXTMARK"]) expect(all).not.toContain(value);
   } finally {
     handler.close();
     rmSync(directory, { recursive: true, force: true });
@@ -216,5 +237,80 @@ test("[integration] L6 rejected sessions are emitted at most once per gated requ
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0] ?? "")).toMatchObject({ event: "session.rejected", email: "unknown", reason: "bad-signature" });
     expect(lines.join("")).not.toContain("COOKIEMARK");
+  } finally { handler.close(); }
+});
+
+test("[integration] L7 rejected cookies preserve only a trusted operator and socket address", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "backstage-log-"));
+  const path = join(directory, "operators.json");
+  writeFileSync(path, "[]");
+  const secret = "s".repeat(32);
+  const lines: Record<string, unknown>[] = [];
+  const handler = createHandler({ version: "test", trustProxy: true, log: (line) => lines.push(JSON.parse(line)), auth: { sessionSecret: secret, operatorsPath: path, clock: () => 1000 } });
+  const request = (value: string | undefined, header = "203.0.113.8") => new Request("http://localhost:3456/api/auth/session", { headers: { ...(value === undefined ? {} : { cookie: value }), "x-backstage-client-ip": header } });
+  const check = async (value: string | undefined, remoteAddress?: string, header?: string) => {
+    const before = lines.length;
+    await handler(request(value, header), remoteAddress === undefined ? undefined : { remoteAddress });
+    return lines.slice(before);
+  };
+  try {
+    expect(await check(undefined, "127.0.0.1")).toEqual([]);
+    for (const value of ["backstage_session", "backstage_session=", "backstage_session=%not-valid"]) {
+      expect(await check(value, "127.0.0.1")).toMatchObject([{ event: "session.rejected", email: "unknown", reason: "bad-signature" }]);
+    }
+    expect(await check("backstage_session=forged.cookie", "198.51.100.9", "203.0.113.8")).toMatchObject([{ ip: "198.51.100.9", email: "unknown" }]);
+    expect(await check("backstage_session=forged.cookie")).toMatchObject([{ ip: "unknown", email: "unknown" }]);
+    expect(await check("backstage_session=forged.cookie", "127.0.0.1", "not-an-ip")).toMatchObject([{ ip: "unknown", email: "unknown" }]);
+    const cred = credentialFingerprint("removed-operator");
+    const expired = signSession({ email: "removed@example.com", auth: "password", iat: 0, exp: 999, sid: "expired", cred }, secret);
+    const revoked = signSession({ email: "removed@example.com", auth: "password", iat: 0, exp: 2000, sid: "revoked", cred }, secret);
+    expect(await check(`backstage_session=${expired}`, "127.0.0.1")).toMatchObject([{ event: "session.rejected", email: "unknown", reason: "expired" }]);
+    expect(await check(`backstage_session=${revoked}`, "127.0.0.1")).toMatchObject([{ event: "session.rejected", email: "unknown", reason: "revoked" }]);
+  } finally { handler.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("[integration] L8 Google denials prefer bad state and never attribute unverified email", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "backstage-log-"));
+  const path = join(directory, "operators.json");
+  writeFileSync(path, JSON.stringify([{ email: "operator@example.com" }]));
+  const lines: Record<string, unknown>[] = [];
+  let profileEmail = "operator@example.com";
+  const handler = createHandler({ version: "test", log: (line) => lines.push(JSON.parse(line)), auth: { sessionSecret: "s".repeat(32), operatorsPath: path, googleClientId: "client", googleClientSecret: "secret", clock: () => 1000, fetch: async (input) => String(input).endsWith("/token") ? Response.json({ id_token: "token" }) : Response.json({ email: profileEmail, email_verified: false, aud: "client", iss: "accounts.google.com" }) } });
+  const callback = (query: string, nonce = "") => new Request(`http://localhost:3456/api/auth/google/callback?${query}`, { headers: { cookie: `backstage_oauth=${nonce}` } });
+  try {
+    await handler(callback("state=bad&error=access_denied"));
+    expect(lines.splice(0)).toMatchObject([{ event: "signin.google.denied", email: "unknown", reason: "bad-state" }]);
+    const missingCodeStart = await handler(new Request("http://localhost:3456/api/auth/google"));
+    const missingCodeState = new URL(missingCodeStart.headers.get("location") ?? "http://localhost/").searchParams.get("state") ?? "";
+    const missingCodeNonce = missingCodeStart.headers.get("set-cookie")?.split(";")[0]?.split("=")[1] ?? "";
+    await handler(callback(`state=${encodeURIComponent(missingCodeState)}`, missingCodeNonce));
+    expect(lines.splice(0)).toMatchObject([{ event: "signin.google.denied", email: "unknown", reason: "bad-state" }]);
+    for (const email of ["operator@example.com", "absent@example.com"]) {
+      profileEmail = email;
+      const start = await handler(new Request("http://localhost:3456/api/auth/google"));
+      const state = new URL(start.headers.get("location") ?? "http://localhost/").searchParams.get("state") ?? "";
+      const nonce = start.headers.get("set-cookie")?.split(";")[0]?.split("=")[1] ?? "";
+      await handler(callback(`state=${encodeURIComponent(state)}&code=code`, nonce));
+      expect(lines.splice(0)).toMatchObject([{ event: "signin.google.denied", email: "unknown", reason: "unverified-email" }]);
+    }
+  } finally { handler.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("[integration] L9 busy password paths do not print an unlisted email", async () => {
+  const lines: Record<string, unknown>[] = [];
+  const handler = createHandler({ version: "test", log: (line) => lines.push(JSON.parse(line)), auth: { sessionSecret: "s".repeat(32) } });
+  const request = () => new Request("http://localhost:3456/api/auth/password", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "email=busy-absent%40example.com&password=wrong" });
+  try {
+    const responses = await Promise.all(Array.from({ length: 16 }, () => handler(request())));
+    expect(responses.some((response) => response.headers.get("location") === "/backstage/sign-in?error=busy")).toBe(true);
+    expect(lines.every((line) => line.email === "unknown")).toBe(true);
+    lines.length = 0;
+    const original = LoginLimiter.prototype.canAttempt;
+    LoginLimiter.prototype.canAttempt = () => false;
+    try {
+      const response = await handler(request());
+      expect(response.headers.get("location")).toBe("/backstage/sign-in?error=busy");
+      expect(lines).toMatchObject([{ event: "signin.password.fail", email: "unknown" }]);
+    } finally { LoginLimiter.prototype.canAttempt = original; }
   } finally { handler.close(); }
 });

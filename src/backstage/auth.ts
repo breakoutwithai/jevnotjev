@@ -291,6 +291,6 @@ export function validateGoogleProfile(value: unknown, clientId: string, operator
     !("iss" in value) || (value.iss !== "accounts.google.com" && value.iss !== "https://accounts.google.com")) return { ok: false, reason: "invalid-token", email: "unknown" };
   const email = normalizeEmail(value.email);
   const row = operators.get(email);
-  if (!("email_verified" in value) || (value.email_verified !== true && value.email_verified !== "true")) return { ok: false, reason: "unverified-email", email: row?.email ?? "unknown" };
+  if (!("email_verified" in value) || (value.email_verified !== true && value.email_verified !== "true")) return { ok: false, reason: "unverified-email", email: "unknown" };
   return row ? { ok: true, email: row.email } : { ok: false, reason: "not-allowlisted", email: "unknown" };
 }

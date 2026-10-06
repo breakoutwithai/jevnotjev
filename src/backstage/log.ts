@@ -11,19 +11,28 @@ export type AuthLog = { event: PlainAuthEvent; email: string; ip: string; rid: s
 export interface RunLog { event: RunEvent; rid: string; provider: Provider; model: string }
 
 // Ported from groit apps/booth/lib/api/email-audit.js:71-100 at bb29d8cc and clearance-dealmarket-v1 backend/src/modules/buyers/lib/login-outcome.ts at e2f7cefc.
-export function createEventLogger(clock: () => number, sink: (line: string) => void = (line) => { process.stdout.write(line + "\n"); }) {
-  const write = (entry: object): void => { try { sink(JSON.stringify(entry)); } catch { /* Logging cannot affect a request. */ } };
+// A closed journal pipe raises an async EPIPE on stdout; one shared no-op listener keeps it from crashing the server.
+const ignoreStdoutError = (): void => {};
+export function createEventLogger(clock: () => number, sink?: (line: string) => void) {
+  if (!sink && !process.stdout.listeners("error").includes(ignoreStdoutError)) process.stdout.on("error", ignoreStdoutError);
+  const output = sink ?? ((line: string) => { process.stdout.write(line + "\n"); });
+  const write = (entry: () => object): void => { try { output(JSON.stringify(entry())); } catch { /* Logging cannot affect a request. */ } };
   return {
     auth(fields: AuthLog): void {
-      const ts = new Date(clock()).toISOString();
-      const { event, email, ip, rid } = fields;
-      if (fields.event === "signin.google.denied" || fields.event === "session.rejected") write({ ts, event, email, ip, rid, reason: fields.reason });
-      else write({ ts, event, email, ip, rid });
+      write(() => {
+        const ts = new Date(clock()).toISOString();
+        const { event, email, ip, rid } = fields;
+        return fields.event === "signin.google.denied" || fields.event === "session.rejected"
+          ? { ts, event, email, ip, rid, reason: fields.reason }
+          : { ts, event, email, ip, rid };
+      });
     },
     run(fields: RunLog): void {
-      const ts = new Date(clock()).toISOString();
-      const { event, rid, provider, model } = fields;
-      write({ ts, event, rid, provider, model });
+      write(() => {
+        const ts = new Date(clock()).toISOString();
+        const { event, rid, provider, model } = fields;
+        return { ts, event, rid, provider, model };
+      });
     },
   };
 }

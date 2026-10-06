@@ -119,8 +119,15 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   const googleReady = Boolean(options.auth?.googleClientId && options.auth.googleClientSecret && secret.length >= 32);
   const logger = createEventLogger(clock, options.log);
   const sessionFrom = (request: Request, emit: (event: "session.rejected", email: string, reason: SessionRejectedReason) => void) => {
-    const value = parseCookie(request.headers.get("cookie"), cookieName(origin, "session"));
-    if (!value || secret.length < 32) return null;
+    const header = request.headers.get("cookie");
+    const name = cookieName(origin, "session");
+    const value = parseCookie(header, name);
+    if (secret.length < 32) return null;
+    if (!value) {
+      if (header?.split(";").some((part) => { const index = part.indexOf("="); return (index < 0 ? part : part.slice(0, index)).trim() === name; }))
+        emit("session.rejected", "unknown", "bad-signature");
+      return null;
+    }
     const checked = inspectSession(value, secret, clock());
     if (!checked.ok) { emit("session.rejected", checked.reason === "expired" ? operators.get(checked.email)?.email ?? "unknown" : "unknown", checked.reason); return null; }
     const session = checked.session;
@@ -161,11 +168,8 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   ): Promise<Response> => {
     const rid = randomUUID();
     const ip = clientAddress(request, context, options.trustProxy) ?? "unknown";
-    let sessionRejected = false;
     const emitAuth = (event: AuthEvent, email: string, reason?: GoogleDeniedReason | SessionRejectedReason): void => {
       if (event === "session.rejected") {
-        if (sessionRejected) return;
-        sessionRejected = true;
         logger.auth({ event, email, ip, rid, reason: reason === "expired" || reason === "revoked" ? reason : "bad-signature" });
       } else if (event === "signin.google.denied") {
         logger.auth({ event, email, ip, rid, reason: reason === "not-allowlisted" || reason === "unverified-email" || reason === "bad-state" || reason === "invalid-token" ? reason : "provider-error" });
@@ -267,7 +271,12 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       const clear = cookie(origin, "oauth", "", 0);
       const state = url.searchParams.get("state") ?? "";
       const next = states.take(state, parseCookie(request.headers.get("cookie"), cookieName(origin, "oauth")));
-      if (!next || url.searchParams.has("error") || !url.searchParams.get("code")) { emitAuth("signin.google.denied", "unknown", url.searchParams.has("error") ? "provider-error" : "bad-state"); responseError.headers.append("set-cookie", clear); return responseError; }
+      if (!next || url.searchParams.has("error") || !url.searchParams.get("code")) {
+        const reason = !next ? "bad-state" : url.searchParams.has("error") ? "provider-error" : "bad-state";
+        emitAuth("signin.google.denied", "unknown", reason);
+        responseError.headers.append("set-cookie", clear);
+        return responseError;
+      }
       try {
         // Ported from groit apps/booth/server.js:1720-1765 at bb29d8cc; test bypass omitted.
         const doFetch = options.auth.fetch ?? options.auth.googleFetch ?? fetch;

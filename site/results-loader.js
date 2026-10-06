@@ -345,6 +345,42 @@
     return out;
   }
 
+  // src/core/case-table.ts
+  function text2(row, column) {
+    return String(row.get(column));
+  }
+  function caseLines(rows) {
+    const byCase = new Map;
+    for (const row of rows) {
+      const caseId = text2(row, "case_id");
+      const answerer = text2(row, "answerer");
+      const methods = byCase.get(caseId) ?? new Map;
+      if (!methods.has(answerer))
+        methods.set(answerer, row);
+      byCase.set(caseId, methods);
+    }
+    return [...byCase].map(([caseId, methods]) => ({ caseId, rows: { llm: methods.get("llm"), rule: methods.get("rule"), jev: methods.get("jev") } }));
+  }
+  function caseCell(row) {
+    if (row === undefined)
+      return "missing";
+    const cost = row.get("cost_usd");
+    const parts = [text2(row, "output"), typeof cost === "number" ? `$${cost.toFixed(6)}` : "cost missing"];
+    if (row.get("label") === null)
+      parts.push("unlabelled");
+    return parts.join(", ");
+  }
+  function matchingMethods(line) {
+    const present = ARMS.flatMap((arm) => {
+      const row = line.rows[arm];
+      return row === undefined ? [] : [{ arm, label: row.get("label") }];
+    });
+    if (present.every((p) => p.label === null))
+      return "unlabelled";
+    const accepted = present.filter((p) => p.label === "accept").map((p) => p.arm);
+    return accepted.length === 0 ? "none" : accepted.join(", ");
+  }
+
   // src/core/verdict.ts
   var MIN_PAIRED = 30;
   var MARGIN = 0.1;
@@ -1092,7 +1128,7 @@
       throw new Error(`row has no column ${column}`);
     return value;
   }
-  function text2(row, column) {
+  function text3(row, column) {
     const value = cell(row, column);
     if (typeof value !== "string")
       throw new Error(`column ${column} is not text after schema validation`);
@@ -1126,13 +1162,13 @@
       }
       if (rowErrors.length > 0)
         continue;
-      const caseId = text2(row, "case_id");
-      const questionId = text2(row, "question_id");
-      const answerer = text2(row, "answerer");
-      const runId = text2(row, "run_id");
-      const promptVersion = text2(row, "prompt_version");
-      const output = text2(row, "output");
-      const answerSet = text2(row, "answer_set");
+      const caseId = text3(row, "case_id");
+      const questionId = text3(row, "question_id");
+      const answerer = text3(row, "answerer");
+      const runId = text3(row, "run_id");
+      const promptVersion = text3(row, "prompt_version");
+      const output = text3(row, "output");
+      const answerSet = text3(row, "answer_set");
       const where = `(${caseId}, ${questionId}, ${answerer})`;
       if (!answerSet.split("|").includes(output)) {
         errors.push(`line ${line}: output ${quoteText(output)} is not in answer_set ${quoteText(answerSet)}`);
@@ -1141,14 +1177,14 @@
       if (seen.has(key))
         errors.push(`line ${line}: duplicate row for run ${runId} ${where}`);
       seen.add(key);
-      const caseInput = text2(row, "case_input");
+      const caseInput = text3(row, "case_input");
       const firstInput = inputs.get(caseId);
       if (firstInput === undefined)
         inputs.set(caseId, caseInput);
       else if (firstInput !== caseInput) {
         errors.push(`line ${line}: case_input differs from the first row for case_id ${caseId}`);
       }
-      const asked = JSON.stringify([text2(row, "question"), answerSet]);
+      const asked = JSON.stringify([text3(row, "question"), answerSet]);
       const version = JSON.stringify([promptVersion, questionId]);
       const firstAsked = questions.get(version);
       if (firstAsked === undefined)
@@ -1170,7 +1206,7 @@
     return { errors, gaps, rows };
   }
   function summary(rows) {
-    const answerers = [...new Set(rows.map(({ values }) => text2(values, "answerer")))].sort(compareCodePoints);
+    const answerers = [...new Set(rows.map(({ values }) => text3(values, "answerer")))].sort(compareCodePoints);
     return answerers.map((answerer) => {
       const mine = rows.map(({ values }) => values).filter((row) => cell(row, "answerer") === answerer);
       const labelled = mine.filter((row) => cell(row, "label") !== null);
@@ -1226,6 +1262,7 @@
   // src/browser/results-loader.ts
   var MAX_FILE_BYTES = 5 * 1024 * 1024;
   var MAX_COHORTS = 1000;
+  var MAX_CASE_ROWS = 200;
   function megabytes(bytes) {
     return (bytes / (1024 * 1024)).toFixed(1);
   }
@@ -1262,12 +1299,21 @@
     const questions = [];
     for (const { key, rows } of groups) {
       const metrics = metricsOfCohortRows(rows, key);
+      const lines = caseLines(rows);
+      const cases = lines.slice(0, MAX_CASE_ROWS).map((line) => ({
+        caseId: line.caseId,
+        llm: caseCell(line.rows.llm),
+        rule: caseCell(line.rows.rule),
+        jev: caseCell(line.rows.jev),
+        matches: matchingMethods(line)
+      }));
+      const head = { question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, cases, caseTotal: lines.length };
       try {
         const v = verdict(metrics, seed);
-        questions.push({ question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, verdict: v.verdict, reason: v.reason });
+        questions.push({ ...head, verdict: v.verdict, reason: v.reason });
       } catch (error) {
         const why = error instanceof Error ? error.message : "no verdict";
-        questions.push({ question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, verdict: null, reason: why });
+        questions.push({ ...head, verdict: null, reason: why });
       }
     }
     return { fileName, valid: true, errors: [], gaps: result.gaps, headline, methods: summary(result.rows), questions };
@@ -1284,6 +1330,14 @@
     const lines = items.map((i) => "<li>" + escapeHtml(prefix === "" ? i : prefix + " " + i) + "</li>");
     return '<ul class="' + className + '">' + lines.join("") + "</ul>";
   }
+  function cellHtml(caseId, column, value) {
+    return '<td data-cell="case.' + escapeHtml(caseId) + "." + column + '">' + escapeHtml(value) + "</td>";
+  }
+  function caseTable(q) {
+    const rows = q.cases.map((c) => '<tr data-case="' + escapeHtml(c.caseId) + '"><th scope="row">' + escapeHtml(c.caseId) + "</th>" + cellHtml(c.caseId, "llm", c.llm) + cellHtml(c.caseId, "rule", c.rule) + cellHtml(c.caseId, "jev", c.jev) + cellHtml(c.caseId, "matches", c.matches) + "</tr>");
+    const more = q.caseTotal > q.cases.length ? '<p class="ld-more">' + escapeHtml("This table is showing the first " + q.cases.length + " of " + q.caseTotal + " cases; the verdict above counts all of them.") + "</p>" : "";
+    return `<div class="ld-scroll"><table class="ld-cases"><caption>Every case: each method's output and cost, and which methods match the label</caption>` + '<thead><tr><th scope="col">Case</th><th scope="col">llm</th><th scope="col">rule</th><th scope="col">jev</th><th scope="col">Matches label</th></tr></thead><tbody>' + rows.join("") + "</tbody></table></div>" + more;
+  }
   function renderResult(r) {
     const parts = [
       el("h3", r.valid ? "ld-word ld-valid" : "ld-word ld-invalid", r.valid ? "VALID" : "INVALID"),
@@ -1293,12 +1347,39 @@
     ];
     if (r.valid) {
       parts.push(el("h4", "ld-head", "Each method"), list("ld-methods", "", r.methods));
-      const rows = r.questions.map((q) => '<li><span class="ld-id">' + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId) + "</span> " + '<span class="ld-q">' + escapeHtml(q.question) + '</span> <span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + '</span> <span class="ld-why">' + escapeHtml(q.reason) + "</span></li>");
+      const rows = r.questions.map((q) => '<li><span class="ld-id">' + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId) + "</span> " + '<span class="ld-q">' + escapeHtml(q.question) + '</span> <span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + '</span> <span class="ld-why">' + escapeHtml(q.reason) + "</span>" + caseTable(q) + "</li>");
       parts.push(el("h4", "ld-head", "Verdict per question"), '<ul class="ld-verdicts">' + rows.join("") + "</ul>");
     }
     return parts.join("");
   }
   var IDS = { zone: "dropzone", input: "csv", status: "dropStatus", panel: "loadedResult" };
+  var STAGE_IDS = { flags: ["sampleFlag2", "sampleFlag3", "sampleFlag4", "sampleFlag5"], current: "currentVerdict" };
+  var MAX_CURRENT = 10;
+  function markStage(doc, r) {
+    const name = r.fileName;
+    const flagText = r.valid ? "Sample data: this act replays the recorded shop-bot run, not " + name + ". The verdict for " + name + " is at the top of Act V." : "Sample data: this act replays the recorded shop-bot run. " + name + " is INVALID, so it has no verdict.";
+    for (const id of STAGE_IDS.flags) {
+      const flag = doc.getElementById(id);
+      if (!flag)
+        continue;
+      flag.textContent = flagText;
+      flag.hidden = false;
+    }
+    const slot = doc.getElementById(STAGE_IDS.current);
+    if (!slot)
+      return;
+    if (!r.valid) {
+      slot.innerHTML = el("h3", "ld-now-head", "Your file: " + name) + el("p", "ld-now", "INVALID: there is no verdict for your file. The verdict below is the recorded sample's.");
+    } else {
+      const items = r.questions.slice(0, MAX_CURRENT).map((q) => {
+        const why = q.verdict !== null && q.reason.startsWith(q.verdict + ": ") ? q.reason.slice(q.verdict.length + 2) : q.reason;
+        return "<li>" + escapeHtml("question " + q.questionId + ": ") + '<span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + "</span> " + escapeHtml("(" + why + ")") + "</li>";
+      });
+      const more = r.questions.length > MAX_CURRENT ? el("p", "ld-now", "and " + (r.questions.length - MAX_CURRENT) + " more questions: see the result under the curtain call.") : "";
+      slot.innerHTML = el("h3", "ld-now-head", "Current verdict: your file " + name) + '<ul class="ld-now-list">' + items.join("") + "</ul>" + more;
+    }
+    slot.hidden = false;
+  }
   function attachLoader(doc, onSettled) {
     const zone = doc.getElementById(IDS.zone);
     const input = doc.getElementById(IDS.input);
@@ -1332,6 +1413,7 @@
       }
       panel.innerHTML = renderResult(outcome);
       panel.hidden = false;
+      markStage(doc, outcome);
       status.textContent = (outcome.valid ? "VALID" : "INVALID") + ": " + outcome.fileName + ", read in your browser, nothing uploaded.";
       onSettled?.(file.name);
     }

@@ -8,6 +8,9 @@ import { bundleLoader, LOADER_OUT } from "../../scripts/build-loader.ts";
 import {
   attachLoader,
   IDS,
+  MAX_CASE_ROWS,
+  STAGE_IDS,
+  renderResult,
   MAX_COHORTS,
   MAX_FILE_BYTES,
   evaluateText,
@@ -40,13 +43,16 @@ class FakeEl implements LoaderElement {
   }
 }
 
-function page(): { doc: LoaderDocument; zone: FakeEl; input: FakeEl; status: FakeEl; panel: FakeEl } {
+function page(): { doc: LoaderDocument; zone: FakeEl; input: FakeEl; status: FakeEl; panel: FakeEl; flags: FakeEl[]; current: FakeEl } {
   const zone = new FakeEl();
   const input = new FakeEl();
   const status = new FakeEl();
   const panel = new FakeEl();
-  const byId = new Map<string, FakeEl>([[IDS.zone, zone], [IDS.input, input], [IDS.status, status], [IDS.panel, panel]]);
-  return { doc: { getElementById: (id) => byId.get(id) ?? null }, zone, input, status, panel };
+  const flags = STAGE_IDS.flags.map(() => new FakeEl());
+  const current = new FakeEl();
+  const byId = new Map<string, FakeEl>([[IDS.zone, zone], [IDS.input, input], [IDS.status, status], [IDS.panel, panel], [STAGE_IDS.current, current]]);
+  STAGE_IDS.flags.forEach((id, i) => byId.set(id, flags[i] ?? new FakeEl()));
+  return { doc: { getElementById: (id) => byId.get(id) ?? null }, zone, input, status, panel, flags, current };
 }
 
 function file(name: string, text: string): LoaderFile {
@@ -309,5 +315,154 @@ describe("results loader sends nothing", () => {
 
   test("[integration] D12-B1 site/results-loader.js is the current build of the loader source", async () => {
     expect(await readFile(LOADER_OUT, "utf8")).toBe(await bundleLoader());
+  });
+});
+
+const D12 = "examples/d12-three-methods/records.csv";
+const HEADER = "format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output,confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms";
+
+function cellOf(html: string, caseId: string, column: string): string | null {
+  return new RegExp(`<td data-cell="case\\.${caseId}\\.${column}">(.*?)</td>`).exec(html)?.[1] ?? null;
+}
+
+describe("results loader: the case-by-method table (F5)", () => {
+  test("[unit] F5-C1 each question has a table with one row per case and a column each for llm, rule and jev, showing output and cost", async () => {
+    const p = await choose(file("d12.csv", await example(D12)));
+    const html = p.panel.innerHTML;
+    expect(html.match(/<table class="ld-cases"/g)?.length).toBe(1);
+    expect(html).toContain('<th scope="col">llm</th><th scope="col">rule</th><th scope="col">jev</th>');
+    expect(html.match(/<tr data-case=/g)?.length).toBe(4);
+    expect(cellOf(html, "d01", "llm")).toBe("yes, $0.000330");
+    expect(cellOf(html, "d01", "rule")).toBe("yes, $0.000000");
+    expect(cellOf(html, "d01", "jev")).toBe("yes, $0.000002");
+  });
+
+  test("[unit] F5-C2 a method with no row reads missing, a blank cost reads cost missing, a blank label reads unlabelled", async () => {
+    const csv = (await example(D12)).replace("no,,accept,human,95,2,,1500", "no,,,,95,2,,1500");
+    const html = (await choose(file("d12.csv", csv))).panel.innerHTML;
+    expect(cellOf(html, "d04", "rule")).toBe("missing");
+    expect(cellOf(html, "d02", "llm")).toBe("no, cost missing, unlabelled");
+    expect(cellOf(html, "d02", "jev")).toBe("no, $0.000002");
+  });
+
+  test("[unit] F5-C3 each case says which methods match the label: all, some, none, unlabelled", async () => {
+    const d12 = await example(D12);
+    const html = (await choose(file("d12.csv", d12))).panel.innerHTML;
+    expect(cellOf(html, "d01", "matches")).toBe("llm, rule, jev");
+    expect(cellOf(html, "d03", "matches")).toBe("llm, jev");
+    expect(cellOf(html, "d04", "matches")).toBe("llm, jev");
+    const rejectAll = d12.split("\n").map((l) => (l.includes(",d02,") ? l.replace(",accept,", ",reject,") : l)).join("\n");
+    expect(cellOf((await choose(file("r.csv", rejectAll))).panel.innerHTML, "d02", "matches")).toBe("none");
+    const blank = d12.split("\n").map((l) => (l.includes(",d02,") ? l.replace(",accept,human,", ",,,") : l)).join("\n");
+    expect(cellOf((await choose(file("b.csv", blank))).panel.innerHTML, "d02", "matches")).toBe("unlabelled");
+  });
+
+  test("[unit] F5-C4 two questions give two tables, one per cohort, each under its own verdict", async () => {
+    const p = await choose(file("d06.csv", await example(D06)));
+    expect(p.panel.innerHTML.match(/<table class="ld-cases"/g)?.length).toBe(2);
+    expect(p.panel.innerHTML.match(/<li><span class="ld-id">/g)?.length).toBe(2);
+  });
+
+  test("[unit] F5-C5 file text in the table is escaped: an answer that is markup renders as text in the cells", async () => {
+    const hostile = "<img src=x onerror=alert(1)>";
+    const csv = (await example(D12))
+      .split("\n")
+      .map((l) => l.replace(",yes|no,", `,${hostile}|no,`).replace(/^(.*,(?:llm|rule|jev),[^,]+),yes,/, `$1,${hostile},`))
+      .join("\n");
+    const p = await choose(file("h.csv", csv));
+    expect(p.panel.innerHTML).toContain(">VALID<");
+    expect(cellOf(p.panel.innerHTML, "d01", "llm")).toBe("&lt;img src=x onerror=alert(1)&gt;, $0.000330");
+    expect(p.panel.innerHTML).not.toContain("<img");
+  });
+
+  test("[unit] F5-C6 a cohort with more cases than the cap shows the first rows and says how many exist", async () => {
+    const lines = [HEADER];
+    const n = MAX_CASE_ROWS + 100;
+    for (let c = 0; c < n; c++) lines.push(`jnj-record/1,r,v,c${c},in${c},q1,Q?,yes|no,jev,m,yes,,accept,human,,,0.1,`);
+    const p = await choose(file("big.csv", lines.join("\n") + "\n"));
+    expect(p.panel.innerHTML.match(/<tr data-case=/g)?.length).toBe(MAX_CASE_ROWS);
+    expect(p.panel.innerHTML).toContain(`showing the first ${MAX_CASE_ROWS} of ${n} cases`);
+    expect(p.panel.innerHTML).toContain('data-case="c0"');
+    expect(p.panel.innerHTML).not.toContain(`data-case="c${MAX_CASE_ROWS}"`);
+  });
+
+  test("[unit] F5-C7 a cohort at the cap shows every case and no 'showing the first' line", async () => {
+    const lines = [HEADER];
+    for (let c = 0; c < MAX_CASE_ROWS; c++) lines.push(`jnj-record/1,r,v,c${c},in${c},q1,Q?,yes|no,jev,m,yes,,accept,human,,,0.1,`);
+    const p = await choose(file("edge.csv", lines.join("\n") + "\n"));
+    expect(p.panel.innerHTML.match(/<tr data-case=/g)?.length).toBe(MAX_CASE_ROWS);
+    expect(p.panel.innerHTML).not.toContain("showing the first");
+  });
+
+  test("[unit] F5-C8 a 1000-question file evaluates and renders in under 3 seconds", async () => {
+    const lines = [HEADER];
+    for (let q = 0; q < MAX_COHORTS; q++) {
+      for (let c = 0; c < 20; c++) lines.push(`jnj-record/1,r,v,c${c},in${c},q${q},Q?,yes|no,jev,m,yes,,accept,human,,,0.1,`);
+    }
+    const started = performance.now();
+    const html = renderResult(await evaluateText("many.csv", lines.join("\n") + "\n"));
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(html.match(/<table class="ld-cases"/g)?.length).toBe(MAX_COHORTS);
+  });
+});
+
+describe("the Stage tells one story once a file is loaded (F1)", () => {
+  test("[unit] F1-S1 the page has a flag in each of Acts II to V and a current-verdict slot in Act V, all hidden until a file is loaded", async () => {
+    const html = await readFile(join(ROOT, "site", "index.html"), "utf8");
+    for (const id of STAGE_IDS.flags) expect(html).toContain(`<p class="sample-flag" id="${id}" hidden></p>`);
+    expect(new RegExp(`<div[^>]*id="${STAGE_IDS.current}"[^>]* hidden>`).test(html)).toBe(true);
+    const p = page();
+    attachLoader(p.doc);
+    for (const f of p.flags) expect(f.hidden).toBe(true);
+    expect(p.current.hidden).toBe(true);
+  });
+
+  test("[unit] F1-S2 after a valid file loads, every act flag says its content is sample data and the loaded verdict is shown as the current one", async () => {
+    const p = await choose(file("mine.csv", await example(USE_JEV)));
+    for (const f of p.flags) {
+      expect(f.hidden).toBe(false);
+      expect(f.textContent ?? "").toMatch(/sample/i);
+      expect(f.textContent ?? "").toContain("mine.csv");
+    }
+    expect(p.current.hidden).toBe(false);
+    expect(p.current.innerHTML).toContain("use Jev");
+    expect(p.current.innerHTML).toContain("mine.csv");
+  });
+
+  test("[unit] F1-S3 a file with several questions lists every question's verdict in the current slot", async () => {
+    const p = await choose(file("d06.csv", await example(D06)));
+    expect(p.current.innerHTML.match(/<li>/g)?.length).toBe(2);
+  });
+
+  test("[unit] F1-S4 an invalid file says there is no verdict for it, so the sample verdict is not read as its verdict", async () => {
+    const p = await choose(file("bad.csv", withOutput(await example(D06), 3, "maybe")));
+    for (const f of p.flags) {
+      expect(f.hidden).toBe(false);
+      expect(f.textContent ?? "").toMatch(/sample/i);
+      expect(f.textContent ?? "").toContain("INVALID");
+    }
+    expect(p.current.innerHTML).toContain("no verdict");
+    expect(p.current.innerHTML).toContain("bad.csv");
+  });
+
+  test("[unit] F1-S5 a markup file name is escaped in the current slot", async () => {
+    const p = await choose(file("<b onclick=x>.csv", await example(USE_JEV)));
+    expect(p.current.innerHTML).not.toContain("<b onclick");
+    expect(p.current.innerHTML).toContain("&lt;b onclick=x&gt;.csv");
+  });
+
+  test("[unit] F1-S6 a newer file replaces the current verdict, and a stale older read does not", async () => {
+    const p = page();
+    const slow = slowFile("one.csv", await example(USE_JEV));
+    attachLoader(p.doc);
+    p.input.files = [slow.file];
+    p.input.fire("change");
+    p.input.files = [file("two.csv", await example(D06))];
+    p.input.fire("change");
+    await settle();
+    slow.release();
+    await settle();
+    expect(p.current.innerHTML).toContain("two.csv");
+    expect(p.current.innerHTML).not.toContain("one.csv");
   });
 });

@@ -247,6 +247,29 @@ export function cohortMetrics(rows: readonly ParsedRow[], key: CohortKey): Cohor
           questionId: text(row, "question_id"),
         }) === id,
     );
+  return metricsOfCohortRows(mine, key);
+}
+
+/** Every cohort with its own rows, in first-seen order, from one pass over the file. */
+export function groupCohorts(rows: readonly ParsedRow[]): { readonly key: CohortKey; readonly rows: readonly Row[] }[] {
+  const groups = new Map<string, { key: CohortKey; rows: Row[] }>();
+  for (const { values } of rows) {
+    const key = {
+      runId: text(values, "run_id"),
+      promptVersion: text(values, "prompt_version"),
+      questionId: text(values, "question_id"),
+    };
+    const id = cohortId(key);
+    const group = groups.get(id);
+    if (group === undefined) groups.set(id, { key, rows: [values] });
+    else group.rows.push(values);
+  }
+  return [...groups.values()];
+}
+
+/** Metrics for one cohort whose rows are already selected (see groupCohorts); same result as cohortMetrics. */
+export function metricsOfCohortRows(mine: readonly Row[], key: CohortKey): CohortMetrics {
+  const id = cohortId(key);
   const first = mine[0];
   if (first === undefined) throw new Error(`no rows for cohort ${id}`);
   const byArm = new Map<Arm, Map<string, Row>>(ARMS.map((arm) => [arm, new Map()]));

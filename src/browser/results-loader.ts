@@ -5,12 +5,15 @@
 // Bundled to site/results-loader.js by scripts/build-loader.ts; never edit the built file.
 
 import { fileSeed } from "../core/calc.ts";
-import { cohortMetrics, cohorts } from "../core/metrics.ts";
+import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
 import { verdict } from "../core/verdict.ts";
 import { decodeUtf8, report, summary, validate, type Validation } from "../format/validate.ts";
 
 /** Largest file the page reads, in bytes. Validation runs on the page's thread, so a bigger file would freeze it. */
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+/** Most questions (cohorts: run, prompt version and question id) the page evaluates; each gets its own verdict. */
+export const MAX_COHORTS = 1000;
 
 function megabytes(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
@@ -67,10 +70,15 @@ export async function evaluateText(fileName: string, text: string): Promise<Load
   if (result.errors.length > 0) {
     return { fileName, valid: false, errors: result.errors, gaps: result.gaps, headline, methods: [], questions: [] };
   }
+  const groups = groupCohorts(result.rows);
+  if (groups.length > MAX_COHORTS) {
+    const message = "file has " + groups.length + " questions (run, prompt version and question id each count); the limit is " + MAX_COHORTS;
+    return { fileName, valid: false, errors: [message], gaps: result.gaps, headline: "INVALID rows=" + result.rows.length + " errors=1", methods: [], questions: [] };
+  }
   const seed = await fileSeed(text);
   const questions: QuestionVerdict[] = [];
-  for (const key of cohorts(result.rows)) {
-    const metrics = cohortMetrics(result.rows, key);
+  for (const { key, rows } of groups) {
+    const metrics = metricsOfCohortRows(rows, key);
     try {
       const v = verdict(metrics, seed);
       questions.push({ question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, verdict: v.verdict, reason: v.reason });
@@ -152,7 +160,7 @@ export interface LoaderDocument {
 export const IDS = { zone: "dropzone", input: "csv", status: "dropStatus", panel: "loadedResult" } as const;
 
 /** Wire the page's drop zone. Returns false (and does nothing) when the page lacks the elements. */
-export function attachLoader(doc: LoaderDocument): boolean {
+export function attachLoader(doc: LoaderDocument, onSettled?: (fileName: string) => void): boolean {
   const zone = doc.getElementById(IDS.zone);
   const input = doc.getElementById(IDS.input);
   const status = doc.getElementById(IDS.status);
@@ -181,10 +189,14 @@ export function attachLoader(doc: LoaderDocument): boolean {
         outcome = failure(file.name, "file could not be read");
       }
     }
-    if (mine !== latest) return;
+    if (mine !== latest) {
+      onSettled?.(file.name);
+      return;
+    }
     panel.innerHTML = renderResult(outcome);
     panel.hidden = false;
     status.textContent = (outcome.valid ? "VALID" : "INVALID") + ": " + outcome.fileName + ", read in your browser, nothing uploaded.";
+    onSettled?.(file.name);
   }
 
   input.addEventListener("change", () => {

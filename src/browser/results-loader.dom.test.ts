@@ -8,7 +8,9 @@ import { bundleLoader, LOADER_OUT } from "../../scripts/build-loader.ts";
 import {
   attachLoader,
   IDS,
+  MAX_COHORTS,
   MAX_FILE_BYTES,
+  evaluateText,
   type LoaderDocument,
   type LoaderElement,
   type LoaderEvent,
@@ -174,16 +176,20 @@ describe("results loader (D12: load your own results CSV in the browser)", () =>
 
   test("[unit] D12-L11 a slow older read never overwrites the newer file's result", async () => {
     const p = page();
-    attachLoader(p.doc);
+    const settled = new Map<string, () => void>();
+    const done = new Map<string, Promise<void>>();
+    for (const n of ["older.csv", "newer.csv"]) done.set(n, new Promise<void>((resolve) => settled.set(n, resolve)));
+    attachLoader(p.doc, (name) => settled.get(name)?.());
     const slow = slowFile("older.csv", await example(USE_JEV));
     p.input.files = [slow.file];
     p.input.fire("change");
     p.input.files = [file("newer.csv", await example(D06))];
     p.input.fire("change");
-    await settle();
+    await done.get("newer.csv");
     expect(p.panel.innerHTML).toContain("newer.csv");
     slow.release();
-    await settle();
+    await Bun.sleep(150);
+    await done.get("older.csv");
     expect(p.panel.innerHTML).toContain("newer.csv");
     expect(p.panel.innerHTML).not.toContain("older.csv");
     expect(p.status.textContent).toContain("newer.csv");
@@ -231,6 +237,35 @@ describe("results loader (D12: load your own results CSV in the browser)", () =>
     await settle();
     expect(p.panel.innerHTML).toContain("a.csv");
     expect(p.panel.innerHTML).not.toContain("b.csv");
+  });
+
+  test("[unit] D12-L15 the drop zone shows a focus outline when its hidden input has focus", async () => {
+    const html = await readFile(join(ROOT, "site", "index.html"), "utf8");
+    const rule = /\.dropzone:focus-within\s*\{([^}]*)\}/.exec(html)?.[1] ?? "";
+    expect(rule).toContain("outline: 2px solid var(--brass)");
+    expect(rule).not.toContain("outline: none");
+  });
+
+  test("[unit] D12-L16 many cohorts are evaluated in one pass over the rows, not one pass per cohort", async () => {
+    const lines = ["format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output,confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms"];
+    for (let q = 0; q < MAX_COHORTS; q++) {
+      for (let c = 0; c < 20; c++) lines.push(`jnj-record/1,r,v,c${c},in${c},q${q},Q?,yes|no,jev,m,yes,,accept,human,,,0.1,`);
+    }
+    const started = performance.now();
+    const r = await evaluateText("many.csv", lines.join("\n") + "\n");
+    const ms = performance.now() - started;
+    expect(r.valid).toBe(true);
+    expect(r.questions.length).toBe(MAX_COHORTS);
+    expect(ms).toBeLessThan(2500);
+  });
+
+  test("[unit] D12-L17 more cohorts than the limit is refused with a message naming the count and the limit", async () => {
+    const lines = ["format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output,confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms"];
+    for (let q = 0; q < MAX_COHORTS + 1; q++) lines.push(`jnj-record/1,r,v,c1,in1,q${q},Q?,yes|no,jev,m,yes,,accept,human,,,0.1,`);
+    const r = await evaluateText("cap.csv", lines.join("\n") + "\n");
+    expect(r.valid).toBe(false);
+    expect(r.errors).toEqual([`file has ${MAX_COHORTS + 1} questions (run, prompt version and question id each count); the limit is ${MAX_COHORTS}`]);
+    expect(r.questions).toEqual([]);
   });
 
   test("[unit] D12-L9 before any file is chosen the result panel stays hidden (sample play untouched)", () => {

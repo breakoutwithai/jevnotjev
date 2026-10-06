@@ -311,6 +311,10 @@
       promptVersion: text(row, "prompt_version"),
       questionId: text(row, "question_id")
     }) === id);
+    return metricsOfCohortRows(mine, key);
+  }
+  function metricsOfCohortRows(mine, key) {
+    const id = cohortId(key);
     const first = mine[0];
     if (first === undefined)
       throw new Error(`no rows for cohort ${id}`);

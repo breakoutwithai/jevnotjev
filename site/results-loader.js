@@ -290,8 +290,8 @@
   function cohortId(key) {
     return JSON.stringify([key.runId, key.promptVersion, key.questionId]);
   }
-  function cohorts(rows) {
-    const seen = new Map;
+  function groupCohorts(rows) {
+    const groups = new Map;
     for (const { values } of rows) {
       const key = {
         runId: text(values, "run_id"),
@@ -299,18 +299,16 @@
         questionId: text(values, "question_id")
       };
       const id = cohortId(key);
-      if (!seen.has(id))
-        seen.set(id, key);
+      const group = groups.get(id);
+      if (group === undefined)
+        groups.set(id, { key, rows: [values] });
+      else
+        group.rows.push(values);
     }
-    return [...seen.values()];
+    return [...groups.values()];
   }
-  function cohortMetrics(rows, key) {
+  function metricsOfCohortRows(mine, key) {
     const id = cohortId(key);
-    const mine = rows.map(({ values }) => values).filter((row) => cohortId({
-      runId: text(row, "run_id"),
-      promptVersion: text(row, "prompt_version"),
-      questionId: text(row, "question_id")
-    }) === id);
     const first = mine[0];
     if (first === undefined)
       throw new Error(`no rows for cohort ${id}`);
@@ -1154,6 +1152,7 @@
 
   // src/browser/results-loader.ts
   var MAX_FILE_BYTES = 5 * 1024 * 1024;
+  var MAX_COHORTS = 1000;
   function megabytes(bytes) {
     return (bytes / (1024 * 1024)).toFixed(1);
   }
@@ -1181,10 +1180,15 @@
     if (result.errors.length > 0) {
       return { fileName, valid: false, errors: result.errors, gaps: result.gaps, headline, methods: [], questions: [] };
     }
+    const groups = groupCohorts(result.rows);
+    if (groups.length > MAX_COHORTS) {
+      const message = "file has " + groups.length + " questions (run, prompt version and question id each count); the limit is " + MAX_COHORTS;
+      return { fileName, valid: false, errors: [message], gaps: result.gaps, headline: "INVALID rows=" + result.rows.length + " errors=1", methods: [], questions: [] };
+    }
     const seed = await fileSeed(text);
     const questions = [];
-    for (const key of cohorts(result.rows)) {
-      const metrics = cohortMetrics(result.rows, key);
+    for (const { key, rows } of groups) {
+      const metrics = metricsOfCohortRows(rows, key);
       try {
         const v = verdict(metrics, seed);
         questions.push({ question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, verdict: v.verdict, reason: v.reason });
@@ -1222,7 +1226,7 @@
     return parts.join("");
   }
   var IDS = { zone: "dropzone", input: "csv", status: "dropStatus", panel: "loadedResult" };
-  function attachLoader(doc) {
+  function attachLoader(doc, onSettled) {
     const zone = doc.getElementById(IDS.zone);
     const input = doc.getElementById(IDS.input);
     const status = doc.getElementById(IDS.status);
@@ -1249,11 +1253,14 @@
           outcome = failure(file.name, "file could not be read");
         }
       }
-      if (mine !== latest)
+      if (mine !== latest) {
+        onSettled?.(file.name);
         return;
+      }
       panel.innerHTML = renderResult(outcome);
       panel.hidden = false;
       status.textContent = (outcome.valid ? "VALID" : "INVALID") + ": " + outcome.fileName + ", read in your browser, nothing uploaded.";
+      onSettled?.(file.name);
     }
     input.addEventListener("change", () => {
       const chosen = input.files?.[0];

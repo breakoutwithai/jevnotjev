@@ -77,18 +77,26 @@ test("[integration] AR13 mixed case Backstage aliases are 404 before static rout
   } finally { handler.close(); }
 });
 
-test("[integration] AR14 a failed revocation write returns JSON failure and keeps the cookie refused", async () => {
+test("[integration] AR14 failed sign-out retries fail until revocation persists", async () => {
   const data = fixture();
   const secret = randomBytes(32).toString("hex");
   const handler = createHandler({ version: "test", origin: ORIGIN, auth: { sessionSecret: secret, operatorsPath: data.path } });
   try {
     const value = signSession({ email: "a@example.com", auth: "password", iat: 1000, exp: Date.now() + 60_000, sid: randomBytes(24).toString("hex"), cred: credentialFingerprint(data.passwordHash) }, secret);
     mkdirSync(join(data.path, "..", "revoked-sessions.json"));
-    const response = await handler(new Request(`${ORIGIN}/api/auth/sign-out`, { method: "POST", headers: { cookie: `backstage_session=${value}` } }));
-    expect(response.status).toBe(500);
-    expect(await response.text()).toBe('{"code":"signout-failed"}');
-    expect(response.headers.has("location")).toBe(false);
-    expect((await handler(sessionRequest("/api/auth/session", value))).status).toBe(401);
+    const signOut = () => handler(new Request(`${ORIGIN}/api/auth/sign-out`, { method: "POST", headers: { cookie: `backstage_session=${value}` } }));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await signOut();
+      expect(response.status).toBe(500);
+      expect(await response.text()).toBe('{"code":"signout-failed"}');
+      expect(response.headers.has("location")).toBe(false);
+      expect((await handler(sessionRequest("/api/auth/session", value))).status).toBe(204);
+    }
+    rmSync(join(data.path, "..", "revoked-sessions.json"), { recursive: true });
+    expect((await signOut()).status).toBe(303);
+    const restarted = createHandler({ version: "test", origin: ORIGIN, auth: { sessionSecret: secret, operatorsPath: data.path } });
+    try { expect((await restarted(sessionRequest("/api/auth/session", value))).status).toBe(401); }
+    finally { restarted.close(); }
   } finally { handler.close(); data.cleanup(); }
 });
 
@@ -110,6 +118,13 @@ test("[integration] AR15 corrupt revocation state refuses old sessions and logs 
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).not.toContain(secret);
     now = 1001;
+    const signedOut = await handler(new Request(`${ORIGIN}/api/auth/sign-out`, { method: "POST", headers: { cookie: `backstage_session=${fresh}` } }));
+    expect(signedOut.status).toBe(303);
+    const restarted = createHandler({ version: "test", origin: ORIGIN, auth: { sessionSecret: secret, operatorsPath: data.path, clock: () => now } });
+    try {
+      expect((await restarted(sessionRequest("/api/auth/session", old))).status).toBe(401);
+      expect((await restarted(sessionRequest("/api/auth/session", fresh))).status).toBe(401);
+    } finally { restarted.close(); }
   } finally { handler.close(); console.warn = original; data.cleanup(); }
 });
 

@@ -132,9 +132,9 @@ export function cookie(origin: string, kind: "session" | "oauth", value: string,
 }
 
 export class RevokedSessions {
-  private readonly entries = new Map<string, number>();
+  private entries = new Map<string, number>();
   private readonly file: string | undefined;
-  private readonly rejectBefore: number | undefined;
+  private readonly rejectBefore: number = 0;
   constructor(private readonly clock: () => number, operatorsPath?: string) {
     if (!operatorsPath) return;
     const directory = dirname(operatorsPath);
@@ -144,7 +144,16 @@ export class RevokedSessions {
     try {
       const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("Invalid revocation store");
-      const rows = Object.entries(raw);
+      let revoked: unknown = raw;
+      if ("rejectBefore" in raw || "revoked" in raw) {
+        if (!("rejectBefore" in raw) || typeof raw.rejectBefore !== "number" || !Number.isFinite(raw.rejectBefore) || raw.rejectBefore < 0 ||
+          !("revoked" in raw) || typeof raw.revoked !== "object" || raw.revoked === null || Array.isArray(raw.revoked))
+          throw new Error("Invalid revocation store");
+        this.rejectBefore = raw.rejectBefore;
+        revoked = raw.revoked;
+      }
+      if (typeof revoked !== "object" || revoked === null || Array.isArray(revoked)) throw new Error("Invalid revocation store");
+      const rows = Object.entries(revoked);
       if (rows.some(([sid, exp]) => !sid || typeof exp !== "number" || !Number.isFinite(exp))) throw new Error("Invalid revocation store");
       for (const [sid, exp] of rows) if (typeof exp === "number" && exp > clock()) this.entries.set(sid, exp);
       if (this.entries.size > 10_000) throw new Error("Revocation store full");
@@ -156,16 +165,18 @@ export class RevokedSessions {
     }
   }
   revoke(sid: string, exp: number): void {
-    this.entries.set(sid, exp);
-    for (const [key, expiry] of this.entries) if (expiry <= this.clock()) this.entries.delete(key);
-    if (this.entries.size > 10_000) throw new Error("Revocation store full");
-    if (!this.file) return;
+    const next = new Map(this.entries);
+    next.set(sid, exp);
+    for (const [key, expiry] of next) if (expiry <= this.clock()) next.delete(key);
+    if (next.size > 10_000) throw new Error("Revocation store full");
+    if (!this.file) { this.entries = next; return; }
     const temp = `${this.file}.${randomBytes(8).toString("hex")}.tmp`;
-    try { writeFileSync(temp, JSON.stringify(Object.fromEntries(this.entries)), { mode: 0o600 }); renameSync(temp, this.file); }
-    catch (error) { try { rmSync(temp, { force: true }); } catch { /* Keep in-memory revocation. */ } throw error; }
+    try { writeFileSync(temp, JSON.stringify({ rejectBefore: this.rejectBefore, revoked: Object.fromEntries(next) }), { mode: 0o600 }); renameSync(temp, this.file); }
+    catch (error) { try { rmSync(temp, { force: true }); } catch { /* The write failure is still reported. */ } throw error; }
+    this.entries = next;
   }
   has(sid: string, iat: number): boolean {
-    if (this.rejectBefore !== undefined && iat < this.rejectBefore) return true;
+    if (iat < this.rejectBefore) return true;
     const exp = this.entries.get(sid);
     if (exp !== undefined && exp <= this.clock()) { this.entries.delete(sid); return false; }
     return exp !== undefined;

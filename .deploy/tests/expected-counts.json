@@ -33,7 +33,7 @@
     "scripts/uc13/stage-demo.test.ts": 12,
     "skills/learning-lines/run.test.ts": 23,
     "src/backstage/auth-routes.test.ts": 16,
-    "src/backstage/auth.test.ts": 16,
+    "src/backstage/auth.test.ts": 18,
     "src/backstage/build.test.ts": 6,
     "src/backstage/catalog.test.ts": 3,
     "src/backstage/confirm.test.ts": 21,

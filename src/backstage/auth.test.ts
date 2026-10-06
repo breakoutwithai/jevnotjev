@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { cookie, cookieName, GoogleStates, isSameOrigin, LoginLimiter, OperatorStore, parseCookie, RevokedSessions, sanitizeNextPath, signSession, verifyPasswordHash, verifySession, credentialFingerprint } from "./auth.ts";
 import type { Session } from "./auth.ts";
 import { createHmac, randomBytes, scryptSync } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -152,12 +152,12 @@ test("[unit] AU11 distributed failures reach only the one minute email ceiling",
   } finally { console.warn = original; }
 });
 
-test("[unit] AU12 revoked session store caps entries and keeps a failed write revoked in memory", () => {
+test("[unit] AU12 revoked session store caps entries without committing overflow", () => {
   const store = new RevokedSessions(() => 1000);
   for (let index = 0; index < 10_000; index++) store.revoke(`sid-${index}`, 2000);
   expect(() => store.revoke("overflow", 2000)).toThrow();
   expect(store.has("sid-0", 1000)).toBe(true);
-  expect(store.has("overflow", 1000)).toBe(true);
+  expect(store.has("overflow", 1000)).toBe(false);
 });
 
 test("[unit] AU13 limiter retains a lock level through the 15 minute sweep", () => {
@@ -221,5 +221,41 @@ test("[unit] AU16 revocation startup counts only unexpired entries against the c
     const store = new RevokedSessions(() => 1000, path);
     expect(store.has("active", 999)).toBe(true);
     expect(store.has("unlisted", 999)).toBe(false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("[unit] AU17 failed revocation write leaves memory unchanged until a successful retry", () => {
+  const directory = mkdtempSync(join(tmpdir(), "backstage-revoked-"));
+  const path = join(directory, "operators.json");
+  const revokedPath = join(directory, "revoked-sessions.json");
+  mkdirSync(revokedPath);
+  try {
+    const store = new RevokedSessions(() => 1000, path);
+    expect(() => store.revoke("sid", 2000)).toThrow();
+    expect(store.has("sid", 1000)).toBe(false);
+    expect(() => store.revoke("sid", 2000)).toThrow();
+    expect(store.has("sid", 1000)).toBe(false);
+    rmSync(revokedPath, { recursive: true });
+    store.revoke("sid", 2000);
+    expect(store.has("sid", 1000)).toBe(true);
+    expect(new RevokedSessions(() => 1000, path).has("sid", 1000)).toBe(true);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("[unit] AU18 legacy plain revocation map loads and converts on write", () => {
+  const directory = mkdtempSync(join(tmpdir(), "backstage-revoked-"));
+  const path = join(directory, "operators.json");
+  const revokedPath = join(directory, "revoked-sessions.json");
+  writeFileSync(revokedPath, JSON.stringify({ old: 2000 }));
+  try {
+    const store = new RevokedSessions(() => 1000, path);
+    expect(store.has("old", 0)).toBe(true);
+    expect(store.has("other", 0)).toBe(false);
+    store.revoke("new", 2000);
+    const written: unknown = JSON.parse(readFileSync(revokedPath, "utf8"));
+    expect(written).toEqual({ rejectBefore: 0, revoked: { old: 2000, new: 2000 } });
+    const restarted = new RevokedSessions(() => 1000, path);
+    expect(restarted.has("old", 0)).toBe(true);
+    expect(restarted.has("new", 0)).toBe(true);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

@@ -56,6 +56,8 @@ Re-running on a configured host changes nothing and exits 0. Then run the guarde
 
 The MVP has no account service; the Basic Auth gate above is its private tester boundary. Never put tester BYOK keys into that gate, deployment configuration or shell arguments. The dedicated funded key is the explicit exception: it belongs only in the protected external configuration described below.
 
+Sign-out is a page control, not an nginx change. It sends one request with a random wrong password to `/api/backstage/sign-out`, which nginx rejects with 401 and logs as one auth failure per sign-out. The snippet and its two gated locations are unchanged. The design and browser results are in `docs/design/backstage-sign-out.md`.
+
 ## Build and promote
 
 Run the local test/typecheck/build gate before promotion. A production release requires a merged PR linked to #67, a clean checkout at freshly fetched `origin/main`, and separate deploy authorization.

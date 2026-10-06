@@ -40,6 +40,7 @@ header {
   margin: auto;
   padding: 20px 24px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 15px;
@@ -57,10 +58,20 @@ header span {
   font-weight: 400;
   color: var(--muted);
 }
+.header-actions {
+  display: inline-flex;
+  gap: 10px;
+}
 main {
   max-width: 980px;
   margin: 25px auto;
   padding: 0 24px;
+}
+.signed-out:not([hidden]) {
+  border: 1px solid var(--cut);
+  background: var(--paper);
+  padding: 14px 18px;
+  font: 14px/1.5 var(--sans);
 }
 .ticket {
   display: flex;

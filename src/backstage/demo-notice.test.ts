@@ -14,7 +14,7 @@ function hiddenByAttributes(attributes: string): boolean {
   return /\shidden(?:\s|=|$)/i.test(attributes) || hidesNotice(style?.[1] ?? style?.[2] ?? style?.[3] ?? "");
 }
 
-function noticeInHtml(html: string, externalCss = ""): { text: string; hidden: boolean; index: number } | null {
+function noticeInHtml(html: string, externalCss = ""): { text: string; hidden: boolean; index: number; ancestors: string[] } | null {
   const start = html.indexOf('<p class="demo-notice"');
   if (start < 0) return null;
   const match = /^<p\b([^>]*)>([^<]*)<\/p>/.exec(html.slice(start));
@@ -35,9 +35,9 @@ function noticeInHtml(html: string, externalCss = ""): { text: string; hidden: b
   const inlineCss = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map((style) => style[1] ?? "").join("\n");
   const css = `${inlineCss}\n${externalCss}`.replace(/\/\*[\s\S]*?\*\//g, "");
   const hiddenByCss = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].some((rule) =>
-    /\.demo-notice(?![\w-])/.test(rule[1] ?? "") && hidesNotice(rule[2] ?? ""),
+    /(?:^|[\s>+~,(])(?:html|body|p)(?=$|[\s>+~.#:[(,])|(?:^|[^\w-])\.demo-notice(?![\w-])/i.test(rule[1] ?? "") && hidesNotice(rule[2] ?? ""),
   );
-  return { text: match[2] ?? "", hidden: hiddenByAttributes(match[1] ?? "") || stack.some((node) => node.hidden) || hiddenByCss, index };
+  return { text: match[2] ?? "", hidden: hiddenByAttributes(match[1] ?? "") || stack.some((node) => node.hidden) || hiddenByCss, index, ancestors: stack.map((node) => node.tag) };
 }
 
 test("[unit] DN1 sign-in renders the exact Backstage notice for every message and Google setting", async () => {
@@ -54,6 +54,7 @@ test("[unit] DN2 sign-in notice is a footnote and its CSP authorizes the rendere
   const response = renderSignInPage("/backstage/", null, false, "default-src 'self'; style-src 'self'");
   const html = await response.text();
   expect(noticeInHtml(html)?.hidden).toBe(false);
+  expect(noticeInHtml(html)?.ancestors).toEqual(["html", "body"]);
   expect(noticeInHtml(html)?.index).toBeGreaterThan(html.indexOf("</main>"));
   const style = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? "";
   expect(style).toContain(".demo-notice");
@@ -67,6 +68,7 @@ test("[unit] DN3 Backstage app shows the exact notice once outside hidden rooms"
   const notice = noticeInHtml(html, css);
   expect(notice?.text).toBe(BACKSTAGE_NOTICE);
   expect(notice?.hidden).toBe(false);
+  expect(notice?.ancestors).toEqual(["html", "body"]);
   expect(notice?.index).toBeGreaterThan(html.indexOf("</main>"));
 });
 
@@ -76,6 +78,7 @@ test("[unit] DN4 public stage shows the exact notice once outside hidden content
   const notice = noticeInHtml(html);
   expect(notice?.text).toBe(PUBLIC_NOTICE);
   expect(notice?.hidden).toBe(false);
+  expect(notice?.ancestors).toEqual(["html", "body"]);
   expect(notice?.index).toBeGreaterThan(html.indexOf("</main>"));
 });
 
@@ -106,5 +109,11 @@ test("[unit] DN7 visibility helper detects hidden ancestors and notice CSS", () 
   expect(noticeInHtml('<p class="demo-notice" style="display: none">Demo service.</p>')?.hidden).toBe(true);
   expect(noticeInHtml(`<style>.demo-notice{display:none}</style>${notice}`)?.hidden).toBe(true);
   expect(noticeInHtml(notice, ".demo-notice { visibility: hidden }")?.hidden).toBe(true);
+  const wrapped = `<html><head><style>.notice-wrapper{display:none}</style></head><body><div class="notice-wrapper">${notice}</div></body></html>`;
+  expect(noticeInHtml(wrapped)?.ancestors).toEqual(["html", "body", "div"]);
+  expect(noticeInHtml(`<style>body{display:none}</style>${notice}`)?.hidden).toBe(true);
+  expect(noticeInHtml(notice, "p{visibility:hidden}")?.hidden).toBe(true);
+  expect(noticeInHtml(`<html hidden><body>${notice}</body></html>`)?.hidden).toBe(true);
+  expect(noticeInHtml(`<html><body style="opacity:0">${notice}</body></html>`)?.hidden).toBe(true);
   expect(noticeInHtml(notice)?.hidden).toBe(false);
 });

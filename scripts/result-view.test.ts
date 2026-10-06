@@ -449,3 +449,68 @@ describe("result view of other files", () => {
     expect(html).toContain("listed as gaps");
   });
 });
+
+// D12: each case shows all three methods' output and cost, or says which one is missing.
+describe("result view: every case, per method (D12)", () => {
+  const caseCell = (page: string, scope: string, caseId: string, method: string): string => cellIn(page, `${scope}.case.${caseId}.${method}`);
+
+  test("[unit] D12 a complete case shows output and cost for llm, rule and jev", () => {
+    expect(caseCell(html, Q1, "cv1", "llm")).toBe("no, $0.002000");
+    expect(caseCell(html, Q1, "cv1", "rule")).toBe("yes, $0.000000");
+    expect(caseCell(html, Q1, "cv1", "jev")).toBe("no, $0.000020");
+    expect(caseCell(html, Q1, "cv3", "jev")).toBe("yes, $0.000020");
+  });
+
+  test("[unit] D12 one cell per case, question and method: 5 cases x 3 methods x 2 questions", () => {
+    const caseKeys = keys(html).filter((key) => key.includes(".case."));
+    expect(caseKeys).toHaveLength(30);
+    expect(new Set(caseKeys).size).toBe(30);
+  });
+
+  test("[unit] D12 a blank cost reads cost missing and a blank label reads unlabelled, never $0", () => {
+    expect(caseCell(html, Q2, "cv5", "rule")).toBe("yes, cost missing");
+    expect(caseCell(html, Q2, "cv2", "llm")).toBe("no, $0.002000, unlabelled");
+  });
+
+  test("[unit] D12 a case with no row for a method reads missing in that cell only", async () => {
+    const lines = dataLines.filter((line) => !(line.includes(",cv3,") && line.includes(",q1,") && line.includes(",yes|no,rule,")));
+    expect(lines).toHaveLength(dataLines.length - 1);
+    const page = await renderResultView([header, ...lines, ""].join("\n"), "no-rule.csv");
+    expect(caseCell(page, Q1, "cv3", "rule")).toBe("missing");
+    expect(caseCell(page, Q1, "cv3", "llm")).toBe("yes, $0.002000");
+    expect(caseCell(page, Q1, "cv3", "jev")).toBe("yes, $0.000020");
+    expect(caseCell(page, Q1, "cv4", "rule")).toBe("yes, $0.000000");
+    expect(caseCell(page, Q2, "cv3", "rule")).toBe("yes, $0.000000");
+  });
+
+  test("[unit] D12 examples/d12-three-methods renders the per-case table its README shows", async () => {
+    const example = "examples/d12-three-methods/records.csv";
+    const page = await renderResultView(readFileSync(join(REPO, example), "utf8"), example);
+    const scope = "run-d12/delivery-q.v1/q1";
+    const row = (id: string): string[] => ["llm", "rule", "jev"].map((method) => caseCell(page, scope, id, method));
+    expect(row("d01")).toEqual(["yes, $0.000330", "yes, $0.000000", "yes, $0.000002"]);
+    expect(row("d02")).toEqual(["no, cost missing", "no, $0.000000", "no, $0.000002"]);
+    expect(row("d03")).toEqual(["no, $0.000360", "yes, $0.000000", "no, $0.000002"]);
+    expect(row("d04")).toEqual(["yes, $0.000310", "missing", "yes, $0.000002"]);
+  });
+
+  test("[unit] D12 methods split across prompt versions show missing in each version, as the validator reports", async () => {
+    const lines = dataLines.map((line) => (line.includes(",yes|no,jev,") ? line.replace(",cv-match.v1,", ",cv-match.v2,") : line));
+    const text = [header, ...lines, ""].join("\n");
+    const page = await renderResultView(text, "split.csv");
+    expect(caseCell(page, "run-d06/cv-match.v1/q1", "cv1", "jev")).toBe("missing");
+    expect(caseCell(page, "run-d06/cv-match.v2/q1", "cv1", "llm")).toBe("missing");
+    expect(caseCell(page, "run-d06/cv-match.v2/q1", "cv1", "jev")).toBe("no, $0.000020");
+    expect(validate(text).gaps).toContain("case cv1 (question q1, run run-d06, prompt cv-match.v1): no jev result");
+  });
+
+  test("[unit] D12 the table names its columns and a human row adds no column or cell", async () => {
+    expect(html).toContain('<th scope="col">Case</th>');
+    for (const name of ["Current LLM", "Simple keyword rule", "Jev"]) expect(html).toContain(`<th scope="col">${name}</th>`);
+    const q1Jev = dataLines.filter((line) => line.includes(",q1,") && line.includes(",jev,jev-1.13.0,"));
+    const human = q1Jev.map((line) => line.replace(",jev,jev-1.13.0,", ",human,person,"));
+    const page = await renderResultView([header, ...dataLines, ...human, ""].join("\n"), "with-human.csv");
+    expect(keys(page).filter((key) => key.includes(".case.")).sort()).toEqual(keys(html).filter((key) => key.includes(".case.")).sort());
+    expect(keys(page).some((key) => key.endsWith(".human"))).toBe(false);
+  });
+});

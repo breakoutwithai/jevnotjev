@@ -989,6 +989,11 @@
   var NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);
   var INTEGER_TEXT = /^[0-9]+\n?$/;
   var NUMBER_TEXT = /^[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?\n?$/;
+  var METHODS = ["llm", "rule", "jev"];
+  var IDENTITY = new Set(["case_id", "question_id", "answerer", "run_id", "prompt_version"]);
+  function plain(value) {
+    return value.replace(/[\u0000-\u001f\u007f]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  }
   function parseCell(column, raw) {
     if (raw === "")
       return null;
@@ -1078,9 +1083,22 @@
     const seen = new Set;
     const inputs = new Map;
     const questions = new Map;
+    const answered = new Map;
     for (const { line, values: row } of rows) {
-      const rowErrors = [...iterErrors(SCHEMA, row)].map((error) => `line ${line}: ${error.path.join(".") || "row"}: ${error.message}`);
+      const schemaErrors = [...iterErrors(SCHEMA, row)];
+      const rowErrors = schemaErrors.map((error) => `line ${line}: ${error.path.join(".") || "row"}: ${error.message}`);
       errors.push(...rowErrors);
+      const identityBad = schemaErrors.some((error) => IDENTITY.has(error.path[0] ?? ""));
+      const [rowCase, rowQuestion, rowAnswerer, rowRun, rowPrompt] = ["case_id", "question_id", "answerer", "run_id", "prompt_version"].map((column) => row.get(column));
+      if (!identityBad && typeof rowCase === "string" && typeof rowQuestion === "string" && typeof rowAnswerer === "string" && typeof rowRun === "string" && typeof rowPrompt === "string") {
+        const caseKey = JSON.stringify([rowRun, rowPrompt, rowQuestion, rowCase]);
+        const entry = answered.get(caseKey) ?? {
+          label: `case ${plain(rowCase)} (question ${plain(rowQuestion)}, run ${plain(rowRun)}, prompt ${plain(rowPrompt)})`,
+          methods: new Set
+        };
+        entry.methods.add(rowAnswerer);
+        answered.set(caseKey, entry);
+      }
       if (rowErrors.length > 0)
         continue;
       const caseId = text2(row, "case_id");
@@ -1117,6 +1135,12 @@
         gaps.push(`line ${line}: cost_usd missing ${where}`);
       if (cell(row, "label") === null)
         gaps.push(`line ${line}: unlabelled ${where}`);
+    }
+    for (const { label, methods } of answered.values()) {
+      for (const method of METHODS) {
+        if (!methods.has(method))
+          gaps.push(`${label}: no ${method} result`);
+      }
     }
     return { errors, gaps, rows };
   }

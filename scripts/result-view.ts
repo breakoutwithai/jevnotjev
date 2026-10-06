@@ -170,6 +170,42 @@ function pairTable(scope: string, metrics: CohortMetrics): string {
   ].join("\n");
 }
 
+/** One method's answer to one case: output and cost, with the missing cost or label said in words (D12). */
+function caseCell(row: ParsedRow | undefined): string {
+  if (row === undefined) return "missing";
+  const cost = row.values.get("cost_usd");
+  const parts = [field(row, "output"), typeof cost === "number" ? `$${cost.toFixed(6)}` : "cost missing"];
+  if (row.values.get("label") === null) parts.push("unlabelled");
+  return parts.join(", ");
+}
+
+/**
+ * Every case of one question with all three methods side by side (D12): output and cost per method, or "missing"
+ * when the file holds no row for that method. `human` rows are not a method and have no column.
+ */
+function caseTable(scope: string, rows: readonly ParsedRow[]): string {
+  // One pass: case ids in file order, each case's rows by method, so the table is linear in the rows.
+  const byCase = new Map<string, Map<string, ParsedRow>>();
+  for (const row of rows) {
+    const caseId = field(row, "case_id");
+    const answerer = field(row, "answerer");
+    const methods = byCase.get(caseId) ?? new Map<string, ParsedRow>();
+    if (!methods.has(answerer)) methods.set(answerer, row);
+    byCase.set(caseId, methods);
+  }
+  const head = ARMS.map((arm) => `<th scope="col">${NAMES[arm]}</th>`).join("");
+  const lines = [...byCase].map(([caseId, methods]) => {
+    const cells = ARMS.map((arm) => td(`${scope}.case.${caseId}.${arm}`, caseCell(methods.get(arm))));
+    return `<tr><th scope="row">${escape(caseId)}</th>${cells.join("")}</tr>`;
+  });
+  return [
+    `<div class="scroll"><table>${tag("caption", "Every case: each method's output and cost, or missing")}`,
+    `<thead><tr><th scope="col">Case</th>${head}</tr></thead><tbody>`,
+    ...lines,
+    "</tbody></table></div>",
+  ].join("\n");
+}
+
 function ruleLine(rule: RuleComparison): string {
   if (rule.kind === "skipped") return `skipped: ${rule.reason} (${rule.paired} paired)`;
   return `compared on ${rule.n} paired cases: rule minus Jev ${rule.diff.toFixed(2)} (95% interval ${rule.lower.toFixed(2)} to ${rule.upper.toFixed(2)})`;
@@ -232,6 +268,7 @@ function questionSection(metrics: CohortMetrics, rows: readonly ParsedRow[], res
     numbersTable(scope, result),
     armTable(scope, metrics, rows, `All answers to ${escape(label)}, per method`),
     pairTable(scope, metrics),
+    caseTable(scope, rows),
     "</section>",
   ].join("\n");
 }

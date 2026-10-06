@@ -16,6 +16,17 @@ const NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);
 const INTEGER_TEXT = /^[0-9]+\n?$/;
 const NUMBER_TEXT = /^[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?\n?$/;
 
+/** The three methods every case is compared on: current setup, simple baseline, Jev routing. */
+const METHODS: readonly string[] = ["llm", "rule", "jev"];
+
+/** Columns that name a case; a schema error in one keeps the row out of the per-method presence check. */
+const IDENTITY: ReadonlySet<string> = new Set(["case_id", "question_id", "answerer", "run_id", "prompt_version"]);
+
+/** Control characters as \uXXXX, so an identifier can never break a GAP message across lines. */
+function plain(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
 export type Row = ReadonlyMap<string, Value>;
 
 export interface ParsedRow {
@@ -127,11 +138,29 @@ export function validate(csvText: string): Validation {
   const seen = new Set<string>();
   const inputs = new Map<string, string>();
   const questions = new Map<string, string>();
+  const answered = new Map<string, { readonly label: string; readonly methods: Set<string> }>();
   for (const { line, values: row } of rows) {
-    const rowErrors = [...iterErrors(SCHEMA, row)].map(
-      (error) => `line ${line}: ${error.path.join(".") || "row"}: ${error.message}`,
-    );
+    const schemaErrors = [...iterErrors(SCHEMA, row)];
+    const rowErrors = schemaErrors.map((error) => `line ${line}: ${error.path.join(".") || "row"}: ${error.message}`);
     errors.push(...rowErrors);
+    // A row that is present but invalid still counts as that method's row: it is not reported as absent.
+    // Only schema-valid identity cells are used, so a malformed identifier never reaches a GAP message.
+    const identityBad = schemaErrors.some((error) => IDENTITY.has(error.path[0] ?? ""));
+    const [rowCase, rowQuestion, rowAnswerer, rowRun, rowPrompt] = ["case_id", "question_id", "answerer", "run_id", "prompt_version"].map((column) => row.get(column));
+    if (
+      !identityBad &&
+      typeof rowCase === "string" && typeof rowQuestion === "string" && typeof rowAnswerer === "string" &&
+      typeof rowRun === "string" && typeof rowPrompt === "string"
+    ) {
+      // Same cohort as src/core/metrics.ts cohortId (run, prompt version, question) so the validator and the view agree.
+      const caseKey = JSON.stringify([rowRun, rowPrompt, rowQuestion, rowCase]);
+      const entry = answered.get(caseKey) ?? {
+        label: `case ${plain(rowCase)} (question ${plain(rowQuestion)}, run ${plain(rowRun)}, prompt ${plain(rowPrompt)})`,
+        methods: new Set<string>(),
+      };
+      entry.methods.add(rowAnswerer);
+      answered.set(caseKey, entry);
+    }
     if (rowErrors.length > 0) continue;
     const caseId = text(row, "case_id");
     const questionId = text(row, "question_id");
@@ -165,6 +194,12 @@ export function validate(csvText: string): Validation {
     }
     if (cell(row, "cost_usd") === null) gaps.push(`line ${line}: cost_usd missing ${where}`);
     if (cell(row, "label") === null) gaps.push(`line ${line}: unlabelled ${where}`);
+  }
+  // D12: each case needs a row from every method; `human` is not one of them. An absent method is a gap, not an error.
+  for (const { label, methods } of answered.values()) {
+    for (const method of METHODS) {
+      if (!methods.has(method)) gaps.push(`${label}: no ${method} result`);
+    }
   }
   return { errors, gaps, rows };
 }

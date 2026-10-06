@@ -16,7 +16,7 @@ Expected output (exit code 0: gaps do not make the file invalid):
 
 ```
 GAP line 5: cost_usd missing (d02, q1, llm)
-GAP case d04 (question q1, run run-d12): no rule result
+GAP case d04 (question q1, run run-d12, prompt delivery-q.v1): no rule result
 jev: rows=4 labelled=4 accepted=4 cost=$0.000008
 llm: rows=4 labelled=4 accepted=4 cost=incomplete
 rule: rows=3 labelled=3 accepted=2 cost=$0.000000

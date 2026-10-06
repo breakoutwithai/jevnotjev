@@ -990,6 +990,7 @@
   var INTEGER_TEXT = /^[0-9]+\n?$/;
   var NUMBER_TEXT = /^[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?\n?$/;
   var METHODS = ["llm", "rule", "jev"];
+  var IDENTITY = new Set(["case_id", "question_id", "answerer", "run_id", "prompt_version"]);
   function parseCell(column, raw) {
     if (raw === "")
       return null;
@@ -1081,12 +1082,17 @@
     const questions = new Map;
     const answered = new Map;
     for (const { line, values: row } of rows) {
-      const rowErrors = [...iterErrors(SCHEMA, row)].map((error) => `line ${line}: ${error.path.join(".") || "row"}: ${error.message}`);
+      const schemaErrors = [...iterErrors(SCHEMA, row)];
+      const rowErrors = schemaErrors.map((error) => `line ${line}: ${error.path.join(".") || "row"}: ${error.message}`);
       errors.push(...rowErrors);
-      const [rowCase, rowQuestion, rowAnswerer, rowRun] = ["case_id", "question_id", "answerer", "run_id"].map((column) => row.get(column));
-      if (typeof rowCase === "string" && typeof rowQuestion === "string" && typeof rowAnswerer === "string" && typeof rowRun === "string") {
-        const caseKey = JSON.stringify([rowRun, rowCase, rowQuestion]);
-        const entry = answered.get(caseKey) ?? { label: `case ${rowCase} (question ${rowQuestion}, run ${rowRun})`, methods: new Set };
+      const identityBad = schemaErrors.some((error) => IDENTITY.has(error.path[0] ?? ""));
+      const [rowCase, rowQuestion, rowAnswerer, rowRun, rowPrompt] = ["case_id", "question_id", "answerer", "run_id", "prompt_version"].map((column) => row.get(column));
+      if (!identityBad && typeof rowCase === "string" && typeof rowQuestion === "string" && typeof rowAnswerer === "string" && typeof rowRun === "string" && typeof rowPrompt === "string") {
+        const caseKey = JSON.stringify([rowRun, rowPrompt, rowQuestion, rowCase]);
+        const entry = answered.get(caseKey) ?? {
+          label: `case ${rowCase} (question ${rowQuestion}, run ${rowRun}, prompt ${rowPrompt})`,
+          methods: new Set
+        };
         entry.methods.add(rowAnswerer);
         answered.set(caseKey, entry);
       }

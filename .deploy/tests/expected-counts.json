@@ -16,7 +16,7 @@
     "scripts/gate.test.ts": 14,
     "scripts/hand-check.test.ts": 23,
     "scripts/little-shop-seating.test.ts": 14,
-    "scripts/result-view.test.ts": 41,
+    "scripts/result-view.test.ts": 42,
     "scripts/site-content.test.ts": 9,
     "scripts/stage-door.test.ts": 6,
     "scripts/theatre.test.ts": 8,
@@ -55,7 +55,7 @@
     "src/docs/stack.test.ts": 18,
     "src/format/cli.test.ts": 3,
     "src/format/quote.test.ts": 4,
-    "src/format/validate.test.ts": 33,
+    "src/format/validate.test.ts": 36,
     "src/jev-answer.test.ts": 14
   }
 }

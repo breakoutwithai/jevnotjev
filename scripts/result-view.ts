@@ -184,13 +184,18 @@ function caseCell(row: ParsedRow | undefined): string {
  * when the file holds no row for that method. `human` rows are not a method and have no column.
  */
 function caseTable(scope: string, rows: readonly ParsedRow[]): string {
-  const caseIds = [...new Set(rows.map((row) => field(row, "case_id")))];
+  // One pass: case ids in file order, each case's rows by method, so the table is linear in the rows.
+  const byCase = new Map<string, Map<string, ParsedRow>>();
+  for (const row of rows) {
+    const caseId = field(row, "case_id");
+    const answerer = field(row, "answerer");
+    const methods = byCase.get(caseId) ?? new Map<string, ParsedRow>();
+    if (!methods.has(answerer)) methods.set(answerer, row);
+    byCase.set(caseId, methods);
+  }
   const head = ARMS.map((arm) => `<th scope="col">${NAMES[arm]}</th>`).join("");
-  const lines = caseIds.map((caseId) => {
-    const cells = ARMS.map((arm) => {
-      const mine = rows.find((row) => field(row, "case_id") === caseId && field(row, "answerer") === arm);
-      return td(`${scope}.case.${caseId}.${arm}`, caseCell(mine));
-    });
+  const lines = [...byCase].map(([caseId, methods]) => {
+    const cells = ARMS.map((arm) => td(`${scope}.case.${caseId}.${arm}`, caseCell(methods.get(arm))));
     return `<tr><th scope="row">${escape(caseId)}</th>${cells.join("")}</tr>`;
   });
   return [

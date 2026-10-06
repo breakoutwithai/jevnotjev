@@ -494,6 +494,16 @@ describe("result view: every case, per method (D12)", () => {
     expect(row("d04")).toEqual(["yes, $0.000310", "missing", "yes, $0.000002"]);
   });
 
+  test("[unit] D12 methods split across prompt versions show missing in each version, as the validator reports", async () => {
+    const lines = dataLines.map((line) => (line.includes(",yes|no,jev,") ? line.replace(",cv-match.v1,", ",cv-match.v2,") : line));
+    const text = [header, ...lines, ""].join("\n");
+    const page = await renderResultView(text, "split.csv");
+    expect(caseCell(page, "run-d06/cv-match.v1/q1", "cv1", "jev")).toBe("missing");
+    expect(caseCell(page, "run-d06/cv-match.v2/q1", "cv1", "llm")).toBe("missing");
+    expect(caseCell(page, "run-d06/cv-match.v2/q1", "cv1", "jev")).toBe("no, $0.000020");
+    expect(validate(text).gaps).toContain("case cv1 (question q1, run run-d06, prompt cv-match.v1): no jev result");
+  });
+
   test("[unit] D12 the table names its columns and a human row adds no column or cell", async () => {
     expect(html).toContain('<th scope="col">Case</th>');
     for (const name of ["Current LLM", "Simple keyword rule", "Jev"]) expect(html).toContain(`<th scope="col">${name}</th>`);

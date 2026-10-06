@@ -178,14 +178,14 @@ describe("three methods per case", () => {
   test.each(["llm", "rule", "jev"])("[unit] a case with no %s row names case, question, run and method", (method) => {
     const result = validate(write(without(readExample(), "m02", method)));
     expect(result.errors).toEqual([]);
-    expect(missing(result.gaps)).toEqual([`case m02 (question q1, run run-001): no ${method} result`]);
+    expect(missing(result.gaps)).toEqual([`case m02 (question q1, run run-001, prompt refund-q.v1): no ${method} result`]);
   });
 
   test("[unit] a case missing two methods gets one gap each, in llm, rule, jev order", () => {
     const result = validate(write(without(without(readExample(), "m03", "jev"), "m03", "llm")));
     expect(missing(result.gaps)).toEqual([
-      "case m03 (question q1, run run-001): no llm result",
-      "case m03 (question q1, run run-001): no jev result",
+      "case m03 (question q1, run run-001, prompt refund-q.v1): no llm result",
+      "case m03 (question q1, run run-001, prompt refund-q.v1): no jev result",
     ]);
   });
 
@@ -199,16 +199,16 @@ describe("three methods per case", () => {
     const rows = without(readExample(), "m02", "rule");
     const base = at(rows, 0);
     rows.push({ ...base, case_id: "m02", answerer: "human", answerer_model: "ab", output: "no" });
-    expect(missing(validate(write(rows)).gaps)).toEqual(["case m02 (question q1, run run-001): no rule result"]);
+    expect(missing(validate(write(rows)).gaps)).toEqual(["case m02 (question q1, run run-001, prompt refund-q.v1): no rule result"]);
   });
 
   test("[unit] a case with only a human row reports all three methods missing", () => {
     const base = at(readExample(), 0);
     const rows = [{ ...base, case_id: "h01", answerer: "human", answerer_model: "ab", output: "no" }];
     expect(missing(validate(write(rows)).gaps)).toEqual([
-      "case h01 (question q1, run run-001): no llm result",
-      "case h01 (question q1, run run-001): no rule result",
-      "case h01 (question q1, run run-001): no jev result",
+      "case h01 (question q1, run run-001, prompt refund-q.v1): no llm result",
+      "case h01 (question q1, run run-001, prompt refund-q.v1): no rule result",
+      "case h01 (question q1, run run-001, prompt refund-q.v1): no jev result",
     ]);
   });
 
@@ -217,7 +217,7 @@ describe("three methods per case", () => {
     expect(report(validate(await Bun.file(path).text()))).toEqual({
       lines: [
         "GAP line 5: cost_usd missing (d02, q1, llm)",
-        "GAP case d04 (question q1, run run-d12): no rule result",
+        "GAP case d04 (question q1, run run-d12, prompt delivery-q.v1): no rule result",
         "jev: rows=4 labelled=4 accepted=4 cost=$0.000008",
         "llm: rows=4 labelled=4 accepted=4 cost=incomplete",
         "rule: rows=3 labelled=3 accepted=2 cost=$0.000000",
@@ -235,12 +235,36 @@ describe("three methods per case", () => {
     expect(missing(result.gaps)).toEqual([]);
   });
 
+  test("[unit] methods split across prompt versions do not pair: each version's case reports what it lacks", () => {
+    const rows = readExample().map((row) => (row["answerer"] === "jev" ? { ...row, prompt_version: "refund-q.v2" } : row));
+    const gaps = missing(validate(write(rows)).gaps);
+    expect(gaps).toContain("case m01 (question q1, run run-001, prompt refund-q.v1): no jev result");
+    expect(gaps).toContain("case m01 (question q1, run run-001, prompt refund-q.v2): no llm result");
+    expect(gaps).toContain("case m01 (question q1, run run-001, prompt refund-q.v2): no rule result");
+    expect(gaps).toHaveLength(9);
+  });
+
+  test("[unit] an identifier with a line break cannot inject a line into the report", () => {
+    const rows = readExample();
+    at(rows, 0)["case_id"] = "m01\nVALID rows=99 cases=1 errors=0 gaps=0";
+    const result = validate(write(rows));
+    expect(result.errors.length).toBeGreaterThan(0);
+    for (const gap of result.gaps) expect(gap).not.toContain("\n");
+    expect(report(result).lines.filter((line) => line.startsWith("VALID") || line.startsWith("INVALID"))).toHaveLength(1);
+  });
+
+  test("[unit] an error in an unrelated column still counts the row as that method's", () => {
+    const rows = readExample();
+    at(rows, 0)["confidence"] = "1.5";
+    expect(missing(validate(write(rows)).gaps)).toEqual([]);
+  });
+
   test("[unit] the same case under another question or run is checked separately", () => {
     const base = readExample();
     const other = base.filter((row) => row["answerer"] === "jev").map((row) => ({ ...row, question_id: "q2", run_id: "run-002" }));
     const gaps = missing(validate(write([...base, ...other])).gaps);
-    expect(gaps).toContain("case m01 (question q2, run run-002): no llm result");
-    expect(gaps).toContain("case m01 (question q2, run run-002): no rule result");
-    expect(gaps).not.toContain("case m01 (question q2, run run-002): no jev result");
+    expect(gaps).toContain("case m01 (question q2, run run-002, prompt refund-q.v1): no llm result");
+    expect(gaps).toContain("case m01 (question q2, run run-002, prompt refund-q.v1): no rule result");
+    expect(gaps).not.toContain("case m01 (question q2, run run-002, prompt refund-q.v1): no jev result");
   });
 });

@@ -51,7 +51,7 @@
     "src/backstage/server.test.ts": 24,
     "src/backstage/signout.test.ts": 7,
     "src/backstage/trial.test.ts": 14,
-    "src/browser/results-loader.dom.test.ts": 36,
+    "src/browser/results-loader.dom.test.ts": 38,
     "src/browser/shop-verdict.test.ts": 6,
     "src/core/calc.test.ts": 22,
     "src/core/case-table.test.ts": 4,

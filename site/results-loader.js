@@ -1233,7 +1233,7 @@
   function runSummary(rows) {
     const runs = new Map;
     for (const { values } of rows) {
-      const run = text2(values, "run_id");
+      const run = text3(values, "run_id");
       const entry = runs.get(run) ?? { count: 0, total: 0, complete: true };
       const cost = cell(values, "cost_usd");
       entry.count += 1;
@@ -1314,10 +1314,10 @@
       const head = { question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, cases, caseTotal: lines.length };
       try {
         const v = verdict(metrics, seed);
-        questions.push({ ...head, verdict: v.verdict, reason: v.reason });
+        questions.push({ ...head, verdict: v.verdict, reason: v.reason, limitations: v.limitations });
       } catch (error) {
         const why = error instanceof Error ? error.message : "no verdict";
-        questions.push({ ...head, verdict: null, reason: why });
+        questions.push({ ...head, verdict: null, reason: why, limitations: [] });
       }
     }
     return { fileName, valid: true, errors: [], gaps: result.gaps, headline, methods: summary(result.rows), questions };
@@ -1351,7 +1351,7 @@
     ];
     if (r.valid) {
       parts.push(el("h4", "ld-head", "Each method"), list("ld-methods", "", r.methods));
-      const rows = r.questions.map((q) => '<li><span class="ld-id">' + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId) + "</span> " + '<span class="ld-q">' + escapeHtml(q.question) + '</span> <span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + '</span> <span class="ld-why">' + escapeHtml(q.reason) + "</span>" + caseTable(q) + "</li>");
+      const rows = r.questions.map((q) => '<li><span class="ld-id">' + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId) + "</span> " + '<span class="ld-q">' + escapeHtml(q.question) + '</span> <span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + '</span> <span class="ld-why">' + escapeHtml(q.reason) + "</span>" + list("ld-limits", "Limitation:", q.limitations) + caseTable(q) + "</li>");
       parts.push(el("h4", "ld-head", "Verdict per question"), '<ul class="ld-verdicts">' + rows.join("") + "</ul>");
     }
     return parts.join("");
@@ -1377,7 +1377,7 @@
     } else {
       const items = r.questions.slice(0, MAX_CURRENT).map((q) => {
         const why = q.verdict !== null && q.reason.startsWith(q.verdict + ": ") ? q.reason.slice(q.verdict.length + 2) : q.reason;
-        return "<li>" + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId + ": ") + '<span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + "</span> " + escapeHtml("(" + why + ")") + "</li>";
+        return "<li>" + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId + ": ") + '<span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + "</span> " + escapeHtml("(" + why + ")") + list("ld-limits", "Limitation:", q.limitations) + "</li>";
       });
       const more = r.questions.length > MAX_CURRENT ? el("p", "ld-now", "and " + (r.questions.length - MAX_CURRENT) + " more questions: see the result under the curtain call.") : "";
       slot.innerHTML = el("h3", "ld-now-head", "Current verdict: your file " + name) + '<ul class="ld-now-list">' + items.join("") + "</ul>" + more;

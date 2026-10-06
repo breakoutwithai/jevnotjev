@@ -41,6 +41,8 @@ export interface QuestionVerdict {
   readonly verdict: string | null;
   /** One line for the screen: the verdict's reason, or why there is no verdict. */
   readonly reason: string;
+  /** What limits this verdict (Verdict.limitations); empty when no verdict could be computed. */
+  readonly limitations: readonly string[];
   /** The first MAX_CASE_ROWS cases, in file order. */
   readonly cases: readonly CaseView[];
   /** How many cases the question has in all. */
@@ -107,10 +109,10 @@ export async function evaluateText(fileName: string, text: string): Promise<Load
     const head = { question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, cases, caseTotal: lines.length };
     try {
       const v = verdict(metrics, seed);
-      questions.push({ ...head, verdict: v.verdict, reason: v.reason });
+      questions.push({ ...head, verdict: v.verdict, reason: v.reason, limitations: v.limitations });
     } catch (error) {
       const why = error instanceof Error ? error.message : "no verdict";
-      questions.push({ ...head, verdict: null, reason: why });
+      questions.push({ ...head, verdict: null, reason: why, limitations: [] });
     }
   }
   return { fileName, valid: true, errors: [], gaps: result.gaps, headline, methods: summary(result.rows), questions };
@@ -172,7 +174,7 @@ export function renderResult(r: LoadedResult): string {
       (q) =>
         '<li><span class="ld-id">' + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId) + "</span> " +
         '<span class="ld-q">' + escapeHtml(q.question) + '</span> <span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") +
-        '</span> <span class="ld-why">' + escapeHtml(q.reason) + "</span>" + caseTable(q) + "</li>",
+        '</span> <span class="ld-why">' + escapeHtml(q.reason) + "</span>" + list("ld-limits", "Limitation:", q.limitations) + caseTable(q) + "</li>",
     );
     parts.push(el("h4", "ld-head", "Verdict per question"), '<ul class="ld-verdicts">' + rows.join("") + "</ul>");
   }
@@ -235,7 +237,7 @@ export function markStage(doc: LoaderDocument, r: LoadedResult): void {
     const items = r.questions.slice(0, MAX_CURRENT).map((q) => {
       // The reason usually opens with the verdict's own name; the slot already shows it in bold.
       const why = q.verdict !== null && q.reason.startsWith(q.verdict + ": ") ? q.reason.slice(q.verdict.length + 2) : q.reason;
-      return "<li>" + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId + ": ") + '<span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + "</span> " + escapeHtml("(" + why + ")") + "</li>";
+      return "<li>" + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId + ": ") + '<span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + "</span> " + escapeHtml("(" + why + ")") + list("ld-limits", "Limitation:", q.limitations) + "</li>";
     });
     const more = r.questions.length > MAX_CURRENT ? el("p", "ld-now", "and " + (r.questions.length - MAX_CURRENT) + " more questions: see the result under the curtain call.") : "";
     slot.innerHTML = el("h3", "ld-now-head", "Current verdict: your file " + name) + '<ul class="ld-now-list">' + items.join("") + "</ul>" + more;

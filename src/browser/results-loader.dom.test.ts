@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { TEST_SET_ONLY } from "../core/verdict.ts";
 import { bundleLoader, LOADER_OUT } from "../../scripts/build-loader.ts";
 import {
   attachLoader,
@@ -431,7 +432,7 @@ describe("the Stage tells one story once a file is loaded (F1)", () => {
 
   test("[unit] F1-S3 a file with several questions lists every question's verdict in the current slot", async () => {
     const p = await choose(file("d06.csv", await example(D06)));
-    expect(p.current.innerHTML.match(/<li>/g)?.length).toBe(2);
+    expect(p.current.innerHTML.match(/<span class="ld-v">/g)?.length).toBe(2);
   });
 
   test("[unit] F1-S7 two runs of the same question id are told apart in the current slot by run and prompt version", async () => {
@@ -439,7 +440,7 @@ describe("the Stage tells one story once a file is loaded (F1)", () => {
     const rows = base.split("\n").filter((l) => l !== "");
     const second = rows.slice(1).map((l) => l.replace("run-d08-r3-use-jev", "run-two"));
     const p = await choose(file("two-runs.csv", [...rows, ...second].join("\n") + "\n"));
-    const items = p.current.innerHTML.match(/<li>.*?<\/li>/g) ?? [];
+    const items = p.current.innerHTML.match(/<li>run [^<]*/g) ?? [];
     expect(items.length).toBe(2);
     expect(items[0]).toContain("run run-d08-r3-use-jev, prompt d08.v1, question q1");
     expect(items[1]).toContain("run run-two, prompt d08.v1, question q1");
@@ -450,6 +451,28 @@ describe("the Stage tells one story once a file is loaded (F1)", () => {
     const csv = d12.split("\n").map((l) => (l.includes(",d03,") && l.includes(",llm,") ? l.replace(",accept,human,", ",,,") : l.includes(",d03,") && l.includes(",jev,") ? l.replace(",accept,", ",reject,") : l)).join("\n");
     const html = (await choose(file("p.csv", csv))).panel.innerHTML;
     expect(cellOf(html, "d03", "matches")).toBe("none among labelled methods; llm unlabelled");
+  });
+
+  test("[unit] LIM-1 each verdict in the panel and in the current slot lists its limitations, from the verdict code", async () => {
+    const csv = await example(D06);
+    const r = await evaluateText("d06.csv", csv);
+    const first = r.questions[0];
+    expect(first?.limitations[0]).toBe(TEST_SET_ONLY);
+    const p = await choose(file("d06.csv", csv));
+    for (const q of r.questions) {
+      for (const line of q.limitations) {
+        const html = "<li>Limitation: " + line.replaceAll("'", "&#39;") + "</li>";
+        expect(p.panel.innerHTML).toContain(html);
+        expect(p.current.innerHTML).toContain(html);
+      }
+    }
+    expect(p.current.innerHTML.match(/<ul class="ld-limits">/g)?.length).toBe(r.questions.length);
+    expect(p.panel.innerHTML.match(/<ul class="ld-limits">/g)?.length).toBe(r.questions.length);
+  });
+
+  test("[unit] LIM-2 limitation text is escaped: a hostile file name does not reach the limitations list as markup", async () => {
+    const p = await choose(file("<b>x</b>.csv", await example(D06)));
+    expect(p.current.innerHTML).not.toContain("<b>x");
   });
 
   test("[unit] F1-S4 an invalid file says there is no verdict for it, so the sample verdict is not read as its verdict", async () => {

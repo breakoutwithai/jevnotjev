@@ -155,6 +155,58 @@ backstage_check_curl_config() {
 # Statements are split on ; { } so one-line and multi-line blocks parse the same.
 backstage_snippet_auth() {
     awk '
+    function allow(loc, statement) { permitted[loc, statement] = 1; required[loc]++ }
+    BEGIN {
+        allow("redirect", "return 308 /backstage/")
+        split("sign_in password sign_out google callback", public_routes, " ")
+        path["sign_in"] = "/backstage/sign-in"
+        path["password"] = "/api/auth/password"
+        path["sign_out"] = "/api/auth/sign-out"
+        path["google"] = "/api/auth/google"
+        path["callback"] = "/api/auth/google/callback"
+        for (p = 1; p <= 5; p++) {
+            loc = public_routes[p]
+            allow(loc, "proxy_pass http://127.0.0.1:3456" path[loc])
+            allow(loc, "proxy_set_header Host $host")
+            allow(loc, "proxy_set_header X-Backstage-Client-IP $remote_addr")
+            allow(loc, "client_max_body_size 16k")
+        }
+        allow("callback", "access_log off")
+        allow("session_check", "internal")
+        allow("session_check", "proxy_pass http://127.0.0.1:3456/api/auth/session")
+        allow("session_check", "proxy_set_header Host $host")
+        allow("session_check", "proxy_pass_request_body off")
+        allow("session_check", "proxy_set_header Content-Length \"\"")
+        allow("session_check", "proxy_set_header Cookie $http_cookie")
+        allow("session_check", "proxy_connect_timeout 2s")
+        allow("session_check", "proxy_read_timeout 2s")
+        allow("session_check", "proxy_intercept_errors on")
+        allow("session_check", "error_page 403 404 500 502 503 504 =401 @backstage_deny")
+        allow("page", "auth_request /_backstage_session")
+        allow("page", "error_page 401 = @backstage_sign_in")
+        allow("page", "proxy_set_header X-Backstage-Gate session")
+        allow("page", "proxy_pass http://127.0.0.1:3456")
+        allow("page", "proxy_set_header Host $host")
+        allow("page", "proxy_set_header X-Backstage-Client-IP $remote_addr")
+        allow("page", "proxy_read_timeout 40s")
+        allow("api", "auth_request /_backstage_session")
+        allow("api", "error_page 401 = @backstage_api_401")
+        allow("api", "proxy_set_header X-Backstage-Gate session")
+        allow("api", "proxy_set_header X-Backstage-Client-IP $remote_addr")
+        allow("api", "client_max_body_size 64k")
+        allow("api", "client_body_timeout 5s")
+        allow("api", "proxy_pass http://127.0.0.1:3456")
+        allow("api", "proxy_set_header Host $host")
+        allow("api", "proxy_read_timeout 40s")
+        allow("api", "proxy_request_buffering off")
+        allow("api", "proxy_buffering off")
+        allow("api", "access_log off")
+        allow("deny", "return 401")
+        allow("sign_in_redirect", "absolute_redirect off")
+        allow("sign_in_redirect", "return 302 /backstage/sign-in?next=$request_uri")
+        allow("api_401", "default_type application/json")
+        allow("api_401", "return 401 \047{\"code\":\"unauthenticated\"}\047")
+    }
     { sub(/#.*/, ""); buf = buf " " $0 }
     END {
         # Braces in a quoted JSON return body are not nginx block delimiters.
@@ -183,14 +235,25 @@ backstage_snippet_auth() {
                 if (depth == 0) {
                     if (h == "location ^~ /backstage/") { cur = "page"; seen["page"]++ }
                     else if (h == "location ^~ /api/backstage/") { cur = "api"; seen["api"]++ }
-                    else if (h == "location = /_backstage_session") { cur = "session_check"; seen["session_check"]++ }
-                    else cur = "other"
-                } else if (cur == "page" || cur == "api") bad = 1
+                    else if (h == "location = /_backstage_session") { cur = "session_check"; seen[cur]++ }
+                    else if (h == "location = /backstage") { cur = "redirect"; seen[cur]++ }
+                    else if (h == "location = /backstage/sign-in") { cur = "sign_in"; seen[cur]++ }
+                    else if (h == "location = /api/auth/password") { cur = "password"; seen[cur]++ }
+                    else if (h == "location = /api/auth/sign-out") { cur = "sign_out"; seen[cur]++ }
+                    else if (h == "location = /api/auth/google") { cur = "google"; seen[cur]++ }
+                    else if (h == "location = /api/auth/google/callback") { cur = "callback"; seen[cur]++ }
+                    else if (h == "location @backstage_deny") { cur = "deny"; seen[cur]++ }
+                    else if (h == "location @backstage_sign_in") { cur = "sign_in_redirect"; seen[cur]++ }
+                    else if (h == "location @backstage_api_401") { cur = "api_401"; seen[cur]++ }
+                    else { cur = "other"; other_seen++ }
+                } else if (cur != "other") bad = 1
                 depth++
             } else if (s == "}") {
                 depth--; if (depth < 0) bad = 1; if (depth == 0) cur = ""
             } else if (last == ";") {
                 s = substr(s, 1, length(s) - 1); split(s, w, /[[:space:]]+/); d = w[1]
+                if (depth == 1 && cur != "other") statements[cur, s]++
+                else if (depth == 0) top_statement++
                 if (cur == "session_check" && depth == 1) {
                     if (d == "internal") { if (internal++ || s != "internal") bad = 1; continue }
                     if (d == "proxy_pass") { if (session_proxy++ || s != "proxy_pass http://127.0.0.1:3456/api/auth/session") bad = 1; continue }
@@ -219,6 +282,31 @@ backstage_snippet_auth() {
         }
         if (r["page"] != r["api"]) { print "unknown"; exit }
         if (r["page"] == "session" && (seen["session_check"] != 1 || internal != 1 || session_proxy != 1)) { print "unknown"; exit }
+        if (r["page"] == "session") {
+            if (other_seen || top_statement) { print "unknown"; exit }
+            split("redirect sign_in password sign_out google callback session_check page api deny sign_in_redirect api_401", locations, " ")
+            for (i = 1; i <= 12; i++) {
+                loc = locations[i]
+                if (seen[loc] != 1) { print "unknown"; exit }
+            }
+            for (key in statements) {
+                split(key, parts, SUBSEP); loc = parts[1]; statement = parts[2]
+                if (!(key in permitted) || statements[key] != 1) { print "unknown"; exit }
+                observed[loc]++
+            }
+            for (i = 1; i <= 12; i++) {
+                loc = locations[i]
+                if (loc != "page" && loc != "api" && loc != "session_check" && observed[loc] != required[loc]) { print "unknown"; exit }
+            }
+            if (!statements["session_check", "internal"] ||
+                !statements["session_check", "proxy_pass http://127.0.0.1:3456/api/auth/session"] ||
+                !statements["session_check", "proxy_intercept_errors on"] ||
+                !statements["session_check", "error_page 403 404 500 502 503 504 =401 @backstage_deny"] ||
+                !statements["page", "auth_request /_backstage_session"] ||
+                !statements["api", "auth_request /_backstage_session"] ||
+                !statements["page", "proxy_set_header X-Backstage-Gate session"] ||
+                !statements["api", "proxy_set_header X-Backstage-Gate session"]) { print "unknown"; exit }
+        }
         print r["page"]
     }'
 }

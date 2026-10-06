@@ -32,7 +32,17 @@ verify_get() {
     elif [[ "$who" == tampered || "$who" == forged ]]; then
         local cookie='x.y'
         if [[ "$who" == forged ]]; then
-            cookie='eyJlbWFpbCI6Im9wZXJhdG9yQGV4YW1wbGUudGVzdCIsImF1dGgiOiJwYXNzd29yZCIsImlhdCI6MSwiZXhwIjo5OTk5OTk5OTk5LCJzaWQiOiJmYWtlIiwiY3JlZCI6ImZha2UifQ.bad-signature'
+            if [[ ! -f "${BACKSTAGE_SESSION_JAR:-}" ]]; then
+                VERIFY_RC=1; VERIFY_CODE=000; VERIFY_BODY=""; VERIFY_HEADERS=""; rm -f "$tmp" "$headers"; return
+            fi
+            cookie="$(awk -F '\t' '$6=="__Host-backstage_session" || $6=="backstage_session" {print $7}' "$BACKSTAGE_SESSION_JAR" | tail -1)"
+            if [[ ! "$cookie" =~ ^[A-Za-z0-9_-]+[.][A-Za-z0-9_-]+$ ]]; then
+                VERIFY_RC=1; VERIFY_CODE=000; VERIFY_BODY=""; VERIFY_HEADERS=""; rm -f "$tmp" "$headers"; return
+            fi
+            local payload="${cookie%.*}" signature="${cookie##*.}" first
+            first="${signature:0:1}"
+            if [[ "$first" == a ]]; then first=b; else first=a; fi
+            cookie="${payload}.${first}${signature:1}"
         fi
         out="$(curl -q -sS -H "Cookie: __Host-backstage_session=${cookie}" -D "$headers" -o "$tmp" -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}${path}" 2>/dev/null)" || VERIFY_RC=$?
     else
@@ -48,10 +58,11 @@ verify_session_redirect() {
     local who="$1" label="$2" location
     verify_get "$who" /backstage/
     location="$(printf '%s\n' "$VERIFY_HEADERS" | tr -d '\r' | sed -n '/^[Ll]ocation:[[:space:]]*/{s/^[^:]*:[[:space:]]*//;p;}' | tail -1)"
-    if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 302 && ( "$location" == "${HEALTH_URL}/backstage/sign-in?next=/backstage/" || "$location" == '/backstage/sign-in?next=/backstage/' ) ]]; then
+    if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 302 && ( "$location" == "${HEALTH_URL}/backstage/sign-in?next=/backstage/" || "$location" == '/backstage/sign-in?next=/backstage/' ) ]] \
+        && ! printf '%s\n' "$VERIFY_HEADERS" | grep -Eiq '^WWW-Authenticate:'; then
         verify_pass "S2 ${label} /backstage/ 302 sign-in"
     else
-        verify_fail "S2 ${label} /backstage/: expected 302 exact sign-in Location, $(verify_got)"
+        verify_fail "S2 ${label} /backstage/: expected 302 exact sign-in Location without WWW-Authenticate, $(verify_got)"
     fi
 }
 verify_session_api_401() {
@@ -87,6 +98,7 @@ verify_session_auth() {
         return
     fi
     if backstage_session_mint; then
+        VERIFY_MINTED=yes
         verify_backstage_auth "$want" "$release"
     else
         verify_fail "S2 auth: BACKSTAGE_CURL_CONFIG could not mint a session"
@@ -200,6 +212,7 @@ verify_live() {
     local want_static="$1" want_backstage="$2" want_tag="$3" release="${4:-yes}" scope="${5:-all}"
     local static_release="${6:-yes}" gate="${7:-yes}" path tag_sha public_code public_note=""
     VERIFY_PASSED=0; VERIFY_FAILED=0
+    VERIFY_MINTED=no
     BACKSTAGE_GATE="$gate"; export BACKSTAGE_GATE
     echo "verify (read-only, live, scope ${scope}): static ${want_static:-not asserted}, backstage ${want_backstage:-not asserted}, release tag $([[ "$want_tag" == yes ]] && echo required || echo 'not required')"
 
@@ -212,8 +225,6 @@ verify_live() {
             verify_session_sign_in "$release"
             verify_session_redirect tampered tampered
             verify_session_api_401 tampered tampered
-            verify_session_redirect forged forged
-            verify_session_api_401 forged forged
         elif [[ "$gate" == yes ]]; then
             for path in "${VERIFY_GATED_PATHS[@]}"; do
                 verify_code anon "$path" "$VERIFY_UNAUTH_CODE" "S2 anon ${path}"
@@ -227,6 +238,10 @@ verify_live() {
         else
             if [[ "$gate" == session ]]; then
                 verify_session_auth "$want_backstage" "$release"
+                if [[ "$VERIFY_MINTED" == yes ]]; then
+                    verify_session_redirect forged forged
+                    verify_session_api_401 forged forged
+                fi
             elif [[ "$gate" == yes ]]; then
                 verify_backstage_auth "$want_backstage" "$release"
             fi

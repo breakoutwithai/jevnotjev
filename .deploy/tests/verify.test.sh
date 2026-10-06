@@ -171,7 +171,7 @@ drop_fixture
 
 echo "[T1] session S2 contract and negative controls"
 make_fixture 1
-printf '%s\n' 'location ^~ /backstage/ { auth_request /_backstage_session; }' 'location ^~ /api/backstage/ { auth_request /_backstage_session; }' 'location = /_backstage_session { internal; proxy_pass http://127.0.0.1:3456/api/auth/session; }' > "$FAKE_SNIPPET_FILE"
+cp "${REPO_ROOT}/.deploy/backstage-nginx.conf" "$FAKE_SNIPPET_FILE"
 SFIX="${FIXD}/session"; mkdir -p "$SFIX/http"
 fixture() {
     local key="$1" code="$2" body="$3" location="${4:-}" cookie="${5:-}" challenge="${6:-}" content_type="${7:-}"
@@ -201,6 +201,25 @@ out="$(session_verify 2>&1)"; rc=$?
     && ok "session S2 accepts redirect, API refusal, form, tamper refusal and both minted paths" || nope "session S2 healthy: rc=${rc}; out: ${out}"
 [[ "$out" == *'PASS S2 forged /backstage/ 302 sign-in'* && "$out" == *'PASS S2 forged /api/backstage/health 401 no WWW-Authenticate'* ]] \
     && ok "session S2 checks a well-formed payload with a bad signature" || nope "session S2 did not probe forged signature"
+minted="$(awk -F '\t' '$6=="__Host-backstage_session" {print $7}' "${FAKE_STATE}/mint-cookie" | tail -1)"
+forged_line="$(grep 'Cookie: __Host-backstage_session=' "${FAKE_STATE}/curl.log" | grep -v 'x.y' | tail -1)"
+forged="${forged_line#*Cookie: __Host-backstage_session=}"
+forged="${forged%% *}"
+[[ -n "$minted" && "$forged" != "$minted" && "${forged%.*}" == "${minted%.*}" && "${#forged}" == "${#minted}" ]] \
+    && ok "forged probe changes only the signature of the freshly minted cookie" \
+    || nope "forged probe did not use the minted payload and equal-length signature"
+fixture 'backstage_@forged' 200 '<main>Backstage</main>'
+out="$(session_verify 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$out" == *'FAIL S2 forged /backstage/'* ]] && ok "host accepting a parseable forged page cookie fails" || nope "forged page cookie opened without failing verify"
+fixture 'backstage_@forged' 302 '' '/backstage/sign-in?next=/backstage/'
+fixture 'api_backstage_health@forged' 200 '{}'
+out="$(session_verify 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$out" == *'FAIL S2 forged /api/backstage/health'* ]] && ok "host accepting a parseable forged API cookie fails" || nope "forged API cookie opened without failing verify"
+fixture 'api_backstage_health@forged' 401 '{"code":"unauthenticated"}' '' '' '' 'application/json'
+fixture 'backstage_' 302 '' '/backstage/sign-in?next=/backstage/' '' 'Basic realm="Backstage"'
+out="$(session_verify 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$out" == *'FAIL S2 anon /backstage/'* ]] && ok "session page redirect rejects a Basic challenge" || nope "session page redirect accepted a Basic challenge"
+fixture 'backstage_' 302 '' '/backstage/sign-in?next=/backstage/'
 fixture 'api_backstage_health' 401 '<html>denied</html>' '' '' '' 'text/html'
 out="$(session_verify 2>&1)"; rc=$?
 [[ $rc -eq 6 && "$out" == *'FAIL S2 anon /api/backstage/health'* ]] && ok "session S2 rejects HTML 401" || nope "session S2 accepted HTML 401"

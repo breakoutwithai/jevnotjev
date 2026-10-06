@@ -652,6 +652,20 @@ drop_fixture
 rm -rf "$CFGDIR"
 
 echo "[T1] session gate state reaches status and closing verify"
+closing_no_mint() {
+    (
+        eval "$(sed -n '/^closing_verify() {/,/^}/p' "$SHIP")"
+        backstage_session_mint() { echo MINT_CALLED; return 1; }
+        verify_live() { echo VERIFY_CALLED; return 0; }
+        closing_verify "" "" no none "$1" yes session
+    )
+}
+for scope in backstage static; do
+    out="$(closing_no_mint "$scope" 2>&1)"; rc=$?
+    [[ $rc -eq 0 && "$out" == *VERIFY_CALLED* && "$out" != *MINT_CALLED* ]] \
+        && ok "closing verify ${scope} scope with no release does not mint" \
+        || nope "closing verify ${scope} scope minted or failed: rc=${rc}; out: ${out}"
+done
 make_fixture
 serve static "$C2"; serve backstage "$C2"
 "$REAL_GIT" -C "$WORK" tag -a v2026.01.01.1 -m r "$C2" && "$REAL_GIT" -C "$WORK" push -q origin refs/tags/v2026.01.01.1 >/dev/null 2>&1

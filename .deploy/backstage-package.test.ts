@@ -374,6 +374,7 @@ async function activationFixture(
     sessionGate?: boolean;
     missingTargetGate?: boolean;
     stopped?: boolean;
+    mintFailures?: number;
   } = {},
 ): Promise<{
   code: number;
@@ -479,6 +480,12 @@ async function activationFixture(
       systemctl: `#!/usr/bin/env bun\nimport {appendFileSync,existsSync,writeFileSync} from 'node:fs';const root=process.env.FIXTURE??'';appendFileSync(root+'/actions',process.argv.slice(2).join(' ')+'\\n');if(process.argv[2]==='is-enabled'&&process.env.DISABLED==='1')process.exit(1);if(process.argv[2]==='restart'){writeFileSync(root+'/restarted','1');if(process.env.FAIL_RESTART==='1'&&!existsSync(root+'/failed')){writeFileSync(root+'/failed','1');process.exit(1);}}`,
       curl: `#!/usr/bin/env bun\nimport {appendFileSync,readlinkSync,readFileSync,writeFileSync,existsSync} from 'node:fs';const args=process.argv.slice(2);const root=process.env.FIXTURE??'';appendFileSync(root+'/curl.log',args.join(' ')+'\\n');const url=args.at(-1)??'';if(url.includes('neighbor.test')){process.stdout.write('200');process.exit(0);}if(process.env.STOPPED==='1'&&!existsSync(root+'/restarted'))process.exit(7);if(url.endsWith('/api/auth/password')){const h=args.indexOf('-D'),j=args.indexOf('-c');if(h>=0)writeFileSync(args[h+1]??'', 'HTTP/1.1 303 See Other\\r\\nSet-Cookie: __Host-backstage_session=fake; Path=/; Secure\\r\\n\\r\\n');if(j>=0)writeFileSync(args[j+1]??'', '#HttpOnly_jevnotjev.breakoutwithai.com\\tTRUE\\t/\\tTRUE\\t0\\t__Host-backstage_session\\tfake-session\\n');process.stdout.write('303');process.exit(0);}const active=readlinkSync(root+'/www/jevnotjev-backstage-current');if(url.endsWith('/health')){process.stdout.write(JSON.stringify({protocol:process.env.WRONG_PROTOCOL==='1'&&active.endsWith('b'.repeat(40))?'backstage/999':JSON.parse(readFileSync(active+'/release.json','utf8')).protocol,version:active.split('/').at(-1)}));}else{const path=url.endsWith('/')?'index.html':url.split('/').at(-1);if(path==='index.html'&&process.env.CORRUPT_HTML==='1')process.stdout.write('old html');else process.stdout.write(readFileSync(active+'/site/backstage/'+path));}`,
     };
+    const curlCommand = commands.curl;
+    if (!curlCommand) throw new Error("missing curl fixture command");
+    commands.curl = curlCommand.replace(
+      "if(url.endsWith('/api/auth/password')){",
+      "if(url.endsWith('/api/auth/password')){const countFile=root+'/mint-attempts';const count=Number(existsSync(countFile)?readFileSync(countFile,'utf8'):'0')+1;writeFileSync(countFile,String(count));if(count<=Number(process.env.MINT_FAILURES??'0'))process.exit(7);",
+    );
     for (const [name, body] of Object.entries(commands)) {
       const path = join(dir, "bin", name);
       await Bun.write(path, body);
@@ -496,6 +503,7 @@ async function activationFixture(
       AUTH_SNIPPET: options.authSnippet || options.sessionGate ? "1" : "0",
       AUTH_AFTER_LOCK: options.authAfterLock ? "1" : "0",
       STOPPED: options.stopped ? "1" : "0",
+      MINT_FAILURES: String(options.mintFailures ?? 0),
     };
     delete env.BACKSTAGE_CURL_CONFIG;
     if (options.curlConfig) env.BACKSTAGE_CURL_CONFIG = options.curlConfig;
@@ -598,7 +606,7 @@ test("[integration] AU session gate rejects promotion and rollback without a ses
     await rm(dir, { recursive: true, force: true });
   }
 });
-test("[integration] AU stopped service can be replaced under a session gate and runtime enforces it", async () => {
+test("[integration] AU stopped service can be replaced under a session gate without a runtime switch", async () => {
   const dir = await mkdtemp(join(tmpdir(), "backstage-gate-"));
   const config = join(dir, "curl");
   try {
@@ -608,9 +616,38 @@ test("[integration] AU stopped service can be replaced under a session gate and 
       const result = await activationFixture(false, false, { promote, sessionGate: true, stopped: true, curlConfig: config });
       expect(result.code).toBe(0);
       expect(result.current).toBe("b".repeat(40));
-      expect(result.runtimeEnv).toContain("BACKSTAGE_REQUIRE_SESSION=1");
+      expect(result.runtimeEnv).not.toContain("BACKSTAGE_REQUIRE_SESSION");
       expect(result.curlLog.match(/api\/auth\/password/g)?.length).toBe(1);
     }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("[integration] AU startup retries failed session mints until the service is ready", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-gate-"));
+  const config = join(dir, "curl");
+  try {
+    await Bun.write(config, 'user = "operator@example.test:fake-password"\n');
+    await chmod(config, 0o600);
+    const result = await activationFixture(false, false, { sessionGate: true, curlConfig: config, mintFailures: 2 });
+    expect(result.code).toBe(0);
+    expect(result.current).toBe("b".repeat(40));
+    expect(result.curlLog.match(/api\/auth\/password/g)?.length).toBe(3);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("[integration] AU failed session promotion stops when previous release lacks the session gate", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-gate-"));
+  const config = join(dir, "curl");
+  try {
+    await Bun.write(config, 'user = "operator@example.test:fake-password"\n');
+    await chmod(config, 0o600);
+    const result = await activationFixture(true, false, { sessionGate: true, curlConfig: config });
+    expect(result.code).not.toBe(0);
+    expect(result.current).toBe("");
+    expect(result.log).toContain("stop jevnotjev-backstage");
+    expect(result.log.match(/restart/g)?.length).toBe(1);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

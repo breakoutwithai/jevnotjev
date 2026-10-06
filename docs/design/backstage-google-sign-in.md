@@ -54,7 +54,7 @@ Every ported function carries a header comment naming its source path and commit
 | (c) app-only checks, nginx proxies without a gate | yes in code, but a proxy misconfiguration exposes the page | no defence in depth |
 | (d) keep `auth_basic` with `satisfy any` | no: every 401 from `auth_basic` carries `WWW-Authenticate: Basic`, which is the dialog the operator rejected | - |
 
-Choice: (a). The Bun service also enforces the session itself when `BACKSTAGE_REQUIRE_SESSION=1`: the deploy writes that into `runtime.env` when the installed snippet is the session gate, and `bun run backstage:dev` sets it. With it set and no usable secret, every gated request is refused. The switch follows the installed gate, not the presence of a secret, because during the staged rollout the old Basic snippet does not proxy `/api/auth/`, and an app that enforced then would lock everyone out (review round 1).
+Choice: (a). The Bun service also enforces the session itself when the request carries `X-Backstage-Gate: session` or `BACKSTAGE_REQUIRE_SESSION=1` is set. The session snippet sets that header with `proxy_set_header` in both gated locations, so nginx overwrites any visitor value; under the old Basic snippet a visitor who sends it only makes the app stricter for themselves. `bun run backstage:dev` sets the variable, and an operator may add it to `auth.env` after rollout step 3 so the app refuses even if nginx were misconfigured. With enforcement on and no usable secret, every gated request is refused. The switch follows the installed gate, not the presence of a secret, because during the staged rollout the old Basic snippet does not proxy `/api/auth/`, and an app that enforced then would lock everyone out (review round 1). It is not written by the deploy: `ship.sh` skips an already verified SHA, so a deploy-written switch would never reach the release that is live when setup swaps the gate (review round 2).
 
 ## Routes
 
@@ -78,7 +78,7 @@ No access token is kept or forwarded (G4): the token response's `id_token` is ch
 
 Valid only when all hold: cookie present; HMAC matches (constant time); payload parses; `exp > now`; `sid` not revoked; email still in the operators file (re-read when the file's mtime changes); `cred` equals the fingerprint of that row's current credential (`password_hash`, or the literal `google` for a row without one). The secret is `BACKSTAGE_SESSION_SECRET`, at least 32 characters; shorter or absent means no session is ever valid.
 
-Revoked sids are kept until their `exp` in `revoked-sessions.json` next to the operators file (the service StateDirectory), written atomically, pruned on write, and loaded at start, so a deploy restart does not revive a signed-out cookie. Without a writable directory (tests, dev) they stay in memory.
+Revoked sids are kept until their `exp` in `revoked-sessions.json` next to the operators file (the service StateDirectory), written atomically, pruned on write, and loaded at start, so a deploy restart does not revive a signed-out cookie. Without a writable directory (tests, dev) they stay in memory. A write failure fails the sign-out (500, and the page says sign-out failed) instead of reporting success. An existing file that cannot be read or parsed fails closed: every session issued before that start is refused and the failure is logged. The file holds at most 10,000 unexpired entries; a sign-out beyond that fails the same way (review round 2).
 
 ## Rate limit and lockout
 
@@ -87,7 +87,7 @@ Revoked sids are kept until their `exp` in `revoked-sessions.json` next to the o
 - Per email across all addresses: 100 failures in 15 minutes locks the email for 1 minute, no doubling. This bounds distributed guessing without letting one remote client lock a tester (or the deploy probe's account) out for long.
 - The client address is the trusted `X-Backstage-Client-IP` behind loopback with `BACKSTAGE_TRUST_PROXY=loopback`. Without a trusted address (unset proxy mode, loopback socket, or invalid header) the per-address and per-pair limits are skipped and only the per-email ceiling applies, so all testers never share one bucket.
 - A locked request does not run scrypt and answers the same `locked` page whether or not the email exists. A success clears that pair.
-- Records are pruned when idle past their window and lock, and the maps are capped (oldest dropped), so random emails cannot grow memory without bound.
+- Records are pruned when idle past their window and lock; a record with a lock level is kept for its 24-hour decay. The maps are capped at 10,000; eviction drops only unlocked idle records, and when none can be dropped the attempt answers `?error=busy` without running scrypt, so a flood can neither grow memory nor evict a lock (review round 2).
 - At most 8 scrypt verifications run at once; beyond that the attempt answers `?error=busy` without counting as a failure.
 - Each lock is logged once to the service journal with the address and the first 8 hex of the SHA-256 of the email (never the email or password).
 - #99: nginx no longer checks passwords, so an `nginx-http-auth` jail sees no Backstage failures and sign-out logs none. The app lockout replaces nginx-side counting. Whether the host runs such a jail is still unrecorded (#99 stays open until that host check).
@@ -114,9 +114,9 @@ location = /_backstage_session {
     proxy_pass_request_body off; proxy_set_header Content-Length "";
     proxy_intercept_errors on; error_page 403 404 500 502 503 504 =401 @backstage_deny;
 }
-location ^~ /backstage/     { auth_request /_backstage_session; error_page 401 = @backstage_sign_in; proxy_set_header X-Backstage-Client-IP $remote_addr; ... }
-location ^~ /api/backstage/ { auth_request /_backstage_session; error_page 401 = @backstage_api_401; ... }
-location @backstage_sign_in { return 302 /backstage/sign-in?next=$request_uri; }
+location ^~ /backstage/     { auth_request /_backstage_session; error_page 401 = @backstage_sign_in; proxy_set_header X-Backstage-Gate session; proxy_set_header X-Backstage-Client-IP $remote_addr; ... }
+location ^~ /api/backstage/ { auth_request /_backstage_session; error_page 401 = @backstage_api_401; proxy_set_header X-Backstage-Gate session; ... }
+location @backstage_sign_in { absolute_redirect off; return 302 /backstage/sign-in?next=$request_uri; }
 location @backstage_api_401 { default_type application/json; return 401 '{"code":"unauthenticated"}'; }
 ```
 
@@ -125,13 +125,13 @@ location @backstage_api_401 { default_type application/json; return 401 '{"code"
 - The session check failing (service down, no release, 404 from an old release) is a 401, so the gate fails closed instead of answering 500.
 - Every ungated location overwrites `X-Backstage-Client-IP` with `$remote_addr`, and so does the page location.
 
-`backstage_snippet_auth` gains a state: `yes` (both locations `auth_basic`, as today), `session`, `no`, `unknown`. `session` requires: both gated locations carry exactly `auth_request /_backstage_session;` and no `satisfy`, `allow`, `deny` or auth_basic directive; the internal location contains `internal;` and exactly `proxy_pass http://127.0.0.1:3456/api/auth/session;` and no `return`; no auth directive anywhere else. Anything else is `unknown`.
+`backstage_snippet_auth` gains a state: `yes` (both locations `auth_basic`, as today), `session`, `no`, `unknown`. `session` is an allowlist, not a denylist (review round 2 found an `if (...) { return 204; }`, a `rewrite`, and an `error_page 401 =204` that a denylist passed): no nested block inside any recognised location; the internal location holds only `internal`, the one `proxy_pass http://127.0.0.1:3456/api/auth/session`, `proxy_set_header`, `proxy_pass_request_body off`, `proxy_connect_timeout`/`proxy_read_timeout`, `proxy_intercept_errors on` and the one `error_page 403 404 500 502 503 504 =401 @backstage_deny`; each gated location holds only directives from the shipped set and must carry `auth_request /_backstage_session` and `proxy_set_header X-Backstage-Gate session`; the three named locations must match their shipped statements exactly; no auth directive anywhere else. Anything else is `unknown`.
 
 ## Deploy contract
 
-Probes: `backstage_curl`, when the gate is `session`, mints a session by `POST /api/auth/password` with the existing `BACKSTAGE_CURL_CONFIG` (its `user = "email:password"` line becomes a Basic header), stores the cookie in a mode-0600 temporary jar removed at exit, and sends it on later probes. The credential stays in the config file, never in argv or output. The curl config's `user` must be an operators-file email and password. The deploy mints lazily, after activation, so a stopped service or a broken release can still be replaced.
+Probes: `backstage_curl`, when the gate is `session`, mints a session by `POST /api/auth/password` with the existing `BACKSTAGE_CURL_CONFIG` (its `user = "email:password"` line becomes a Basic header), stores the cookie in a mode-0600 temporary jar removed at exit, and sends it on later probes. The credential stays in the config file, never in argv or output. The curl config's `user` must be an operators-file email and password. The deploy mints lazily, after activation and inside the startup retries, so a stopped service or a broken release can still be replaced and a service that is still starting is not mistaken for a failed one. The closing verify mints only when a release is running; static-only verify never mints.
 
-Releases built from this change carry `"gate": "session"` in `release.json`. When the installed snippet is the session gate, the deploy refuses, before activation, a promotion or rollback target without it (a pre-sign-in release answers 404 on the session check, which nginx turns into a refusal for everyone). The deploy writes `BACKSTAGE_REQUIRE_SESSION=1` into the release's `runtime.env` when the installed gate is `session`.
+Releases built from this change carry `"gate": "session"` in `release.json`. When the installed snippet is the session gate, the deploy refuses, before activation, a promotion or rollback target without it (a pre-sign-in release answers 404 on the session check, which nginx turns into a refusal for everyone). The automatic fallback to the previous release applies the same check; a previous release without it takes the stop path instead (review round 2).
 
 Verify S2 takes the expected gate from the caller (ship.sh already reads the installed snippet):
 
@@ -144,12 +144,12 @@ Setup, for the session snippet, refuses before any change unless: the host nginx
 
 ## Staged rollout (no window where neither gate applies, no lockout window)
 
-1. Merge; deploy the release (gate `yes`, Basic still on). The release has the new routes; `runtime.env` has no `BACKSTAGE_REQUIRE_SESSION`, so the app does not enforce a session and Basic users are unaffected.
+1. Merge; deploy the release (gate `yes`, Basic still on). The release has the new routes; the Basic snippet sends no `X-Backstage-Gate`, so the app does not enforce a session and Basic users are unaffected.
 2. Operator writes `auth.env` and `operators.json` (steps below), installs the changed unit and restarts the service (EnvironmentFile is read only at start). The session check now answers `"signIn":"ready"`; the app still does not enforce, Basic still gates.
 3. Operator runs `ship.sh --setup --module backstage` (dry run first). Setup swaps the snippet to `session`, verifies, and restores on failure. Basic is gone; the nginx session gate applies.
-4. The next deploy (`ship.sh --module backstage`) writes `BACKSTAGE_REQUIRE_SESSION=1`, adding the in-app gate behind nginx's.
+4. The in-app gate is already on: the session snippet sends `X-Backstage-Gate: session`. Optional hardening: add `BACKSTAGE_REQUIRE_SESSION=1` to `auth.env` and restart, so the app also refuses requests that reach it without nginx.
 
-Rollback of step 3 (setup's own restore, or by hand): the previous Basic snippet comes back and the app is not enforcing, so testers use Basic again. After step 4, put Basic back only together with a redeploy (the deploy rewrites `runtime.env` from the installed gate).
+Rollback of step 3 (setup's own restore, or by hand): the previous Basic snippet comes back, sends no `X-Backstage-Gate`, and the app stops enforcing, so testers use Basic again. If `BACKSTAGE_REQUIRE_SESSION=1` was added to `auth.env`, remove it and restart first.
 
 ## Operator steps (exact values)
 
@@ -162,7 +162,7 @@ Rollback of step 3 (setup's own restore, or by hand): the previous Basic snippet
 4. Update `BACKSTAGE_CURL_CONFIG` so its `user` line is one operators-file email and its new password.
 5. Unit: `.deploy/backstage.service` gains `EnvironmentFile=-/etc/jevnotjev-backstage/auth.env`. Setup never overwrites a changed unit, so install it by hand: `install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage`.
 6. `.deploy/ship.sh --setup --module backstage --dry-run`, then without `--dry-run`.
-7. `.deploy/ship.sh --module backstage` (turns on the in-app gate, rollout step 4).
+7. Optional: add `BACKSTAGE_REQUIRE_SESSION=1` to `auth.env` and `systemctl restart jevnotjev-backstage` (rollout step 4).
 8. Afterwards the htpasswd is unused; deleting `/etc/jevnotjev-backstage/htpasswd` is optional and separate.
 
 ## Test plan (matrix first)
@@ -180,7 +180,8 @@ Session check x state:
 | email removed from operators file | 401 | 302 | 401 |
 | operator's password_hash changed | 401 | 302 | 401 |
 | no or short secret with `BACKSTAGE_REQUIRE_SESSION=1` | 401 `unconfigured` | 302 | 401 |
-| `BACKSTAGE_REQUIRE_SESSION` unset | 401 | served (nginx gates) | served (nginx gates) |
+| neither `X-Backstage-Gate: session` nor `BACKSTAGE_REQUIRE_SESSION=1` | 401 | served (nginx gates) | served (nginx gates) |
+| path case alias such as `/Backstage/` or `/API/backstage/` | - | 404 | 404 |
 | path evasion: `/%62ackstage/`, `//backstage/`, backslash, `.`/`..` segments | - | 404 | 404 |
 
 Password POST: success (303 to `next`, cookie flags exact, and the minted cookie then passes the session check and opens a gated page); wrong password; unknown email (same response, and scrypt still runs: a spy or timing-independent counter proves it); row without hash; email case and whitespace; empty fields; `$apr1$` or bcrypt hash in the file (refused, not crashed); cross-site `Sec-Fetch-Site`; foreign `Origin`; no headers (allowed); 5 failures lock the (email, address) pair and the REAL password of an existing account is then refused; another address can still sign in that account; lockout doubles and the level decays; per-address lock across emails; the 100-failure email ceiling; no trusted address skips the per-address limits; success clears the pair (a later 4 failures do not lock); unknown-email lock answers byte-identically to a real one; maps stay under their cap; more than 8 concurrent attempts answer `busy`; Basic header mint (303 to `/backstage/` plus a cookie that opens a gated page).
@@ -196,6 +197,10 @@ Docker nginx (`.deploy/tests/nginx-session-docker.sh`, manual: needs Docker, so 
 ## Review round 1 (fe43847), confirmed and fixed in this PR
 
 Reproduced against the code or in the Docker nginx before fixing: the `/api/auth/` backslash pivot to Backstage with no session; `$uri` CRLF header injection; in-app gate on the encoded path; the app enforcing during rollout step 2 (lockout); setup unable to tell a configured release; per-email lockout of any tester and of the deploy probe; one shared limiter bucket without a trusted address; unbounded limiter maps; the Google state Map flood; sign-out revocation lost on restart; the page claiming "signed out" after a failed sign-out; the deploy refusing to replace a broken release; fresh-install circularity; rollback to a pre-sign-in release; a parser accepting `satisfy any` or a `return 204` session check; verify accepting a non-JSON 401; fixture curl accepting any jar; route tests that passed on failed sign-in.
+
+## Review round 2 (866c237), confirmed and fixed in this PR
+
+The snippet parser was still a denylist (nested `if`/`return`, `rewrite`, `error_page =204` passed): now an allowlist. Revocation persistence failed open on a write error or a corrupt file. The closing verify minted without a release, and the deploy minted before the restarted service listened. A deploy-written enforcement switch could never reach the live release (ship.sh skips a verified SHA): replaced by the nginx-set `X-Backstage-Gate` header. The forged-cookie probe expired in 1970 (seconds read as milliseconds), so it could not detect a missing signature check: it now flips the signature of a freshly minted cookie. Limiter pruning reset the lock level after 15 minutes and cap eviction could drop a locked record. Case aliases bypassed the in-app gate on a case-insensitive filesystem. The page redirect check did not reject `WWW-Authenticate`. The automatic fallback skipped the release gate check.
 
 ## Not proven here (UNVERIFIED until the operator's deploy)
 

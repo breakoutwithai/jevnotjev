@@ -163,8 +163,11 @@ code="$(FIXTURE_DIRS="$OUT" PATH="${REPLAY}:${PATH}" curl -q -sS -o /dev/null -w
 printf 'foreign-cookie\n' > "${REPLAY}/foreign.jar"
 code="$(FIXTURE_DIRS="$OUT" PATH="${REPLAY}:${PATH}" curl -q -sS -o /dev/null -w '%{http_code}' -b "${REPLAY}/foreign.jar" "https://${H}/api/backstage/health" 2>/dev/null)"
 [[ "$code" == 401 ]] && ok "foreign cookie jar remains anonymous" || nope "foreign cookie jar selected session fixture"
+# The fake honours only a jar its own mint wrote (recorded in FAKE_STATE/mint-cookie).
+mkdir -p "${REPLAY}/state"
 printf '#HttpOnly_jevnotjev.breakoutwithai.com\tTRUE\t/\tTRUE\t0\t__Host-backstage_session\tfake-session\n' > "${REPLAY}/session.jar"
-body="$(FIXTURE_DIRS="$OUT" PATH="${REPLAY}:${PATH}" curl -q -sS -b "${REPLAY}/session.jar" "https://${H}/api/backstage/health" 2>/dev/null)"
+cp "${REPLAY}/session.jar" "${REPLAY}/state/mint-cookie"
+body="$(FAKE_STATE="${REPLAY}/state" FIXTURE_DIRS="$OUT" PATH="${REPLAY}:${PATH}" curl -q -sS -b "${REPLAY}/session.jar" "https://${H}/api/backstage/health" 2>/dev/null)"
 [[ "$body" == *'"version":"0123456789abcdef0123456789abcdef01234567"'* ]] && ok "authenticated health replays its version" || nope "replay health: '${body}'"
 rm -rf "$REPLAY"
 

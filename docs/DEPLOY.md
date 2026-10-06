@@ -38,10 +38,11 @@ when it delivered a complete body first.
 `backstage-deploy.sh` also refuses until Backstage setup exists and unless HEAD's merged PR body
 references #67; plain `ship.sh` then reports backstage FAILED with its exit code.
 With the installed session gate, a promotion or rollback target must declare `"gate": "session"`
-in `release.json`; the deploy refuses it before activation otherwise. It writes
-`BACKSTAGE_REQUIRE_SESSION=1` into that release's `runtime.env` under the session gate and omits
-the switch under Basic. The session probe mints its cookie after activation, so a stopped
-service can be replaced.
+in `release.json`; the deploy refuses it before activation otherwise. Automatic fallback checks
+the previous release the same way and stops the service if it cannot safely activate it. The
+nginx snippet sets `X-Backstage-Gate: session` on both gated routes; the service uses that header
+to enforce the session. The session probe mints inside the post-restart retry loop, so a stopped
+or starting service can be replaced.
 
 ### Drift and `--status`
 

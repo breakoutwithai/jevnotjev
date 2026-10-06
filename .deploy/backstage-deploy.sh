@@ -82,14 +82,21 @@ else
  remote "cd '${stage}' && printf '%s\n' '${archive_sha}  payload.tar.gz' | sha256sum -c - && tar -xzf payload.tar.gz --no-same-owner && rm payload.tar.gz"
  remote "chmod -R a+rX '${stage}' && mv '${stage}' '${release}'"
 fi
-expected_protocol="$(remote "cat '${release}/release.json'" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||!["backstage/1","backstage/2"].includes(r.protocol)||process.argv[2]==="session"&&r.gate!=="session")process.exit(1);console.log(r.protocol)' "$SHA" "$auth_state")" || fail "Target release has invalid protocol or lacks gate=session for the installed session gate"
+release_protocol() {
+ local target="$1"
+ remote "cat '${target}/release.json'" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||!["backstage/1","backstage/2"].includes(r.protocol)||process.argv[2]==="session"&&r.gate!=="session")process.exit(1);console.log(r.protocol)' "${target##*/}" "$auth_state"
+}
+expected_protocol="$(release_protocol "$release")" || fail "Target release has invalid protocol or lacks gate=session for the installed session gate"
 runtime_lines="'BACKSTAGE_VERSION=${SHA}' 'BACKSTAGE_ORIGIN=${HEALTH_URL}' 'BACKSTAGE_STATIC_ROOT=${release}/site' 'PORT=3456'"
-[[ "$auth_state" != session ]] || runtime_lines="${runtime_lines} 'BACKSTAGE_REQUIRE_SESSION=1'"
 remote "printf '%s\n' ${runtime_lines} > '${release}/runtime.env' && chmod 0644 '${release}/runtime.env'" || fail "Cannot write target runtime environment"
 activated=false
 restore(){
  local rc="$?"
  if [[ "$rc" -ne 0 ]] && $activated; then
+  if [[ -n "$previous" && "$auth_state" == session ]] && ! release_protocol "$previous" >/dev/null; then
+   log_error "Previous release lacks gate=session for the installed session gate; stopping instead of activating it"
+   previous=""
+  fi
   if [[ -n "$previous" ]]; then
    activate_release "$previous" "$CURRENT" && remote "systemctl restart '${SERVICE}'" || log_error "PAIR ROLLBACK FAILED: inspect ${CURRENT} and ${SERVICE}"
    sleep 1
@@ -111,11 +118,11 @@ trap restore EXIT
 activated=true
 activate_release "$release" "$CURRENT"
 remote "systemctl restart '${SERVICE}'"
-[[ "$auth_state" != session ]] || backstage_session_mint || fail "BACKSTAGE_CURL_CONFIG could not mint a Backstage session after activation"
 # Version endpoint and served page asset each prove the newly promoted pair.
 healthy=false
 for attempt in 1 2 3 4 5; do
- if backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||r.protocol!==process.argv[2])process.exit(1)' "$SHA" "$expected_protocol"; then healthy=true; break; fi
+ if { [[ "$auth_state" != session ]] || backstage_session_mint; } \
+    && backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||r.protocol!==process.argv[2])process.exit(1)' "$SHA" "$expected_protocol"; then healthy=true; break; fi
  sleep 1
 done
 $healthy || fail "New API version did not verify"

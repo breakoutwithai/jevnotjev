@@ -81,7 +81,6 @@ body_has() { # name needle
     if grep -q "$2" "$TMP/state/body"; then PASS=$((PASS + 1)); echo "PASS $1"; else FAIL=$((FAIL + 1)); echo "FAIL $1"; fi
 }
 JAR="$TMP/state/jar"
-WRONG_SIG="$(printf '{"email":"%s","auth":"password","iat":1,"exp":9999999999999,"sid":"x","cred":"x"}' "$EMAIL" | base64 | tr '+/' '-_' | tr -d '=\n').AAAA"
 
 row "anon GET /backstage/" 302 /backstage/
 row "anon GET /backstage/backstage.css" 302 /backstage/backstage.css
@@ -102,13 +101,19 @@ row "CRLF in path: no injected header" 302 '/backstage/x%0d%0aSet-Cookie:%20inje
 row "old Basic header only" 302 /backstage/ -u "${EMAIL}:${PW}"
 row "garbage cookie page" 302 /backstage/ -b "__Host-backstage_session=x.y"
 row "garbage cookie api" 401 /api/backstage/health -b "__Host-backstage_session=x.y"
-row "well-formed cookie, wrong signature" 302 /backstage/ -b "__Host-backstage_session=${WRONG_SIG}"
+row "case alias /Backstage/ (no location, static 404)" 404 /Backstage/
 row "wrong password POST" 303 /api/auth/password -X POST --data-urlencode "email=${EMAIL}" --data-urlencode "password=nope"
 row "cross-site POST refused" 403 /api/auth/password -X POST -H 'sec-fetch-site: cross-site' --data-urlencode "email=${EMAIL}" --data-urlencode "password=${PW}"
 row "form sign-in" 303 /api/auth/password -X POST -H "origin: ${ORIGIN}" --data-urlencode "email=${EMAIL}" --data-urlencode "password=${PW}" -c "$JAR"
 grep -q '__Host-backstage_session' "$JAR" && { PASS=$((PASS + 1)); echo "PASS jar holds __Host-backstage_session"; } || { FAIL=$((FAIL + 1)); echo "FAIL jar holds __Host-backstage_session"; }
 echo "     set-cookie: $("${C[@]}" -o /dev/null -D - -X POST --data-urlencode "email=${EMAIL}" --data-urlencode "password=${PW}" "${ORIGIN}/api/auth/password" | tr -d '\r' | grep -i '^set-cookie' | sed 's/=[^;]*;/=<redacted>;/')"
 row "session GET /backstage/" 200 /backstage/ -b "$JAR"
+# The minted cookie with only its signature replaced (same length) must be refused.
+VALUE="$(awk '$6 == "__Host-backstage_session" {print $7}' "$JAR")"
+PAYLOAD="${VALUE%%.*}"; SIG="${VALUE#*.}"
+if [[ "${SIG:0:1}" == A ]]; then FLIPPED="B${SIG:1}"; else FLIPPED="A${SIG:1}"; fi
+row "minted cookie, signature replaced: page" 302 /backstage/ -b "__Host-backstage_session=${PAYLOAD}.${FLIPPED}"
+row "minted cookie, signature replaced: api" 401 /api/backstage/health -b "__Host-backstage_session=${PAYLOAD}.${FLIPPED}"
 row "session GET /backstage/backstage.css" 200 /backstage/backstage.css -b "$JAR"
 row "session GET /api/backstage/health" 200 /api/backstage/health -b "$JAR"
 row "session sign-out" 303 /api/auth/sign-out -X POST -H "origin: ${ORIGIN}" -b "$JAR"

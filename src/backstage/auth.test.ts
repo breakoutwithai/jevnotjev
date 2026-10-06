@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cookie, cookieName, GoogleStates, isSameOrigin, LoginLimiter, OperatorStore, parseCookie, sanitizeNextPath, signSession, verifyPasswordHash, verifySession, credentialFingerprint } from "./auth.ts";
+import { cookie, cookieName, GoogleStates, isSameOrigin, LoginLimiter, OperatorStore, parseCookie, RevokedSessions, sanitizeNextPath, signSession, verifyPasswordHash, verifySession, credentialFingerprint } from "./auth.ts";
 import type { Session } from "./auth.ts";
 import { createHmac, randomBytes, scryptSync } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -150,4 +150,76 @@ test("[unit] AU11 distributed failures reach only the one minute email ceiling",
     now = 120_000;
     expect(limiter.locked("a@example.com", null)).toBe(false);
   } finally { console.warn = original; }
+});
+
+test("[unit] AU12 revoked session store caps entries and keeps a failed write revoked in memory", () => {
+  const store = new RevokedSessions(() => 1000);
+  for (let index = 0; index < 10_000; index++) store.revoke(`sid-${index}`, 2000);
+  expect(() => store.revoke("overflow", 2000)).toThrow();
+  expect(store.has("sid-0", 1000)).toBe(true);
+  expect(store.has("overflow", 1000)).toBe(true);
+});
+
+test("[unit] AU13 limiter retains a lock level through the 15 minute sweep", () => {
+  let now = 0;
+  const limiter = new LoginLimiter(() => now);
+  const original = console.warn;
+  console.warn = () => {};
+  try {
+    for (let index = 0; index < 5; index++) limiter.fail("victim@example.com", "203.0.113.1");
+    now = 900_001;
+    for (let index = 0; index < 256; index++) limiter.fail(`sweep${index}@example.com`, null);
+    for (let index = 0; index < 5; index++) limiter.fail("victim@example.com", "203.0.113.1");
+    now += 60_000;
+    expect(limiter.locked("victim@example.com", "203.0.113.1")).toBe(true);
+    now += 60_000;
+    expect(limiter.locked("victim@example.com", "203.0.113.1")).toBe(false);
+  } finally { console.warn = original; }
+});
+
+test("[unit] AU14 a full limiter refuses new records without evicting a locked victim", () => {
+  let now = 0;
+  const limiter = new LoginLimiter(() => now);
+  const original = console.warn;
+  console.warn = () => {};
+  try {
+    for (let index = 0; index < 5; index++) limiter.fail("victim@example.com", "203.0.113.1");
+    expect(limiter.locked("victim@example.com", "203.0.113.1")).toBe(true);
+    for (let index = 0; index < 9_999; index++) limiter.fail(`random${index}@example.com`, `198.51.${Math.floor(index / 256)}.${index % 256}`);
+    expect(limiter.sizes().emails).toBe(10_000);
+    expect(limiter.sizes().pairs).toBe(10_000);
+    expect(limiter.canAttempt("overflow@example.com", "203.0.113.2")).toBe(false);
+    expect(limiter.fail("overflow@example.com", "203.0.113.2")).toBe(false);
+    expect(limiter.sizes().pairs).toBe(10_000);
+    expect(limiter.locked("victim@example.com", "203.0.113.1")).toBe(true);
+    now = 60_000;
+    for (let index = 0; index < 5; index++) limiter.fail("victim@example.com", "203.0.113.1");
+    now = 120_000;
+    expect(limiter.locked("victim@example.com", "203.0.113.1")).toBe(true);
+    expect(limiter.canAttempt("overflow@example.com", null)).toBe(false);
+    now = 900_001;
+    expect(limiter.canAttempt("overflow@example.com", null)).toBe(true);
+  } finally { console.warn = original; }
+});
+
+test("[unit] AU15 limiter reserves the last slot before password verification", () => {
+  const limiter = new LoginLimiter(() => 0);
+  for (let index = 0; index < 9_999; index++) limiter.fail(`random${index}@example.com`, null);
+  expect(limiter.canAttempt("first@example.com", null)).toBe(true);
+  expect(limiter.canAttempt("second@example.com", null)).toBe(false);
+  expect(limiter.sizes().emails).toBe(10_000);
+});
+
+test("[unit] AU16 revocation startup counts only unexpired entries against the cap", () => {
+  const directory = mkdtempSync(join(tmpdir(), "backstage-revoked-"));
+  const path = join(directory, "operators.json");
+  const rows: Record<string, number> = {};
+  for (let index = 0; index < 10_001; index++) rows[`expired-${index}`] = 999;
+  rows.active = 2000;
+  writeFileSync(join(directory, "revoked-sessions.json"), JSON.stringify(rows));
+  try {
+    const store = new RevokedSessions(() => 1000, path);
+    expect(store.has("active", 999)).toBe(true);
+    expect(store.has("unlisted", 999)).toBe(false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

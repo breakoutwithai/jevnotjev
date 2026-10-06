@@ -21,8 +21,8 @@ source .deploy/backstage-lib.sh
 snippet="$(cat .deploy/backstage-nginx.conf)"
 [[ "$(printf '%s\n' "$snippet" | backstage_snippet_auth)" == session ]] && ok "repo Backstage snippet is a session gate" || nope "repo Backstage snippet is not a session gate"
 if printf '%s\n' "$snippet" | grep -Eq 'auth_basic|WWW-Authenticate|satisfy'; then nope "session snippet contains Basic gate or challenge"; else ok "session snippet has no Basic gate, challenge or satisfy"; fi
-session='location ^~ /backstage/ { auth_request /_backstage_session; } location ^~ /api/backstage/ { auth_request /_backstage_session; } location = /_backstage_session { internal; proxy_pass http://127.0.0.1:3456/api/auth/session; }'
-[[ "$(printf '%s\n' "$session" | backstage_snippet_auth)" == session ]] && ok "inline session layout parses" || nope "inline session layout rejected"
+session="$(printf '%s\n' "$snippet" | sed 's/#.*//' | tr '\n' ' ')"
+[[ "$(printf '%s\n' "$session" | backstage_snippet_auth)" == session ]] && ok "inline shipped session layout parses" || nope "inline shipped session layout rejected"
 for variant in \
     "${session} location ^~ /api/auth/ { auth_basic off; }" \
     "${session/auth_request \/_backstage_session;/auth_request off;}" \
@@ -32,11 +32,32 @@ for variant in \
     "${session/http:\/\/127.0.0.1:3456\/api\/auth\/session/http:\/\/127.0.0.1:3456\/api\/auth\/other}" \
     "${session/internal;/internal; return 204;}" \
     "${session/internal;/internal; location \/nested { return 204; }}" \
-    "${session/location ^~ \/backstage\/ { auth_request \/_backstage_session;/location ^~ \/backstage\/ { satisfy any; allow all; auth_request \/_backstage_session;}" \
-    "${session/location ^~ \/api\/backstage\/ { auth_request \/_backstage_session;/location ^~ \/api\/backstage\/ { allow all; auth_request \/_backstage_session;}" \
+    "${session/auth_request \/_backstage_session;/satisfy any; allow all; auth_request \/_backstage_session;}" \
+    "${session/proxy_set_header X-Backstage-Gate session;/allow all; proxy_set_header X-Backstage-Gate session;}" \
     "${session} location ^~ /api/auth/ { location /nested { auth_request /_backstage_session; } }"; do
     [[ "$(printf '%s\n' "$variant" | backstage_snippet_auth)" == unknown ]] && ok "mixed or evasive session layout refused" || nope "mixed or evasive session layout accepted"
 done
+for variant in \
+    "${session/internal;/internal; if (\$request_method) { return 204; }}" \
+    "${session/internal;/internal; error_page 401 =204 @backstage_deny;}" \
+    "${session/internal;/internal; rewrite ^ \/backstage\/sign-in break;}" \
+    "${session/default_type application\/json;/default_type application\/json; proxy_pass http:\/\/127.0.0.1:3456;}" \
+    "${session/proxy_set_header X-Backstage-Gate session;/}"; do
+    [[ "$(printf '%s\n' "$variant" | backstage_snippet_auth)" == unknown ]] && ok "session allowlist refuses review round 2 evasion" || nope "session allowlist accepted review round 2 evasion"
+done
+for variant in \
+    "${session/client_max_body_size 16k;/client_max_body_size 16k; if (\$request_method) { return 204; }}" \
+    "${session/absolute_redirect off;/absolute_redirect off; if (\$request_method) { return 204; }}" \
+    "${session/return 401;/return 204;}"; do
+    [[ "$(printf '%s\n' "$variant" | backstage_snippet_auth)" == unknown ]] && ok "exact and named locations reject nested or altered statements" || nope "exact or named location accepted an altered statement"
+done
+basic='location ^~ /backstage/ { auth_basic "Backstage"; auth_basic_user_file /tmp/htpasswd; } location ^~ /api/backstage/ { auth_basic "Backstage"; auth_basic_user_file /tmp/htpasswd; }'
+[[ "$(printf '%s\n' "$basic" | backstage_snippet_auth)" == yes ]] && ok "Basic gate remains recognized" || nope "Basic gate classification changed"
+without_optional="${session/proxy_read_timeout 40s;/}"
+[[ "$(printf '%s\n' "$without_optional" | backstage_snippet_auth)" == session ]] && ok "shipped directive subset keeps a gated session location" || nope "optional gated directive treated as mandatory"
+[[ "$snippet" == *'proxy_set_header X-Backstage-Gate session;'* && "$(printf '%s\n' "$snippet" | grep -c 'proxy_set_header X-Backstage-Gate session;')" == 2 ]] \
+    && ok "both gated routes overwrite the session gate header" || nope "gated route lacks the session gate header"
+[[ "$snippet" == *'absolute_redirect off;'* ]] && ok "sign-in redirect is relative" || nope "sign-in redirect can become absolute"
 [[ "$(printf '%s\n' '# auth_basic off;' "$session" | backstage_snippet_auth)" == session ]] && ok "commented Basic directive has no effect" || nope "comment changed session classification"
 for route in /backstage/sign-in /api/auth/password /api/auth/sign-out /api/auth/google /api/auth/google/callback; do
     block="$(printf '%s\n' "$snippet" | sed -n "\\|^location = ${route} {|,/^}/p")"

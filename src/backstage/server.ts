@@ -113,12 +113,11 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   const states = new GoogleStates(clock, secret);
   const revoked = new RevokedSessions(clock, options.auth?.operatorsPath);
   const googleReady = Boolean(options.auth?.googleClientId && options.auth.googleClientSecret && secret.length >= 32);
-  const requireSession = options.requireSession === true;
   const sessionFrom = (request: Request) => {
     const value = parseCookie(request.headers.get("cookie"), cookieName(origin, "session"));
     const session = secret.length >= 32 ? verifySession(value, secret, clock()) : null;
     const row = session ? operators.get(session.email) : undefined;
-    return session && row && !revoked.has(session.sid) && session.cred === credentialFingerprint(row.password_hash ?? "google") ? session : null;
+    return session && row && !revoked.has(session.sid, session.iat) && session.cred === credentialFingerprint(row.password_hash ?? "google") ? session : null;
   };
   const redirect = (location: string, status = 303): Response => new Response(null, { status, headers: { ...HEADERS, location } });
   const denied = (): Response => Response.json({ code: "unauthenticated" }, { status: 401, headers: HEADERS });
@@ -154,6 +153,9 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     catch { return json({ error: "Not found." }, 404); }
     if (pathname.includes("\\") || pathname.includes("//") || pathname.split("/").some((segment) => segment === "." || segment === ".."))
       return json({ error: "Not found." }, 404);
+    const lowerPathname = pathname.toLowerCase();
+    const gatedPrefix = lowerPathname.startsWith("/backstage/") ? "/backstage/" : lowerPathname.startsWith("/api/backstage/") ? "/api/backstage/" : null;
+    if (gatedPrefix && pathname.slice(0, gatedPrefix.length) !== gatedPrefix) return json({ error: "Not found." }, 404);
     if (pathname === "/backstage/sign-in" && request.method === "GET") {
       const message = url.searchParams.get("signed-out") === "1" ? "signed-out" : url.searchParams.get("error");
       return renderSignInPage(sanitizeNextPath(url.searchParams.get("next")), message, googleReady, HEADERS["content-security-policy"]);
@@ -185,6 +187,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       const address = observed === "127.0.0.1" || observed === "::1" || observed === "::ffff:127.0.0.1" ? null : observed;
       if (limiter.locked(email, address)) return authError("locked");
       if (activeScrypt >= 8) return authError("busy");
+      if (!limiter.canAttempt(email, address)) return authError("busy");
       const row = operators.get(email);
       activeScrypt++;
       let verified: boolean;
@@ -202,7 +205,10 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       if (!isSameOrigin(request, origin)) return json({ error: "Forbidden." }, 403);
       const session = sessionFrom(request);
-      if (session) revoked.revoke(session.sid, session.exp);
+      if (session) {
+        try { revoked.revoke(session.sid, session.exp); }
+        catch { return Response.json({ code: "signout-failed" }, { status: 500, headers: HEADERS }); }
+      }
       const response = redirect("/backstage/sign-in?signed-out=1");
       response.headers.append("set-cookie", cookie(origin, "session", "", 0));
       return response;
@@ -252,8 +258,8 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         return response;
       } catch { responseError.headers.append("set-cookie", clear); return responseError; }
     }
-    if (requireSession && (pathname.startsWith("/backstage/") || pathname.startsWith("/api/backstage/")) && !sessionFrom(request)) {
-      if (pathname.startsWith("/api/")) return denied();
+    if ((options.requireSession === true || request.headers.get("x-backstage-gate") === "session") && gatedPrefix && !sessionFrom(request)) {
+      if (gatedPrefix === "/api/backstage/") return denied();
       return redirect(`/backstage/sign-in?next=${sanitizeNextPath(pathname)}`, 302);
     }
     const trialHeld = trial.available && (fundingHeld || trial.ledger.held());

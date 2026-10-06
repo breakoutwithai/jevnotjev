@@ -134,28 +134,41 @@ export function cookie(origin: string, kind: "session" | "oauth", value: string,
 export class RevokedSessions {
   private readonly entries = new Map<string, number>();
   private readonly file: string | undefined;
+  private readonly rejectBefore: number | undefined;
   constructor(private readonly clock: () => number, operatorsPath?: string) {
     if (!operatorsPath) return;
     const directory = dirname(operatorsPath);
-    try { accessSync(directory, constants.W_OK); this.file = join(directory, "revoked-sessions.json"); }
-    catch { return; }
+    const path = join(directory, "revoked-sessions.json");
+    try { accessSync(directory, constants.W_OK); this.file = path; }
+    catch { /* An unwritable directory uses memory but existing revocations still load. */ }
     try {
-      const raw: unknown = JSON.parse(readFileSync(this.file, "utf8"));
-      if (typeof raw === "object" && raw !== null && !Array.isArray(raw))
-        for (const [sid, exp] of Object.entries(raw)) if (typeof exp === "number" && exp > clock()) this.entries.set(sid, exp);
-    } catch { /* Missing or invalid file starts with no revocations. */ }
+      const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("Invalid revocation store");
+      const rows = Object.entries(raw);
+      if (rows.some(([sid, exp]) => !sid || typeof exp !== "number" || !Number.isFinite(exp))) throw new Error("Invalid revocation store");
+      for (const [sid, exp] of rows) if (typeof exp === "number" && exp > clock()) this.entries.set(sid, exp);
+      if (this.entries.size > 10_000) throw new Error("Revocation store full");
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
+      this.entries.clear();
+      this.rejectBefore = clock();
+      console.warn("backstage auth: revocation store unavailable; older sessions refused");
+    }
   }
   revoke(sid: string, exp: number): void {
     this.entries.set(sid, exp);
     for (const [key, expiry] of this.entries) if (expiry <= this.clock()) this.entries.delete(key);
+    if (this.entries.size > 10_000) throw new Error("Revocation store full");
     if (!this.file) return;
     const temp = `${this.file}.${randomBytes(8).toString("hex")}.tmp`;
     try { writeFileSync(temp, JSON.stringify(Object.fromEntries(this.entries)), { mode: 0o600 }); renameSync(temp, this.file); }
-    catch { try { rmSync(temp, { force: true }); } catch { /* Keep in-memory revocation. */ } }
+    catch (error) { try { rmSync(temp, { force: true }); } catch { /* Keep in-memory revocation. */ } throw error; }
   }
-  has(sid: string): boolean {
-    for (const [key, exp] of this.entries) if (exp <= this.clock()) this.entries.delete(key);
-    return this.entries.has(sid);
+  has(sid: string, iat: number): boolean {
+    if (this.rejectBefore !== undefined && iat < this.rejectBefore) return true;
+    const exp = this.entries.get(sid);
+    if (exp !== undefined && exp <= this.clock()) { this.entries.delete(sid); return false; }
+    return exp !== undefined;
   }
 }
 
@@ -167,15 +180,33 @@ export class LoginLimiter {
   private failures = 0;
   constructor(private readonly clock: () => number) {}
   sizes(): { emails: number; addresses: number; pairs: number } { return { emails: this.emails.size, addresses: this.addresses.size, pairs: this.pairs.size }; }
+  private expired(row: FailureRecord, now: number): boolean {
+    return row.lockedUntil <= now && now - row.lastFailure > (row.lockLevel > 0 ? 86_400_000 : 900_000);
+  }
   private prune(map: Map<string, FailureRecord>): void {
     const now = this.clock();
-    if (map.size >= 10_000) for (const [key, row] of map) if (now - row.lastFailure > 900_000 && row.lockedUntil <= now) map.delete(key);
-    while (map.size >= 10_000) map.delete(map.keys().next().value ?? "");
+    for (const [key, row] of map) if (this.expired(row, now)) map.delete(key);
+  }
+  canAttempt(email: string, address: string | null): boolean {
+    const normalized = normalizeEmail(email);
+    const targets: [Map<string, FailureRecord>, string][] = [[this.emails, normalized]];
+    if (address !== null) {
+      targets.push([this.addresses, address], [this.pairs, `${normalized}\0${address}`]);
+    }
+    for (const [map, key] of targets) {
+      if (map.has(key)) continue;
+      if (map.size >= 10_000) this.prune(map);
+      if (map.size >= 10_000) return false;
+    }
+    const now = this.clock();
+    for (const [map, key] of targets)
+      if (!map.has(key)) map.set(key, { count: 0, windowStart: now, lockedUntil: 0, lockLevel: 0, lastFailure: now });
+    return true;
   }
   private record(map: Map<string, FailureRecord>, key: string): FailureRecord {
     const now = this.clock();
     let row = map.get(key);
-    if (!row) { this.prune(map); row = { count: 0, windowStart: now, lockedUntil: 0, lockLevel: 0, lastFailure: now }; map.set(key, row); }
+    if (!row) { row = { count: 0, windowStart: now, lockedUntil: 0, lockLevel: 0, lastFailure: now }; map.set(key, row); }
     if (now - row.lastFailure >= 86_400_000) row.lockLevel = 0;
     if (now - row.windowStart >= 900_000) { row.count = 0; row.windowStart = now; }
     return row;
@@ -197,17 +228,19 @@ export class LoginLimiter {
     row.windowStart = this.clock();
     console.warn(`backstage auth: lock ${scope} address=${address ?? "none"} email=${createHash("sha256").update(email).digest("hex").slice(0, 8)}`);
   }
-  fail(email: string, address: string | null): void {
+  fail(email: string, address: string | null): boolean {
+    if (!this.canAttempt(email, address)) return false;
     const normalized = normalizeEmail(email);
     if (++this.failures % 256 === 0) {
       for (const map of [this.emails, this.addresses, this.pairs])
-        for (const [key, row] of map) if (this.clock() - row.lastFailure > 900_000 && row.lockedUntil <= this.clock()) map.delete(key);
+        this.prune(map);
     }
     this.failure(this.emails, normalized, 100, "email", normalized, address, false);
     if (address !== null) {
       this.failure(this.addresses, address, 20, "address", normalized, address, true);
       this.failure(this.pairs, `${normalized}\0${address}`, 5, "pair", normalized, address, true);
     }
+    return true;
   }
   success(email: string, address: string | null): void { if (address !== null) this.pairs.delete(`${normalizeEmail(email)}\0${address}`); }
 }

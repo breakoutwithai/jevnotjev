@@ -28,8 +28,8 @@ for a in "$@"; do
         -w) wfmt="$a"; prev=""; continue ;;
         -D) heads="$a"; prev=""; continue ;;
         -c) jar="$a"; prev=""; continue ;;
-        -b) [[ -f "$a" ]] && grep -Fqx $'#HttpOnly_jevnotjev.breakoutwithai.com\tTRUE\t/\tTRUE\t0\t__Host-backstage_session\tfake-session' "$a" && session=true; prev=""; continue ;;
-        -H) [[ "$a" != 'Cookie: __Host-backstage_session=x.y' ]] || tampered=true; [[ "$a" != Cookie:\ __Host-backstage_session=eyJ* ]] || forged=true; prev=""; continue ;;
+        -b) [[ -f "$a" && -f "${FAKE_STATE}/mint-cookie" ]] && grep -Fqx "$(cat "${FAKE_STATE}/mint-cookie")" "$a" && session=true; prev=""; continue ;;
+        -H) [[ "$a" != 'Cookie: __Host-backstage_session=x.y' ]] || tampered=true; [[ "$a" != Cookie:\ __Host-backstage_session=* || "$a" == 'Cookie: __Host-backstage_session=x.y' ]] || forged=true; prev=""; continue ;;
         -X) [[ "$a" != POST ]] || mint=true; prev=""; continue ;;
         --config|--resolve|--max-time) prev=""; continue ;;
     esac
@@ -92,7 +92,10 @@ if [[ -n "$heads" ]]; then
     } > "$heads"
 fi
 if [[ -n "$jar" && "$code" == 303 && -n "$(header set_cookie)" ]]; then
-    printf '#HttpOnly_jevnotjev.breakoutwithai.com\tTRUE\t/\tTRUE\t0\t__Host-backstage_session\tfake-session\n' > "$jar"
+    payload="$(printf '{\"exp\":%s}' "$(( $(date +%s) + 3600 ))" | base64 | tr '+/' '-_' | tr -d '=\n')"
+    signature="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')"
+    printf '#HttpOnly_jevnotjev.breakoutwithai.com\tTRUE\t/\tTRUE\t0\t__Host-backstage_session\t%s.%s\n' "$payload" "$signature" > "$jar"
+    cp "$jar" "${FAKE_STATE}/mint-cookie"
 fi
 
 served() { local s; s="$(cat "${FAKE_STATE}/$1_served" 2>/dev/null || echo none)"; printf '%s' "$(printf '%s' "$s" | tr -d '[:space:]')"; }

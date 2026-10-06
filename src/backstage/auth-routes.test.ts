@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createHandler } from "./server.ts";
 import { cookieName, credentialFingerprint, signSession } from "./auth.ts";
 import { createHash, createHmac, randomBytes, scryptSync } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -57,6 +57,60 @@ test("[integration] AR1 rollout switch and decoded path rejection", async () => 
     if (status === 302) expect(response.headers.get("location")).toStartWith("/backstage/sign-in?next=");
   }
   gate.close();
+});
+
+test("[integration] AR12 nginx header enables the app gate during the rollout", async () => {
+  const handler = createHandler({ version: "test", origin: ORIGIN, staticRoot: "site", auth: { sessionSecret: randomBytes(32).toString("hex") } });
+  try {
+    expect((await handler(sessionRequest("/api/backstage/health"))).status).toBe(200);
+    expect((await handler(new Request(`${ORIGIN}/api/backstage/health`, { headers: { "x-backstage-gate": "other" } }))).status).toBe(200);
+    expect((await handler(new Request(`${ORIGIN}/api/backstage/health`, { headers: { "x-backstage-gate": "session" } }))).status).toBe(401);
+    expect((await handler(new Request(`${ORIGIN}/backstage/`, { headers: { "x-backstage-gate": "session" } }))).status).toBe(302);
+  } finally { handler.close(); }
+});
+
+test("[integration] AR13 mixed case Backstage aliases are 404 before static routing", async () => {
+  const handler = createHandler({ version: "test", origin: ORIGIN, staticRoot: "site", requireSession: true, auth: { sessionSecret: randomBytes(32).toString("hex") } });
+  try {
+    for (const path of ["/Backstage/index.html", "/BACKSTAGE/", "/API/backstage/health", "/api/Backstage/health"])
+      expect((await handler(sessionRequest(path))).status).toBe(404);
+  } finally { handler.close(); }
+});
+
+test("[integration] AR14 a failed revocation write returns JSON failure and keeps the cookie refused", async () => {
+  const data = fixture();
+  const secret = randomBytes(32).toString("hex");
+  const handler = createHandler({ version: "test", origin: ORIGIN, auth: { sessionSecret: secret, operatorsPath: data.path } });
+  try {
+    const value = signSession({ email: "a@example.com", auth: "password", iat: 1000, exp: Date.now() + 60_000, sid: randomBytes(24).toString("hex"), cred: credentialFingerprint(data.passwordHash) }, secret);
+    mkdirSync(join(data.path, "..", "revoked-sessions.json"));
+    const response = await handler(new Request(`${ORIGIN}/api/auth/sign-out`, { method: "POST", headers: { cookie: `backstage_session=${value}` } }));
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe('{"code":"signout-failed"}');
+    expect(response.headers.has("location")).toBe(false);
+    expect((await handler(sessionRequest("/api/auth/session", value))).status).toBe(401);
+  } finally { handler.close(); data.cleanup(); }
+});
+
+test("[integration] AR15 corrupt revocation state refuses old sessions and logs once", async () => {
+  const data = fixture();
+  const secret = randomBytes(32).toString("hex");
+  const warnings: string[] = [];
+  const original = console.warn;
+  writeFileSync(join(data.path, "..", "revoked-sessions.json"), "{");
+  console.warn = (message: string) => { warnings.push(message); };
+  let now = 1000;
+  const handler = createHandler({ version: "test", origin: ORIGIN, auth: { sessionSecret: secret, operatorsPath: data.path, clock: () => now } });
+  try {
+    const cred = credentialFingerprint(data.passwordHash);
+    const old = signSession({ email: "a@example.com", auth: "password", iat: 999, exp: 2000, sid: "old", cred }, secret);
+    const fresh = signSession({ email: "a@example.com", auth: "password", iat: 1000, exp: 2000, sid: "fresh", cred }, secret);
+    expect((await handler(sessionRequest("/api/auth/session", old))).status).toBe(401);
+    expect((await handler(sessionRequest("/api/auth/session", fresh))).status).toBe(204);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).not.toContain(secret);
+    now = 1001;
+  } finally { handler.close(); console.warn = original; data.cleanup(); }
 });
 
 test("[integration] AR2 session matrix checks signature, expiry, revocation and operator removal", async () => {

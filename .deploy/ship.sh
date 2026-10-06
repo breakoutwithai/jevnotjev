@@ -183,10 +183,6 @@ load_config() {
 # failed assertion; the caller exits 6.
 closing_verify() {
     echo
-    if [[ "${7:-yes}" == session ]]; then
-        BACKSTAGE_GATE=session; export BACKSTAGE_GATE
-        backstage_session_mint || return 1
-    fi
     verify_live "$@" && return 0
     log_error "Live verify failed (see the FAIL lines above)."
     return 1

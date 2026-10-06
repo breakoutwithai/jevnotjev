@@ -1,5 +1,5 @@
 {
-  "minFiles": 59,
+  "minFiles": 60,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 109,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -45,6 +45,7 @@
     "src/backstage/server.test.ts": 24,
     "src/backstage/signout.test.ts": 7,
     "src/backstage/trial.test.ts": 14,
+    "src/browser/results-loader.dom.test.ts": 13,
     "src/browser/shop-verdict.test.ts": 6,
     "src/core/calc.test.ts": 22,
     "src/core/metrics.test.ts": 18,

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { build, buildFiles, quad, render, type Label } from "../../examples/d08-verdicts/make.ts";
+import { formatRow, readDictRows } from "../format/csv.ts";
 import { validate } from "../format/validate.ts";
 import { fileSeed } from "./calc.ts";
 import { cohortMetrics, cohorts } from "./metrics.ts";
@@ -229,5 +230,127 @@ describe("verdict: cost guards come after the cost-free rules", () => {
       }
     }
     expect(checked).toBe(18);
+  });
+});
+
+/** The verdict's reason, one branch per row: the verdict name leads and the deciding number follows (D08 "plain-language reason"). */
+describe("verdict: the reason of each of the five branches names the verdict and the deciding number", () => {
+  test("[unit] D08 use Jev: reason starts with use Jev and holds the lower bound, the cost ratio and its upper bound", async () => {
+    const got = await d08("r3-use-jev");
+    expect(got.reason.startsWith("use Jev: ")).toBe(true);
+    expect(got.reason).toBe("use Jev: Jev is within 10 points of the LLM (lower bound -0.03) and costs 0.009 of it per accepted answer (upper bound 0.010)");
+  });
+
+  test("[unit] D08 don't use Jev, rule within margin: reason starts with the verdict and holds the rule's lower bound and the 30 cases", async () => {
+    const got = await d08("r2-rule-within-margin");
+    expect(got.reason.startsWith("don't use Jev: ")).toBe(true);
+    expect(got.reason).toContain("lower bound of rule minus Jev -0.03");
+    expect(got.reason).toContain("on 30 paired cases");
+  });
+
+  test("[unit] D08 don't use Jev, Jev clearly worse: reason starts with the verdict and holds the upper bound", async () => {
+    const got = await d08("r2-jev-worse");
+    expect(got.reason.startsWith("don't use Jev: ")).toBe(true);
+    expect(got.reason).toContain("upper bound of Jev minus LLM -0.30");
+  });
+
+  test("[unit] D08 don't use Jev, Jev 0 accepted: reason starts with the verdict and holds both accepted counts", async () => {
+    const got = await d08("r2-jev-zero");
+    expect(got.reason).toBe("don't use Jev: Jev has 0 accepted and the LLM has 1");
+  });
+
+  test("[unit] D08 don't use Jev, Jev clearly dearer: reason starts with the verdict and holds the ratio and its lower bound", async () => {
+    const got = await d08("r2-jev-dearer");
+    expect(got.reason.startsWith("don't use Jev: ")).toBe(true);
+    expect(got.reason).toContain("cost ratio 1.800");
+    expect(got.reason).toContain("lower bound 1.600");
+  });
+});
+
+/** Rule 4 names the unmet conditions and gives no case count (#49): the rules doc does not promise one. */
+describe("verdict: rule 4 gives no case count (#49)", () => {
+  test("[unit] #49 every rule-4 file has addN null and its reason does not say add", async () => {
+    for (const name of ["r4-accept-rate", "r4-cheaper-under-20"]) {
+      const got = await d08(name);
+      expect({ name, rule: got.rule, addN: got.addN }).toEqual({ name, rule: 4, addN: null });
+      expect(got.reason).not.toMatch(/\badd\b/);
+    }
+  });
+
+  test("[unit] #49 the rules doc does not promise a count for rule 4", () => {
+    const doc = readFileSync(fileURLToPath(new URL("../../docs/decision/verdict-rules.md", import.meta.url)), "utf8");
+    const rule4 = doc.split("\n").find((line) => line.startsWith("4. **Not enough evidence** otherwise"));
+    expect(rule4).toBeDefined();
+    expect(rule4).not.toContain("how many more cases would be needed");
+    expect(rule4).toContain("It gives no count of more cases");
+  });
+});
+
+const TEST_SET_ONLY = "These results are for this test set only, not production.";
+const DASHES = new RegExp(`${String.fromCharCode(0x2014)}|${String.fromCharCode(0x2013)}|NaN`);
+
+/** The first llm row's label and label_source blanked: one unlabelled row. */
+function blankFirstLlmLabel(text: string): string {
+  const { header, rows } = readDictRows(text);
+  if (header === null) throw new Error("no header");
+  const [answerer, label, source] = [header.indexOf("answerer"), header.indexOf("label"), header.indexOf("label_source")];
+  let done = false;
+  const lines = rows.map(({ fields }) => {
+    const next = [...fields];
+    if (!done && next[answerer] === "llm") {
+      next[label] = "";
+      next[source] = "";
+      done = true;
+    }
+    return next;
+  });
+  if (!done) throw new Error("no llm row");
+  return [header, ...lines].map((fields) => formatRow(fields, "\n")).join("");
+}
+
+describe("verdict: limitations (D08)", () => {
+  test("[unit] D08 a full file with a rule arm lists only that the results are for this test set", async () => {
+    expect((await d08("r3-use-jev")).limitations).toEqual([TEST_SET_ONLY]);
+  });
+
+  test("[unit] D08 every verdict, whatever its rule, lists the test-set limitation first", async () => {
+    const names = readdirSync(D08).filter((name) => name.endsWith(".csv")).map((name) => name.slice(0, -4));
+    expect(names).toHaveLength(12);
+    for (const name of names) expect({ name, first: (await d08(name)).limitations[0] }).toEqual({ name, first: TEST_SET_ONLY });
+  });
+
+  test("[unit] D08 below the minimum names the paired count", async () => {
+    const got = await d08("r1-29-paired");
+    expect(got.limitations).toContain("Below the minimum: 29 paired labelled Jev and LLM cases, fewer than 30.");
+  });
+
+  test("[unit] D08 no rule rows says the rule comparison was skipped for that reason", async () => {
+    const [got] = await verdictsOf(render(build({ name: "no-rule", pairs: quad(27, 3, 0, 0) })));
+    expect(got?.limitations).toEqual([TEST_SET_ONLY, "Rule comparison skipped: no rule rows."]);
+  });
+
+  test("[unit] D08 d06 q1 is below the minimum and has too few rule cases", async () => {
+    const [q1] = await verdictsOf(readFileSync(TINY, "utf8"));
+    expect(q1?.limitations).toContain("Rule comparison skipped: fewer than 30 paired rule cases.");
+    expect(q1?.limitations.some((line) => line.startsWith("Below the minimum: 5 paired"))).toBe(true);
+  });
+
+  test("[unit] D08 a missing cost is listed with its count", async () => {
+    const [got] = await verdictsOf(readFileSync(`${D08}r1-cost-missing.csv`, "utf8"));
+    expect(got?.limitations.filter((line) => line.startsWith("Missing costs: "))).toEqual(["Missing costs: 1 row with no cost, so spend is incomplete."]);
+  });
+
+  test("[unit] D08 a missing label is listed with its count and pushes a 30-case file under the minimum", async () => {
+    const text = blankFirstLlmLabel(readFileSync(`${D08}r3-use-jev.csv`, "utf8"));
+    const [got] = await verdictsOf(text);
+    expect(got?.limitations).toContain("Missing labels: 1 row with no label, left out of every pairing.");
+    expect(got?.limitations).toContain("Below the minimum: 29 paired labelled Jev and LLM cases, fewer than 30.");
+    expect(got?.verdict).toBe("not enough evidence");
+  });
+
+  test("[unit] D08 no limitation line contains NaN, an em dash or an en dash", async () => {
+    for (const name of readdirSync(D08).filter((file) => file.endsWith(".csv"))) {
+      for (const line of (await d08(name.slice(0, -4))).limitations) expect(line).not.toMatch(DASHES);
+    }
   });
 });

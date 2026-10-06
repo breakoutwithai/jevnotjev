@@ -265,6 +265,8 @@ function questionSection(metrics: CohortMetrics, rows: readonly ParsedRow[], res
       `(<span data-cell="${attr}.rule">rule ${result.rule}</span> of the 4 in docs/decision/verdict-rules.md fired)</p>`,
     `<p>Why: <span data-cell="${attr}.reason">${escape(result.reason)}</span></p>`,
     `<p>Rule against Jev: <span data-cell="${attr}.rule-comparison">${escape(ruleLine(result.ruleComparison))}</span></p>`,
+    tag("p", "Limits of this verdict:"),
+    `<ul>${result.limitations.map((line, i) => `<li data-cell="${attr}.limitation-${i + 1}">${escape(line)}</li>`).join("")}</ul>`,
     numbersTable(scope, result),
     armTable(scope, metrics, rows, `All answers to ${escape(label)}, per method`),
     pairTable(scope, metrics),

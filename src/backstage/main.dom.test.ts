@@ -508,3 +508,25 @@ test("[integration] D10 a scene with nothing to leave out shows no leave-out lin
   expect(page.get("rubric").textContent).toBe("Keep when: Keep the first choice");
   expect(page.get("leave-out").textContent).toBe("");
 });
+
+function textOf(node: FakeNode): string {
+  return [node.textContent, ...node.children.map(textOf)].join("\n");
+}
+
+test("[integration] D03 the revealed Backstage run shows kept and cost figures and no latency or labelling time", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYes);
+  fillScene(page, "");
+  typeInto(page, "cases", "Please refund my mug");
+  await runFirstCase(page);
+  await openJudging(page);
+  page.get("accept").click();
+  page.get("reveal").click();
+  page.get("confirm-reveal-yes").click();
+  await tick();
+  const rendered = ["progress", "metrics", "verdict", "notice", "blind-card"].map((id) => textOf(page.get(id))).join("\n");
+  // Positive control: the metrics table rendered, so an absent word is absent from displayed content.
+  expect(rendered).toContain("Kept / labelled");
+  expect(rendered).toContain("Cost / kept");
+  expect(rendered).not.toMatch(/latency/i);
+  expect(rendered).not.toMatch(/labell?ing time/i);
+});

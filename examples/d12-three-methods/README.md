@@ -20,6 +20,7 @@ GAP case d04 (question q1, run run-d12, prompt delivery-q.v1): no rule result
 jev: rows=4 labelled=4 accepted=4 cost=$0.000008
 llm: rows=4 labelled=4 accepted=4 cost=incomplete
 rule: rows=3 labelled=3 accepted=2 cost=$0.000000
+run run-d12: rows=11 cost=incomplete
 VALID rows=11 cases=4 errors=0 gaps=2
 ```
 

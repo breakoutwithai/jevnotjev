@@ -20,11 +20,12 @@ GAP line 10: cost_usd missing (m03, q1, llm)
 jev: rows=3 labelled=3 accepted=3 cost=$0.000005
 llm: rows=3 labelled=2 accepted=2 cost=incomplete
 rule: rows=3 labelled=3 accepted=2 cost=$0.000000
+run run-001: rows=9 cost=incomplete
 VALID rows=9 cases=3 errors=0 gaps=2
 ```
 
 ## Columns
-All 18 are required in the header, any order. Unknown columns are an error.
+These 18 are required in the header, any order; `price_table_date` (below) is the one optional column. Any other unknown column is an error.
 
 | Column | Holds | Rule |
 |---|---|---|
@@ -54,6 +55,13 @@ An empty `cost_usd` or `label` keeps the file **valid** and is listed as a `GAP`
 
 A value that is present but malformed (`about a cent`, confidence `1.5`, answer `maybe` when the set is `yes|no`) is an **error** and the file is rejected.
 
+## Optional columns
+| Column | Holds | Rule |
+|---|---|---|
+| `price_table_date` | `YYYY-MM-DD`, or empty | the date of the list-price table that produced `cost_usd` on that row (FLOW.md: "one dated list-price table"); leave it empty for a cost that is not from a price table, such as a rule's 0 |
+
+A file without the column stays valid `jnj-record/1`: every file written before the column existed validates unchanged, and the example above has none. When the column is present, a value that is not a real-looking date (`Sept 2026`, `2026-13-01`) is an error. The validator checks the format only; it does not compare the date to anything. The database (`src/db/`) does not store the column, so a load followed by an export drops it (#42).
+
 ## Versioning
 - The file format: `format_version` in every row. A renamed, removed or re-typed column ships as `jnj-record/2` with its own schema; `/1` files keep validating.
 - The question: rewording a question under the same `prompt_version` is an error, so every answer can be traced to the exact wording that produced it.
@@ -62,8 +70,9 @@ A value that is present but malformed (`about a cent`, confidence `1.5`, answer 
 Validator and loader output is part of the format: scripts and people match on it, so a change to any rule below is a change to the format's output. Code: [src/format/quote.ts](../src/format/quote.ts), [validate.ts](../src/format/validate.ts), [schema.ts](../src/format/schema.ts). Tests: `src/format/*.test.ts`, `src/db/tests/`.
 
 ### Output lines and exit codes
-- Order: every `ERROR <message>`, then every `GAP <message>`, then (only when there are no errors) one summary line per answerer, then the verdict line.
+- Order: every `ERROR <message>`, then every `GAP <message>`, then (only when there are no errors) one summary line per answerer, then one total line per run, then the verdict line.
 - Summary: `<answerer>: rows=<n> labelled=<n> accepted=<n> cost=<total>`, answerers sorted by code point. `<total>` is `$` plus the sum to six decimal places (`$0.000005`), or `incomplete` when any row of that answerer has no cost.
+- Run total: `run <run_id>: rows=<n> cost=<total>`, runs sorted by code point. The total adds every answerer's `cost_usd` in that run, in the same form as above (`incomplete` when any row of the run has no cost). Only the command line prints it; the browser loader shows the answerer lines.
 - Verdict: `VALID rows=<n> cases=<n> errors=<n> gaps=<n>`, or `INVALID ...` with the same fields.
 - Exit codes: 0 valid (gaps allowed), 1 invalid or unreadable, 2 wrong command line or, for the db commands, `JNJ_DATABASE_URL` not set. The validator prints its usage text to stdout on exit 2; the db commands print the usage line and `error: <message>` to stderr, or `set JNJ_DATABASE_URL to a libpq connection string` to stderr when the variable is missing.
 - A file that is not strict UTF-8: `ERROR cannot read <path> in UTF-8: <reason>` on stderr, exit 1. Every other `ERROR`, `GAP`, summary and verdict line goes to stdout. A byte order mark is kept as text, so it shows up in the first header name.

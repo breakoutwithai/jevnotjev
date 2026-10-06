@@ -66,7 +66,7 @@ Jev is compared with the LLM on accept rate and cost, and with the rule on accep
 3. **Use Jev** when all of these hold:
    - lower bound of (Jev minus LLM) above -0.10;
    - cost ratio 0.8 or less, and its upper bound below 1.
-4. **Not enough evidence** otherwise. The screen names which condition was not met and how many more cases would be needed.
+4. **Not enough evidence** otherwise. The screen names every rule-3 condition that was not met. It gives no count of more cases: the research behind these settings states no sample size for a stable verdict ([effort.md](../research/2026-09-29-verdict-minimums/effort.md) "Implication for how many cases to ask for": "no source gives the n needed"), and a projection from the observed counts would be a rule this document does not argue (#49). The only count the screen gives is rule 1's: 30 minus the paired cases.
 
 The screen shows the rule that fired and every number behind it.
 

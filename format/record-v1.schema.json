@@ -29,7 +29,12 @@
     "tokens_in": { "type": ["integer", "null"], "minimum": 0 },
     "tokens_out": { "type": ["integer", "null"], "minimum": 0 },
     "cost_usd": { "type": ["number", "null"], "minimum": 0 },
-    "latency_ms": { "type": ["integer", "null"], "minimum": 0 }
+    "latency_ms": { "type": ["integer", "null"], "minimum": 0 },
+    "price_table_date": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$",
+      "description": "Optional column. Date (YYYY-MM-DD) of the list-price table that produced cost_usd. A file without the column stays valid."
+    }
   },
   "allOf": [
     {

@@ -1,0 +1,12 @@
+format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output,confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms
+jnj-record/1,run-d12,delivery-q.v1,d01,Where is my parcel? It was due on Monday.,q1,Is this message asking where an order is?,yes|no,llm,example-llm,yes,,accept,human,110,2,0.00033,1800
+jnj-record/1,run-d12,delivery-q.v1,d01,Where is my parcel? It was due on Monday.,q1,Is this message asking where an order is?,yes|no,rule,keywords:where|parcel|order,yes,,accept,human,0,0,0,1
+jnj-record/1,run-d12,delivery-q.v1,d01,Where is my parcel? It was due on Monday.,q1,Is this message asking where an order is?,yes|no,jev,jev-1.13.0,yes,0.95,accept,human,40,1,0.000002,360
+jnj-record/1,run-d12,delivery-q.v1,d02,Do you sell gift cards?,q1,Is this message asking where an order is?,yes|no,llm,example-llm,no,,accept,human,95,2,,1500
+jnj-record/1,run-d12,delivery-q.v1,d02,Do you sell gift cards?,q1,Is this message asking where an order is?,yes|no,rule,keywords:where|parcel|order,no,,accept,human,0,0,0,1
+jnj-record/1,run-d12,delivery-q.v1,d02,Do you sell gift cards?,q1,Is this message asking where an order is?,yes|no,jev,jev-1.13.0,no,0.97,accept,human,34,1,0.000002,340
+jnj-record/1,run-d12,delivery-q.v1,d03,I ordered the blue mug but the box says red.,q1,Is this message asking where an order is?,yes|no,llm,example-llm,no,,accept,human,120,2,0.00036,1950
+jnj-record/1,run-d12,delivery-q.v1,d03,I ordered the blue mug but the box says red.,q1,Is this message asking where an order is?,yes|no,rule,keywords:where|parcel|order,yes,,reject,human,0,0,0,1
+jnj-record/1,run-d12,delivery-q.v1,d03,I ordered the blue mug but the box says red.,q1,Is this message asking where an order is?,yes|no,jev,jev-1.13.0,no,0.88,accept,human,42,1,0.000002,370
+jnj-record/1,run-d12,delivery-q.v1,d04,Has my order shipped yet?,q1,Is this message asking where an order is?,yes|no,llm,example-llm,yes,,accept,human,100,2,0.00031,1700
+jnj-record/1,run-d12,delivery-q.v1,d04,Has my order shipped yet?,q1,Is this message asking where an order is?,yes|no,jev,jev-1.13.0,yes,0.93,accept,human,36,1,0.000002,350

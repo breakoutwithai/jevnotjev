@@ -50,6 +50,7 @@ All 18 are required in the header, any order. Unknown columns are an error.
 An empty `cost_usd` or `label` keeps the file **valid** and is listed as a `GAP`.
 - Accepted counts use labelled rows only, so an unlabelled answer is never counted as right or wrong.
 - An answerer with any missing cost shows `cost=incomplete` instead of a total that looks complete.
+- A case (one `case_id` under one `question_id` and `run_id`) with no row for `llm`, `rule` or `jev` gets one `GAP case <case_id> (question <question_id>, run <run_id>): no <method> result` per absent method. `human` rows are not a method and neither trigger nor satisfy it. A worked file with one absent row and one blank cost: [examples/d12-three-methods](../examples/d12-three-methods/README.md).
 
 A value that is present but malformed (`about a cent`, confidence `1.5`, answer `maybe` when the set is `yes|no`) is an **error** and the file is rejected.
 

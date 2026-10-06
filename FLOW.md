@@ -18,7 +18,7 @@ Backstage adds an explicit BYOK runner for one binary question: Jev, Anthropic a
 ## Journey
 1. Describe the decision and its answer set.
 2. Write 30 or more test cases, and the simple rule, before seeing any results.
-3. Ask the same typed question on every case to the three arms outside the tool (a local runner script with your own keys, or by hand) and fill one `jnj-record/1` CSV.
+3. Ask the same typed question on every case to the three arms outside the tool (a local runner script with your own keys, or by hand) and fill one `jnj-record/1` CSV. No Jev integration is assumed: outputs and costs you collect by hand go in the same CSV, and a case with no row for a method is reported as a gap ([manual path](examples/d12-three-methods/README.md)).
 4. Label every answer: accept or reject.
 5. Load the CSV into the page and read the numbers and the verdict.
 

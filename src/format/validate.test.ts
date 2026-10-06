@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { formatRow, readDictRows } from "./csv.ts";
-import { COLUMNS, summary, validate } from "./validate.ts";
+import { COLUMNS, report, summary, validate } from "./validate.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../format/example-v1.csv", import.meta.url));
 const exampleText = await Bun.file(EXAMPLE).text();
@@ -160,5 +160,87 @@ describe("format validator", () => {
   test("[unit] duplicate header is an error", () => {
     const [header, first] = exampleLines();
     expect(validate(`${header},run_id\n${first},run-002\n`).errors[0]).toBe("header: duplicate column names ['run_id']");
+  });
+});
+
+// D12: every case shows all three methods (llm, rule, jev) or clearly marks the missing one.
+describe("three methods per case", () => {
+  const missing = (gaps: readonly string[]): string[] => gaps.filter((gap) => gap.includes(": no "));
+
+  function without(rows: readonly Record[], caseId: string, answerer: string): Record[] {
+    return rows.filter((row) => !(row["case_id"] === caseId && row["answerer"] === answerer));
+  }
+
+  test("[unit] a complete example has no missing-method gap", () => {
+    expect(missing(validate(exampleText).gaps)).toEqual([]);
+  });
+
+  test.each(["llm", "rule", "jev"])("[unit] a case with no %s row names case, question, run and method", (method) => {
+    const result = validate(write(without(readExample(), "m02", method)));
+    expect(result.errors).toEqual([]);
+    expect(missing(result.gaps)).toEqual([`case m02 (question q1, run run-001): no ${method} result`]);
+  });
+
+  test("[unit] a case missing two methods gets one gap each, in llm, rule, jev order", () => {
+    const result = validate(write(without(without(readExample(), "m03", "jev"), "m03", "llm")));
+    expect(missing(result.gaps)).toEqual([
+      "case m03 (question q1, run run-001): no llm result",
+      "case m03 (question q1, run run-001): no jev result",
+    ]);
+  });
+
+  test("[unit] a missing method leaves the file valid and counts in the report", () => {
+    const result = validate(write(without(readExample(), "m02", "rule")));
+    expect(report(result).exitCode).toBe(0);
+    expect(report(result).lines.at(-1)).toBe("VALID rows=8 cases=3 errors=0 gaps=3");
+  });
+
+  test("[unit] human rows never satisfy a missing method", () => {
+    const rows = without(readExample(), "m02", "rule");
+    const base = at(rows, 0);
+    rows.push({ ...base, case_id: "m02", answerer: "human", answerer_model: "ab", output: "no" });
+    expect(missing(validate(write(rows)).gaps)).toEqual(["case m02 (question q1, run run-001): no rule result"]);
+  });
+
+  test("[unit] a case with only a human row reports all three methods missing", () => {
+    const base = at(readExample(), 0);
+    const rows = [{ ...base, case_id: "h01", answerer: "human", answerer_model: "ab", output: "no" }];
+    expect(missing(validate(write(rows)).gaps)).toEqual([
+      "case h01 (question q1, run run-001): no llm result",
+      "case h01 (question q1, run run-001): no rule result",
+      "case h01 (question q1, run run-001): no jev result",
+    ]);
+  });
+
+  test("[unit] examples/d12-three-methods prints the output its README shows", async () => {
+    const path = fileURLToPath(new URL("../../examples/d12-three-methods/records.csv", import.meta.url));
+    expect(report(validate(await Bun.file(path).text()))).toEqual({
+      lines: [
+        "GAP line 5: cost_usd missing (d02, q1, llm)",
+        "GAP case d04 (question q1, run run-d12): no rule result",
+        "jev: rows=4 labelled=4 accepted=4 cost=$0.000008",
+        "llm: rows=4 labelled=4 accepted=4 cost=incomplete",
+        "rule: rows=3 labelled=3 accepted=2 cost=$0.000000",
+        "VALID rows=11 cases=4 errors=0 gaps=2",
+      ],
+      exitCode: 0,
+    });
+  });
+
+  test("[unit] a present but invalid row is an error, not also reported as absent", () => {
+    const rows = readExample();
+    at(rows, 0)["confidence"] = "1.5";
+    const result = validate(write(rows));
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(missing(result.gaps)).toEqual([]);
+  });
+
+  test("[unit] the same case under another question or run is checked separately", () => {
+    const base = readExample();
+    const other = base.filter((row) => row["answerer"] === "jev").map((row) => ({ ...row, question_id: "q2", run_id: "run-002" }));
+    const gaps = missing(validate(write([...base, ...other])).gaps);
+    expect(gaps).toContain("case m01 (question q2, run run-002): no llm result");
+    expect(gaps).toContain("case m01 (question q2, run run-002): no rule result");
+    expect(gaps).not.toContain("case m01 (question q2, run run-002): no jev result");
   });
 });

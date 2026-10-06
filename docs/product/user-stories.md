@@ -67,18 +67,14 @@ As a builder, I want a verdict of use Jev, don't use Jev, or not enough evidence
 
 Journey step: J1.6
 
-- Given the test set is smaller than the documented minimum, or the approaches are too close to separate
-- When the verdict is shown
-- Then it reads "not enough evidence" and says what would change it
+The thresholds, the order the rules apply in and every edge case are written once, in [docs/decision/verdict-rules.md](../decision/verdict-rules.md); this story does not restate them.
 
-- Given Jev routing has the lowest cost per accepted result by a clear margin
+- Given a labelled test file
 - When the verdict is shown
-- Then it reads "use Jev"
+- Then it reads exactly one of "use Jev", "don't use Jev" or "not enough evidence", as `docs/decision/verdict-rules.md` decides
+- And it names the rule that fired and shows the numbers behind it
+- And for "not enough evidence" it says what would change it
 - And it states the verdict is evidence from this test set only
-
-- Given LLM only or the simple baseline has the lowest cost per accepted result
-- When the verdict is shown
-- Then it reads "don't use Jev" and names the approach that won
 
 ### US-07 See wins and losses against Jev per case
 

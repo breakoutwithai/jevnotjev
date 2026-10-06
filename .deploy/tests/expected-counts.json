@@ -1,5 +1,5 @@
 {
-  "minFiles": 66,
+  "minFiles": 68,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 109,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -22,6 +22,7 @@
     "scripts/result-view.test.ts": 44,
     "scripts/site-content.test.ts": 9,
     "scripts/stage-door.test.ts": 6,
+    "scripts/stage-sample.test.ts": 10,
     "scripts/theatre.test.ts": 8,
     "scripts/tokenmax/arms.test.ts": 11,
     "scripts/tokenmax/hardening.test.ts": 10,
@@ -50,9 +51,10 @@
     "src/backstage/server.test.ts": 24,
     "src/backstage/signout.test.ts": 7,
     "src/backstage/trial.test.ts": 14,
-    "src/browser/results-loader.dom.test.ts": 20,
+    "src/browser/results-loader.dom.test.ts": 38,
     "src/browser/shop-verdict.test.ts": 6,
     "src/core/calc.test.ts": 22,
+    "src/core/case-table.test.ts": 4,
     "src/core/metrics.test.ts": 18,
     "src/core/verdict.test.ts": 37,
     "src/db/connect.test.ts": 12,

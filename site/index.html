@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jev!Jev: The Stage</title>
-<meta name="description" content="To Jev or not to Jev: a five-act play you scroll through. Compare one workflow decision across what you do now, a simple rule and Jev, and read a cautious verdict. Sample data.">
+<meta name="description" content="To Jev or not to Jev: a five-act play you scroll through. Compare one workflow decision across what you do now, a simple rule and Jev, and read a cautious verdict. The play replays a recorded sample run, not your data.">
 <meta property="og:title" content="Jev!Jev: The Stage">
 <meta property="og:description" content="To Jev or not to Jev: a five-act play you scroll through.">
 <meta property="og:type" content="website">
@@ -230,9 +230,8 @@ h1 em { font-weight: 500; color: var(--brass); }
 .player .method { font-style: italic; color: var(--ink-soft); font-size: 17px; margin: 0 0 14px; }
 .picks { display: flex; gap: 3px; height: 10px; margin: 0 0 6px; }
 .picks span { display: block; height: 100%; }
-.picks .haiku { background: var(--muted); opacity: .55; }
-.picks .sonnet { background: var(--ink-soft); }
-.picks .opus { background: var(--brass); }
+.picks .answer { background: var(--ink-soft); }
+.picks .hand_off { background: var(--brass); }
 .picks-legend { font-family: var(--sans); font-size: 12px; color: var(--muted); }
 .motion .player { opacity: 0; transform: translateX(-60px); transition: opacity .8s ease, transform .9s cubic-bezier(.2,.7,.2,1); }
 .motion .player:nth-child(2) { transition-delay: .2s; }
@@ -266,7 +265,7 @@ h1 em { font-weight: 500; color: var(--brass); }
 .case .cid { font-family: var(--sans); font-size: 13px; color: var(--muted); }
 .case .prompt { font-size: 19px; line-height: 1.25; }
 .truth { font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-left: 8px; white-space: nowrap; }
-.truth.hard { color: var(--curtain-hi); }
+.truth.hand_off { color: var(--curtain-hi); }
 .cell { font-family: var(--sans); font-size: 13px; line-height: 1.2; }
 .cell .model { display: block; color: var(--ink-soft); }
 .cell .lab { display: inline-block; font-weight: 700; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
@@ -278,9 +277,7 @@ h1 em { font-weight: 500; color: var(--brass); }
 .jev .num { font-variant-numeric: normal; font-weight: 700; }
 .conf { display: block; height: 4px; background: var(--line); margin-top: 6px; position: relative; }
 .conf i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink-soft); }
-.conf::after { content: ""; position: absolute; left: 60%; top: -3px; bottom: -3px; width: 1px; background: var(--cut); }
 .case.wrong .conf i { background: var(--cut); }
-.fb { color: var(--brass); font-weight: 700; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 .motion .case.row { opacity: .12; filter: saturate(0); transition: opacity .7s ease, filter .7s ease; }
 .motion .case.row.lit { opacity: 1; filter: none; }
 .case.spot {
@@ -319,6 +316,7 @@ h1 em { font-weight: 500; color: var(--brass); }
 .bench td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line); }
 .bench td:first-child { font-weight: 700; }
 .bench tr.j td { color: var(--brass); }
+.bench .bench-note { caption-side: top; text-align: left; color: var(--muted); font-size: 12px; padding-bottom: 6px; }
 
 /* ---------- Act V ---------- */
 #act5 { overflow: hidden; }
@@ -362,6 +360,19 @@ h1 em { font-weight: 500; color: var(--brass); }
 .loaded ul { margin: 0 0 8px; padding-left: 18px; }
 .loaded .ld-v { font-weight: 700; margin-left: 6px; }
 .loaded .ld-why { display: block; color: var(--ink-soft); }
+.loaded .ld-scroll { overflow-x: auto; margin: 10px 0 4px; }
+.loaded .ld-cases { width: 100%; border-collapse: collapse; font-size: 13px; }
+.loaded .ld-cases caption { text-align: left; color: var(--muted); font-size: 12px; padding-bottom: 6px; }
+.loaded .ld-cases th, .loaded .ld-cases td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.loaded .ld-cases thead th { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.loaded .ld-more { margin: 0 0 8px; color: var(--ink-soft); font-size: 13px; }
+.sample-flag { margin: 0 0 18px; padding: 8px 12px; border: 1px solid var(--brass); background: var(--brass-soft); font-family: var(--sans); font-size: 13px; color: var(--ink); max-width: 64ch; }
+.sample-flag[hidden], .current[hidden] { display: none; }
+.current { margin: 0 0 26px; padding: 14px 18px; border: 2px solid var(--ink); font-family: var(--sans); font-size: 15px; overflow-wrap: anywhere; }
+.current .ld-now-head { margin: 0 0 6px; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.current .ld-now-list { margin: 0; padding-left: 18px; }
+.current .ld-v { font-weight: 800; }
+.current .ld-now { margin: 6px 0 0; }
 .ask input:disabled, .ask button:disabled { cursor: not-allowed; opacity: .5; }
 .soon { margin: 8px 0 0; font-family: var(--sans); font-size: 13px; color: var(--muted); }
 .drop-status { font-family: var(--sans); font-size: 13px; color: var(--brass); margin-top: 12px; min-height: 1.4em; max-width: 820px; }
@@ -462,7 +473,7 @@ h1 em { font-weight: 500; color: var(--brass); }
 </div>
 <div class="runway" id="runway" aria-hidden="true"></div>
 
-<div class="sample" role="note" id="sampleBadge"><span>Sample data</span><button class="house-lights" id="lights" type="button" title="Switch check before curtain up">House lights</button></div>
+<div class="sample" role="note" id="sampleBadge"><span>Sample run</span><button class="house-lights" id="lights" type="button" title="Switch check before curtain up">House lights</button></div>
 
 <div class="proscenium" aria-hidden="true">
   <div class="beam"></div>
@@ -499,14 +510,16 @@ h1 em { font-weight: 500; color: var(--brass); }
 <section class="act" id="act2" aria-labelledby="t2">
   <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">II</span><span class="scene" id="t2">Enter the three players</span></div></div>
   <div class="stage">
+    <p class="sample-flag" id="sampleFlag2" hidden></p>
     <p class="stage-dir" id="workflowDir"></p>
     <div class="cast" id="cast"></div>
   </div>
 </section>
 
 <section class="act" id="act3" aria-labelledby="t3">
-  <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">III</span><span class="scene" id="t3">The trial of twenty cases</span></div></div>
+  <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">III</span><span class="scene" id="t3">The trial</span></div></div>
   <div class="stage">
+    <p class="sample-flag" id="sampleFlag3" hidden></p>
     <p class="stage-dir">Each case is heard in turn. The confident mistakes take the stand first.</p>
     <div class="tally" id="tally"></div>
     <ol class="docket" id="docket"></ol>
@@ -516,11 +529,12 @@ h1 em { font-weight: 500; color: var(--brass); }
 <section class="act" id="act4" aria-labelledby="t4">
   <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">IV</span><span class="scene" id="t4">The reckoning</span></div></div>
   <div class="stage">
+    <p class="sample-flag" id="sampleFlag4" hidden></p>
     <p class="stage-dir">The bills are read aloud. Only kept answers count.</p>
     <div class="ledger reveal" id="ledger"></div>
     <p class="versus reveal" id="versus"></p>
     <div class="offstage reveal">
-      <h4 id="benchTitle">Offstage: the benchmark</h4>
+      <h4 id="benchTitle">Offstage: how long each took</h4>
       <table class="bench" id="bench"></table>
     </div>
   </div>
@@ -529,6 +543,8 @@ h1 em { font-weight: 500; color: var(--brass); }
 <section class="act" id="act5" aria-labelledby="t5">
   <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">V</span><span class="scene">The verdict</span></div></div>
   <div class="stage reveal" id="verdictStage">
+    <p class="sample-flag" id="sampleFlag5" hidden></p>
+    <div class="current" id="currentVerdict" aria-live="polite" hidden></div>
     <h2 class="verdict-word" id="t5"></h2>
     <p class="rule-line" id="ruleLine"></p>
     <ul class="because" id="because"></ul>
@@ -548,7 +564,7 @@ h1 em { font-weight: 500; color: var(--brass); }
       <span class="btn">Choose a file</span>
       <input type="file" id="csv" accept=".csv,text/csv">
     </label>
-    <p class="drop-status" id="dropStatus" aria-live="polite">Choose a results CSV (jnj-record/1, up to 5 MB) to check it and see its verdict. Until you do, the play runs on sample data.</p>
+    <p class="drop-status" id="dropStatus" aria-live="polite">Choose a results CSV (jnj-record/1, up to 5 MB) to check it and see its verdict. Until you do, the play replays a recorded sample run: a made-up shop's bot, not your data.</p>
     <div class="loaded" id="loadedResult" aria-live="polite" hidden></div>
     <div class="repertoire">
       <h4>In repertoire: other questions Jev could play</h4>
@@ -571,7 +587,8 @@ h1 em { font-weight: 500; color: var(--brass); }
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
-  function usd(v, d) { return "$" + v.toFixed(d == null ? 4 : d); }
+  /* Four decimals, six for amounts under a tenth of a cent so a small cost never reads $0.0000. */
+  function usd(v, d) { return "$" + v.toFixed(d == null ? (v > 0 && v < 0.001 ? 6 : 4) : d); }
   var ARMS = ["A", "B", "C"];
   var ARM_NAME = { A: "What you do now", B: "A simple rule", C: "Jev decides" };
   function armMethod(k) {
@@ -663,14 +680,16 @@ h1 em { font-weight: 500; color: var(--brass); }
   $("noteLine").textContent = J.meta.note;
 
   /* ---------- Act II ---------- */
-  $("workflowDir").textContent = "The decision on trial: " + J.meta.workflow + ". Understudies wait in the wings; the stage manager keeps tabs on the subs.";
+  var OUT = J.meta.outputs;
+  function say(o) { var t = String(o).replace(/_/g, " "); return t.charAt(0).toUpperCase() + t.slice(1); }
+  $("workflowDir").textContent = "The decision on trial: " + J.meta.workflow + " Understudies wait in the wings; the stage manager keeps tabs on the subs.";
   var cast = $("cast");
   ARMS.forEach(function (k) {
-    var counts = { haiku: 0, sonnet: 0, opus: 0 };
+    var counts = {};
+    OUT.forEach(function (o) { counts[o] = 0; });
     J.cases.forEach(function (c) { counts[c.arms[k].picked] = (counts[c.arms[k].picked] || 0) + 1; });
-    var models = ["haiku", "sonnet", "opus"];
-    var bars = models.map(function (m) { return counts[m] ? '<span class="' + m + '" style="flex:' + counts[m] + '"></span>' : ""; }).join("");
-    var legend = models.filter(function (m) { return counts[m]; }).map(function (m) { return m[0].toUpperCase() + m.slice(1) + " " + counts[m]; }).join(" &middot; ");
+    var bars = OUT.map(function (o) { return counts[o] ? '<span class="' + esc(o) + '" style="flex:' + counts[o] + '"></span>' : ""; }).join("");
+    var legend = OUT.filter(function (o) { return counts[o]; }).map(function (o) { return esc(say(o)) + " " + counts[o]; }).join(" &middot; ");
     var d = document.createElement("div");
     d.className = "player " + k.toLowerCase();
     d.innerHTML = '<div class="letter">' + k + '</div><h3>' + ARM_NAME[k] + '</h3><p class="method">' + esc(armMethod(k)) + '</p>' +
@@ -679,32 +698,33 @@ h1 em { font-weight: 500; color: var(--brass); }
   });
 
   /* ---------- Act III ---------- */
-  function wrong(c) { return c.arms.C.jev_answer !== c.true_difficulty; }
-  var mistakes = J.cases.filter(wrong).sort(function (a, b) { return b.arms.C.jev_confidence - a.arms.C.jev_confidence; });
+  $("t3").textContent = "The trial of " + J.cases.length + " messages";
+  function conf(c) { return typeof c.arms.C.confidence === "number" ? c.arms.C.confidence : 0; }
+  function wrong(c) { return c.arms.C.picked !== c.truth; }
+  var mistakes = J.cases.filter(wrong).sort(function (a, b) { return conf(b) - conf(a); });
   var rest = J.cases.filter(function (c) { return !wrong(c); });
-  var spotlit = mistakes.filter(function (c) { return !c.arms.C.fallback; })[0];
+  var spotlit = mistakes[0];
   var docket = $("docket");
-  docket.innerHTML = '<li class="case head" aria-hidden="true"><span>Case</span><span>Prompt</span><span>A now</span><span>B rule</span><span>C Jev</span><span class="jev-col">Jev said</span></li>';
+  docket.innerHTML = '<li class="case head" aria-hidden="true"><span>Case</span><span>Message</span><span>A now</span><span>B rule</span><span>C Jev</span><span class="jev-col">Jev said</span></li>';
 
   function armCell(c, k) {
     var a = c.arms[k];
-    return '<span class="cell" data-arm="' + k + '"><span class="model">' + a.picked + '</span><span class="lab ' + a.label + '">' + (a.label === "accept" ? "kept" : "rejected") + '</span></span>';
+    return '<span class="cell" data-arm="' + k + '"><span class="model">' + esc(say(a.picked)) + '</span><span class="lab ' + a.label + '">' + (a.label === "accept" ? "kept" : "rejected") + '</span></span>';
   }
   function row(c, extra) {
     var C = c.arms.C, w = wrong(c);
     var li = document.createElement("li");
     li.className = "case row" + (w ? " wrong" : "") + (c === spotlit ? " spot" : "");
     li.dataset.id = c.id;
-    var jev = '<span class="jev jev-col cell" data-arm="Jev said">' + esc(C.jev_answer) + ' <span class="num">' + C.jev_confidence.toFixed(2) + '</span>' +
-      (C.fallback ? ' <span class="fb">fell back</span>' : '') + '<span class="conf" title="0.60 fallback line"><i style="width:' + (C.jev_confidence * 100) + '%"></i></span></span>';
-    li.innerHTML = '<span class="cid">' + c.id + '</span><span class="prompt">' + esc(c.prompt) + '<span class="truth ' + c.true_difficulty + '">' + c.true_difficulty + '</span></span>' +
+    var jev = '<span class="jev jev-col cell" data-arm="Jev said">' + esc(say(C.picked)) + ' <span class="num">' + conf(c).toFixed(2) + '</span>' +
+      '<span class="conf"><i style="width:' + (conf(c) * 100) + '%"></i></span></span>';
+    li.innerHTML = '<span class="cid">' + esc(c.id) + '</span><span class="prompt">' + esc(c.prompt) + '<span class="truth ' + esc(c.truth) + '" title="The label\'s answer">label: ' + esc(say(c.truth).toLowerCase()) + '</span></span>' +
       armCell(c, "A") + armCell(c, "B") + armCell(c, "C") + jev + (extra || "");
     return li;
   }
   function monologue(c) {
     var C = c.arms.C;
-    if (C.fallback) return '<p class="monologue"><b>Hesitation</b>Jev said ' + esc(C.jev_answer) + ' at ' + C.jev_confidence.toFixed(2) + ', under the 0.60 line, so it fell back to ' + esc(C.picked) + '. The case was ' + esc(c.true_difficulty) + '; still rejected.</p>';
-    return '<p class="monologue"><b>Spotlight</b>Jev said &ldquo;' + esc(C.jev_answer) + '&rdquo; with ' + C.jev_confidence.toFixed(2) + ' confidence. The case was ' + esc(c.true_difficulty) + '. Confident enough to skip the fallback, and wrong: ' + esc(C.picked) + ' was sent in and the answer was rejected.</p>';
+    return '<p class="monologue"><b>Spotlight</b>Jev said &ldquo;' + esc(say(C.picked).toLowerCase()) + '&rdquo; with ' + conf(c).toFixed(2) + ' confidence. The label said &ldquo;' + esc(say(c.truth).toLowerCase()) + '&rdquo;, so the answer was rejected.</p>';
   }
   mistakes.forEach(function (c) { docket.appendChild(row(c, monologue(c))); });
   var im = document.createElement("li");
@@ -730,24 +750,25 @@ h1 em { font-weight: 500; color: var(--brass); }
 
   /* ---------- Act IV ---------- */
   var S = J.summary;
-  var maxCpk = Math.max(S.A.cpk, S.B.cpk, S.C.cpk);
+  /* cpk is null when a method kept nothing: the cost per kept answer is undefined, never zero. */
+  function cpkText(v) { return v === null ? "undefined (0 kept)" : usd(v); }
+  var maxCpk = Math.max(S.A.cpk || 0, S.B.cpk || 0, S.C.cpk || 0);
   $("ledger").innerHTML = ARMS.map(function (k) {
     var s = S[k];
     return '<div class="acct ' + k.toLowerCase() + '"><div class="who">' + k + ' &middot; ' + ARM_NAME[k] + '</div>' +
       '<dl class="fig"><dt>Spend</dt><dd class="count" data-to="' + s.spend + '" data-fmt="usd">' + usd(s.spend) + '</dd></dl>' +
       '<dl class="fig"><dt>Kept answers</dt><dd class="count" data-to="' + s.kept + '" data-fmt="int" data-of="' + J.cases.length + '">' + s.kept + '/' + J.cases.length + '</dd></dl>' +
-      '<dl class="fig"><dt>Cost per kept answer</dt><dd class="count cpk" data-to="' + s.cpk + '" data-fmt="usd">' + usd(s.cpk) + '</dd></dl>' +
-      '<div class="bar" aria-hidden="true"><i style="--w:' + (s.cpk / maxCpk * 100).toFixed(1) + '%"></i></div></div>';
+      '<dl class="fig"><dt>Cost per kept answer</dt>' + (s.cpk === null ? '<dd class="cpk undef">' + cpkText(s.cpk) + '</dd>' : '<dd class="count cpk" data-to="' + s.cpk + '" data-fmt="usd">' + usd(s.cpk) + '</dd>') + '</dl>' +
+      '<div class="bar" aria-hidden="true"><i style="--w:' + (maxCpk > 0 && s.cpk !== null ? s.cpk / maxCpk * 100 : 0).toFixed(1) + '%"></i></div></div>';
   }).join("");
   var V = J.jev_vs;
-  var saveVsA = (1 - S.C.cpk / S.A.cpk) * 100;
-  $("versus").innerHTML = 'Against what you do now, Jev won <strong>' + V.A.wins + '</strong> cases and lost <strong>' + V.A.losses + '</strong>. Against the simple rule, won <strong>' + V.B.wins + '</strong>, lost <strong>' + V.B.losses + '</strong>. Each kept answer costs <strong>' + saveVsA.toFixed(0) + '%</strong> less than today.';
-  var B = J.benchmark;
-  $("benchTitle").textContent = "Offstage: one call over the " + B.items + "-item benchmark";
-  var bh = '<thead><tr><th>Model</th><th>Seconds</th><th>Cost</th><th>Correct</th></tr></thead><tbody>';
-  Object.keys(B.one_call).forEach(function (m) {
-    var r = B.one_call[m];
-    bh += '<tr' + (m === "jev" ? ' class="j"' : '') + '><td>' + (m === "jev" ? "Jev" : m[0].toUpperCase() + m.slice(1)) + '</td><td>' + r.s.toFixed(1) + '</td><td>' + usd(r.usd) + '</td><td>' + r.correct + '/' + B.items + '</td></tr>';
+  var saveVsA = S.A.cpk !== null && S.C.cpk !== null && S.A.cpk > 0 ? (1 - S.C.cpk / S.A.cpk) * 100 : null;
+  $("versus").innerHTML = 'Against what you do now, Jev won <strong>' + V.A.wins + '</strong> cases and lost <strong>' + V.A.losses + '</strong>. Against the simple rule, won <strong>' + V.B.wins + '</strong>, lost <strong>' + V.B.losses + '</strong>. ' + (saveVsA === null ? 'No cost comparison: a method kept nothing, so its cost per kept answer is undefined.' : 'Each kept answer costs <strong>' + saveVsA.toFixed(0) + '%</strong> less than today.');
+  var T = J.timing;
+  $("benchTitle").textContent = "Offstage: how long each took";
+  var bh = '<caption class="bench-note">' + esc(T.note) + '</caption><thead><tr><th>Method</th><th>Median seconds per call</th></tr></thead><tbody>';
+  ARMS.forEach(function (k) {
+    bh += '<tr' + (k === "C" ? ' class="j"' : '') + '><td>' + k + ' &middot; ' + ARM_NAME[k] + '</td><td>' + (T.median_ms[k] / 1000).toFixed(2) + '</td></tr>';
   });
   $("bench").innerHTML = bh + '</tbody>';
 
@@ -765,16 +786,16 @@ h1 em { font-weight: 500; color: var(--brass); }
 
   /* ---------- Act V ---------- */
   var vr = J.verdict.result;
-  var VWORD = { use_jev: "Use Jev", dont_use_jev: "Don't use Jev", not_enough_evidence: "Not enough evidence" };
-  $("t5").textContent = VWORD[vr] || vr.replace(/_/g, " ");
+  var VWORD = { "use Jev": "Use Jev", "don't use Jev": "Don't use Jev", "not enough evidence": "Not enough evidence" };
+  $("t5").textContent = VWORD[vr] || vr;
   $("ruleLine").textContent = "Rule " + J.verdict.rule + " fired";
   $("because").innerHTML =
     '<li><span class="k num">' + S.C.kept + ' vs ' + S.A.kept + '</span><span class="v">answers kept by Jev against what you do now, out of ' + J.cases.length + '. The simple rule kept ' + S.B.kept + '.</span></li>' +
-    '<li><span class="k num">' + usd(S.C.cpk) + '</span><span class="v">per kept answer, against ' + usd(S.A.cpk) + ' today and ' + usd(S.B.cpk) + ' for the rule.</span></li>' +
+    '<li><span class="k num">' + cpkText(S.C.cpk) + '</span><span class="v">per kept answer, against ' + cpkText(S.A.cpk) + ' today and ' + cpkText(S.B.cpk) + ' for the rule.</span></li>' +
     '<li><span class="k num">' + V.A.wins + ' / ' + V.A.losses + '</span><span class="v">wins and losses against what you do now; ' + V.B.wins + ' / ' + V.B.losses + ' against the simple rule.</span></li>';
-  $("caveat").textContent = spotlit
-    ? "Not a clean sweep: " + spotlit.id + " (" + spotlit.prompt.toLowerCase() + ") was a confident mistake at " + spotlit.arms.C.jev_confidence.toFixed(2) + ". The verdict holds on twenty cases; run more before you bet the workflow on it."
-    : "The verdict holds on twenty cases; run more before you bet the workflow on it.";
+  $("caveat").textContent = J.verdict.reason.charAt(0).toUpperCase() + J.verdict.reason.slice(1) + ". " +
+    (spotlit ? "The sharpest miss: " + spotlit.id + " (" + spotlit.prompt.toLowerCase() + ") at " + conf(spotlit).toFixed(2) + " confidence. " : "") +
+    "The verdict describes these " + J.cases.length + " messages about a made-up shop, not production.";
 
   /* ---------- Curtain call ---------- */
   $("repertoire").innerHTML = J.use_cases.map(function (u) {

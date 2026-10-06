@@ -434,6 +434,24 @@ describe("the Stage tells one story once a file is loaded (F1)", () => {
     expect(p.current.innerHTML.match(/<li>/g)?.length).toBe(2);
   });
 
+  test("[unit] F1-S7 two runs of the same question id are told apart in the current slot by run and prompt version", async () => {
+    const base = await example(USE_JEV);
+    const rows = base.split("\n").filter((l) => l !== "");
+    const second = rows.slice(1).map((l) => l.replace("run-d08-r3-use-jev", "run-two"));
+    const p = await choose(file("two-runs.csv", [...rows, ...second].join("\n") + "\n"));
+    const items = p.current.innerHTML.match(/<li>.*?<\/li>/g) ?? [];
+    expect(items.length).toBe(2);
+    expect(items[0]).toContain("run run-d08-r3-use-jev, prompt d08.v1, question q1");
+    expect(items[1]).toContain("run run-two, prompt d08.v1, question q1");
+  });
+
+  test("[unit] F5-C9 a case with one unlabelled and others rejected says none among labelled methods, not none", async () => {
+    const d12 = await example(D12);
+    const csv = d12.split("\n").map((l) => (l.includes(",d03,") && l.includes(",llm,") ? l.replace(",accept,human,", ",,,") : l.includes(",d03,") && l.includes(",jev,") ? l.replace(",accept,", ",reject,") : l)).join("\n");
+    const html = (await choose(file("p.csv", csv))).panel.innerHTML;
+    expect(cellOf(html, "d03", "matches")).toBe("none among labelled methods; llm unlabelled");
+  });
+
   test("[unit] F1-S4 an invalid file says there is no verdict for it, so the sample verdict is not read as its verdict", async () => {
     const p = await choose(file("bad.csv", withOutput(await example(D06), 3, "maybe")));
     for (const f of p.flags) {

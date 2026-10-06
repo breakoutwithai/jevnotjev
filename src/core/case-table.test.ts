@@ -39,7 +39,10 @@ describe("case table: shared rows (F5)", () => {
     const rejected = new Map([["label", "reject"]]);
     expect(matchingMethods({ caseId: "x", rows: { llm: rejected, rule: undefined, jev: rejected } })).toBe("none");
     const blank = new Map([["label", null]]);
-    expect(matchingMethods({ caseId: "x", rows: { llm: blank, rule: undefined, jev: rejected } })).toBe("none");
+    expect(matchingMethods({ caseId: "x", rows: { llm: blank, rule: undefined, jev: rejected } })).toBe("none among labelled methods; llm unlabelled");
+    expect(matchingMethods({ caseId: "x", rows: { llm: blank, rule: rejected, jev: rejected } })).toBe("none among labelled methods; llm unlabelled");
+    const accepted = new Map([["label", "accept"]]);
+    expect(matchingMethods({ caseId: "x", rows: { llm: blank, rule: undefined, jev: accepted } })).toBe("jev; llm unlabelled");
     expect(matchingMethods({ caseId: "x", rows: { llm: blank, rule: undefined, jev: blank } })).toBe("unlabelled");
   });
 

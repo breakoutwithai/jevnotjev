@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { createContext, runInContext } from "node:vm";
 import { evaluateText } from "../src/browser/results-loader.ts";
 import { validate } from "../src/format/validate.ts";
-import { build, buildSample, SAMPLE_OUT, SAMPLE_RECORDS } from "./stage-sample.ts";
+import { build, buildSample, sampleScript, SAMPLE_OUT, SAMPLE_RECORDS } from "./stage-sample.ts";
 
 const ROOT = join(import.meta.dir, "..");
 const SITE = join(ROOT, "site");
@@ -53,7 +53,7 @@ function fakeElement(): FakeElement {
 }
 
 /** Run data.js and the page's inline script against a fake document and return the elements it filled in. */
-async function renderPage(): Promise<Map<string, FakeElement>> {
+async function renderPage(dataJs?: string): Promise<Map<string, FakeElement>> {
   const html = await readFile(join(SITE, "index.html"), "utf8");
   const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? "").filter((s) => s.includes("window.JNJ"));
   expect(inline.length).toBe(1);
@@ -72,7 +72,7 @@ async function renderPage(): Promise<Map<string, FakeElement>> {
   const sandbox: Record<string, unknown> = { document, matchMedia: () => ({ matches: false }), requestAnimationFrame: () => 0, Math, Array, String, parseFloat, Object };
   sandbox.window = sandbox;
   const context = createContext(sandbox);
-  runInContext(await readFile(join(SITE, "data.js"), "utf8"), context);
+  runInContext(dataJs ?? (await readFile(join(SITE, "data.js"), "utf8")), context);
   runInContext(inline[0] ?? "", context);
   return els;
 }
@@ -141,6 +141,22 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
     const els = await renderPage();
     expect(els.get("t5")?.textContent).not.toBe("Use Jev");
     expect(els.get("ruleLine")?.textContent).not.toBe("Rule 3 fired");
+  });
+
+  test("[unit] F2-D10 a method with no accepted answer has an undefined cost per kept answer, shown as such, with no savings claim or bar", async () => {
+    const csv = (await readFile(SAMPLE_RECORDS, "utf8")).split("\n").map((l) => (l.includes(",jev,") ? l.replace(",accept,", ",reject,") : l)).join("\n");
+    const sample = await buildSample(csv);
+    expect(sample.summary.C.kept).toBe(0);
+    expect(sample.summary.C.cpk).toBeNull();
+    expect(sample.summary.A.cpk).not.toBeNull();
+    const els = await renderPage(sampleScript(sample));
+    const ledger = els.get("ledger")?.innerHTML ?? "";
+    expect(ledger).toContain("undefined (0 kept)");
+    expect(ledger).not.toContain("null");
+    expect(ledger).not.toContain("NaN");
+    expect(els.get("versus")?.innerHTML).toContain("No cost comparison");
+    expect(els.get("versus")?.innerHTML).not.toMatch(/\d+%/);
+    expect(els.get("because")?.innerHTML).toContain("undefined (0 kept)");
   });
 
   test("[unit] F2-D8 the user story for the verdict links the written rules and restates none of them", async () => {

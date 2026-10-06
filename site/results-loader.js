@@ -378,7 +378,11 @@
     if (present.every((p) => p.label === null))
       return "unlabelled";
     const accepted = present.filter((p) => p.label === "accept").map((p) => p.arm);
-    return accepted.length === 0 ? "none" : accepted.join(", ");
+    const unknown = present.filter((p) => p.label === null).map((p) => p.arm);
+    const note = unknown.length === 0 ? "" : "; " + unknown.join(", ") + " unlabelled";
+    if (accepted.length === 0)
+      return (unknown.length === 0 ? "none" : "none among labelled methods") + note;
+    return accepted.join(", ") + note;
   }
 
   // src/core/verdict.ts
@@ -1373,7 +1377,7 @@
     } else {
       const items = r.questions.slice(0, MAX_CURRENT).map((q) => {
         const why = q.verdict !== null && q.reason.startsWith(q.verdict + ": ") ? q.reason.slice(q.verdict.length + 2) : q.reason;
-        return "<li>" + escapeHtml("question " + q.questionId + ": ") + '<span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + "</span> " + escapeHtml("(" + why + ")") + "</li>";
+        return "<li>" + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId + ": ") + '<span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + "</span> " + escapeHtml("(" + why + ")") + "</li>";
       });
       const more = r.questions.length > MAX_CURRENT ? el("p", "ld-now", "and " + (r.questions.length - MAX_CURRENT) + " more questions: see the result under the curtain call.") : "";
       slot.innerHTML = el("h3", "ld-now-head", "Current verdict: your file " + name) + '<ul class="ld-now-list">' + items.join("") + "</ul>" + more;

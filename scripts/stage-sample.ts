@@ -42,7 +42,7 @@ export interface StageSample {
     readonly outputs: readonly string[];
   };
   readonly cases: readonly StageCase[];
-  readonly summary: Readonly<Record<Letter, { readonly spend: number; readonly kept: number; readonly cpk: number }>>;
+  readonly summary: Readonly<Record<Letter, { readonly spend: number; readonly kept: number; readonly cpk: number | null }>>;
   readonly jev_vs: { readonly A: { readonly wins: number; readonly losses: number }; readonly B: { readonly wins: number; readonly losses: number } };
   readonly verdict: { readonly result: string; readonly rule: number; readonly reason: string };
   readonly timing: { readonly note: string; readonly median_ms: Readonly<Record<Letter, number>> };
@@ -138,10 +138,10 @@ export async function buildSample(csv: string): Promise<StageSample> {
     cases.push({ id, prompt: str(a, "case_input"), truth, arms });
   }
 
-  const total = (k: Letter): { spend: number; kept: number; cpk: number } => {
+  const total = (k: Letter): { spend: number; kept: number; cpk: number | null } => {
     const spend = cases.reduce((sum, c) => sum + c.arms[k].cost, 0);
     const kept = cases.filter((c) => c.arms[k].label === "accept").length;
-    return { spend: round(spend, 8), kept, cpk: kept === 0 ? 0 : round(spend / kept, 8) };
+    return { spend: round(spend, 8), kept, cpk: kept === 0 ? null : round(spend / kept, 8) };
   };
   const summary = { A: total("A"), B: total("B"), C: total("C") };
   const vs = (other: Letter): { wins: number; losses: number } => ({

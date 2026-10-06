@@ -40,6 +40,7 @@ export function caseCell(row: Row | undefined): string {
 /**
  * Which methods the label accepts for one case, in llm, rule, jev order: "llm, jev"; "none" when every present
  * method is labelled and none is accepted; "unlabelled" when no present method has a label. A missing method never matches.
+ * A method with no label is unknown, not a non-match: it is named ("none among labelled methods; llm unlabelled").
  */
 export function matchingMethods(line: CaseLine): string {
   const present = ARMS.flatMap((arm) => {
@@ -48,5 +49,8 @@ export function matchingMethods(line: CaseLine): string {
   });
   if (present.every((p) => p.label === null)) return "unlabelled";
   const accepted = present.filter((p) => p.label === "accept").map((p) => p.arm);
-  return accepted.length === 0 ? "none" : accepted.join(", ");
+  const unknown = present.filter((p) => p.label === null).map((p) => p.arm);
+  const note = unknown.length === 0 ? "" : "; " + unknown.join(", ") + " unlabelled";
+  if (accepted.length === 0) return (unknown.length === 0 ? "none" : "none among labelled methods") + note;
+  return accepted.join(", ") + note;
 }

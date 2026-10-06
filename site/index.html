@@ -750,18 +750,20 @@ h1 em { font-weight: 500; color: var(--brass); }
 
   /* ---------- Act IV ---------- */
   var S = J.summary;
-  var maxCpk = Math.max(S.A.cpk, S.B.cpk, S.C.cpk);
+  /* cpk is null when a method kept nothing: the cost per kept answer is undefined, never zero. */
+  function cpkText(v) { return v === null ? "undefined (0 kept)" : usd(v); }
+  var maxCpk = Math.max(S.A.cpk || 0, S.B.cpk || 0, S.C.cpk || 0);
   $("ledger").innerHTML = ARMS.map(function (k) {
     var s = S[k];
     return '<div class="acct ' + k.toLowerCase() + '"><div class="who">' + k + ' &middot; ' + ARM_NAME[k] + '</div>' +
       '<dl class="fig"><dt>Spend</dt><dd class="count" data-to="' + s.spend + '" data-fmt="usd">' + usd(s.spend) + '</dd></dl>' +
       '<dl class="fig"><dt>Kept answers</dt><dd class="count" data-to="' + s.kept + '" data-fmt="int" data-of="' + J.cases.length + '">' + s.kept + '/' + J.cases.length + '</dd></dl>' +
-      '<dl class="fig"><dt>Cost per kept answer</dt><dd class="count cpk" data-to="' + s.cpk + '" data-fmt="usd">' + usd(s.cpk) + '</dd></dl>' +
-      '<div class="bar" aria-hidden="true"><i style="--w:' + (maxCpk > 0 ? s.cpk / maxCpk * 100 : 0).toFixed(1) + '%"></i></div></div>';
+      '<dl class="fig"><dt>Cost per kept answer</dt>' + (s.cpk === null ? '<dd class="cpk undef">' + cpkText(s.cpk) + '</dd>' : '<dd class="count cpk" data-to="' + s.cpk + '" data-fmt="usd">' + usd(s.cpk) + '</dd>') + '</dl>' +
+      '<div class="bar" aria-hidden="true"><i style="--w:' + (maxCpk > 0 && s.cpk !== null ? s.cpk / maxCpk * 100 : 0).toFixed(1) + '%"></i></div></div>';
   }).join("");
   var V = J.jev_vs;
-  var saveVsA = S.A.cpk > 0 ? (1 - S.C.cpk / S.A.cpk) * 100 : 0;
-  $("versus").innerHTML = 'Against what you do now, Jev won <strong>' + V.A.wins + '</strong> cases and lost <strong>' + V.A.losses + '</strong>. Against the simple rule, won <strong>' + V.B.wins + '</strong>, lost <strong>' + V.B.losses + '</strong>. Each kept answer costs <strong>' + saveVsA.toFixed(0) + '%</strong> less than today.';
+  var saveVsA = S.A.cpk !== null && S.C.cpk !== null && S.A.cpk > 0 ? (1 - S.C.cpk / S.A.cpk) * 100 : null;
+  $("versus").innerHTML = 'Against what you do now, Jev won <strong>' + V.A.wins + '</strong> cases and lost <strong>' + V.A.losses + '</strong>. Against the simple rule, won <strong>' + V.B.wins + '</strong>, lost <strong>' + V.B.losses + '</strong>. ' + (saveVsA === null ? 'No cost comparison: a method kept nothing, so its cost per kept answer is undefined.' : 'Each kept answer costs <strong>' + saveVsA.toFixed(0) + '%</strong> less than today.');
   var T = J.timing;
   $("benchTitle").textContent = "Offstage: how long each took";
   var bh = '<caption class="bench-note">' + esc(T.note) + '</caption><thead><tr><th>Method</th><th>Median seconds per call</th></tr></thead><tbody>';
@@ -789,7 +791,7 @@ h1 em { font-weight: 500; color: var(--brass); }
   $("ruleLine").textContent = "Rule " + J.verdict.rule + " fired";
   $("because").innerHTML =
     '<li><span class="k num">' + S.C.kept + ' vs ' + S.A.kept + '</span><span class="v">answers kept by Jev against what you do now, out of ' + J.cases.length + '. The simple rule kept ' + S.B.kept + '.</span></li>' +
-    '<li><span class="k num">' + usd(S.C.cpk) + '</span><span class="v">per kept answer, against ' + usd(S.A.cpk) + ' today and ' + usd(S.B.cpk) + ' for the rule.</span></li>' +
+    '<li><span class="k num">' + cpkText(S.C.cpk) + '</span><span class="v">per kept answer, against ' + cpkText(S.A.cpk) + ' today and ' + cpkText(S.B.cpk) + ' for the rule.</span></li>' +
     '<li><span class="k num">' + V.A.wins + ' / ' + V.A.losses + '</span><span class="v">wins and losses against what you do now; ' + V.B.wins + ' / ' + V.B.losses + ' against the simple rule.</span></li>';
   $("caveat").textContent = J.verdict.reason.charAt(0).toUpperCase() + J.verdict.reason.slice(1) + ". " +
     (spotlit ? "The sharpest miss: " + spotlit.id + " (" + spotlit.prompt.toLowerCase() + ") at " + conf(spotlit).toFixed(2) + " confidence. " : "") +

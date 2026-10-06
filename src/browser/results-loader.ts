@@ -235,7 +235,7 @@ export function markStage(doc: LoaderDocument, r: LoadedResult): void {
     const items = r.questions.slice(0, MAX_CURRENT).map((q) => {
       // The reason usually opens with the verdict's own name; the slot already shows it in bold.
       const why = q.verdict !== null && q.reason.startsWith(q.verdict + ": ") ? q.reason.slice(q.verdict.length + 2) : q.reason;
-      return "<li>" + escapeHtml("question " + q.questionId + ": ") + '<span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + "</span> " + escapeHtml("(" + why + ")") + "</li>";
+      return "<li>" + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId + ": ") + '<span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + "</span> " + escapeHtml("(" + why + ")") + "</li>";
     });
     const more = r.questions.length > MAX_CURRENT ? el("p", "ld-now", "and " + (r.questions.length - MAX_CURRENT) + " more questions: see the result under the curtain call.") : "";
     slot.innerHTML = el("h3", "ld-now-head", "Current verdict: your file " + name) + '<ul class="ld-now-list">' + items.join("") + "</ul>" + more;

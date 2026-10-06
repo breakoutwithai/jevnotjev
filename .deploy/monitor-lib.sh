@@ -30,29 +30,23 @@ monitor_state_init() {
     MONITOR_DIR="${base}/${1}"
     (umask 077; mkdir -p "$MONITOR_DIR") || { echo 'CONFIG: cannot create monitor state directory' >&2; return 2; }
     chmod 700 "$MONITOR_DIR" || return 2
-    if ! mkdir "$MONITOR_DIR/lock" 2>/dev/null; then
+    if ! ln -s "$$" "$MONITOR_DIR/lock" 2>/dev/null; then
         local owner=''
-        [[ ! -r "$MONITOR_DIR/lock/pid" ]] || read -r owner < "$MONITOR_DIR/lock/pid" || true
+        owner="$(readlink "$MONITOR_DIR/lock" 2>/dev/null)" || true
         if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
             echo 'previous run active'
             return 3
         fi
-        rm -f "$MONITOR_DIR/lock/pid" 2>/dev/null
-        rmdir "$MONITOR_DIR/lock" 2>/dev/null || { echo 'previous run active'; return 3; }
-        mkdir "$MONITOR_DIR/lock" 2>/dev/null || { echo 'previous run active'; return 3; }
+        rm -f "$MONITOR_DIR/lock" 2>/dev/null || { echo 'previous run active'; return 3; }
+        ln -s "$$" "$MONITOR_DIR/lock" 2>/dev/null || { echo 'previous run active'; return 3; }
     fi
-    (umask 077; printf '%s\n' "$$" > "$MONITOR_DIR/lock/pid") || return 2
     trap 'monitor_unlock' EXIT
 }
 
 monitor_unlock() {
     [[ "${BASH_SUBSHELL:-0}" -eq 0 ]] || return 0
-    local owner=''
-    [[ ! -r "$MONITOR_DIR/lock/pid" ]] || read -r owner < "$MONITOR_DIR/lock/pid" || true
-    if [[ "$owner" == "$$" ]]; then
-        rm -f "$MONITOR_DIR/lock/pid"
-        rmdir "$MONITOR_DIR/lock" 2>/dev/null || true
-    fi
+    [[ "$(readlink "$MONITOR_DIR/lock" 2>/dev/null)" == "$$" ]] && rm -f "$MONITOR_DIR/lock"
+    return 0
 }
 
 # Bash 3.2 compatible deadline for a single external command. The output file belongs to the caller.
@@ -61,7 +55,7 @@ monitor_deadline() {
     shift
     [[ "$seconds" =~ ^[1-9][0-9]*$ ]] || return 2
     "$@" > "$output" 2>/dev/null & pid=$!
-    (sleep "$seconds"; kill -TERM "$pid" 2>/dev/null || true; sleep 1; kill -KILL "$pid" 2>/dev/null || true) & guard=$!
+    (sleep "$seconds" & sleeper=$!; trap 'kill "$sleeper" 2>/dev/null || true; wait "$sleeper" 2>/dev/null || true; exit 0' TERM; wait "$sleeper"; kill -TERM "$pid" 2>/dev/null || true; sleep 1 & sleeper=$!; wait "$sleeper"; kill -KILL "$pid" 2>/dev/null || true) & guard=$!
     wait "$pid" || rc=$?
     kill "$guard" 2>/dev/null || true
     wait "$guard" 2>/dev/null || true

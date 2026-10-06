@@ -14,6 +14,16 @@ SERVER=''
 pass=0; fail=0
 ok() { echo "PASS $1"; pass=$((pass+1)); }
 nope() { echo "FAIL $1"; fail=$((fail+1)); }
+m3_control_matches() {
+  [[ $2 -eq 1 && $1 == *'FAIL M3'* ]] && printf '%s\n' "$1" | grep -Eq '^  FAIL S2 anon /api/backstage/health:.*got 401([, ]|$)'
+}
+if [[ ${1:-} == --self-test-m3 ]]; then
+  m3_control_matches $'  FAIL S2 anon /api/backstage/health: header wrong, got 401\nFAIL M3 anonymous health gate' 1 || exit 1
+  if m3_control_matches 'FAIL M3 anonymous health gate' 1; then exit 1; fi
+  if m3_control_matches $'  FAIL S2 anon /api/backstage/health: got 502\nFAIL M3 anonymous health gate' 1; then exit 1; fi
+  echo 'PASS M3 control requires anonymous health 401 row'
+  exit 0
+fi
 cleanup() {
   [[ -z "$SERVER" ]] || { kill "$SERVER" 2>/dev/null || true; wait "$SERVER" 2>/dev/null || true; }
   docker rm -f "$NAME" >/dev/null 2>&1 || true
@@ -99,6 +109,6 @@ sed -i.bak '/^location @backstage_api_401 {$/a\
 docker exec "$NAME" nginx -t >/dev/null 2>&1 && docker exec "$NAME" nginx -s reload >/dev/null 2>&1 || exit 1
 sleep 1
 run
-[[ $rc -eq 1 && $out == *'FAIL M3'* ]] && ok 'WWW-Authenticate on anonymous API fails M3' || nope "WWW-Authenticate: $out"
+m3_control_matches "$out" "$rc" && ok 'WWW-Authenticate on anonymous API fails M3 with 401' || nope "WWW-Authenticate: $out"
 echo "monitor-docker: ${pass} passed, ${fail} failed"
 [[ $fail -eq 0 ]]

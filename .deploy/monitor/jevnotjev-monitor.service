@@ -5,7 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-TimeoutStartSec=180
+# 11 HTTP requests x 15 s + git 20 s + TLS 20 s + delivery 15 s = 220 s; allow margin.
+TimeoutStartSec=270
 User=jevnotjev-monitor
 Group=jevnotjev-monitor
 WorkingDirectory=/opt/jevnotjev

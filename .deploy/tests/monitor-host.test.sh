@@ -40,8 +40,12 @@ FAKE_ACTIVE=failed; export FAKE_ACTIVE; run --dry-run
 unset FAKE_ACTIVE
 export FAKE_NRESTARTS=1; run --dry-run
 [[ $rc -eq 0 && $out == *'PASS H3'* && ! -e $MONITOR_STATE_DIR/host/nrestarts ]] && ok 'dry-run does not change restart baseline' || nope "dry-run baseline: $out"
-FAKE_NRESTARTS=0; export FAKE_NRESTARTS; run --dry-run
-[[ $rc -eq 0 && $out == *'PASS H3'* ]] && ok 'H3 lower count resets baseline' || nope "H3 reset: $out"
+FAKE_NRESTARTS=3; export FAKE_NRESTARTS; run
+[[ $rc -eq 0 && $(cat "$MONITOR_STATE_DIR/host/nrestarts") == 3 ]] && ok 'H3 stores real baseline three' || nope "H3 baseline: $out"
+FAKE_NRESTARTS=0; export FAKE_NRESTARTS; run
+[[ $rc -eq 0 && $out == *'PASS H3'* && $(cat "$MONITOR_STATE_DIR/host/nrestarts") == 0 ]] && ok 'H3 lower count resets stored baseline to zero' || nope "H3 reset: $out"
+FAKE_NRESTARTS=1; export FAKE_NRESTARTS; run
+[[ $rc -eq 1 && $out == *'FAIL H3 NRestarts grew 0 to 1'* ]] && ok 'H3 detects growth after reset' || nope "H3 post-reset growth: $out"
 export FAKE_SYSTEMCTL_BAD=yes; run --dry-run
 [[ $rc -eq 1 && $out == *'FAIL H1-H3 unparseable'* ]] && ok 'unparseable systemctl output fails' || nope "malformed output: $out"
 unset FAKE_SYSTEMCTL_BAD

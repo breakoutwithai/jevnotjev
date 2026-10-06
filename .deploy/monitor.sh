@@ -22,6 +22,7 @@ if [[ -n "${MONITOR_RESOLVE:-}" ]]; then
     TLS_CONNECT="${resolve_addr}:${TLS_PORT}"
 fi
 export DOMAIN HEALTH_URL CURL_PIN
+VERIFY_ATTEMPTS="${VERIFY_ATTEMPTS:-1}"; export VERIFY_ATTEMPTS
 [[ "${MONITOR_CMD_TIMEOUT:-20}" =~ ^[1-9][0-9]*$ ]] || { echo 'CONFIG: MONITOR_CMD_TIMEOUT must be positive seconds' >&2; exit 2; }
 monitor_config || { echo 'FAIL M6 alert configuration refused' >&2; exit 2; }
 monitor_state_init external; init_rc=$?

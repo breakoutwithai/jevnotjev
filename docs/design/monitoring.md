@@ -70,7 +70,7 @@ One state file per monitor: consecutive failure count and whether an alert is op
 | PENDING (1, closed) | OK, no message | send ALERT; on success ALERTING, on send failure stay closed with count 2 so the next failing run retries |
 | ALERTING (open) | send RECOVERED; on success OK, on send failure stay open so the next passing run retries | ALERTING, no repeat |
 
-A missing or unreadable state file is OK. The lock records its owner PID: a live owner makes the run exit quietly; a dead or missing owner lets the next run reclaim the lock. `--dry-run` prints the message instead of sending it and never writes the alert state or host restart baseline.
+A missing or unreadable state file is OK. The lock is an atomic symlink whose target is the owner PID: a live owner makes the run exit quietly; a dead or non-numeric owner lets the next run reclaim the link and retry once. Two runners reclaiming the same dead lock at the same instant can still both proceed; the shipped schedule uses one systemd oneshot unit and never starts two. The external monitor uses one authenticated health attempt per run. Its worst case is 11 HTTP requests x 15 s + git 20 s + TLS 20 s + delivery 15 s = 220 s, within each unit's 270 s timeout. `--dry-run` prints the message instead of sending it and never writes the alert state or host restart baseline.
 
 ## Operator steps
 

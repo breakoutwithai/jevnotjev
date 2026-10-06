@@ -3,7 +3,8 @@ Description=Jev Not Jev Backstage restart monitor
 
 [Service]
 Type=oneshot
-TimeoutStartSec=180
+# External monitor ceiling: 11 HTTP requests x 15 s + git 20 s + TLS 20 s + delivery 15 s = 220 s; allow margin.
+TimeoutStartSec=270
 DynamicUser=yes
 WorkingDirectory=/opt/jevnotjev
 Environment=MONITOR_ALERT_KIND=teams

@@ -14,7 +14,7 @@ cat > "$TMP/bin/openssl" <<'SH'
 #!/usr/bin/env bash
 if [[ ${1:-} == s_client ]]; then
   [[ ${FAKE_HANG_OPENSSL:-} != yes ]] || exec sleep 60
-  [[ -z ${FAKE_LOCK_PATH:-} ]] || { test -d "$FAKE_LOCK_PATH" && echo held >> "$FAKE_STATE/lock.log" || echo lost >> "$FAKE_STATE/lock.log"; }
+  [[ -z ${FAKE_LOCK_PATH:-} ]] || { test -L "$FAKE_LOCK_PATH" && echo held >> "$FAKE_STATE/lock.log" || echo lost >> "$FAKE_STATE/lock.log"; }
   cat "$FAKE_CERT"
   [[ ${FAKE_TRAILING_CERT:-} != yes ]] || head -c 200000 /dev/zero | tr '\0' X
   exit "${FAKE_OPENSSL_EXIT:-0}"
@@ -53,13 +53,14 @@ if [[ $alert == yes ]]; then
   exit "${FAKE_ALERT_EXIT:-0}"
 fi
 path="/${url#*://*/}"
+printf '%s %s\n' "$who" "$path" >> "$FAKE_STATE/requests.log"
 case "$path" in
   /|/label/|/little-shop/) content=static; [[ ${FAKE_BREAK:-} != M1 ]] || code=404;;
   /backstage/sign-in) content='<form action="/api/auth/password">'; [[ ${FAKE_BREAK:-} != M2 ]] || code=502;;
-  /api/auth/password) code=303; content=''; [[ -z $jar ]] || printf '#HttpOnly_jevnotjev.test\tTRUE\t/\tTRUE\t0\t__Host-backstage_session\tx.y\n' > "$jar";;
+  /api/auth/password) code=303; content=''; [[ -z $jar ]] || printf '#HttpOnly_jevnotjev.test\tTRUE\t/\tTRUE\t0\t__Host-backstage_session\tSESSIONPAYLOAD.SESSIONSIG\n' > "$jar";;
   /backstage/) if [[ $who == auth ]]; then code=200; content=backstage; else code=302; content=''; fi;;
   /api/backstage/health)
-    if [[ $who == auth ]]; then code=200; content="{\"version\":\"${EXPECTED_SHA}\"}"; [[ ${FAKE_BREAK:-} != M4 ]] || content='{"version":"wrong"}'
+    if [[ $who == auth ]]; then code=200; content="{\"version\":\"${EXPECTED_SHA}\"}"; [[ ${FAKE_BREAK:-} != M4 ]] || content='{"version":"wrong"}'; [[ ${FAKE_AUTH_HEALTH_502:-} != yes ]] || code=502
     else code=401; content='{"code":"unauthenticated"}'; fi;;
   *) code=404; content='';;
 esac
@@ -67,7 +68,7 @@ if [[ -n $headers ]]; then
   {
     printf 'HTTP/1.1 %s Fixture\r\n' "$code"
     case "$path" in
-      /api/auth/password) printf 'Set-Cookie: __Host-backstage_session=x.y; Secure; HttpOnly\r\n';;
+      /api/auth/password) printf 'Set-Cookie: __Host-backstage_session=SESSIONPAYLOAD.SESSIONSIG; Secure; HttpOnly\r\n';;
       /backstage/) [[ $code != 302 ]] || printf 'Location: %s/backstage/sign-in?next=/backstage/\r\n' "${url%/backstage/}";;
       /api/backstage/health) printf 'Content-Type: application/json\r\n'; [[ ${FAKE_BREAK:-} != M3 || $who == auth ]] || printf 'WWW-Authenticate: Basic realm="x"\r\n';;
     esac
@@ -117,6 +118,9 @@ for id in M1 M2 M3 M4; do
   if [[ $rc -eq 1 && $out == *"FAIL $id"* ]]; then ok "$id negative control fails by name"; else nope "$id negative control: rc=$rc; $out"; fi
 done
 unset FAKE_BREAK
+fresh; : > "$FAKE_STATE/requests.log"; export FAKE_AUTH_HEALTH_502=yes; unset VERIFY_ATTEMPTS; run --dry-run
+[[ $rc -eq 1 && $out == *'FAIL S2 auth /api/backstage/health'* && $(grep -c '^auth /api/backstage/health$' "$FAKE_STATE/requests.log") -eq 1 ]] && ok 'default auth health 502 makes one attempt' || nope "auth retry count: $out"
+unset FAKE_AUTH_HEALTH_502; export VERIFY_ATTEMPTS=1
 fresh; export FAKE_CERT="$TMP/cert7"; run --dry-run
 if [[ $rc -eq 1 && $out == *'FAIL M5'* && $out == *'notAfter='* ]]; then ok 'M5 seven-day cert fails with expiry'; else nope "M5 expiry: $out"; fi
 export FAKE_CERT="$TMP/cert30"
@@ -193,13 +197,13 @@ run --dry-run
 cp "$MONITOR_STATE_DIR/external/alert.state" "$TMP/state-before"; run --dry-run
 cmp -s "$TMP/state-before" "$MONITOR_STATE_DIR/external/alert.state" && ok 'dry-run leaves existing state byte-identical' || nope 'dry-run changed existing state'
 run; [[ $(grep -c AdaptiveCard "$FAKE_STATE/alerts.log") -eq 1 ]] && ok 'real failure pair still alerts after dry-runs' || nope 'dry-run changed real transition'
-mkdir -p "$MONITOR_STATE_DIR/external/lock"; sleep 30 & lock_owner=$!; echo "$lock_owner" > "$MONITOR_STATE_DIR/external/lock/pid"; run
+sleep 30 & lock_owner=$!; ln -s "$lock_owner" "$MONITOR_STATE_DIR/external/lock"; run
 [[ $rc -eq 0 && $out == *'previous run active'* && $(grep -c AdaptiveCard "$FAKE_STATE/alerts.log") -eq 1 ]] && ok 'held lock sends nothing' || nope "held lock: $out"
 kill "$lock_owner"; wait "$lock_owner" 2>/dev/null || true
-printf '99999999\n' > "$MONITOR_STATE_DIR/external/lock/pid"; run
-[[ $rc -eq 1 && $out == *'FAIL M1'* ]] && ok 'dead owner lock is reclaimed' || nope "dead lock: $out"
-mkdir -p "$MONITOR_STATE_DIR/external/lock"; run
-[[ $rc -eq 1 && $out == *'FAIL M1'* ]] && ok 'missing owner PID lock is reclaimed' || nope "missing PID lock: $out"
+run
+[[ $rc -eq 1 && $out == *'FAIL M1'* && ! -L "$MONITOR_STATE_DIR/external/lock" ]] && ok 'dead owner symlink is reclaimed and released' || nope "dead lock: $out"
+ln -s not-a-pid "$MONITOR_STATE_DIR/external/lock"; run
+[[ $rc -eq 1 && $out == *'FAIL M1'* && ! -L "$MONITOR_STATE_DIR/external/lock" ]] && ok 'non-numeric owner symlink is reclaimed and released' || nope "non-numeric lock: $out"
 export FAKE_LOCK_PATH="$MONITOR_STATE_DIR/external/lock"; : > "$FAKE_STATE/lock.log"; unset FAKE_BREAK; run --dry-run
 [[ $rc -eq 0 && $(tail -1 "$FAKE_STATE/lock.log") == held ]] && ok 'lock remains held during TLS check' || nope "lock lost during TLS: $out"
 unset FAKE_LOCK_PATH
@@ -215,20 +219,35 @@ unset FAKE_HANG_OPENSSL
 export FAKE_HANG_GIT=yes; start=$SECONDS; run --dry-run; elapsed=$((SECONDS-start))
 [[ $rc -eq 1 && $out == *'FAIL M4'* && $elapsed -le 6 ]] && ok 'hanging git command fails within deadline' || nope "git deadline: elapsed=$elapsed $out"
 unset FAKE_HANG_GIT
+cat > "$TMP/bin/sleep" <<'SH'
+#!/usr/bin/env bash
+[[ ${1:-} != 5 ]] || printf '%s\n' "$$" > "$FAKE_STATE/deadline-sleep.pid"
+exec /bin/sleep "$@"
+SH
+chmod +x "$TMP/bin/sleep"
+hash -r
+source "$ROOT/.deploy/monitor-lib.sh"
+true() { local i; for ((i=0; i<100; i++)); do [[ -s "$FAKE_STATE/deadline-sleep.pid" ]] && return 0; /bin/sleep 0.01; done; return 1; }
+MONITOR_CMD_TIMEOUT=5; start=$SECONDS; monitor_deadline "$TMP/deadline-output" true; deadline_rc=$?; elapsed=$((SECONDS-start))
+unset -f true
+sleep_pid="$(cat "$FAKE_STATE/deadline-sleep.pid" 2>/dev/null)"
+[[ $deadline_rc -eq 0 && $elapsed -lt 2 && -n $sleep_pid ]] && ! kill -0 "$sleep_pid" 2>/dev/null && ok 'deadline clears watchdog sleep after fast command' || nope "deadline sleep remains: rc=$deadline_rc elapsed=$elapsed pid=$sleep_pid"
+export MONITOR_CMD_TIMEOUT=1
 export FAKE_FORGED_ACCEPT=yes; run --dry-run
 [[ $rc -eq 1 && $out == *'FAIL M7 forged session rejected'* ]] && ok 'forged cookie accepted fails M7' || nope "M7 accepted cookie: $out"
 unset FAKE_FORGED_ACCEPT
-if ! grep -E '__Host-backstage_session=' "$FAKE_STATE/argv.log" | grep -v '__Host-backstage_session=x.y' >/dev/null; then ok 'only constant garbage cookie appears in argv'; else nope 'near-valid cookie in argv'; fi
+if ! grep -F -e SESSIONPAYLOAD.SESSIONSIG -e SESSIONPAYLOAD.aESSIONSIG "$FAKE_STATE/argv.log" >/dev/null && ! grep -E '^Cookie: __Host-backstage_session=' "$FAKE_STATE/argv.log" | grep -v '^Cookie: __Host-backstage_session=x.y$' >/dev/null; then ok 'minted and one-character-variant cookies absent from argv'; else nope 'session cookie leaked in argv'; fi
 MONITOR_URL=http://jevnotjev.test run --dry-run
 [[ $rc -eq 2 ]] && ok 'HTTP monitor URL refused' || nope 'HTTP monitor URL accepted'
 unset FAKE_BREAK
 
 echo '[T4] credential and repository contract'
+bash "$ROOT/.deploy/tests/monitor-docker.sh" --self-test-m3 >/dev/null && ok 'Docker M3 control requires anonymous health 401 row' || nope 'Docker M3 control accepts wrong failure'
 if ! git -C "$ROOT" ls-files -z | xargs -0 grep -nE 'webhook\.office\.com|logic\.azure\.com|api\.powerplatform\.com|api\.telegram\.org/bot[0-9]' >/dev/null 2>&1; then ok 'tracked files have no webhook or bot URL'; else nope 'webhook or bot URL in repo'; fi
 grep -q '^Restart=on-failure$' "$ROOT/.deploy/backstage.service" && ok 'Backstage unit Restart=on-failure' || nope 'Backstage restart policy'
 for timer in "$ROOT"/.deploy/monitor/*.timer; do grep -q '^OnCalendar=\*:0/5$' "$timer" && ok "$(basename "$timer") five-minute timer" || nope "$(basename "$timer") timer"; done
 for service in "$ROOT"/.deploy/monitor/*.service; do
-  if grep -q '^TimeoutStartSec=180$' "$service" && grep -q '^PrivateDevices=true$' "$service" && grep -q '^RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6$' "$service"; then ok "$(basename "$service") timeout and isolation"; else nope "$(basename "$service") timeout or isolation"; fi
+  if grep -q '^TimeoutStartSec=270$' "$service" && grep -q '^PrivateDevices=true$' "$service" && grep -q '^RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6$' "$service"; then ok "$(basename "$service") timeout and isolation"; else nope "$(basename "$service") timeout or isolation"; fi
 done
 echo "monitor tests: ${pass} passed, ${fail} failed"
 echo "[T1] passed=${pass} failed=${fail}"

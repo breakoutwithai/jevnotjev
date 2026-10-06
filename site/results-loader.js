@@ -350,6 +350,25 @@
   var MARGIN = 0.1;
   var CHEAPER = 0.8;
   var COST_TOLERANCE = 0.000000001;
+  var TEST_SET_ONLY = "These results are for this test set only, not production.";
+  function rows(n) {
+    return n === 1 ? "1 row" : `${n} rows`;
+  }
+  function limitationsOf(metrics, rule) {
+    const out = [TEST_SET_ONLY];
+    const paired = metrics.jevVsLlm?.n ?? 0;
+    if (paired < MIN_PAIRED)
+      out.push(`Below the minimum: ${paired} paired labelled Jev and LLM cases, fewer than ${MIN_PAIRED}.`);
+    if (rule.kind === "skipped")
+      out.push(`Rule comparison skipped: ${rule.reason}.`);
+    const unlabelled = metrics.arms.reduce((sum, totals) => sum + totals.unlabelled, 0);
+    if (unlabelled > 0)
+      out.push(`Missing labels: ${rows(unlabelled)} with no label, left out of every pairing.`);
+    const noCost = metrics.arms.reduce((sum, totals) => sum + (totals.spend.kind === "incomplete" ? totals.spend.missing : 0), 0);
+    if (noCost > 0)
+      out.push(`Missing costs: ${rows(noCost)} with no cost, so spend is incomplete.`);
+    return out;
+  }
   function compare(counts) {
     const interval = newcombePaired(counts);
     return { ...counts, n: interval.n, p1: interval.p1, p2: interval.p2, diff: interval.diff, lower: interval.lower, upper: interval.upper };
@@ -375,6 +394,7 @@
     const rule = ruleComparison(metrics.jevVsRule, hasArm("rule"), hasArm("jev"));
     const pair = metrics.jevVsLlm;
     const jevVsLlm = pair === null || pair.n === 0 ? null : compare(pair);
+    const limitations = limitationsOf(metrics, rule);
     const base = {
       jevVsLlm,
       jevAccepted: pair?.jev.accepted ?? null,
@@ -389,7 +409,8 @@
       reason: `${verdictName}: ${reason}`,
       addN: extra.addN ?? null,
       numbers: extra.numbers ?? base,
-      ruleComparison: rule
+      ruleComparison: rule,
+      limitations
     });
     const notEnough = (condition, reason, addN) => result("not enough evidence", 1, condition, reason, addN === undefined ? {} : { addN });
     if (!hasArm("jev"))
@@ -496,7 +517,12 @@
       tokens_in: { type: ["integer", "null"], minimum: 0 },
       tokens_out: { type: ["integer", "null"], minimum: 0 },
       cost_usd: { type: ["number", "null"], minimum: 0 },
-      latency_ms: { type: ["integer", "null"], minimum: 0 }
+      latency_ms: { type: ["integer", "null"], minimum: 0 },
+      price_table_date: {
+        type: ["string", "null"],
+        pattern: "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$",
+        description: "Optional column. Date (YYYY-MM-DD) of the list-price table that produced cost_usd. A file without the column stays valid."
+      }
     },
     allOf: [
       {
@@ -980,6 +1006,7 @@
   // src/format/validate.ts
   var SCHEMA = record_v1_schema_default;
   var COLUMNS = record_v1_schema_default.required;
+  var OPTIONAL_COLUMNS = ["price_table_date"];
   var INTEGER_COLUMNS = new Set(["tokens_in", "tokens_out", "latency_ms"]);
   var NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);
   var INTEGER_TEXT = /^[0-9]+\n?$/;
@@ -1032,7 +1059,7 @@
     if (repeated.length > 0)
       errors.push(`header: duplicate column names ${formatList(repeated)}`);
     const missing = COLUMNS.filter((column) => !header.includes(column));
-    const unknown = header.filter((column) => !COLUMNS.includes(column));
+    const unknown = header.filter((column) => !COLUMNS.includes(column) && !OPTIONAL_COLUMNS.includes(column));
     if (missing.length > 0)
       errors.push(`header: missing columns ${formatList(missing)}`);
     if (unknown.length > 0)
@@ -1050,7 +1077,7 @@
       header.forEach((name, index) => raw.set(name, record.fields[index] ?? ""));
       const values = new Map;
       const ordered = new Map;
-      for (const column of COLUMNS) {
+      for (const column of [...COLUMNS, ...OPTIONAL_COLUMNS.filter((name) => header.includes(name))]) {
         const cell = raw.get(column) ?? "";
         ordered.set(column, cell);
         values.set(column, parseCell(column, cell));
@@ -1163,11 +1190,33 @@
       return `${answerer}: rows=${mine.length} labelled=${labelled.length} accepted=${accepted} cost=${shown}`;
     });
   }
+  function runSummary(rows) {
+    const runs = new Map;
+    for (const { values } of rows) {
+      const run = text2(values, "run_id");
+      const entry = runs.get(run) ?? { count: 0, total: 0, complete: true };
+      const cost = cell(values, "cost_usd");
+      entry.count += 1;
+      if (cost === null)
+        entry.complete = false;
+      else if (typeof cost === "number")
+        entry.total += cost;
+      else
+        throw new Error("cost_usd is not a number after schema validation");
+      runs.set(run, entry);
+    }
+    return [...runs.keys()].sort(compareCodePoints).map((run) => {
+      const entry = runs.get(run);
+      if (entry === undefined)
+        throw new Error("run total missing after the pass");
+      return `run ${plain(run)}: rows=${entry.count} cost=${entry.complete ? `$${formatFixed6(entry.total)}` : "incomplete"}`;
+    });
+  }
   function report(result) {
     const { errors, gaps, rows } = result;
     const lines = [...errors.map((message) => `ERROR ${message}`), ...gaps.map((message) => `GAP ${message}`)];
     if (errors.length === 0)
-      lines.push(...summary(rows));
+      lines.push(...summary(rows), ...runSummary(rows));
     const cases = new Set(rows.map(({ values }) => cell(values, "case_id"))).size;
     const verdict = errors.length > 0 ? "INVALID" : "VALID";
     lines.push(`${verdict} rows=${rows.length} cases=${cases} errors=${errors.length} gaps=${gaps.length}`);

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { formatRow, readDictRows } from "./csv.ts";
-import { COLUMNS, report, summary, validate } from "./validate.ts";
+import { COLUMNS, SCHEMA, report, runSummary, summary, validate } from "./validate.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../format/example-v1.csv", import.meta.url));
 const exampleText = await Bun.file(EXAMPLE).text();
@@ -221,6 +221,7 @@ describe("three methods per case", () => {
         "jev: rows=4 labelled=4 accepted=4 cost=$0.000008",
         "llm: rows=4 labelled=4 accepted=4 cost=incomplete",
         "rule: rows=3 labelled=3 accepted=2 cost=$0.000000",
+        "run run-d12: rows=11 cost=incomplete",
         "VALID rows=11 cases=4 errors=0 gaps=2",
       ],
       exitCode: 0,
@@ -296,5 +297,87 @@ describe("three methods per case", () => {
     expect(gaps).toContain("case m01 (question q2, run run-002, prompt refund-q.v1): no llm result");
     expect(gaps).toContain("case m01 (question q2, run run-002, prompt refund-q.v1): no rule result");
     expect(gaps).not.toContain("case m01 (question q2, run run-002, prompt refund-q.v1): no jev result");
+  });
+});
+
+describe("price_table_date and the per-run total (#42)", () => {
+  const WITH_DATE = [...COLUMNS, "price_table_date"];
+
+  test("[unit] #42 the example has no price_table_date column and stays valid", () => {
+    expect(readDictRows(exampleText).header).not.toContain("price_table_date");
+    expect(validate(exampleText).errors).toEqual([]);
+  });
+
+  test("[unit] #42 a price_table_date column with a date or an empty cell is valid", () => {
+    const rows = readExample().map((row, i) => ({ ...row, price_table_date: i < 4 ? "2026-09-01" : "" }));
+    const result = validate(write(rows, WITH_DATE));
+    expect(result.errors).toEqual([]);
+    expect(result.rows.map(({ values }) => values.get("price_table_date")).slice(0, 5)).toEqual([
+      "2026-09-01", "2026-09-01", "2026-09-01", "2026-09-01", null,
+    ]);
+  });
+
+  test.each(["Sept 2026", "2026-9-1", "2026-13-01", "2026-09-32", "2026-09-01T00:00"])("[unit] #42 price_table_date %p is an error", (bad) => {
+    const rows = readExample().map((row, i) => ({ ...row, price_table_date: i === 0 ? bad : "" }));
+    const errors = validate(write(rows, WITH_DATE)).errors;
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("line 2: price_table_date:");
+  });
+
+  test("[unit] #42 an unknown column is still an error", () => {
+    expect(validate(write(readExample(), [...COLUMNS, "price_date"])).errors).toEqual(["header: unknown columns ['price_date']"]);
+  });
+
+  test("[unit] #42 price_table_date is declared in the schema but not required", () => {
+    expect(COLUMNS).not.toContain("price_table_date");
+    expect(JSON.stringify(SCHEMA)).toContain('"price_table_date"');
+  });
+
+  test("[unit] #42 the report prints one total line per run after the answerer lines, summing cost across answerers", () => {
+    const rows = readExample().map((row, i) => ({ ...row, run_id: i < 3 ? "run-001" : "run-002", cost_usd: (row["cost_usd"] ?? "") === "" ? "0.000001" : (row["cost_usd"] ?? "") }));
+    const sum = (run: string): string =>
+      rows.filter((row) => row["run_id"] === run).reduce((total, row) => total + Number(row["cost_usd"]), 0).toFixed(6);
+    const lines = report(validate(write(rows))).lines;
+    const runs = lines.filter((line) => line.startsWith("run "));
+    expect(runs).toEqual([
+      `run run-001: rows=3 cost=$${sum("run-001")}`,
+      `run run-002: rows=6 cost=$${sum("run-002")}`,
+    ]);
+    expect(lines.indexOf("rule: rows=3 labelled=3 accepted=2 cost=$0.000000")).toBeLessThan(lines.indexOf(runs[0] ?? ""));
+    expect(lines.at(-1)).toMatch(/^VALID /);
+  });
+
+  test("[unit] #42 a run with any missing cost reads incomplete", () => {
+    const rows = readExample().map((row, i) => ({ ...row, run_id: i < 3 ? "run-001" : "run-002" }));
+    const runs = report(validate(write(rows))).lines.filter((line) => line.startsWith("run "));
+    expect(runs).toHaveLength(2);
+    expect(runs.filter((line) => line.endsWith("incomplete"))).toHaveLength(1);
+  });
+
+  test("[unit] #42 summary() is unchanged: the loader shows answerer lines only", () => {
+    expect(summary(validate(exampleText).rows).every((line) => !line.startsWith("run "))).toBe(true);
+  });
+
+  test("[unit] #42 runSummary reads each row a bounded number of times, not once per run", () => {
+    class CountingMap<K, V> extends Map<K, V> {
+      gets = 0;
+      override get(key: K): V | undefined {
+        this.gets += 1;
+        return super.get(key);
+      }
+    }
+    const base = at(readExample(), 0);
+    const n = 300;
+    const rows = Array.from({ length: n }, (_, i) => ({ ...base, run_id: `run-${String(n - i).padStart(4, "0")}`, cost_usd: "0.000002" }));
+    const parsed = validate(write(rows)).rows;
+    expect(parsed).toHaveLength(n);
+    const counted = parsed.map((row) => ({ ...row, values: new CountingMap(row.values) }));
+    const lines = runSummary(counted);
+    expect(lines).toHaveLength(n);
+    expect(lines[0]).toBe("run run-0001: rows=1 cost=$0.000002");
+    expect(lines.at(-1)).toBe("run run-0300: rows=1 cost=$0.000002");
+    const gets = counted.reduce((sum, row) => sum + row.values.gets, 0);
+    // One pass reads about 2 cells per row; the per-run rescan read n * n = 90,000.
+    expect(gets).toBeLessThanOrEqual(4 * n);
   });
 });

@@ -9,6 +9,8 @@ import { iterErrors, type Value } from "./schema.ts";
 
 export const SCHEMA: unknown = schemaJson;
 export const COLUMNS: readonly string[] = schemaJson.required;
+/** Columns a file may leave out of its header (format/README.md "Optional columns"). The database does not store them. */
+const OPTIONAL_COLUMNS: readonly string[] = ["price_table_date"];
 
 const INTEGER_COLUMNS = new Set(["tokens_in", "tokens_out", "latency_ms"]);
 const NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);
@@ -91,7 +93,7 @@ function readRows(text: string): { errors: string[]; rows: ParsedRow[] } {
   const repeated = duplicates(header);
   if (repeated.length > 0) errors.push(`header: duplicate column names ${formatList(repeated)}`);
   const missing = COLUMNS.filter((column) => !header.includes(column));
-  const unknown = header.filter((column) => !COLUMNS.includes(column));
+  const unknown = header.filter((column) => !COLUMNS.includes(column) && !OPTIONAL_COLUMNS.includes(column));
   if (missing.length > 0) errors.push(`header: missing columns ${formatList(missing)}`);
   if (unknown.length > 0) errors.push(`header: unknown columns ${formatList(unknown)}`);
   if (errors.length > 0) return { errors, rows: [] };
@@ -106,7 +108,7 @@ function readRows(text: string): { errors: string[]; rows: ParsedRow[] } {
     header.forEach((name, index) => raw.set(name, record.fields[index] ?? ""));
     const values = new Map<string, Value>();
     const ordered = new Map<string, string>();
-    for (const column of COLUMNS) {
+    for (const column of [...COLUMNS, ...OPTIONAL_COLUMNS.filter((name) => header.includes(name))]) {
       const cell = raw.get(column) ?? "";
       ordered.set(column, cell);
       values.set(column, parseCell(column, cell));
@@ -224,11 +226,32 @@ export function summary(rows: readonly ParsedRow[]): string[] {
   });
 }
 
+/** Per run_id: rows and total cost across every answerer; `incomplete` when any row of the run has no cost (#42). */
+export function runSummary(rows: readonly ParsedRow[]): string[] {
+  // One pass over the rows; the run ids are sorted afterwards. Runs can number in the thousands.
+  const runs = new Map<string, { count: number; total: number; complete: boolean }>();
+  for (const { values } of rows) {
+    const run = text(values, "run_id");
+    const entry = runs.get(run) ?? { count: 0, total: 0, complete: true };
+    const cost = cell(values, "cost_usd");
+    entry.count += 1;
+    if (cost === null) entry.complete = false;
+    else if (typeof cost === "number") entry.total += cost;
+    else throw new Error("cost_usd is not a number after schema validation");
+    runs.set(run, entry);
+  }
+  return [...runs.keys()].sort(compareCodePoints).map((run) => {
+    const entry = runs.get(run);
+    if (entry === undefined) throw new Error("run total missing after the pass");
+    return `run ${plain(run)}: rows=${entry.count} cost=${entry.complete ? `$${formatFixed6(entry.total)}` : "incomplete"}`;
+  });
+}
+
 /** The lines the CLI prints and its exit code: 0 valid, 1 invalid. */
 export function report(result: Validation): { lines: string[]; exitCode: number } {
   const { errors, gaps, rows } = result;
   const lines = [...errors.map((message) => `ERROR ${message}`), ...gaps.map((message) => `GAP ${message}`)];
-  if (errors.length === 0) lines.push(...summary(rows));
+  if (errors.length === 0) lines.push(...summary(rows), ...runSummary(rows));
   const cases = new Set(rows.map(({ values }) => cell(values, "case_id"))).size;
   const verdict = errors.length > 0 ? "INVALID" : "VALID";
   lines.push(`${verdict} rows=${rows.length} cases=${cases} errors=${errors.length} gaps=${gaps.length}`);

@@ -164,6 +164,30 @@ describe("result view of d06-tiny", () => {
     expect(html).toContain(SOURCE);
   });
 
+  test("[unit] D08 each question lists the limitations its verdict returned, one cell per line", async () => {
+    const parsed = validate(recordsText);
+    const seed = await fileSeed(recordsText);
+    let shown = 0;
+    for (const key of cohorts(parsed.rows)) {
+      const { limitations } = verdict(cohortMetrics(parsed.rows, key), seed);
+      expect(limitations.length).toBeGreaterThan(2);
+      const scope = `${key.runId}/${key.promptVersion}/${key.questionId}`;
+      limitations.forEach((line, i) => expect(cell(`${scope}.limitation-${i + 1}`)).toBe(line));
+      expect(keys(html).filter((name) => name.startsWith(`${scope}.limitation-`))).toHaveLength(limitations.length);
+      shown += limitations.length;
+    }
+    expect(shown).toBeGreaterThan(4);
+    expect(cell(`${Q1}.limitation-2`)).toContain("Below the minimum: 5 paired");
+  });
+
+  test("[unit] D08 a missing cost shows as a limitation on the page", async () => {
+    const { source, text } = d08("r1-cost-missing");
+    const { scope } = await onlyVerdict(text);
+    const page = await renderResultView(text, source);
+    const shown = keys(page).filter((name) => name.startsWith(`${scope}.limitation-`)).map((name) => cellIn(page, name));
+    expect(shown).toContain("Missing costs: 1 row with no cost, so spend is incomplete.");
+  });
+
   test("[unit] D09 committed docs/product/result-views/result-d06.html equals the rendered view", () => {
     expect(readFileSync(PAGE, "utf8")).toBe(html);
   });

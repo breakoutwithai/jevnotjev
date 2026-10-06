@@ -37,18 +37,25 @@ Historical: arm examples were written for the Claude Code prompt router (every p
 One CSV in the `jnj-record/1` format, one row per answerer per question per case. Columns, schema, fictional sample and validator: [format/](format/README.md). That file is the only column list.
 
 ## Metrics and where each number comes from
-| Metric shown | Input source |
-|---|---|
-| Tokens | the API's usage fields per call (Jev: `usage.input_tokens`, `usage.output_tokens`; model providers: `usage`) |
-| Spend per case | `cost_usd` of that arm's answer. Jev: input tokens x $0.042 per million, output free. LLM: tokens x one dated list-price table. Rule: 0 |
-| Spend per arm | sum of spend per case over all cases |
-| Kept answers (accepted count) | human labels on each answer |
-| Cost per kept answer | spend per arm / kept answers; "undefined" when an arm keeps none |
-| Wins, losses and ties vs Jev | per case: Jev kept and the other arm not (win), the reverse (loss), or both the same (tie), from the labels |
-| Jev answer and confidence | `answers.<question>.choice` and `.confidence` in the Jev response |
-| Latency | client wall clock around each call (shown, not used in the verdict) |
-| Label source and labelling time | counted from the file; reported, not added to spend |
-| Verdict | the rule below, applied to the numbers above |
+| Metric | Input source | Shown or recorded only (file:line of the code that does it) |
+|---|---|---|
+| Tokens | the API's usage fields per call (Jev: `usage.input_tokens`, `usage.output_tokens`; model providers: `usage`) | Recorded as `tokens_in`, `tokens_out` (src/backstage/run.ts:944-945); not shown |
+| Spend per case | `cost_usd` of that arm's answer. Jev: input tokens x $0.042 per million, output free. LLM: tokens x one dated list-price table (its date goes in the optional `price_table_date` column, format/README.md). Rule: 0 | Shown per method in the result view's case table (scripts/result-view.ts:174-180); not in Backstage |
+| Spend per arm | sum of spend per case over all cases | Backstage "Answers-only spend" (src/backstage/main.ts:501); result view "Spend" (scripts/result-view.ts:146) |
+| Kept answers (accepted count) | human labels on each answer | Backstage "Kept / labelled" (src/backstage/main.ts:499); result view "Accepted" (scripts/result-view.ts:144) |
+| Cost per kept answer | spend per arm / kept answers; "undefined" when an arm keeps none | Backstage "Cost / kept" (src/backstage/main.ts:502); result view (scripts/result-view.ts:147) |
+| Wins, losses and ties vs Jev | per case: Jev kept and the other arm not (win), the reverse (loss), or both the same (tie), from the labels | Computed (src/core/metrics.ts:66-69). Backstage shows the Jev-only and other-only win counts (src/backstage/main.ts:521-524); ties and a per-case view are not shown |
+| Jev answer and confidence | `answers.<question>.choice` and `.confidence` in the Jev response | Backstage shows the answer and "Returned confidence" (src/backstage/main.ts:326-333); the result view shows the answer without confidence (scripts/result-view.ts:177) |
+| Latency | client wall clock around each call | Recorded as `latency_ms` (src/backstage/run.ts:336 and src/backstage/run.ts:947); shown nowhere; not used in the verdict |
+| Label source | `label_source` column, `human` or empty | Recorded (src/backstage/run.ts:943, format/README.md:45); not displayed |
+| Labelling time | none: no column holds it and nothing measures it | Not recorded, not shown |
+| Failed-attempt spend | charges of attempts that returned no answer: known dollars, plus a count of unknown charges (src/backstage/run.ts:1063-1072) | Backstage progress line (src/backstage/main.ts:434) |
+| Total attempts | every attempt's cost once, shared Jev answers billed once (src/backstage/run.ts:1073-1082) | Backstage "Total actual attempts" (src/backstage/main.ts:484-489) |
+| Unlabelled | answers with no label: neither kept nor rejected (src/core/metrics.ts:37) | Backstage "Unlabelled" (src/backstage/main.ts:500); result view "Gaps" (scripts/result-view.ts:145) |
+| Excluded | cases where one answer is unlabelled or absent, left out of a pair (src/core/metrics.ts:57-58) | Backstage pair line (src/backstage/main.ts:520-521) |
+| Interval bounds | 95% Newcombe bounds and cost-ratio bounds (docs/decision/verdict-rules.md) | Result view numbers table (scripts/result-view.ts:223) and the verdict reason text |
+| Limitations | `limitations` on the verdict (src/core/verdict.ts) | Result view, per question (scripts/result-view.ts:268-269); the loader can render them next |
+| Verdict | the rule below, applied to the numbers above | Backstage (src/backstage/main.ts:529-531); result view; loader |
 
 ## Verdict rule
 Full rules, formulas and edge cases: [docs/decision/verdict-rules.md](docs/decision/verdict-rules.md). In order, first match wins:

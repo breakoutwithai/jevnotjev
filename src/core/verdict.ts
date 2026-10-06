@@ -87,6 +87,28 @@ export interface Verdict {
   readonly addN: number | null;
   readonly numbers: VerdictNumbers;
   readonly ruleComparison: RuleComparison;
+  /** What the verdict does not cover, one plain line each (D08): always this test set only, then whatever applies to this file. */
+  readonly limitations: readonly string[];
+}
+
+/** Always first in `limitations` (verdict-rules.md: evidence from this test set only). */
+export const TEST_SET_ONLY = "These results are for this test set only, not production.";
+
+function rows(n: number): string {
+  return n === 1 ? "1 row" : `${n} rows`;
+}
+
+/** The limitations of one verdict: test set only; below the minimum; rule comparison skipped; missing labels; missing costs. */
+function limitationsOf(metrics: CohortMetrics, rule: RuleComparison): string[] {
+  const out = [TEST_SET_ONLY];
+  const paired = metrics.jevVsLlm?.n ?? 0;
+  if (paired < MIN_PAIRED) out.push(`Below the minimum: ${paired} paired labelled Jev and LLM cases, fewer than ${MIN_PAIRED}.`);
+  if (rule.kind === "skipped") out.push(`Rule comparison skipped: ${rule.reason}.`);
+  const unlabelled = metrics.arms.reduce((sum, totals) => sum + totals.unlabelled, 0);
+  if (unlabelled > 0) out.push(`Missing labels: ${rows(unlabelled)} with no label, left out of every pairing.`);
+  const noCost = metrics.arms.reduce((sum, totals) => sum + (totals.spend.kind === "incomplete" ? totals.spend.missing : 0), 0);
+  if (noCost > 0) out.push(`Missing costs: ${rows(noCost)} with no cost, so spend is incomplete.`);
+  return out;
 }
 
 function compare(counts: PairedCounts): Comparison {
@@ -120,6 +142,7 @@ export function verdict(metrics: CohortMetrics, seed: number): Verdict {
   const rule = ruleComparison(metrics.jevVsRule, hasArm("rule"), hasArm("jev"));
   const pair = metrics.jevVsLlm;
   const jevVsLlm = pair === null || pair.n === 0 ? null : compare(pair);
+  const limitations = limitationsOf(metrics, rule);
   const base: VerdictNumbers = {
     jevVsLlm,
     jevAccepted: pair?.jev.accepted ?? null,
@@ -141,6 +164,7 @@ export function verdict(metrics: CohortMetrics, seed: number): Verdict {
     addN: extra.addN ?? null,
     numbers: extra.numbers ?? base,
     ruleComparison: rule,
+    limitations,
   });
   const notEnough = (condition: Condition, reason: string, addN?: number): Verdict =>
     result("not enough evidence", 1, condition, reason, addN === undefined ? {} : { addN });

@@ -1,5 +1,7 @@
 # Backstage sign-out (#96)
 
+Superseded by [Backstage sign-in page](backstage-google-sign-in.md). This document records the earlier Basic Auth sign-out design.
+
 Status: implemented in the PR that closes #96. Basic Auth stays the tester gate; sign-out is added on top of it with no change to `.deploy/backstage-nginx.conf`.
 
 ## Current login mechanism

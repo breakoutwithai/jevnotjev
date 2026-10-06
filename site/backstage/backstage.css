@@ -67,12 +67,6 @@ main {
   margin: 25px auto;
   padding: 0 24px;
 }
-.signed-out:not([hidden]) {
-  border: 1px solid var(--cut);
-  background: var(--paper);
-  padding: 14px 18px;
-  font: 14px/1.5 var(--sans);
-}
 .ticket {
   display: flex;
   justify-content: space-between;

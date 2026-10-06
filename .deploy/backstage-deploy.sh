@@ -30,7 +30,7 @@ if $DRY_RUN; then
 fi
 LOCK="${TMPDIR:-/tmp}/jevnotjev-backstage-deploy.lock.d"
 mkdir "$LOCK" 2>/dev/null || fail "Backstage deploy already running"
-trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
+trap 'backstage_session_cleanup; rmdir "$LOCK" 2>/dev/null || true' EXIT
 if [[ -z "$ROLLBACK_SHA" ]]; then
  [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "Tracked changes present"
  backstage_clean_sources || fail "Dirty or untracked shippable sources present; refusing to build"
@@ -46,10 +46,11 @@ backstage_check_curl_config || fail "Curl credential config must be a private fi
 remote "test -f /etc/systemd/system/${SERVICE}.service && test -f /etc/nginx/snippets/jevnotjev-backstage.conf && grep -q 'include /etc/nginx/snippets/jevnotjev-backstage.conf;' '${VHOST_AVAILABLE}'" || fail "One-time reviewed setup is missing; see docs/backstage-deploy.md"
 remote "systemctl is-enabled --quiet '${SERVICE}'" || fail "Backstage service is not enabled for reboot recovery; complete one-time setup"
 remote "mkdir /var/lock/jevnotjev-backstage-deploy" || fail "Another host deploy is active; inspect the existing lock before retrying"
-trap 'remote "rmdir /var/lock/jevnotjev-backstage-deploy" || true; rmdir "$LOCK" 2>/dev/null || true' EXIT
+trap 'backstage_session_cleanup; remote "rmdir /var/lock/jevnotjev-backstage-deploy" || true; rmdir "$LOCK" 2>/dev/null || true' EXIT
 # Read under the lock setup also takes: a gate installed before the lock is seen here.
-auth_state="$(backstage_auth_state)" || fail "Cannot read whether the Backstage snippet on the host requires Basic Auth; refusing"
-backstage_require_curl_config "$auth_state" || fail "BACKSTAGE_CURL_CONFIG is required for every Backstage probe while the snippet requires Basic Auth"
+auth_state="$(backstage_auth_state)" || fail "Cannot read the Backstage gate state on the host; refusing"
+BACKSTAGE_GATE="$auth_state"; export BACKSTAGE_GATE
+backstage_require_curl_config "$auth_state" || fail "BACKSTAGE_CURL_CONFIG is required for every Backstage probe while the snippet has a gate"
 neighbours=()
 neighbour_names="$(backstage_list_neighbours "$DOMAIN")" || fail "Cannot enumerate neighbours reliably"
 while IFS= read -r n; do [[ -z "$n" ]] || neighbours+=("$n"); done <<< "$neighbour_names"
@@ -79,13 +80,23 @@ else
  archive_sha="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
  remote "cat > '${stage}/payload.tar.gz'" < "$ARCHIVE"
  remote "cd '${stage}' && printf '%s\n' '${archive_sha}  payload.tar.gz' | sha256sum -c - && tar -xzf payload.tar.gz --no-same-owner && rm payload.tar.gz"
- remote "printf '%s\n' 'BACKSTAGE_VERSION=${SHA}' 'BACKSTAGE_ORIGIN=${HEALTH_URL}' 'BACKSTAGE_STATIC_ROOT=${release}/site' 'PORT=3456' > '${stage}/runtime.env' && chmod -R a+rX '${stage}' && mv '${stage}' '${release}'"
+ remote "chmod -R a+rX '${stage}' && mv '${stage}' '${release}'"
 fi
-expected_protocol="$(remote "cat '${release}/release.json'" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||!["backstage/1","backstage/2"].includes(r.protocol))process.exit(1);console.log(r.protocol)' "$SHA")" || fail "Invalid target release protocol"
+release_protocol() {
+ local target="$1"
+ remote "cat '${target}/release.json'" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||!["backstage/1","backstage/2"].includes(r.protocol)||process.argv[2]==="session"&&r.gate!=="session")process.exit(1);console.log(r.protocol)' "${target##*/}" "$auth_state"
+}
+expected_protocol="$(release_protocol "$release")" || fail "Target release has invalid protocol or lacks gate=session for the installed session gate"
+runtime_lines="'BACKSTAGE_VERSION=${SHA}' 'BACKSTAGE_ORIGIN=${HEALTH_URL}' 'BACKSTAGE_STATIC_ROOT=${release}/site' 'PORT=3456'"
+remote "printf '%s\n' ${runtime_lines} > '${release}/runtime.env' && chmod 0644 '${release}/runtime.env'" || fail "Cannot write target runtime environment"
 activated=false
 restore(){
  local rc="$?"
  if [[ "$rc" -ne 0 ]] && $activated; then
+  if [[ -n "$previous" && "$auth_state" == session ]] && ! release_protocol "$previous" >/dev/null; then
+   log_error "Previous release lacks gate=session for the installed session gate; stopping instead of activating it"
+   previous=""
+  fi
   if [[ -n "$previous" ]]; then
    activate_release "$previous" "$CURRENT" && remote "systemctl restart '${SERVICE}'" || log_error "PAIR ROLLBACK FAILED: inspect ${CURRENT} and ${SERVICE}"
    sleep 1
@@ -99,6 +110,7 @@ restore(){
   fi
  fi
  remote "rmdir /var/lock/jevnotjev-backstage-deploy" || log_error "Remote lock remains; inspect before retrying"
+ backstage_session_cleanup
  rmdir "$LOCK" 2>/dev/null || true
  exit "$rc"
 }
@@ -109,7 +121,8 @@ remote "systemctl restart '${SERVICE}'"
 # Version endpoint and served page asset each prove the newly promoted pair.
 healthy=false
 for attempt in 1 2 3 4 5; do
- if backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||r.protocol!==process.argv[2])process.exit(1)' "$SHA" "$expected_protocol"; then healthy=true; break; fi
+ if { [[ "$auth_state" != session ]] || backstage_session_mint; } \
+    && backstage_curl -fsS --max-time 10 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" | bun -e 'const r=await Bun.stdin.json();if(r.version!==process.argv[1]||r.protocol!==process.argv[2])process.exit(1)' "$SHA" "$expected_protocol"; then healthy=true; break; fi
  sleep 1
 done
 $healthy || fail "New API version did not verify"

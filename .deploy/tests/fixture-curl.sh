@@ -21,15 +21,20 @@ set -u
 
 printf 'curl %s\n' "$*" >> "${FAKE_STATE}/curl.log"
 
-url="" out="" wfmt="" auth=false failflag=false prev=""
+url="" out="" heads="" jar="" wfmt="" auth=false session=false tampered=false forged=false mint=false failflag=false prev=""
 for a in "$@"; do
     case "$prev" in
         -o) out="$a"; prev=""; continue ;;
         -w) wfmt="$a"; prev=""; continue ;;
+        -D) heads="$a"; prev=""; continue ;;
+        -c) jar="$a"; prev=""; continue ;;
+        -b) [[ -f "$a" && -f "${FAKE_STATE}/mint-cookie" ]] && grep -Fqx "$(cat "${FAKE_STATE}/mint-cookie")" "$a" && session=true; prev=""; continue ;;
+        -H) [[ "$a" != 'Cookie: __Host-backstage_session=x.y' ]] || tampered=true; [[ "$a" != Cookie:\ __Host-backstage_session=* || "$a" == 'Cookie: __Host-backstage_session=x.y' ]] || forged=true; prev=""; continue ;;
+        -X) [[ "$a" != POST ]] || mint=true; prev=""; continue ;;
         --config|--resolve|--max-time) prev=""; continue ;;
     esac
     case "$a" in
-        -o|-w) prev="$a" ;;
+        -o|-w|-D|-c|-b|-H|-X) prev="$a" ;;
         --config) auth=true; prev="$a" ;;
         --resolve|--max-time) prev="$a" ;;
         --fail) failflag=true ;;
@@ -41,7 +46,12 @@ done
 
 key="${url#*://}"
 key="${key//\//_}"
-$auth && key="${key}@auth"
+if $mint; then key="${key}@mint"
+elif $tampered; then key="${key}@tampered"
+elif $forged; then key="${key}@forged"
+elif $session; then key="${key}@session"
+elif $auth; then key="${key}@auth"
+fi
 
 mkdir -p "${FAKE_STATE}/fixture-calls"
 counter="${FAKE_STATE}/fixture-calls/${key}"
@@ -71,6 +81,22 @@ header() { sed -n "1,/^---\$/s/^$1: //p" "$file" | head -1; }
 code="$(header http_code)"
 rc="$(header curl_exit)"
 body="$(sed '1,/^---$/d' "$file")"
+if [[ -n "$heads" ]]; then
+    {
+        printf 'HTTP/1.1 %s Fixture\r\n' "$code"
+        for field in location set_cookie www_authenticate content_type; do
+            value="$(header "$field")"
+            [[ -z "$value" ]] || printf '%s: %s\r\n' "$(printf '%s' "$field" | sed 's/_/-/g')" "$value"
+        done
+        printf '\r\n'
+    } > "$heads"
+fi
+if [[ -n "$jar" && "$code" == 303 && -n "$(header set_cookie)" ]]; then
+    payload="$(printf '{\"exp\":%s}' "$(( $(date +%s) + 3600 ))" | base64 | tr '+/' '-_' | tr -d '=\n')"
+    signature="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')"
+    printf '#HttpOnly_jevnotjev.breakoutwithai.com\tTRUE\t/\tTRUE\t0\t__Host-backstage_session\t%s.%s\n' "$payload" "$signature" > "$jar"
+    cp "$jar" "${FAKE_STATE}/mint-cookie"
+fi
 
 served() { local s; s="$(cat "${FAKE_STATE}/$1_served" 2>/dev/null || echo none)"; printf '%s' "$(printf '%s' "$s" | tr -d '[:space:]')"; }
 for pair in STATIC_SHA:static BACKSTAGE_SHA:backstage; do

@@ -57,10 +57,14 @@ EOF
 cat > "${STUB}/curl" <<'EOF'
 #!/usr/bin/env bash
 printf 'curl %s\n' "$*" >> "${FAKE_STATE}/curl.log"
-out=""; prev=""; auth=false; url=""
+out=""; heads=""; jar=""; prev=""; auth=false; session=false; mint=false; url=""
 for a in "$@"; do
     [ "$prev" = -o ] && out="$a"
+    [ "$prev" = -D ] && heads="$a"
+    [ "$prev" = -c ] && jar="$a"
     [ "$a" = --config ] && auth=true
+    [ "$a" = -b ] && session=true
+    [ "$a" = POST ] && [ "$prev" = -X ] && mint=true
     case "$a" in https://*) url="$a" ;; esac
     prev="$a"
 done
@@ -69,12 +73,13 @@ w() { if [ -z "$out" ]; then printf '%s\n' "$1"; elif [ "$out" != /dev/null ]; t
 case "$url" in
     https://a.example.com/) printf 000; exit 60 ;;
     */api/backstage/health)
-        if $auth; then
+        if $auth || $session; then
             if [ -n "${FAKE_HEALTH_BAD:-}" ]; then w "<html>${SECRET}</html>"; else
             w "{\"protocol\":\"backstage/2\",\"version\":\"0123456789abcdef0123456789abcdef01234567\",\"catalogVersion\":\"2026-10-04.1\",\"catalog\":{\"note\":\"${SECRET}\"},\"trial\":{\"available\":true,\"limits\":{\"question\":200}},\"password\":\"${SECRET}\"}"; fi
             printf 200
         else w "unauthorized ${SECRET}"; printf 401; fi ;;
-    */backstage/) if $auth; then w "<html>${SECRET}</html>"; printf 200; else w unauthorized; printf 401; fi ;;
+    */backstage/) if $auth || $session; then w "<html>${SECRET}</html>"; printf 200; else w unauthorized; printf 401; fi ;;
+    */api/auth/password) if $mint; then printf 'HTTP/1.1 303 See Other\r\nSet-Cookie: __Host-backstage_session=fake; Path=/; Secure\r\n\r\n' > "$heads"; printf 'cookie' > "$jar"; printf 303; else printf 405; fi ;;
     */DEPLOYED_SHA) w 0123456789abcdef0123456789abcdef01234567; printf 200 ;;
     *) w "<html>page ${SECRET}</html>"; printf 200 ;;
 esac
@@ -110,7 +115,7 @@ done < "${FAKE_STATE}/ssh.log"
 [[ -z "$mut" && -s "${FAKE_STATE}/ssh.log" ]] && ok "every remote command is read-only" || nope "mutating remote commands: ${mut}"
 grep -q 'capture-fixtures.sh' "${OUT}/MANIFEST.md" 2>/dev/null && grep -q '192.0.2.1' "${OUT}/MANIFEST.md" \
     && ok "MANIFEST.md names the capture command and the host" || nope "manifest: $(cat "${OUT}/MANIFEST.md" 2>/dev/null)"
-for f in nginx.json neighbours.txt http/a.example.com_.txt "http/${H}_backstage_.txt" "http/${H}_api_backstage_health@auth.txt" \
+for f in nginx.json neighbours.txt http/a.example.com_.txt "http/${H}_backstage_.txt" "http/${H}_api_backstage_health@session.txt" \
          "http/${H}_little-shop_.txt" "http/${H}_DEPLOYED_SHA.txt"; do
     [[ -f "${OUT}/${f}" ]] && ok "wrote ${f}" || nope "missing ${f}"
 done
@@ -129,10 +134,11 @@ echo "[T1] (b) every allowlisted fact is present and correct"
 [[ "$(json "${OUT}/nginx.json" servers)" == '[{"serverNames":["a.example.com","www.a.example.com"],"listen":[443]},{"serverNames":["jevnotjev.breakoutwithai.com"],"listen":[80]}]' ]] \
     && ok "nginx servers: names and listen ports per server block" || nope "servers: $(json "${OUT}/nginx.json" servers)"
 want_sha="$(shasum -a 256 "${REPO_ROOT}/.deploy/backstage-nginx.conf" | awk '{print $1}')"
-[[ "$(json "${OUT}/nginx.json" snippet)" == "{\"auth\":\"yes\",\"sha256\":\"${want_sha}\"}" ]] \
-    && ok "snippet: auth yes and the sha256 of the installed (repo) snippet" || nope "snippet: $(json "${OUT}/nginx.json" snippet)"
-[[ "$(sed '1,/^---$/d' "${OUT}/http/${H}_api_backstage_health@auth.txt")" == '{"version":"0123456789abcdef0123456789abcdef01234567","protocol":"backstage/2","catalogVersion":"2026-10-04.1","trial":{"available":true}}' ]] \
-    && ok "health: only version, protocol, catalogVersion, trial.available" || nope "health: $(cat "${OUT}/http/${H}_api_backstage_health@auth.txt")"
+[[ "$(json "${OUT}/nginx.json" snippet)" == "{\"auth\":\"session\",\"sha256\":\"${want_sha}\"}" ]] \
+    && ok "snippet: auth session and the sha256 of the installed (repo) snippet" || nope "snippet: $(json "${OUT}/nginx.json" snippet)"
+if rg -q 'extract_auth=no|if\(auth==="session"\)' "$CAPTURE"; then nope "capture rewrites session auth after extraction"; else ok "capture passes session auth directly to extraction"; fi
+[[ "$(sed '1,/^---$/d' "${OUT}/http/${H}_api_backstage_health@session.txt")" == '{"version":"0123456789abcdef0123456789abcdef01234567","protocol":"backstage/2","catalogVersion":"2026-10-04.1","trial":{"available":true}}' ]] \
+    && ok "health: only version, protocol, catalogVersion, trial.available" || nope "health: $(cat "${OUT}/http/${H}_api_backstage_health@session.txt")"
 [[ "$(sed '1,/^---$/d' "${OUT}/http/${H}_DEPLOYED_SHA.txt")" == 0123456789abcdef0123456789abcdef01234567 ]] \
     && ok "DEPLOYED_SHA: the 40-hex value" || nope "DEPLOYED_SHA: $(cat "${OUT}/http/${H}_DEPLOYED_SHA.txt")"
 [[ -z "$(sed '1,/^---$/d' "${OUT}/http/${H}_little-shop_.txt")" && -z "$(sed '1,/^---$/d' "${OUT}/http/${H}_backstage_.txt")" ]] \
@@ -140,8 +146,10 @@ want_sha="$(shasum -a 256 "${REPO_ROOT}/.deploy/backstage-nginx.conf" | awk '{pr
 [[ "$(cat "${OUT}/neighbours.txt")" == a.example.com ]] && ok "neighbours: the co-tenant names only" || nope "neighbours: $(cat "${OUT}/neighbours.txt")"
 grep 'a.example.com' "${FAKE_STATE}/curl.log" | grep -q -- '--config' \
     && nope "a co-tenant probe carried the private curl config" || ok "co-tenant probes never carry the private curl config"
-grep '/api/backstage/health' "${FAKE_STATE}/curl.log" | grep -q -- '--config' \
-    && ok "the authenticated health read uses the private curl config (backstage_curl)" || nope "auth read without --config"
+grep '/api/auth/password' "${FAKE_STATE}/curl.log" | grep -q -- '--config' \
+    && ok "session mint uses the private curl config" || nope "mint without --config"
+grep '/api/backstage/health' "${FAKE_STATE}/curl.log" | grep -q -- '-b' \
+    && ok "authenticated health read sends the minted jar" || nope "auth read without jar"
 [[ -z "$(staging_left)" ]] && ok "no staging directory is left after a capture" || nope "staging left: $(staging_left)"
 
 echo "[T1] fixture-curl.sh replays the capture"
@@ -150,7 +158,16 @@ code="$(FIXTURE_DIRS="$OUT" PATH="${REPLAY}:${PATH}" curl -q -sS -o /dev/null -w
 [[ "$code" == 000 && $rrc -eq 60 ]] && ok "co-tenant replay: 000, curl exit 60 (as captured)" || nope "replay a.example.com: '${code}' rc=${rrc}"
 code="$(FIXTURE_DIRS="$OUT" PATH="${REPLAY}:${PATH}" curl -q -sS -o /dev/null -w '%{http_code}' "https://${H}/backstage/" 2>/dev/null)"
 [[ "$code" == 401 ]] && ok "anonymous /backstage/ replays 401" || nope "replay /backstage/: '${code}'"
-body="$(FIXTURE_DIRS="$OUT" PATH="${REPLAY}:${PATH}" curl -q -sS --config "$CFG" "https://${H}/api/backstage/health" 2>/dev/null)"
+code="$(FIXTURE_DIRS="$OUT" PATH="${REPLAY}:${PATH}" curl -q -sS -o /dev/null -w '%{http_code}' -b /nonexistent "https://${H}/api/backstage/health" 2>/dev/null)"
+[[ "$code" == 401 ]] && ok "missing cookie jar remains anonymous" || nope "missing cookie jar selected session fixture"
+printf 'foreign-cookie\n' > "${REPLAY}/foreign.jar"
+code="$(FIXTURE_DIRS="$OUT" PATH="${REPLAY}:${PATH}" curl -q -sS -o /dev/null -w '%{http_code}' -b "${REPLAY}/foreign.jar" "https://${H}/api/backstage/health" 2>/dev/null)"
+[[ "$code" == 401 ]] && ok "foreign cookie jar remains anonymous" || nope "foreign cookie jar selected session fixture"
+# The fake honours only a jar its own mint wrote (recorded in FAKE_STATE/mint-cookie).
+mkdir -p "${REPLAY}/state"
+printf '#HttpOnly_jevnotjev.breakoutwithai.com\tTRUE\t/\tTRUE\t0\t__Host-backstage_session\tfake-session\n' > "${REPLAY}/session.jar"
+cp "${REPLAY}/session.jar" "${REPLAY}/state/mint-cookie"
+body="$(FAKE_STATE="${REPLAY}/state" FIXTURE_DIRS="$OUT" PATH="${REPLAY}:${PATH}" curl -q -sS -b "${REPLAY}/session.jar" "https://${H}/api/backstage/health" 2>/dev/null)"
 [[ "$body" == *'"version":"0123456789abcdef0123456789abcdef01234567"'* ]] && ok "authenticated health replays its version" || nope "replay health: '${body}'"
 rm -rf "$REPLAY"
 

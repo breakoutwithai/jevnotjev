@@ -8,6 +8,7 @@ import {
   chmod,
   symlink,
   readlink,
+  stat,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -370,6 +371,10 @@ async function activationFixture(
     authSnippet?: boolean;
     authAfterLock?: boolean;
     curlConfig?: string;
+    sessionGate?: boolean;
+    missingTargetGate?: boolean;
+    stopped?: boolean;
+    mintFailures?: number;
   } = {},
 ): Promise<{
   code: number;
@@ -378,6 +383,7 @@ async function activationFixture(
   output: string;
   curlLog: string;
   remoteLog: string;
+  runtimeEnv: string;
 }> {
   const dir = await mkdtemp(join(tmpdir(), "backstage-activation-"));
   const oldSha = "a".repeat(40),
@@ -409,6 +415,7 @@ async function activationFixture(
           version: sha,
           protocol:
             options.currentV2 && sha === oldSha ? "backstage/2" : "backstage/1",
+          ...(options.sessionGate && !options.missingTargetGate && sha === newSha ? { gate: "session" } : {}),
         }),
       );
       if (!(options.unverified && sha === oldSha))
@@ -437,7 +444,7 @@ async function activationFixture(
       await Bun.write(join(artifact, "server.js"), "server");
       await Bun.write(
         join(artifact, "release.json"),
-        JSON.stringify({ version: newSha, protocol: "backstage/2" }),
+        JSON.stringify({ version: newSha, protocol: "backstage/2", ...(options.sessionGate && !options.missingTargetGate ? { gate: "session" } : {}) }),
       );
       await Bun.write(
         join(dir, "scripts/backstage-build.ts"),
@@ -456,15 +463,13 @@ async function activationFixture(
       join(dir, "remote.ts"),
       `import {appendFileSync,existsSync} from 'node:fs';const root=process.env.FIXTURE??'';const command=process.argv[2]??'';appendFileSync(root+'/remote.log',command+'\\n---\\n');if(command.startsWith('test -f /etc/systemd'))process.exit(0);if(command.startsWith('cat /etc/nginx/sites-enabled')){console.info('server_name neighbor.test;');process.exit(0);}const gated=process.env.AUTH_AFTER_LOCK==='1'?existsSync(root+'/lock/jevnotjev-backstage-deploy'):process.env.AUTH_SNIPPET==='1';const snippet=root+(gated?'/snippet-auth.conf':'/snippet-open.conf');const translated=command.replaceAll('/etc/nginx/snippets/jevnotjev-backstage.conf',snippet).replaceAll('/var/www',root+'/www').replaceAll('/var/lock',root+'/lock');const result=Bun.spawnSync(['bash','-c',translated],{env:process.env,stdin:'inherit',stdout:'pipe',stderr:'pipe'});process.stdout.write(new TextDecoder().decode(result.stdout).replaceAll(root+'/www','/var/www'));process.stderr.write(result.stderr);process.exit(result.exitCode);`,
     );
-    // The installed snippet the real remote auth-state command reads: gated (repo copy) or open.
-    const repoSnippet = await Bun.file(".deploy/backstage-nginx.conf").text();
-    await Bun.write(join(dir, "snippet-auth.conf"), repoSnippet);
+    // Rollback fixtures exercise the staged Basic gate separately from the repo session snippet.
+    const basicSnippet = 'location ^~ /backstage/ { auth_basic "Backstage"; auth_basic_user_file /tmp/htpasswd; }\nlocation ^~ /api/backstage/ { auth_basic "Backstage"; auth_basic_user_file /tmp/htpasswd; }\n';
+    await Bun.write(join(dir, "snippet-auth.conf"), basicSnippet);
+    if (options.sessionGate) await Bun.write(join(dir, "snippet-auth.conf"), await Bun.file(".deploy/backstage-nginx.conf").text());
     await Bun.write(
       join(dir, "snippet-open.conf"),
-      repoSnippet
-        .split("\n")
-        .filter((line) => !line.includes("auth_basic"))
-        .join("\n"),
+      'location ^~ /backstage/ {}\nlocation ^~ /api/backstage/ {}\n',
     );
     const commands: Record<string, string> = {
       git: `#!/usr/bin/env bash\ncase "$1" in rev-parse) echo ${newSha};; status|fetch) exit 0;; *) exit 1;; esac\n`,
@@ -472,9 +477,15 @@ async function activationFixture(
       sleep: "#!/usr/bin/env bash\nexit 0\n",
       mv: `#!/usr/bin/env bun\nimport {renameSync} from 'node:fs';const args=process.argv.slice(2).filter(a=>a!=='-T');renameSync(args[0]??'',args[1]??'');`,
       sha256sum: `#!/usr/bin/env bash\nshasum -a 256 "$@"\n`,
-      systemctl: `#!/usr/bin/env bun\nimport {appendFileSync,existsSync,writeFileSync} from 'node:fs';const root=process.env.FIXTURE??'';appendFileSync(root+'/actions',process.argv.slice(2).join(' ')+'\\n');if(process.argv[2]==='is-enabled'&&process.env.DISABLED==='1')process.exit(1);if(process.argv[2]==='restart'&&process.env.FAIL_RESTART==='1'&&!existsSync(root+'/failed')){writeFileSync(root+'/failed','1');process.exit(1);}`,
-      curl: `#!/usr/bin/env bun\nimport {appendFileSync,readlinkSync,readFileSync} from 'node:fs';const args=process.argv.slice(2);appendFileSync((process.env.FIXTURE??'')+'/curl.log',args.join(' ')+'\\n');const url=args.at(-1)??'';if(url.includes('neighbor.test')){process.stdout.write('200');process.exit(0);}const active=readlinkSync((process.env.FIXTURE??'')+'/www/jevnotjev-backstage-current');if(url.endsWith('/health')){process.stdout.write(JSON.stringify({protocol:process.env.WRONG_PROTOCOL==='1'&&active.endsWith('b'.repeat(40))?'backstage/999':JSON.parse(readFileSync(active+'/release.json','utf8')).protocol,version:active.split('/').at(-1)}));}else{const path=url.endsWith('/')?'index.html':url.split('/').at(-1);if(path==='index.html'&&process.env.CORRUPT_HTML==='1')process.stdout.write('old html');else process.stdout.write(readFileSync(active+'/site/backstage/'+path));}`,
+      systemctl: `#!/usr/bin/env bun\nimport {appendFileSync,existsSync,writeFileSync} from 'node:fs';const root=process.env.FIXTURE??'';appendFileSync(root+'/actions',process.argv.slice(2).join(' ')+'\\n');if(process.argv[2]==='is-enabled'&&process.env.DISABLED==='1')process.exit(1);if(process.argv[2]==='restart'){writeFileSync(root+'/restarted','1');if(process.env.FAIL_RESTART==='1'&&!existsSync(root+'/failed')){writeFileSync(root+'/failed','1');process.exit(1);}}`,
+      curl: `#!/usr/bin/env bun\nimport {appendFileSync,readlinkSync,readFileSync,writeFileSync,existsSync} from 'node:fs';const args=process.argv.slice(2);const root=process.env.FIXTURE??'';appendFileSync(root+'/curl.log',args.join(' ')+'\\n');const url=args.at(-1)??'';if(url.includes('neighbor.test')){process.stdout.write('200');process.exit(0);}if(process.env.STOPPED==='1'&&!existsSync(root+'/restarted'))process.exit(7);if(url.endsWith('/api/auth/password')){const h=args.indexOf('-D'),j=args.indexOf('-c');if(h>=0)writeFileSync(args[h+1]??'', 'HTTP/1.1 303 See Other\\r\\nSet-Cookie: __Host-backstage_session=fake; Path=/; Secure\\r\\n\\r\\n');if(j>=0)writeFileSync(args[j+1]??'', '#HttpOnly_jevnotjev.breakoutwithai.com\\tTRUE\\t/\\tTRUE\\t0\\t__Host-backstage_session\\tfake-session\\n');process.stdout.write('303');process.exit(0);}const active=readlinkSync(root+'/www/jevnotjev-backstage-current');if(url.endsWith('/health')){process.stdout.write(JSON.stringify({protocol:process.env.WRONG_PROTOCOL==='1'&&active.endsWith('b'.repeat(40))?'backstage/999':JSON.parse(readFileSync(active+'/release.json','utf8')).protocol,version:active.split('/').at(-1)}));}else{const path=url.endsWith('/')?'index.html':url.split('/').at(-1);if(path==='index.html'&&process.env.CORRUPT_HTML==='1')process.stdout.write('old html');else process.stdout.write(readFileSync(active+'/site/backstage/'+path));}`,
     };
+    const curlCommand = commands.curl;
+    if (!curlCommand) throw new Error("missing curl fixture command");
+    commands.curl = curlCommand.replace(
+      "if(url.endsWith('/api/auth/password')){",
+      "if(url.endsWith('/api/auth/password')){const countFile=root+'/mint-attempts';const count=Number(existsSync(countFile)?readFileSync(countFile,'utf8'):'0')+1;writeFileSync(countFile,String(count));if(count<=Number(process.env.MINT_FAILURES??'0'))process.exit(7);",
+    );
     for (const [name, body] of Object.entries(commands)) {
       const path = join(dir, "bin", name);
       await Bun.write(path, body);
@@ -489,8 +500,10 @@ async function activationFixture(
       CORRUPT_HTML: corruptHtml ? "1" : "0",
       DISABLED: options.disabled ? "1" : "0",
       WRONG_PROTOCOL: options.wrongProtocol ? "1" : "0",
-      AUTH_SNIPPET: options.authSnippet ? "1" : "0",
+      AUTH_SNIPPET: options.authSnippet || options.sessionGate ? "1" : "0",
       AUTH_AFTER_LOCK: options.authAfterLock ? "1" : "0",
+      STOPPED: options.stopped ? "1" : "0",
+      MINT_FAILURES: String(options.mintFailures ?? 0),
     };
     delete env.BACKSTAGE_CURL_CONFIG;
     if (options.curlConfig) env.BACKSTAGE_CURL_CONFIG = options.curlConfig;
@@ -516,6 +529,7 @@ async function activationFixture(
         new TextDecoder().decode(result.stdout),
       curlLog: await readLog("curl.log"),
       remoteLog: await readLog("remote.log"),
+      runtimeEnv: await Bun.file(join(dir, "www/jevnotjev-backstage-releases", newSha, "runtime.env")).text().catch(() => ""),
     };
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -573,6 +587,70 @@ test("[integration] B8 deployment refuses a service not enabled for reboot", asy
   expect(result.current).toBe("a".repeat(40));
   expect(result.log).not.toContain("restart");
   expect(result.output).toContain("not enabled");
+});
+test("[integration] AU session gate rejects promotion and rollback without a session release before activation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-gate-"));
+  const config = join(dir, "curl");
+  try {
+    await Bun.write(config, 'user = "operator@example.test:fake-password"\n');
+    await chmod(config, 0o600);
+    for (const promote of [true, false]) {
+      const result = await activationFixture(false, false, { promote, sessionGate: true, missingTargetGate: true, curlConfig: config });
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('gate');
+      expect(result.current).toBe("a".repeat(40));
+      expect(result.log).not.toContain("restart");
+      expect(result.curlLog).not.toContain("api/auth/password");
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("[integration] AU stopped service can be replaced under a session gate without a runtime switch", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-gate-"));
+  const config = join(dir, "curl");
+  try {
+    await Bun.write(config, 'user = "operator@example.test:fake-password"\n');
+    await chmod(config, 0o600);
+    for (const promote of [true, false]) {
+      const result = await activationFixture(false, false, { promote, sessionGate: true, stopped: true, curlConfig: config });
+      expect(result.code).toBe(0);
+      expect(result.current).toBe("b".repeat(40));
+      expect(result.runtimeEnv).not.toContain("BACKSTAGE_REQUIRE_SESSION");
+      expect(result.curlLog.match(/api\/auth\/password/g)?.length).toBe(1);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("[integration] AU startup retries failed session mints until the service is ready", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-gate-"));
+  const config = join(dir, "curl");
+  try {
+    await Bun.write(config, 'user = "operator@example.test:fake-password"\n');
+    await chmod(config, 0o600);
+    const result = await activationFixture(false, false, { sessionGate: true, curlConfig: config, mintFailures: 2 });
+    expect(result.code).toBe(0);
+    expect(result.current).toBe("b".repeat(40));
+    expect(result.curlLog.match(/api\/auth\/password/g)?.length).toBe(3);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("[integration] AU failed session promotion stops when previous release lacks the session gate", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-gate-"));
+  const config = join(dir, "curl");
+  try {
+    await Bun.write(config, 'user = "operator@example.test:fake-password"\n');
+    await chmod(config, 0o600);
+    const result = await activationFixture(true, false, { sessionGate: true, curlConfig: config });
+    expect(result.code).not.toBe(0);
+    expect(result.current).toBe("");
+    expect(result.log).toContain("stop jevnotjev-backstage");
+    expect(result.log.match(/restart/g)?.length).toBe(1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("[integration] A3 auth snippet without BACKSTAGE_CURL_CONFIG fails before any change, naming the variable", async () => {
@@ -667,38 +745,32 @@ async function authState(
 }
 test("[unit] sweep #4/#5 auth state reflects effective auth in the supported layout, else fails closed", async () => {
   const repo = await Bun.file(".deploy/backstage-nginx.conf").text();
-  const open = repo
-    .split("\n")
-    .filter((line) => !line.includes("auth_basic"))
-    .join("\n");
-  expect(await authState(repo)).toEqual({ code: 0, out: "yes" });
+  const open = 'location ^~ /backstage/ {} location ^~ /api/backstage/ {}';
+  expect(await authState(repo)).toEqual({ code: 0, out: "session" });
   expect(await authState(open)).toEqual({ code: 0, out: "no" });
   expect(await authState(null)).toEqual({ code: 0, out: "no" });
-  expect(
-    await authState(repo.replaceAll('auth_basic "Backstage";', "auth_basic off;")),
-  ).toEqual({ code: 0, out: "no" });
   const inline =
     'location = /backstage { return 308 /backstage/; }\nlocation ^~ /backstage/ { auth_basic "Backstage"; auth_basic_user_file /etc/jevnotjev-backstage/htpasswd; proxy_pass http://127.0.0.1:3456; }\nlocation ^~ /api/backstage/ { auth_basic "Backstage"; auth_basic_user_file /etc/jevnotjev-backstage/htpasswd; proxy_pass http://127.0.0.1:3456; }\n';
   expect(await authState(inline)).toEqual({ code: 0, out: "yes" });
+  expect(await authState(inline.replaceAll('auth_basic "Backstage";', "auth_basic off;"))).toEqual({ code: 0, out: "no" });
   const failClosed = [
     // gate on one location only
-    repo.replace('    auth_basic "Backstage";\n', "").replace(
-      "    auth_basic_user_file /etc/jevnotjev-backstage/htpasswd;\n",
-      "",
-    ),
+    repo.replace("    auth_request /_backstage_session;\n", ""),
     // auth_basic without a user file
-    repo.replaceAll(
-      "    auth_basic_user_file /etc/jevnotjev-backstage/htpasswd;\n",
-      "",
-    ),
+    inline.replaceAll("auth_basic_user_file /etc/jevnotjev-backstage/htpasswd;", ""),
     // directives outside the two Backstage locations
     `auth_basic "Backstage";\n${open}`,
     // the API location missing
     open.replace("location ^~ /api/backstage/", "location ^~ /api/other/"),
+    repo.replace("auth_request /_backstage_session;", "auth_request /other;"),
+    repo.replace("location = /_backstage_session", "location = /other"),
+    `${repo}\nlocation ^~ /api/auth/ { auth_basic off; }`,
+    `${repo}\nlocation /extra { auth_request /_backstage_session; }`,
   ];
   for (const snippet of failClosed) expect((await authState(snippet)).code).not.toBe(0);
   if (process.getuid?.() !== 0)
     expect((await authState(repo, 0o000)).code).not.toBe(0);
+  expect(await authState(`# auth_basic off;\n${repo}`)).toEqual({ code: 0, out: "session" });
 });
 test("[integration] sweep #8 the documented curl-config command never exposes the password", async () => {
   const docLine = (text: string) =>
@@ -706,9 +778,8 @@ test("[integration] sweep #8 the documented curl-config command never exposes th
       .split("\n")
       .map((line) => line.trim())
       .find((line) => line.includes("backstage-curl.XXXXXX"));
-  const command = docLine(await Bun.file("docs/backstage-deploy.md").text());
+  const command = docLine(await Bun.file("docs/DEPLOY.md").text());
   expect(command).toBeDefined();
-  expect(docLine(await Bun.file("docs/DEPLOY.md").text())).toBe(command);
   const home = join(await mkdtemp(join(tmpdir(), "backstage-home-")), "with space");
   const dest = join(home, ".config/jevnotjev/backstage-curl");
   try {
@@ -748,6 +819,60 @@ test("[unit] A3 the curl config is required exactly when the snippet has auth", 
   expect(require("no").exitCode).toBe(0);
   expect(require("unknown").exitCode).not.toBe(0);
   expect(require("yes", "/nonexistent/backstage-curl").exitCode).not.toBe(0);
+  const missingSession = require("session");
+  expect(missingSession.exitCode).not.toBe(0);
+  expect(new TextDecoder().decode(missingSession.stderr)).toContain("BACKSTAGE_CURL_CONFIG");
+});
+
+test("[unit] AU S2 session mint keeps credentials out of argv and removes its private jar on exit", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-mint-"));
+  try {
+    const curl = join(dir, "curl");
+    const config = join(dir, "config");
+    const log = join(dir, "argv");
+    const jarPath = join(dir, "jar-path");
+    const priorTrap = join(dir, "prior-trap");
+    await Bun.write(config, 'user = "operator@example.test:sentinel-secret"\n');
+    await chmod(config, 0o600);
+    await Bun.write(curl, '#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$MINT_LOG"\nheads=""; jar=""; prev=""; for arg in "$@"; do case "$prev" in -D) heads="$arg";; -c) jar="$arg";; esac; prev="$arg"; done\nif [[ -n "$jar" ]]; then printf "HTTP/1.1 303 See Other\\r\\nSet-Cookie: __Host-backstage_session=fake; Path=/; Secure\\r\\n\\r\\n" > "$heads"; printf "cookie" > "$jar"; printf 303; else printf 200; fi\n');
+    await chmod(curl, 0o755);
+    const command = 'source .deploy/backstage-lib.sh; trap \'printf prior > "$MINT_PRIOR_TRAP"\' EXIT; BACKSTAGE_GATE=session; backstage_curl -o /dev/null -w "%{http_code}" "$HEALTH_URL/backstage/" >/dev/null; backstage_curl -o /dev/null -w "%{http_code}" "$HEALTH_URL/api/backstage/health" >/dev/null; first="$BACKSTAGE_SESSION_JAR"; bun -e \'import {statSync} from "node:fs"; console.log((statSync(process.argv[1]).mode & 0o777).toString(8))\' "$first"; backstage_session_reset; [[ ! -e "$first" ]] || exit 8; backstage_curl -o /dev/null -w "%{http_code}" "$HEALTH_URL/backstage/" >/dev/null; printf "%s" "$BACKSTAGE_SESSION_JAR" > "$MINT_JAR_PATH"';
+    const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`, BACKSTAGE_CURL_CONFIG: config, MINT_LOG: log, MINT_JAR_PATH: jarPath, MINT_PRIOR_TRAP: priorTrap, HEALTH_URL: "https://own.test", CURL_PIN: "" };
+    const result = Bun.spawnSync(["bash", "-c", command], { env, stdout: "pipe", stderr: "pipe" });
+    expect(result.exitCode).toBe(0);
+    expect(new TextDecoder().decode(result.stdout).trim()).toBe("600");
+    const argv = await Bun.file(log).text();
+    expect(argv).not.toContain("sentinel-secret");
+    expect(argv.match(/api\/auth\/password/g)?.length).toBe(2);
+    expect(argv.match(/ -b /g)?.length).toBe(3);
+    expect(argv).not.toContain(" -L ");
+    const jar = await Bun.file(jarPath).text();
+    expect(await stat(jar).catch(() => null)).toBeNull();
+    expect(await Bun.file(priorTrap).text()).toBe("prior");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("[unit] AU S2 a failed mint names the curl config and leaves no jar", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "backstage-mint-fail-"));
+  try {
+    const curl = join(dir, "curl");
+    const config = join(dir, "config");
+    await Bun.write(config, 'user = "operator@example.test:sentinel-secret"\n');
+    await chmod(config, 0o600);
+    await Bun.write(curl, '#!/usr/bin/env bash\nheads=""; prev=""; for arg in "$@"; do [[ "$prev" != -D ]] || heads="$arg"; prev="$arg"; done\nprintf "HTTP/1.1 401 Unauthorized\\r\\n\\r\\n" > "$heads"; printf 401\n');
+    await chmod(curl, 0o755);
+    const result = Bun.spawnSync(["bash", "-c", 'source .deploy/backstage-lib.sh; BACKSTAGE_GATE=session; backstage_curl "$HEALTH_URL/backstage/"'], {
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, BACKSTAGE_CURL_CONFIG: config, HEALTH_URL: "https://own.test", CURL_PIN: "", TMPDIR: dir }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(result.exitCode).not.toBe(0);
+    expect(new TextDecoder().decode(result.stderr)).toContain("BACKSTAGE_CURL_CONFIG");
+    expect(new TextDecoder().decode(result.stderr)).not.toContain("sentinel-secret");
+    expect((await readdir(dir)).some((name) => name.startsWith("jevnotjev-session."))).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("[unit] JF6 service isolates durable ledger and funded secrets outside release permissions", async () => {

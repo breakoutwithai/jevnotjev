@@ -52,7 +52,7 @@ Usage: .deploy/ship.sh [--module static|backstage|all] [ACTION] [--dry-run]
                                   static: previous verified release (no SHA)
                                   backstage: --rollback <full 40-char verified SHA>
     --verify [SHA]                read-only live check, whole stack: every module serves SHA
-                                  (default origin/main), Backstage 401 without and 200 with
+                                  (default origin/main), Backstage Basic or session S2 checks with
                                   BACKSTAGE_CURL_CONFIG, /, /label/, /little-shop/ 200, and a release
                                   tag on origin. Also runs at the end of every deploy, setup,
                                   rollback and --status.
@@ -241,6 +241,8 @@ if [ -f \"\$U\" ] && [ -f \"\$S\" ] && sed 's/#.*//' \"\$V\" 2>/dev/null | grep 
     # Effective auth of the installed snippet; unreadable or unrecognised is unknown, never no.
     # With the gate on, no Backstage probe is sent without the private curl config.
     auth="$(backstage_auth_state)" || auth=unknown
+    BACKSTAGE_GATE="$auth"; export BACKSTAGE_GATE
+    setv backstage auth "$auth"
     probe="${probe}
 auth=${auth}"
     setv backstage probe "$probe"
@@ -250,6 +252,7 @@ auth=${auth}"
         setv backstage served unknown
         return 1
     fi
+    [[ "$auth" != session ]] || backstage_session_mint || return 1
     # A failed transfer is never parsed, even when it delivered a complete body first.
     health="$(backstage_curl -sS --fail --max-time 15 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" 2>/dev/null)" || health=""
     # Top-level release fields only; the body also nests a catalog that is not the release.
@@ -379,7 +382,7 @@ run_status() {
         esac
     done
     [[ "$MODULE" != all ]] || want_tag=yes
-    closing_verify "$want_static" "$want_backstage" "$want_tag" "$release" || vrc=6
+    closing_verify "$want_static" "$want_backstage" "$want_tag" "$release" all yes "$(getv backstage auth)" || vrc=6
     [[ "$drifted" -eq 0 ]] || return 3
     return "$vrc"
 }
@@ -401,7 +404,10 @@ if [[ "$ACTION" == verify ]]; then
         log_error "origin/main could not be fetched; refusing to verify against a cached ref. Pass the SHA explicitly: .deploy/ship.sh --verify <SHA>"
         exit 6
     fi
-    verify_live "$want" "$want" yes yes || exit 6
+    BACKSTAGE_GATE="$(backstage_auth_state)" || { log_error "Cannot read the Backstage gate state"; exit 6; }
+    export BACKSTAGE_GATE
+    [[ "$BACKSTAGE_GATE" != session ]] || backstage_session_mint || exit 6
+    verify_live "$want" "$want" yes yes all yes "$BACKSTAGE_GATE" || exit 6
     exit 0
 fi
 
@@ -603,7 +609,7 @@ take_ship_lock() {
         exit 1
     fi
     LOCKED=true
-    trap 'rc=$?; release_ship_lock; exit $rc' EXIT
+    trap 'rc=$?; backstage_session_cleanup; release_ship_lock; exit $rc' EXIT
 }
 
 if [[ "$ACTION" == rollback ]] && ! $DRY_RUN; then
@@ -736,7 +742,7 @@ if [[ "$ACTION" != deploy || "$FINAL_RC" -ne 0 ]]; then
     else
         want_backstage="$ROLLBACK_SHA"
     fi
-    closing_verify "$want_static" "$want_backstage" no "$(backstage_release_state)" "$scope" "$static_release" || exit 6
+    closing_verify "$want_static" "$want_backstage" no "$(backstage_release_state)" "$scope" "$static_release" "$(getv backstage auth)" || exit 6
     exit 0
 fi
 
@@ -781,7 +787,7 @@ for m in "${MODULES[@]}"; do
 done
 # Backstage's release state as observed: a static-only deploy may leave Backstage with no release.
 [[ " ${MODULES[*]} " == *" backstage "* ]] || read_backstage >/dev/null 2>&1 || true
-closing_verify "$want_static" "$want_backstage" no "$(backstage_release_state)" || exit 6
+closing_verify "$want_static" "$want_backstage" no "$(backstage_release_state)" all yes "$(getv backstage auth)" || exit 6
 
 if [[ "$MODULE" == all && "$NO_RELEASE" == false ]]; then
     release_record || exit 5

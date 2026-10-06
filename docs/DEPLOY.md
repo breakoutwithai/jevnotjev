@@ -37,6 +37,12 @@ the same test, else it exits 1 and records no release. A curl that fails is neve
 when it delivered a complete body first.
 `backstage-deploy.sh` also refuses until Backstage setup exists and unless HEAD's merged PR body
 references #67; plain `ship.sh` then reports backstage FAILED with its exit code.
+With the installed session gate, a promotion or rollback target must declare `"gate": "session"`
+in `release.json`; the deploy refuses it before activation otherwise. Automatic fallback checks
+the previous release the same way and stops the service if it cannot safely activate it. The
+nginx snippet sets `X-Backstage-Gate: session` on both gated routes; the service uses that header
+to enforce the session. The session probe mints inside the post-restart retry loop, so a stopped
+or starting service can be replaced.
 
 ### Drift and `--status`
 
@@ -49,8 +55,9 @@ cannot be read, backstage drift is UNKNOWN. `.deploy/lib.sh` and `.deploy/config
 both. `--status` prints, per module, the
 served SHA, `main <sha>`, `drift`, `release <tag>` when a release tag points at the served SHA,
 the current release directory, its verified marker, the service state, whether setup is present
-and, for backstage, `auth yes|no|unknown`. With the Basic Auth gate on the host, every Backstage
-read (status and the deploy's drift read) uses `BACKSTAGE_CURL_CONFIG`; without it no Backstage
+and, for backstage, `auth yes|session|no|unknown`. With either gate on the host, every Backstage
+read (status and the deploy's drift read) uses `BACKSTAGE_CURL_CONFIG`; the session gate mints one
+cookie and sends it on subsequent probes. Without the config no Backstage
 probe is sent, backstage drift is UNKNOWN and `--status` fails naming the variable.
 
 | drift | Meaning |
@@ -104,10 +111,10 @@ reads the box, and makes no tag, push or `gh` call.
 
 Backstage specifics: `docs/backstage-deploy.md`.
 
-## Backstage Basic Auth (before `--setup --module backstage`)
+## Backstage Basic Auth (staged rollout before the session setup)
 
 Both Backstage locations require Basic Auth. Run these in order (full detail and the openssl
-variant in `docs/backstage-deploy.md` § Basic Auth gate):
+variant in `docs/backstage-deploy.md` § Sign-in gate):
 
 ```bash
 # On the host as root (ssh -t), password typed at the prompt, tester replaced with the login
@@ -126,6 +133,12 @@ Setup refuses, changing nothing, until the htpasswd is root:<nginx group> 0640 a
 verifies after the reload that both routes answer 401 without credentials and reach the upstream with them,
 restoring the previous nginx config otherwise. Backstage deploy, rollback and `--status` fail
 naming `BACKSTAGE_CURL_CONFIG` when the host has the gate and the variable is unset.
+
+After the sign-in-capable release is deployed and auth files are configured, setup replaces the
+Basic snippet with the session snippet and verifies the session row of S2. The curl config then
+holds an operators-file email and password. Deploy probes POST it through `--config` to
+`/api/auth/password`, keep the returned session in a private temporary cookie jar, and remove
+the jar at shell exit. The credential and cookie value never enter command arguments or output.
 
 ## First time only: vhost and certificate
 
@@ -182,7 +195,7 @@ expected value in a seam test is a literal from this list or the spec line it ci
 recomputed from the scripts.
 
 - **S1 Operator command to served state.** After `.deploy/ship.sh` exits 0, every module serves `origin/main`: static `/DEPLOYED_SHA` and Backstage `/api/backstage/health` `version` both equal the `origin/main` SHA, and an annotated release tag `vYYYY.MM.DD.N` on origin points at it.
-- **S2 Security invariants.** Unauthenticated GET of `/backstage/` and `/api/backstage/health` returns 401; with `BACKSTAGE_CURL_CONFIG` both return 200 (502 only while no Backstage release exists, `docs/backstage-deploy.md:53`); the public paths `/`, `/label/` and `/little-shop/` return 200.
+- **S2 Security invariants.** With gate `yes` (Basic), anonymous `/backstage/` and `/api/backstage/health` return 401; with `BACKSTAGE_CURL_CONFIG` both return 200 (502 only while no Backstage release exists). With gate `session`, anonymous `/backstage/` returns 302 with `Location` exactly `${HEALTH_URL}/backstage/sign-in?next=/backstage/` or `/backstage/sign-in?next=/backstage/`; anonymous `/api/backstage/health` returns 401 with a JSON content type and body exactly `{"code":"unauthenticated"}`, without `WWW-Authenticate`; anonymous `/backstage/sign-in` returns 200 containing `action="/api/auth/password"` and no Backstage app `id="sign-out"` markup; both a garbage cookie and a well-formed cookie with a wrong signature still return 302 and 401 on the gated page and API; a minted session returns 200 on both gated paths (502 only while no Backstage release exists). The public paths `/`, `/label/` and `/little-shop/` return 200.
 - **S3 Co-tenant safety.** No other `server_name` on the host changes status across a deploy or setup (`docs/DEPLOY.md:164`, `docs/backstage-deploy.md:52`).
 
 | Seam | Tests |
@@ -193,7 +206,8 @@ recomputed from the scripts.
 
 ## Live verify
 
-`.deploy/ship.sh --verify [SHA]` is read-only (HTTP pinned to the host, plus `git ls-remote`; no ssh)
+`.deploy/ship.sh --verify [SHA]` is read-only (HTTP pinned to the host, a read of the installed
+nginx snippet through SSH to determine the gate, plus `git ls-remote`)
 and asserts S1 and S2 for the whole stack, one `PASS`/`FAIL` line per assertion, exit 6 on any
 failure. SHA defaults to `origin/main` as fetched now: if the fetch fails it exits 6 rather than
 verify against a cached ref, so pass the SHA explicitly to verify offline. Passing another SHA checks
@@ -260,4 +274,4 @@ bun scripts/gate.ts
 | `JEVNOTJEV_SERVER_USER` | `root` |
 | `DEPLOY_ALLOW_BRANCH` | `main` (the commit must still exist on a remote branch) |
 | `CERTBOT_EMAIL` | none, required by `provision.sh` when a certificate is issued |
-| `BACKSTAGE_CURL_CONFIG` | none, required by Backstage setup, deploy, rollback and status once the Basic Auth gate is on the host |
+| `BACKSTAGE_CURL_CONFIG` | none, required by Backstage setup, deploy, rollback, status and verify while the Basic or session gate is on the host |

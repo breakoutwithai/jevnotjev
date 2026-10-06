@@ -53,7 +53,7 @@ source "${DEPLOY_DIR}/lib.sh"
 source "${DEPLOY_DIR}/backstage-lib.sh"
 
 [[ -n "${BACKSTAGE_CURL_CONFIG:-}" ]] && backstage_check_curl_config \
-    || fail "BACKSTAGE_CURL_CONFIG must name your private 0600 curl config (docs/backstage-deploy.md § Basic Auth gate)."
+    || fail "BACKSTAGE_CURL_CONFIG must name your private 0600 curl config (docs/backstage-deploy.md § Sign-in gate)."
 [[ -f "$SSH_KEY" ]] || fail "SSH key not found: ${SSH_KEY}"
 
 STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -64,6 +64,7 @@ mkdir "$OUT" 2>/dev/null || fail "Output directory exists: ${OUT}. Choose anothe
 PUBLISHED=false
 STAGE=""
 cleanup() {
+    backstage_session_cleanup
     [[ -z "$STAGE" ]] || rm -rf "$STAGE"
     $PUBLISHED || rm -rf "$OUT"
 }
@@ -97,6 +98,10 @@ remote 'echo ok' >/dev/null 2>&1 || abort "Cannot SSH to ${SERVER}. Check user, 
 nginx_text="$(remote 'nginx -T 2>/dev/null')" || abort "Remote read failed: nginx -T"
 snippet="$(remote "cat /etc/nginx/snippets/jevnotjev-backstage.conf")" || abort "Remote read failed: the Backstage snippet"
 snippet_auth="$(printf '%s\n' "$snippet" | backstage_snippet_auth)" || abort "Reading the snippet's auth state failed"
+BACKSTAGE_GATE="$snippet_auth"; export BACKSTAGE_GATE
+[[ "$snippet_auth" != session ]] || backstage_session_mint || abort "BACKSTAGE_CURL_CONFIG could not mint a session"
+auth_suffix=auth
+[[ "$snippet_auth" != session ]] || auth_suffix=session
 snippet_sha="$(printf '%s\n' "$snippet" | shasum -a 256 | awk '{print $1}')" || abort "Hashing the snippet failed"
 unset snippet
 printf '%s\n' "$nginx_text" | bun "$EXTRACT" nginx "$snippet_auth" "$snippet_sha" > "${STAGE}/nginx.json" \
@@ -139,7 +144,7 @@ capture_health() {
     local out code health="" rc=0 key label=""
     key="$(key_for "${HEALTH_URL}/api/backstage/health")"
     if [[ "$1" == auth ]]; then
-        key="${key}@auth"; label=" (with BACKSTAGE_CURL_CONFIG)"
+        key="${key}@${auth_suffix}"; label=" (with BACKSTAGE_CURL_CONFIG)"
         out="$(backstage_curl -sS -w '\n%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" 2>/dev/null)" || rc=$?
     else
         out="$(curl -q -sS -w '\n%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}/api/backstage/health" 2>/dev/null)" || rc=$?
@@ -156,7 +161,7 @@ capture_health anon
 # This domain with credentials: the page's status; the health route reduced to its four fields.
 rc=0
 code="$(backstage_curl -sS -o /dev/null -w '%{http_code}' --max-time 15 ${CURL_PIN} "${HEALTH_URL}/backstage/" 2>/dev/null)" || rc=$?
-write_http "$(key_for "${HEALTH_URL}/backstage/")@auth" "${HEALTH_URL}/backstage/ (with BACKSTAGE_CURL_CONFIG)" "${code:-000}" "$rc"
+write_http "$(key_for "${HEALTH_URL}/backstage/")@${auth_suffix}" "${HEALTH_URL}/backstage/ (with BACKSTAGE_CURL_CONFIG)" "${code:-000}" "$rc"
 capture_health auth
 
 listing="$(cd "$STAGE" && find . -type f | sed 's#^\./##' | sort)" || abort "Listing the staged files failed"

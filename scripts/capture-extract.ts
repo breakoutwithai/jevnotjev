@@ -3,7 +3,7 @@
 // validated against a strict shape. Anything that does not parse, or a value outside its shape,
 // is an error (the capture then fails), and error messages never echo the offending text.
 //
-//   bun scripts/capture-extract.ts nginx <auth yes|no|unknown> <snippet sha256>   < nginx -T text
+//   bun scripts/capture-extract.ts nginx <auth yes|session|no|unknown> <snippet sha256>   < nginx -T text
 //   bun scripts/capture-extract.ts health                                         < health body
 import { readFileSync } from "node:fs";
 
@@ -104,7 +104,7 @@ function directive(words: string[], stack: Array<NginxServer | null>, facts: Ngi
 }
 
 export function nginxRecord(text: string, auth: string, sha256: string): string {
-  if (auth !== "yes" && auth !== "no" && auth !== "unknown") throw new Error("snippet auth must be yes, no or unknown");
+  if (auth !== "yes" && auth !== "session" && auth !== "no" && auth !== "unknown") throw new Error("snippet auth must be yes, session, no or unknown");
   if (!/^[0-9a-f]{64}$/.test(sha256)) throw new Error("snippet sha256 must be 64 hex characters");
   const facts = extractNginx(text);
   return JSON.stringify({ user: facts.user, servers: facts.servers, snippet: { auth, sha256 } }, null, 2);

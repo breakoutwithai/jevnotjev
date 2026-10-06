@@ -1,110 +1,101 @@
-import { expect, test } from "bun:test";
-import {
-  keptLogin,
-  replaceCachedLogin,
-  signOut,
-  signOutPassword,
-} from "./signout.ts";
+import { expect, spyOn, test } from "bun:test";
+import { SIGNED_OUT_URL, signOut, signOutRequest } from "./signout.ts";
 
-class FakeRequest {
-  opened: [string, string, boolean, string, string] | undefined;
-  timeout = 0;
-  status = 0;
-  onloadend: ((event: ProgressEvent<EventTarget>) => void) | null = null;
-  sends: unknown[][] = [];
+const failureNotice = "Sign-out failed. Your keys are cleared, but you are still signed in. Try again, or close the browser.";
 
-  open(method: string, url: string, async: boolean, user: string, password: string) {
-    this.opened = [method, url, async, user, password];
-  }
-
-  send(...args: unknown[]) {
-    this.sends.push(args);
-  }
+function redirectedResponse(): Response {
+  const response = new Response(null, { status: 200 });
+  Object.defineProperty(response, "redirected", { value: true });
+  return response;
 }
 
-test("[unit] SO2 wrong credentials use a random lowercase hex password", () => {
-  const first = signOutPassword(new Uint8Array(16).fill(0xab));
-  const second = signOutPassword(new Uint8Array(16).fill(0xcd));
-  expect(first).toMatch(/^[0-9a-f]{32}$/);
-  expect(second).toMatch(/^[0-9a-f]{32}$/);
-  expect(first).not.toBe(second);
+test("[unit] A2 sign-out POST uses the session and no Authorization header", async () => {
+  const calls: unknown[][] = [];
+  const response = new Response(null, { status: 303 });
+  const durations: number[] = [];
+  const signal = new AbortController().signal;
+  const spy = spyOn(AbortSignal, "timeout").mockImplementation((milliseconds) => {
+    durations.push(milliseconds);
+    return signal;
+  });
+  try {
+    const result = await signOutRequest((...args) => { calls.push(args); return Promise.resolve(response); });
+    expect(result).toBe(response);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[0]).toBe("/api/auth/sign-out");
+    const options = calls[0]?.[1];
+    expect(options).not.toHaveProperty("headers");
+    expect(options).toMatchObject({ method: "POST", credentials: "same-origin", signal });
+    expect(durations).toEqual([10000]);
+  } finally {
+    spy.mockRestore();
+  }
 });
 
-test("[unit] SO2 request sends one timed GET with XHR credentials", async () => {
-  const request = new FakeRequest();
-  const password = signOutPassword(new Uint8Array(16).fill(0xab));
-  const result = replaceCachedLogin(request, password);
-  expect(request.opened).toEqual(["GET", "/api/backstage/sign-out", true, "signed-out", password]);
-  expect(request.timeout).toBe(10000);
-  expect(request.sends).toEqual([[]]);
-  request.status = 401;
-  request.onloadend?.(Object.assign(new Event("loadend"), { lengthComputable: false, loaded: 0, total: 0 }));
-  expect(await result).toBe(401);
-});
-
-test("[unit] SO2 request resolves status zero after network error or timeout", async () => {
-  // XHR fires loadend with status 0 after an error, an abort or a timeout.
-  const request = new FakeRequest();
-  const result = replaceCachedLogin(request, "wrong-password");
-  request.status = 0;
-  request.onloadend?.(Object.assign(new Event("loadend"), { lengthComputable: false, loaded: 0, total: 0 }));
-  expect(await result).toBe(0);
-});
-
-test("[unit] SO3 clear finishes synchronously before request and 401 navigates", async () => {
+test("[unit] A2 clear precedes POST and navigation follows POST", async () => {
   const calls: string[] = [];
-  let cleared = false;
-  await signOut({
-    clear: () => { calls.push("clear"); cleared = true; },
-    request: () => { expect(cleared).toBe(true); calls.push("request"); return Promise.resolve(401); },
+  let complete: ((response: Response) => void) | undefined;
+  const pending = signOut({
+    clear: () => { calls.push("clear"); },
+    request: () => { calls.push("POST"); return new Promise<Response>((resolve) => { complete = resolve; }); },
     navigate: (url) => { calls.push(`navigate:${url}`); },
     notice: (message) => { calls.push(`notice:${message}`); },
   });
-  expect(calls).toEqual([
-    "clear",
-    "notice:Signing out. Keys and session cleared.",
-    "request",
-    "navigate:/backstage/?signed-out=1",
-  ]);
+  expect(calls).toEqual(["clear", "notice:Signing out. Keys and session cleared.", "POST"]);
+  complete?.(redirectedResponse());
+  expect(await pending).toBe(true);
+  expect(calls.at(-1)).toBe(`navigate:${SIGNED_OUT_URL}`);
 });
 
-test("[unit] SO3 every response status navigates to the kept-login warning", async () => {
-  for (const status of [0, 200, 404, 502]) {
-    const calls: string[] = [];
-    await signOut({
+for (const status of [200, 404, 502]) test(`[unit] A2 HTTP ${status} without a successful redirect fails`, async () => {
+  const calls: string[] = [];
+  const success = await signOut({
+    clear: () => { calls.push("clear"); },
+    request: () => {
+      calls.push("POST");
+      const response = new Response(null, { status });
+      if (status === 502) Object.defineProperty(response, "redirected", { value: true });
+      return Promise.resolve(response);
+    },
+    navigate: (url) => { calls.push(`navigate:${url}`); },
+    notice: (message) => { calls.push(`notice:${message}`); },
+  });
+  expect(success).toBe(false);
+  expect(calls).toEqual(["clear", "notice:Signing out. Keys and session cleared.", "POST", `notice:${failureNotice}`]);
+});
+
+test("[unit] A2 rejected POST fails without navigation", async () => {
+  const calls: string[] = [];
+  const success = await signOut({
+    clear: () => { calls.push("clear"); },
+    request: () => { calls.push("POST"); return Promise.reject(new Error("offline")); },
+    navigate: (url) => { calls.push(`navigate:${url}`); },
+    notice: (message) => { calls.push(`notice:${message}`); },
+  });
+  expect(success).toBe(false);
+  expect(calls).toEqual(["clear", "notice:Signing out. Keys and session cleared.", "POST", `notice:${failureNotice}`]);
+});
+
+test("[unit] A2 timed-out POST fails without navigation", async () => {
+  const calls: string[] = [];
+  const controller = new AbortController();
+  const spy = spyOn(AbortSignal, "timeout").mockImplementation(() => controller.signal);
+  try {
+    const pending = signOut({
       clear: () => { calls.push("clear"); },
-      request: () => { calls.push("request"); return Promise.resolve(status); },
+      request: () => signOutRequest((_input, init) => {
+        expect(init.signal).toBe(controller.signal);
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new DOMException("Timed out", "TimeoutError")));
+        });
+      }),
       navigate: (url) => { calls.push(`navigate:${url}`); },
       notice: (message) => { calls.push(`notice:${message}`); },
     });
-    expect(calls).toEqual([
-      "clear",
-      "notice:Signing out. Keys and session cleared.",
-      "request",
-      "navigate:/backstage/?signed-out=1",
-    ]);
+    controller.abort(new DOMException("Timed out", "TimeoutError"));
+    expect(await pending).toBe(false);
+    expect(calls).toEqual(["clear", "notice:Signing out. Keys and session cleared.", `notice:${failureNotice}`]);
+  } finally {
+    spy.mockRestore();
   }
-});
-
-test("[unit] SO3 rejected request still navigates to the kept-login warning", async () => {
-  const calls: string[] = [];
-  await signOut({
-    clear: () => { calls.push("clear"); },
-    request: () => { calls.push("request"); return Promise.reject(new Error("offline")); },
-    navigate: (url) => { calls.push(`navigate:${url}`); },
-    notice: (message) => { calls.push(`notice:${message}`); },
-  });
-  expect(calls).toEqual([
-    "clear",
-    "notice:Signing out. Keys and session cleared.",
-    "request",
-    "navigate:/backstage/?signed-out=1",
-  ]);
-});
-
-test("[unit] SO4 only the signed-out query key identifies a kept login", () => {
-  expect(keptLogin("?signed-out=1")).toBe(true);
-  expect(keptLogin("?signed-out")).toBe(true);
-  for (const search of ["", "?other=1", "?x=signed-out"])
-    expect(keptLogin(search)).toBe(false);
 });

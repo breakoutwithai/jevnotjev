@@ -39,6 +39,9 @@ fi
 
 # shellcheck source=/dev/null
 source "$SETUP"
+BASIC_SNIPPET="${KEYDIR}/basic-nginx.conf"
+git -C "$REPO_ROOT" show d73ed18:.deploy/backstage-nginx.conf > "$BASIC_SNIPPET" || exit 1
+BS_SNIPPET_SRC="$BASIC_SNIPPET"
 
 INCLUDE_LINE="include /etc/nginx/snippets/jevnotjev-backstage.conf;"
 
@@ -120,6 +123,10 @@ EOF
     cat > "${STUB}/nginx" <<'EOF'
 #!/usr/bin/env bash
 v="${FAKE_BOX}/etc/nginx/sites-available/jevnotjev.breakoutwithai.com"
+if [ "$1" = -V ]; then
+    [ "${SESSION_MISSING:-}" = module ] || echo 'configure arguments: --with-http_auth_request_module' >&2
+    exit 0
+fi
 if [ "$1" = -T ]; then
     # Effective config dump: nginx.conf plus everything it includes.
     [ -f "${FAKE_BOX}/state/nginx_T_fail" ] && { echo 'nginx: [emerg] dump failed' >&2; exit 1; }
@@ -136,6 +143,16 @@ if [ "$1" = -t ]; then
         echo 'nginx: [emerg] test failure' >&2; exit 1
     fi
     echo 'nginx: configuration file test is successful' >&2; exit 0
+fi
+exit 1
+EOF
+    cat > "${STUB}/curl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *'--max-time 5'* && "$*" == *'http://127.0.0.1:3456/api/auth/session'* ]]; then
+    if [[ "${SESSION_MISSING:-}" == release ]]; then printf '{"code":"unauthenticated"}\n404'
+    elif [[ "${SESSION_MISSING:-}" == unconfigured ]]; then printf '{"code":"unauthenticated","signIn":"unconfigured"}\n401'
+    else printf '{"code":"unauthenticated","signIn":"ready"}\n401'; fi
+    exit 0
 fi
 exit 1
 EOF
@@ -158,6 +175,11 @@ make_box() {
     printf 'tester:$2y$05$hashhashhashhashhashhu\n' > "$HT"
     printf 'root www-data 640 44\n' > "${HT}.statmeta"
     printf 'root www-data 750 4096\n' > "${BOX}/etc/jevnotjev-backstage.statmeta"
+    mkdir -p "${BOX}/var/lib/jevnotjev-backstage"
+    printf 'BACKSTAGE_SESSION_SECRET=%s\nBACKSTAGE_TRUST_PROXY=loopback\n' "$(printf 'f%.0s' {1..64})" > "${BOX}/etc/jevnotjev-backstage/auth.env"
+    printf 'root root 600 40\n' > "${BOX}/etc/jevnotjev-backstage/auth.env.statmeta"
+    printf '[{"email":"tester@example.test"}]\n' > "${BOX}/var/lib/jevnotjev-backstage/operators.json"
+    printf 'jevnotjev-backstage jevnotjev-backstage 600 37\n' > "${BOX}/var/lib/jevnotjev-backstage/operators.json.statmeta"
     VH="${BOX}/etc/nginx/sites-available/jevnotjev.breakoutwithai.com"
     certbot_vhost > "$VH"
     ln -s "$VH" "${BOX}/etc/nginx/sites-enabled/jevnotjev.breakoutwithai.com"
@@ -166,7 +188,7 @@ make_box() {
     if [[ "$configured" == yes ]]; then
         touch "${BOX}/state/user" "${BOX}/state/enabled"
         cp "${REPO_ROOT}/.deploy/backstage.service" "${BOX}/etc/systemd/system/jevnotjev-backstage.service"
-        cp "${REPO_ROOT}/.deploy/backstage-nginx.conf" "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
+        cp "$BS_SNIPPET_SRC" "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
         insert_include "$INCLUDE_LINE" jevnotjev.breakoutwithai.com < "$VH" > "${VH}.x" && mv "${VH}.x" "$VH"
     fi
     ORIGINAL_VHOST="$(cat "$VH")"
@@ -309,7 +331,7 @@ cmp -s "${BOX}/etc/systemd/system/jevnotjev-backstage.service" "${REPO_ROOT}/.de
 grep -Eq 'systemctl[[:space:]]+(start|restart)' "$RLOG" \
     && nope "setup started the service before a release exists" \
     || ok "step 2: the service is enabled but never started"
-cmp -s "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" "${REPO_ROOT}/.deploy/backstage-nginx.conf" \
+cmp -s "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" "$BS_SNIPPET_SRC" \
     && ok "step 3: snippet installed byte-identical" || nope "snippet missing or different"
 include_in_https_block "$VH" \
     && ok "step 3: include inserted exactly once, inside the HTTPS server block" \
@@ -446,7 +468,7 @@ make_box no
 printf '# hand edited\n' >> "${BOX}/etc/systemd/system/jevnotjev-backstage.service"
 out="$( (setup_main) 2>&1)"; rc=$?
 mut="$(mutating_commands)"
-[[ $rc -ne 0 && -z "$mut" && "$out" == *"differs"* ]] \
+[[ $rc -ne 0 && -z "$mut" && "$out" == *"differs"* && "$out" == *"install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"* ]] \
     && ok "an installed unit that differs from the repo is never overwritten (refuse, zero changes)" \
     || nope "differing unit: rc=${rc}, mutating: ${mut:-none}"
 drop_box
@@ -559,7 +581,7 @@ location_body() {
         { c=$0; sub(/#.*/, "", c) }
         !on && index(c, want) { on=1; depth=0 }
         on { print c; o=gsub(/\{/, "{", c); x=gsub(/\}/, "}", c); depth += o - x; if (depth == 0) exit }' \
-        "${REPO_ROOT}/.deploy/backstage-nginx.conf"
+        "$BS_SNIPPET_SRC"
 }
 for loc in "location ^~ /backstage/" "location ^~ /api/backstage/"; do
     body="$(location_body "$loc")"
@@ -568,7 +590,7 @@ for loc in "location ^~ /backstage/" "location ^~ /api/backstage/"; do
         && ok "'${loc}' carries auth_basic \"Backstage\" and the htpasswd file once" \
         || nope "'${loc}' is not gated: ${body}"
 done
-grep -q 'proxy_set_header X-Backstage-Client-IP $remote_addr;' "${REPO_ROOT}/.deploy/backstage-nginx.conf" \
+grep -q 'proxy_set_header X-Backstage-Client-IP $remote_addr;' "$BS_SNIPPET_SRC" \
     && ok "the rest of the snippet is kept (client IP header still overwritten)" || nope "snippet lost its client IP header"
 
 echo
@@ -644,11 +666,11 @@ drop_box
 
 echo
 echo "[T1] Basic Auth gate: installed snippet update (A2)"
-OLD_SNIPPET="$(grep -v 'auth_basic' "${REPO_ROOT}/.deploy/backstage-nginx.conf")"
+OLD_SNIPPET="$(grep -v 'auth_basic' "$BS_SNIPPET_SRC")"
 make_box yes
 printf '%s\n' "$OLD_SNIPPET" > "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
 out="$( (setup_main) 2>&1)"; rc=$?
-[[ $rc -eq 0 ]] && cmp -s "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" "${REPO_ROOT}/.deploy/backstage-nginx.conf" \
+[[ $rc -eq 0 ]] && cmp -s "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" "$BS_SNIPPET_SRC" \
     && ok "an installed snippet that differs is updated to the repo copy, exit 0" \
     || nope "snippet update: rc=${rc}; out: ${out}"
 sbackup="$(find "${BOX}/var/backups/jevnotjev-backstage" -name 'jevnotjev-backstage.conf.*' -type f 2>/dev/null | head -1)"
@@ -803,6 +825,118 @@ code_refs="$(grep -c 'trial\.env' "$SETUP")"
 [[ $trial_hits -eq 0 && "$code_refs" == 0 ]] \
     && ok "setup never reads, writes or names trial.env (remote log and script source)" \
     || nope "trial.env touched: ${trial_hits} run(s), ${code_refs} reference(s) in ${SETUP}"
+
+echo
+echo "[T1] session gate setup preconditions"
+BS_SNIPPET_SRC="${REPO_ROOT}/.deploy/backstage-nginx.conf"
+for missing in module auth_env operators; do
+    make_box no
+    case "$missing" in
+        auth_env) rm "${BOX}/etc/jevnotjev-backstage/auth.env" ;;
+        operators)
+            rm "${BOX}/var/lib/jevnotjev-backstage/operators.json"
+            touch "${BOX}/state/active" "${BOX}/state/port_used"
+            mkdir -p "${BOX}/var/www/backstage-release"
+            ln -s "${BOX}/var/www/backstage-release" "${BOX}/var/www/jevnotjev-backstage-current" ;;
+    esac
+    out="$( (backstage_snippet_auth() { echo session; }; export SESSION_MISSING="$missing"; setup_main) 2>&1)"; rc=$?
+    mut="$(mutating_commands)"
+    [[ $rc -ne 0 && -z "$mut" && "$out" == *"${missing}"* ]] \
+        && ok "session ${missing} missing: refuse with zero mutations" \
+        || nope "session ${missing}: rc=${rc}, mutating: ${mut:-none}; out: ${out}"
+    drop_box
+done
+for bad in release unconfigured secret_short trust_proxy_missing; do
+    make_box no
+    touch "${BOX}/state/active" "${BOX}/state/port_used"
+    mkdir -p "${BOX}/var/www/backstage-release"
+    ln -s "${BOX}/var/www/backstage-release" "${BOX}/var/www/jevnotjev-backstage-current"
+    case "$bad" in
+        secret_short) printf 'BACKSTAGE_SESSION_SECRET=short\nBACKSTAGE_TRUST_PROXY=loopback\n' > "${BOX}/etc/jevnotjev-backstage/auth.env" ;;
+        trust_proxy_missing) printf 'BACKSTAGE_SESSION_SECRET=%s\n' "$(printf 'f%.0s' {1..64})" > "${BOX}/etc/jevnotjev-backstage/auth.env" ;;
+    esac
+    out="$( (backstage_snippet_auth() { echo session; }; export SESSION_MISSING="$bad"; setup_main) 2>&1)"; rc=$?
+    mut="$(mutating_commands)"
+    expected=release
+    [[ "$bad" == secret_short || "$bad" == trust_proxy_missing ]] && expected='operator step 2'
+    [[ $rc -ne 0 && -z "$mut" && "$out" == *"$expected"* ]] && ok "session ${bad}: running release or auth.env key refusal before mutation" \
+        || nope "session ${bad}: rc=${rc}, mutating: ${mut:-none}; out: ${out}"
+    drop_box
+done
+make_box no
+rm "$HT" "${HT}.statmeta"
+out="$( (backstage_snippet_auth() { echo session; }; backstage_session_reset() { :; }; verify_live() { [[ "$4" == none && "$5" == backstage && "$7" == session ]] || return 1; echo 'verify: 5 passed, 0 failed, 3 n/a'; }; setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$(reloads)" == 1 && "$out" == *'n/a'* ]] \
+    && ok "fresh install: session gate installs and verifies with no running release" \
+    || nope "fresh install: rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
+make_box no
+rm "${BOX}/var/lib/jevnotjev-backstage/operators.json"
+out="$( (backstage_snippet_auth() { echo session; }; backstage_session_reset() { :; }; verify_live() { [[ "$4" == none && "$5" == backstage && "$7" == session ]] || return 1; echo 'verify: 5 passed, 0 failed, 3 n/a'; }; setup_main) 2>&1)"; rc=$?
+note_count="$(printf '%s\n' "$out" | grep -c '^note: operators.json must exist before the first deploy$')"
+[[ $rc -eq 0 && "$(reloads)" == 1 && -f "${BOX}/state/user" && "$note_count" == 1 ]] \
+    && ok "fresh install without user or operators file installs and prints one first-deploy note" \
+    || nope "fresh install without operators: rc=${rc}, reloads $(reloads), note count ${note_count}; out: ${out}"
+drop_box
+for bad in auth_env_mode auth_env_link operators_owner operators_mode operators_empty operators_link; do
+    make_box no
+    if [[ "$bad" == operators_* ]]; then
+        touch "${BOX}/state/active" "${BOX}/state/port_used"
+        mkdir -p "${BOX}/var/www/backstage-release"
+        ln -s "${BOX}/var/www/backstage-release" "${BOX}/var/www/jevnotjev-backstage-current"
+    fi
+    case "$bad" in
+        auth_env_mode) printf 'root root 644 40\n' > "${BOX}/etc/jevnotjev-backstage/auth.env.statmeta" ;;
+        auth_env_link) rm "${BOX}/etc/jevnotjev-backstage/auth.env"; ln -s /dev/null "${BOX}/etc/jevnotjev-backstage/auth.env" ;;
+        operators_owner) printf 'root root 600 37\n' > "${BOX}/var/lib/jevnotjev-backstage/operators.json.statmeta" ;;
+        operators_mode) printf 'jevnotjev-backstage jevnotjev-backstage 644 37\n' > "${BOX}/var/lib/jevnotjev-backstage/operators.json.statmeta" ;;
+        operators_empty) printf 'jevnotjev-backstage jevnotjev-backstage 600 0\n' > "${BOX}/var/lib/jevnotjev-backstage/operators.json.statmeta" ;;
+        operators_link) rm "${BOX}/var/lib/jevnotjev-backstage/operators.json"; ln -s /dev/null "${BOX}/var/lib/jevnotjev-backstage/operators.json" ;;
+    esac
+    out="$( (setup_main) 2>&1)"; rc=$?
+    mut="$(mutating_commands)"
+    [[ $rc -ne 0 && -z "$mut" && "$out" == *"${bad%%_*}"* ]] \
+        && ok "session ${bad}: refuse with zero mutations" \
+        || nope "session ${bad}: rc=${rc}, mutating: ${mut:-none}; out: ${out}"
+    drop_box
+done
+make_box no
+out="$( (backstage_snippet_auth() { echo session; }; setup_main --dry-run) 2>&1)"; rc=$?
+[[ "$out" == *"auth.env"* && "$out" == *"operators.json"* && "$out" == *"auth_request"* && "$out" == *"/api/auth/session"* ]] \
+    && ok "session dry run lists every session precondition" \
+    || nope "session dry run preconditions missing: rc=${rc}; out: ${out}"
+drop_box
+for state in active_without_symlink symlink_without_active; do
+    make_box no
+    mkdir -p "${BOX}/var/www/backstage-release"
+    if [[ "$state" == active_without_symlink ]]; then
+        touch "${BOX}/state/active" "${BOX}/state/port_used"
+    else
+        ln -s "${BOX}/var/www/backstage-release" "${BOX}/var/www/jevnotjev-backstage-current"
+    fi
+    out="$( (backstage_snippet_auth() { echo session; }; export SESSION_MISSING=release; backstage_session_reset() { :; }; verify_live() { [[ "$4" == none ]] || return 1; echo 'verify: 5 passed, 0 failed, 3 n/a'; }; setup_main) 2>&1)"; rc=$?
+    [[ $rc -eq 0 && "$(reloads)" == 1 ]] && ok "${state}: no running release skips loopback precondition" \
+        || nope "${state}: rc=${rc}, reloads $(reloads); out: ${out}"
+    drop_box
+done
+make_box no
+rm "$HT" "${HT}.statmeta"
+touch "${BOX}/state/active" "${BOX}/state/port_used"
+mkdir -p "${BOX}/var/www/backstage-release"
+ln -s "${BOX}/var/www/backstage-release" "${BOX}/var/www/jevnotjev-backstage-current"
+out="$( (backstage_snippet_auth() { echo session; }; backstage_session_reset() { :; }; verify_live() { [[ "$4" == yes && "$5" == backstage && "$7" == session ]] || return 1; echo 'verify: 7 passed, 0 failed'; }; setup_main) 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$(reloads)" == 1 && -f "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf" ]] \
+    && ok "session setup succeeds without a Basic credentials file" \
+    || nope "session setup without htpasswd: rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
+make_box no
+old_snippet="$(cat "$BASIC_SNIPPET")"
+printf '%s\n' "$old_snippet" > "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
+out="$( (backstage_snippet_auth() { echo session; }; backstage_session_reset() { :; }; verify_live() { [[ "$4" == yes && "$5" == backstage && "$7" == session ]] || return 2; echo 'verify: 6 passed, 1 failed'; return 1; }; setup_main) 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$(reloads)" == 2 && "$(cat "$VH")" == "$ORIGINAL_VHOST" && "$(cat "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf")" == "$old_snippet" ]] \
+    && ok "session S2 failure restores the prior snippet and vhost" \
+    || nope "session verify restore: rc=${rc}, reloads $(reloads); out: ${out}"
+drop_box
 
 rm -rf "$STUB" "$KEYDIR"
 echo

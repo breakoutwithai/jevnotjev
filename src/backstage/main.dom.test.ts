@@ -101,49 +101,41 @@ function documentFromMarkup(markup: string): FakeDocument {
   return document;
 }
 
-class FakeXHR {
-  static opened: FakeXHR[] = [];
-  method = "";
-  url = "";
-  async = false;
-  user = "";
-  password = "";
-  timeout = 0;
-  status = 0;
-  onloadend: (() => void) | null = null;
-  constructor() { FakeXHR.opened.push(this); }
-  open(method: string, url: string, async: boolean, user: string, password: string) {
-    Object.assign(this, { method, url, async, user, password });
-  }
-  send() {}
-  finish(status: number) { this.status = status; this.onloadend?.(); }
-}
-
 let importNumber = 0;
-async function mount(search = "") {
+function redirectedResponse(): Response {
+  const response = new Response(null, { status: 200 });
+  Object.defineProperty(response, "redirected", { value: true });
+  return response;
+}
+async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse()) {
   const document = documentFromMarkup(await Bun.file("site/backstage/index.html").text());
   const urls: string[] = [];
+  const requests: Array<{ input: string; init: RequestInit | undefined }> = [];
   const replacements: string[] = [];
   const historyCalls: unknown[][] = [];
-  const location = { search, pathname: "/backstage/", origin: "https://example.test", replace: (url: string) => replacements.push(url) };
+  const location = { search: "", pathname: "/backstage/", origin: "https://example.test", replace: (url: string) => replacements.push(url) };
   const window = new EventTarget();
   Object.assign(window, { location });
-  FakeXHR.opened = [];
   Object.assign(globalThis, {
     document, window, location,
     history: { replaceState: (...args: unknown[]) => historyCalls.push(args) },
     navigator: { clipboard: { writeText: async (_value: string) => {} } },
     matchMedia: (_query: string) => ({ matches: false }),
-    XMLHttpRequest: FakeXHR,
+    XMLHttpRequest: class { constructor() { throw new Error("No XMLHttpRequest may be constructed"); } },
     HTMLInputElement: FakeInput,
     HTMLTextAreaElement: FakeTextArea,
     HTMLButtonElement: FakeButton,
     HTMLFieldSetElement: FakeFieldSet,
     BACKSTAGE_BUILD_VERSION: "so6-test",
-    fetch: async (input: string) => {
+    fetch: async (input: string, init?: RequestInit) => {
       urls.push(input);
+      requests.push({ input, init });
+      if (input === "/api/auth/sign-out") {
+        if (signOutResponse instanceof Error) throw signOutResponse;
+        return signOutResponse;
+      }
       if (input !== "/api/backstage/health") throw new Error(`Unexpected fetch: ${input}`);
-      return new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } });
+      return health;
     },
   });
   await import(`./main.ts?so6=${++importNumber}`);
@@ -152,7 +144,7 @@ async function mount(search = "") {
     if (!found) throw new Error(`Missing markup element: ${id}`);
     return found;
   };
-  return { document, get, urls, replacements, historyCalls, window };
+  return { document, get, urls, requests, replacements, historyCalls, window };
 }
 
 const keyIds = ["jev-key", "anthropic-key", "openai-key", "google-key", "xai-key"];
@@ -162,48 +154,39 @@ function fillKeys(get: (id: string) => FakeElement) {
 function assertKeysBlank(get: (id: string) => FakeElement) {
   for (const id of keyIds) expect(get(id).value).toBe("");
 }
-function assertRequest() {
-  expect(FakeXHR.opened).toHaveLength(1);
-  const xhr = FakeXHR.opened[0];
-  if (!xhr) throw new Error("Missing sign-out XHR");
-  expect([xhr.method, xhr.url, xhr.async, xhr.user, xhr.timeout]).toEqual(["GET", "/api/backstage/sign-out", true, "signed-out", 10000]);
-  expect(xhr.password).toMatch(/^[0-9a-f]{32}$/);
-  return xhr;
-}
 async function tick() { await new Promise<void>((resolve) => setTimeout(resolve, 0)); }
 
-test("[integration] SO6 load without query keeps warning hidden and opens no XHR", async () => {
+test("[integration] A2 load does not send sign-out", async () => {
   const page = await mount();
-  expect(page.get("signed-out").hidden).toBe(true);
-  expect(FakeXHR.opened).toHaveLength(0);
+  expect(page.requests.some((request) => request.input === "/api/auth/sign-out")).toBe(false);
 });
 
-test("[integration] SO6 sign-out clears keys and awaits a 401 before navigation", async () => {
+test("[integration] A2 sign-out clears keys and scene before POST and navigates", async () => {
   const page = await mount();
   fillKeys(page.get);
   page.get("sign-out").click();
   assertKeysBlank(page.get);
   expect(page.get("sign-out").disabled).toBe(true);
   expect(page.get("notice").textContent).toBe("Signing out. Keys and session cleared.");
-  const xhr = assertRequest();
-  expect(page.replacements).toEqual([]);
-  xhr.finish(401);
+  const signOutRequests = page.requests.filter((request) => request.input === "/api/auth/sign-out");
+  expect(signOutRequests).toHaveLength(1);
+  expect(signOutRequests[0]?.init).toMatchObject({ method: "POST", credentials: "same-origin" });
+  expect(signOutRequests[0]?.init?.signal).toBeInstanceOf(AbortSignal);
   await tick();
-  expect(page.replacements).toEqual(["/backstage/?signed-out=1"]);
+  expect(page.replacements).toEqual(["/backstage/sign-in?signed-out=1"]);
 });
 
-for (const status of [0, 200]) test(`[integration] SO6 sign-out navigates after XHR status ${status}`, async () => {
-  const page = await mount();
+test("[integration] A2 failed sign-out keeps keys cleared, stays put, and re-enables control", async () => {
+  const page = await mount(undefined, new Response(null, { status: 403 }));
   fillKeys(page.get);
   page.get("sign-out").click();
-  assertKeysBlank(page.get);
-  expect(page.get("sign-out").disabled).toBe(true);
-  expect(page.get("notice").textContent).toBe("Signing out. Keys and session cleared.");
-  const xhr = assertRequest();
-  expect(page.replacements).toEqual([]);
-  xhr.finish(status);
   await tick();
-  expect(page.replacements).toEqual(["/backstage/?signed-out=1"]);
+  assertKeysBlank(page.get);
+  expect(page.replacements).toEqual([]);
+  expect(page.get("notice").textContent).toBe("Sign-out failed. Your keys are cleared, but you are still signed in. Try again, or close the browser.");
+  expect(page.get("sign-out").disabled).toBe(false);
+  page.get("sign-out").click();
+  expect(page.requests.filter((request) => request.input === "/api/auth/sign-out")).toHaveLength(2);
 });
 
 test("[integration] SO6 pending sign-out blocks run controls and beforeunload", async () => {
@@ -216,7 +199,7 @@ test("[integration] SO6 pending sign-out blocks run controls and beforeunload", 
   page.get("cases").value = "A sample case";
   fillKeys(page.get);
   page.get("sign-out").click();
-  assertRequest();
+  expect(page.requests.some((request) => request.input === "/api/auth/sign-out")).toBe(true);
   for (const id of ["run-one", "run-all", "run-trial"]) page.get(id).click();
   // Let any accidentally started run settle before the next scenario replaces the globals.
   await new Promise<void>((resolve) => setTimeout(resolve, 20));
@@ -226,19 +209,32 @@ test("[integration] SO6 pending sign-out blocks run controls and beforeunload", 
   expect(beforeunload.defaultPrevented).toBe(false);
 });
 
-test("[integration] SO6 kept-login warning receives focus and clears query", async () => {
-  const page = await mount("?signed-out=1");
-  expect(page.get("signed-out").hidden).toBe(false);
-  expect(page.document.activeElement).toBe(page.get("signed-out"));
-  expect(page.historyCalls).toEqual([[null, "", "/backstage/"]]);
-});
-
 test("[integration] SO6 clear-keys blanks fields without signing out", async () => {
   const page = await mount();
   fillKeys(page.get);
   page.get("clear-keys").click();
   assertKeysBlank(page.get);
-  expect(FakeXHR.opened).toHaveLength(0);
+  expect(page.requests.some((request) => request.input === "/api/auth/sign-out")).toBe(false);
   expect(page.replacements).toEqual([]);
   expect(page.get("notice").textContent).toBe("Keys cleared and further calls stopped. Already dispatched calls may still be charged.");
+});
+
+test("[integration] A2 unauthenticated health response shows expiry link and retains keys", async () => {
+  const page = await mount(new Response('{"code":"unauthenticated"}', { status: 401, headers: { "content-type": "application/json" } }));
+  fillKeys(page.get);
+  await tick();
+  expect(page.get("notice").textContent).toBe("Your sign-in has expired. ");
+  const link = page.get("notice").children[0];
+  expect(link?.tagName).toBe("A");
+  expect(link?.textContent).toBe("Sign in again.");
+  expect(link instanceof FakeElement ? link.getAttribute("href") : null).toBe("/backstage/sign-in");
+  for (const id of keyIds) expect(page.get(id).value).toBe(`${id}-secret-value`);
+  expect(page.replacements).toEqual([]);
+});
+
+test("[integration] A2 other health errors leave expiry message absent", async () => {
+  const page = await mount(new Response('{"code":"other"}', { status: 401, headers: { "content-type": "application/json" } }));
+  await tick();
+  expect(page.get("notice").textContent).not.toContain("Your sign-in has expired.");
+  expect(page.get("notice").children).toEqual([]);
 });

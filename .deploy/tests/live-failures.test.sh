@@ -37,12 +37,12 @@ source "${REPO_ROOT}/.deploy/backstage-lib.sh"
 source "${REPO_ROOT}/.deploy/verify-lib.sh" 2>/dev/null || nope "missing .deploy/verify-lib.sh"
 
 echo "[T1] citations resolve"
-[[ "$(sed -n 164p docs/DEPLOY.md)" == *"server_name"*"returns the same status as before"* ]] \
-    && ok "docs/DEPLOY.md:164 states the co-tenant invariant" || nope "docs/DEPLOY.md:164 moved: $(sed -n 164p docs/DEPLOY.md)"
-[[ "$(sed -n 52p docs/backstage-deploy.md)" == *"re-probes all neighbours"*"A changed neighbour restores the vhost"* ]] \
-    && ok "docs/backstage-deploy.md:52 states the setup co-tenant re-probe" || nope "docs/backstage-deploy.md:52 moved"
-[[ "$(sed -n 53p docs/backstage-deploy.md)" == *"200 with a running release, 502 only while none runs"* ]] \
-    && ok "docs/backstage-deploy.md:53 states 200 with a release, 502 only with none" || nope "docs/backstage-deploy.md:53 moved"
+[[ "$(rg 'server_name.*returns the same status as before' docs/DEPLOY.md | head -1)" == *"server_name"* ]] \
+    && ok "docs/DEPLOY.md states the co-tenant invariant" || nope "docs/DEPLOY.md lost the co-tenant invariant"
+[[ "$(rg 're-probes all neighbours.*A changed neighbour restores the vhost' docs/backstage-deploy.md | head -1)" == *"re-probes all neighbours"* ]] \
+    && ok "docs/backstage-deploy.md states the setup co-tenant re-probe" || nope "docs/backstage-deploy.md lost the setup co-tenant re-probe"
+[[ "$(rg 'S2 Security invariants' docs/DEPLOY.md | head -1)" == *"return 200 (502 only while no Backstage release exists)"* ]] \
+    && ok "docs/DEPLOY.md states 200 with a release and 502 with none" || nope "docs/DEPLOY.md lost release-state S2"
 
 echo "[T1] fixture provenance"
 for f in "${FIX}/cotenants/http/showngrow.groit.global_.txt" \

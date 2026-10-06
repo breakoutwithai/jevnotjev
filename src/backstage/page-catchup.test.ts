@@ -72,14 +72,37 @@ test("[smoke] D11 a sample cases file sits next to the import control and parses
   expect(csv).not.toMatch(/@|\d{6,}|sk-|key/i);
 });
 
-test("[smoke] D10 judging shows the leave-out rule beside the keep rule", async () => {
-  const page = await Bun.file("site/backstage/index.html").text();
+/** Markup problems for the leave-out slot; the rendered text and visibility are asserted in main.dom.test.ts. */
+function leaveOutSlotProblems(page: string): string[] {
   const rubric = page.indexOf('id="rubric"');
-  const leaveOut = /<p id="leave-out"([^>]*)>/.exec(page);
-  expect(rubric).toBeGreaterThan(-1);
-  expect((leaveOut?.index ?? -1) - rubric).toBeGreaterThan(0);
-  expect((leaveOut?.index ?? Infinity) - rubric).toBeLessThan(120);
-  expect(` ${leaveOut?.[1] ?? ""}`).not.toMatch(/\sclass="[^"]*sr-only/);
-  const main = await Bun.file("src/backstage/main.ts").text();
-  expect(main).toContain('text("leave-out"');
+  const slot = /<p id="leave-out"([^>]*)>/.exec(page);
+  if (!slot) return ["missing"];
+  const problems: string[] = [];
+  const distance = slot.index - rubric;
+  if (rubric < 0 || distance <= 0 || distance >= 120) problems.push("not beside the keep rule");
+  if (/\s(hidden|style)\b|\bsr-only\b/.test(` ${slot[1] ?? ""}`)) problems.push("hidden or styled away");
+  return problems;
+}
+
+test("[smoke] D10 the judging page has a visible leave-out slot beside the keep rule", async () => {
+  const page = await Bun.file("site/backstage/index.html").text();
+  expect(leaveOutSlotProblems(page)).toEqual([]);
+  const slot = '<p id="leave-out">';
+  const mutants = [
+    page.replace(slot, '<p id="leave-out" hidden>'),
+    page.replace(slot, '<p id="leave-out" class="sr-only">'),
+    page.replace(slot, '<p id="leave-out" style="display:none">'),
+    page.replace(slot, ""),
+    page.replace(`${slot}</p>`, "").replace('<p id="rubric"></p>', `<p id="rubric"></p><div>${"x".repeat(150)}</div>${slot}</p>`),
+  ];
+  for (const mutant of mutants) {
+    expect(mutant).not.toBe(page);
+    expect(leaveOutSlotProblems(mutant).length).toBeGreaterThan(0);
+  }
+});
+
+test("[smoke] D10 the persistence copy is qualified by what the browser allows", async () => {
+  const page = (await Bun.file("site/backstage/index.html").text()).replace(/\s+/g, " ");
+  expect(page).toContain("When the browser allows storage, refreshing keeps your scene text in this tab");
+  expect(page).toContain("a notice appears here if it cannot be kept");
 });

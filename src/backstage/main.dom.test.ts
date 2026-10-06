@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { CATALOG_VERSION } from "./catalog.ts";
-import { PROTOCOL_VERSION } from "./contracts.ts";
+import { PROTOCOL_VERSION, type AnswerRequest } from "./contracts.ts";
+import { getModelEntry } from "./catalog.ts";
+import { inputFingerprint } from "./run.ts";
+import { SCENE_DRAFT_KEY } from "./scene-draft.ts";
 
 class FakeNode extends EventTarget {
   children: FakeNode[] = [];
@@ -113,7 +116,7 @@ class FakeStorage {
   setItem(key: string, value: string) { this.items.set(key, value); }
   removeItem(key: string) { this.items.delete(key); }
 }
-async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage()) {
+async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage(), answer?: (request: AnswerRequest) => Promise<unknown>) {
   const document = documentFromMarkup(await Bun.file("site/backstage/index.html").text());
   const urls: string[] = [];
   const requests: Array<{ input: string; init: RequestInit | undefined }> = [];
@@ -141,8 +144,12 @@ async function mount(health = new Response(JSON.stringify({ trial: { available: 
         if (signOutResponse instanceof Error) throw signOutResponse;
         return signOutResponse;
       }
+      if (input === "/api/backstage/answer" && answer && typeof init?.body === "string") {
+        const request: AnswerRequest = JSON.parse(init.body);
+        return new Response(JSON.stringify(await answer(request)), { status: 200, headers: { "content-type": "application/json" } });
+      }
       if (input !== "/api/backstage/health") throw new Error(`Unexpected fetch: ${input}`);
-      return health;
+      return health.clone();
     },
   });
   await import(`./main.ts?so6=${++importNumber}`);
@@ -307,4 +314,145 @@ test("[integration] D11 a well-formed CSV import reports the count", async () =>
   await importCsv(page, "case_id,case_input\nc1,fine\nc2,also fine\n");
   expect(page.get("notice").textContent).toContain("Imported 2 cases");
   expect(page.get("cases").value).toBe("fine\nalso fine");
+});
+
+async function answerYes(request: AnswerRequest) {
+  return {
+    ok: true, runId: request.runId, revision: request.revision, caseId: request.caseId,
+    provider: request.provider, attemptId: crypto.randomUUID(), fingerprint: await inputFingerprint(request),
+    startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), latencyMs: 10,
+    model: request.modelId, armId: request.armId, catalogVersion: request.catalogVersion,
+    promptVersion: request.promptVersion, requestedModel: request.modelId, returnedModel: request.modelId,
+    parameters: getModelEntry(request.armId)?.parameters, tokensIn: 20, tokensOut: 1, costUsd: 0.001,
+    priceVersion: "2026-10-03", output: "yes", confidence: null,
+  };
+}
+function fillScene(page: Awaited<ReturnType<typeof mount>>, exclusions = "") {
+  typeInto(page, "question", "Which choice?");
+  typeInto(page, "definition-a", "First choice");
+  typeInto(page, "definition-b", "Second choice");
+  typeInto(page, "acceptance", "Keep the first choice");
+  typeInto(page, "exclusions", exclusions);
+  page.get("jev-key").value = "jev-secret-value";
+}
+async function until(done: () => boolean) {
+  for (let i = 0; i < 100 && !done(); i++) await tick();
+  expect(done()).toBe(true);
+}
+async function runFirstCase(page: Awaited<ReturnType<typeof mount>>) {
+  page.get("run-one").click();
+  await until(() => page.document.getElementById("open-judging") !== null);
+}
+async function openJudging(page: Awaited<ReturnType<typeof mount>>) {
+  page.get("open-judging").click();
+  page.get("confirm-judging-yes").click();
+  await tick();
+}
+
+test("[integration] D10 an import survives a reload with its case ids and multiline text", async () => {
+  const csv = 'case_id,case_input\nrow-a,"line one\nline two"\nrow-b,second\n';
+  const first = await mount();
+  await importCsv(first, csv);
+  const sent: AnswerRequest[] = [];
+  const record = async (request: AnswerRequest) => { sent.push(request); return answerYes(request); };
+  // Reload straight after the import: no other field was touched.
+  const second = await mount(undefined, undefined, first.store, record);
+  expect(second.get("cases").value).toBe("line one / line two\nsecond");
+  fillScene(second);
+  await runFirstCase(second);
+  expect(sent.map((r) => [r.caseId, r.input])).toEqual([["row-a", "line one\nline two"]]);
+});
+
+test("[integration] D10 editing another field after an import keeps the imported records", async () => {
+  const first = await mount();
+  await importCsv(first, 'case_id,case_input\nrow-a,"line one\nline two"\nrow-b,second\n');
+  typeInto(first, "acceptance", "Keep the first choice");
+  const sent: AnswerRequest[] = [];
+  const record = async (request: AnswerRequest) => { sent.push(request); return answerYes(request); };
+  const second = await mount(undefined, undefined, first.store, record);
+  fillScene(second);
+  await runFirstCase(second);
+  expect(sent.map((r) => [r.caseId, r.input])).toEqual([["row-a", "line one\nline two"]]);
+  // Typing in the cases box replaces the import with plain lines, and that is what is kept.
+  const third = await mount();
+  await importCsv(third, "case_id,case_input\nrow-a,one\n");
+  typeInto(third, "cases", "typed line");
+  const fourth = await mount(undefined, undefined, third.store, record);
+  expect(fourth.get("cases").value).toBe("typed line");
+  sent.length = 0;
+  fillScene(fourth);
+  await runFirstCase(fourth);
+  expect(sent.map((r) => [r.caseId, r.input])).toEqual([["case-1", "typed line"]]);
+});
+
+test("[integration] D10 a draft that cannot be stored shows a notice and leaves no stale draft", async () => {
+  const store = new FakeStorage();
+  const page = await mount(undefined, undefined, store);
+  typeInto(page, "question", "kept");
+  expect(store.items.size).toBe(1);
+  store.setItem = () => { throw new Error("quota"); };
+  typeInto(page, "question", "not kept");
+  expect(page.get("notice").textContent).toContain("Could not keep your scene in this tab");
+  expect(store.items.size).toBe(0);
+  const reloaded = await mount(undefined, undefined, store);
+  expect(reloaded.get("question").value).toBe("");
+});
+
+test("[integration] D10 typing while sign-out is pending never recreates the draft", async () => {
+  const page = await mount();
+  typeInto(page, "question", "before");
+  page.get("sign-out").click();
+  typeInto(page, "question", "during sign-out");
+  expect(page.store.items.size).toBe(0);
+  // A write that slips in from elsewhere is removed again before navigation.
+  page.store.setItem(SCENE_DRAFT_KEY, "{}");
+  await tick();
+  expect(page.store.items.size).toBe(0);
+  expect(page.replacements).toEqual(["/backstage/sign-in?signed-out=1"]);
+});
+
+/** What a user sees of the leave-out rule on the judging page; empty when it is shown. */
+function leaveOutProblems(page: Awaited<ReturnType<typeof mount>>, exclusions: string): string[] {
+  const shown = page.get("leave-out");
+  const problems: string[] = [];
+  if (shown.textContent !== `Leave out: ${exclusions}`) problems.push(`text is "${shown.textContent}"`);
+  if (shown.hidden) problems.push("hidden");
+  if (page.get("rubric").textContent !== "Keep when: Keep the first choice") problems.push("keep rule missing");
+  return problems;
+}
+
+test("[integration] D10 judging shows what to keep and what to leave out, and a new scene clears both", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYes);
+  fillScene(page, "Shipping questions");
+  typeInto(page, "cases", "Please refund my mug");
+  await runFirstCase(page);
+  await openJudging(page);
+  expect(leaveOutProblems(page, "Shipping questions")).toEqual([]);
+  // Negative controls: hidden, emptied or shortened rule text is reported.
+  const real = page.get("leave-out").textContent;
+  page.get("leave-out").hidden = true;
+  expect(leaveOutProblems(page, "Shipping questions")).toContain("hidden");
+  page.get("leave-out").hidden = false;
+  for (const mutant of ["", "Leave out:", "Shipping questions"]) {
+    page.get("leave-out").textContent = mutant;
+    expect(leaveOutProblems(page, "Shipping questions").length).toBeGreaterThan(0);
+  }
+  page.get("leave-out").textContent = real;
+  expect(leaveOutProblems(page, "Shipping questions")).toEqual([]);
+  // Edit as a new scene: nothing of the earlier scene stays on the judging page.
+  page.get("new-scene").click();
+  page.get("confirm-new-scene-yes").click();
+  await tick();
+  expect(page.get("leave-out").textContent).toBe("");
+  expect(page.get("rubric").textContent).toBe("");
+});
+
+test("[integration] D10 a scene with nothing to leave out shows no leave-out line", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYes);
+  fillScene(page, "");
+  typeInto(page, "cases", "Please refund my mug");
+  await runFirstCase(page);
+  await openJudging(page);
+  expect(page.get("rubric").textContent).toBe("Keep when: Keep the first choice");
+  expect(page.get("leave-out").textContent).toBe("");
 });

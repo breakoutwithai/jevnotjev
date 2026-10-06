@@ -577,6 +577,10 @@ function renderCard() {
   element("label-actions").hidden = !card || !!current?.revealed;
   button("previous-card").disabled = !card || cardIndex === 0;
   button("next-card").disabled = !card || cardIndex >= cards.length - 1;
+  // No active card (no run, new scene, still running): nothing from an earlier scene may stay on screen.
+  const rules = judgingRules(card ? current?.manifest.scene : undefined);
+  text("rubric", rules.keep);
+  text("leave-out", rules.leaveOut);
   if (!card) {
     container.replaceChildren(
       node(
@@ -608,12 +612,6 @@ function renderCard() {
     }
     return;
   }
-  const rules = judgingRules({
-    acceptance: current?.manifest.scene.acceptance ?? "",
-    exclusions: current?.manifest.scene.exclusions ?? "",
-  });
-  text("rubric", rules.keep);
-  text("leave-out", rules.leaveOut);
   container.className = "answer-card";
   const answer = node("p", card.output);
   answer.className = "answer";
@@ -712,7 +710,10 @@ button("sign-out").onclick = () => {
   void signOut({
     clear: () => { clearKeys(); clearScene(); clearSceneDraft(draftStorage()); },
     request: () => signOutRequest(fetch),
-    navigate: (url) => location.replace(url),
+    navigate: (url) => {
+      clearSceneDraft(draftStorage());
+      location.replace(url);
+    },
     notice,
   }).then((success) => {
     if (!success) {
@@ -813,6 +814,7 @@ field("import-cases").addEventListener("change", async () => {
     field("cases").value = loaded
       .map((c) => c.input.replaceAll("\n", " / "))
       .join("\n");
+    persistDraft();
     notice(
       `Imported ${loaded.length} cases; original multiline text is preserved.`,
     );
@@ -904,6 +906,19 @@ window.addEventListener("beforeunload", (event) => {
   }
 });
 // Scene text only, kept for this tab so a reload before a run does not lose it. Key fields are never read here.
+let draftWarned = false;
+function persistDraft() {
+  // Once sign-out starts nothing may recreate the draft it removed.
+  if (signingOut) return;
+  const kept = saveSceneDraft(draftStorage(), (name) => field(name).value, imported);
+  if (kept) draftWarned = false;
+  else if (!draftWarned) {
+    draftWarned = true;
+    notice(
+      "Could not keep your scene in this tab, so a reload will lose it. Download or copy your text first.",
+    );
+  }
+}
 function draftStorage(): DraftStorage | undefined {
   try {
     return typeof sessionStorage === "undefined" ? undefined : sessionStorage;
@@ -913,10 +928,9 @@ function draftStorage(): DraftStorage | undefined {
 }
 const savedDraft = loadSceneDraft(draftStorage());
 for (const id of SCENE_DRAFT_FIELDS) {
-  const saved = savedDraft[id];
+  const saved = savedDraft.fields[id];
   if (saved !== undefined) field(id).value = saved;
-  field(id).addEventListener("input", () =>
-    saveSceneDraft(draftStorage(), (name) => field(name).value),
-  );
+  field(id).addEventListener("input", persistDraft);
 }
+imported = savedDraft.imported;
 showRoom(0);

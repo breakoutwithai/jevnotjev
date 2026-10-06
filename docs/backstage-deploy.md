@@ -100,23 +100,33 @@ Interrupted uploads remain in unique hidden staging directories. Retrying an ina
 Who signed in today:
 
 ```sh
-journalctl -u jevnotjev-backstage --since today -o cat | grep '"event":"signin'
-journalctl -u jevnotjev-backstage -o cat | grep '"event":"signin'
+journalctl --namespace=jevnotjev-backstage -u jevnotjev-backstage --since today -o cat | grep '"event":"signin'
+journalctl --namespace=jevnotjev-backstage -u jevnotjev-backstage -o cat | grep '"event":"signin'
 ```
 
-The second command shows sign-in events across the retained journal. For failures and lockouts, append `| grep -E '"event":"(signin\.password\.fail|signin\.lockout|signin\.google\.denied)"'` to `journalctl -u jevnotjev-backstage -o cat`. For runs, append `| grep '"event":"run\.'`. The [line contract](design/backstage-logging.md#line-contract) lists the fields: auth has `ts`, `event`, `email`, `ip`, `rid`, and sometimes `reason`; runs have `ts`, `event`, `rid`, `provider`, `model`.
+The second command shows sign-in events across the retained journal. For failures and lockouts, append `| grep -E '"event":"(signin\.password\.fail|signin\.lockout|signin\.google\.denied)"'` to `journalctl --namespace=jevnotjev-backstage -u jevnotjev-backstage -o cat`. For runs, append `| grep '"event":"run\.'`. The [line contract](design/backstage-logging.md#line-contract) lists the fields: auth has `ts`, `event`, `email`, `ip`, `rid`, and sometimes `reason`; runs have `ts`, `event`, `rid`, `provider`, `model`.
 
-One-time host retention step: journald retention is host-wide. systemd has no per-unit retention outside `LogNamespace=`, which would hide these lines from plain `journalctl -u`. This unit is not namespaced. Check the current state:
+Backstage uses its own journal namespace because the host-wide `journald.conf` is shared by 9 co-tenants and is not changed. The systemd 255 manuals state:
+
+- [systemd.exec(5)](https://www.freedesktop.org/software/systemd/man/255/systemd.exec.html): “Run the unit's processes in the specified journal namespace.” It also says, “Note that when this option is used log output of this service does not appear in the regular journalctl(1) output, unless the --namespace= option is used.” Backstage does not establish host mount points.
+- [journald.conf(5)](https://www.freedesktop.org/software/systemd/man/255/journald.conf.html): “Instances managing other namespaces read /etc/systemd/journald@NAMESPACE.conf and associated drop-ins”. `Storage=` “Defaults to "auto" in the default journal namespace, and "persistent" in all others.”
+- [journald.conf(5)](https://www.freedesktop.org/software/systemd/man/255/journald.conf.html): `MaxRetentionSec=` “This controls whether journal files containing entries older than the specified time span are deleted.” Deletion is per file. `MaxFileSec=` rotation defaults to one month, so the Backstage config sets `MaxFileSec=1h` alongside `MaxRetentionSec=1day`.
+- [systemd-journald.service(8)](https://www.freedesktop.org/software/systemd/man/255/systemd-journald.service.html): namespace data lives in `/var/log/journal/MACHINE_ID.NAMESPACE`.
+
+Chosen value: 1 day for Backstage only (operator, 2026-10-06).
+
+From a checkout of merged main, run as root on the host:
 
 ```sh
-journalctl --disk-usage
-test -d /var/log/journal && echo persistent || echo volatile
-systemd-analyze cat-config systemd/journald.conf | grep -E 'Storage|MaxRetentionSec|SystemMaxUse'
+install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf
+install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service
+systemctl daemon-reload
+systemctl restart jevnotjev-backstage
+systemctl show -p LogNamespace jevnotjev-backstage
+journalctl --namespace=jevnotjev-backstage -n 5
 ```
 
-The operator chooses the value for every unit on the shared host. The proposed default is 90 days. Create `/etc/systemd/journald.conf.d/retention.conf` with `[Journal]`, `Storage=persistent`, and `MaxRetentionSec=90day` on separate lines. Then run `systemctl restart systemd-journald`; journald has no reload, and its restart does not restart other services. For a one-off trim, run `journalctl --vacuum-time=90d`.
-
-Chosen value: not yet set
+Lines already written to the default journal before this change stay under the host-wide retention; there is no per-unit vacuum. If the namespace config changes later, run `systemctl restart systemd-journald@jevnotjev-backstage` to make the instance re-read it (restart behavior not verified against the cited systemd 255 page).
 
 ## Funded trial configuration (disabled until provisioned)
 

@@ -39,6 +39,12 @@ fi
 
 # shellcheck source=/dev/null
 source "$SETUP"
+# Bun's default discovery skips hidden .deploy; run the journal contract explicitly here so
+# the repository gate executes it and this shell file's floor protects its four cases.
+journal_test_out="$(bun test ./.deploy/backstage-journal.test.ts 2>&1)"; journal_test_rc=$?
+[[ $journal_test_rc -eq 0 && "$journal_test_out" == *"4 pass"* && "$journal_test_out" == *"0 fail"* ]] \
+    && ok "[unit] BJ1-BJ4 journal namespace contract passes all four Bun tests" \
+    || nope "[unit] BJ1-BJ4 journal namespace contract failed: ${journal_test_out}"
 BASIC_SNIPPET="${KEYDIR}/basic-nginx.conf"
 git -C "$REPO_ROOT" show d73ed18:.deploy/backstage-nginx.conf > "$BASIC_SNIPPET" || exit 1
 BS_SNIPPET_SRC="$BASIC_SNIPPET"
@@ -188,6 +194,7 @@ make_box() {
     if [[ "$configured" == yes ]]; then
         touch "${BOX}/state/user" "${BOX}/state/enabled"
         cp "${REPO_ROOT}/.deploy/backstage.service" "${BOX}/etc/systemd/system/jevnotjev-backstage.service"
+        [[ ! -f "${REPO_ROOT}/.deploy/journald@jevnotjev-backstage.conf" ]] || cp "${REPO_ROOT}/.deploy/journald@jevnotjev-backstage.conf" "${BOX}/etc/systemd/journald@jevnotjev-backstage.conf"
         cp "$BS_SNIPPET_SRC" "${BOX}/etc/nginx/snippets/jevnotjev-backstage.conf"
         insert_include "$INCLUDE_LINE" jevnotjev.breakoutwithai.com < "$VH" > "${VH}.x" && mv "${VH}.x" "$VH"
     fi
@@ -328,6 +335,9 @@ cmp -s "${BOX}/etc/systemd/system/jevnotjev-backstage.service" "${REPO_ROOT}/.de
     && [[ -f "${BOX}/state/daemon-reloaded" && -f "${BOX}/state/enabled" ]] \
     && ok "step 2: unit installed byte-identical, daemon-reload, enabled" \
     || nope "unit/enable wrong: $(ls "${BOX}/state")"
+cmp -s "${BOX}/etc/systemd/journald@jevnotjev-backstage.conf" "${REPO_ROOT}/.deploy/journald@jevnotjev-backstage.conf" \
+    && ok "[unit] BJ5 fresh setup installs namespace conf byte-identically" \
+    || nope "[unit] BJ5 namespace conf missing or different"
 grep -Eq 'systemctl[[:space:]]+(start|restart)' "$RLOG" \
     && nope "setup started the service before a release exists" \
     || ok "step 2: the service is enabled but never started"
@@ -357,7 +367,7 @@ grep -Eq 'restart nginx|nginx -s' "$RLOG" && nope "nginx was restarted" || ok "s
 out="$( (setup_main) 2>&1)"; rc=$?
 mut="$(mutating_commands)"
 [[ $rc -eq 0 && -z "$mut" && "$(reloads)" == 1 ]] \
-    && ok "re-running setup on the host it just configured changes nothing" \
+    && ok "[unit] BJ8 identical namespace conf is not rewritten on rerun" \
     || nope "re-run: rc=${rc}, mutating: ${mut:-none}"
 drop_box
 
@@ -468,9 +478,17 @@ make_box no
 printf '# hand edited\n' >> "${BOX}/etc/systemd/system/jevnotjev-backstage.service"
 out="$( (setup_main) 2>&1)"; rc=$?
 mut="$(mutating_commands)"
-[[ $rc -ne 0 && -z "$mut" && "$out" == *"differs"* && "$out" == *"install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"* ]] \
-    && ok "an installed unit that differs from the repo is never overwritten (refuse, zero changes)" \
+[[ $rc -ne 0 && -z "$mut" && "$out" == *"differs"* && "$out" == *"install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf"* && "$out" == *"install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service"* ]] \
+    && ok "[unit] BJ7 differing unit refusal includes namespace conf install command" \
     || nope "differing unit: rc=${rc}, mutating: ${mut:-none}"
+drop_box
+make_box yes
+printf '# hand edited\n' >> "${BOX}/etc/systemd/journald@jevnotjev-backstage.conf"
+out="$( (setup_main) 2>&1)"; rc=$?
+mut="$(mutating_commands)"
+[[ $rc -ne 0 && -z "$mut" && "$out" == *"differs"* && "$out" == *"install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf"* ]] \
+    && ok "[unit] BJ6 differing namespace conf refuses with zero changes" \
+    || nope "[unit] BJ6 differing namespace conf: rc=${rc}, mutating: ${mut:-none}; out: ${out}"
 drop_box
 make_box no
 touch "${BOX}/state/port_used"
@@ -861,6 +879,11 @@ for bad in release unconfigured secret_short trust_proxy_missing; do
     [[ "$bad" == secret_short || "$bad" == trust_proxy_missing ]] && expected='operator step 2'
     [[ $rc -ne 0 && -z "$mut" && "$out" == *"$expected"* ]] && ok "session ${bad}: running release or auth.env key refusal before mutation" \
         || nope "session ${bad}: rc=${rc}, mutating: ${mut:-none}; out: ${out}"
+    if [[ "$bad" == release ]]; then
+        [[ "$out" == *"install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf"* ]] \
+            && ok "[unit] BJ9 session refusal includes namespace conf install command" \
+            || nope "[unit] BJ9 session refusal missing namespace conf install command"
+    fi
     drop_box
 done
 make_box no

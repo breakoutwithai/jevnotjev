@@ -4,6 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+LogNamespace=jevnotjev-backstage
 Type=simple
 User=jevnotjev-backstage
 Group=jevnotjev-backstage

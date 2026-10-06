@@ -5,8 +5,8 @@
 #
 #   1. probe: Linux x86_64, /usr/local/bin/bun runs, port 3456 free (or held by our own service),
 #      the vhost is installed and enabled as a link, and what is already configured
-#   2. service user jevnotjev-backstage (system, no login) if absent; unit installed if absent,
-#      daemon-reload, enable. Never started here: no release exists yet.
+#   2. service user jevnotjev-backstage (system, no login) if absent; namespace journal
+#      config and unit installed if absent, daemon-reload, enable. Never started here: no release exists yet.
 #   3. snippet installed if absent, or UPDATED (after its own backup) when it differs from the
 #      repo copy; the include inserted ONLY if absent, inside the domain's HTTPS server block,
 #      after a timestamped backup of the installed vhost. The vhost is never replaced by the repo
@@ -19,7 +19,7 @@
 # A Basic snippet requires the operator's existing htpasswd. A session snippet requires nginx's
 # auth_request module, auth.env and operators.json. A running release must be sign-in capable. Setup never
 # creates credentials or secrets.
-# An installed unit that differs from the repo is reported and left alone. The funded-trial
+# An installed unit or namespace journal config that differs from the repo is reported and left alone. The funded-trial
 # secret file is outside this script's scope.
 #
 # Usage:
@@ -40,8 +40,10 @@ source "${SETUP_DIR}/verify-lib.sh"
 readonly BS_SERVICE="jevnotjev-backstage"
 readonly BS_USER="jevnotjev-backstage"
 readonly BS_UNIT_SRC="${SETUP_DIR}/backstage.service"
+readonly BS_JOURNAL_SRC="${SETUP_DIR}/journald@jevnotjev-backstage.conf"
 BS_SNIPPET_SRC="${SETUP_DIR}/backstage-nginx.conf"
 readonly BS_UNIT="/etc/systemd/system/${BS_SERVICE}.service"
+readonly BS_JOURNAL="/etc/systemd/journald@jevnotjev-backstage.conf"
 readonly BS_SNIPPET="/etc/nginx/snippets/jevnotjev-backstage.conf"
 readonly BS_INCLUDE="include ${BS_SNIPPET};"
 readonly BS_BUN="/usr/local/bin/bun"
@@ -100,12 +102,13 @@ include_placed() {
 
 # setup_probe - ONE read-only remote command; prints key=value lines.
 setup_probe() {
-    remote "U='${BS_UNIT}' S='${BS_SNIPPET}' I='${BS_INCLUDE}' V='${VHOST_AVAILABLE}' E='${VHOST_ENABLED}' B='${BS_BUN}' P='${BS_PORT}' N='${BS_USER}' A='${BS_AUTH_ENV}' O='${BS_OPERATORS}' C='${BS_CURRENT}'
+    remote "U='${BS_UNIT}' J='${BS_JOURNAL}' S='${BS_SNIPPET}' I='${BS_INCLUDE}' V='${VHOST_AVAILABLE}' E='${VHOST_ENABLED}' B='${BS_BUN}' P='${BS_PORT}' N='${BS_USER}' A='${BS_AUTH_ENV}' O='${BS_OPERATORS}' C='${BS_CURRENT}'
 echo \"arch=\$(uname -m)\"
 if [ ! -x \"\$B\" ]; then echo bun=absent; elif v=\$(\"\$B\" --version 2>/dev/null) && [ -n \"\$v\" ]; then echo \"bun=\$v\"; else echo bun=broken; fi
 if id -u \"\$N\" >/dev/null 2>&1; then echo user=present; else echo user=absent; fi
 if ! l=\$(ss -Hltn \"sport = :\$P\" 2>/dev/null); then echo port=unknown; elif [ -n \"\$l\" ]; then echo port=used; else echo port=free; fi
 if [ -f \"\$U\" ]; then echo \"unit=\$(sha256sum \"\$U\" | cut -d' ' -f1)\"; else echo unit=absent; fi
+if [ -f \"\$J\" ]; then echo \"journald=\$(sha256sum \"\$J\" | cut -d' ' -f1)\"; else echo journald=absent; fi
 if [ -f \"\$S\" ]; then echo \"snippet=\$(sha256sum \"\$S\" | cut -d' ' -f1)\"; else echo snippet=absent; fi
 if [ -f \"\$V\" ]; then echo vhost=present; else echo vhost=absent; fi
 if [ -L \"\$E\" ] && [ \"\$(readlink \"\$E\")\" = \"\$V\" ]; then echo vhost_link=yes; else echo vhost_link=no; fi
@@ -154,7 +157,7 @@ session_ready() {
             auth_request) [[ "$value" == yes ]] || { log_error "Session precondition auth_request failed: nginx needs --with-http_auth_request_module. Refusing; nothing changed."; return 1; } ;;
             session_check)
                 if [[ "$release" == running && "$value" != ready ]]; then
-                    log_error "Session precondition release failed: /api/auth/session must return 401 with \"signIn\":\"ready\" on loopback. Deploy the sign-in-capable release, then run operator step 5: install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage. Refusing; nothing changed."
+                    log_error "Session precondition release failed: /api/auth/session must return 401 with \"signIn\":\"ready\" on loopback. Deploy the sign-in-capable release, then run operator step 5: install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage. Refusing; nothing changed."
                     return 1
                 fi ;;
             auth_env|operators)
@@ -261,13 +264,19 @@ setup_plan() {
         *) log_error "Repo snippet gate is '${PLAN_GATE}'; refusing setup."; return 1 ;;
     esac
 
-    PLAN_USER=false; PLAN_UNIT=false; PLAN_ENABLE=false; PLAN_SNIPPET=false; PLAN_SNIPPET_UPDATE=false; PLAN_INCLUDE=false
+    PLAN_USER=false; PLAN_JOURNAL=false; PLAN_UNIT=false; PLAN_ENABLE=false; PLAN_SNIPPET=false; PLAN_SNIPPET_UPDATE=false; PLAN_INCLUDE=false
     [[ "$(probe_get "$probe" user)" == present ]] || PLAN_USER=true
     v="$(probe_get "$probe" unit)"
     if [[ "$v" == absent ]]; then
         PLAN_UNIT=true
     elif [[ "$v" != "$(local_sha "$BS_UNIT_SRC")" ]]; then
-        log_error "Installed ${BS_UNIT} differs from .deploy/backstage.service. Install it by hand: install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"; return 1
+        log_error "Installed ${BS_UNIT} differs from .deploy/backstage.service. Install it by hand: install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"; return 1
+    fi
+    v="$(probe_get "$probe" journald)"
+    if [[ -z "$v" || "$v" == absent ]]; then
+        PLAN_JOURNAL=true
+    elif [[ "$v" != "$(local_sha "$BS_JOURNAL_SRC")" ]]; then
+        log_error "Installed ${BS_JOURNAL} differs from .deploy/journald@jevnotjev-backstage.conf. Install it by hand: install -m 0644 .deploy/journald@jevnotjev-backstage.conf /etc/systemd/journald@jevnotjev-backstage.conf && install -m 0644 .deploy/backstage.service /etc/systemd/system/jevnotjev-backstage.service && systemctl daemon-reload && systemctl restart jevnotjev-backstage"; return 1
     fi
     [[ "$(probe_get "$probe" enabled)" == yes ]] || PLAN_ENABLE=true
     v="$(probe_get "$probe" snippet)"
@@ -282,12 +291,13 @@ setup_plan() {
     return 0
 }
 
-plan_is_empty() { ! $PLAN_USER && ! $PLAN_UNIT && ! $PLAN_ENABLE && ! $PLAN_SNIPPET && ! $PLAN_INCLUDE; }
+plan_is_empty() { ! $PLAN_USER && ! $PLAN_JOURNAL && ! $PLAN_UNIT && ! $PLAN_ENABLE && ! $PLAN_SNIPPET && ! $PLAN_INCLUDE; }
 
 # print_plan - the remote commands a real run issues, in order.
 print_plan() {
     local p="  ${YELLOW}[plan]${NC}"
     $PLAN_USER   && echo "$p useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ${BS_USER}"
+    $PLAN_JOURNAL && echo "$p cat > ${BS_JOURNAL}.tmp < .deploy/journald@jevnotjev-backstage.conf, mv into place"
     $PLAN_UNIT   && echo "$p cat > ${BS_UNIT}.tmp < .deploy/backstage.service, mv into place, systemctl daemon-reload"
     $PLAN_ENABLE && echo "$p systemctl enable ${BS_SERVICE}   (not started: no release yet)"
     if $PLAN_SNIPPET || $PLAN_INCLUDE; then
@@ -488,7 +498,7 @@ setup_main() {
             || { log_error "The Backstage include is in ${VHOST_AVAILABLE} but not exactly once inside the HTTPS server block for ${DOMAIN}. Inspect by hand; nothing changed."; return 1; }
     fi
     if plan_is_empty; then
-        log_success "Backstage setup already complete (user, unit enabled, snippet, include). No changes."
+        log_success "Backstage setup already complete (user, namespace journal, unit enabled, snippet, include). No changes."
         return 0
     fi
 
@@ -534,6 +544,11 @@ setup_main() {
         remote "useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin '${BS_USER}'" \
             || { log_error "Could not create user ${BS_USER}."; return 1; }
         log_success "User ${BS_USER} created"
+    fi
+    if $PLAN_JOURNAL; then
+        remote "cat > '${BS_JOURNAL}.tmp' && chmod 0644 '${BS_JOURNAL}.tmp' && mv '${BS_JOURNAL}.tmp' '${BS_JOURNAL}'" < "$BS_JOURNAL_SRC" \
+            || { log_error "Could not install ${BS_JOURNAL}."; return 1; }
+        log_success "Namespace journal ${BS_JOURNAL} installed"
     fi
     if $PLAN_UNIT; then
         remote "cat > '${BS_UNIT}.tmp' && chmod 0644 '${BS_UNIT}.tmp' && mv '${BS_UNIT}.tmp' '${BS_UNIT}'" < "$BS_UNIT_SRC" \

@@ -1,7 +1,7 @@
 {
   "minFiles": 69,
   "files": {
-    ".deploy/tests/backstage-setup.test.sh": 109,
+    ".deploy/tests/backstage-setup.test.sh": 113,
     ".deploy/tests/branch-guard.test.sh": 15,
     ".deploy/tests/capture-fixtures.test.sh": 42,
     ".deploy/tests/live-failures.test.sh": 18,

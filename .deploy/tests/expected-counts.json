@@ -1,10 +1,12 @@
 {
-  "minFiles": 61,
+  "minFiles": 63,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 109,
     ".deploy/tests/branch-guard.test.sh": 15,
     ".deploy/tests/capture-fixtures.test.sh": 42,
     ".deploy/tests/live-failures.test.sh": 18,
+    ".deploy/tests/monitor-host.test.sh": 14,
+    ".deploy/tests/monitor.test.sh": 36,
     ".deploy/tests/nginx-vhost.test.sh": 60,
     ".deploy/tests/release.test.sh": 39,
     ".deploy/tests/ship.test.sh": 100,

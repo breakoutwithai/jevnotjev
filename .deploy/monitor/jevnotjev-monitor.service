@@ -1,0 +1,20 @@
+[Unit]
+Description=External Jev Not Jev site monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=jevnotjev-monitor
+Group=jevnotjev-monitor
+WorkingDirectory=/opt/jevnotjev
+EnvironmentFile=/etc/jevnotjev-monitor/monitor.env
+Environment=MONITOR_ALERT_KIND=teams
+ExecStart=/opt/jevnotjev/.deploy/monitor.sh
+StateDirectory=jevnotjev-monitor
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+UMask=0077

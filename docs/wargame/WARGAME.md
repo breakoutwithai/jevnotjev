@@ -71,10 +71,11 @@ Each move: action, expected observation, what failure looks like, likely reactio
 **Move 1.2 Status and dry run from a clean worktree.**
 - Action: `git fetch origin main --no-tags`, a detached worktree at `origin/main`, then `.deploy/ship.sh --status` and `.deploy/ship.sh --dry-run` (`docs/DEPLOY.md:160-167`).
 - Expected: `--status` exits 3 (drift) for both modules, served `96f5b14`, main `8781d23` (`ship.sh:61`); the dry run prints the plan and the tag it would create.
-- Predicted reaction (grounded): the Backstage module refuses. `.deploy/backstage-deploy.sh:41` requires a merged main PR for HEAD whose body matches `#67`. HEAD `8781d23` came from PR #113, whose body does not contain `#67` (checked with `gh pr view 113`). Issue #91 records the same refusal for an earlier PR.
+- Predicted reaction (grounded): the real Backstage deploy refuses. `.deploy/backstage-deploy.sh:41` requires a merged main PR for HEAD whose body matches `#67`. HEAD `8781d23` came from PR #113, whose body does not contain `#67` (checked with `gh pr view 113`). Issue #91 records the same refusal for an earlier PR.
+- Dry run does not show it: `.deploy/backstage-deploy.sh:25-29` prints the plan and exits before the guard at `:41`, so a clean `--dry-run` says nothing about #67. Treat the #67 refusal as a real-deploy blocker and run a read-only preflight first: `gh api repos/breakoutwithai/jevnotjev/commits/<HEAD SHA>/pulls` and confirm one entry has `merged_at` set, `base.ref` equal to `main` and a body matching `/#67\b/` (the exact test at `:40-41`). No match means stop and take route A or B before any real deploy.
 - Counteraction, route A (preferred): fix #91 in its own PR (require a merged main PR, drop the fixed issue number, with the test in #91's acceptance table), merge, then deploy the new main.
 - Counteraction, route B (fast, used once before per #91): add `Refs #67` to the body of the PR that produced HEAD. Choose B only if A cannot land before the deploy is needed; open nothing else.
-- Fork: if `--status` shows only one module drifting, deploy only that module with `--module`.
+- Fork: if `--status` shows only one module drifting, still use the default full-stack `.deploy/ship.sh`. A module already serving main from a verified release is skipped, and only the full-stack run records the tag and release (`.deploy/ship.sh:792`, `--dry-run` tag plan `:751`). `--module X` skips tagging and can leave the other module older (`ship.sh:14-16`).
 
 **Move 1.3 Deploy.**
 - Action: `.deploy/ship.sh` (all modules) from the clean worktree.
@@ -94,8 +95,10 @@ Each move: action, expected observation, what failure looks like, likely reactio
 **Move 2.1 Roll each module back and forward.**
 - Action: `.deploy/ship.sh --module static --rollback --dry-run`, then without `--dry-run`; `.deploy/ship.sh --module backstage --rollback <full 40-char SHA of the previous verified release>` (`docs/DEPLOY.md:24-25`, `ship.sh:111-117`). Then roll forward by re-promoting main the same way: `.deploy/ship.sh --module backstage --rollback <main SHA>` (a fresh deploy of an already verified release is refused, `.deploy/backstage-deploy.sh:77`, `.deploy/backstage-lib.sh:71`), and redeploy static (Move 1.3).
 - Expected: after each single-module rollback, that module's closing check passes (the other module still serves main, so whole-stack `--verify` is expected to differ); once both serve the previous release, `.deploy/ship.sh --verify <rollback SHA>` passes (a bare `--verify` checks freshly fetched origin/main, `.deploy/ship.sh:399-410`); after roll-forward, `.deploy/ship.sh --verify <main SHA>` passes.
+- S3 evidence for static rollback: the static rollback branch exits at `.deploy/deploy.sh:157` before the neighbour checks (`:171-267`), and `--status` and `--verify` look only at this product. Probe every co-tenant `server_name` (enumerate from the box, `ls /etc/nginx/sites-enabled/` and `ss -tlnp`) before and after the static rollback and keep both probe sets; a status change in any neighbour fails the rehearsal. Backstage rollback runs its own neighbour before/after check (`.deploy/backstage-deploy.sh:58`, `:138-139`).
 - Failure looks like: no previous verified release on the host; or the session gate refuses the target because it does not declare `"gate": "session"` (`docs/DEPLOY.md:40`).
-- Counteraction: if the previous release predates the session gate, it is not a valid rollback target for the Backstage module. Record the oldest valid target and test rollback to it instead. Rolling back past the session gate would reopen the old gate and is an abort, not a workaround.
+- Distinct target required: the rollback target must be a verified release whose SHA differs from the active one and that is compatible with the installed session gate. If main is the only session-compatible verified release, rolling "back" to it is a no-op that proves nothing: mark the rehearsal BLOCKED, record why, and do not count it toward M2.
+- Counteraction: if the previous release predates the session gate, it is not a valid rollback target for the Backstage module. Record the oldest valid target and test rollback to it instead (only if distinct from the active SHA, per above). Rolling back past the session gate would reopen the old gate and is an abort, not a workaround.
 - Second-order: a static rollback alone leaves the Stage and Backstage on different SHAs. Both must be checked with `--status` after every rollback.
 
 ### M3 - Production UAT on the served SHA
@@ -110,7 +113,7 @@ Each move: action, expected observation, what failure looks like, likely reactio
 - Why first: outside testers' returned files need a home that cannot be committed by accident.
 
 **Move 3.3 Stage loader UAT, served SHA pinned.**
-- Action: the script first reads `/DEPLOYED_SHA` and refuses to run unless it equals the SHA under test. Then it loads files and asserts the page.
+- Action: freeze deploys for the whole UAT window (no `ship.sh`, no rollback by anyone). The script reads `/DEPLOYED_SHA` and `/api/backstage/health` `version` before and after the run. A single read before loading the page races a deploy, so the pre-read is not proof. Refuse to run unless both modules equal the SHA under test before the run; after it, both must still equal that SHA. Discard any run whose before and after revisions differ, and re-run it. Then the script loads files and asserts the page.
 - Positive checks (expected values come from committed fixtures and `docs/spec/spec.md`, never from the page):
   - The format example loads VALID with its committed gap count (`README.md:41`).
   - A 30-plus-case fixture gives each of the three verdicts, and the page shows the rule that fired, the numbers it read and the "this test set only" sentence (`spec.md:68-72`, R7).
@@ -135,13 +138,13 @@ Each move: action, expected observation, what failure looks like, likely reactio
 - Action: Backstage, comparison mode, Jev plus one LLM provider plus the keyword rule, the first-case pilot first, then 5 cases (`backstage.md:24`). Keys are the operator's, typed into the key field only (`docs/backstage-deploy.md:53`).
 - Expected: the evidence JSON holds requested and returned model ids separately, usage tokens, cost from the dated catalog, and failed-attempt spend apart from answer spend (`backstage.md:22`, `backstage.md:26`, `FLOW.md:52-53`).
 - Failure looks like: a returned model id differs from the requested one; cost shown as unknown (unmapped rate, `backstage.md:26`); a provider rate limit or 5xx.
-- Counteraction: a model id mismatch is recorded as is and the arm is labelled with the returned id; never relabel it to match the request. Unknown cost makes that comparison accuracy-only; record it and add the rate to the catalog in a PR. A provider error is retried by hand only (there is no automatic retry, `backstage.md:22`), and its possible charge stays in the evidence.
-- Negative control: a deliberately invalid key for the second provider fails only its arm; Jev and the rule continue (`backstage.md:5`).
+- Counteraction: a model id mismatch is not a labelled arm. `src/backstage/providers.ts:551-558` rejects a returned model that is not in the catalogue entry's `acceptedResponseModelIds` and excludes the answer, so nothing can be relabelled. Keep both ids (requested and returned) and the uncertain spend in the failed-attempt evidence, then correct the catalogue in its own PR, then do a new run. Never edit evidence to make the ids match. Unknown cost makes that comparison accuracy-only; record it and add the rate to the catalog in a PR. A provider error is retried by hand only (there is no automatic retry, `backstage.md:22`), and its possible charge stays in the evidence.
+- Negative control: a syntactically valid but unauthorised key for the second provider fails only its arm; Jev and the rule continue (`backstage.md:5`). A malformed key such as `bad-key` is the wrong control: it never reaches the provider, because `validKey` requires 8 to 512 printable non-space characters (`src/backstage/run.ts:102`) and the arm fails locally as `invalid-key` (`run.ts:843-847`).
 - Second-order: the Jev price ($0.042 per million input tokens, output free) is a published price not yet checked against a bill (`docs/product/runs/2026-10-03-tokenmax/README.md:25`). Compare the run's computed spend with the provider dashboards after M4. A gap above `(variable) COST_TOLERANCE` blocks any "use Jev" claim on cost until it is explained.
 
 **Move 4.2 Key-handling canary.**
-- Action: run once with a unique, invalid canary key per provider, then search the Backstage service log and the proxy logs on the host for the canary strings (read-only).
-- Expected: zero matches.
+- Action: run once with a unique canary key per provider that is syntactically valid (8 to 512 printable characters, no spaces) but unauthorised, so it passes `validKey` (`src/backstage/run.ts:102`) and is actually dispatched; an invalid-format canary is stopped locally (`run.ts:843-847`) and tests nothing. For each provider verify dispatch happened and the provider rejected the canary (the arm shows an authorisation failure, not `invalid-key`). Then search the Backstage service log and the proxy logs on the host for the canary strings (read-only).
+- Expected: zero matches, accepted only after a successful log read that is proven to work (for example the same search finds a known marker string, or the log read returns recent lines). An unreadable or empty log is not zero matches.
 - Failure: any match means a key reached a log. Abort condition A3.
 
 ### M5 - First blind human-labelled verdict
@@ -176,7 +179,7 @@ Each move: action, expected observation, what failure looks like, likely reactio
 **Move 7.1 Recruit and provision.**
 - Action: one builder outside the team (`(variable) OUTSIDE_TESTER`) gets a tester login. They need their own Jev key and their own LLM key (`backstage.md:3-5`).
 - Likely reaction: no Jev key. The one-case funded trial is off unless funding and quotas are configured (`backstage.md:38`).
-- Fork A: they get a Jev key; full run. Fork B: no Jev key; the verdict reads "not enough evidence: no Jev results" (`FLOW.md:70`). That is correct behaviour but does not meet the destination; with consent the team runs the Jev arm on their redacted cases (`FLOW.md:70`), and the run is recorded as assisted, not unaided.
+- Fork A: they get a Jev key; full run. Fork B: no Jev key. There is no verdict in this case: `validateSceneKeys()` throws before the run when the Jev key is missing or invalid (`src/backstage/run.ts:93-102`; callers `src/backstage/main.ts:270`, `run.ts:789`), so "not enough evidence: no Jev results" is not produced by an unprovisioned tester. Record it as blocked provisioning and either get a key or switch to the assisted workflow: with consent the team runs the Jev arm on their redacted cases (`FLOW.md:70`), and the run is recorded as assisted, not unaided.
 - Per-tester logins are tracked in #76 (open). Whether separate accounts can be issued today is UNVERIFIED; resolve before recruiting.
 
 **Move 7.2 The run.**
@@ -188,7 +191,7 @@ Each move: action, expected observation, what failure looks like, likely reactio
 
 **Move 8.1 Tag and publish.**
 - Action: confirm `ship.sh --status` exit 0 (no drift) and `--verify <SHA>` exit 0 on the SHA that passed M3; the release tag exists; release notes list what M3 to M7 proved and what they did not.
-- Fork: if any code changed after M3, M3 re-runs on the new served SHA before M8.
+- Fork: if any code changed after M3, the final SHA must have passed M3 to M7, not only M3. Re-run M3 on the new served SHA and invalidate and repeat every affected M4 to M7 check on it. For each M4 to M7 piece of evidence, record whether it still applies to the final SHA and why (for example, the changed files do not touch the code path that run exercised); no stated reason means it is repeated.
 
 ## Failure trees
 

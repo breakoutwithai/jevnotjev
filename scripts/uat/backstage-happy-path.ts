@@ -133,7 +133,16 @@ async function main(): Promise<number> {
       if (!preview.includes("40 cases")) throw new Error(`Run preview did not show 40 cases: ${preview}`);
     });
     if (!options.dryRun) {
-      await record("Learning Lines", "run all", async () => { await p.locator("#run-all").click(); });
+      await record("Learning Lines", "run all", async () => {
+        // A blocked run only writes its reason to #run-reason and #notice; surface it instead of waiting out the timeout.
+        const reason = (await p.locator("#run-reason").innerText()).trim();
+        if (reason) throw new Error(`Run blocked: ${reason}`);
+        await p.locator("#run-all").click();
+        await p.waitForTimeout(1500);
+        const notice = (await p.locator("#notice").innerText()).trim();
+        const progress = (await p.locator("#progress").innerText()).trim();
+        if (!progress) throw new Error(`Run did not start${notice ? `: ${notice}` : ""}`);
+      });
       await record("Learning Lines", "complete all arms", async () => {
         await p.waitForFunction(() => /80 of 80 selected case\/model cells processed; 0 have no answer/.test(document.querySelector("#run-preview")?.textContent ?? "") && /No calls in progress/.test(document.querySelector("#progress")?.textContent ?? ""), undefined, { timeout: 600000 });
       });

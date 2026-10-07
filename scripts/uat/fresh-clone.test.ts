@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,9 +23,10 @@ async function fixture(): Promise<Fixture> {
   git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "fixture");
   return { root, repo, out, temp, sha: git(repo, "rev-parse", "HEAD") };
 }
-function run(f: Fixture, options: { readonly driver?: string; readonly ref?: string; readonly out?: string } = {}) {
-  return spawnSync("bash", [SCRIPT, "--repo", f.repo, "--ref", options.ref ?? "main", "--out", options.out ?? f.out], {
-    encoding: "utf8",
+// Default --dry-run: a non-dry run must produce records.csv (#143 F5), which these fixtures do not.
+function run(f: Fixture, options: { readonly driver?: string; readonly ref?: string; readonly out?: string; readonly driverArgs?: readonly string[]; readonly cwd?: string } = {}) {
+  return spawnSync("bash", [SCRIPT, "--repo", f.repo, "--ref", options.ref ?? "main", "--out", options.out ?? f.out, "--", ...(options.driverArgs ?? ["--dry-run"])], {
+    encoding: "utf8", cwd: options.cwd,
     env: { ...process.env, TMPDIR: f.temp, UAT_INSTALL_CMD: "true", UAT_START_CMD: "true", UAT_DRIVER_CMD: options.driver ?? "true", UAT_HEALTH_URL: "skip" },
   });
 }
@@ -129,5 +130,77 @@ describe("#134 output stays outside the repo", () => {
     const result = spawnSync("bun", [DRIVER, "--dry-run", "--out", join(f.repo, "docs"), "--base", "http://127.0.0.1:9"], { cwd: f.repo, encoding: "utf8", env });
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("outside the repository");
+  }));
+});
+
+// PR #143 review findings on the wrapper and on the driver paths that run before any browser.
+const EXAMPLE_DIR = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
+async function withHealth(version: string, runTest: (base: string) => Promise<void>): Promise<void> {
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => Response.json({ version }) });
+  try { await runTest(`http://127.0.0.1:${server.port}`); } finally { await server.stop(true); }
+}
+function driver(f: Fixture, base: string, extra: readonly string[]) {
+  return Bun.spawn(["bun", DRIVER, "--dry-run", "--out", f.out, "--base", base, "--example", EXAMPLE_DIR, ...extra], { cwd: f.repo, stdout: "pipe", stderr: "pipe" });
+}
+async function reportsIn(dir: string): Promise<string[]> {
+  const found: string[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) if (entry.isDirectory() && existsSync(join(dir, entry.name, "report.md"))) found.push(await readFile(join(dir, entry.name, "report.md"), "utf8"));
+  return found;
+}
+describe("#143 review findings", () => {
+  test("[integration] #143 F1 a clone SHA mismatch stops before the browser and still writes the report", async () => withFixture(async (f) => withHealth("served-build", async (base) => {
+    const proc = driver(f, base, ["--clone-sha", "clone-build", "--chromium", "/nonexistent/chromium"]);
+    expect(await proc.exited).toBe(1);
+    const [report] = await reportsIn(f.out);
+    expect(report).toContain("| Build | pin | FAIL |");
+    expect(report).not.toContain("Chromium");
+    expect(report).not.toContain("New Scene");
+  })));
+  test("[integration] #143 F2 a missing Chromium fails with the install command and writes the report", async () => withFixture(async (f) => withHealth("same", async (base) => {
+    const proc = driver(f, base, ["--clone-sha", "same", "--chromium", "/nonexistent/chromium"]);
+    expect(await proc.exited).toBe(1);
+    const [report] = await reportsIn(f.out);
+    expect(report).toContain("bunx playwright-core install chromium");
+    expect(report).toContain("/nonexistent/chromium");
+  })));
+  test("[integration] #143 F4 two driver runs into one --out keep separate report folders", async () => withFixture(async (f) => withHealth("same", async (base) => {
+    const first = driver(f, base, ["--clone-sha", "same", "--chromium", "/nonexistent/chromium"]);
+    const second = driver(f, base, ["--clone-sha", "same", "--chromium", "/nonexistent/chromium"]);
+    await Promise.all([first.exited, second.exited]);
+    expect(await reportsIn(f.out)).toHaveLength(2);
+  })));
+  test("[integration] #143 F4 each wrapper run keeps its server.log in its own run folder", async () => withFixture(async (f) => {
+    expect(run(f).status).toBe(0);
+    expect(run(f).status).toBe(0);
+    const runs = (await readdir(f.out, { withFileTypes: true })).filter((e) => e.isDirectory());
+    expect(runs).toHaveLength(2);
+    for (const r of runs) expect(existsSync(join(f.out, r.name, "server.log"))).toBe(true);
+    expect(existsSync(join(f.out, "server.log"))).toBe(false);
+  }));
+  test("[integration] #143 F5 a failing records enumeration fails the wrapper", async () => withFixture(async (f) => {
+    const result = run(f, { driver: 'rm -rf "$UAT_RUN_DIR"' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("records");
+  }));
+  test("[integration] #143 F5 a non-dry run that produced no records.csv fails", async () => withFixture(async (f) => {
+    const result = run(f, { driverArgs: [] });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("no records.csv");
+  }));
+  test("[integration] #143 F6 a ref that looks like an option or does not exist is refused", async () => withFixture(async (f) => {
+    for (const ref of ["-f", "--orphan=x", "no-such-ref"]) {
+      const result = run(f, { ref });
+      expect(result.status).not.toBe(0);
+      expect(result.stdout).not.toContain("git status --porcelain: empty");
+    }
+  }));
+  test("[integration] #143 F11 a relative --key-env is resolved against the caller's directory", async () => withFixture(async (f) => {
+    const seen = join(f.root, "driver-args");
+    const result = run(f, { cwd: f.root, driver: `printf '%s\\n' "$@" > '${seen}'`, driverArgs: ["--dry-run", "--key-env", "keys.env", "--chromium", "bin/chrome"] });
+    expect(result.status).toBe(0);
+    const args = (await readFile(seen, "utf8")).split("\n");
+    const root = realpathSync(f.root);
+    expect(args).toContain(join(root, "keys.env"));
+    expect(args).toContain(join(root, "bin", "chrome"));
   }));
 });

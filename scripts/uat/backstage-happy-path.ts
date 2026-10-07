@@ -3,17 +3,18 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { chromium, type Page } from "playwright-core";
 import { loadExample } from "../uc13/arms.ts";
 import { MODEL_CATALOG } from "../../src/backstage/catalog.ts";
 import { validate } from "../../src/format/validate.ts";
-import { buildReport, casesCsv, checkRecords, fitKeywords, readOpeningNight, redact, ruleKeywords, scanForSecrets, uc13Scene, type ReportInput } from "./happy-path-lib.ts";
+import { buildReport, casesCsv, checkEvidence, checkRecords, envValue, fitKeywords, pinError, pollUntil, readOpeningNight, redact, reportDirName, resolveChromium, ruleKeywords, runCompleteState, runStartState, scanForSecrets, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
 
-const usage = "Usage: bun scripts/uat/backstage-happy-path.ts --out <dir> [--base <url>] [--clone-sha <sha>] [--example <dir>] [--key-env <file>] [--jev-key-name <NAME>] [--llm-key-name <NAME>] [--llm-model <id>] [--pause-for-labels] [--headed] [--dry-run]";
-interface Options { base: string; out: string; cloneSha: string | null; example: string; keyEnv: string | null; jevKeyName: string; llmKeyName: string; llmModel: string; pause: boolean; headed: boolean; dryRun: boolean }
+const usage = "Usage: bun scripts/uat/backstage-happy-path.ts --out <dir> [--base <url>] [--clone-sha <sha>] [--example <dir>] [--key-env <file>] [--jev-key-name <NAME>] [--llm-key-name <NAME>] [--llm-model <id>] [--chromium <path>] [--pause-for-labels] [--headed] [--dry-run]\nChromium: --chromium, else UAT_CHROMIUM_PATH, else Playwright's cache (bunx playwright-core install chromium).";
+interface Options { base: string; out: string; cloneSha: string | null; example: string; keyEnv: string | null; jevKeyName: string; llmKeyName: string; llmModel: string; chromium: string | null; pause: boolean; headed: boolean; dryRun: boolean }
 function parseArgs(args: readonly string[]): Options | null {
-  const options: Options = { base: "http://localhost:3456", out: "", cloneSha: null, example: "examples/uc13-shop-bot", keyEnv: null, jevKeyName: "JEV_API_KEY", llmKeyName: "ANTHROPIC_API_KEY", llmModel: "claude-haiku-4-5-20251001", pause: false, headed: false, dryRun: false };
+  const options: Options = { base: "http://localhost:3456", out: "", cloneSha: null, example: "examples/uc13-shop-bot", keyEnv: null, jevKeyName: "JEV_API_KEY", llmKeyName: "ANTHROPIC_API_KEY", llmModel: "claude-haiku-4-5-20251001", chromium: null, pause: false, headed: false, dryRun: false };
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === "--help") return null;
@@ -31,21 +32,17 @@ function parseArgs(args: readonly string[]): Options | null {
       case "--jev-key-name": options.jevKeyName = value; break;
       case "--llm-key-name": options.llmKeyName = value; break;
       case "--llm-model": options.llmModel = value; break;
+      case "--chromium": options.chromium = value; break;
       default: return null;
     }
   }
   return options.out ? options : null;
 }
-function envValue(text: string, name: string): string | null {
-  for (const raw of text.split(/\r?\n/)) {
-    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$/.exec(raw);
-    if (match?.[1] !== name) continue;
-    let value = match[2]?.trim() ?? "";
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
-    return value;
-  }
-  return null;
+/** Playwright's expected Chromium path; empty when the registry cannot name one. */
+function bundledChromium(): string {
+  try { return chromium.executablePath(); } catch { return ""; }
 }
+const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 const JEV_ROLE = "Jev key";
 const LLM_ROLE = "LLM key";
 const secrets = new Map<string, string>();
@@ -106,8 +103,10 @@ async function main(): Promise<number> {
   const healthBody: unknown = await health.json();
   const version = typeof healthBody === "object" && healthBody !== null && "version" in healthBody && typeof healthBody.version === "string" ? healthBody.version : "unknown";
   const suffix = (options.cloneSha ?? version).slice(0, 7).replace(/[^A-Za-z0-9_.-]/g, "") || "unknown";
-  const reportDir = resolve(options.out, `${new Date().toISOString().slice(0, 10)}-happy-path-${suffix}`);
-  await mkdir(reportDir, { recursive: true });
+  // One fresh folder per invocation; the non-recursive mkdir fails rather than reuse an existing one.
+  const reportDir = resolve(options.out, reportDirName(new Date(), suffix, randomBytes(3).toString("hex")));
+  await mkdir(resolve(options.out), { recursive: true });
+  await mkdir(reportDir);
   // A symlinked dated folder under an outside --out could still point back into the repo.
   if (repoTop !== null && insideDir(realpathSync(reportDir), repoTop)) {
     console.error("The report folder resolves inside the repository work tree; run output never enters the repo");
@@ -121,6 +120,10 @@ async function main(): Promise<number> {
   let verdictText = "";
   let runStarted = false;
   let recordsCsv = "";
+  let evidenceJson = "";
+  const jevModel = MODEL_CATALOG.find((entry) => entry.provider === "jev")?.modelId ?? "jev-1.13.0";
+  const armModels: Readonly<Record<Arm, string>> = { jev: jevModel, llm: options.llmModel, rule: "keywords-v1" };
+  const caseInputs: ReadonlyMap<string, string> = new Map(example.cases.map((c) => [c.case_id, c.case_input]));
   const record = async (room: string, step: string, fn: () => Promise<string | void>): Promise<void> => {
     let pass = true, detail = "completed";
     try { const said = await fn(); if (typeof said === "string" && said) detail = said; } catch (error) { pass = false; detail = clean(error); }
@@ -128,19 +131,26 @@ async function main(): Promise<number> {
     if (page) try { await page.screenshot({ path: join(reportDir, shot), type: "jpeg", quality: 80 }); } catch (error) { pass = false; detail += `; screenshot: ${clean(error)}`; }
     steps.push({ room, step, pass, detail, shot });
   };
-  try {
-    browser = await chromium.launch({ headless: !options.headed });
+  // The local build reports its git revision as its version; a different value means another server owns the port,
+  // so nothing is driven (no keys typed, no paid calls) and only the failure report is written.
+  const pinned = pinError(version, options.cloneSha);
+  await record("Build", "pin", async () => { if (pinned) throw new Error(pinned); });
+  const chromiumPath = pinned ? null : resolveChromium(options.chromium, process.env.UAT_CHROMIUM_PATH, bundledChromium(), existsSync);
+  if (chromiumPath && "error" in chromiumPath) await record("Browser", "chromium", async () => { throw new Error(chromiumPath.error); });
+  if (chromiumPath && "path" in chromiumPath) try {
+    browser = await chromium.launch({ headless: !options.headed, executablePath: chromiumPath.path });
     page = await browser.newPage({ acceptDownloads: true });
     page.setDefaultTimeout(15000);
     const p = page;
-    // The local build reports its git revision as its version; a different value means another server owns the port.
-    await record("Build", "pin", async () => {
-      if (options.cloneSha && version !== options.cloneSha) throw new Error(`health version ${version} is not the clone ${options.cloneSha}`);
-    });
     await record("New Scene", "open", async () => { await p.goto(new URL("/backstage/", options.base).toString()); await p.locator("#question").waitFor(); });
     const scene = uc13Scene(example.factSheet);
     await record("New Scene", "set decision", async () => {
-      for (const [id, value] of Object.entries({ question: scene.question, "choice-a": scene.choiceA, "choice-b": scene.choiceB, "definition-a": scene.definitionA, "definition-b": scene.definitionB, acceptance: scene.acceptance })) await p.locator(`#${id}`).fill(value);
+      await p.locator("#question").fill(scene.question);
+      await p.locator("#choice-a").fill(scene.choiceA);
+      await p.locator("#choice-b").fill(scene.choiceB);
+      await p.locator("#definition-a").fill(scene.definitionA);
+      await p.locator("#definition-b").fill(scene.definitionB);
+      await p.locator("#acceptance").fill(scene.acceptance);
     });
     await record("Casting", "open", async () => { await p.locator("#next").click(); await p.waitForTimeout(400); });
     await record("Casting", "select players", async () => {
@@ -173,16 +183,19 @@ async function main(): Promise<number> {
         const reason = (await p.locator("#run-reason").innerText()).trim();
         if (reason) throw new Error(`Run blocked: ${reason}`);
         await p.locator("#run-all").click();
-        await p.waitForTimeout(1500);
-        const notice = (await p.locator("#notice").innerText()).trim();
-        const progress = (await p.locator("#progress").innerText()).trim();
-        if (!progress) throw new Error(`Run did not start${notice ? `: ${notice}` : ""}`);
+        // The app awaits its health check before showing progress, so wait for a started or refused state, bounded.
+        try {
+          await pollUntil(async () => runStartState(await p.locator("#progress").innerText(), await p.locator("#run-reason").innerText()), 60000, 500, sleep);
+        } catch (error) {
+          const notice = (await p.locator("#notice").innerText()).trim();
+          throw new Error(`Run did not start: ${clean(error)}${notice ? `; notice: ${notice}` : ""}`);
+        }
         runStarted = true;
       });
       await record("Learning Lines", "complete all arms", async () => {
         if (!runStarted) throw new Error("skipped: the run did not start");
         const paidCells = caseIds.length * 2;
-        await p.waitForFunction((count: number) => new RegExp(`${count} of ${count} selected case/model cells processed; 0 have no answer`).test(document.querySelector("#run-preview")?.textContent ?? "") && /No calls in progress/.test(document.querySelector("#progress")?.textContent ?? ""), paidCells, { timeout: 600000 });
+        await pollUntil(async () => runCompleteState(await p.locator("#run-preview").innerText(), await p.locator("#progress").innerText(), paidCells), 600000, 2000, sleep);
       });
       await record("Rehearsals", "open", async () => { await p.locator("#next").click(); await p.waitForTimeout(400); });
       await record("Rehearsals", "open judging", async () => { await p.getByRole("button", { name: /Open .*judging/ }).click(); await p.locator("#confirm-judging-yes").click(); await p.locator("#blind-card").waitFor(); });
@@ -194,13 +207,18 @@ async function main(): Promise<number> {
         await confirm.click();
       });
       await record("Dress Rehearsal", "open", async () => { await p.locator('#rooms button[data-room="4"]').click(); });
-      for (const [id, filename] of [["download-csv", "records.csv"], ["download-evidence", "evidence.json"]] as const) {
-        await record("Dress Rehearsal", id, async () => {
-          const [download] = await Promise.all([p.waitForEvent("download"), p.locator(`#${id}`).click()]);
-          await download.saveAs(join(reportDir, filename));
-          if (id === "download-csv") recordsCsv = await readFile(join(reportDir, filename), "utf8");
-        });
-      }
+      await record("Dress Rehearsal", "download-csv", async () => {
+        const [download] = await Promise.all([p.waitForEvent("download"), p.locator("#download-csv").click()]);
+        await download.saveAs(join(reportDir, "records.csv"));
+        recordsCsv = await readFile(join(reportDir, "records.csv"), "utf8");
+      });
+      await record("Dress Rehearsal", "download-evidence", async () => {
+        const [download] = await Promise.all([p.waitForEvent("download"), p.locator("#download-evidence").click()]);
+        await download.saveAs(join(reportDir, "evidence.json"));
+        evidenceJson = await readFile(join(reportDir, "evidence.json"), "utf8");
+        const problems = checkEvidence(evidenceJson, recordsCsv, options.pause);
+        if (problems.length) throw new Error(problems.slice(0, 3).join("; "));
+      });
       await record("Opening Night", "verdict", async () => {
         await p.locator('#rooms button[data-room="5"]').click();
         await p.locator("#verdict h3").waitFor();
@@ -215,11 +233,11 @@ async function main(): Promise<number> {
   if (!options.dryRun) {
     const checked = validate(recordsCsv);
     if (checked.errors.length) steps.push({ room: "Records", step: "validate", pass: false, detail: checked.errors.slice(0, 3).join("; "), shot: "" });
-    const problems = checkRecords(recordsCsv, caseIds, ["jev", "llm", "rule"], options.pause);
+    const problems = checkRecords(recordsCsv, caseIds, ["jev", "llm", "rule"], options.pause, { inputs: caseInputs, models: armModels });
     if (problems.length) steps.push({ room: "Records", step: "all players", pass: false, detail: `${problems.length} record problem(s)`, shot: "" });
   }
   const out = resolve(options.out);
-  const reportInput: ReportInput = { base: options.base, version, cloneSha: options.cloneSha, csv: recordsCsv, caseIds, verdictText, steps, secretHits: scanForSecrets(out, secrets), runTime: new Date().toISOString(), modelIds: ["jev-1.13.0", options.llmModel, "keywords-v1"], labels: options.pause ? "by a person (--pause-for-labels)" : "none (agents never label)", notes: ["Scanned: --out (all files)", `Rule: Backstage keyword rule (substring match, cap 20), not rule.md's word-start rule: ${keywords.kept.length} of ${terms.length} rule.md terms; redundant under substring match: ${keywords.redundant.join(", ") || "none"}; left out: ${keywords.dropped.join(", ") || "none"}`, "Screenshots: keys are typed only into password fields; screenshot pixels are not scanned."], dryRun: options.dryRun };
+  const reportInput: ReportInput = { base: options.base, version, cloneSha: options.cloneSha, csv: recordsCsv, caseIds, caseInputs, armModels, evidence: evidenceJson, verdictText, steps, secretHits: scanForSecrets(out, secrets), runTime: new Date().toISOString(), labels: options.pause ? "by a person (--pause-for-labels)" : "none (agents never label)", notes: ["Scanned: --out (all files)", `Rule: Backstage keyword rule (substring match, cap 20), not rule.md's word-start rule: ${keywords.kept.length} of ${terms.length} rule.md terms; redundant under substring match: ${keywords.redundant.join(", ") || "none"}; left out: ${keywords.dropped.join(", ") || "none"}`, "Screenshots: keys are typed only into password fields; screenshot pixels are not scanned."], dryRun: options.dryRun };
   let result = buildReport(reportInput);
   await writeFile(join(reportDir, "report.md"), clean(result.markdown));
   const after = scanForSecrets(out, secrets);

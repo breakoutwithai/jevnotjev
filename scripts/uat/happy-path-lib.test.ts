@@ -8,7 +8,8 @@ import { verdict } from "../../src/core/verdict.ts";
 import { readDictRows } from "../../src/format/csv.ts";
 import { validate } from "../../src/format/validate.ts";
 import { CRITERIA, formatRecords, loadExample, record, type RecordRow } from "../uc13/arms.ts";
-import { REASON_PATTERNS, CONDITION_VERDICTS, buildReport, casesCsv, checkRecords, fitKeywords, readOpeningNight, redact, ruleKeywords, scanForSecrets, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
+import { fileSeed } from "../../src/core/calc.ts";
+import { REASON_PATTERNS, CONDITION_VERDICTS, buildReport, casesCsv, checkEvidence, checkRecords, envValue, expectedVerdict, fitKeywords, pinError, pollUntil, readOpeningNight, redact, reportDirName, resolveChromium, ruleKeywords, runCompleteState, runStartState, scanForSecrets, seedOf, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
 const example = await loadExample(EXAMPLE);
@@ -26,8 +27,11 @@ function realVerdict(source: readonly RecordRow[]) {
 const pairedVerdict = realVerdict(rows);
 const pairedText = `claude-haiku-4-5-20251001 — ${pairedVerdict.verdict}\nPer-pair, uncorrected comparison. ${pairedVerdict.reason}`;
 function withRows(source: readonly RecordRow[]): string { return formatRecords(source); }
+const caseInputs: ReadonlyMap<string, string> = new Map(example.cases.map((c) => [c.case_id, c.case_input]));
+const armModels: Readonly<Record<Arm, string>> = { jev: "jev.v1", llm: "llm.v1", rule: "rule.v1" };
+const evidence = JSON.stringify({ version: "backstage/2", manifest: { runId: rows[0]?.run_id ?? "" }, attempts: [], labels: rows.map((r) => ({ caseId: r.case_id, armId: r.answerer, output: r.output, label: null })) });
 function report(overrides: Partial<ReportInput> = {}): ReportInput {
-  return { base: "origin/main", version: "uat", cloneSha: "abc123", csv, caseIds, verdictText: pairedText, steps: [{ room: "Opening Night", step: "reveal", pass: true, detail: "shown", shot: "opening.png" }], secretHits: [], ...overrides };
+  return { base: "origin/main", version: "uat", cloneSha: "abc123", csv, caseIds, caseInputs, armModels, evidence, verdictText: pairedText, steps: [{ room: "Opening Night", step: "reveal", pass: true, detail: "shown", shot: "opening.png" }], secretHits: [], ...overrides };
 }
 function hasError(result: ReturnType<typeof readOpeningNight>): boolean { return "error" in result; }
 
@@ -101,7 +105,9 @@ describe("#134 records", () => {
   test("[unit] #134 row 17 header-only file reports every missing player", () => {
     const problems = checkRecords(withRows([]), caseIds, arms);
     expect(problems.length).toBeGreaterThanOrEqual(40);
-    expect(new Set(problems.map((p) => p.caseId)).size).toBe(40);
+    expect(new Set(problems.filter((p) => p.caseId !== "file").map((p) => p.caseId)).size).toBe(40);
+    // #143 F13: the file-level validation error is reported even when there are no rows.
+    expect(problems.some((p) => p.caseId === "file")).toBe(true);
   });
 });
 
@@ -207,11 +213,13 @@ const DRIVER_SELECTORS: readonly string[] = [
   '"#blind-card"', '"#compare"', '"#confirm-judging-yes"', '"#confirm-reveal-yes"', '"#import-cases"', '"#include-rule"',
   '"#keywords"', '"#llm-player"', '"#next"', '"#notice"', '"#progress"', '"#question"', '"#reveal"', '"#reveal-reason"',
   '"#rule-fields"', '"#run-all"', '"#run-preview"', '"#run-reason"', '"#verdict h3"', '"#verdict"', "'#jev-key[type=\"password\"]'",
-  "'#rooms button[data-room=\"4\"]'", "'#rooms button[data-room=\"5\"]'", "`#${id}`", "`#${llmProvider}-key[type=\"password\"]`",
-  "`#model-options [id=\"arm-${options.llmModel}\"]`", "`#${id}`",
+  "'#rooms button[data-room=\"4\"]'", "'#rooms button[data-room=\"5\"]'","`#${llmProvider}-key[type=\"password\"]`",
+  "`#model-options [id=\"arm-${options.llmModel}\"]`", '"#choice-a"', '"#choice-b"', '"#definition-a"', '"#definition-b"',
+  '"#acceptance"', '"#download-csv"', '"#download-evidence"',
 ];
 const DRIVER_ROLE_AND_TEXT: readonly string[] = ['getByRole("button", { name: /Open .*judging/ })', 'getByText("Imported 40 cases", { exact: false })'];
-const PAGE_METHODS = new Set(["goto", "locator", "getByRole", "getByText", "waitForTimeout", "waitForFunction", "waitForEvent", "screenshot", "setDefaultTimeout"]);
+// #143 F3: no waitForFunction; page-side callbacks can mutate the page, so waits poll innerText from Node instead.
+const PAGE_METHODS = new Set(["goto", "locator", "getByRole", "getByText", "waitForTimeout", "waitForEvent", "screenshot", "setDefaultTimeout"]);
 
 const LITERAL = String.raw`("[^"\n]*"|'[^'\n]*'|\`[^\`\n]*\`)`;
 /** Every interaction surface in a driver source, each required to be in its literal allowlisted form. */
@@ -228,8 +236,7 @@ function driverSurfaceProblems(source: string): readonly string[] {
   if (getByCalls !== getBys) problems.push(`${getByCalls - getBys} getBy call(s) not allowlisted`);
   for (const m of source.matchAll(/\b(?:p|page)\s*\.\s*(\w+)\s*\(/g)) if (!PAGE_METHODS.has(m[1] ?? "")) problems.push(`page method ${m[1] ?? ""}`);
   if (/\.(?:mouse|keyboard|touchscreen)\b|dispatchEvent|evaluate|addScriptTag|exposeFunction|\.route\s*\(|\.first\s*\(|\.last\s*\(|\.nth\s*\(|\.filter\s*\(|\[\s*["'`]click/.test(source)) problems.push("input or script path that bypasses a locator");
-  if ((source.match(/waitForFunction\s*\(/g)?.length ?? 0) !== 1) problems.push("waitForFunction count is not 1");
-  return problems;
+  if (/waitForFunction|\$eval|\$\$eval/.test(source)) problems.push("page-side callback (waitForFunction / $eval)");  return problems;
 }
 
 test("[unit] #134 driver interacts only through allowlisted selectors (agents never label)", async () => {
@@ -249,6 +256,9 @@ test("[unit] #134 the allowlist guard fails on every pick-click shape seen in re
     'await p.getByRole("button", { name: "hand_off" }).click();',
     'await p.getByRole( "button", { name: "answer" }).click();',
     'await p.locator("#pick-actions button").first().click();',
+    // #143 F3: a template selector built from a variable, and a mutation inside a waitForFunction callback.
+    'const id = "pick-first"; await p.locator(`#${id}`).click();',
+    'await p.waitForFunction(() => { document.querySelector("#pick-first")?.click(); return true; });',
   ]) expect(driverSurfaceProblems(source + "\n" + mutation).length).toBeGreaterThan(0);
 });
 
@@ -288,5 +298,107 @@ describe("#134 UC13 inputs", () => {
   });
   test("[unit] #134 row 39 a list within the cap is kept whole and in order", () => {
     expect(fitKeywords(["refund", "money back"], 20)).toEqual({ kept: ["refund", "money back"], redundant: [], dropped: [] });
+  });
+});
+
+// PR #143 review findings (Codex discovery sweep on 4bdd61e), one test per finding number.
+const EM = String.fromCharCode(0x2014);
+const HEAD = (verdictName: string): string => `x ${EM} ${verdictName}\nPer-pair, uncorrected comparison. `;
+function evidenceFor(source: readonly RecordRow[], overrides: Readonly<Record<string, unknown>> = {}): string {
+  return JSON.stringify({
+    version: "backstage/2", manifest: { runId: source[0]?.run_id ?? "run" }, attempts: [],
+    labels: source.map((r) => ({ caseId: r.case_id, armId: r.answerer, output: r.output, label: null })), ...overrides,
+  });
+}
+describe("#143 review findings", () => {
+  test("[unit] #143 F1 a clone SHA mismatch is a pin error and a match or no pin is not", () => {
+    expect(pinError("abc1234", "abc9999")).toContain("abc9999");
+    expect(pinError("abc1234", "abc1234")).toBeNull();
+    expect(pinError("abc1234", null)).toBeNull();
+  });
+  test("[unit] #143 F2 missing Chromium fails naming the install command and the override", () => {
+    const none = resolveChromium(null, undefined, "/cache/chromium", () => false);
+    expect("error" in none ? none.error : "").toContain("bunx playwright-core install chromium");
+    expect("error" in none ? none.error : "").toContain("--chromium");
+    expect(resolveChromium(null, undefined, "/cache/chromium", (p) => p === "/cache/chromium")).toEqual({ path: "/cache/chromium" });
+    expect(resolveChromium("/opt/chrome", "/env/chrome", "/cache/chromium", () => true)).toEqual({ path: "/opt/chrome" });
+    expect(resolveChromium(null, "/env/chrome", "/cache/chromium", () => true)).toEqual({ path: "/env/chrome" });
+    const badExplicit = resolveChromium("/opt/missing", undefined, "/cache/chromium", (p) => p === "/cache/chromium");
+    expect("error" in badExplicit ? badExplicit.error : "").toContain("/opt/missing");
+  });
+  test("[unit] #143 F4 report folder names carry time and a nonce so two runs never share one", () => {
+    const now = new Date("2026-10-07T19:25:18.590Z");
+    expect(reportDirName(now, "abc1234", "a1b2c3")).toBe("2026-10-07T19-25-18-590Z-happy-path-abc1234-a1b2c3");
+    expect(reportDirName(now, "abc1234", "a1b2c3")).not.toBe(reportDirName(now, "abc1234", "d4e5f6"));
+  });
+  test("[unit] #143 F7 a displayed verdict the exported records do not support fails the report", async () => {
+    const useJev = HEAD("use Jev") + "use Jev: Jev is within 10 points of the LLM (lower bound -0.050) and costs 0.500 of it per accepted answer (upper bound 0.700)";
+    expect(hasError(readOpeningNight(useJev))).toBe(false);
+    const result = buildReport(report({ verdictText: useJev }));
+    expect(result.ok).toBe(false);
+    expect(result.markdown).toContain("does not follow from records.csv");
+    expect(seedOf(csv)).toBe(await fileSeed(csv));
+    expect(expectedVerdict(csv)).toMatchObject({ verdict: pairedVerdict.verdict, condition: pairedVerdict.condition, reason: pairedVerdict.reason });
+  });
+  test("[unit] #143 F8 wrong case inputs or model ids in the export are record problems", () => {
+    expect(checkRecords(csv, caseIds, arms, false, { inputs: caseInputs, models: armModels })).toEqual([]);
+    const wrongInput = rows.map((r) => r.case_id === "m01" && r.answerer === "llm" ? { ...r, case_input: "something else" } : r);
+    expect(checkRecords(withRows(wrongInput), caseIds, arms, false, { inputs: caseInputs, models: armModels }).some((p) => p.caseId === "m01" && /case_input/.test(p.problem))).toBe(true);
+    const wrongModel = rows.map((r) => r.answerer === "llm" ? { ...r, answerer_model: "some-other-model" } : r);
+    expect(checkRecords(withRows(wrongModel), caseIds, arms, false, { inputs: caseInputs, models: armModels }).filter((p) => /answerer_model/.test(p.problem))).toHaveLength(40);
+    const twoRuns = rows.map((r, i) => i === 0 ? { ...r, run_id: "another-run" } : r);
+    expect(checkRecords(withRows(twoRuns), caseIds, arms).some((p) => /more than one run/.test(p.problem))).toBe(true);
+    expect(buildReport(report({ armModels: { jev: "jev-1.13.0", llm: "llm.v1", rule: "rule.v1" } })).ok).toBe(false);
+  });
+  test("[unit] #143 F9 an empty, malformed or unrelated evidence.json fails and a matching one passes", () => {
+    expect(checkEvidence(evidenceFor(rows), csv, false)).toEqual([]);
+    const flipped = rows.map((r) => ({ ...r, output: r.output === "answer" ? "hand_off" : "answer" }));
+    for (const bad of ["", "not json", "{}", "[]", evidenceFor(rows.slice(1)), evidenceFor(rows, { manifest: { runId: "other-run" } }), evidenceFor(flipped)]) {
+      expect(checkEvidence(bad, csv, false).length).toBeGreaterThan(0);
+    }
+    const labelled = rows.map((r) => ({ caseId: r.case_id, armId: r.answerer, output: r.output, label: "accept" }));
+    expect(checkEvidence(evidenceFor(rows, { labels: labelled }), csv, false).some((p) => /label/.test(p))).toBe(true);
+    expect(buildReport(report({ evidence: "{}" })).ok).toBe(false);
+  });
+  test("[unit] #143 F10 the run-start wait polls until started, stops on a block reason and times out", async () => {
+    let clock = 0;
+    const sleep = async (ms: number): Promise<void> => { clock += ms; };
+    const progress = ["", "", "2 calls in progress"];
+    let i = 0;
+    expect(await pollUntil(async () => runStartState(progress[Math.min(i++, 2)] ?? "", ""), 60000, 500, sleep, () => clock)).toBe("started");
+    expect(clock).toBe(1000);
+    await expect(pollUntil(async () => runStartState("", "Add a key"), 60000, 500, sleep, () => clock)).rejects.toThrow("Run blocked: Add a key");
+    clock = 0;
+    await expect(pollUntil(async () => runStartState("", ""), 3000, 500, sleep, () => clock)).rejects.toThrow("timed out");
+    expect(runCompleteState("80 of 80 selected case/model cells processed; 0 have no answer", "No calls in progress", 80)).toEqual({ done: "complete" });
+    expect(runCompleteState("79 of 80 selected case/model cells processed; 0 have no answer", "No calls in progress", 80)).toBeNull();
+    expect(runCompleteState("80 of 80 selected case/model cells processed; 0 have no answer", "1 call in progress", 80)).toBeNull();
+  });
+  test("[unit] #143 F12 dotenv values drop inline comments and the quotes around a quoted value", () => {
+    const text = ["A=abc12345 # comment", 'B="quoted value" # comment', "C='single' #c", "export D=plain", "E=has#hash", 'F="keep # inside"', "G=  spaced  "].join("\n");
+    expect(envValue(text, "A")).toBe("abc12345");
+    expect(envValue(text, "B")).toBe("quoted value");
+    expect(envValue(text, "C")).toBe("single");
+    expect(envValue(text, "D")).toBe("plain");
+    expect(envValue(text, "E")).toBe("has#hash");
+    expect(envValue(text, "F")).toBe("keep # inside");
+    expect(envValue(text, "G")).toBe("spaced");
+    expect(envValue(text, "MISSING")).toBeNull();
+  });
+  test("[unit] #143 F13 a report with no steps, no cases and a header-only CSV does not pass", () => {
+    expect(buildReport(report({ steps: [], caseIds: [], csv: "case_id,answerer\n" })).ok).toBe(false);
+    expect(checkRecords("case_id,answerer\n", [], arms).some((p) => p.caseId === "file")).toBe(true);
+    expect(buildReport(report({ steps: [] })).ok).toBe(false);
+  });
+  test("[unit] #143 F14 a reason naming contradictory conditions is refused; a real rule-4 list is read", () => {
+    expect(hasError(readOpeningNight(HEAD("not enough evidence") + "not enough evidence: no LLM results; Jev is clearly worse"))).toBe(true);
+    const rule4 = HEAD("not enough evidence") + "not enough evidence: Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM -0.150, not above -0.10); Jev is not cheaper (cost ratio 1.050)";
+    expect(readOpeningNight(rule4)).toMatchObject({ condition: "accept-rate-not-shown" });
+    expect(hasError(readOpeningNight(rule4 + "; Jev is clearly worse"))).toBe(true);
+  });
+  test("[unit] #143 F15 redundancy is judged against the terms kept, and an uncovered term is dropped", () => {
+    expect(fitKeywords(["a", "b", "bb"], 1)).toEqual({ kept: ["a"], redundant: [], dropped: ["b", "bb"] });
+    expect(fitKeywords(["a", "b", "bb"], 2)).toEqual({ kept: ["a", "b"], redundant: ["bb"], dropped: [] });
+    expect(fitKeywords(["x", "x"], 5)).toEqual({ kept: ["x"], redundant: ["x"], dropped: [] });
   });
 });

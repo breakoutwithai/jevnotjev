@@ -257,6 +257,18 @@ export function parseRecords(text: string): RecordRow[] {
   return parsed;
 }
 
+/**
+ * parseRecords for a writer that sets only label and label_source (TokenMax): a 1.1 row is refused, because rewriting
+ * its label would keep another labeller's labelled_by, labelled_at and label_blind.
+ */
+export function parseV1Records(text: string): RecordRow[] {
+  const rows = parseRecords(text);
+  if (rows.some((r) => r.format_version !== "jnj-record/1")) {
+    throw new Error("records.csv holds jnj-record/1.1 rows; this writer keeps only label and label_source, so it reads jnj-record/1 only");
+  }
+  return rows;
+}
+
 /** labels.csv from the labelling page: case_id,truth. Each id once, m01 to m40 only. */
 export function parseTruth(text: string): Map<string, Answer> {
   const { header, rows } = readDictRows(text);

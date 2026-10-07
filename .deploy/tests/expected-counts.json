@@ -28,7 +28,7 @@
     "scripts/tokenmax/arms.test.ts": 11,
     "scripts/tokenmax/hardening.test.ts": 10,
     "scripts/tokenmax/hardening2.test.ts": 4,
-    "scripts/tokenmax/run.test.ts": 5,
+    "scripts/tokenmax/run.test.ts": 6,
     "scripts/uat-controllers.test.ts": 12,
     "scripts/uc13/arms.test.ts": 24,
     "scripts/uc13/calls.test.ts": 8,

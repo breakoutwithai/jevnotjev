@@ -138,3 +138,38 @@ describe("ticket office hardening", () => {
     expect(limiter.allow("a")).toBe(true);
   });
 });
+
+describe("ticket office catalogue edges", () => {
+  test("[integration] a backstage request needs no catalogue; a stored request key replays after its show leaves the catalogue", async () => {
+    const { handler, store, path } = setup();
+    const keyed = { ...valid, request_key: "attempt-0123456789ab" };
+    const first: unknown = await (await handler(...ask(keyed))).json();
+    await Bun.write(join(path, "..", "site", "shows", "posters.json"), "{not json");
+    const again = await handler(...ask(keyed));
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ ticket: typeof first === "object" && first !== null && "ticket" in first ? first.ticket : "", replay: true });
+    expect((await handler(...ask({ kind: "backstage", email: "b@example.test", consent: true }, "203.0.113.60"))).status).toBe(200);
+    expect(store.count()).toBe(2);
+  });
+
+  test("[integration] duplicate poster ids or a non-calendar date make the catalogue an outage", async () => {
+    for (const bad of [
+      [{ id: "uc13", date: "2026-10-01" }, { id: "uc13", date: "2026-10-01" }],
+      [{ id: "uc13", date: "2026-02-31" }],
+      [{ id: "", date: "2026-10-01" }],
+    ]) {
+      const { handler, path } = setup();
+      await Bun.write(join(path, "..", "site", "shows", "posters.json"), JSON.stringify({ posters: bad }));
+      expect((await handler(new Request(`${ORIGIN}/api/tickets/ranking`))).status).toBe(503);
+    }
+  });
+
+  test("[unit] email local parts are dot-atoms and website hosts are DNS names or IP literals", () => {
+    const shows = new Set(["uc13"]);
+    for (const email of ["a,b@example.com", "a\u0000b@example.com", "a..b@example.com", ".a@example.com"])
+      expect(checkTicket({ ...valid, email }, shows)).toEqual({ ok: false, reason: "bad-email" });
+    expect(checkTicket({ ...valid, email: "ok.name+tag@sub.example.co.uk" }, shows).ok).toBe(true);
+    const site = (website: string) => checkTicket({ kind: "backstage", email: "a@example.com", consent: true, website }, shows).ok;
+    expect([site("https://."), site("https://foo..com"), site("https://[2001:db8::1]/"), site("shop.example")]).toEqual([false, false, true, true]);
+  });
+});

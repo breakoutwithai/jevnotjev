@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";
+import { isIP } from "node:net";
 import { createHash, randomBytes } from "node:crypto";
 
 // The ticket office's lead store: one SQLite file in the Backstage state directory, never in the repo or logs.
@@ -35,9 +36,11 @@ export const MAX_IDEA = 280;
 export const RATE_LIMIT = 5;
 export const RATE_WINDOW_MS = 10 * 60_000;
 
-// Local part may hold an apostrophe (o'connor@...), as the browser's own check allows; the domain may not.
-// Domain: dot-separated labels of letters, digits and inner hyphens, ending in a 2+ letter TLD.
-const EMAIL = /^[^\s@<>"]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/u;
+// Local part: an RFC 5322 dot-atom (apostrophes allowed, no leading, trailing or doubled dot, no control
+// characters). Domain: dot-separated labels of letters, digits and inner hyphens, ending in a 2+ letter TLD.
+const ATOM = "[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+";
+export const HOSTNAME = /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/;
+const EMAIL = new RegExp(`^(?=.{1,64}@)${ATOM}(?:\\.${ATOM})*@(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$`);
 const REQUEST_KEY = /^[A-Za-z0-9_-]{16,64}$/;
 export const MAX_LIMITED_ADDRESSES = 10_000;
 
@@ -56,7 +59,8 @@ function website(value: string): boolean {
   if (value.length > 200) return false;
   try {
     const url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(value) ? value : `https://${value}`);
-    return (url.protocol === "https:" || url.protocol === "http:") && url.hostname.includes(".");
+    const host = url.hostname.replace(/^\[|\]$/g, "");
+    return (url.protocol === "https:" || url.protocol === "http:") && (HOSTNAME.test(host) || isIP(host) !== 0);
   } catch {
     return false;
   }
@@ -130,6 +134,12 @@ export class TicketStore {
         if (!/UNIQUE constraint failed: tickets\.id/.test(message) || attempt >= 3) throw error;
       }
     }
+  }
+
+  /** The show stored under a request key: undefined when the key is new, null for a backstage row. */
+  showForKey(key: string): string | null | undefined {
+    const row = this.#db.query<{ show: string | null }, [string]>("SELECT show FROM tickets WHERE request_key = ?").get(key);
+    return row ? row.show : undefined;
   }
 
   count(): number {

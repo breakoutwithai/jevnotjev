@@ -125,7 +125,10 @@
       "id": "uc9",
       "title": "Website slop roast",
       "story": "As a website builder I want to use Jev!Jev to roast and score my website as AI slop so that I can fix it and win awards for awesome web apps.",
-      "fit": [],
+      "fit": [
+        "Jev probably not",
+        "Jev could help"
+      ],
       "stage": "script-reading",
       "date": "2026-09-28",
       "source": "docs/product/use-cases/uc9-website-slop-roast.md",

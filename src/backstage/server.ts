@@ -175,8 +175,10 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       const data: unknown = await Bun.file(join(root, "shows", "posters.json")).json();
       if (typeof data !== "object" || data === null || !("posters" in data) || !Array.isArray(data.posters)) return null;
       const list: unknown[] = data.posters;
-      const valid = list.filter((p: unknown): p is Poster => typeof p === "object" && p !== null && "id" in p && typeof p.id === "string" && "date" in p && typeof p.date === "string");
-      return valid.length === list.length ? valid : null;
+      const valid = list.filter((p: unknown): p is Poster =>
+        typeof p === "object" && p !== null && "id" in p && typeof p.id === "string" && p.id !== "" &&
+        "date" in p && typeof p.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.date) && new Date(`${p.date}T00:00:00Z`).toISOString().startsWith(p.date));
+      return valid.length === list.length && new Set(valid.map((p) => p.id)).size === valid.length ? valid : null;
     } catch { return null; }
   };
   const handler = async (
@@ -579,9 +581,17 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         const raw = await boundedText(new Response(request.body), MAX_TICKET_BODY, AbortSignal.timeout(5000));
         decoded = JSON.parse(raw);
       } catch { return reject("too-large-or-invalid", 413); }
-      const catalogue = await posters();
-      if (catalogue === null) return reject("catalogue-unavailable", 503);
-      const checked = checkTicket(decoded, new Set(catalogue.map((p) => p.id)));
+      // A retry (stored request key) and a backstage request need no catalogue; only a new show ticket does.
+      const key = typeof decoded === "object" && decoded !== null && "request_key" in decoded && typeof decoded.request_key === "string" ? decoded.request_key : null;
+      const stored = key ? ticketStore.showForKey(key) : undefined;
+      const wantsShow = typeof decoded === "object" && decoded !== null && "kind" in decoded && decoded.kind === "show";
+      const shows = new Set<string>(typeof stored === "string" ? [stored] : []);
+      if (wantsShow && stored === undefined) {
+        const catalogue = await posters();
+        if (catalogue === null) return reject("catalogue-unavailable", 503);
+        for (const p of catalogue) shows.add(p.id);
+      }
+      const checked = checkTicket(decoded, shows);
       if (!checked.ok) return reject(checked.reason, 400);
       if ("trap" in checked) { logger.ticket({ event: "ticket.rejected", rid, reason: "honeypot" }); return json({ ok: true }); }
       const issued = ticketStore.issue(checked.ticket, clock());

@@ -104,3 +104,13 @@ describe("catalogue and deploy", () => {
     expect(ship.match(/^BACKSTAGE_FIXED_PATHS=\(([^)]*)\)/m)?.[1]?.split(/\s+/)).toContain("site/shows/posters.json");
   });
 });
+
+describe("fit checks", () => {
+  test("[unit] a use-case doc with no bold fit check stops generation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "posters-fit-"));
+    mkdirSync(join(root, "docs/product/use-cases"), { recursive: true });
+    mkdirSync(join(root, "site"), { recursive: true });
+    writeFileSync(join(root, "docs/product/use-cases/uc99-x.md"), "# UC99: X\n\n**User story:** As a builder.\n\n## Jev or not\nNo verdict here.\n");
+    expect(buildPosters(root)).rejects.toThrow("no fit check found");
+  });
+});

@@ -48,6 +48,8 @@ Ties go to the newer item, then the lower id; at most 10 kept (`src/shows/poster
 
 ## Store, privacy and abuse controls
 
+- Each submit carries a per-attempt `request_key` bound to a hash of its details: a retry after a lost response or a 429 returns the ticket as stored; the same key with changed details gets 409 and stores nothing.
+- A missing or malformed `site/shows/posters.json` (bad date, duplicate or empty id) is a 503 outage for ranking and new show tickets; backstage requests and retries do not need it. The file is a Backstage drift path in `.deploy/ship.sh`, so a poster change ships a Backstage release.
 - `POST /api/tickets` on the Backstage server, public (outside `/api/backstage/` and `/backstage/`, so no sign-in route is opened); `GET /api/tickets/ranking` returns ids in rank order. Same-origin JSON only, 4 KB body cap, honeypot, 5 requests per address per 10 minutes, email and URL validation, show id must be a current poster.
 - Rows live only in SQLite at `BACKSTAGE_TICKETS_PATH` or `$STATE_DIRECTORY/tickets.sqlite` (operator: SQLite in the Backstage state dir, no third party). Logs record `ticket.issued` with ticket id, kind and show, or `ticket.rejected` with a reason; never an email, website or idea (test T5).
 - Privacy line on the page: what is kept (email, website and idea if given, show, follow-up choice), why (to hold the ticket and, only if ticked, follow up), where (our own server, never shared or sold), how long (prompt default, operator decision open: until the challenge ends plus 90 days), and deletion on request.

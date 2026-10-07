@@ -22,14 +22,15 @@ function text(value: unknown): string {
   return value === null || value === undefined ? "" : String(value);
 }
 
-/** Date the file was first committed; a file not yet committed counts as added today. */
+/**
+ * Date the file was first committed. A shallow clone cannot know it, so generation stops; a file not yet committed
+ * counts as added today (rerun after committing). Any git failure stops generation.
+ */
 function addedDate(root: string, rel: string): string {
-  try {
-    const out = execFileSync("git", ["-C", root, "log", "--diff-filter=A", "--format=%cs", "--", rel], { encoding: "utf8" }).trim();
-    const first = out.split("\n").filter(Boolean).pop();
-    if (first) return first;
-  } catch { /* not a git checkout: fall through */ }
-  return new Date().toISOString().slice(0, 10);
+  const shallow = execFileSync("git", ["-C", root, "rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim();
+  if (shallow !== "false") throw new Error("poster dates need full git history: run git fetch --unshallow");
+  const out = execFileSync("git", ["-C", root, "log", "--diff-filter=A", "--format=%cs", "--", rel], { encoding: "utf8" }).trim();
+  return out.split("\n").filter(Boolean).pop() ?? new Date().toISOString().slice(0, 10);
 }
 
 type Rows = ReturnType<typeof validate>["rows"];
@@ -121,6 +122,7 @@ export async function buildPosters(root: string = ROOT): Promise<Poster[]> {
   for (const file of files) {
     const source = `${USE_CASES_REL}/${file}`;
     const parsed = parseUseCase(file, readFileSync(join(dir, file), "utf8"));
+    if (parsed.fit.length === 0) throw new Error(`${source}: no fit check found (a bold verdict under "## Jev or not")`);
     const run = parsed.runFolder ? await summariseRun(root, parsed.runFolder) : null;
     const date = run ? run.folder.slice(0, 10) : addedDate(root, source);
     posters.push({ id: parsed.id, title: parsed.title, story: parsed.story, fit: parsed.fit, stage: stageOf(run), date, source, run, watch: run ? watchPage(root, run.folder) : null });

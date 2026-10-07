@@ -9,6 +9,9 @@
     "rehearsal": { name: "Rehearsal", sub: "recorded, answers not yet checked", pick: "Ticket for this rehearsal" },
     "script-reading": { name: "Script reading", sub: "idea only, not run yet", pick: "Ticket for this reading" }
   };
+  /* Same rule as src/backstage/tickets.ts: RFC 5322 dot-atom local part, dot-separated domain labels. */
+  var ATOM = "[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+";
+  var EMAIL = new RegExp("^(?=.{1,64}@)" + ATOM + "(?:\\." + ATOM + ")*@(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$");
   var METHOD = { llm: "LLM", rule: "Simple rule", jev: "Jev" };
   var VERDICT = { "use Jev": "use Jev", "don't use Jev": "don't use Jev", "not enough evidence": "not enough proof yet: test more cases" };
   function $(id) { return document.getElementById(id); }
@@ -17,8 +20,9 @@
   function usd(v) { return v === null ? "n/a" : "$" + (v > 0 && v < 0.01 ? v.toFixed(6) : v.toFixed(2)); }
   function labelsPlain(s) {
     return s.split("; ").map(function (part) {
-      var blind = /blind: no/.test(part) ? ", who saw the answers first" : /blind: yes/.test(part) ? ", blind to which method answered" : "";
-      return (/human_reviewed/.test(part) ? "drafted by AI, approved by a person" : /human/.test(part) ? "a person's own pick" : part) + blind;
+      /* format/README.md: blind true means picked before seeing any answer or suggestion; false is every other case. */
+      var blind = /blind: no/.test(part) ? ", not labelled blind" : /blind: yes/.test(part) ? ", labelled blind" : "";
+      return (/human_reviewed/.test(part) ? "drafted by AI, reviewed by a person" : /human/.test(part) ? "picked by a person" : part) + blind;
     }).join("; ");
   }
 
@@ -78,6 +82,7 @@
     if (p.fit.length) card.appendChild(el("p", "tk-fit", "Fit check: " + p.fit.map(plainFit).join(" / ")));
     if (p.run) {
       var r = p.run;
+      if (r.cohorts > 1 && r.question) card.appendChild(el("p", "tk-scope", "Counts below are for one of its " + r.cohorts + " questions: " + r.question));
       if (r.methods.some(function (m) { return m.labelled > 0; })) {
         var ul = el("ul", "tk-methods");
         r.methods.forEach(function (m) {
@@ -182,7 +187,7 @@
     var email = $("tkEmail").value.trim();
     var bad = [
       setErr("tkShowErr", k === "show" && !select.value ? "Choose a show." : "", select),
-      setErr("tkEmailErr", !/^[^\s@<>"]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/.test(email) ? "Enter an email address, like name@example.com." : "", $("tkEmail")),
+      setErr("tkEmailErr", !EMAIL.test(email) ? "Enter an email address, like name@example.com." : "", $("tkEmail")),
       setErr("tkConsentErr", !$("tkConsent").checked ? "Tick this box to get a ticket. We need to keep your email to hold it." : "", $("tkConsent"))
     ].filter(Boolean);
     setErr("tkWebsiteErr", "", $("tkWebsite"));

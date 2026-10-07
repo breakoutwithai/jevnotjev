@@ -276,12 +276,13 @@
           </label>
           <p class="fine">
             1 to 100 cases, up to 8,000 characters each. For multiline cases,
-            import a CSV with exactly case_id,case_input columns.
+            import a CSV whose first two columns are case_id,case_input.
           </p>
           <p class="fine" id="label-column-note">
             Optional: add a label column (one of your two answers), then
             label_source, labelled_by and labelled_at. A label without
-            label_source is stored as agent, never as a person's pick.
+            label_source is stored as agent; a label marked human is stored as
+            human_reviewed. Only your own pick here is recorded as human.
           </p>
           <label
             >Import cases CSV<input

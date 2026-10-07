@@ -249,12 +249,14 @@ function startLine(record: { line: number; fields: readonly string[] }): number 
     record.line,
   );
 }
+export type ImportedSource = Exclude<LabelSource, "human">;
 /** A case's label from the import file (labelling loop M3): the right choice for the case, and where it came from. */
 export interface ImportedLabel {
   readonly caseId: string;
   /** One of the scene's choice names; checked when the run is built. */
   readonly choice: string;
-  readonly source: LabelSource;
+  /** Never human: only a pick in the Backstage UI is human. */
+  readonly source: ImportedSource;
   readonly by: string;
   /** labelled_at as the file gives it, or the import day (UTC) when it gives none. */
   readonly at: string;
@@ -270,6 +272,18 @@ export const IMPORT_LABELLER = "csv-import";
 const LABEL_SOURCES: readonly LabelSource[] = ["human", "human_reviewed", "agent"];
 function isLabelSource(value: string): value is LabelSource {
   return LABEL_SOURCES.some((source) => source === value);
+}
+/**
+ * The source an imported label is stored with. Only a person's pick in the Backstage UI is human, so a file's human
+ * becomes human_reviewed (a person stands behind it, but not a pick made here); human_reviewed and agent are kept;
+ * blank is agent.
+ */
+function isImportedSource(value: string): value is ImportedSource {
+  return value === "human_reviewed" || value === "agent";
+}
+function importedSource(supplied: string): ImportedSource {
+  if (supplied === "human" || supplied === "human_reviewed") return "human_reviewed";
+  return "agent";
 }
 /** Handles a file may not claim: they name a pick made in the Backstage UI (format/README.md "Label provenance"). */
 const UI_HANDLES: readonly string[] = [BACKSTAGE_PICK.by, BACKSTAGE_BLIND_PICK.by];
@@ -313,7 +327,7 @@ function importedLabel(
   }
   if (source && !isLabelSource(source))
     throw new Error(
-      `Line ${line}: label_source "${source.slice(0, 40)}" is not allowed. Use human (a person picked it), human_reviewed (an AI drafted it and a person approved it) or agent, or leave it empty for agent.`,
+      `Line ${line}: label_source "${source.slice(0, 40)}" is not allowed. Use human_reviewed (a person approved it; a supplied human is stored as human_reviewed) or agent, or leave it empty for agent.`,
     );
   if (by && !LABELLER_HANDLE.test(by))
     throw new Error(
@@ -330,7 +344,7 @@ function importedLabel(
   return {
     caseId,
     choice,
-    source: source && isLabelSource(source) ? source : "agent",
+    source: importedSource(source),
     by: by || IMPORT_LABELLER,
     at: at || day,
   };
@@ -824,8 +838,8 @@ export class BackstageRun {
         throw new Error(
           `Case ${imported.caseId}: imported label ${JSON.stringify(imported.choice)} is not one of the scene's choices (${choiceNames.join(", ")}). Name the choices exactly as the file's labels (case matters), or fix the labels and import the file again.`,
         );
-      if (!LABELLER_HANDLE.test(imported.by) || !LABELLED_AT.test(imported.at))
-        throw new Error(`Case ${imported.caseId}: imported label has an invalid labeller or time.`);
+      if (!LABELLER_HANDLE.test(imported.by) || !LABELLED_AT.test(imported.at) || !isImportedSource(imported.source))
+        throw new Error(`Case ${imported.caseId}: imported label has an invalid source, labeller or time.`);
       this.#imported.set(imported.caseId, Object.freeze({ ...imported }));
     }
     const slots = frozen.cases.flatMap((c) =>

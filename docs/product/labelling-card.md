@@ -11,7 +11,7 @@ One page for anyone labelling cases in Backstage. 10 cases, about 10 minutes.
 6. **Ten cases, ten minutes.** About a minute a case. If one takes longer, pick Unsure and move on.
 
 ## Where a label comes from
-Every exported label says who made it: `human` (a person picked it: in Backstage, or as an imported file declares), `human_reviewed` (an AI drafted it and a person approved it) or `agent` (an AI made it and nobody reviewed it). An `agent` label is never counted as truth. Labels in an imported case file are `agent` unless the file says otherwise in a `label_source` column. Your own call on a case in Backstage replaces its imported label; picking Unsure leaves the case unlabelled.
+Every exported label says who made it: `human` (a person picked it in Backstage), `human_reviewed` (a person approved it but did not pick it in Backstage, such as an AI draft a person checked) or `agent` (an AI made it and nobody reviewed it). An `agent` label is never counted as truth. Labels in an imported case file are `agent` unless its `label_source` column says `human_reviewed`; a file's `human` is stored as `human_reviewed`, because only a pick in Backstage is `human`. Your own call on a case in Backstage replaces its imported label; picking Unsure leaves the case unlabelled.
 
 Case file columns: `case_id,case_input`, then optionally `label` (one of your two answers), `label_source`, `labelled_by` (a handle, never an email) and `labelled_at`.
 

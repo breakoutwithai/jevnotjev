@@ -1,5 +1,6 @@
-// Optional label column on the Backstage case CSV import (labelling loop M3, D11 path). An imported label keeps the
-// label_source the file supplies; with none it is agent, never human, until a person picks the case in the UI.
+// Optional label column on the Backstage case CSV import (labelling loop M3, D11 path). An imported label keeps a
+// supplied human_reviewed or agent source; a supplied human becomes human_reviewed and a blank one agent. Only a
+// person's pick in the UI is ever human.
 import { describe, expect, test } from "bun:test";
 import { BACKSTAGE_BLIND_PICK, BackstageRun, inputFingerprint, parseCaseImport, parseCases } from "./run.ts";
 import type { AnswerRequest, Scene } from "./contracts.ts";
@@ -64,19 +65,26 @@ describe("case CSV import with an optional label column", () => {
     expect(imported.labels).toEqual([{ caseId: "c1", choice: "yes", source: "agent", by: "csv-import", at: "2026-10-07" }]);
   });
 
-  test("[unit] M3 a supplied label_source, labelled_by and labelled_at are kept", () => {
+  test("[unit] M3 a supplied human_reviewed or agent source, labelled_by and labelled_at are kept; a supplied human is human_reviewed", () => {
     const imported = parseCaseImport(
       "case_id,case_input,label,label_source,labelled_by,labelled_at\n" +
         "c1,TypeScript builder,yes,human_reviewed,operator,2026-10-03\n" +
         "c2,other,no,human,tester-7,2026-10-05T09:30:00Z\n" +
-        "c3,third,no,,,\n",
+        "c3,third,no,,,\n" +
+        "c4,fourth,yes,agent,some-model,2026-10-06\n",
       AT,
     );
     expect(imported.labels).toEqual([
       { caseId: "c1", choice: "yes", source: "human_reviewed", by: "operator", at: "2026-10-03" },
-      { caseId: "c2", choice: "no", source: "human", by: "tester-7", at: "2026-10-05T09:30:00Z" },
+      { caseId: "c2", choice: "no", source: "human_reviewed", by: "tester-7", at: "2026-10-05T09:30:00Z" },
       { caseId: "c3", choice: "no", source: "agent", by: "csv-import", at: "2026-10-07" },
+      { caseId: "c4", choice: "yes", source: "agent", by: "some-model", at: "2026-10-06" },
     ]);
+  });
+
+  test("[unit] M3 a file's human label is exported human_reviewed and not blind: only a pick in the UI is human", async () => {
+    const run = await ranRun("case_id,case_input,label,label_source,labelled_by\nc1,TypeScript builder,yes,human,tester-7\n");
+    expect(cells(run)).toEqual([["c1", "yes", "accept", "human_reviewed", "tester-7", "2026-10-07", "false"]]);
   });
 
   test("[unit] M3 bad label provenance names the line and the rule", () => {
@@ -166,9 +174,11 @@ describe("case CSV import with an optional label column", () => {
     expect(byCase("c3").every((row) => row[2] === "agent")).toBe(true);
   });
 
-  test("[unit] M3 no code path writes human for an imported label without a supplied human source", async () => {
-    const run = await ranRun("case_id,case_input,label,label_source\nc1,a,yes,\nc2,b,no,agent\nc3,c,yes,human_reviewed\n");
+  test("[unit] M3 no code path writes human for an imported label, whatever source the file supplies", async () => {
+    const run = await ranRun(
+      "case_id,case_input,label,label_source\nc1,a,yes,\nc2,b,no,agent\nc3,c,yes,human_reviewed\nc4,d,no,human\n",
+    );
     const sources = cells(run).map((row) => row[3]);
-    expect(sources).toEqual(["agent", "agent", "human_reviewed"]);
+    expect(sources).toEqual(["agent", "agent", "human_reviewed", "human_reviewed"]);
   });
 });

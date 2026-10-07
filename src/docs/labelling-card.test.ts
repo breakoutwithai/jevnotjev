@@ -11,7 +11,15 @@ const CARD = join(ROOT, "docs/product/labelling-card.md");
 describe("labelling card", () => {
   test("[unit] M3 the card states the session: 10 cases, 10 minutes, unsure, synthetic or redacted, calibration first", async () => {
     const card = await Bun.file(CARD).text();
-    for (const phrase of ["10 cases", "10 minutes", "Unsure", "Synthetic or redacted", "5 practice cases", "Pick blind"])
+    for (const phrase of [
+      "10 cases",
+      "10 minutes",
+      "Unsure",
+      "Synthetic or redacted",
+      "5 practice cases",
+      "Pick blind",
+      "a file's `human` is stored as `human_reviewed`",
+    ])
       expect(card).toContain(phrase);
     expect(card.split("\n").length).toBeLessThanOrEqual(60);
   });

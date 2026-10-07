@@ -3,7 +3,7 @@
 // Part B: bootstrap CI width of cost per accepted result when costs differ 100x.
 // ASSUMPTION (not from data): Jev and LLM outcomes on the same case are correlated via a Gaussian copula
 // with latent correlation rho. Both 0.0 and 0.5 are run.
-// Wilson and Newcombe come from src/core/calc.ts. Random numbers: mulberry32 (docs/spec/plan.md § Reproducibility),
+// Wilson and Newcombe come from src/core/calc.ts. Random numbers: mulberry32 (docs/spec/spec.md § Reproducibility),
 // normals by Box-Muller. A different generator from the first run, so cells match within Monte Carlo error, not exactly.
 
 import { type Interval, newcombePaired } from "../../../src/core/calc.ts";

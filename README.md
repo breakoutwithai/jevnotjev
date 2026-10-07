@@ -2,18 +2,16 @@
 
 Find where Jev fits a workflow, where it doesn't, and prove the difference.
 
-Built in public for the Early AI-dopters 30 Day Challenge. The day-30 goal is **Jev!Jev**: a small web tool, live at [jevnotjev.breakoutwithai.com](https://jevnotjev.breakoutwithai.com), that compares one decision in a workflow across an LLM-only setup, a simple baseline and Jev, and reports cost per accepted result with a verdict: use Jev, don't (!Jev), or not enough evidence. Its flagship use case is **TokenMax**: more accepted results from the same token budget. Other use cases show when to use Jev and when not to.
+Built in public. **Jev!Jev** is a small web tool, live at [jevnotjev.breakoutwithai.com](https://jevnotjev.breakoutwithai.com), that compares one decision in a workflow across an LLM-only setup, a simple baseline and Jev, and reports cost per accepted result with a verdict: use Jev, don't (!Jev), or not enough evidence. Its flagship use case is **TokenMax**: more accepted results from the same token budget. Other use cases show when to use Jev and when not to.
 
 | Doc | What |
 |---|---|
-| [SCOPE.md](SCOPE.md), [docs/challenge/EVIDENCE.md](docs/challenge/EVIDENCE.md) | One-page scope; day-by-day evidence index D01 to D12 with PRs, tests and what is still open |
-| [docs/wargame/WARGAME.md](docs/wargame/WARGAME.md) | How the product gets delivered and tested: milestones, what can go wrong at each move, abort conditions, test strategy per surface |
 | [FLOW.md](FLOW.md) | Scope, journey, the three arms, and the source of every metric |
 | [docs/product/flow/comparison.html](docs/product/flow/comparison.html) | The comparison flow diagram |
 | [format/](format/README.md) | Eval record format: cases, answers, labels, cost; schema, sample, validator |
 | [src/core/](src/core) | The tested maths: accepted counts and cost per accepted result per arm (`metrics.ts`), confidence intervals (`calc.ts`), and the verdict with its plain-language reason (`verdict.ts`) |
-| [docs/product/result-views/result-d06.html](docs/product/result-views/result-d06.html) | The D09 result view, a local artifact (not on the site): the three methods side by side on the example dataset, the verdict, the numbers it computed, and the limits |
-| [docs/spec/](docs/spec/) | Requirements, plan and tasks |
+| [docs/product/result-views/result-d06.html](docs/product/result-views/result-d06.html) | The result view, a local artifact (not on the site): the three methods side by side on the example dataset, the verdict, the numbers it computed, and the limits |
+| [docs/spec/](docs/spec/) | Requirements and architecture plan |
 | [src/](src) | TypeScript on Bun: the validator (`src/format`, no Node APIs, so the site can use it) and the Postgres loader and exporter (`src/db`, see [db/README.md](db/README.md)) |
 | [docs/benchmarks/](docs/benchmarks/) | Measurements |
 | [docs/product/user-stories.md](docs/product/user-stories.md) | User journeys and stories |
@@ -40,20 +38,6 @@ bun install
 bun run validate format/example-v1.csv
 ```
 Expected last line: `VALID rows=9 cases=3 errors=0 gaps=2`. Edit a cell (answer `maybe`, confidence `1.5`) and run it again to see the file rejected. Spec: [format/README.md](format/README.md).
-
-## Progress
-One step a day, each shipped to main.
-
-| Day | Step | Shipped |
-|---|---|---|
-| 2 | Choose the first workflow | [user journeys and stories](https://github.com/breakoutwithai/jevnotjev/commit/1ff0906e76b415707d40ab2929e24877b21531cb) |
-| 3 | Map the comparison | [#2](https://github.com/breakoutwithai/jevnotjev/pull/2) [FLOW.md](FLOW.md): scope, the three arms, the source of every metric |
-| 4 | Define the result format | [#6](https://github.com/breakoutwithai/jevnotjev/pull/6) record format `jnj-record/1` and validator |
-| 5 | Set the verdict rules | [#7](https://github.com/breakoutwithai/jevnotjev/pull/7) formulas, 30-case minimum, edge cases |
-| 6 | Build a tiny example dataset | [#10](https://github.com/breakoutwithai/jevnotjev/pull/10) `examples/d06-tiny`, worked by hand |
-| 7 | Implement metric calculations | [#29](https://github.com/breakoutwithai/jevnotjev/pull/29) `src/core/metrics.ts` |
-| 8 | Implement the verdict | [#48](https://github.com/breakoutwithai/jevnotjev/pull/48) `src/core/verdict.ts` |
-| 9 | Create the first result view | [#61](https://github.com/breakoutwithai/jevnotjev/pull/61), [#63](https://github.com/breakoutwithai/jevnotjev/pull/63) `docs/product/result-views/result-d06.html` (local, not published) |
 
 ## Develop
 ```

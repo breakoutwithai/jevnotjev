@@ -41,6 +41,6 @@ The one-case Jev trial is unavailable unless server funding, durable quotas and 
 
 ## Verification and rollout
 
-Run `.agents/scripts/test-green`, `.agents/scripts/validate` and `.agents/scripts/deploy-test`. Adapter doubles are confined to tests; they do not prove live provider acceptance. A real browser/API run with tester keys and human labels remains the separate live acceptance check.
+Run `bun run gate` and `.agents/scripts/validate`. Adapter doubles are confined to tests; they do not prove live provider acceptance. A real browser/API run with tester keys and human labels remains the separate live acceptance check.
 
 [Deployment contract](docs/backstage-deploy.md) packages frontend/backend together off-host, requires a merged PR, and documents the one-time service/proxy setup plus paired rollback. This build does not deploy itself.

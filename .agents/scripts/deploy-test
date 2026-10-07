@@ -1,2 +1,0 @@
-#!/usr/bin/env bun
-const child=Bun.spawnSync(['bun','test','./.deploy/backstage-package.test.ts'],{stdout:'inherit',stderr:'inherit'});process.exit(child.exitCode);

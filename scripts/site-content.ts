@@ -2,12 +2,11 @@
 //
 //   bun scripts/site-content.ts [dir] [--leaderboard <path>]
 //
-// Reads the Builder column of the private leaderboard (default below, or JNJ_LEADERBOARD), scans every file under
+// Reads the Builder column of the private leaderboard (from --leaderboard <path> or the JNJ_LEADERBOARD environment variable; one of them is required), scans every file under
 // dir (default site/), prints counts and exits 0 only when names were checked, files were checked, and there are no
-// name hits, no dash hits and no unclassified files. A missing leaderboard exits 2. Names are never printed.
+// name hits, no dash hits and no unclassified files. An unset or unreadable leaderboard exits 2. Names are never printed.
 
 import { readdir, readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { extname, join, relative } from "node:path";
 
 /** U+2014 em dash and U+2013 en dash. */
@@ -29,9 +28,10 @@ export interface ScanResult {
   readonly unclassified: readonly string[];
 }
 
-/** The private leaderboard outside this repo; JNJ_LEADERBOARD overrides. */
-export function leaderboardPath(): string {
-  return process.env.JNJ_LEADERBOARD ?? join(homedir(), "projects", "30-day-challenge", "_reference", "community", "leaderboard-d07.md");
+/** The private name list outside this repo, from JNJ_LEADERBOARD. There is no default: undefined when unset or empty. */
+export function leaderboardPath(): string | undefined {
+  const value = process.env.JNJ_LEADERBOARD;
+  return value === undefined || value === "" ? undefined : value;
 }
 
 /** A Markdown table cell as plain text: links to their text, emphasis and code marks removed, parentheticals dropped. */
@@ -163,7 +163,11 @@ export async function scanSite(dir: string, names: readonly string[]): Promise<S
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const flag = args.indexOf("--leaderboard");
-  const boardPath = flag >= 0 ? args[flag + 1] ?? "" : leaderboardPath();
+  const boardPath = flag >= 0 ? args[flag + 1] : leaderboardPath();
+  if (boardPath === undefined || boardPath === "") {
+    console.error("leaderboard path not set; pass --leaderboard <path> or set JNJ_LEADERBOARD");
+    process.exit(2);
+  }
   const positional = args.filter((_, i) => flag < 0 || (i !== flag && i !== flag + 1));
   const dir = positional[0] ?? join(import.meta.dir, "..", "site");
   const board = await readFile(boardPath, "utf8").catch(() => null);

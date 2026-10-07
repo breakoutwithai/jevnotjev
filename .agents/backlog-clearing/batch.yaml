@@ -1,7 +1,0 @@
-waves:
-  - id: backstage
-issues:
-  67:
-    wave: backstage
-    dependencies: []
-    spec_path: docs/slices/issue-67.md

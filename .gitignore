@@ -31,14 +31,12 @@ secrets/
 # OS noise
 .DS_Store
 
-# Local-only working folders. Prompt templates are the exception and are tracked.
+# Local-only working folders
 docs/wayfinder/
 docs/handovers/
 docs/prompts/*
-!docs/prompts/*.prompt-template.md
 
 # Backstage build and local execution evidence
-.agents/backlog-clearing/runs/
 dist/
 site/backstage/app.js
 

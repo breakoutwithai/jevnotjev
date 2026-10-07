@@ -3,7 +3,7 @@
 What happens to a change in this repo today, what is only planned, and the limits the round-1 review of PR 21 found (open items tracked in [#24](https://github.com/breakoutwithai/jevnotjev/issues/24); the full review text is in git history at cd8397f). Each pseudocode step carries a status: **run** (done today, by a person or an agent following this file), **checked** (a script or GitHub enforces it) or **planned** (with its issue or task).
 
 ## Roles
-- **Operator**: the builder. Owns the premise and writes the challenge portal log in their own words.
+- **Operator**: the builder. Owns the premise.
 - **Agent**: builds, tests, opens the PR, fixes blockers, and has merged every PR so far.
 - **Reviewer**: a separate agent run that tries to refute the PR and does not fix what it finds.
 
@@ -13,14 +13,13 @@ The author and the merger are the same GitHub account on all 12 merged PRs (2 to
 
 ```
 change(day_step):
-    // 1 portal step first, done as written                      [run]
-    step = read_portal_step(day)
+    // 1 state the step first, done as written                   [run]
+    step = read_step(day)
     concept, premise = state(step)
     require operator_agrees(concept, premise)                    // not recorded in the repo
 
     // 2 spec layer: place the change before building it         [planned, #16 #17, this PR]
     reqs  = requirement_ids(spec.md, step)
-    tasks = tasks_for(reqs, tasks.md)
 
     // 3 isolation                                               [run]
     tree = new_worktree(branch = "<type>/<slug>", base = origin/main)
@@ -29,7 +28,7 @@ change(day_step):
     for criterion in criteria(reqs):
         write_test(name contains criterion id)                   [planned, #18; 0 tests carry an id today]
         assert test is RED on base                               [run on some PRs; PR 10 added no test]
-    implement(tasks)
+    implement(reqs)
     run bun test                                                 [run; nothing checks the count]
     gate prints head=<sha> and counts; fails on 0 or uncollected [planned, T1]
     spec_check()                                                 [planned, #19, T20; no `scripts/` yet; the parity harness from #25 was removed]
@@ -55,9 +54,6 @@ change(day_step):
     // 9 merge                                                   [run]
     require operator_says_merge(pr) or grant_covers(pr)
     merge(pr, --match-head-commit <sha>)                         [checked by GitHub, for whichever SHA is given]
-
-    // 10 close the day                                          [run, outside the repo]
-    operator writes portal_log(own words); capture score
 ```
 
 ## Content changes (docs, use cases, blog)
@@ -95,8 +91,7 @@ The scan's term list was published once, in the PR 13 body and merge comment. It
 | Spec Kit step | File | Pipeline step | Issue |
 |---|---|---|---|
 | specify | `docs/spec/spec.md` | 2 | #16 |
-| plan | `docs/spec/plan.md` | 2 | #17 |
-| tasks | `docs/spec/tasks.md` | 2 and 4 | #17 |
+| plan | `docs/spec/spec.md` (Plan section) | 2 | #17 |
 | implement | the PR | 3 to 9 | |
 | check what remains | `scripts/spec-check.ts` (planned) | 4, and after every merge | #18, #19 |
 

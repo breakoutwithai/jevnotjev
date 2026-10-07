@@ -26,7 +26,6 @@
     "src",
     "scripts",
     "docs/research",
-    ".deploy",
-    "skills"
+    ".deploy"
   ]
 }

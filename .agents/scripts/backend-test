@@ -1,3 +1,0 @@
-#!/usr/bin/env bun
-const result=Bun.spawnSync(["bun","test","src/backstage/providers.test.ts","src/backstage/server.test.ts"],{stdout:"inherit",stderr:"inherit"});
-process.exit(result.exitCode);

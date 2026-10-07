@@ -52,7 +52,7 @@ Re-running on a configured host changes nothing and exits 0. If setup is abandon
 
 The sign-in gate is the private tester boundary. Never put tester BYOK keys into deployment configuration or shell arguments. The dedicated funded key belongs only in the protected external configuration described below.
 
-Sign-out clears the in-page session and tester keys, POSTs to `/api/auth/sign-out` to revoke the session cookie, then navigates to `/backstage/sign-in?signed-out=1`. It sends no wrong Basic password and creates no nginx auth failure. The prior behavior is documented in `docs/design/backstage-sign-out.md`.
+Sign-out clears the in-page session and tester keys, POSTs to `/api/auth/sign-out` to revoke the session cookie, then navigates to `/backstage/sign-in?signed-out=1`. It sends no wrong Basic password and creates no nginx auth failure. The prior behavior is superseded by the Google sign-in design in `docs/design/backstage-google-sign-in.md`.
 
 ## Build and promote
 

@@ -1,6 +1,8 @@
 /** Human-run fresh-clone Backstage walk. Provider calls occur only after --run-all in a non-dry run. */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { resolve, join } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, join, resolve, sep } from "node:path";
+import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { chromium, type Page } from "playwright-core";
 import { loadExample } from "../uc13/arms.ts";
@@ -48,9 +50,24 @@ const JEV_ROLE = "Jev key";
 const LLM_ROLE = "LLM key";
 const secrets = new Map<string, string>();
 const clean = (value: unknown): string => redact(value instanceof Error ? value.message : String(value), secrets);
+/** Real path of the nearest existing ancestor, plus the rest, so a not-yet-created --out compares like a real one. */
+function realOf(path: string): string {
+  let existing = path;
+  while (!existsSync(existing) && dirname(existing) !== existing) existing = dirname(existing);
+  return realpathSync(existing) + path.slice(existing.length);
+}
+function insideDir(path: string, dir: string): boolean {
+  return path === dir || path.startsWith(dir.endsWith(sep) ? dir : dir + sep);
+}
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2));
   if (!options) { console.error(clean(usage)); return 2; }
+  // Run output never enters the repo: refuse an --out inside the git work tree this runs from.
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" });
+  if (top.status === 0 && insideDir(realOf(resolve(options.out)), realOf(top.stdout.trim()))) {
+    console.error("--out must be outside the repository work tree; run output never enters the repo");
+    return 2;
+  }
   // The key field is per provider (src/backstage/main.ts builds `${provider}-key`), so the model picks it.
   const llmEntry = MODEL_CATALOG.find((entry) => entry.modelId === options.llmModel && entry.provider !== "jev");
   if (!llmEntry) { console.error("--llm-model is not a catalog LLM model id; see src/backstage/catalog.ts"); return 2; }

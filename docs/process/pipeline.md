@@ -27,7 +27,7 @@ change():
         fix confirmed BLOCKING findings, re-gate, re-review the new head
     comment(pr, gate line with counts, review verdict, head SHA)              [run]
     require operator merge word
-    merge(pr, --squash, --match-head-commit <reviewed head>)                  [checked by GitHub]
+    merge(pr, --squash, --match-head-commit <reviewed head>)                  [run; main has no branch protection]
 ```
 
 Raising a floor in `expected-counts.json` is part of the PR that adds the tests.
@@ -40,7 +40,7 @@ Same path, without the test-first step. A docs change to a requirement, a verdic
 ```
 deploy():
     require operator deploy word                                              [run]
-    tree = clean worktree at origin/main                                      [run]
+    tree = clean worktree at origin/main                                      [checked by .deploy/ship.sh]
     .deploy/ship.sh --dry-run                                                 [run]
     .deploy/ship.sh                                                           [checked by .deploy/ship.sh]
         // static site, then Backstage; refuses unless HEAD == fresh origin/main

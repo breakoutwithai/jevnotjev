@@ -6,10 +6,8 @@
 
 | File | What it covers |
 |---|---|
-| [stats.md](stats.md) | Which paired test, the simulation, the case floor and margin |
-| [jev.md](jev.md) | Jev's price, limits and our measured grading runs |
+| [verdict-rules.md](../../decision/verdict-rules.md) "Statistical basis" | Which paired test, the simulation, the case floor and margin |
 | [models.md](models.md) | Other models' list prices (fetched 2026-09-29, re-checked 2026-09-30) |
-| [effort.md](effort.md) | Builder minutes per step and where the time goes |
 
 The simulation is [`sim.ts`](sim.ts) (Bun, seed 20260929, about 22 s on Bun 1.4.2); its output is [`sim_out.txt`](../../decision/sim_out.txt). Regenerate from the repo root with `bun docs/research/2026-09-29-verdict-minimums/sim.ts > docs/decision/sim_out.txt`. Wilson and Newcombe come from `src/core/calc.ts`, random numbers from mulberry32 with Box-Muller normals, and Jev and LLM outcomes are correlated through a Gaussian copula, as in the first run.
 
@@ -17,7 +15,7 @@ The simulation is [`sim.ts`](sim.ts) (Bun, seed 20260929, about 22 s on Bun 1.4.
 - Shares (every Part A value; Part B's "%reps Jev has <=2 accepts"): within when |new - old| <= 4 SE + r, with SE = sqrt(2 p (1-p) / K) for two independent runs, p the mean of the two values, K the test sets behind the cell (2,000 Newcombe, 400 bootstrap, 300 Part B), and r the print rounding (1 point; 0.1 in Part B).
 - Part B widths (a median over 300 sets, not a share): SD measured for each cell over 20 runs of `sim.ts` with other seeds; within when |new - old| <= 4 sqrt(2) SD + 1.
 
-Result: 760 values compared (720 in Part A, 40 in Part B), 760 within tolerance, 360 identical. Largest difference 8 points: Part A, rho 0.5, margin 0.10, bootstrap, p_llm 0.9, drop 0.05, n=100, `ok` 26% before and 18% now, against a tolerance of 12.7. Largest Part B difference 5 points: ratio width, n=10, p_llm 0.9, 105% before and 100% now, tolerance 13.3. The regenerated file replaced the first run's output, and the numbers quoted from it here, in [stats.md](stats.md) and in `docs/decision/verdict-rules.md` were updated to match.
+Result: 760 values compared (720 in Part A, 40 in Part B), 760 within tolerance, 360 identical. Largest difference 8 points: Part A, rho 0.5, margin 0.10, bootstrap, p_llm 0.9, drop 0.05, n=100, `ok` 26% before and 18% now, against a tolerance of 12.7. Largest Part B difference 5 points: ratio width, n=10, p_llm 0.9, 105% before and 100% now, tolerance 13.3. The regenerated file replaced the first run's output, and the numbers quoted from it here, in `docs/decision/verdict-rules.md` were updated to match.
 
 **Not proven.** Labelling time per answer is unmeasured. Grading accuracy was measured against AI-written labels on a synthetic set. The Jev price is from the vendor's docs page, not a bill.
 

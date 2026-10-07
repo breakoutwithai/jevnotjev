@@ -1,6 +1,6 @@
 # Jev!Jev: agent guidance
 
-What the product is: [README.md](README.md). Scope and metrics: [FLOW.md](FLOW.md). Spec, plan and tasks: [docs/spec/](docs/spec/).
+What the product is: [README.md](README.md). Scope and metrics: [FLOW.md](FLOW.md). Spec and plan: [docs/spec/](docs/spec/).
 
 ## Stack: TypeScript on Bun, no Python
 - Product code, scripts and tests are TypeScript run with [Bun](https://bun.sh) (Node-compatible). Strict types; no `any`, `as`, `@ts-ignore` or `@ts-expect-error`; named exports.

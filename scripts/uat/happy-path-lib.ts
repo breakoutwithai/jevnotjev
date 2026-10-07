@@ -342,8 +342,11 @@ export async function pollUntil(check: () => Promise<PollState>, timeoutMs: numb
   }
 }
 /** Run start: progress text appears once the app has started calls; a #run-reason means it refused to start. */
+export const RUN_IN_PROGRESS = "Calls are in progress.";
 export function runStartState(progress: string, runReason: string): PollState {
   if (progress.trim()) return { done: "started" };
+  // src/backstage/main.ts runReason() says this while the run is starting or running.
+  if (runReason.trim() === RUN_IN_PROGRESS) return { done: "started" };
   if (runReason.trim()) return { fail: `Run blocked: ${runReason.trim()}` };
   return null;
 }

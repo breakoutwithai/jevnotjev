@@ -368,6 +368,8 @@ describe("#143 review findings", () => {
     expect(await pollUntil(async () => runStartState(progress[Math.min(i++, 2)] ?? "", ""), 60000, 500, sleep, () => clock)).toBe("started");
     expect(clock).toBe(1000);
     await expect(pollUntil(async () => runStartState("", "Add a key"), 60000, 500, sleep, () => clock)).rejects.toThrow("Run blocked: Add a key");
+    // src/backstage/main.ts runReason() reads "Calls are in progress." while the run is starting or running: that is a start, not a block.
+    expect(runStartState("", "Calls are in progress.")).toEqual({ done: "started" });
     clock = 0;
     await expect(pollUntil(async () => runStartState("", ""), 3000, 500, sleep, () => clock)).rejects.toThrow("timed out");
     expect(runCompleteState("80 of 80 selected case/model cells processed; 0 have no answer", "No calls in progress", 80)).toEqual({ done: "complete" });

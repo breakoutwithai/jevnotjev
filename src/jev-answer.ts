@@ -2,6 +2,15 @@
  * One shared check for a TypeSafe Jev systemone response. Pure: no network, no I/O.
  * Clients import it by path; the cases in jev-answer.vectors.json are the shared test set.
  * Handles all three question types: choice, noul and score.
+ *
+ * FROZEN for external consumers that import this file or parse its vectors by path:
+ *   - JevReason / JEV_REASONS (exactly the original nine) and the checkJevResponse signature;
+ *   - the schema of jev-answer.vectors.json: every entry is { name, questions, expect }, never `specs`.
+ * Typed (noul/score) vectors live in jev-answer.typed-vectors.json. Consumers, by path:
+ *   ~/.agents/skills/repo-interest-classifier/scripts/ric.ts and ric.test.ts
+ *   ~/.agents/skills/create-ref-handovers/scripts/jev-checks.ts and jev-checks.test.ts
+ *   ~/.agents/skills/jev-vs-claude/scripts/run.ts
+ *   src/backstage/providers.ts, scripts/uc13/arms.ts
  */
 
 export const JEV_PIN = "jev-1.13.0";

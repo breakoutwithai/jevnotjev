@@ -740,6 +740,8 @@ export class BackstageRun {
       throw new Error(
         "Invalid labeller handle: letters, digits and _ . : + - only, never an email.",
       );
+    if (provenance.source === "human_reviewed" && provenance.blind)
+      throw new Error("A human_reviewed label is not blind: approving a draft means seeing it.");
     const key = this.#labelKey(answer);
     if (label === null) this.#labels.delete(key);
     else

@@ -119,6 +119,7 @@ describe("argument parsing", () => {
     expect(() => parseArgs(["label", "--source", "human", "--by", "op-1", "--at", "today", "--blind", "true"])).toThrow(/--at/);
     expect(() => parseArgs(["label", "--source", "human", "--by", "op-1", "--at", "2026-02-31", "--blind", "true"])).toThrow(/--at/);
     expect(() => parseArgs(["label", "--source", "human", "--by", "op-1", "--at", "2026-10-07", "--blind", "yes"])).toThrow(/--blind/);
+    expect(() => parseArgs(["label", "--source", "human_reviewed", "--by", "op-1", "--at", "2026-10-07", "--blind", "true"])).toThrow(/human_reviewed/);
     expect(parseArgs(["label", "--source", "human_reviewed", "--by", "operator", "--at", "2026-10-03", "--blind", "false"])).toEqual({
       command: "label",
       dry: false,

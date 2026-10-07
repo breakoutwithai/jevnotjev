@@ -270,6 +270,10 @@
             label_blind: { type: "null" }
           }
         }
+      },
+      {
+        if: { properties: { label_source: { const: "human_reviewed" } } },
+        then: { properties: { label_blind: { const: "false" } } }
       }
     ]
   };

@@ -68,7 +68,7 @@
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/stack.test.ts": 18,
     "src/format/cli.test.ts": 3,
-    "src/format/provenance.test.ts": 36,
+    "src/format/provenance.test.ts": 37,
     "src/format/quote.test.ts": 4,
     "src/format/validate.test.ts": 60,
     "src/jev-answer.test.ts": 26

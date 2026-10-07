@@ -85,6 +85,7 @@ describe("label provenance (jnj-record/1.1)", () => {
   test.each(["human", "human_reviewed", "agent"])("[unit] M1 label_source %s is accepted in 1.1", (source) => {
     const rows = v11Rows();
     first(rows)["label_source"] = source;
+    if (source === "human_reviewed") first(rows)["label_blind"] = "false";
     expect(validate(write(rows)).errors).toEqual([]);
   });
 
@@ -157,6 +158,14 @@ describe("label provenance (jnj-record/1.1)", () => {
     const rows = v11Rows();
     first(rows)[column] = value;
     expect(validate(write(rows)).errors).toEqual([`line 3: ${column}: ${JSON.stringify(value).replace(/"/g, "'")} ends with a line break`]);
+  });
+
+  test("[unit] M1 a human_reviewed label cannot be blind: approving a draft means seeing it", () => {
+    const rows = v11Rows();
+    first(rows)["label_source"] = "human_reviewed";
+    expect(validate(write(rows)).errors).toEqual(["line 2: label_blind: 'false' was expected"]);
+    first(rows)["label_blind"] = "false";
+    expect(validate(write(rows)).errors).toEqual([]);
   });
 
   test("[unit] M1 an agent label is never counted as truth: unlabelled in the summary, reported as a gap", () => {

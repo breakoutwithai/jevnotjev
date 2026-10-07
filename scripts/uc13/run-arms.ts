@@ -87,6 +87,7 @@ function labelProvenance(flags: readonly string[]): LabelProvenance {
   if (!LABELLER_HANDLE.test(by)) throw new Error(`--by takes a handle (letters, digits, _ . : + -), never an email, got ${by}`);
   if (!LABELLED_AT.test(at) || !isCalendarDate(at.slice(0, 10))) throw new Error(`--at takes YYYY-MM-DD or a UTC time like 2026-10-07T09:30:00Z, got ${at}`);
   if (blind !== "true" && blind !== "false") throw new Error(`--blind takes true or false, got ${blind}`);
+  if (source === "human_reviewed" && blind === "true") throw new Error("--source human_reviewed takes --blind false: approving a draft means seeing it");
   return { source, by, at, blind: blind === "true" };
 }
 

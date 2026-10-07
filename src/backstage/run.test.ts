@@ -326,6 +326,7 @@ test("[unit] M1 a labeller handle that would make an invalid record is refused a
   run.beginLabeling();
   const card = run.cards()[0];
   if (!card) throw new Error("missing card");
+  expect(() => run.label(card.id, "accept", { source: "human_reviewed", by: "op-1", blind: true })).toThrow("not blind");
   expect(() => run.label(card.id, "accept", { source: "human", by: "someone@example.com", blind: false })).toThrow(
     "labeller handle",
   );

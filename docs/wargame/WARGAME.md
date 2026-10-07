@@ -92,7 +92,7 @@ Each move: action, expected observation, what failure looks like, likely reactio
 ### M2 - Rollback rehearsal
 
 **Move 2.1 Roll each module back and forward.**
-- Action: `.deploy/ship.sh --module static --rollback --dry-run`, then without `--dry-run`; `.deploy/ship.sh --module backstage --rollback <full 40-char SHA of the previous verified release>` (`docs/DEPLOY.md:24-25`, `ship.sh:111-117`). Then deploy main again (Move 1.3).
+- Action: `.deploy/ship.sh --module static --rollback --dry-run`, then without `--dry-run`; `.deploy/ship.sh --module backstage --rollback <full 40-char SHA of the previous verified release>` (`docs/DEPLOY.md:24-25`, `ship.sh:111-117`). Then roll forward by re-promoting main the same way: `.deploy/ship.sh --module backstage --rollback <main SHA>` (a fresh deploy of an already verified release is refused, `.deploy/backstage-deploy.sh:77`, `.deploy/backstage-lib.sh:71`), and redeploy static (Move 1.3).
 - Expected: after rollback, `--verify` passes with the old SHA; after roll-forward, with main.
 - Failure looks like: no previous verified release on the host; or the session gate refuses the target because it does not declare `"gate": "session"` (`docs/DEPLOY.md:40`).
 - Counteraction: if the previous release predates the session gate, it is not a valid rollback target for the Backstage module. Record the oldest valid target and test rollback to it instead. Rolling back past the session gate would reopen the old gate and is an abort, not a workaround.
@@ -158,7 +158,7 @@ Each move: action, expected observation, what failure looks like, likely reactio
 - Counteraction: the labeller writes, before reveal, which arm they believe each answer came from on a sample of 10; if they are right on 8 or more, blinding failed for that run and the verdict is recorded as "labels not blind".
 
 **Move 5.3 Reproduce the verdict three ways.**
-- Action: Backstage reveal, `bun run validate` on the downloaded CSV, and the Stage loader on the same CSV.
+- Action: Backstage reveal, the Stage loader on the downloaded CSV, and a command-line verdict on the same CSV. Prerequisite: `bun run validate` reports format, counts and costs only (`src/format/cli.ts:31`) and `scripts/result-view.ts` reads a fixed file, so a CLI that prints the verdict for a given CSV is built first (UNVERIFIED until it exists).
 - Expected: same verdict, same paired n, same intervals on all three (resampling is seeded from file content, R13.a, `spec.md:99`).
 - Fork: if the verdict is "not enough evidence" (the most likely result at 30, `verdict-rules.md:94`), that is a valid outcome. Publish it with the unmet condition. Grow to `(variable) M5_SCALE_N` cases only if the operator decides to, and never re-label to move a verdict.
 - Second-order: record the observed Jev to LLM outcome correlation, which the minimums assume to be 0.5 (`verdict-rules.md:100`). If it differs a lot, re-run the simulation before trusting the 30-case setting.

@@ -333,10 +333,6 @@ export function truthFromRows(rows: readonly RecordRow[]): Map<string, Answer> {
   return truth;
 }
 
-function isSource(value: string): value is LabelProvenance["source"] {
-  return value === "human" || value === "human_reviewed" || value === "agent";
-}
-
 export function isLabelSource(value: string): value is LabelProvenance["source"] {
   return value === "human" || value === "human_reviewed" || value === "agent";
 }

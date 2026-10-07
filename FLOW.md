@@ -39,18 +39,18 @@ One CSV in the `jnj-record/1` format, one row per answerer per question per case
 ## Metrics and where each number comes from
 | Metric | Input source | Shown or recorded only (file:line of the code that does it) |
 |---|---|---|
-| Tokens | the API's usage fields per call (Jev: `usage.input_tokens`, `usage.output_tokens`; model providers: `usage`) | Recorded as `tokens_in`, `tokens_out` (src/backstage/run.ts:983-984); not shown |
+| Tokens | the API's usage fields per call (Jev: `usage.input_tokens`, `usage.output_tokens`; model providers: `usage`) | Recorded as `tokens_in`, `tokens_out` (src/backstage/run.ts:982-983); not shown |
 | Spend per case | `cost_usd` of that arm's answer. Jev: input tokens x $0.042 per million, output free. LLM: tokens x one dated list-price table (its date goes in the optional `price_table_date` column, format/README.md). Rule: 0 | Shown per method in the case table, result view and loaded panel (src/core/case-table.ts:32-38); not in Backstage |
 | Spend per arm | sum of spend per case over all cases | Backstage "Answers-only spend" (src/backstage/main.ts:502); result view "Spend" (scripts/result-view.ts:147) |
 | Kept answers (accepted count) | human labels on each answer | Backstage "Kept / labelled" (src/backstage/main.ts:500); result view "Accepted" (scripts/result-view.ts:145) |
 | Cost per kept answer | spend per arm / kept answers; "undefined" when an arm keeps none | Backstage "Cost / kept" (src/backstage/main.ts:503); result view (scripts/result-view.ts:148) |
 | Wins, losses and ties vs Jev | per case: Jev kept and the other arm not (win), the reverse (loss), or both the same (tie), from the labels | Computed (src/core/metrics.ts:66-69). Backstage shows the Jev-only and other-only win counts (src/backstage/main.ts:522-525); ties and a per-case view are not shown |
 | Jev answer and confidence | `answers.<question>.choice` and `.confidence` in the Jev response | Backstage shows the answer and "Returned confidence" (src/backstage/main.ts:327-334); the result view shows the answer without confidence (src/core/case-table.ts:35) |
-| Latency | client wall clock around each call | Recorded as `latency_ms` (src/backstage/run.ts:361 and src/backstage/run.ts:986); shown nowhere; not used in the verdict |
-| Label source | `label_source` (`human`, `human_reviewed`, `agent` or empty) with `labelled_by`, `labelled_at` and `label_blind` (jnj-record/1.1) | Recorded (src/backstage/run.ts:982-989, format/README.md:45); not displayed |
+| Latency | client wall clock around each call | Recorded as `latency_ms` (src/backstage/run.ts:360 and src/backstage/run.ts:985); shown nowhere; not used in the verdict |
+| Label source | `label_source` (`human`, `human_reviewed`, `agent` or empty) with `labelled_by`, `labelled_at` and `label_blind` (jnj-record/1.1) | Recorded (src/backstage/run.ts:981-988, format/README.md:45); not displayed |
 | Labelling time | none: no column holds it and nothing measures it | Not recorded, not shown |
-| Failed-attempt spend | charges of attempts that returned no answer: known dollars, plus a count of unknown charges (src/backstage/run.ts:1105-1114) | Backstage progress line (src/backstage/main.ts:435) |
-| Total attempts | every attempt's cost once, shared Jev answers billed once (src/backstage/run.ts:1115-1124) | Backstage "Total actual attempts" (src/backstage/main.ts:485-490) |
+| Failed-attempt spend | charges of attempts that returned no answer: known dollars, plus a count of unknown charges (src/backstage/run.ts:1104-1113) | Backstage progress line (src/backstage/main.ts:435) |
+| Total attempts | every attempt's cost once, shared Jev answers billed once (src/backstage/run.ts:1114-1123) | Backstage "Total actual attempts" (src/backstage/main.ts:485-490) |
 | Unlabelled | answers with no label: neither kept nor rejected (src/core/metrics.ts:37) | Backstage "Unlabelled" (src/backstage/main.ts:501); result view "Gaps" (scripts/result-view.ts:146) |
 | Excluded | cases where one answer is unlabelled or absent, left out of a pair (src/core/metrics.ts:57-58) | Backstage pair line (src/backstage/main.ts:521-522) |
 | Interval bounds | 95% Newcombe bounds and cost-ratio bounds (docs/decision/verdict-rules.md) | Result view numbers table (scripts/result-view.ts:207) and the verdict reason text |

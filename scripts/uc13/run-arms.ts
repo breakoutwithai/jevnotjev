@@ -24,7 +24,7 @@ import {
   type ArmReply, type Case, type LabelProvenance, type RecordRow,
 } from "./arms.ts";
 import { jevEntry, readFixture, replayJev, sha256Hex, writeFixture, type JevEntry } from "./calls.ts";
-import { isCalendarDate } from "../../src/format/validate.ts";
+import { isCalendarDate, LABELLED_AT, LABELLER_HANDLE } from "../../src/format/validate.ts";
 
 const LLM_MODEL = "haiku";
 const CONCURRENCY = 4;
@@ -66,9 +66,6 @@ function isCommand(value: string | undefined): value is Command {
 }
 
 const LABEL_FLAGS = ["--source", "--by", "--at", "--blind"];
-// Same rules as format/record-v1.schema.json, checked here so a bad flag fails before records.csv is touched.
-const HANDLE = /^[A-Za-z0-9_.:+-]{1,64}$/;
-const LABELLED_AT = /^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9](\.[0-9]{1,3})?)?Z)?$/;
 
 /** label --source <human|human_reviewed|agent> --by <handle> --at <time> --blind <true|false>, each exactly once. */
 function labelProvenance(flags: readonly string[]): LabelProvenance {
@@ -87,7 +84,7 @@ function labelProvenance(flags: readonly string[]): LabelProvenance {
   const at = given.get("--at") ?? "";
   const blind = given.get("--blind") ?? "";
   if (!isLabelSource(source)) throw new Error(`--source takes human, human_reviewed or agent, got ${source}`);
-  if (!HANDLE.test(by)) throw new Error(`--by takes a handle (letters, digits, _ . : + -), never an email, got ${by}`);
+  if (!LABELLER_HANDLE.test(by)) throw new Error(`--by takes a handle (letters, digits, _ . : + -), never an email, got ${by}`);
   if (!LABELLED_AT.test(at) || !isCalendarDate(at.slice(0, 10))) throw new Error(`--at takes YYYY-MM-DD or a UTC time like 2026-10-07T09:30:00Z, got ${at}`);
   if (blind !== "true" && blind !== "false") throw new Error(`--blind takes true or false, got ${blind}`);
   return { source, by, at, blind: blind === "true" };

@@ -18,7 +18,7 @@ import {
 } from "./catalog.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { requestFingerprint } from "./fingerprint.ts";
-import { COLUMNS_V1_1, validate } from "../format/validate.ts";
+import { COLUMNS_V1_1, LABELLER_HANDLE, validate } from "../format/validate.ts";
 import { formatRows, readDictRows } from "../format/csv.ts";
 import { cohortMetrics } from "../core/metrics.ts";
 import { fileSeed } from "../core/calc.ts";
@@ -50,7 +50,6 @@ export const BACKSTAGE_PICK: LabelProvenance = Object.freeze({
   by: "backstage-operator",
   blind: false,
 });
-const LABELLER_HANDLE = /^[A-Za-z0-9_.:+-]{1,64}$/;
 interface StoredLabel extends LabelProvenance {
   readonly label: "accept" | "reject";
   readonly at: string;

@@ -752,6 +752,8 @@
   var COLUMNS = record_v1_schema_default.required;
   var PROVENANCE_COLUMNS = ["labelled_by", "labelled_at", "label_blind"];
   var COLUMNS_V1_1 = [...COLUMNS, ...PROVENANCE_COLUMNS];
+  var LABELLER_HANDLE = new RegExp(record_v1_schema_default.properties.labelled_by.pattern, "u");
+  var LABELLED_AT = new RegExp(record_v1_schema_default.properties.labelled_at.pattern, "u");
   var OPTIONAL_COLUMNS = ["price_table_date", ...PROVENANCE_COLUMNS];
   var INTEGER_COLUMNS = new Set(["tokens_in", "tokens_out", "latency_ms"]);
   var NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);

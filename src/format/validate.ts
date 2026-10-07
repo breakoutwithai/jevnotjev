@@ -13,6 +13,9 @@ export const COLUMNS: readonly string[] = schemaJson.required;
 export const PROVENANCE_COLUMNS: readonly string[] = ["labelled_by", "labelled_at", "label_blind"];
 /** The header a jnj-record/1.1 writer uses: every /1 column, then the provenance columns. */
 export const COLUMNS_V1_1: readonly string[] = [...COLUMNS, ...PROVENANCE_COLUMNS];
+/** labelled_by and labelled_at as the schema states them, for writers that check a value before it reaches a file. */
+export const LABELLER_HANDLE = new RegExp(schemaJson.properties.labelled_by.pattern, "u");
+export const LABELLED_AT = new RegExp(schemaJson.properties.labelled_at.pattern, "u");
 /** Columns a file may leave out of its header (format/README.md "Optional columns"). The database does not store them. */
 const OPTIONAL_COLUMNS: readonly string[] = ["price_table_date", ...PROVENANCE_COLUMNS];
 

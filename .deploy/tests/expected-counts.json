@@ -1,5 +1,5 @@
 {
-  "minFiles": 80,
+  "minFiles": 83,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -15,12 +15,13 @@
     "scripts/backstage-deps.test.ts": 6,
     "scripts/backstage-journal.test.ts": 5,
     "scripts/backstage-operator-password.test.ts": 1,
-    "scripts/backstage-package.test.ts": 40,
+    "scripts/backstage-package.test.ts": 41,
     "scripts/capture-extract.test.ts": 8,
     "scripts/gate.test.ts": 14,
     "scripts/hand-check.test.ts": 24,
     "scripts/little-shop-seating.test.ts": 14,
     "scripts/result-view.test.ts": 45,
+    "scripts/shows/build-posters.test.ts": 9,
     "scripts/site-content.test.ts": 9,
     "scripts/stage-door.test.ts": 6,
     "scripts/stage-sample.test.ts": 11,
@@ -56,6 +57,7 @@
     "src/backstage/scene-draft.test.ts": 8,
     "src/backstage/server.test.ts": 24,
     "src/backstage/signout.test.ts": 7,
+    "src/backstage/tickets.test.ts": 14,
     "src/backstage/trial.test.ts": 14,
     "src/browser/results-loader.dom.test.ts": 38,
     "src/browser/shop-verdict.test.ts": 8,
@@ -80,6 +82,7 @@
     "src/labels/calibration.test.ts": 8,
     "src/labels/rank.test.ts": 9,
     "src/labels/starter-packs.test.ts": 8,
-    "src/labels/suggest.test.ts": 10
+    "src/labels/suggest.test.ts": 10,
+    "src/shows/posters.test.ts": 6
   }
 }

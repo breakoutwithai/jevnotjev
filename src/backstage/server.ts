@@ -16,6 +16,8 @@ import {
 } from "./providers.ts";
 import type { ProviderFetch } from "./providers.ts";
 import { openTrial, validTrialInput } from "./trial.ts";
+import { checkTicket, MAX_TICKET_BODY, TicketLimiter, TicketStore } from "./tickets.ts";
+import { rankPosters, type Poster } from "../shows/posters.ts";
 import type { TrialConfig } from "./trial.ts";
 declare const BACKSTAGE_BUILD_VERSION: string;
 export function runtimeVersion(
@@ -40,6 +42,8 @@ export interface ServerOptions {
   readonly trustProxy?: boolean;
   readonly requireSession?: boolean;
   readonly log?: (line: string) => void;
+  /** Ticket office lead store; without a path the ticket routes answer 503. */
+  readonly tickets?: { readonly path?: string | undefined };
   readonly auth?: {
     readonly sessionSecret?: string | undefined;
     readonly operatorsPath?: string | undefined;
@@ -162,6 +166,21 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   );
   const root = resolve(options.staticRoot ?? "site"),
     trialCookieName = "backstage_trial";
+  const ticketStore = options.tickets?.path ? new TicketStore(options.tickets.path) : null;
+  const ticketLimiter = new TicketLimiter(clock);
+  // Read per request so a redeployed site/shows/posters.json is seen without a restart; a missing file means no shows.
+  // null means the catalogue could not be read or is malformed: an outage, never an empty catalogue.
+  const posters = async (): Promise<Poster[] | null> => {
+    try {
+      const data: unknown = await Bun.file(join(root, "shows", "posters.json")).json();
+      if (typeof data !== "object" || data === null || !("posters" in data) || !Array.isArray(data.posters)) return null;
+      const list: unknown[] = data.posters;
+      const valid = list.filter((p: unknown): p is Poster =>
+        typeof p === "object" && p !== null && "id" in p && typeof p.id === "string" && p.id !== "" &&
+        "date" in p && typeof p.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.date) && new Date(`${p.date}T00:00:00Z`).toISOString().startsWith(p.date));
+      return valid.length === list.length && new Set(valid.map((p) => p.id)).size === valid.length ? valid : null;
+    } catch { return null; }
+  };
   const handler = async (
     request: Request,
     context?: RequestContext,
@@ -542,6 +561,46 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         else activeByok--;
       }
     }
+    if (pathname === "/api/tickets/ranking") {
+      if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+      const list = await posters();
+      if (list === null) { logger.ticket({ event: "ticket.rejected", rid, reason: "catalogue-unavailable" }); return json({ code: "catalogue-unavailable" }, 503); }
+      const counts = ticketStore?.countsByShow() ?? {};
+      return json({ ids: list.length ? rankPosters(list, counts).map((p) => p.id) : [], counts });
+    }
+    if (pathname === "/api/tickets") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      const reject = (reason: string, status: number): Response => { logger.ticket({ event: "ticket.rejected", rid, reason }); return json({ code: reason }, status); };
+      if (request.headers.get("origin") !== origin || request.headers.get("sec-fetch-site") === "cross-site") return reject("origin-rejected", 403);
+      if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") return reject("json-required", 415);
+      if (!ticketStore) return reject("tickets-unavailable", 503);
+      if (!ticketLimiter.allow(ip)) return reject("rate-limited", 429);
+      if (Number(request.headers.get("content-length") ?? 0) > MAX_TICKET_BODY) return reject("too-large", 413);
+      let decoded: unknown;
+      try {
+        const raw = await boundedText(new Response(request.body), MAX_TICKET_BODY, AbortSignal.timeout(5000));
+        decoded = JSON.parse(raw);
+      } catch (error) { return error instanceof SyntaxError ? reject("bad-json", 400) : reject("too-large", 413); }
+      // A retry (stored request key) and a backstage request need no catalogue; only a new show ticket does.
+      const key = typeof decoded === "object" && decoded !== null && "request_key" in decoded && typeof decoded.request_key === "string" ? decoded.request_key : null;
+      const stored = key ? ticketStore.showForKey(key) : undefined;
+      const wantsShow = typeof decoded === "object" && decoded !== null && "kind" in decoded && decoded.kind === "show";
+      const shows = new Set<string>(typeof stored === "string" ? [stored] : []);
+      if (wantsShow && stored === undefined) {
+        const catalogue = await posters();
+        if (catalogue === null) return reject("catalogue-unavailable", 503);
+        for (const p of catalogue) shows.add(p.id);
+      }
+      const checked = checkTicket(decoded, shows);
+      if (!checked.ok) return reject(checked.reason, 400);
+      if ("trap" in checked) { logger.ticket({ event: "ticket.rejected", rid, reason: "honeypot" }); return json({ ok: true }); }
+      let issued;
+      try { issued = ticketStore.issue(checked.ticket, clock()); }
+      catch { return reject("store-error", 503); }
+      if (issued.status === "conflict") return reject("request-key-reused", 409);
+      logger.ticket({ event: "ticket.issued", rid, ticket: issued.id, kind: issued.kind, show: issued.show });
+      return json({ ticket: issued.id, kind: issued.kind, show: issued.show, replay: issued.status === "replay" });
+    }
     if (pathname.startsWith("/api/"))
       return json({ error: "Not found." }, 404);
     if (request.method !== "GET" && request.method !== "HEAD")
@@ -573,6 +632,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   return Object.assign(handler, {
     close() {
       if (trial.available) trial.ledger.close();
+      ticketStore?.close();
     },
   });
 }
@@ -596,6 +656,7 @@ if (import.meta.main) {
     trialPricingVersion: process.env.BACKSTAGE_TRIAL_PRICING_VERSION ?? "",
     trustProxy: process.env.BACKSTAGE_TRUST_PROXY === "loopback",
     requireSession: process.env.BACKSTAGE_REQUIRE_SESSION === "1",
+    tickets: { path: process.env.BACKSTAGE_TICKETS_PATH ?? (process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, "tickets.sqlite") : undefined) },
     auth: {
       sessionSecret: process.env.BACKSTAGE_SESSION_SECRET,
       operatorsPath: process.env.BACKSTAGE_OPERATORS_PATH ?? (process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, "operators.json") : undefined),

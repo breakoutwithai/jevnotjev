@@ -2,8 +2,8 @@
 
 **User story:** As a website builder I want to use Jev!Jev to roast and score my website as AI slop so that I can fix it and win awards for awesome web apps.
 
-## Why it fits Jev
-"Is this AI slop?" is an open question, which Jev handles badly. Broken into a checklist, each item becomes a typed decision with a fixed answer set: yes / no, or a 0 / 1 / 2 score, each with a confidence. Code adds the weighted checks into the score, so the number never comes from a model's opinion.
+## Jev or not
+"Is this AI slop?" is an open question, which Jev handles badly: as asked, **Jev probably not**. Broken into a checklist, each item becomes a typed decision with a fixed answer set: yes / no, or a 0 / 1 / 2 score, each with a confidence. Code adds the weighted checks into the score, so the number never comes from a model's opinion. That shape is **Jev could help**.
 
 ## Checks (v1 draft)
 | # | Check | Answer | Evidence the builder supplies |

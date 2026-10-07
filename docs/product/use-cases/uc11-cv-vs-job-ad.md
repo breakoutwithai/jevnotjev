@@ -21,6 +21,8 @@ The fictional CVs were written to break it. One CV stuffs the ad's words ("Token
 ## Worked hand calculation
 [`examples/d06-tiny/`](../../../examples/d06-tiny/) is this use case at toy size: 5 CVs, the two questions above, three answerers (Jev, the keyword rule, an LLM). [`records.csv`](../../../examples/d06-tiny/records.csv) holds the rows and [`expected.md`](../../../examples/d06-tiny/expected.md) works every accept rate, cost per accepted result and verdict by hand. Only the rule's outputs there are real; the Jev and LLM outputs and costs are invented for arithmetic. Both questions end at "not enough evidence" because 5 cases is far below the 30 the verdict rules need.
 
+The same 5 CVs and two questions were asked live of all three answerers on 2026-10-03: [docs/product/runs/2026-10-03-tokenmax/](../runs/2026-10-03-tokenmax/) (30 rows, none labelled yet).
+
 ## Keep the answer key out of the matcher
 The correct answers (a ranked key with the reason for each CV) were written after the CVs and are held separately. They are labels, used only to mark each answer accepted or rejected. They must never be in the text any answerer reads, or the test measures copying, not matching.
 

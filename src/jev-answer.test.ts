@@ -97,44 +97,51 @@ describe("checkJevResponse", () => {
 });
 
 describe("shared vectors", () => {
-  const raw: unknown = JSON.parse(readFileSync(fileURLToPath(new URL("./jev-answer.vectors.json", import.meta.url)), "utf8"));
+  const load = (file: string): unknown[] => {
+    const raw: unknown = JSON.parse(readFileSync(fileURLToPath(new URL(file, import.meta.url)), "utf8"));
+    if (!Array.isArray(raw)) throw new Error(`${file} must be an array`);
+    return raw;
+  };
+  const shared = load("./jev-answer.vectors.json");
+  const typed = load("./jev-answer.typed-vectors.json");
 
   function isRecord(v: unknown): v is Record<string, unknown> {
     return typeof v === "object" && v !== null && !Array.isArray(v);
+  }
+
+  function isOptions(v: unknown): v is string[] {
+    return Array.isArray(v) && v.every((o): o is string => typeof o === "string");
   }
 
   function parseQuestions(name: string, questions: unknown): Record<string, string[]> {
     if (!isRecord(questions)) throw new Error(`${name}: bad questions`);
     const out: Record<string, string[]> = {};
     for (const [id, opts] of Object.entries(questions)) {
-      if (!Array.isArray(opts) || !opts.every((o): o is string => typeof o === "string")) throw new Error(`${name}: bad options`);
+      if (!isOptions(opts)) throw new Error(`${name}: bad options`);
       out[id] = opts;
     }
     return out;
   }
 
-  function parseSpecs(name: string, specs: Record<string, unknown>): Record<string, JevSpec> {
+  function parseSpecs(name: string, specs: unknown): Record<string, JevSpec> {
+    if (!isRecord(specs)) throw new Error(`${name}: bad specs`);
     const out: Record<string, JevSpec> = {};
     for (const [id, spec] of Object.entries(specs)) {
       if (!isRecord(spec)) throw new Error(`${name}: bad spec`);
       if (spec.type === "noul") out[id] = { type: "noul" };
       else if (spec.type === "score" && typeof spec.levels === "number") out[id] = { type: "score", levels: spec.levels };
-      else if (spec.type === "choice" && Array.isArray(spec.options) && spec.options.every((o): o is string => typeof o === "string")) {
-        out[id] = { type: "choice", options: spec.options };
-      } else throw new Error(`${name}: bad spec`);
+      else if (spec.type === "choice" && isOptions(spec.options)) out[id] = { type: "choice", options: spec.options };
+      else throw new Error(`${name}: bad spec`);
     }
     return out;
   }
 
-  test("[unit] JA-4 every vector in jev-answer.vectors.json gives its expected outcome", () => {
-    if (!Array.isArray(raw)) throw new Error("vectors must be an array");
-    expect(raw.length).toBeGreaterThanOrEqual(JEV_REASONS.length);
+  /** Runs every vector through `run`, asserts its expectation, and returns the failure reasons seen. */
+  function runVectors(vectors: unknown[], run: (v: Record<string, unknown>, name: string) => JevCheck | JevAnswersCheck): Set<string> {
     const seen = new Set<string>();
-    for (const v of raw) {
-      if (!isRecord(v) || typeof v.name !== "string" || !isRecord(v.expect) || !(isRecord(v.questions) || isRecord(v.specs))) {
-        throw new Error("malformed vector");
-      }
-      const check = isRecord(v.specs) ? checkJevAnswers(v.response, parseSpecs(v.name, v.specs)) : checkJevResponse(v.response, parseQuestions(v.name, v.questions));
+    for (const v of vectors) {
+      if (!isRecord(v) || typeof v.name !== "string" || !isRecord(v.expect)) throw new Error("malformed vector");
+      const check = run(v, v.name);
       if (v.expect.ok === true) {
         expect(check.ok, v.name).toBe(true);
       } else {
@@ -148,7 +155,36 @@ describe("shared vectors", () => {
         seen.add(reason);
       }
     }
-    expect([...seen].sort()).toEqual([...JEV_ANSWER_REASONS].sort());
+    return seen;
+  }
+
+  test("[unit] JA-4 every shared vector gives its expected outcome through checkJevResponse and covers every JevReason", () => {
+    expect(shared.length).toBeGreaterThanOrEqual(JEV_REASONS.length);
+    const seen = runVectors(shared, (v, name) => checkJevResponse(v.response, parseQuestions(name, v.questions)));
+    expect([...seen].sort()).toEqual([...JEV_REASONS].sort());
+  });
+
+  test("[unit] JA-4 every typed vector gives its expected outcome through checkJevAnswers and the union covers every JevAnswerReason", () => {
+    const seenTyped = runVectors(typed, (v, name) => checkJevAnswers(v.response, parseSpecs(name, v.specs)));
+    const seenShared = runVectors(shared, (v, name) => checkJevAnswers(v.response, Object.fromEntries(
+      Object.entries(parseQuestions(name, v.questions)).map(([id, options]): [string, JevSpec] => [id, { type: "choice", options }]),
+    )));
+    expect([...new Set([...seenTyped, ...seenShared])].sort()).toEqual([...JEV_ANSWER_REASONS].sort());
+  });
+
+  // External consumers (see the header of jev-answer.ts) parse every entry of the shared file.
+  test("[unit] JA-7 contract: every entry of jev-answer.vectors.json is choice-shaped, with no specs key", () => {
+    for (const [i, v] of shared.entries()) {
+      if (!isRecord(v)) throw new Error(`entry ${i} is not an object`);
+      expect(typeof v.name, `entry ${i} name`).toBe("string");
+      expect(isRecord(v.questions), `entry ${i} questions`).toBe(true);
+      parseQuestions(String(v.name), v.questions);
+      expect(isRecord(v.expect), `entry ${i} expect`).toBe(true);
+      expect(Object.hasOwn(v, "specs"), `entry ${i} must not carry specs`).toBe(false);
+    }
+    for (const [i, v] of typed.entries()) {
+      expect(isRecord(v) && Object.hasOwn(v, "specs"), `typed entry ${i} specs`).toBe(true);
+    }
   });
 });
 

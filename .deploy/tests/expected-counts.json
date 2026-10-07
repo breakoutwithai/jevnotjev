@@ -80,7 +80,7 @@
     "src/format/provenance.test.ts": 45,
     "src/format/quote.test.ts": 4,
     "src/format/validate.test.ts": 60,
-    "src/jev-answer.test.ts": 26,
+    "src/jev-answer.test.ts": 28,
     "src/labels/calibration.test.ts": 8,
     "src/labels/rank.test.ts": 9,
     "src/labels/starter-packs.test.ts": 8,

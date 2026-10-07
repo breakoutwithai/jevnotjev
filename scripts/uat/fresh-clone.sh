@@ -43,21 +43,19 @@ if [[ "$health" != skip ]] && curl -s -o /dev/null --max-time 2 "$health" 2>/dev
 fi
 start=${UAT_START_CMD:-bun run backstage:start}
 set -m
-if command -v setsid >/dev/null 2>&1; then
-  setsid bash -c "$start" > "$out/server.log" 2>&1 &
-else
-  bash -c "$start" > "$out/server.log" 2>&1 &
-fi
+bash -c "$start" > "$out/server.log" 2>&1 &
 server_pid=$!
 if [[ "$health" != skip ]]; then
   ready=false
   for ((i=0;i<90;i++)); do
-    if [[ $(curl -sS -o /dev/null -w '%{http_code}' "$health" 2>/dev/null) == 200 ]]; then ready=true; break; fi
+    if [[ $(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 "$health" 2>/dev/null) == 200 ]]; then ready=true; break; fi
     if ! kill -0 "$server_pid" 2>/dev/null; then echo 'Server exited before health check' >&2; exit 1; fi
     sleep 1
   done
   [[ "$ready" == true ]] || { echo 'Server health check timed out' >&2; exit 1; }
 fi
+marker=$work/driver-start
+touch "$marker" || exit 1
 if [[ -n "${UAT_DRIVER_CMD:-}" ]]; then
   bash -c "$UAT_DRIVER_CMD" -- "$@"
   driver_status=$?
@@ -68,8 +66,11 @@ fi
 validation_status=0
 while IFS= read -r -d '' csv; do
   bun run validate "$csv" || validation_status=1
-done < <(find "$out" -name records.csv -type f -print0)
-status=$(git -C "$clone" status --porcelain --untracked-files=all)
+done < <(find "$out" -name records.csv -type f -newer "$marker" -print0)
+if ! status=$(git -C "$clone" status --porcelain --untracked-files=all); then
+  echo 'git status failed for clone' >&2
+  exit 1
+fi
 if [[ -n "$status" ]]; then printf '%s\n' "$status"; exit 1; fi
 printf 'git status --porcelain: empty\n'
 if ((driver_status != 0)); then exit "$driver_status"; fi

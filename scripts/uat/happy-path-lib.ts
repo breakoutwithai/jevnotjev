@@ -7,7 +7,7 @@ import type { Condition, VerdictName } from "../../src/core/verdict.ts";
 
 export type Arm = "jev" | "llm" | "rule";
 export interface OpeningNight { readonly arm: string; readonly verdict: VerdictName; readonly condition: Condition; readonly reason: string }
-const reasons: Record<Condition, RegExp> = {
+export const REASON_PATTERNS: Readonly<Record<Condition, RegExp>> = {
   "no-jev-rows": /no Jev results/,
   "no-llm-rows": /no LLM results/,
   "too-few-paired": /paired Jev and LLM cases, fewer than/,
@@ -25,6 +25,29 @@ const reasons: Record<Condition, RegExp> = {
   "not-cheaper": /Jev is not cheaper/,
   "cost-upper-bound-not-below-1": /upper bound .* is not below 1/,
 };
+export const CONDITION_VERDICTS: Readonly<Record<Condition, VerdictName>> = {
+  "no-jev-rows": "not enough evidence",
+  "no-llm-rows": "not enough evidence",
+  "too-few-paired": "not enough evidence",
+  "both-zero-accepted": "not enough evidence",
+  "cost-missing": "not enough evidence",
+  "no-cost-ratio": "not enough evidence",
+  "cost-not-finite": "not enough evidence",
+  "rule-within-margin": "don't use Jev",
+  "jev-clearly-worse": "don't use Jev",
+  "jev-zero-accepted": "don't use Jev",
+  "jev-clearly-dearer": "don't use Jev",
+  "use-jev": "use Jev",
+  "accept-rate-not-shown": "not enough evidence",
+  "cheaper-by-less-than-20": "not enough evidence",
+  "not-cheaper": "not enough evidence",
+  "cost-upper-bound-not-below-1": "not enough evidence",
+};
+const conditions: readonly Condition[] = [
+  "no-jev-rows", "no-llm-rows", "too-few-paired", "both-zero-accepted", "cost-missing", "no-cost-ratio", "cost-not-finite",
+  "rule-within-margin", "jev-clearly-worse", "jev-zero-accepted", "jev-clearly-dearer", "use-jev",
+  "accept-rate-not-shown", "cheaper-by-less-than-20", "not-cheaper", "cost-upper-bound-not-below-1",
+];
 const verdicts: readonly VerdictName[] = ["use Jev", "don't use Jev", "not enough evidence"];
 /** Parse #verdict innerText; reject hidden, rehearsal, invalid, and ambiguous verdicts. */
 export function readOpeningNight(text: string): OpeningNight | { readonly error: string } {
@@ -38,8 +61,9 @@ export function readOpeningNight(text: string): OpeningNight | { readonly error:
   if (!verdicts.some((value) => value === name)) return { error: "Unknown verdict" };
   const reason = lines[1].slice("Per-pair, uncorrected comparison. ".length);
   if (!reason.startsWith(`${name}: `)) return { error: "Verdict reason does not match verdict" };
-  const condition = (Object.keys(reasons) as Condition[]).find((key) => reasons[key].test(reason));
+  const condition = conditions.find((key) => REASON_PATTERNS[key].test(reason));
   if (!condition) return { error: "Unknown verdict reason" };
+  if (CONDITION_VERDICTS[condition] !== name) return { error: "Verdict condition does not match verdict" };
   const verdict = verdicts.find((value) => value === name);
   if (!verdict) return { error: "Unknown verdict" };
   return { arm, verdict, condition, reason };
@@ -59,7 +83,7 @@ export function checkRecords(csv: string, caseIds: readonly string[], arms: read
     const id = get("case_id");
     const arm = get("answerer");
     if (!expected.has(id)) problems.push({ caseId: id, problem: "case outside expected set" });
-    if (!arms.includes(arm as Arm)) problems.push({ caseId: id, problem: `unexpected arm ${arm}` });
+    if (!arms.some((value) => value === arm)) problems.push({ caseId: id, problem: `unexpected arm ${arm}` });
     const key = `${id}\0${arm}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
     if (!allowLabels) for (const label of ["label", "label_final", "label_source", "labelled_by", "labelled_at", "label_blind"]) {
@@ -81,16 +105,13 @@ export function scanForSecrets(dir: string, secrets: ReadonlyMap<string, string>
   const walk = (path: string): void => {
     for (const entry of readdirSync(path, { withFileTypes: true })) {
       const full = join(path, entry.name);
-      if (entry.isDirectory()) {
-        const relDir = relative(dir, full).split("\\").join("/");
-        for (const [name, value] of secrets) if (value.length >= 8 && relDir.includes(value)) hits.push({ file: relDir, name });
-        walk(full); continue;
-      }
-      if (!entry.isFile()) continue;
       const rel = relative(dir, full).split("\\").join("/");
+      for (const [name, value] of secrets) if (value.length >= 8 && rel.includes(value)) hits.push({ file: rel, name });
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!entry.isFile()) { hits.push({ file: rel, name: "unsupported entry" }); continue; }
       const bytes = readFileSync(full);
       for (const [name, value] of secrets) {
-        if (value.length < 8 || rel.includes(value) || bytes.includes(Buffer.from(value))) hits.push({ file: rel, name });
+        if (value.length < 8 || bytes.includes(Buffer.from(value))) hits.push({ file: rel, name });
       }
     }
   };
@@ -110,9 +131,18 @@ export interface ReportInput {
   readonly runTime?: string;
   readonly modelIds?: readonly string[];
   readonly labels?: string;
+  readonly notes?: readonly string[];
   readonly dryRun?: boolean;
 }
 const cell = (value: string): string => value.replaceAll("|", "\\|").replaceAll("\n", " ");
+/** Replace every nonempty provider key with its role label before text leaves the process. */
+export function redact(text: string, secrets: ReadonlyMap<string, string>): string {
+  let clean = text;
+  for (const [name, secret] of [...secrets].sort((left, right) => right[1].length - left[1].length)) {
+    if (secret) clean = clean.replaceAll(secret, `[${name} redacted]`);
+  }
+  return clean;
+}
 /** Render a report and refuse any failed step, record, verdict, or secret check. */
 export function buildReport(input: ReportInput): { readonly ok: boolean; readonly exitCode: 0 | 1; readonly markdown: string } {
   const problems = input.dryRun ? [] : checkRecords(input.csv, input.caseIds, ["jev", "llm", "rule"], input.labels === "by a person (--pause-for-labels)");
@@ -124,6 +154,7 @@ export function buildReport(input: ReportInput): { readonly ok: boolean; readonl
     "", `Base: ${cell(input.base)}`, `Version: ${cell(input.version)}`, `Clone SHA: ${cell(input.cloneSha ?? "unknown")}`,
     `Run time: ${cell(input.runTime ?? new Date().toISOString())}`, `Model ids: ${cell((input.modelIds ?? []).join(", "))}`,
     `Case count: ${input.caseIds.length}`, `Labels: ${input.labels ?? "none (agents never label)"}`,
+    ...(input.notes ?? []).map((note) => cell(note)),
     `Verdict: ${cell(input.verdictText || "unavailable")}`, `Records check: ${problems.length === 0 ? "pass" : `${problems.length} problem(s)`}`,
     "", "| # | Room | Step | Result | Detail | Screenshot |", "|---:|---|---|---|---|---|",
     ...input.steps.map((s, i) => `| ${i + 1} | ${cell(s.room)} | ${cell(s.step)} | ${s.pass ? "PASS" : "FAIL"} | ${cell(s.detail)} | ${s.shot ? `[image](${encodeURI(s.shot)})` : ""} |`),

@@ -84,4 +84,16 @@ describe("#134 fresh clone", () => {
     expect((await readdir(f.root)).includes("failed-evidence")).toBe(true);
     expect(await readdir(f.temp)).toEqual([]);
   }));
+  test("[integration] #134 git status failure never reports an empty clone", async () => withFixture(async (f) => {
+    const result = run(f, { driver: "rm -rf .git" });
+    expect(result.status).toBe(1);
+    expect(result.stdout).not.toContain("git status --porcelain: empty");
+    expect(result.stderr).toContain("git status failed");
+  }));
+  test("[integration] #134 validates only records produced after this run began", async () => withFixture(async (f) => {
+    await mkdir(f.out);
+    await writeFile(join(f.out, "records.csv"), "bad old evidence\n");
+    const result = run(f);
+    expect(result.status).toBe(0);
+  }));
 });

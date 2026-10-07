@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cohortMetrics } from "../../src/core/metrics.ts";
-import { verdict, type Condition } from "../../src/core/verdict.ts";
+import { verdict } from "../../src/core/verdict.ts";
 import { readDictRows } from "../../src/format/csv.ts";
 import { validate } from "../../src/format/validate.ts";
 import { CRITERIA, formatRecords, loadExample, record, type RecordRow } from "../uc13/arms.ts";
-import { buildReport, casesCsv, checkRecords, fitKeywords, readOpeningNight, ruleKeywords, scanForSecrets, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
+import { REASON_PATTERNS, CONDITION_VERDICTS, buildReport, casesCsv, checkRecords, fitKeywords, readOpeningNight, redact, ruleKeywords, scanForSecrets, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
 const example = await loadExample(EXAMPLE);
@@ -17,24 +17,6 @@ const arms: readonly Arm[] = ["jev", "llm", "rule"];
 const rows = example.cases.flatMap((c) => arms.map((arm) => record(c, arm, `${arm}.v1`, "answer")));
 const csv = formatRecords(rows);
 const key = { runId: "run-shopbot-2026-10-01", promptVersion: "shop-bot-handoff.v1", questionId: "q1" };
-const reasonPatterns: Record<Condition, RegExp> = {
-  "no-jev-rows": /no Jev results/,
-  "no-llm-rows": /no LLM results/,
-  "too-few-paired": /paired Jev and LLM cases, fewer than/,
-  "both-zero-accepted": /both have 0 accepted/,
-  "cost-missing": /cost missing on a paired/,
-  "no-cost-ratio": /there is no cost ratio/,
-  "cost-not-finite": /costs too large|cost ratio is too large/,
-  "rule-within-margin": /rule is within 10 points/,
-  "jev-clearly-worse": /Jev is clearly worse/,
-  "jev-zero-accepted": /Jev has 0 accepted/,
-  "jev-clearly-dearer": /Jev is clearly dearer/,
-  "use-jev": /Jev is within 10 points/,
-  "accept-rate-not-shown": /Jev is not shown within 10 points/,
-  "cheaper-by-less-than-20": /cheaper, but by less than 20%/,
-  "not-cheaper": /Jev is not cheaper/,
-  "cost-upper-bound-not-below-1": /upper bound .* is not below 1/,
-};
 
 function realVerdict(source: readonly RecordRow[]) {
   const parsed = validate(formatRecords(source));
@@ -52,13 +34,15 @@ function hasError(result: ReturnType<typeof readOpeningNight>): boolean { return
 describe("#134 Opening Night", () => {
   test("[unit] #134 row 1 RED1 maps a real unlabelled too-few-paired reason", () => {
     expect(pairedVerdict.condition).toBe("too-few-paired");
-    expect(pairedVerdict.reason).toMatch(reasonPatterns[pairedVerdict.condition]);
+    expect(pairedVerdict.reason).toMatch(REASON_PATTERNS[pairedVerdict.condition]);
+    expect(pairedVerdict.verdict).toBe(CONDITION_VERDICTS[pairedVerdict.condition]);
     expect(readOpeningNight(pairedText)).toEqual({ arm: "claude-haiku-4-5-20251001", verdict: pairedVerdict.verdict, condition: "too-few-paired", reason: pairedVerdict.reason });
   });
   test("[unit] #134 row 2 maps the real no-llm-rows reason", () => {
     const v = realVerdict(rows.filter((r) => r.answerer === "jev"));
     expect(v.condition).toBe("no-llm-rows");
-    expect(v.reason).toMatch(reasonPatterns[v.condition]);
+    expect(v.reason).toMatch(REASON_PATTERNS[v.condition]);
+    expect(v.verdict).toBe(CONDITION_VERDICTS[v.condition]);
     expect(readOpeningNight(`claude-haiku-4-5-20251001 — ${v.verdict}\nPer-pair, uncorrected comparison. ${v.reason}`)).toEqual({ arm: "claude-haiku-4-5-20251001", verdict: v.verdict, condition: v.condition, reason: v.reason });
   });
   test("[unit] #134 row 3 refuses Jev-only rehearsal", () => expect(hasError(readOpeningNight("Jev-only rehearsal\nNo comparative recommendation. Export records and attempt evidence below."))).toBe(true));
@@ -69,10 +53,17 @@ describe("#134 Opening Night", () => {
   test("[unit] #134 row 8 refuses an unknown reason", () => expect(hasError(readOpeningNight("x — not enough evidence\nPer-pair, uncorrected comparison. not enough evidence: invented reason"))).toBe(true));
   test("[unit] #134 row 9 refuses two pairs", () => expect(hasError(readOpeningNight(`${pairedText}\n${pairedText}`))).toBe(true));
   test("[unit] #134 row 10 reason pattern record covers every Condition", () => {
-    expect(Object.keys(reasonPatterns)).toHaveLength(16);
-    expect(pairedVerdict.reason).toMatch(reasonPatterns[pairedVerdict.condition]);
+    expect(Object.keys(REASON_PATTERNS)).toHaveLength(16);
+    expect(Object.keys(CONDITION_VERDICTS)).toEqual(Object.keys(REASON_PATTERNS));
+    expect(pairedVerdict.reason).toMatch(REASON_PATTERNS[pairedVerdict.condition]);
     const v = realVerdict(rows.filter((r) => r.answerer === "jev"));
-    expect(v.reason).toMatch(reasonPatterns[v.condition]);
+    expect(v.reason).toMatch(REASON_PATTERNS[v.condition]);
+  });
+  test("[unit] #134 rejects a condition that contradicts the heading verdict", () => {
+    expect(hasError(readOpeningNight("x — use Jev\nPer-pair, uncorrected comparison. use Jev: no LLM results"))).toBe(true);
+  });
+  test("[unit] #134 rejects a reason prefix that differs from the heading", () => {
+    expect(hasError(readOpeningNight("x — use Jev\nPer-pair, uncorrected comparison. not enough evidence: no LLM results"))).toBe(true);
   });
 });
 
@@ -145,6 +136,18 @@ describe("#134 secret scan", () => {
       expect(JSON.stringify(hits)).not.toContain(value === "" ? "short" : value);
     }
   }));
+  test("[unit] #134 scans a symlink name without following its target", async () => inDir(async (dir) => {
+    await writeFile(join(dir, "target"), "clean");
+    await symlink("target", join(dir, `link-${secret}`));
+    const hits = scanForSecrets(dir, new Map([["API_KEY", secret]]));
+    expect(hits).toContainEqual({ file: `link-${secret}`, name: "API_KEY" });
+    expect(hits).toContainEqual({ file: `link-${secret}`, name: "unsupported entry" });
+  }));
+  test("[unit] #134 flags a symlink to a file as unsupported", async () => inDir(async (dir) => {
+    await writeFile(join(dir, "target"), "clean");
+    await symlink("target", join(dir, "link"));
+    expect(scanForSecrets(dir, new Map([["API_KEY", secret]]))).toContainEqual({ file: "link", name: "unsupported entry" });
+  }));
 });
 
 describe("#134 report", () => {
@@ -175,6 +178,33 @@ describe("#134 report", () => {
     const result = buildReport(report({ steps: [{ room: "Opening Night", step: "reveal", pass: false, detail: "failed", shot: "opening.png" }] }));
     expect(result.ok).toBe(false); expect(result.exitCode).toBe(1); expect(result.markdown).toContain("reveal");
   });
+  test("[unit] #134 report header includes audit notes", () => {
+    expect(buildReport(report({ notes: ["Scanned: evidence (all files)", "Screenshots: password fields"] })).markdown).toContain("Scanned: evidence (all files)");
+  });
+  test("[unit] #134 redacts planted values from report details verdicts and secret hit paths", () => {
+    const secret = "planted-value-134-long";
+    const secrets = new Map([["Jev key", secret]]);
+    const result = buildReport(report({
+      verdictText: `x — not enough evidence\nPer-pair, uncorrected comparison. not enough evidence: no LLM results ${secret}`,
+      steps: [{ room: "Opening Night", step: "reveal", pass: false, detail: `error ${secret}`, shot: "" }],
+      secretHits: [{ file: `name-${secret}.jpg`, name: "Jev key" }],
+    }));
+    const clean = redact(result.markdown, secrets);
+    expect(clean).not.toContain(secret);
+    expect(clean).toContain("[Jev key redacted]");
+    expect(redact(`error ${secret}`, secrets)).toBe("error [Jev key redacted]");
+  });
+  test("[unit] #134 redacts overlapping keys without exposing a suffix", () => {
+    const secrets = new Map([["Jev key", "planted-value"], ["LLM key", "planted-value-134-long"]]);
+    expect(redact("planted-value-134-long", secrets)).toBe("[LLM key redacted]");
+  });
+});
+
+test("[unit] #134 driver never clicks agent labels", async () => {
+  const source = await Bun.file(new URL("./backstage-happy-path.ts", import.meta.url)).text();
+  for (const forbidden of ["pick-first", "pick-second", "#accept", "#reject", "label-"]) expect(source).not.toContain(forbidden);
+  expect(source).not.toMatch(/(?:getByRole|locator)\([\s\S]{0,160}?(?:hand_off|answer)[\s\S]{0,160}?\)\.click\(/i);
+  expect(source).not.toMatch(/getByRole\(\s*["']button["'][\s\S]{0,160}?(?:accept|reject|hand_off|answer)[\s\S]{0,160}?\.click\(/i);
 });
 
 describe("#134 UC13 inputs", () => {

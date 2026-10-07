@@ -6,7 +6,7 @@ import { chromium, type Page } from "playwright-core";
 import { loadExample } from "../uc13/arms.ts";
 import { MODEL_CATALOG } from "../../src/backstage/catalog.ts";
 import { validate } from "../../src/format/validate.ts";
-import { buildReport, casesCsv, checkRecords, fitKeywords, readOpeningNight, ruleKeywords, scanForSecrets, uc13Scene, type ReportInput } from "./happy-path-lib.ts";
+import { buildReport, casesCsv, checkRecords, fitKeywords, readOpeningNight, redact, ruleKeywords, scanForSecrets, uc13Scene, type ReportInput } from "./happy-path-lib.ts";
 
 const usage = "Usage: bun scripts/uat/backstage-happy-path.ts --out <dir> [--base <url>] [--clone-sha <sha>] [--example <dir>] [--key-env <file>] [--jev-key-name <NAME>] [--llm-key-name <NAME>] [--llm-model <id>] [--pause-for-labels] [--headed] [--dry-run]";
 interface Options { base: string; out: string; cloneSha: string | null; example: string; keyEnv: string | null; jevKeyName: string; llmKeyName: string; llmModel: string; pause: boolean; headed: boolean; dryRun: boolean }
@@ -46,34 +46,31 @@ function envValue(text: string, name: string): string | null {
 }
 const JEV_ROLE = "Jev key";
 const LLM_ROLE = "LLM key";
-function clean(value: unknown, secrets: ReadonlyMap<string, string>): string {
-  let out = value instanceof Error ? value.message : String(value);
-  for (const [name, secret] of secrets) if (secret) out = out.replaceAll(secret, `[${name} redacted]`);
-  return out;
-}
+const secrets = new Map<string, string>();
+const clean = (value: unknown): string => redact(value instanceof Error ? value.message : String(value), secrets);
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2));
-  if (!options) { console.error(usage); return 2; }
+  if (!options) { console.error(clean(usage)); return 2; }
   // The key field is per provider (src/backstage/main.ts builds `${provider}-key`), so the model picks it.
   const llmEntry = MODEL_CATALOG.find((entry) => entry.modelId === options.llmModel && entry.provider !== "jev");
-  if (!llmEntry) { console.error(`--llm-model ${options.llmModel} is not a catalog LLM model`); return 2; }
+  if (!llmEntry) { console.error(clean(`--llm-model ${options.llmModel} is not a catalog LLM model`)); return 2; }
   const llmProvider = llmEntry.provider;
-  const secrets = new Map<string, string>();
   if (!options.dryRun) {
     let env = "";
     // Secrets are keyed by role, never by env name: a key name can carry a person's name, and every
     // message, redaction and scan hit below prints the map key.
-    if (options.keyEnv) try { env = await readFile(options.keyEnv, "utf8"); } catch { console.error("Cannot read the --key-env file"); return 2; }
+    if (options.keyEnv) try { env = await readFile(options.keyEnv, "utf8"); } catch { console.error(clean("Cannot read the --key-env file")); return 2; }
     for (const [role, name] of [[JEV_ROLE, options.jevKeyName], [LLM_ROLE, options.llmKeyName]] as const) {
       const value = options.keyEnv ? (envValue(env, name) ?? "") : (process.env[name] ?? "");
-      if (!value) { console.error(`Missing the ${role} (see --jev-key-name / --llm-key-name)`); return 2; }
+      if (!value) { console.error(clean(`Missing the ${role} (see --jev-key-name / --llm-key-name)`)); return 2; }
       secrets.set(role, value);
     }
   }
   const example = await loadExample(resolve(options.example));
   const ruleMd = await readFile(join(resolve(options.example), "rule.md"), "utf8");
   const caseIds = example.cases.map((c) => c.case_id);
-  const keywords = fitKeywords(ruleKeywords(ruleMd), 20);
+  const terms = ruleKeywords(ruleMd);
+  const keywords = fitKeywords(terms, 20);
   const health = await fetch(new URL("/api/backstage/health", options.base));
   if (!health.ok) throw new Error(`Health returned HTTP ${health.status}`);
   const healthBody: unknown = await health.json();
@@ -91,9 +88,9 @@ async function main(): Promise<number> {
   let recordsCsv = "";
   const record = async (room: string, step: string, fn: () => Promise<string | void>): Promise<void> => {
     let pass = true, detail = "completed";
-    try { const said = await fn(); if (typeof said === "string" && said) detail = said; } catch (error) { pass = false; detail = clean(error, secrets); }
+    try { const said = await fn(); if (typeof said === "string" && said) detail = said; } catch (error) { pass = false; detail = clean(error); }
     const shot = `${String(steps.length + 1).padStart(2, "0")}-${room.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${step.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.jpg`;
-    if (page) try { await page.screenshot({ path: join(reportDir, shot), type: "jpeg", quality: 80 }); } catch (error) { pass = false; detail += `; screenshot: ${clean(error, secrets)}`; }
+    if (page) try { await page.screenshot({ path: join(reportDir, shot), type: "jpeg", quality: 80 }); } catch (error) { pass = false; detail += `; screenshot: ${clean(error)}`; }
     steps.push({ room, step, pass, detail, shot });
   };
   try {
@@ -149,11 +146,12 @@ async function main(): Promise<number> {
       });
       await record("Learning Lines", "complete all arms", async () => {
         if (!runStarted) throw new Error("skipped: the run did not start");
-        await p.waitForFunction(() => /80 of 80 selected case\/model cells processed; 0 have no answer/.test(document.querySelector("#run-preview")?.textContent ?? "") && /No calls in progress/.test(document.querySelector("#progress")?.textContent ?? ""), undefined, { timeout: 600000 });
+        const paidCells = caseIds.length * 2;
+        await p.waitForFunction((count: number) => new RegExp(`${count} of ${count} selected case/model cells processed; 0 have no answer`).test(document.querySelector("#run-preview")?.textContent ?? "") && /No calls in progress/.test(document.querySelector("#progress")?.textContent ?? ""), paidCells, { timeout: 600000 });
       });
       await record("Rehearsals", "open", async () => { await p.locator("#next").click(); await p.waitForTimeout(400); });
       await record("Rehearsals", "open judging", async () => { await p.getByRole("button", { name: /Open .*judging/ }).click(); await p.locator("#confirm-judging-yes").click(); await p.locator("#blind-card").waitFor(); });
-      if (options.pause) await record("Rehearsals", "person labels", async () => { console.log("Judging is open. Label in the headed browser, then press Enter here."); const input = createInterface({ input: process.stdin, output: process.stdout }); try { await input.question(""); } finally { input.close(); } });
+      if (options.pause) await record("Rehearsals", "person labels", async () => { console.log(clean("Judging is open. Label in the headed browser, then press Enter here.")); const input = createInterface({ input: process.stdin, output: process.stdout }); try { await input.question(""); } finally { input.close(); } });
       await record("Rehearsals", "reveal", async () => {
         await p.locator("#reveal").click();
         const confirm = p.locator("#confirm-reveal-yes");
@@ -177,7 +175,7 @@ async function main(): Promise<number> {
       });
     }
   } catch (error) {
-    await record("Browser", "start or navigate", async () => { throw new Error(clean(error, secrets)); });
+    await record("Browser", "start or navigate", async () => { throw new Error(clean(error)); });
   } finally { await browser?.close(); }
   if (!options.dryRun) {
     const checked = validate(recordsCsv);
@@ -185,16 +183,17 @@ async function main(): Promise<number> {
     const problems = checkRecords(recordsCsv, caseIds, ["jev", "llm", "rule"], options.pause);
     if (problems.length) steps.push({ room: "Records", step: "all players", pass: false, detail: `${problems.length} record problem(s)`, shot: "" });
   }
-  const reportInput: ReportInput = { base: options.base, version, cloneSha: options.cloneSha, csv: recordsCsv, caseIds, verdictText, steps, secretHits: scanForSecrets(reportDir, secrets), runTime: new Date().toISOString(), modelIds: ["jev-1.13.0", options.llmModel, "keywords-v1"], labels: options.pause ? "by a person (--pause-for-labels)" : "none (agents never label)", dryRun: options.dryRun };
+  const out = resolve(options.out);
+  const reportInput: ReportInput = { base: options.base, version, cloneSha: options.cloneSha, csv: recordsCsv, caseIds, verdictText, steps, secretHits: scanForSecrets(out, secrets), runTime: new Date().toISOString(), modelIds: ["jev-1.13.0", options.llmModel, "keywords-v1"], labels: options.pause ? "by a person (--pause-for-labels)" : "none (agents never label)", notes: ["Scanned: --out (all files)", `Rule: Backstage keyword rule (substring match, cap 20), not rule.md's word-start rule: ${keywords.kept.length} of ${terms.length} rule.md terms; redundant under substring match: ${keywords.redundant.join(", ") || "none"}; left out: ${keywords.dropped.join(", ") || "none"}`, "Screenshots: keys are typed only into password fields; screenshot pixels are not scanned."], dryRun: options.dryRun };
   let result = buildReport(reportInput);
-  await writeFile(join(reportDir, "report.md"), result.markdown);
-  const after = scanForSecrets(reportDir, secrets);
+  await writeFile(join(reportDir, "report.md"), clean(result.markdown));
+  const after = scanForSecrets(out, secrets);
   if (after.length) {
     result = buildReport({ ...reportInput, secretHits: after });
-    await writeFile(join(reportDir, "report.md"), result.markdown);
+    await writeFile(join(reportDir, "report.md"), clean(result.markdown));
   }
-  console.log(join(reportDir, "report.md"));
-  console.log(`Verdict: ${verdictText.split("\n")[0] || (options.dryRun ? "DRY RUN" : "unavailable")}`);
+  console.log(clean(join(reportDir, "report.md")));
+  console.log(clean(`Verdict: ${verdictText.split("\n")[0] || (options.dryRun ? "DRY RUN" : "unavailable")}`));
   return result.exitCode;
 }
-try { process.exitCode = await main(); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; }
+try { process.exitCode = await main(); } catch (error) { console.error(clean(error)); process.exitCode = 1; }

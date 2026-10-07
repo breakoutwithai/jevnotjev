@@ -10,6 +10,12 @@ import {
 import { rankJevOptions, type JevSuggestion } from "../labels/rank.ts";
 import { MODEL_CATALOG, CATALOG_CHECKED_DATE, JEV_ARM_ID } from "./catalog.ts";
 import { copyDecision } from "./copy.ts";
+import {
+  KEY_FIELD_NAMES,
+  estimateRange,
+  estimateSpend,
+  runBlockers,
+} from "./run-gate.ts";
 import { signOut, signOutRequest } from "./signout.ts";
 import {
   SCENE_DRAFT_FIELDS,
@@ -92,7 +98,30 @@ function closeConfirm(step: ConfirmStep, restoreFocus: boolean) {
   if (openConfirmStep === step) openConfirmStep = undefined;
   if (restoreFocus) document.getElementById(confirmOpener[step])?.focus();
 }
-function showRoom(next: number) {
+const ROOM_TITLES: readonly string[] = [
+  "scene-title",
+  "casting-title",
+  "lines-title",
+  "rehearsal-title",
+  "dress-title",
+  "opening-title",
+];
+const ROOM_LINES: readonly string[] = [
+  "Set the scene before the first call.",
+  "Pick who answers, and add a key for each provider you pick.",
+  "Add your test cases, check the estimate, then run.",
+  "Judge each answer against your rule.",
+  "Check the cost, then download your records and evidence.",
+  "Read the result for this question and these cases.",
+];
+// A control that cannot act stays focusable (aria-disabled) and names why in its described-by text.
+function gate(ids: readonly string[], reasonId: string, reason: string) {
+  for (const id of ids)
+    button(id).setAttribute("aria-disabled", String(reason !== ""));
+  text(reasonId, reason);
+}
+// Focus moves to the heading only when the user changes room, never on first load (#125).
+function showRoom(next: number, moveFocus = true) {
   room = Math.max(0, Math.min(5, next));
   for (const panel of document.querySelectorAll<HTMLElement>("[data-panel]"))
     panel.hidden = panel.dataset.panel !== String(room);
@@ -104,7 +133,10 @@ function showRoom(next: number) {
   button("back").disabled = room === 0;
   button("next").disabled = room === 5;
   text("room-count", `${room + 1} / 6`);
-  document.querySelector<HTMLElement>(`[data-panel="${room}"] h2`)?.focus();
+  text("room-line", ROOM_LINES[room] ?? "");
+  element("skip-link").setAttribute("href", `#${ROOM_TITLES[room] ?? ""}`);
+  if (moveFocus)
+    document.querySelector<HTMLElement>(`[data-panel="${room}"] h2`)?.focus();
   void render();
 }
 function cases(): Scene["cases"] {
@@ -193,6 +225,7 @@ function mountCatalog() {
       const label = document.createElement("label");
       const input = document.createElement("input");
       input.type = "checkbox";
+      input.id = "arm-" + entry.id;
       input.dataset.arm = entry.id;
       input.disabled = !entry.enabled;
       input.addEventListener("change", () => void render());
@@ -212,12 +245,13 @@ function mountCatalog() {
     article.id = provider + "-key-player";
     article.hidden = true;
     const label = document.createElement("label");
-    label.append(document.createTextNode(providerNames[provider] + " API key"));
+    label.append(document.createTextNode(KEY_FIELD_NAMES[provider]));
     const input = document.createElement("input");
     input.id = provider + "-key";
     input.type = "password";
     input.autocomplete = "off";
     input.spellcheck = false;
+    input.addEventListener("input", () => void render());
     label.append(input);
     article.append(
       label,
@@ -360,6 +394,62 @@ function table(headers: string[], rows: string[][]): HTMLElement {
   wrap.append(t);
   return wrap;
 }
+// Why Run cannot start now; empty when it can. Read live, so a click never trusts a stale render.
+function runReason(): string {
+  if (starting || run?.running) return "Calls are in progress.";
+  if (run)
+    return "This scene already ran. Retry unfinished calls, or edit as a new scene to run again.";
+  if (imports.pending) return "Wait for the case import to finish.";
+  return runBlockers({
+    caseCount: cases().length,
+    armIds: selectedArms(),
+    keys: keys(),
+  }).join(" ");
+}
+function revealReason(): string {
+  const current = run;
+  if (!current) return "Run your cases and open judging first.";
+  if (current.revealed) return "Results are revealed; labels are locked.";
+  if (current.running || starting) return "Let the run stop, then open judging.";
+  if (!current.labeling) return "Open judging above first.";
+  return "";
+}
+function downloadReasons(): { csv: string; evidence: string } {
+  const current = run;
+  if (!current)
+    return {
+      csv: "Run your cases first. Downloads unlock when the run has answers to export.",
+      evidence:
+        "Run your cases first. Downloads unlock when the run has answers to export.",
+    };
+  if (!current.exportable) {
+    const reason = current.running
+      ? "Let the run stop first."
+      : "This run cannot be exported. Start a new scene.";
+    return { csv: reason, evidence: reason };
+  }
+  const judging = !current.revealed && current.cards().length > 0;
+  if (!judging) return { csv: "", evidence: "" };
+  // Evidence holds every answer, so it waits for the reveal in both modes.
+  const reason = "Finish judging in Rehearsals to unlock downloads.";
+  return { csv: reason, evidence: reason };
+}
+function previewText(arms: readonly string[]): string {
+  const full = scene(false);
+  if (full.cases.length === 0) return "No cases yet.";
+  const all = estimateSpend(full, arms);
+  const first = estimateSpend(scene(true), arms);
+  const calls = (n: number) => `up to ${n} paid call${n === 1 ? "" : "s"}`;
+  const unknown = all.unpriced.map(
+    (label) => ` ${label}: price unknown, not in the estimate.`,
+  );
+  return (
+    `${full.cases.length} case${full.cases.length === 1 ? "" : "s"}. ` +
+    `Run all: ${calls(all.calls)}, ${estimateRange(all)}. ` +
+    `First case: ${calls(first.calls)}, ${estimateRange(first)}.` +
+    unknown.join("")
+  );
+}
 async function render() {
   const epoch = ++renderEpoch;
   const current = run;
@@ -374,10 +464,15 @@ async function render() {
     ? current.manifest.arms.includes("rule")
     : comparison && checked("include-rule"));
   const arms = current?.manifest.arms ?? selectedArms();
-  for (const provider of providers.filter((p) => p !== "jev"))
-    element(provider + "-key-player").hidden = !arms.some(
+  for (const provider of providers.filter((p) => p !== "jev")) {
+    const player = element(provider + "-key-player");
+    const shown = arms.some(
       (id) => MODEL_CATALOG.find((e) => e.id === id)?.provider === provider,
     );
+    if (shown && player.hidden && !current)
+      notice(`${KEY_FIELD_NAMES[provider]} field added below the models.`);
+    player.hidden = !shown;
+  }
   element("comparison-note").hidden = !comparison;
   text(
     "judging-direction",
@@ -392,8 +487,7 @@ async function render() {
   );
   button("run-trial").disabled =
     !trialAvailable || starting || !!current || imports.pending;
-  button("run-one").disabled = starting || imports.pending || !!current;
-  button("run-all").disabled = starting || imports.pending || !!current;
+  gate(["run-one", "run-all"], "run-reason", runReason());
   button("stop").disabled = !running && !starting;
   button("retry").disabled =
     starting ||
@@ -403,22 +497,16 @@ async function render() {
     current.labeling ||
     current.funded;
   button("new-scene").disabled = running || starting;
-  button("download-csv").disabled =
-    !current?.exportable || (!current.revealed && current.cards().length > 0);
-  // Evidence holds every answer: before reveal it would show answers for cases not yet picked blind.
-  button("download-evidence").disabled =
-    !current?.exportable || (!current.revealed && current.cards().length > 0);
-  button("reveal").textContent = comparison
-    ? "Reveal results and lock labels"
-    : "Finish judging and unlock downloads";
-  button("reveal").disabled =
-    !current || running || starting || !current.labeling || current.revealed;
-  const count = current?.manifest.scene.cases.length ?? cases().length;
+  const downloads = downloadReasons();
+  describeDownload("download-csv", downloads.csv, "csv-note");
+  describeDownload("download-evidence", downloads.evidence, "");
+  text("download-reason", downloads.csv || downloads.evidence);
+  gate(["reveal"], "reveal-reason", revealReason());
   text(
     "run-preview",
     current
-      ? `${count} frozen cases. ${current.completed} of ${current.total} selected case/model cells processed; ${current.pending} have no answer.`
-      : `${count} cases. Run all requests up to ${count * arms.filter((id) => id !== "rule").length} paid calls; first case up to ${arms.filter((id) => id !== "rule").length}. Missing competitor keys skip only those models.`,
+      ? `${current.manifest.scene.cases.length} frozen cases. ${current.completed} of ${current.total} selected case/model cells processed; ${current.pending} have no answer.`
+      : previewText(arms),
   );
   const progress = element("progress");
   progress.replaceChildren();
@@ -728,8 +816,21 @@ for (const item of document.querySelectorAll<HTMLElement>("[data-room]"))
   item.addEventListener("click", () => showRoom(Number(item.dataset.room)));
 button("back").onclick = () => showRoom(room - 1);
 button("next").onclick = () => showRoom(room + 1);
-button("run-one").onclick = () => void start(true);
-button("run-all").onclick = () => void start(false);
+function runClicked(firstOnly: boolean) {
+  if (signingOut) return;
+  const reason = runReason();
+  if (reason) {
+    notice(reason);
+    return;
+  }
+  void start(firstOnly);
+}
+button("run-one").onclick = () => runClicked(true);
+button("run-all").onclick = () => runClicked(false);
+element("skip-link").addEventListener("click", (event) => {
+  event.preventDefault();
+  element(ROOM_TITLES[room] ?? "scene-title").focus();
+});
 button("retry").onclick = () => void start(false, true);
 button("stop").onclick = () => {
   startup?.abort();
@@ -762,6 +863,11 @@ function confirmJudging() {
   }
 }
 button("reveal").onclick = () => {
+  const reason = revealReason();
+  if (reason) {
+    notice(reason);
+    return;
+  }
   if (!run || run.running || !run.labeling) return;
   openConfirm("reveal", run);
 };
@@ -787,7 +893,17 @@ button("clear-keys").onclick = () => {
   notice(
     "Keys cleared and further calls stopped. Already dispatched calls may still be charged.",
   );
+  void render();
 };
+// A download button is described by the lock reason only while it is locked.
+function describeDownload(id: string, reason: string, note: string) {
+  button(id).setAttribute("aria-disabled", String(reason !== ""));
+  const describedBy = [reason ? "download-reason" : "", note]
+    .filter(Boolean)
+    .join(" ");
+  if (describedBy) button(id).setAttribute("aria-describedby", describedBy);
+  else button(id).removeAttribute("aria-describedby");
+}
 button("sign-out").onclick = () => {
   if (signingOut) return;
   signingOut = true;
@@ -863,10 +979,17 @@ button("next-card").onclick = () => {
   renderCard();
 };
 button("download-csv").onclick = () => {
-  if (run?.exportable && (run.revealed || run.cards().length === 0))
+  const reason = downloadReasons().csv;
+  if (reason) notice(reason);
+  else if (run?.exportable && (run.revealed || run.cards().length === 0))
     download("records.csv", run.csv(), "text/csv;charset=utf-8");
 };
 button("download-evidence").onclick = () => {
+  const reason = downloadReasons().evidence;
+  if (reason) {
+    notice(reason);
+    return;
+  }
   if (
     run?.exportable &&
     (run.revealed || run.cards().length === 0)
@@ -912,6 +1035,7 @@ field("import-cases").addEventListener("change", async () => {
 });
 field("include-rule").addEventListener("change", () => void render());
 field("compare").addEventListener("change", () => void render());
+field("jev-key").addEventListener("input", () => void render());
 button("theme").onclick = () => {
   document.documentElement.dataset.theme =
     document.documentElement.dataset.theme === "dark" ? "light" : "dark";
@@ -1020,4 +1144,4 @@ for (const id of SCENE_DRAFT_FIELDS) {
   field(id).addEventListener("input", persistDraft);
 }
 imported = savedDraft.imported;
-showRoom(0);
+showRoom(0, false);

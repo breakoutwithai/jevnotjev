@@ -1,5 +1,5 @@
 {
-  "minFiles": 74,
+  "minFiles": 76,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -45,10 +45,12 @@
     "src/backstage/copy.test.ts": 2,
     "src/backstage/demo-notice.test.ts": 7,
     "src/backstage/log.test.ts": 9,
-    "src/backstage/main.dom.test.ts": 28,
+    "src/backstage/main.dom.test.ts": 35,
     "src/backstage/page-catchup.test.ts": 5,
+    "src/backstage/page-ux.test.ts": 10,
     "src/backstage/page.test.ts": 7,
     "src/backstage/providers.test.ts": 23,
+    "src/backstage/run-gate.test.ts": 6,
     "src/backstage/run.test.ts": 66,
     "src/backstage/scene-draft.test.ts": 8,
     "src/backstage/server.test.ts": 24,

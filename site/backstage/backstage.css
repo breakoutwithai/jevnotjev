@@ -135,11 +135,12 @@ button {
   cursor: pointer;
   min-height: 44px;
 }
-button:disabled {
+button:disabled,
+button[aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;
 }
-button:hover:enabled {
+button:hover:enabled:not([aria-disabled="true"]) {
   filter: brightness(1.15);
 }
 button:focus-visible,
@@ -148,6 +149,35 @@ input:focus-visible,
 textarea:focus-visible {
   outline: 3px solid var(--brass);
   outline-offset: 3px;
+}
+/* Room headings take focus from script on a room change; never the browser default ring. */
+h2[tabindex="-1"]:focus {
+  outline: none;
+}
+h2[tabindex="-1"]:focus-visible {
+  outline: 3px solid var(--brass);
+  outline-offset: 3px;
+}
+h2 .job {
+  display: block;
+  font: 600 15px var(--sans);
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 10;
+  padding: 10px 14px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--brass);
+  font: 600 14px var(--sans);
+}
+.skip-link:focus {
+  top: 12px;
 }
 nav button {
   padding: 10px 6px;
@@ -160,16 +190,42 @@ nav span {
   display: block;
   margin-top: 5px;
 }
+nav .job {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 400;
+}
 nav [aria-current="step"] {
   background: var(--curtain);
   color: #fff;
   border-color: var(--curtain);
 }
+.room-line {
+  font: 600 14px var(--sans);
+  margin: 22px 0 6px;
+}
 #notice {
   min-height: 25px;
   font: 13px var(--sans);
   color: var(--muted);
-  margin: 22px 0;
+  margin: 6px 0 22px;
+}
+.reason:empty {
+  display: none;
+}
+.before-you-start {
+  border: 1px solid var(--brass);
+  padding: 4px 18px;
+  margin: 0 0 20px;
+  font: 14px/1.5 var(--sans);
+}
+.before-you-start h3 {
+  font-size: 18px;
+  margin: 12px 0 4px;
+}
+.before-you-start ul {
+  padding-left: 20px;
 }
 section {
   border-top: 2px solid var(--brass);

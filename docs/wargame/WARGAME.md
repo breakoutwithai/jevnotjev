@@ -86,7 +86,7 @@ Each move: action, expected observation, what failure looks like, likely reactio
 **Move 1.4 Co-tenant check.**
 - Action: confirm S3 passed (no other `server_name` on the host changed status across the deploy, `docs/DEPLOY.md:199`).
 - Likely reaction: a neighbour changes status. Setup re-probes neighbours and restores the vhost on a change (`docs/backstage-deploy.md:48`).
-- Counteraction: if the neighbour was already failing before the deploy (compare with the pre-deploy probe), record it and continue; if it changed because of the deploy, roll back the module (Move 2.1) and stop.
+- Counteraction: if the neighbour was already failing before the deploy (compare with the pre-deploy probe), record it and continue; if it changed because of the deploy, first read the deploy output and the served SHA: the static deploy restores the previous release on its own when a check fails (`.deploy/lib.sh:54-61`). Only if that restore failed, roll back manually to the recorded pre-deploy SHA (not the next older release, `.deploy/lib.sh:123-130`), then stop.
 - Abort: any co-tenant down after a rollback. Escalate to the host owner; do not restart services to recover.
 
 ### M2 - Rollback rehearsal

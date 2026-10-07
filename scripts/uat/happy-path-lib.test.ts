@@ -115,7 +115,7 @@ describe("#134 records", () => {
 });
 
 describe("#134 secret scan", () => {
-  const secret = "sk_test_134_LONG_SECRET";
+  const secret = "planted-value-134-long";
   async function inDir(run: (dir: string) => Promise<void>): Promise<void> {
     const dir = await mkdtemp(join(tmpdir(), "jnj-134-secret-"));
     try { await run(dir); } finally { await rm(dir, { recursive: true, force: true }); }
@@ -169,7 +169,7 @@ describe("#134 report", () => {
     const result = buildReport(report({ secretHits: [{ file: "nested/shot.png", name: "API_KEY" }] }));
     expect(result.ok).toBe(false); expect(result.exitCode).toBe(1);
     expect(result.markdown).toContain("nested/shot.png"); expect(result.markdown).toContain("API_KEY");
-    expect(result.markdown).not.toContain("sk_test_134_LONG_SECRET");
+    expect(result.markdown).not.toContain("planted-value-134-long");
   });
   test("[unit] #134 row 27 refuses a failed step", () => {
     const result = buildReport(report({ steps: [{ room: "Opening Night", step: "reveal", pass: false, detail: "failed", shot: "opening.png" }] }));

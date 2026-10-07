@@ -1,5 +1,5 @@
 {
-  "minFiles": 82,
+  "minFiles": 84,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -31,6 +31,8 @@
     "scripts/tokenmax/hardening2.test.ts": 4,
     "scripts/tokenmax/run.test.ts": 6,
     "scripts/uat-controllers.test.ts": 12,
+    "scripts/uat/fresh-clone.test.ts": 22,
+    "scripts/uat/happy-path-lib.test.ts": 59,
     "scripts/uc13/arms.test.ts": 24,
     "scripts/uc13/calls.test.ts": 8,
     "scripts/uc13/label-page.dom.test.ts": 9,

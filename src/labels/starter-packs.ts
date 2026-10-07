@@ -44,6 +44,14 @@ const DRAFTED = "2026-10-07";
 function approved(id: string, input: string, label: string): StarterCase {
   return Object.freeze({ id, input, label, source: "human_reviewed", labelledBy: "operator", labelledAt: "2026-10-03" });
 }
+/**
+ * A P1 case: the UC13 message with the fact sheet, in the exact text the UC13 run gave Jev as its state
+ * (scripts/uc13/arms.ts jevBody). Backstage sends only the question, the choices and the case text to every model, so
+ * the sheet the approved labels were made against has to travel inside the case.
+ */
+function shopCase(id: string, message: string, label: string): StarterCase {
+  return approved(id, `Fact sheet:\n${UC13_FACT_SHEET}\n\nCustomer message:\n${message}`, label);
+}
 function drafted(id: string, input: string, label: string): StarterCase {
   return Object.freeze({ id, input, label, source: "agent", labelledBy: PACK_DRAFTER, labelledAt: DRAFTED });
 }
@@ -55,25 +63,22 @@ const P1: StarterPack = {
   question: UC13_QUESTION,
   // hand_off first: Backstage's keyword rule answers the first choice on a match, and the UC13 rule matches hand_off.
   choices: [UC13_CHOICES[1], UC13_CHOICES[0]],
-  acceptance: "Decide from this fact sheet only.\n" + UC13_FACT_SHEET,
+  acceptance: "Decide from the fact sheet at the top of each case only.",
   exclusions: "Do not use anything the fact sheet does not state.",
-  // An adapted subset of the UC13 rule's terms (examples/uc13-shop-bot/rule.md): Backstage takes at most 20 keywords and
-  // matches substrings, not word starts. On these ten cases its answers equal the UC13 rule's (7 of 10 agree with the labels).
-  keywords: [
-    "available", "availability", "stock", "left", "book", "booking", "reserve", "reservation", "confirm", "cancel",
-    "refund", "deposit", "damage", "broke", "charged", "hurt", "avalanche", "safe", "tomorrow", "weekend",
-  ],
+  // No keywords: every case carries the fact sheet, whose last line names availability, bookings and refunds, so a
+  // Backstage keyword rule (it reads the whole case text) would match every case. The UC13 rule read the message only.
+  keywords: [],
   cases: [
-    approved("m03", "How much would 3 days of resort skis cost?", "answer"),
-    approved("m02", "Do you sell helmets?", "hand_off"),
-    approved("m05", "What's your phone number?", "answer"),
-    approved("m11", "My friend hurt her knee on your rental skis. The binding didn't release.", "hand_off"),
-    approved("m08", "How much is a quick wax?", "answer"),
-    approved("m17", "We're a group of 12. Is there a group rate?", "hand_off"),
-    approved("m24", "Where are your shops?", "answer"),
-    approved("m31", "Can you reserve two junior packages for December 27?", "hand_off"),
-    approved("m25", "Do you rent avalanche gear, and how much is it?", "answer"),
-    approved("m39", "Do you have a Freeride 106 in 180cm available this Saturday?", "hand_off"),
+    shopCase("m03", "How much would 3 days of resort skis cost?", "answer"),
+    shopCase("m02", "Do you sell helmets?", "hand_off"),
+    shopCase("m05", "What's your phone number?", "answer"),
+    shopCase("m11", "My friend hurt her knee on your rental skis. The binding didn't release.", "hand_off"),
+    shopCase("m08", "How much is a quick wax?", "answer"),
+    shopCase("m17", "We're a group of 12. Is there a group rate?", "hand_off"),
+    shopCase("m24", "Where are your shops?", "answer"),
+    shopCase("m31", "Can you reserve two junior packages for December 27?", "hand_off"),
+    shopCase("m25", "Do you rent avalanche gear, and how much is it?", "answer"),
+    shopCase("m39", "Do you have a Freeride 106 in 180cm available this Saturday?", "hand_off"),
   ],
 };
 

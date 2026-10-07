@@ -493,7 +493,7 @@ async function render() {
     (comparison
       ? "Every player’s answer is scored against your first pick, made blind. "
       : "Jev’s answer is scored against your first pick, made blind. ") +
-      "Your final pick is recorded beside it, never instead of it. Confidence is the model’s score, not measured accuracy. Labels are optional; unsure leaves a case unlabelled.",
+      "Your final pick is recorded beside it, never instead of it. Confidence is the model’s score, not measured accuracy. Labels are optional; unsure leaves a case unlabelled. A case you do not pick keeps its imported human_reviewed label, if it has one, and is scored on it; an imported agent label is never scored.",
   );
   button("run-trial").disabled =
     !trialAvailable || starting || !!current || imports.pending;

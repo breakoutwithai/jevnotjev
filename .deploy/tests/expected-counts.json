@@ -79,7 +79,7 @@
     "src/jev-answer.test.ts": 26,
     "src/labels/calibration.test.ts": 8,
     "src/labels/rank.test.ts": 9,
-    "src/labels/starter-packs.test.ts": 7,
+    "src/labels/starter-packs.test.ts": 8,
     "src/labels/suggest.test.ts": 10
   }
 }

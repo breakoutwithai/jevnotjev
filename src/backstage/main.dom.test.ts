@@ -884,8 +884,10 @@ test("[integration] M3 starter packs load their scene and 10 cases, and say wher
   expect(page.get("question").value).toContain("fact sheet");
   expect(page.get("choice-a").value).toBe("hand_off");
   expect(page.get("choice-b").value).toBe("answer");
-  expect(page.get("acceptance").value).toContain("Larchfield");
+  expect(page.get("acceptance").value).toContain("fact sheet");
+  // Each P1 case carries the fact sheet (the models see only the case text), shown on one line per case.
   expect(page.get("cases").value.split("\n").length).toBe(10);
+  expect(page.get("cases").value.split("\n").every((line) => line.includes("Larchfield"))).toBe(true);
   expect(page.get("notice").textContent).toContain("10 cases");
   expect(page.get("notice").textContent).toContain("10 human_reviewed");
   page.get("starter-p4").click();

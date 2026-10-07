@@ -35,7 +35,7 @@ export type Transport = (
   signal: AbortSignal,
 ) => Promise<unknown>;
 export type Label = "accept" | "reject" | null;
-/** format/README.md "Label provenance": human = a person picked it; human_reviewed = AI drafted, a person approved; agent = not reviewed. */
+/** format/README.md "Label provenance": human = a person picked it; human_reviewed = a person approved it but did not pick it here (an AI draft, or an imported human label); agent = not reviewed. */
 export type LabelSource = "human" | "human_reviewed" | "agent";
 /** Who made a label call and how. Every call to BackstageRun.label names one; there is no default. */
 export interface LabelProvenance {

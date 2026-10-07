@@ -5,9 +5,10 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { readDictRows } from "../format/csv.ts";
 import { validate } from "../format/validate.ts";
-import { APPROVED_DRAFT_2026_10_03, CRITERIA, QUESTION } from "../../scripts/uc13/arms.ts";
+import { APPROVED_DRAFT_2026_10_03, CRITERIA, QUESTION, jevBody } from "../../scripts/uc13/arms.ts";
+import type { AnswerRequest } from "../backstage/contracts.ts";
 import { BackstageRun, parseCaseImport } from "../backstage/run.ts";
-import { UC13_CALIBRATION } from "./calibration-set.ts";
+import { UC13_CALIBRATION, UC13_FACT_SHEET } from "./calibration-set.ts";
 import { STARTER_PACKS, starterPackCsv, starterPackScene } from "./starter-packs.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -49,9 +50,11 @@ describe("STARTER_PACKS", () => {
           return [String(parsed.case_id), String(parsed.case_input)];
         }),
     );
+    const factSheet = (await Bun.file(join(ROOT, "examples/uc13-shop-bot/fact-sheet.md")).text()).trim();
     const calibration = new Set(UC13_CALIBRATION.cases.map((c) => c.id));
     for (const c of p1.cases) {
-      expect(c.input).toBe(inputs.get(c.id) ?? "missing");
+      // The labels were approved for a message read with the fact sheet: each case carries the UC13 Jev state verbatim.
+      expect(c.input).toBe(jevBody(factSheet, { case_id: c.id, case_input: inputs.get(c.id) ?? "missing" }).state);
       expect(c.label).toBe(labels.get(c.id) ?? "missing");
       expect([c.source, c.labelledBy, c.labelledAt]).toEqual([
         APPROVED_DRAFT_2026_10_03.source,
@@ -71,10 +74,28 @@ describe("STARTER_PACKS", () => {
     for (const pack of STARTER_PACKS) for (const c of pack.cases) expect(c.source).not.toBe("human");
   });
 
+  test("[unit] M3 P1's fact sheet reaches every model call: each request's case text holds it", async () => {
+    const p1 = STARTER_PACKS[0];
+    if (p1 === undefined) throw new Error("no P1");
+    const imported = parseCaseImport(starterPackCsv(p1));
+    const run = new BackstageRun(starterPackScene(p1, imported.cases), "test", { arms: ["jev"] }, imported.labels);
+    const sent: AnswerRequest[] = [];
+    await run.start({ jev: "test-secret-jev" }, async (request) => {
+      sent.push(request);
+      throw new Error("offline");
+    });
+    expect(sent.length).toBe(10);
+    for (const request of sent) {
+      expect(request.input).toContain(UC13_FACT_SHEET);
+      expect(request.input).toContain("Customer message:\n");
+    }
+  });
+
   test("[unit] M3 cases are synthetic: no email address, phone number or web address in any case text", () => {
     for (const pack of STARTER_PACKS)
       for (const c of pack.cases) {
-        expect(c.input).not.toMatch(/@|https?:|www\.|\b\d{3}[-. ]\d{4}\b/);
+        // The UC13 fact sheet's 555-0142 is a fictional number; check what each case adds to it.
+        expect(c.input.replace(UC13_FACT_SHEET, "")).not.toMatch(/@|https?:|www\.|\b\d{3}[-. ]\d{4}\b/);
         expect(c.input.length).toBeLessThanOrEqual(8000);
       }
   });

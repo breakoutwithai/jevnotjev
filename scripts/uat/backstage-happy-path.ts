@@ -6,7 +6,7 @@ import { chromium, type Page } from "playwright-core";
 import { loadExample } from "../uc13/arms.ts";
 import { MODEL_CATALOG } from "../../src/backstage/catalog.ts";
 import { validate } from "../../src/format/validate.ts";
-import { buildReport, casesCsv, checkRecords, readOpeningNight, ruleKeywords, scanForSecrets, uc13Scene, type ReportInput } from "./happy-path-lib.ts";
+import { buildReport, casesCsv, checkRecords, fitKeywords, readOpeningNight, ruleKeywords, scanForSecrets, uc13Scene, type ReportInput } from "./happy-path-lib.ts";
 
 const usage = "Usage: bun scripts/uat/backstage-happy-path.ts --out <dir> [--base <url>] [--clone-sha <sha>] [--example <dir>] [--key-env <file>] [--jev-key-name <NAME>] [--llm-key-name <NAME>] [--llm-model <id>] [--pause-for-labels] [--headed] [--dry-run]";
 interface Options { base: string; out: string; cloneSha: string | null; example: string; keyEnv: string | null; jevKeyName: string; llmKeyName: string; llmModel: string; pause: boolean; headed: boolean; dryRun: boolean }
@@ -73,6 +73,7 @@ async function main(): Promise<number> {
   const example = await loadExample(resolve(options.example));
   const ruleMd = await readFile(join(resolve(options.example), "rule.md"), "utf8");
   const caseIds = example.cases.map((c) => c.case_id);
+  const keywords = fitKeywords(ruleKeywords(ruleMd), 20);
   const health = await fetch(new URL("/api/backstage/health", options.base));
   if (!health.ok) throw new Error(`Health returned HTTP ${health.status}`);
   const healthBody: unknown = await health.json();
@@ -88,9 +89,9 @@ async function main(): Promise<number> {
   let verdictText = "";
   let runStarted = false;
   let recordsCsv = "";
-  const record = async (room: string, step: string, fn: () => Promise<void>): Promise<void> => {
+  const record = async (room: string, step: string, fn: () => Promise<string | void>): Promise<void> => {
     let pass = true, detail = "completed";
-    try { await fn(); } catch (error) { pass = false; detail = clean(error, secrets); }
+    try { const said = await fn(); if (typeof said === "string" && said) detail = said; } catch (error) { pass = false; detail = clean(error, secrets); }
     const shot = `${String(steps.length + 1).padStart(2, "0")}-${room.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${step.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.jpg`;
     if (page) try { await page.screenshot({ path: join(reportDir, shot), type: "jpeg", quality: 80 }); } catch (error) { pass = false; detail += `; screenshot: ${clean(error, secrets)}`; }
     steps.push({ room, step, pass, detail, shot });
@@ -116,7 +117,8 @@ async function main(): Promise<number> {
       await p.locator(`#model-options [id="arm-${options.llmModel}"]`).check();
       await p.locator("#include-rule").check();
       await p.locator("#rule-fields").waitFor({ state: "visible" });
-      await p.locator("#keywords").fill(ruleKeywords(ruleMd).join("\n"));
+      await p.locator("#keywords").fill(keywords.kept.join("\n"));
+      return `rule: ${keywords.kept.length} literals (Backstage cap 20); redundant under substring match: ${keywords.redundant.join(", ") || "none"}; left out of rule.md: ${keywords.dropped.join(", ") || "none"}`;
     });
     await record("Casting", "provider keys", async () => {
       if (options.dryRun) return;
@@ -183,7 +185,7 @@ async function main(): Promise<number> {
     const problems = checkRecords(recordsCsv, caseIds, ["jev", "llm", "rule"], options.pause);
     if (problems.length) steps.push({ room: "Records", step: "all players", pass: false, detail: `${problems.length} record problem(s)`, shot: "" });
   }
-  const reportInput: ReportInput = { base: options.base, version, cloneSha: options.cloneSha, csv: recordsCsv, caseIds, verdictText, steps, secretHits: scanForSecrets(reportDir, secrets), runTime: new Date().toISOString(), modelIds: ["jev-1.13.0", options.llmModel, "keywords.v1"], labels: options.pause ? "by a person (--pause-for-labels)" : "none (agents never label)", dryRun: options.dryRun };
+  const reportInput: ReportInput = { base: options.base, version, cloneSha: options.cloneSha, csv: recordsCsv, caseIds, verdictText, steps, secretHits: scanForSecrets(reportDir, secrets), runTime: new Date().toISOString(), modelIds: ["jev-1.13.0", options.llmModel, "keywords-v1"], labels: options.pause ? "by a person (--pause-for-labels)" : "none (agents never label)", dryRun: options.dryRun };
   let result = buildReport(reportInput);
   await writeFile(join(reportDir, "report.md"), result.markdown);
   const after = scanForSecrets(reportDir, secrets);

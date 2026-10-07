@@ -155,7 +155,14 @@ export function ruleKeywords(ruleMd: string): readonly string[] {
   return line.split(",").map((term) => term.trim()).filter(Boolean);
 }
 
-/** Stub: fit a keyword list into Backstage's cap. */
+/**
+ * Fit a keyword list into Backstage's cap (src/backstage/run.ts:448, 20 literals). Backstage matches by
+ * case-insensitive substring (run.ts:1220), so a term that contains another term never changes the answer and is
+ * removed first; terms still over the cap are dropped from the end and reported, never silently.
+ */
 export function fitKeywords(terms: readonly string[], cap: number): { readonly kept: readonly string[]; readonly redundant: readonly string[]; readonly dropped: readonly string[] } {
-  return { kept: terms.slice(0, cap), redundant: [], dropped: [] };
+  const lower = terms.map((term) => term.toLowerCase());
+  const redundant = terms.filter((_, i) => lower.some((other, j) => j !== i && other !== lower[i] && (lower[i] ?? "").includes(other)));
+  const useful = terms.filter((term) => !redundant.includes(term));
+  return { kept: useful.slice(0, cap), redundant, dropped: useful.slice(cap) };
 }

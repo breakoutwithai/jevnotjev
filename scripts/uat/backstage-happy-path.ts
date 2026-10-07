@@ -86,6 +86,7 @@ async function main(): Promise<number> {
   let page: Page | null = null;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
   let verdictText = "";
+  let runStarted = false;
   let recordsCsv = "";
   const record = async (room: string, step: string, fn: () => Promise<void>): Promise<void> => {
     let pass = true, detail = "completed";
@@ -142,8 +143,10 @@ async function main(): Promise<number> {
         const notice = (await p.locator("#notice").innerText()).trim();
         const progress = (await p.locator("#progress").innerText()).trim();
         if (!progress) throw new Error(`Run did not start${notice ? `: ${notice}` : ""}`);
+        runStarted = true;
       });
       await record("Learning Lines", "complete all arms", async () => {
+        if (!runStarted) throw new Error("skipped: the run did not start");
         await p.waitForFunction(() => /80 of 80 selected case\/model cells processed; 0 have no answer/.test(document.querySelector("#run-preview")?.textContent ?? "") && /No calls in progress/.test(document.querySelector("#progress")?.textContent ?? ""), undefined, { timeout: 600000 });
       });
       await record("Rehearsals", "open", async () => { await p.locator("#next").click(); await p.waitForTimeout(400); });

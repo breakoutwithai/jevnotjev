@@ -267,6 +267,146 @@ function typeInto(page: Awaited<ReturnType<typeof mount>>, id: string, value: st
   page.get(id).dispatchEvent(new Event("input"));
 }
 
+const roomTitles = ["scene-title", "casting-title", "lines-title", "rehearsal-title", "dress-title", "opening-title"];
+function navButton(page: Awaited<ReturnType<typeof mount>>, room: number): FakeElement {
+  const found = page.document.querySelectorAll("[data-room]").find((item) => item.dataset.room === String(room));
+  if (!found) throw new Error(`Missing nav button ${room}`);
+  return found;
+}
+function tickModel(page: Awaited<ReturnType<typeof mount>>, arm: string) {
+  const box = page.get(`arm-${arm}`);
+  box.checked = true;
+  box.dispatchEvent(new Event("change"));
+}
+function compareOn(page: Awaited<ReturnType<typeof mount>>) {
+  page.get("compare").checked = true;
+  page.get("compare").dispatchEvent(new Event("change"));
+}
+
+test("[integration] UX-125 first load leaves focus off the scene heading; changing room moves it to the new heading", async () => {
+  const page = await mount();
+  expect(page.document.activeElement).not.toBe(page.get("scene-title"));
+  expect(page.document.activeElement).toBeNull();
+  navButton(page, 1).click();
+  expect(page.document.activeElement).toBe(page.get("casting-title"));
+  page.get("next").click();
+  expect(page.document.activeElement).toBe(page.get("lines-title"));
+  page.get("back").click();
+  page.get("back").click();
+  expect(page.document.activeElement).toBe(page.get("scene-title"));
+});
+
+test("[integration] UX-C05 the skip link follows the current room and moves focus to its heading", async () => {
+  const page = await mount();
+  expect(page.get("skip-link").getAttribute("href")).toBe("#scene-title");
+  roomTitles.forEach((title, index) => {
+    navButton(page, index).click();
+    page.get("theme").focus();
+    expect(page.document.activeElement).toBe(page.get("theme"));
+    expect(page.get("skip-link").getAttribute("href")).toBe(`#${title}`);
+    page.get("skip-link").click();
+    expect(page.document.activeElement).toBe(page.get(title));
+  });
+});
+
+test("[integration] UX-C03 the line under the nav names each room's own step", async () => {
+  const page = await mount();
+  const lines: string[] = [];
+  for (let index = 0; index < 6; index++) {
+    navButton(page, index).click();
+    lines.push(page.get("room-line").textContent);
+  }
+  expect(lines[0]).toBe("Set the scene before the first call.");
+  expect(new Set(lines).size).toBe(6);
+  for (const line of lines) expect(line.length).toBeGreaterThan(10);
+});
+
+test("[integration] UX-C01 Run stays reachable but off, with its reason, until there is a case and every selected model has its key", async () => {
+  const page = await mount();
+  await tick();
+  for (const id of ["run-one", "run-all"]) {
+    expect(page.get(id).disabled).toBe(false);
+    expect(page.get(id).getAttribute("aria-disabled")).toBe("true");
+  }
+  expect(page.get("run-reason").textContent).toBe("Add at least one case. Add your TypeSafe API key on Casting.");
+  page.get("run-all").click();
+  await tick();
+  expect(page.urls.filter((url) => url.startsWith("/api/backstage/answer"))).toEqual([]);
+  expect(page.get("notice").textContent).toBe("Add at least one case. Add your TypeSafe API key on Casting.");
+  typeInto(page, "cases", "Please refund my mug");
+  expect(page.get("run-reason").textContent).toBe("Add your TypeSafe API key on Casting.");
+  typeInto(page, "jev-key", "jev-secret-value");
+  for (const id of ["run-one", "run-all"]) expect(page.get(id).getAttribute("aria-disabled")).toBe("false");
+  expect(page.get("run-reason").textContent).toBe("");
+  compareOn(page);
+  tickModel(page, "gpt-6-luna");
+  expect(page.get("run-one").getAttribute("aria-disabled")).toBe("true");
+  expect(page.get("run-reason").textContent).toBe("Add your OpenAI API key on Casting, or untick its models.");
+  typeInto(page, "openai-key", "openai-secret-value");
+  expect(page.get("run-one").getAttribute("aria-disabled")).toBe("false");
+  // Clear keys closes the gate again without any typing.
+  page.get("clear-keys").click();
+  expect(page.get("run-one").getAttribute("aria-disabled")).toBe("true");
+  expect(page.get("run-reason").textContent).toBe("Add your TypeSafe API key on Casting. Add your OpenAI API key on Casting, or untick its models.");
+});
+
+test("[integration] UX-C01 the spend preview gives a money range beside the call count and names unpriced models", async () => {
+  const page = await mount();
+  typeInto(page, "cases", "Please refund my mug\nWhere is my parcel?");
+  expect(page.get("run-preview").textContent).toMatch(/^2 cases\. Run all: up to 2 paid calls, estimated \$[\d.]+ to \$[\d.]+\. First case: up to 1 paid call, estimated \$[\d.]+ to \$[\d.]+\.$/);
+  compareOn(page);
+  tickModel(page, "gemini-3.8-flash");
+  expect(page.get("run-preview").textContent).toContain("up to 4 paid calls");
+  expect(page.get("run-preview").textContent).toContain("Gemini 3.8 Flash: price unknown, not in the estimate.");
+});
+
+test("[integration] UX-C02 ticking a provider's model shows its key field and announces it", async () => {
+  const page = await mount();
+  await tick();
+  compareOn(page);
+  expect(page.get("openai-key-player").hidden).toBe(true);
+  tickModel(page, "gpt-6-luna");
+  expect(page.get("openai-key-player").hidden).toBe(false);
+  expect(page.get("notice").textContent).toBe("OpenAI API key field added below the models.");
+  tickModel(page, "grok-4.7");
+  expect(page.get("notice").textContent).toBe("xAI API key field added below the models.");
+});
+
+test("[integration] UX-C05 Reveal and Download stay in Tab order with a reason until they can act", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYes);
+  await tick();
+  for (const id of ["reveal", "download-csv", "download-evidence"]) {
+    expect(page.get(id).disabled).toBe(false);
+    expect(page.get(id).getAttribute("aria-disabled")).toBe("true");
+  }
+  expect(page.get("reveal-reason").textContent).toBe("Run your cases and open judging first.");
+  expect(page.get("download-reason").textContent).toBe("Run your cases first. Downloads unlock when the run has answers to export.");
+  page.get("reveal").click();
+  expect(page.get("confirm-reveal").hidden).toBe(true);
+  fillScene(page, "");
+  typeInto(page, "cases", "Please refund my mug");
+  await runFirstCase(page);
+  // Both files wait for judging; each locked button is described by the reason.
+  expect(page.get("download-reason").textContent).toBe("Finish judging in Rehearsals to unlock downloads.");
+  for (const id of ["download-csv", "download-evidence"]) expect(page.get(id).getAttribute("aria-disabled")).toBe("true");
+  expect(page.get("download-csv").getAttribute("aria-describedby")).toBe("download-reason csv-note");
+  expect(page.get("download-evidence").getAttribute("aria-describedby")).toBe("download-reason");
+  await openJudging(page);
+  expect(page.get("reveal").getAttribute("aria-disabled")).toBe("false");
+  expect(page.get("reveal-reason").textContent).toBe("");
+  page.get("pick-first").click();
+  page.get("reveal").click();
+  page.get("confirm-reveal-yes").click();
+  await tick();
+  for (const id of ["download-csv", "download-evidence"]) expect(page.get(id).getAttribute("aria-disabled")).toBe("false");
+  expect(page.get("download-reason").textContent).toBe("");
+  // An unlocked button is no longer described by a lock reason.
+  expect(page.get("download-csv").getAttribute("aria-describedby")).toBe("csv-note");
+  expect(page.get("download-evidence").getAttribute("aria-describedby")).toBeNull();
+  expect(page.get("reveal").getAttribute("aria-disabled")).toBe("true");
+  expect(page.get("reveal-reason").textContent).toBe("Results are revealed; labels are locked.");
+});
+
 test("[integration] D10 a scene typed before a run is restored after a reload", async () => {
   const first = await mount();
   for (const id of sceneIds) typeInto(first, id, `typed ${id}`);
@@ -643,8 +783,10 @@ test("[e2e] M2 blind integrity per case: picking one case shows its ranking and 
   page.get("pick-second").click();
   await tick();
   expect(textOf(page.get("suggestion"))).toContain("#1 no 63% (Jev's choice)");
-  // Evidence holds every answer, so it stays locked until judging finishes.
-  expect(page.get("download-evidence").disabled).toBe(true);
+  // Evidence holds every answer, so it stays locked until judging finishes (aria-disabled keeps it in Tab order).
+  expect(page.get("download-evidence").getAttribute("aria-disabled")).toBe("true");
+  page.get("download-evidence").click();
+  expect(page.get("notice").textContent).toBe("Finish judging in Rehearsals to unlock downloads.");
 });
 
 /** Compare mode with the keyword rule, so a case whose Jev call failed still has an answer to pick. */

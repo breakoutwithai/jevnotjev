@@ -12,6 +12,7 @@
     <script type="module" src="./app.js"></script>
   </head>
   <body>
+    <a id="skip-link" class="skip-link" href="#scene-title">Skip to the current room</a>
     <header>
       <a href="/">Jev!Jev <span>/ The Stage</span></a>
       <div class="header-actions"><button id="theme" type="button">House Lights</button><button id="sign-out" class="secondary" type="button">Sign out</button></div>
@@ -31,22 +32,31 @@
       </p>
       <nav aria-label="Backstage rooms" id="rooms">
         <button data-room="0" aria-current="step">
-          1 <span>New Scene</span></button
-        ><button data-room="1">2 <span>Casting</span></button
-        ><button data-room="2">3 <span>Learning Lines</span></button
-        ><button data-room="3">4 <span>Rehearsals</span></button
-        ><button data-room="4">5 <span>Dress Rehearsal</span></button
-        ><button data-room="5">6 <span>Opening Night</span></button>
+          1 <span>New Scene</span> <small class="job">Question</small></button
+        ><button data-room="1">2 <span>Casting</span> <small class="job">Models and keys</small></button
+        ><button data-room="2">3 <span>Learning Lines</span> <small class="job">Test cases</small></button
+        ><button data-room="3">4 <span>Rehearsals</span> <small class="job">Judge answers</small></button
+        ><button data-room="4">5 <span>Dress Rehearsal</span> <small class="job">Cost and downloads</small></button
+        ><button data-room="5">6 <span>Opening Night</span> <small class="job">Result</small></button>
       </nav>
-      <p id="notice" role="status" aria-live="polite">
-        Set the scene before the first call.
-      </p>
+      <p id="room-line" class="room-line">Set the scene before the first call.</p>
+      <p id="notice" role="status" aria-live="polite"></p>
       <section data-panel="0" aria-labelledby="scene-title">
         <p class="eyebrow">ACT I / THE QUESTION</p>
-        <h2 id="scene-title" tabindex="-1">New Scene</h2>
+        <h2 id="scene-title" tabindex="-1">New Scene <span class="job">Question</span></h2>
         <p class="direction">
           Decide what a kept answer means before you see one.
         </p>
+        <aside id="before-you-start" class="before-you-start" aria-labelledby="before-you-start-title">
+          <h3 id="before-you-start-title">Before you start</h3>
+          <p>This tests AI answers to one business question. It is not a chatbot.</p>
+          <ul>
+            <li>Bring your own Jev key (a TypeSafe API key).</li>
+            <li>Calls made with your keys are billed to your own accounts with each provider you pick.</li>
+            <li>A shared verdict needs at least 30 paired, human-labelled cases.</li>
+            <li>Use synthetic or redacted data only.</li>
+          </ul>
+        </aside>
         <fieldset id="scene-fields">
           <legend class="sr-only">Your decision</legend>
           <p id="scene-safety" class="trust-sign">
@@ -141,7 +151,7 @@
       </section>
       <section data-panel="1" aria-labelledby="casting-title" hidden>
         <p class="eyebrow">ACT II / ENTER THE PLAYERS</p>
-        <h2 id="casting-title" tabindex="-1">Casting</h2>
+        <h2 id="casting-title" tabindex="-1">Casting <span class="job">Models and keys</span></h2>
         <p class="direction">
           Start with Jev alone. Add the other players when you want a
           comparison.
@@ -167,9 +177,24 @@
                 type="password"
                 autocomplete="off"
                 spellcheck="false"
+                aria-describedby="jev-key-source"
             /></label>
+            <p id="jev-key-source" class="fine">
+              No key yet? A TypeSafe API key comes from your TypeSafe account,
+              the same console as the
+              <a
+                href="https://console.typesafe.ai/playground"
+                target="_blank"
+                rel="noreferrer"
+                >TypeSafe Playground</a
+              >.
+            </p>
           </article>
           <div id="llm-player" hidden>
+            <p id="key-hint" class="fine">
+              A key field appears below for each provider when you tick one of
+              its models. Only ticked models are called.
+            </p>
             <fieldset id="model-fields">
               <legend>Optional models</legend>
               <div id="model-options"></div>
@@ -226,7 +251,7 @@
       </section>
       <section data-panel="2" aria-labelledby="lines-title" hidden>
         <p class="eyebrow">ACT III / THE CASES</p>
-        <h2 id="lines-title" tabindex="-1">Learning Lines</h2>
+        <h2 id="lines-title" tabindex="-1">Learning Lines <span class="job">Test cases</span></h2>
         <p class="direction">Give every player the same script.</p>
         <fieldset id="case-fields">
           <legend class="sr-only">Your cases</legend>
@@ -255,6 +280,10 @@
           <a href="./sample-cases.csv" download>Download a sample cases file</a>
         </fieldset>
         <p id="run-preview">No cases yet.</p>
+        <p id="estimate-basis" class="fine">
+          Estimates use dated list prices, about 1 to 4 bytes of your text per
+          input token and each model's output cap. Your invoice may differ.
+        </p>
         <p class="fine">
           Only selected providers receive your case. Calls use your accounts.
           <a href="https://console.typesafe.ai/playground"
@@ -276,13 +305,14 @@
           case to Playground.
         </p>
         <div class="actions">
-          <button id="run-one">Run first case</button
-          ><button id="run-all">Run all cases</button
+          <button id="run-one" aria-describedby="run-reason">Run first case</button
+          ><button id="run-all" aria-describedby="run-reason">Run all cases</button
           ><button id="stop" class="secondary" disabled>Stop</button
           ><button id="retry" class="secondary" disabled>
             Retry unfinished calls
           </button>
         </div>
+        <p id="run-reason" class="fine reason"></p>
         <p class="fine">
           Stop keeps completed answers. An in-flight call may still be charged.
           Retry is a new paid attempt; previous attempts stay in your evidence.
@@ -290,8 +320,8 @@
         <div id="progress" aria-live="polite"></div>
       </section>
       <section data-panel="3" aria-labelledby="rehearsal-title" hidden>
-        <p class="eyebrow">ACT III / YOUR JUDGMENT</p>
-        <h2 id="rehearsal-title" tabindex="-1">Rehearsals</h2>
+        <p class="eyebrow">ACT IV / YOUR JUDGMENT</p>
+        <h2 id="rehearsal-title" tabindex="-1">Rehearsals <span class="job">Judge answers</span></h2>
         <p id="judging-direction" class="direction">
           Pick the right answer for each case before you see any answer.
         </p>
@@ -337,7 +367,8 @@
           Your first pick, made blind, is the one the answers are scored
           against. Labels are yours; no model grades itself.
         </p>
-        <button id="reveal" disabled>Reveal results and lock labels</button>
+        <button id="reveal" aria-describedby="reveal-reason">Finish judging and lock labels</button>
+        <p id="reveal-reason" class="fine reason"></p>
         <div
           id="confirm-reveal"
           class="confirm-panel"
@@ -367,16 +398,21 @@
         </p>
       </section>
       <section data-panel="4" aria-labelledby="dress-title" hidden>
-        <p class="eyebrow">ACT IV / THE RECKONING</p>
-        <h2 id="dress-title" tabindex="-1">Dress Rehearsal</h2>
+        <p class="eyebrow">ACT V / THE RECKONING</p>
+        <h2 id="dress-title" tabindex="-1">Dress Rehearsal <span class="job">Cost and downloads</span></h2>
         <p class="direction">Count the kept answers. Then look at the bill.</p>
         <div id="metrics"><p>No run yet.</p></div>
         <div class="actions">
-          <button id="download-csv" disabled>Download records.csv</button
-          ><button id="download-evidence" class="secondary" disabled>
+          <button id="download-csv" aria-describedby="download-reason csv-note">Download records.csv</button
+          ><button id="download-evidence" class="secondary" aria-describedby="download-reason">
             Download run evidence
           </button>
         </div>
+        <p id="download-reason" class="fine reason"></p>
+        <p id="csv-note" class="fine">
+          records.csv holds successful answers. Failed attempts are only in the
+          run evidence file.
+        </p>
         <p class="fine">
           Costs use returned usage and dated list prices, not your invoice.
           Missing costs stay missing. CSV records include successful answers;
@@ -385,8 +421,8 @@
         </p>
       </section>
       <section data-panel="5" aria-labelledby="opening-title" hidden>
-        <p class="eyebrow">ACT V / THE VERDICT</p>
-        <h2 id="opening-title" tabindex="-1">Opening Night</h2>
+        <p class="eyebrow">ACT VI / THE VERDICT</p>
+        <h2 id="opening-title" tabindex="-1">Opening Night <span class="job">Result</span></h2>
         <p class="direction">Let the evidence take its bow.</p>
         <div id="verdict">
           <p>No run yet. The verdict follows your actual answers and labels.</p>

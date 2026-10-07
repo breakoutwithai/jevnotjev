@@ -97,3 +97,23 @@ describe("#134 fresh clone", () => {
     expect(result.status).toBe(0);
   }));
 });
+
+// Run output never enters the repo: there is no default output folder, and the driver refuses an --out
+// inside the git work tree it runs from.
+const DRIVER = fileURLToPath(new URL("./backstage-happy-path.ts", import.meta.url));
+describe("#134 output stays outside the repo", () => {
+  test("[integration] #134 fresh-clone.sh without --out exits 2", () => {
+    const result = spawnSync("bash", [SCRIPT, "--repo", "unused", "--ref", "main"], { encoding: "utf8" });
+    expect(result.status).toBe(2);
+  });
+  test("[integration] #134 driver without --out exits 2", () => {
+    const result = spawnSync("bun", [DRIVER, "--dry-run"], { encoding: "utf8" });
+    expect(result.status).toBe(2);
+  });
+  test("[integration] #134 driver refuses an --out inside the git work tree it runs from", async () => withFixture(async (f) => {
+    const result = spawnSync("bun", [DRIVER, "--dry-run", "--out", join(f.repo, "docs", "uat"), "--base", "http://127.0.0.1:9"], { cwd: f.repo, encoding: "utf8" });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("outside the repository");
+    expect(existsSync(join(f.repo, "docs"))).toBe(false);
+  }));
+});

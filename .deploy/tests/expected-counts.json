@@ -31,7 +31,7 @@
     "scripts/tokenmax/hardening2.test.ts": 4,
     "scripts/tokenmax/run.test.ts": 6,
     "scripts/uat-controllers.test.ts": 12,
-    "scripts/uat/fresh-clone.test.ts": 9,
+    "scripts/uat/fresh-clone.test.ts": 12,
     "scripts/uat/happy-path-lib.test.ts": 44,
     "scripts/uc13/arms.test.ts": 24,
     "scripts/uc13/calls.test.ts": 8,

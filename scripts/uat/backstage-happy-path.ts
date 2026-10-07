@@ -4,6 +4,7 @@ import { resolve, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { chromium, type Page } from "playwright-core";
 import { loadExample } from "../uc13/arms.ts";
+import { MODEL_CATALOG } from "../../src/backstage/catalog.ts";
 import { validate } from "../../src/format/validate.ts";
 import { buildReport, casesCsv, checkRecords, readOpeningNight, ruleKeywords, scanForSecrets, uc13Scene, type ReportInput } from "./happy-path-lib.ts";
 
@@ -53,6 +54,10 @@ function clean(value: unknown, secrets: ReadonlyMap<string, string>): string {
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2));
   if (!options) { console.error(usage); return 2; }
+  // The key field is per provider (src/backstage/main.ts builds `${provider}-key`), so the model picks it.
+  const llmEntry = MODEL_CATALOG.find((entry) => entry.modelId === options.llmModel && entry.provider !== "jev");
+  if (!llmEntry) { console.error(`--llm-model ${options.llmModel} is not a catalog LLM model`); return 2; }
+  const llmProvider = llmEntry.provider;
   const secrets = new Map<string, string>();
   if (!options.dryRun) {
     let env = "";
@@ -107,7 +112,7 @@ async function main(): Promise<number> {
     await record("Casting", "select players", async () => {
       await p.locator("#compare").check();
       await p.locator("#llm-player").waitFor({ state: "visible" });
-      await p.locator(`#model-options #arm-${options.llmModel}`).check();
+      await p.locator(`#model-options [id="arm-${options.llmModel}"]`).check();
       await p.locator("#include-rule").check();
       await p.locator("#rule-fields").waitFor({ state: "visible" });
       await p.locator("#keywords").fill(ruleKeywords(ruleMd).join("\n"));
@@ -118,7 +123,7 @@ async function main(): Promise<number> {
       const llm = secrets.get(LLM_ROLE);
       if (!jev || !llm) throw new Error("Missing provider key");
       await p.locator('#jev-key[type="password"]').fill(jev);
-      await p.locator('#anthropic-key[type="password"]').fill(llm);
+      await p.locator(`#${llmProvider}-key[type="password"]`).fill(llm);
     });
     await record("Learning Lines", "open", async () => { await p.locator("#next").click(); await p.waitForTimeout(400); });
     await record("Learning Lines", "import 40 cases", async () => {

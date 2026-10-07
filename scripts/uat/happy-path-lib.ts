@@ -152,24 +152,30 @@ export function checkEvidence(text: string, csv: string, allowLabels: boolean): 
   if (!Array.isArray(data.labels)) return [...problems, "evidence.json has no labels list"];
   const { header, rows } = readDictRows(csv);
   const at = (name: string): number => (header ?? []).indexOf(name);
-  const fromCsv = new Map<string, number>();
+  // Reconcile by case and arm: Backstage evidence names the LLM arm by its model id (src/backstage/catalog.ts:37),
+  // records.csv by answerer "llm" plus answerer_model; Jev and the rule keep their answerer name.
+  const fromCsv = new Map<string, string>();
   for (const row of rows) {
-    const key = `${row.fields[at("case_id")] ?? ""}\0${row.fields[at("output")] ?? ""}`;
-    fromCsv.set(key, (fromCsv.get(key) ?? 0) + 1);
+    const answerer = row.fields[at("answerer")] ?? "";
+    const arm = answerer === "llm" ? row.fields[at("answerer_model")] ?? "" : answerer;
+    const key = `${row.fields[at("case_id")] ?? ""}\0${arm}`;
+    if (fromCsv.has(key)) problems.push(`records.csv repeats case/arm ${key.replace("\0", "/")}`);
+    fromCsv.set(key, row.fields[at("output")] ?? "");
     if (runId !== null && (row.fields[at("run_id")] ?? "") !== runId) { problems.push(`records.csv run ${row.fields[at("run_id")] ?? ""} is not evidence run ${runId}`); break; }
   }
-  const fromEvidence = new Map<string, number>();
+  const fromEvidence = new Map<string, string>();
   let labelled = 0;
   for (const entry of data.labels) {
-    if (!isRecord(entry) || typeof entry.caseId !== "string" || typeof entry.output !== "string") { problems.push("evidence.json has a malformed label entry"); continue; }
-    const key = `${entry.caseId}\0${entry.output}`;
-    fromEvidence.set(key, (fromEvidence.get(key) ?? 0) + 1);
-    if (entry.label !== null && entry.label !== undefined) labelled++;
+    if (!isRecord(entry) || typeof entry.caseId !== "string" || typeof entry.armId !== "string" || typeof entry.output !== "string") { problems.push("evidence.json has a malformed label entry"); continue; }
+    const key = `${entry.caseId}\0${entry.armId}`;
+    if (fromEvidence.has(key)) problems.push(`evidence.json repeats case/arm ${key.replace("\0", "/")}`);
+    fromEvidence.set(key, entry.output);
+    if ((entry.label !== null && entry.label !== undefined) || (entry.labelFinal !== null && entry.labelFinal !== undefined)) labelled++;
   }
   if (rows.length === 0) problems.push("records.csv has no rows to reconcile");
   if (data.labels.length !== rows.length) problems.push(`evidence.json has ${data.labels.length} answers; records.csv has ${rows.length}`);
   const differing = [...new Set([...fromCsv.keys(), ...fromEvidence.keys()])].filter((key) => fromCsv.get(key) !== fromEvidence.get(key));
-  if (differing.length) problems.push(`${differing.length} case/output pair(s) differ between evidence.json and records.csv`);
+  if (differing.length) problems.push(`${differing.length} case/arm answer(s) differ between evidence.json and records.csv`);
   if (!allowLabels && labelled) problems.push(`evidence.json has ${labelled} label(s); agents never label`);
   return problems;
 }
@@ -342,14 +348,50 @@ export async function pollUntil(check: () => Promise<PollState>, timeoutMs: numb
   }
 }
 /** Run start: progress text appears once the app has started calls; a #run-reason means it refused to start. */
-export const RUN_IN_PROGRESS = "Calls are in progress.";
-export function runStartState(progress: string, runReason: string): PollState {
-  if (progress.trim()) return { done: "started" };
-  // src/backstage/main.ts runReason() says this while the run is starting or running.
-  if (runReason.trim() === RUN_IN_PROGRESS) return { done: "started" };
-  if (runReason.trim()) return { fail: `Run blocked: ${runReason.trim()}` };
-  return null;
+/**
+ * Run start is decided by the positive signal only: Backstage fills #progress once a run exists
+ * (src/backstage/main.ts, the progress render). #run-reason is never read to decide a start; on a timeout the
+ * driver reports it, classified by RUN_REASONS.
+ */
+export function runStartState(progress: string): PollState {
+  return progress.trim() ? { done: "started" } : null;
 }
+
+/**
+ * Every literal Backstage can show in #run-reason or #reveal-reason, classified for the driver's failure report.
+ * The contract test reads src/backstage/main.ts (runReason, revealReason) and src/backstage/run-gate.ts
+ * (runBlockers) and fails when Backstage returns a literal this table does not name.
+ */
+export const RUN_REASONS: Readonly<Record<string, "in-progress" | "blocked">> = {
+  "Calls are in progress.": "in-progress",
+  "This scene already ran. Retry unfinished calls, or edit as a new scene to run again.": "blocked",
+  "Wait for the case import to finish.": "blocked",
+  "Run your cases and open judging first.": "blocked",
+  "Results are revealed; labels are locked.": "blocked",
+  "Let the run stop, then open judging.": "in-progress",
+  "Open judging above first.": "blocked",
+  "Add at least one case.": "blocked",
+};
+
+/** One line for a run that never showed progress: the reason text and how the driver reads it. */
+export function describeRunReason(reason: string): string {
+  const text = reason.trim();
+  if (!text) return "no reason shown";
+  const known = Object.entries(RUN_REASONS).find(([literal]) => text.includes(literal));
+  return known ? `${known[1]}: ${text}` : `unclassified: ${text}`;
+}
+
+/**
+ * Backstage text and element ids the driver reads or clicks, each with the file that must contain it. The contract
+ * test asserts every entry is present in its source, so a rename in Backstage fails a unit test, not a paid live run.
+ */
+export const APP_CONTRACT: readonly { readonly text: string; readonly source: string }[] = [
+  { text: "No calls in progress.", source: "src/backstage/main.ts" },
+  { text: "selected case/model cells processed; ${current.pending} have no answer.", source: "src/backstage/main.ts" },
+  { text: "Imported ${loaded.cases.length} cases", source: "src/backstage/main.ts" },
+  ...["acceptance","blind-card","choice-a","choice-b","compare","confirm-judging-yes","confirm-reveal-yes","definition-a","definition-b","download-csv","download-evidence","import-cases","include-rule","keywords","llm-player","next","notice","progress","question","reveal","reveal-reason","rule-fields","run-all","run-preview","run-reason","verdict","jev-key"].map((id) => ({ text: `id="${id}"`, source: "site/backstage/index.html" })),
+];
+
 /** Run end: every selected case/model cell processed with an answer, and no call still in flight. */
 export function runCompleteState(preview: string, progress: string, cells: number): PollState {
   const all = new RegExp(`(^|\\D)${cells} of ${cells} selected case/model cells processed; 0 have no answer`).test(preview);

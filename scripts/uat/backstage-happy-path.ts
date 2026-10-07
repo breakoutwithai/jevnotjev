@@ -9,12 +9,12 @@ import { chromium, type Page } from "playwright-core";
 import { loadExample } from "../uc13/arms.ts";
 import { MODEL_CATALOG } from "../../src/backstage/catalog.ts";
 import { validate } from "../../src/format/validate.ts";
-import { buildReport, casesCsv, checkEvidence, checkRecords, envValue, fitKeywords, pinError, pollUntil, readOpeningNight, redact, reportDirName, resolveChromium, ruleKeywords, runCompleteState, runStartState, scanForSecrets, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
+import { buildReport, casesCsv, checkEvidence, checkRecords, envValue, fitKeywords, pinError, pollUntil, readOpeningNight, redact, reportDirName, resolveChromium, ruleKeywords, runCompleteState, runStartState, describeRunReason, scanForSecrets, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
 
 const usage = "Usage: bun scripts/uat/backstage-happy-path.ts --out <dir> [--base <url>] [--clone-sha <sha>] [--example <dir>] [--key-env <file>] [--jev-key-name <NAME>] [--llm-key-name <NAME>] [--llm-model <id>] [--chromium <path>] [--pause-for-labels] [--headed] [--dry-run]\nChromium: --chromium, else UAT_CHROMIUM_PATH, else Playwright's cache (bunx playwright-core install chromium).";
 interface Options { base: string; out: string; cloneSha: string | null; example: string; keyEnv: string | null; jevKeyName: string; llmKeyName: string; llmModel: string; chromium: string | null; pause: boolean; headed: boolean; dryRun: boolean }
 function parseArgs(args: readonly string[]): Options | null {
-  const options: Options = { base: "http://localhost:3456", out: "", cloneSha: null, example: "examples/uc13-shop-bot", keyEnv: null, jevKeyName: "JEV_API_KEY", llmKeyName: "ANTHROPIC_API_KEY", llmModel: "claude-haiku-4-5-20251001", chromium: null, pause: false, headed: false, dryRun: false };
+  const options: Options = { base: "http://localhost:3456", out: "", cloneSha: null, example: "examples/uc13-shop-bot", keyEnv: null, jevKeyName: "JEV_API_KEY", llmKeyName: "OPENAI_API_KEY", llmModel: "gpt-6-luna", chromium: null, pause: false, headed: false, dryRun: false };
   for (let i = 0; i < args.length; i++) {
     const flag = args[i];
     if (flag === "--help") return null;
@@ -181,14 +181,15 @@ async function main(): Promise<number> {
       await record("Learning Lines", "run all", async () => {
         // A blocked run only writes its reason to #run-reason and #notice; surface it instead of waiting out the timeout.
         const reason = (await p.locator("#run-reason").innerText()).trim();
-        if (reason) throw new Error(`Run blocked: ${reason}`);
+        if (reason) throw new Error(`Run not startable: ${describeRunReason(reason)}`);
         await p.locator("#run-all").click();
-        // The app awaits its health check before showing progress, so wait for a started or refused state, bounded.
+        // Started means #progress shows the run (the app awaits its health check first). #run-reason is only reported.
         try {
-          await pollUntil(async () => runStartState(await p.locator("#progress").innerText(), await p.locator("#run-reason").innerText()), 60000, 500, sleep);
+          await pollUntil(async () => runStartState(await p.locator("#progress").innerText()), 60000, 500, sleep);
         } catch (error) {
+          const why = describeRunReason(await p.locator("#run-reason").innerText());
           const notice = (await p.locator("#notice").innerText()).trim();
-          throw new Error(`Run did not start: ${clean(error)}${notice ? `; notice: ${notice}` : ""}`);
+          throw new Error(`Run did not start: ${clean(error)}; run reason ${why}${notice ? `; notice: ${notice}` : ""}`);
         }
         runStarted = true;
       });

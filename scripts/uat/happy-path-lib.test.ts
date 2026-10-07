@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,7 +10,7 @@ import { readDictRows } from "../../src/format/csv.ts";
 import { validate } from "../../src/format/validate.ts";
 import { CRITERIA, formatRecords, loadExample, record, type RecordRow } from "../uc13/arms.ts";
 import { fileSeed } from "../../src/core/calc.ts";
-import { REASON_PATTERNS, CONDITION_VERDICTS, buildReport, casesCsv, checkEvidence, checkRecords, envValue, expectedVerdict, fitKeywords, pinError, pollUntil, readOpeningNight, redact, reportDirName, resolveChromium, ruleKeywords, runCompleteState, runStartState, scanForSecrets, seedOf, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
+import { REASON_PATTERNS, CONDITION_VERDICTS, buildReport, casesCsv, checkEvidence, checkRecords, envValue, expectedVerdict, fitKeywords, pinError, pollUntil, readOpeningNight, redact, reportDirName, resolveChromium, ruleKeywords, runCompleteState, runStartState, describeRunReason, RUN_REASONS, APP_CONTRACT, scanForSecrets, seedOf, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
 const example = await loadExample(EXAMPLE);
@@ -29,7 +30,7 @@ const pairedText = `claude-haiku-4-5-20251001 — ${pairedVerdict.verdict}\nPer-
 function withRows(source: readonly RecordRow[]): string { return formatRecords(source); }
 const caseInputs: ReadonlyMap<string, string> = new Map(example.cases.map((c) => [c.case_id, c.case_input]));
 const armModels: Readonly<Record<Arm, string>> = { jev: "jev.v1", llm: "llm.v1", rule: "rule.v1" };
-const evidence = JSON.stringify({ version: "backstage/2", manifest: { runId: rows[0]?.run_id ?? "" }, attempts: [], labels: rows.map((r) => ({ caseId: r.case_id, armId: r.answerer, output: r.output, label: null })) });
+const evidence = JSON.stringify({ version: "backstage/2", manifest: { runId: rows[0]?.run_id ?? "" }, attempts: [], labels: rows.map((r) => ({ caseId: r.case_id, armId: r.answerer === "llm" ? r.answerer_model : r.answerer, output: r.output, label: null })) });
 function report(overrides: Partial<ReportInput> = {}): ReportInput {
   return { base: "origin/main", version: "uat", cloneSha: "abc123", csv, caseIds, caseInputs, armModels, evidence, verdictText: pairedText, steps: [{ room: "Opening Night", step: "reveal", pass: true, detail: "shown", shot: "opening.png" }], secretHits: [], ...overrides };
 }
@@ -307,7 +308,7 @@ const HEAD = (verdictName: string): string => `x ${EM} ${verdictName}\nPer-pair,
 function evidenceFor(source: readonly RecordRow[], overrides: Readonly<Record<string, unknown>> = {}): string {
   return JSON.stringify({
     version: "backstage/2", manifest: { runId: source[0]?.run_id ?? "run" }, attempts: [],
-    labels: source.map((r) => ({ caseId: r.case_id, armId: r.answerer, output: r.output, label: null })), ...overrides,
+    labels: source.map((r) => ({ caseId: r.case_id, armId: r.answerer === "llm" ? r.answerer_model : r.answerer, output: r.output, label: null })), ...overrides,
   });
 }
 describe("#143 review findings", () => {
@@ -356,8 +357,24 @@ describe("#143 review findings", () => {
     for (const bad of ["", "not json", "{}", "[]", evidenceFor(rows.slice(1)), evidenceFor(rows, { manifest: { runId: "other-run" } }), evidenceFor(flipped)]) {
       expect(checkEvidence(bad, csv, false).length).toBeGreaterThan(0);
     }
-    const labelled = rows.map((r) => ({ caseId: r.case_id, armId: r.answerer, output: r.output, label: "accept" }));
+    const labelled = rows.map((r) => ({ caseId: r.case_id, armId: r.answerer === "llm" ? r.answerer_model : r.answerer, output: r.output, label: "accept" }));
     expect(checkEvidence(evidenceFor(rows, { labels: labelled }), csv, false).some((p) => /label/.test(p))).toBe(true);
+  });
+
+  test("[unit] #143 evidence reconciles by case and arm: swapped outputs, duplicated arms and final labels fail", () => {
+    const arm = (r: (typeof rows)[number]): string => (r.answerer === "llm" ? r.answerer_model : r.answerer);
+    const base = rows.map((r) => ({ caseId: r.case_id, armId: arm(r), output: r.output, label: null, labelFinal: null }));
+    expect(checkEvidence(evidenceFor(rows, { labels: base }), csv, false)).toEqual([]);
+    const jev = base.findIndex((e) => e.armId === "jev");
+    const llm = base.findIndex((e, i) => i !== jev && e.caseId === base[jev]?.caseId && e.armId !== "jev" && e.armId !== "rule" && e.output !== base[jev]?.output);
+    if (jev >= 0 && llm >= 0) {
+      const swapped = base.map((e, i) => (i === jev ? { ...e, output: base[llm]?.output ?? "" } : i === llm ? { ...e, output: base[jev]?.output ?? "" } : e));
+      expect(checkEvidence(evidenceFor(rows, { labels: swapped }), csv, false).some((p) => /differ/.test(p))).toBe(true);
+    }
+    const allJev = base.map((e) => ({ ...e, armId: "jev" }));
+    expect(checkEvidence(evidenceFor(rows, { labels: allJev }), csv, false).some((p) => /repeats case\/arm/.test(p))).toBe(true);
+    const finals = base.map((e) => ({ ...e, labelFinal: "accept" }));
+    expect(checkEvidence(evidenceFor(rows, { labels: finals }), csv, false).some((p) => /agents never label/.test(p))).toBe(true);
     expect(buildReport(report({ evidence: "{}" })).ok).toBe(false);
   });
   test("[unit] #143 F10 the run-start wait polls until started, stops on a block reason and times out", async () => {
@@ -365,13 +382,12 @@ describe("#143 review findings", () => {
     const sleep = async (ms: number): Promise<void> => { clock += ms; };
     const progress = ["", "", "2 calls in progress"];
     let i = 0;
-    expect(await pollUntil(async () => runStartState(progress[Math.min(i++, 2)] ?? "", ""), 60000, 500, sleep, () => clock)).toBe("started");
+    expect(await pollUntil(async () => runStartState(progress[Math.min(i++, 2)] ?? ""), 60000, 500, sleep, () => clock)).toBe("started");
     expect(clock).toBe(1000);
-    await expect(pollUntil(async () => runStartState("", "Add a key"), 60000, 500, sleep, () => clock)).rejects.toThrow("Run blocked: Add a key");
-    // src/backstage/main.ts runReason() reads "Calls are in progress." while the run is starting or running: that is a start, not a block.
-    expect(runStartState("", "Calls are in progress.")).toEqual({ done: "started" });
+    expect(describeRunReason("Calls are in progress.")).toBe("in-progress: Calls are in progress.");
+    expect(describeRunReason("Something new")).toBe("unclassified: Something new");
     clock = 0;
-    await expect(pollUntil(async () => runStartState("", ""), 3000, 500, sleep, () => clock)).rejects.toThrow("timed out");
+    await expect(pollUntil(async () => runStartState(""), 3000, 500, sleep, () => clock)).rejects.toThrow("timed out");
     expect(runCompleteState("80 of 80 selected case/model cells processed; 0 have no answer", "No calls in progress", 80)).toEqual({ done: "complete" });
     expect(runCompleteState("79 of 80 selected case/model cells processed; 0 have no answer", "No calls in progress", 80)).toBeNull();
     expect(runCompleteState("80 of 80 selected case/model cells processed; 0 have no answer", "1 call in progress", 80)).toBeNull();
@@ -402,5 +418,34 @@ describe("#143 review findings", () => {
     expect(fitKeywords(["a", "b", "bb"], 1)).toEqual({ kept: ["a"], redundant: [], dropped: ["b", "bb"] });
     expect(fitKeywords(["a", "b", "bb"], 2)).toEqual({ kept: ["a", "b"], redundant: ["bb"], dropped: [] });
     expect(fitKeywords(["x", "x"], 5)).toEqual({ kept: ["x"], redundant: ["x"], dropped: [] });
+  });
+});
+
+describe("#143 driver contract with Backstage", () => {
+  const root = join(import.meta.dir, "..", "..");
+  const read = (rel: string): string => readFileSync(join(root, rel), "utf8");
+  const literalsIn = (source: string, fn: string): string[] => {
+    const start = source.indexOf(`function ${fn}(`);
+    if (start < 0) throw new Error(`${fn} not found`);
+    const body = source.slice(start, source.indexOf("\n}", start));
+    return [...body.matchAll(/(?:return|push\()\s*"([^"]+)"/g)].map((m) => m[1] ?? "");
+  };
+
+  test("[unit] #143 every run and reveal reason Backstage can show is classified by the driver", () => {
+    const main = read("src/backstage/main.ts");
+    const gate = read("src/backstage/run-gate.ts");
+    const found = [...literalsIn(main, "runReason"), ...literalsIn(main, "revealReason"), ...literalsIn(gate, "runBlockers")];
+    expect(found.length).toBeGreaterThan(5);
+    expect(found.filter((text) => !(text in RUN_REASONS))).toEqual([]);
+  });
+
+  test("[unit] #143 every app string and element id the driver depends on is present in its source", () => {
+    expect(APP_CONTRACT.length).toBeGreaterThan(20);
+    expect(APP_CONTRACT.filter(({ text, source }) => !read(source).includes(text)).map(({ text }) => text)).toEqual([]);
+  });
+
+  test("[unit] #143 the run start ignores #run-reason: progress text starts it, an empty progress does not", () => {
+    expect(runStartState("Calls in progress...")).toEqual({ done: "started" });
+    expect(runStartState("")).toBeNull();
   });
 });

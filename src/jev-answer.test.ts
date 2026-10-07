@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { checkJevResponse, JEV_PIN, JEV_REASONS, type JevCheck, type JevReason } from "./jev-answer.ts";
+import {
+  checkJevAnswers, checkJevResponse, JEV_ANSWER_REASONS, JEV_PIN, JEV_REASONS, specsFromRequest,
+  type JevAnswerReason, type JevAnswersCheck, type JevCheck, type JevSpec,
+} from "./jev-answer.ts";
 
 const Q: Record<string, readonly string[]> = { q1: ["answer", "hand_off"] };
 const good = {
@@ -9,7 +12,7 @@ const good = {
   answers: { q1: { choice: "hand_off", confidence: 0.91, probabilities: { answer: 0.09, hand_off: 0.91 } } },
 };
 
-function failure(check: JevCheck): { questionId: string | null; reason: JevReason } {
+function failure(check: JevCheck | JevAnswersCheck): { questionId: string | null; reason: JevAnswerReason } {
   if (check.ok) throw new Error("expected a failure");
   return { questionId: check.questionId, reason: check.reason };
 }
@@ -100,20 +103,38 @@ describe("shared vectors", () => {
     return typeof v === "object" && v !== null && !Array.isArray(v);
   }
 
+  function parseQuestions(name: string, questions: unknown): Record<string, string[]> {
+    if (!isRecord(questions)) throw new Error(`${name}: bad questions`);
+    const out: Record<string, string[]> = {};
+    for (const [id, opts] of Object.entries(questions)) {
+      if (!Array.isArray(opts) || !opts.every((o): o is string => typeof o === "string")) throw new Error(`${name}: bad options`);
+      out[id] = opts;
+    }
+    return out;
+  }
+
+  function parseSpecs(name: string, specs: Record<string, unknown>): Record<string, JevSpec> {
+    const out: Record<string, JevSpec> = {};
+    for (const [id, spec] of Object.entries(specs)) {
+      if (!isRecord(spec)) throw new Error(`${name}: bad spec`);
+      if (spec.type === "noul") out[id] = { type: "noul" };
+      else if (spec.type === "score" && typeof spec.levels === "number") out[id] = { type: "score", levels: spec.levels };
+      else if (spec.type === "choice" && Array.isArray(spec.options) && spec.options.every((o): o is string => typeof o === "string")) {
+        out[id] = { type: "choice", options: spec.options };
+      } else throw new Error(`${name}: bad spec`);
+    }
+    return out;
+  }
+
   test("[unit] JA-4 every vector in jev-answer.vectors.json gives its expected outcome", () => {
     if (!Array.isArray(raw)) throw new Error("vectors must be an array");
     expect(raw.length).toBeGreaterThanOrEqual(JEV_REASONS.length);
     const seen = new Set<string>();
     for (const v of raw) {
-      if (!isRecord(v) || typeof v.name !== "string" || !isRecord(v.questions) || !isRecord(v.expect)) {
+      if (!isRecord(v) || typeof v.name !== "string" || !isRecord(v.expect) || !(isRecord(v.questions) || isRecord(v.specs))) {
         throw new Error("malformed vector");
       }
-      const questions: Record<string, string[]> = {};
-      for (const [id, opts] of Object.entries(v.questions)) {
-        if (!Array.isArray(opts) || !opts.every((o): o is string => typeof o === "string")) throw new Error(`${v.name}: bad options`);
-        questions[id] = opts;
-      }
-      const check = checkJevResponse(v.response, questions);
+      const check = isRecord(v.specs) ? checkJevAnswers(v.response, parseSpecs(v.name, v.specs)) : checkJevResponse(v.response, parseQuestions(v.name, v.questions));
       if (v.expect.ok === true) {
         expect(check.ok, v.name).toBe(true);
       } else {
@@ -127,7 +148,7 @@ describe("shared vectors", () => {
         seen.add(reason);
       }
     }
-    expect([...seen].sort()).toEqual([...JEV_REASONS].sort());
+    expect([...seen].sort()).toEqual([...JEV_ANSWER_REASONS].sort());
   });
 });
 
@@ -136,4 +157,115 @@ test("[unit] JA-1 prototype-named choices retain probabilities", () => {
   const checked = checkJevResponse({model:JEV_PIN,answers:{q1:{choice:"__proto__",probabilities}}}, {q1:["__proto__","other"]});
   expect(checked.ok).toBe(true);
   if(checked.ok)expect(checked.answers.q1?.probabilities).toEqual(probabilities);
+});
+
+const noulLive = { model: JEV_PIN, answers: { is_urgent: { type: "noul", noul: 0.95 } } };
+const scoreLive = {
+  model: JEV_PIN,
+  answers: {
+    frustration: {
+      type: "score", score: 1.04, confidence: 0.94,
+      legend: { "0": "Calm", "1": "Frustrated", "2": "Very angry" },
+      probabilities: { "0": 0.0, "1": 0.96, "2": 0.04 },
+    },
+  },
+};
+
+describe("checkJevAnswers", () => {
+  test("[unit] JA-5 a live noul answer comes back typed with its value", () => {
+    const check = checkJevAnswers(noulLive, { is_urgent: { type: "noul" } });
+    expect(check.ok && check.answers.is_urgent).toEqual({ type: "noul", noul: 0.95 });
+  });
+
+  test("[unit] JA-5 a live score answer comes back typed with score, legend and probabilities", () => {
+    const check = checkJevAnswers(scoreLive, { frustration: { type: "score", levels: 3 } });
+    expect(check.ok && check.answers.frustration).toEqual({
+      type: "score", score: 1.04, confidence: 0.94,
+      legend: { "0": "Calm", "1": "Frustrated", "2": "Very angry" },
+      probabilities: { "0": 0.0, "1": 0.96, "2": 0.04 },
+    });
+  });
+
+  test("[unit] JA-5 a score answer without confidence, legend or probabilities passes with nulls", () => {
+    const check = checkJevAnswers({ model: JEV_PIN, answers: { s: { score: 0 } } }, { s: { type: "score", levels: 2 } });
+    expect(check.ok && check.answers.s).toEqual({ type: "score", score: 0, confidence: null, legend: null, probabilities: null });
+  });
+
+  test("[unit] JA-5 a choice answer through checkJevAnswers carries type choice", () => {
+    const check = checkJevAnswers(good, { q1: { type: "choice", options: ["answer", "hand_off"] } });
+    expect(check.ok && check.answers.q1).toEqual({ type: "choice", choice: "hand_off", confidence: 0.91, probabilities: { answer: 0.09, hand_off: 0.91 } });
+  });
+
+  test("[unit] JA-5 a type that disagrees with the spec is refused with reason type", () => {
+    expect(failure(checkJevAnswers(noulLive, { is_urgent: { type: "score", levels: 3 } }))).toEqual({ questionId: "is_urgent", reason: "type" });
+  });
+
+  test("[unit] JA-5 JEV_REASONS is exactly the original nine and JEV_ANSWER_REASONS extends it", () => {
+    expect([...JEV_REASONS]).toEqual([
+      "not-object", "model", "missing-answer", "choice", "confidence-range", "keys", "prob-range", "mass", "argmax",
+    ]);
+    expect([...JEV_ANSWER_REASONS]).toEqual([...JEV_REASONS, "type", "noul-range", "score-range", "legend"]);
+  });
+
+  test("[unit] JA-5 a choice answer carrying type noul: checkJevResponse ignores type, checkJevAnswers refuses it", () => {
+    const r = { model: JEV_PIN, answers: { q1: { type: "noul", choice: "answer" } } };
+    expect(checkJevResponse(r, Q).ok).toBe(true);
+    expect(failure(checkJevAnswers(r, { q1: { type: "choice", options: ["answer", "hand_off"] } }))).toEqual({ questionId: "q1", reason: "type" });
+  });
+
+  test("[unit] JA-5 checkJevResponse still returns the untyped choice shape", () => {
+    const withType = { model: JEV_PIN, answers: { q1: { type: "choice", choice: "answer" } } };
+    const check = checkJevResponse(withType, Q);
+    expect(check.ok && check.answers.q1).toEqual({ choice: "answer", confidence: null, probabilities: null });
+  });
+});
+
+describe("specsFromRequest", () => {
+  const mixed = {
+    state: "Help! My payouts have been failing for 3 days.",
+    model: JEV_PIN,
+    questions: {
+      department: { type: "choice", instructions: "Which team?", criteria: { billing: "Payments", technical: null } },
+      is_urgent: { type: "noul", instructions: "Does this convey urgency?" },
+      frustration: { type: "score", instructions: "How frustrated?", criteria: ["Calm", "Frustrated", "Very angry"] },
+    },
+  };
+
+  test("[unit] JA-6 a mixed three-question body gives one spec per type", () => {
+    const r = specsFromRequest(mixed);
+    expect(r.ok && r.specs).toEqual({
+      department: { type: "choice", options: ["billing", "technical"] },
+      is_urgent: { type: "noul" },
+      frustration: { type: "score", levels: 3 },
+    });
+  });
+
+  test("[unit] JA-6 the specs from a request validate the live responses that answer it", () => {
+    const r = specsFromRequest(mixed);
+    if (!r.ok) throw new Error("expected specs");
+    const response = {
+      model: JEV_PIN,
+      answers: { department: { type: "choice", choice: "billing" }, ...noulLive.answers, ...scoreLive.answers },
+    };
+    expect(checkJevAnswers(response, r.specs).ok).toBe(true);
+  });
+
+  test("[unit] JA-6 a noul question needs no criteria and a question with no type is a choice", () => {
+    const r = specsFromRequest({ questions: { a: { type: "noul" }, b: { criteria: { x: "", y: "" } } } });
+    expect(r.ok && r.specs).toEqual({ a: { type: "noul" }, b: { type: "choice", options: ["x", "y"] } });
+  });
+
+  test("[unit] JA-6 malformed bodies return a typed error", () => {
+    const err = (b: unknown) => { const r = specsFromRequest(b); return r.ok ? null : { questionId: r.questionId, reason: r.reason }; };
+    expect(err("x")).toEqual({ questionId: null, reason: "not-object" });
+    expect(err({})).toEqual({ questionId: null, reason: "no-questions" });
+    expect(err({ questions: {} })).toEqual({ questionId: null, reason: "no-questions" });
+    expect(err({ questions: { q: 3 } })).toEqual({ questionId: "q", reason: "question" });
+    expect(err({ questions: { q: { type: "rank" } } })).toEqual({ questionId: "q", reason: "type" });
+    expect(err({ questions: { q: { type: "choice" } } })).toEqual({ questionId: "q", reason: "criteria" });
+    expect(err({ questions: { q: { type: "choice", criteria: {} } } })).toEqual({ questionId: "q", reason: "criteria" });
+    expect(err({ questions: { q: { type: "score", criteria: ["only"] } } })).toEqual({ questionId: "q", reason: "criteria" });
+    expect(err({ questions: { q: { type: "score", criteria: { 0: "a", 1: "b" } } } })).toEqual({ questionId: "q", reason: "criteria" });
+    expect(err({ questions: { q: { type: "score", criteria: Array.from({ length: 11 }, String) } } })).toEqual({ questionId: "q", reason: "criteria" });
+  });
 });

@@ -53,7 +53,7 @@ async function main(): Promise<number> {
   if (!options) { console.error(clean(usage)); return 2; }
   // The key field is per provider (src/backstage/main.ts builds `${provider}-key`), so the model picks it.
   const llmEntry = MODEL_CATALOG.find((entry) => entry.modelId === options.llmModel && entry.provider !== "jev");
-  if (!llmEntry) { console.error(clean(`--llm-model ${options.llmModel} is not a catalog LLM model`)); return 2; }
+  if (!llmEntry) { console.error("--llm-model is not a catalog LLM model id; see src/backstage/catalog.ts"); return 2; }
   const llmProvider = llmEntry.provider;
   if (!options.dryRun) {
     let env = "";

@@ -32,7 +32,7 @@
     "scripts/tokenmax/run.test.ts": 6,
     "scripts/uat-controllers.test.ts": 12,
     "scripts/uat/fresh-clone.test.ts": 9,
-    "scripts/uat/happy-path-lib.test.ts": 43,
+    "scripts/uat/happy-path-lib.test.ts": 44,
     "scripts/uc13/arms.test.ts": 24,
     "scripts/uc13/calls.test.ts": 8,
     "scripts/uc13/label-page.dom.test.ts": 9,

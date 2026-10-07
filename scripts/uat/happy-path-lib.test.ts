@@ -200,11 +200,37 @@ describe("#134 report", () => {
   });
 });
 
-test("[unit] #134 driver never clicks agent labels", async () => {
+// Allowlist, not denylist: a denylist of pick selectors was evaded by "#pick-actions button" in review.
+// Every selector the driver resolves and every page-level method it calls must be listed here, so a new
+// interaction cannot reach a judging control without this test being edited in the same diff.
+const DRIVER_SELECTORS: readonly string[] = [
+  '"#blind-card"', '"#compare"', '"#confirm-judging-yes"', '"#confirm-reveal-yes"', '"#import-cases"', '"#include-rule"',
+  '"#keywords"', '"#llm-player"', '"#next"', '"#notice"', '"#progress"', '"#question"', '"#reveal"', '"#reveal-reason"',
+  '"#rule-fields"', '"#run-all"', '"#run-preview"', '"#run-reason"', '"#verdict h3"', '"#verdict"', "'#jev-key[type=\"password\"]'",
+  "'#rooms button[data-room=\"4\"]'", "'#rooms button[data-room=\"5\"]'", "`#${id}`", "`#${llmProvider}-key[type=\"password\"]`",
+  "`#model-options [id=\"arm-${options.llmModel}\"]`", "`#${id}`",
+];
+const DRIVER_ROLE_AND_TEXT: readonly string[] = ['getByRole("button", { name: /Open .*judging/ })', 'getByText("Imported 40 cases", { exact: false })'];
+const PAGE_METHODS = new Set(["goto", "locator", "getByRole", "getByText", "waitForTimeout", "waitForFunction", "waitForEvent", "screenshot", "setDefaultTimeout"]);
+
+test("[unit] #134 driver interacts only through allowlisted selectors (agents never label)", async () => {
   const source = await Bun.file(new URL("./backstage-happy-path.ts", import.meta.url)).text();
-  for (const forbidden of ["pick-first", "pick-second", "#accept", "#reject", "label-"]) expect(source).not.toContain(forbidden);
-  expect(source).not.toMatch(/(?:getByRole|locator)\([\s\S]{0,160}?(?:hand_off|answer)[\s\S]{0,160}?\)\.click\(/i);
-  expect(source).not.toMatch(/getByRole\(\s*["']button["'][\s\S]{0,160}?(?:accept|reject|hand_off|answer)[\s\S]{0,160}?\.click\(/i);
+  const selectors = [...source.matchAll(/\.locator\(((?:"[^"]*"|'[^']*'|`[^`]*`))\)/g)].map((m) => m[1] ?? "");
+  for (const selector of selectors) expect(DRIVER_SELECTORS).toContain(selector);
+  const roleAndText = [...source.matchAll(/getBy(?:Role|Text|Label|Placeholder|AltText|Title|TestId)\([^)]*\)/g)].map((m) => m[0]);
+  for (const call of roleAndText) expect(DRIVER_ROLE_AND_TEXT).toContain(call);
+  const pageCalls = [...source.matchAll(/\b(?:p|page)\.(\w+)\(/g)].map((m) => m[1] ?? "");
+  for (const method of pageCalls) expect(PAGE_METHODS.has(method)).toBe(true);
+  // No input or script path that bypasses a locator.
+  expect(source).not.toMatch(/\.(?:mouse|keyboard|touchscreen)\b|dispatchEvent|evaluate|addScriptTag|exposeFunction|\.route\(|\.first\(|\.last\(|\.nth\(|\.filter\(/);
+  expect(source.match(/waitForFunction\(/g)).toHaveLength(1);
+});
+
+test("[unit] #134 the allowlist guard fails on a pick click", () => {
+  const mutated = 'await p.locator("#pick-actions button").click();';
+  const selectors = [...mutated.matchAll(/\.locator\(((?:"[^"]*"|'[^']*'|`[^`]*`))\)/g)].map((m) => m[1] ?? "");
+  expect(selectors).toEqual(['"#pick-actions button"']);
+  expect(DRIVER_SELECTORS).not.toContain(selectors[0]);
 });
 
 describe("#134 UC13 inputs", () => {

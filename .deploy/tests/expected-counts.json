@@ -1,5 +1,5 @@
 {
-  "minFiles": 82,
+  "minFiles": 84,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -46,7 +46,7 @@
     "src/backstage/copy.test.ts": 2,
     "src/backstage/demo-notice.test.ts": 7,
     "src/backstage/log.test.ts": 9,
-    "src/backstage/main.dom.test.ts": 39,
+    "src/backstage/main.dom.test.ts": 42,
     "src/backstage/page-catchup.test.ts": 5,
     "src/backstage/page-ux.test.ts": 10,
     "src/backstage/page.test.ts": 7,
@@ -79,6 +79,8 @@
     "src/format/validate.test.ts": 60,
     "src/jev-answer.test.ts": 28,
     "src/labels/calibration.test.ts": 8,
+    "src/labels/pack-link.test.ts": 5,
+    "src/labels/persona-packs.test.ts": 6,
     "src/labels/rank.test.ts": 9,
     "src/labels/starter-packs.test.ts": 8,
     "src/labels/suggest.test.ts": 10,

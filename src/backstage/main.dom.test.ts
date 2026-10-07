@@ -124,13 +124,13 @@ class FakeStorage {
   setItem(key: string, value: string) { this.items.set(key, value); }
   removeItem(key: string) { this.items.delete(key); }
 }
-async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage(), answer?: (request: AnswerRequest) => Promise<unknown>) {
+async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage(), answer?: (request: AnswerRequest) => Promise<unknown>, search = "") {
   const document = documentFromMarkup(await Bun.file("site/backstage/index.html").text());
   const urls: string[] = [];
   const requests: Array<{ input: string; init: RequestInit | undefined }> = [];
   const replacements: string[] = [];
   const historyCalls: unknown[][] = [];
-  const location = { search: "", pathname: "/backstage/", origin: "https://example.test", replace: (url: string) => replacements.push(url) };
+  const location = { search, pathname: "/backstage/", origin: "https://example.test", replace: (url: string) => replacements.push(url) };
   const window = new EventTarget();
   Object.assign(window, { location });
   Object.assign(globalThis, {
@@ -971,4 +971,36 @@ test("[integration] M3 a CSV label column reaches the export: imported labels st
     created.mockRestore();
     revoked.mockRestore();
   }
+});
+
+test("[integration] PL6 ?pack=p5 loads that pack on arrival, with 30 cases and no model call, and leaves the address clean", async () => {
+  const page = await mount(undefined, undefined, undefined, undefined, "?pack=p5");
+  expect(page.get("question").value).toBe("Was that video worth the watch?");
+  expect(page.get("choice-a").value).toBe("keep_watching");
+  expect(page.get("choice-b").value).toBe("quiz_time");
+  expect(page.get("cases").value.split("\n").length).toBe(30);
+  expect(page.get("notice").textContent).toContain("Loaded P5");
+  expect(page.get("notice").textContent).toContain("30 cases");
+  expect(page.requests.some((request) => request.input === "/api/backstage/answer")).toBe(false);
+  expect(page.historyCalls.length).toBe(1);
+  expect(String(page.historyCalls[0]?.[2])).toBe("/backstage/");
+});
+
+test("[integration] PL7 an unknown pack id, or none, shows the normal page: empty scene, no notice", async () => {
+  for (const search of ["?pack=p9", "", "?pack="]) {
+    const page = await mount(undefined, undefined, undefined, undefined, search);
+    expect(page.get("question").value).toBe("");
+    expect(page.get("cases").value).toBe("");
+    expect(page.get("notice").textContent).not.toContain("Loaded");
+  }
+});
+
+test("[integration] PL8 every pack has a button, and the P6 button loads its scene with 30 cases and no label summary", async () => {
+  const page = await mount();
+  for (const id of ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"]) expect(page.document.getElementById(`starter-${id}`)).not.toBeNull();
+  page.get("starter-p6").click();
+  expect(page.get("question").value).toBe("Is this find worth a morning headline?");
+  expect(page.get("cases").value.split("\n").length).toBe(30);
+  expect(page.get("notice").textContent).toContain("30 cases");
+  expect(page.get("notice").textContent).not.toContain("Labels on");
 });

@@ -7,12 +7,16 @@
  * - P2 to P4 were written and labelled by an agent (labelled_by is its model id) and no person has reviewed them, so
  *   their labels are agent: exported as agent and never counted as truth until a person picks the cases in the UI.
  *
+ * - P5 to P8 are persona packs of 30 cases each with NO labels: the tester labels them blind. Their CSV leaves
+ *   label, label_source, labelled_by and labelled_at empty, so the import records no label for them.
+ *
  * Every case is invented. A pack loads through the same CSV import as a tester's own file (starterPackCsv).
  */
 import { formatRows } from "../format/csv.ts";
 import type { Scene } from "../backstage/contracts.ts";
 import type { TruthSource } from "./calibration.ts";
 import { UC13_CHOICES, UC13_FACT_SHEET, UC13_QUESTION } from "./calibration-set.ts";
+import { P5_CASES, P6_CASES, P7_CASES, P8_CASES, type PersonaCase } from "./persona-pack-cases.ts";
 
 export interface StarterCase {
   readonly id: string;
@@ -24,8 +28,20 @@ export interface StarterCase {
   readonly labelledAt: string;
 }
 
+/** A case with no label: the tester labels it blind in Rehearsals. It has no label, source or provenance fields. */
+export interface UnlabelledCase {
+  readonly id: string;
+  readonly input: string;
+}
+
+export type PackCase = StarterCase | UnlabelledCase;
+
+export function isLabelled(c: PackCase): c is StarterCase {
+  return "label" in c;
+}
+
 export interface StarterPack {
-  readonly id: "p1" | "p2" | "p3" | "p4";
+  readonly id: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" | "p8";
   readonly title: string;
   /** Who the pack is for, without naming anyone. */
   readonly persona: string;
@@ -34,7 +50,7 @@ export interface StarterPack {
   readonly acceptance: string;
   readonly exclusions: string;
   readonly keywords: readonly string[];
-  readonly cases: readonly StarterCase[];
+  readonly cases: readonly PackCase[];
 }
 
 /** labelled_by for the packs an agent drafted: the model id that wrote them. */
@@ -184,13 +200,112 @@ const P4: StarterPack = {
   ],
 };
 
-export const STARTER_PACKS: readonly StarterPack[] = Object.freeze([P1, P2, P3, P4]);
+function unlabelled(cases: readonly PersonaCase[]): readonly UnlabelledCase[] {
+  return cases.map((c) => Object.freeze({ id: c.id, input: c.input }));
+}
+
+const P5: StarterPack = {
+  id: "p5",
+  title: "P5 Video check: keep watching or quiz",
+  persona: "A learner who wants to know, part-way through a video, whether to keep watching or be quizzed on it instead.",
+  question: "Was that video worth the watch?",
+  choices: [
+    {
+      name: "keep_watching",
+      definition:
+        "The part watched so far gave at least one concrete new fact, step or demonstration that matches the title, and it is not just repeating itself.",
+    },
+    {
+      name: "quiz_time",
+      definition:
+        "The part watched so far was padding: repeated intro, hype, a sponsor read, reaction with no commentary, or a promise the title makes that has not been delivered.",
+    },
+  ],
+  acceptance:
+    "Keep the call when I would make the same keep-watching-or-quiz decision reading the title and summary myself.",
+  exclusions: "",
+  keywords: [],
+  cases: unlabelled(P5_CASES),
+};
+
+const P6: StarterPack = {
+  id: "p6",
+  title: "P6 Morning headline: print it or spike it",
+  persona: "An editor of a morning digest deciding which overnight finds are worth a headline.",
+  question: "Is this find worth a morning headline?",
+  choices: [
+    {
+      name: "print_it",
+      definition:
+        "The find is from the last 3 days, is about the tracked project's topic, and gives a concrete hook a reply could address: a question, a complaint, or an announcement.",
+    },
+    {
+      name: "spike_it",
+      definition:
+        "The find is older than 7 days, off topic, an advert, a duplicate or spam, or has no hook a reply could address.",
+    },
+  ],
+  acceptance: "Keep the call when I would make the same print-or-spike decision reading the find and its source myself.",
+  exclusions: "",
+  keywords: [],
+  cases: unlabelled(P6_CASES),
+};
+
+const P7: StarterPack = {
+  id: "p7",
+  title: "P7 Rubric check: passes or another lesson",
+  persona: "A teacher's helper checking student answers against one rubric line each.",
+  question: "Does this answer meet the rubric?",
+  choices: [
+    {
+      name: "passes",
+      definition: "The answer contains every element the rubric line asks for and states nothing that contradicts the rubric.",
+    },
+    {
+      name: "another_lesson",
+      definition: "The answer leaves out at least one element the rubric line asks for, or states something that is wrong.",
+    },
+  ],
+  acceptance:
+    "Keep the call when I would make the same passes-or-another-lesson decision reading the rubric line and the answer myself.",
+  exclusions: "",
+  keywords: [],
+  cases: unlabelled(P7_CASES),
+};
+
+const P8: StarterPack = {
+  id: "p8",
+  title: "P8 Event host: seat them or step in",
+  persona: "A host of a live networking event deciding which chat messages a moderator needs to see.",
+  question: "Does this message need the head waiter?",
+  choices: [
+    {
+      name: "seat_them",
+      definition:
+        "The message is ordinary event chat: a greeting, a question, a compliment or a normal self-introduction, with no pressure, abuse or contact details.",
+    },
+    {
+      name: "step_in",
+      definition:
+        "A moderator should act: the message harasses or insults someone, pushes a sale or scam, shares private contact details, keeps contacting someone who asked it to stop, or signals distress.",
+    },
+  ],
+  acceptance:
+    "Keep the call when I would make the same seat-them-or-step-in decision reading the message and context myself.",
+  exclusions: "",
+  keywords: [],
+  cases: unlabelled(P8_CASES),
+};
+
+export const STARTER_PACKS: readonly StarterPack[] = Object.freeze([P1, P2, P3, P4, P5, P6, P7, P8]);
 
 /** The pack as a case CSV with the optional label columns: what a tester could upload to get the same scene. */
 export function starterPackCsv(pack: StarterPack): string {
   return formatRows([
     ["case_id", "case_input", "label", "label_source", "labelled_by", "labelled_at"],
-    ...pack.cases.map((c) => [c.id, c.input, c.label, c.source, c.labelledBy, c.labelledAt]),
+    ...pack.cases.map((c) =>
+      isLabelled(c) ? [c.id, c.input, c.label, c.source, c.labelledBy, c.labelledAt] : [c.id, c.input, "", "", "", ""],
+    ),
   ]);
 }
 

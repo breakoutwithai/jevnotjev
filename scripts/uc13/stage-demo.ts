@@ -50,6 +50,7 @@ export function buildSuggestions(rows: readonly RecordRow[], raw: unknown): Map<
       if (typeof v === "number") probabilities[option] = v;
     }
     const confidence = row.confidence === "" ? null : Number(row.confidence);
+    if (confidence !== null && !Number.isFinite(confidence)) throw new Error(`${id}: records.csv Jev confidence ${JSON.stringify(row.confidence)} is not a number`);
     const ranking = rankJevOptions(ANSWERS, {
       choice: row.output,
       confidence,

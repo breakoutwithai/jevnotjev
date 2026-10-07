@@ -886,8 +886,12 @@ test("[integration] JF6 trial executes only one Jev case without browser credent
   });
   expect(calls).toBe(1);
   expect(run.funded).toBe(true);
-  expect(run.evidence().funding).toBe("trial");
   await expect(run.retry(keys, success)).rejects.toThrow("cannot be retried");
+  // Evidence holds the answer, so it waits for judging to finish (labelling loop M2).
+  expect(() => run.evidence()).toThrow("Reveal");
+  run.beginLabeling();
+  run.reveal();
+  expect(run.evidence().funding).toBe("trial");
 });
 
 test("[integration] JF6 oversized or multi-arm funded trial is rejected before transport", async () => {
@@ -1123,7 +1127,7 @@ describe("blind-then-suggest picks", () => {
     const run = await jevAndRule();
     run.beginLabeling();
     run.pickBlind("c1", "no", BACKSTAGE_BLIND_PICK, AT);
-    run.pickFinal("c1", "yes", true);
+    run.pickFinal("c1", "yes");
     expect(loopCells(run, "c1")).toEqual([
       ["rule", "yes", "reject", "human", "true", "accept", "true"],
       ["jev", "yes", "reject", "human", "true", "accept", "true"],
@@ -1142,15 +1146,78 @@ describe("blind-then-suggest picks", () => {
     });
   });
 
-  test("[unit] M2 keeping the blind pick with no suggestion shown records final equal to blind, suggestion_shown false", async () => {
+  /** Jev fails on c2; the rule answers both cases. */
+  async function jevMissingOnC2(): Promise<BackstageRun> {
+    const run = new BackstageRun(scene(), "test", { arms: ["jev", "rule"] });
+    await run.start({ jev: keys.jev }, async (request) => {
+      if (request.caseId === "c2") throw new Error("network");
+      return { ...(await success(request)), probabilities: { yes: 0.7, no: 0.3 } };
+    });
+    return run;
+  }
+
+  test("[unit] M2 with no suggestion for the case, the final pick keeps the blind pick and records suggestion_shown false", async () => {
+    const run = await jevMissingOnC2();
+    run.beginLabeling();
+    run.pickBlind("c2", "no", BACKSTAGE_BLIND_PICK, AT);
+    expect(() => run.pickFinal("c2", "yes")).toThrow("keeps the blind pick");
+    run.pickFinal("c2", "no");
+    expect(loopCells(run, "c2")).toEqual([["rule", "no", "accept", "human", "true", "accept", "false"]]);
+  });
+
+  test("[unit] M2 suggestion_shown is the run's own fact: true once a recorded or called suggestion exists for the case", async () => {
     const run = await jevAndRule();
     run.beginLabeling();
     run.pickBlind("c2", "no", BACKSTAGE_BLIND_PICK, AT);
-    run.pickFinal("c2", "no", false);
-    expect(loopCells(run, "c2")).toEqual([
-      ["rule", "no", "accept", "human", "true", "accept", "false"],
-      ["jev", "no", "accept", "human", "true", "accept", "false"],
-    ]);
+    run.pickFinal("c2", "no");
+    expect(loopCells(run, "c2").map((cells) => cells[6])).toEqual(["true", "true"]);
+  });
+
+  test("[unit] M2 a case already labelled on its answer cannot then be picked blind", async () => {
+    const run = await jevAndRule();
+    run.beginLabeling();
+    const card = run.cards().find((c) => c.caseId === "c1");
+    if (!card) throw new Error("missing card");
+    run.label(card.id, "accept", BACKSTAGE_PICK);
+    expect(() => run.pickBlind("c1", "yes", BACKSTAGE_BLIND_PICK, AT)).toThrow("cannot follow it");
+    expect(() => run.pickBlind("c1", null, BACKSTAGE_BLIND_PICK, AT)).toThrow("cannot follow it");
+    expect(run.cards().find((c) => c.id === card.id)?.label).toBe("accept");
+  });
+
+  test("[unit] M2 a blind pick must be a person's blind call", async () => {
+    const run = await jevAndRule();
+    run.beginLabeling();
+    expect(() => run.pickBlind("c1", "yes", BACKSTAGE_PICK, AT)).toThrow("blind true");
+    expect(() => run.pickBlind("c1", "yes", { source: "agent", by: "claude-opus-5-5", blind: true }, AT)).toThrow("source human");
+    expect(run.pickCards().find((c) => c.caseId === "c1")?.picked).toBe(false);
+  });
+
+  test("[unit] M2 suggestion calls count in total and failed spend", async () => {
+    const run = await jevMissingOnC2();
+    run.beginLabeling();
+    run.pickBlind("c2", "no", BACKSTAGE_BLIND_PICK, AT);
+    const before = run.totalSpend();
+    await run.suggestion("c2", "labeller-key", async (request) => ({ ...(await success(request)), costUsd: 0.25, probabilities: { yes: 0.5, no: 0.5 } }));
+    expect(run.totalSpend().knownUsd).toBeCloseTo(before.knownUsd + 0.25);
+    const failing = await jevMissingOnC2();
+    failing.beginLabeling();
+    failing.pickBlind("c2", "no", BACKSTAGE_BLIND_PICK, AT);
+    const unknownBefore = failing.extraSpend().unknown;
+    await failing.suggestion("c2", "labeller-key", async () => {
+      throw new Error("network");
+    });
+    expect(failing.extraSpend().unknown).toBe(unknownBefore + 1);
+  });
+
+  test("[unit] M2 jev-only evidence waits for the reveal: it holds answers for cases not yet picked", async () => {
+    const run = new BackstageRun(scene(), "test", { arms: ["jev"] });
+    await run.start({ jev: keys.jev }, success);
+    expect(() => run.evidence()).toThrow("Reveal");
+    run.beginLabeling();
+    run.pickBlind("c1", "yes", BACKSTAGE_BLIND_PICK, AT);
+    expect(() => run.evidence()).toThrow("Reveal");
+    run.reveal();
+    expect(run.evidence().labels).toHaveLength(2);
   });
 
   test("[unit] M2 unsure records no label, opens the suggestion, and refuses a final pick", async () => {
@@ -1158,7 +1225,7 @@ describe("blind-then-suggest picks", () => {
     run.beginLabeling();
     run.pickBlind("c1", null, BACKSTAGE_BLIND_PICK, AT);
     expect(run.recordedSuggestion("c1")?.choice).toBe("yes");
-    expect(() => run.pickFinal("c1", "yes", true)).toThrow("blind pick");
+    expect(() => run.pickFinal("c1", "yes")).toThrow("blind pick");
     expect(loopCells(run, "c1").every((cells) => cells[2] === null && cells[5] === null)).toBe(true);
     expect(run.pickCards().find((c) => c.caseId === "c1")).toMatchObject({ picked: true, blind: null, final: null });
   });
@@ -1169,8 +1236,7 @@ describe("blind-then-suggest picks", () => {
     expect(() => run.pickBlind("c1", "maybe", BACKSTAGE_BLIND_PICK, AT)).toThrow("not one of");
     run.pickBlind("c1", "yes", BACKSTAGE_BLIND_PICK, AT);
     expect(() => run.pickBlind("c1", "no", BACKSTAGE_BLIND_PICK, AT)).toThrow("already");
-    expect(() => run.pickBlind("c1", "yes", BACKSTAGE_PICK, AT)).toThrow();
-    expect(() => run.pickBlind("c9", "yes", BACKSTAGE_BLIND_PICK, AT)).toThrow();
+    expect(() => run.pickBlind("c9", "yes", BACKSTAGE_BLIND_PICK, AT)).toThrow("Unknown case");
   });
 
   test("[unit] M2 picks need open judging and lock at reveal", async () => {
@@ -1179,7 +1245,7 @@ describe("blind-then-suggest picks", () => {
     run.beginLabeling();
     run.pickBlind("c1", "yes", BACKSTAGE_BLIND_PICK, AT);
     run.reveal();
-    expect(() => run.pickFinal("c1", "no", true)).toThrow();
+    expect(() => run.pickFinal("c1", "no")).toThrow();
     expect(() => run.pickBlind("c2", "no", BACKSTAGE_BLIND_PICK, AT)).toThrow();
   });
 
@@ -1208,6 +1274,15 @@ describe("blind-then-suggest picks", () => {
     await run.start({ jev: keys.jev }, async (request) => ({ ...(await success(request)), probabilities: { yes: 0.9, maybe: 0.1 } }));
     expect(run.cards()).toHaveLength(0);
     expect(run.attempts.every((a) => !a.ok)).toBe(true);
+    // Mass off by more than the tolerance, and a choice that is not the top probability, are refused too.
+    for (const probabilities of [{ yes: 0.5, no: 0.3 }, { yes: 0.2, no: 0.8 }]) {
+      const bad = new BackstageRun(scene(), "test", { arms: ["jev"] });
+      await bad.start({ jev: keys.jev }, async (request) => ({ ...(await success(request)), probabilities }));
+      expect(bad.cards()).toHaveLength(0);
+    }
+    const good = new BackstageRun(scene(), "test", { arms: ["jev"] });
+    await good.start({ jev: keys.jev }, async (request) => ({ ...(await success(request)), probabilities: { yes: 0.8, no: 0.2 } }));
+    expect(good.cards()).toHaveLength(2);
   });
 
   test("[unit] M2 m4 a recorded Jev answer is the suggestion with 0 calls; a missing one costs 1 call on the labeller's key", async () => {

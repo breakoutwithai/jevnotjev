@@ -113,7 +113,8 @@
         "required": ["suggestion_shown"],
         "properties": {
           "suggestion_shown": { "type": "string" },
-          "label_blind": { "const": "true" }
+          "label_blind": { "const": "true" },
+          "label_source": { "const": "human" }
         }
       }
     },

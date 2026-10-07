@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { LABEL_OUT, SUGGESTIONS_OUT } from "./stage-demo.ts";
+import { parseTruth } from "./arms.ts";
 
 class Node {
   children: Node[] = [];
@@ -281,5 +282,35 @@ describe("/label/ blind-then-suggest", () => {
     await second.settle();
     expect(second.fetched).toEqual(["suggestions/m01.json"]);
     expect(second.byId("suggestion").children).toEqual([]);
+  });
+
+  test("[integration] M2 /label/ with no suggestion, the keyboard can only keep the blind pick", async () => {
+    const page = await openPage(new Map());
+    page.byId("bH").click();
+    await page.settle();
+    page.key("a");
+    expect(page.byId("msg").textContent).toBe("What will the snow be like on Friday?");
+    page.key("h");
+    page.byId("prev").click();
+    page.byId("dl").click();
+    await page.settle();
+    expect((page.downloads[0] ?? "").split("\n")[1]?.split(",").slice(0, 4).join(",")).toBe("m01,hand_off,hand_off,false");
+  });
+
+  test("[integration] M2 /label/ labels.csv stays readable by run-arms label: truth is the blind pick", async () => {
+    const page = await openPage(await servedSuggestions());
+    page.byId("bA").click();
+    await page.settle();
+    page.byId("final-hand_off").click();
+    page.byId("dl").click();
+    await page.settle();
+    expect([...parseTruth(page.downloads[0] ?? "")]).toEqual([["m01", "answer"]]);
+  });
+
+  test("[integration] M2 /label/ says so when labels from the earlier page version are in storage", async () => {
+    const storage = new Map([["jnj.uc13.labels.v1", JSON.stringify({ truth: { m01: "answer" } })]]);
+    const page = await openPage(new Map(), storage);
+    expect(page.byId("saveStatus").textContent).toContain("earlier version of this page");
+    expect(storage.has("jnj.uc13.labels.v1")).toBe(true);
   });
 });

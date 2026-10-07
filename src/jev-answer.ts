@@ -58,8 +58,10 @@ export type JevSpecs =
   | { readonly ok: true; readonly specs: Readonly<Record<string, JevSpec>> }
   | { readonly ok: false; readonly questionId: string | null; readonly reason: JevSpecsReason };
 
-const MASS_TOLERANCE = 0.02;
-const ARGMAX_TOLERANCE = 1e-9;
+/** Probabilities must sum to 1 within this; exported so other checkers of a Jev answer use the same bound. */
+export const MASS_TOLERANCE = 0.02;
+/** Jev's choice must carry the top probability within this. */
+export const ARGMAX_TOLERANCE = 1e-9;
 const MIN_SCORE_LEVELS = 2;
 const MAX_SCORE_LEVELS = 10;
 

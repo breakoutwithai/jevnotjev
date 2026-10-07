@@ -219,6 +219,7 @@ describe("blind and final picks (jnj-record/1.1, label_final and suggestion_show
       `line ${line}: label_final: 'accept' is not of type 'null'`,
       `line ${line}: suggestion_shown: 'true' is not of type 'null'`,
       `line ${line}: label_blind: 'true' was expected`,
+      `line ${line}: label_source: 'human' was expected`,
     ]);
   });
 
@@ -235,6 +236,12 @@ describe("blind and final picks (jnj-record/1.1, label_final and suggestion_show
     const rows = loopRows();
     first(rows)["label_blind"] = "false";
     expect(validate(write(rows, LOOP_COLUMNS)).errors).toEqual(["line 2: label_blind: 'true' was expected"]);
+  });
+
+  test("[unit] M2 a final pick is a person's: label_source must be human", () => {
+    const rows = loopRows();
+    first(rows)["label_source"] = "agent";
+    expect(validate(write(rows, LOOP_COLUMNS)).errors).toEqual(["line 2: label_source: 'human' was expected"]);
   });
 
   test("[unit] M2 label_final and suggestion_shown take only their stated values", () => {

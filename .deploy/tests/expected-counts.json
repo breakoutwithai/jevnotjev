@@ -32,7 +32,7 @@
     "scripts/uat-controllers.test.ts": 12,
     "scripts/uc13/arms.test.ts": 24,
     "scripts/uc13/calls.test.ts": 8,
-    "scripts/uc13/label-page.dom.test.ts": 6,
+    "scripts/uc13/label-page.dom.test.ts": 9,
     "scripts/uc13/little-shop.test.ts": 5,
     "scripts/uc13/run-arms.test.ts": 15,
     "scripts/uc13/stage-demo.test.ts": 15,
@@ -45,11 +45,11 @@
     "src/backstage/copy.test.ts": 2,
     "src/backstage/demo-notice.test.ts": 7,
     "src/backstage/log.test.ts": 9,
-    "src/backstage/main.dom.test.ts": 25,
+    "src/backstage/main.dom.test.ts": 28,
     "src/backstage/page-catchup.test.ts": 5,
     "src/backstage/page.test.ts": 7,
     "src/backstage/providers.test.ts": 23,
-    "src/backstage/run.test.ts": 61,
+    "src/backstage/run.test.ts": 66,
     "src/backstage/scene-draft.test.ts": 8,
     "src/backstage/server.test.ts": 24,
     "src/backstage/signout.test.ts": 7,
@@ -69,11 +69,11 @@
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/stack.test.ts": 18,
     "src/format/cli.test.ts": 3,
-    "src/format/provenance.test.ts": 44,
+    "src/format/provenance.test.ts": 45,
     "src/format/quote.test.ts": 4,
     "src/format/validate.test.ts": 60,
     "src/jev-answer.test.ts": 26,
     "src/labels/rank.test.ts": 9,
-    "src/labels/suggest.test.ts": 11
+    "src/labels/suggest.test.ts": 10
   }
 }

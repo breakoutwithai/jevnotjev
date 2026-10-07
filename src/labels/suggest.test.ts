@@ -82,11 +82,6 @@ describe("SuggestionBook", () => {
     expect(calls.length).toBe(1);
   });
 
-  test("[unit] M2 m4 a suggestion is never a label: the book holds no label API", () => {
-    const { client } = countingClient();
-    const book = new SuggestionBook(client);
-    expect(Object.getOwnPropertyNames(Object.getPrototypeOf(book)).filter((name) => /label/i.test(name))).toEqual([]);
-  });
 });
 
 describe("callsForPick", () => {

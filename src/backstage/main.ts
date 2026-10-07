@@ -8,7 +8,6 @@ import {
   type PickCard,
 } from "./run.ts";
 import { rankJevOptions, type JevSuggestion } from "../labels/rank.ts";
-import type { Suggestion } from "../labels/suggest.ts";
 import { MODEL_CATALOG, CATALOG_CHECKED_DATE, JEV_ARM_ID } from "./catalog.ts";
 import { copyDecision } from "./copy.ts";
 import { signOut, signOutRequest } from "./signout.ts";
@@ -62,8 +61,6 @@ function node(tag: string, content: string): HTMLElement {
 let room = 0;
 let run: BackstageRun | undefined;
 let cardIndex = 0;
-/** Suggestions fetched on the labeller's key this scene (labelling loop M2), by case. */
-const calledSuggestions = new Map<string, Suggestion>();
 let renderEpoch = 0;
 let imported: Scene["cases"] | undefined;
 const imports = new CaseImportState();
@@ -408,11 +405,9 @@ async function render() {
   button("new-scene").disabled = running || starting;
   button("download-csv").disabled =
     !current?.exportable || (!current.revealed && current.cards().length > 0);
+  // Evidence holds every answer: before reveal it would show answers for cases not yet picked blind.
   button("download-evidence").disabled =
-    !current?.exportable ||
-    (current.manifest.mode === "compare" &&
-      !current.revealed &&
-      current.cards().length > 0);
+    !current?.exportable || (!current.revealed && current.cards().length > 0);
   button("reveal").textContent = comparison
     ? "Reveal results and lock labels"
     : "Finish judging and unlock downloads";
@@ -436,7 +431,7 @@ async function render() {
       progress.append(
         node(
           "p",
-          `${current.pending} selected calls have no answer. Failed attempts: ${money(extra.knownUsd)} known spend, ${extra.unknown} with unknown charges. ${comparison ? "Provider details stay hidden until results are revealed." : "Each Jev answer and its returned confidence appear below once you pick its case blind in Rehearsals."}`,
+          `${current.pending} selected calls have no answer. Failed attempts: ${money(extra.knownUsd)} known spend, ${extra.unknown} with unknown charges. ${comparison ? "Provider details stay hidden until results are revealed; Jev's ranking for a case shows after you pick it." : "Each Jev answer and its returned confidence appear below once you pick its case blind in Rehearsals."}`,
         ),
       );
     }
@@ -628,12 +623,6 @@ function renderCard() {
   // Blind integrity: nothing of Jev's answer for this case is built until its blind pick is committed.
   if (current && card.picked) renderSuggestion(current, card);
 }
-/** Jev's suggestion for a picked case: the run's own answer (0 calls), one call on your key, or none yet. */
-function suggestionFor(current: BackstageRun, card: PickCard): Suggestion {
-  const recorded = current.recordedSuggestion(card.caseId);
-  if (recorded) return { kind: "recorded", answer: recorded };
-  return calledSuggestions.get(card.caseId) ?? { kind: "none", reason: "no-key" };
-}
 function rankingLines(card: PickCard, answer: JevSuggestion): HTMLElement[] {
   const ranking = rankJevOptions(card.choices, answer);
   const lines = ranking.options.map((o) =>
@@ -664,19 +653,19 @@ function rankingLines(card: PickCard, answer: JevSuggestion): HTMLElement[] {
     ),
   ];
 }
-function finalButton(card: PickCard, choice: string, shown: boolean): HTMLElement {
+function finalButton(card: PickCard, choice: string): HTMLElement {
   const b = document.createElement("button");
   b.type = "button";
   b.id = "final-" + choice;
   b.className = "secondary";
   b.textContent = choice === card.blind ? `Keep ${choice}` : `Change to ${choice}`;
   b.setAttribute("aria-pressed", String(card.final === choice));
-  b.onclick = () => finalPick(card.caseId, choice, shown);
+  b.onclick = () => finalPick(card.caseId, choice);
   return b;
 }
 function renderSuggestion(current: BackstageRun, card: PickCard) {
   const panel = element("suggestion");
-  const suggestion = suggestionFor(current, card);
+  const suggestion = current.knownSuggestion(card.caseId);
   const shown = suggestion.kind !== "none";
   const parts: HTMLElement[] = shown ? rankingLines(card, suggestion.answer) : [];
   if (!shown)
@@ -688,7 +677,7 @@ function renderSuggestion(current: BackstageRun, card: PickCard) {
           : "No suggestion yet: this run has no Jev answer for this case.",
       ),
     );
-  if (!shown && suggestion.reason === "no-key" && keys().jev) {
+  if (!shown && suggestion.reason === "no-key" && keys().jev && !current.revealed) {
     const ask = document.createElement("button");
     ask.type = "button";
     ask.id = "ask-jev";
@@ -700,17 +689,16 @@ function renderSuggestion(current: BackstageRun, card: PickCard) {
   const actions = document.createElement("div");
   actions.className = "actions";
   if (card.blind === null) parts.push(node("p", "Unsure: no label is recorded for this case."));
-  else if (shown) actions.append(...card.choices.map((choice) => finalButton(card, choice, true)));
-  else actions.append(finalButton(card, card.blind, false));
+  else if (current.revealed) parts.push(node("p", `Your final pick: ${card.final ?? "not made"}`));
+  else if (shown) actions.append(...card.choices.map((choice) => finalButton(card, choice)));
+  else actions.append(finalButton(card, card.blind));
   panel.replaceChildren(...parts, actions);
 }
 function askJev(current: BackstageRun, caseId: string) {
   if (current !== run || current.revealed) return;
   void current.suggestion(caseId, keys().jev ?? null).then(
-    (suggestion) => {
-      if (current !== run) return;
-      calledSuggestions.set(caseId, suggestion);
-      void render();
+    () => {
+      if (current === run) void render();
     },
     (error: unknown) => notice(error instanceof Error ? error.message : "Could not ask Jev."),
   );
@@ -722,10 +710,10 @@ function pickBlind(choice: string | null) {
   current.pickBlind(card.caseId, choice, BACKSTAGE_BLIND_PICK);
   void render();
 }
-function finalPick(caseId: string, choice: string, shown: boolean) {
+function finalPick(caseId: string, choice: string) {
   const current = run;
   if (!current || current.running || !current.labeling || current.revealed) return;
-  current.pickFinal(caseId, choice, shown);
+  current.pickFinal(caseId, choice);
   void render();
 }
 function download(name: string, content: string, type: string) {
@@ -853,7 +841,6 @@ function clearScene() {
   run?.stop();
   run = undefined;
   cardIndex = 0;
-  calledSuggestions.clear();
   freezeFields(false);
   element("metrics").replaceChildren(node("p", "No run yet."));
   element("verdict").replaceChildren(node("p", "No run yet."));
@@ -882,9 +869,7 @@ button("download-csv").onclick = () => {
 button("download-evidence").onclick = () => {
   if (
     run?.exportable &&
-    (run.manifest.mode !== "compare" ||
-      run.revealed ||
-      run.cards().length === 0)
+    (run.revealed || run.cards().length === 0)
   )
     download(
       "backstage-evidence.json",

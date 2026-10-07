@@ -99,6 +99,9 @@ try {
   store = window.localStorage;
   if (!store) throw new Error("Storage unavailable");
   const raw = store.getItem(STORAGE_KEY);
+  if (raw === null && store.getItem("jnj.uc13.labels.v1") !== null) {
+    saveMessage = "Labels from the earlier version of this page are kept in this browser but not loaded here. Download them from that version, or start again.";
+  }
   if (raw !== null) {
     const saved = JSON.parse(raw);
     if (!saved || saved.dataset !== dataset) {
@@ -219,6 +222,8 @@ function pick(v) {
     return;
   }
   if (v === "unsure" || !(id in suggestions)) return;
+  // With no suggestion shown, the only final pick is keeping the blind one (the page offers only that button).
+  if (suggestions[id] === null && v !== blind[id]) return;
   finalPick(v, suggestions[id] !== null);
 }
 document.getElementById("bA").onclick = () => pick("answer");

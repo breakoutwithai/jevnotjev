@@ -85,12 +85,14 @@ A labeller picks the right answer for a case blind, then sees Jev's options for 
 | Column | Holds | Rule |
 |---|---|---|
 | `label` | the blind pick's call on this answer: `accept` when the answer equals the blind pick, else `reject` | the only label counted as truth, as before |
-| `label_final` | `accept` / `reject` / empty: the final pick's call on this answer, made after the suggestion step | reported beside `label`, never instead of it; needs a `label` and `label_blind` `true` |
+| `label_final` | `accept` / `reject` / empty: the final pick's call on this answer, made after the suggestion step | reported beside `label`, never instead of it; needs a `label`, `label_blind` `true` and `label_source` `human` |
 | `suggestion_shown` | `true` / `false` / empty | `true` when Jev's ranked suggestion for the case was shown before the final pick, `false` when none was available; present exactly when `label_final` is |
 
 - Both columns are optional: a file without them validates unchanged, and every summary, metric and verdict reads `label` only.
-- A final pick without a blind pick is an error (`line <n>: label_final: 'accept' is not of type 'null'`), as is one without its flag (`line <n>: suggestion_shown: None is not of type 'string'`) or on a row whose `label_blind` is not `true` (`line <n>: label_blind: 'true' was expected`).
+- A final pick without a blind pick is an error (`line <n>: label_final: 'accept' is not of type 'null'`), as is one without its flag (`line <n>: suggestion_shown: None is not of type 'string'`) or on a row whose `label_blind` is not `true` (`line <n>: label_blind: 'true' was expected`) or whose `label_source` is not `human` (`line <n>: label_source: 'human' was expected`).
 - An unsure blind pick is no label: the case's rows stay unlabelled and carry no final pick.
+- With no suggestion for the case, the final pick can only keep the blind pick, and `suggestion_shown` is `false`.
+- Blind is a property of the page, not a lock: the suggestion files behind `/label/` are public, so a labeller who opens them first is no longer blind. The page reads one only after that case's pick.
 - A Jev suggestion is never stored as a label. It comes from the run's own Jev answer for the case (0 calls); with none, only from one call on the labeller's own key; otherwise the case shows "No suggestion yet". Ranking and call rules: `src/labels/rank.ts`, `src/labels/suggest.ts`.
 - `jnj-record/1` rows leave both columns empty.
 

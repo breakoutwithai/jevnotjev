@@ -20,6 +20,7 @@ import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { requestFingerprint } from "./fingerprint.ts";
 import { COLUMNS_V1_1, LABELLER_HANDLE, SUGGESTION_COLUMNS, validate } from "../format/validate.ts";
 import type { JevSuggestion } from "../labels/rank.ts";
+import { ARGMAX_TOLERANCE, MASS_TOLERANCE } from "../jev-answer.ts";
 import { SuggestionBook, callsForPick, type Call, type Suggestion } from "../labels/suggest.ts";
 /** Backstage writes jnj-record/1.1 with the blind loop's columns (format/README.md "Blind and final picks"). */
 const EXPORT_COLUMNS: readonly string[] = [...COLUMNS_V1_1, ...SUGGESTION_COLUMNS];
@@ -357,11 +358,13 @@ function short(v: unknown): v is string {
 }
 /**
  * Optional per-option probabilities on an answer: absent or null is null; otherwise exactly the choice names, each in
- * [0, 1], summing to 1 within 0.02 (the src/jev-answer.ts tolerance). Anything else is false: the answer is refused.
+ * [0, 1], summing to 1 within MASS_TOLERANCE, with `output` carrying the top probability (src/jev-answer.ts rules).
+ * Anything else is false: the answer is refused.
  */
 function choiceProbabilities(
   v: unknown,
   choices: readonly { readonly name: string }[],
+  output: unknown,
 ): Readonly<Record<string, number>> | null | false {
   if (v === undefined || v === null) return null;
   if (!object(v)) return false;
@@ -374,7 +377,10 @@ function choiceProbabilities(
     Object.defineProperty(out, name, { value: p, enumerable: true });
   }
   const total = Object.values(out).reduce((s, p) => s + p, 0);
-  return Math.abs(total - 1) <= 0.02 ? Object.freeze(out) : false;
+  if (Math.abs(total - 1) > MASS_TOLERANCE) return false;
+  const top = Math.max(...Object.values(out));
+  if (typeof output !== "string" || (out[output] ?? 0) < top - ARGMAX_TOLERANCE) return false;
+  return Object.freeze(out);
 }
 function date(v: unknown): v is string {
   return (
@@ -483,7 +489,7 @@ export async function parseAnswerResult(
     throw new Error("Unsafe response evidence.");
   // Only Jev returns per-option probabilities; another provider's are not read.
   const probabilities =
-    request.provider === "jev" ? choiceProbabilities(value.probabilities, request.choices) : null;
+    request.provider === "jev" ? choiceProbabilities(value.probabilities, request.choices, value.output) : null;
   if (
     value.ok === true &&
     typeof value.output === "string" &&
@@ -623,6 +629,8 @@ export class BackstageRun {
   /** Suggestion calls on the labeller's key (labelling loop M2): spend, never answers or labels. */
   #suggestionAttempts: AnswerResult[] = [];
   #suggestionTransport: Transport = answerTransport;
+  /** Suggestion results by case once a call was made (or failed). */
+  #called = new Map<string, Suggestion>();
   #suggestions = new SuggestionBook({
     ask: (caseId, key) => this.#askJev(caseId, key, this.#suggestionTransport),
   });
@@ -889,6 +897,8 @@ export class BackstageRun {
     this.#assertLabelling();
     if (!this.pickCards().some((c) => c.caseId === caseId)) throw new Error("Unknown case to pick.");
     if (this.#picks.has(caseId)) throw new Error("This case is already picked; a blind pick is made once.");
+    if (this.#answers.some((a) => a.caseId === caseId && this.#labels.has(this.#labelKey(a))))
+      throw new Error("This case already has a label made on its answer; a blind pick cannot follow it.");
     if (!provenance.blind || provenance.source !== "human")
       throw new Error("A blind pick is a person's blind call: source human, blind true.");
     this.#assertProvenance(provenance);
@@ -902,12 +912,19 @@ export class BackstageRun {
     this.#picks.set(caseId, pick);
     this.#writePickLabels(caseId, pick);
   }
-  /** Record (or change) the final pick after the suggestion step. Needs a blind pick; label keeps the blind call. */
-  pickFinal(caseId: string, choice: string, suggestionShown: boolean) {
+  /**
+   * Record (or change) the final pick after the suggestion step. Needs a blind pick; label keeps the blind call.
+   * suggestion_shown comes from the run itself: true when it holds a suggestion for the case (recorded or called).
+   * With none, only keeping the blind pick is a final pick.
+   */
+  pickFinal(caseId: string, choice: string) {
     this.#assertLabelling();
     const pick = this.#picks.get(caseId);
     if (pick === undefined || pick.blindPick === null)
       throw new Error("A final pick needs a blind pick for the case first.");
+    const suggestionShown = this.knownSuggestion(caseId).kind !== "none";
+    if (!suggestionShown && choice !== pick.blindPick)
+      throw new Error("With no suggestion shown, the final pick keeps the blind pick.");
     const next: CasePickState = { ...pick, finalPick: this.#choice(choice), suggestionShown };
     this.#picks.set(caseId, next);
     this.#writePickLabels(caseId, next);
@@ -924,6 +941,12 @@ export class BackstageRun {
       ? null
       : { choice: jev.output, confidence: jev.confidence, probabilities: jev.probabilities };
   }
+  /** The suggestion the run holds for a picked case, without calling: recorded, called earlier, or none. */
+  knownSuggestion(caseId: string): Suggestion {
+    const recorded = this.recordedSuggestion(caseId);
+    if (recorded !== null) return { kind: "recorded", answer: recorded };
+    return this.#called.get(caseId) ?? { kind: "none", reason: "no-key" };
+  }
   /**
    * Jev's suggestion for a picked case (labelling loop M2, metric m4): the run's own Jev answer when there is one
    * (0 calls); otherwise one call per case on the labeller's own key, never a funded or shared key; otherwise none.
@@ -933,7 +956,9 @@ export class BackstageRun {
     this.#assertPicked(caseId);
     this.#suggestionTransport = transport;
     const key = labellerKey !== null && validKey(labellerKey) ? labellerKey : null;
-    return this.#suggestions.get(caseId, this.recordedSuggestion(caseId), key);
+    const suggestion = await this.#suggestions.get(caseId, this.recordedSuggestion(caseId), key);
+    if (suggestion.kind !== "none" || key !== null) this.#called.set(caseId, suggestion);
+    return suggestion;
   }
   async #askJev(caseId: string, key: string, transport: Transport): Promise<JevSuggestion | null> {
     const scene = this.manifest.scene;
@@ -1030,6 +1055,7 @@ export class BackstageRun {
       return (
         containsKey(scene, values) ||
         containsKey(this.#attempts, values) ||
+        containsKey(this.#suggestionAttempts, values) ||
         containsKey(this.#answers, values)
       );
     };
@@ -1323,20 +1349,22 @@ export class BackstageRun {
     }
     return [...advice].sort();
   }
+  /** Failed attempts, including failed suggestion calls on the labeller's key. */
   extraSpend() {
     let knownUsd = 0,
       unknown = 0;
-    for (const a of this.#attempts)
+    for (const a of [...this.#attempts, ...this.#suggestionAttempts])
       if (!a.ok) {
         if (a.costUsd !== null) knownUsd += a.costUsd;
         else if (a.charge !== "none") unknown++;
       }
     return { knownUsd, unknown };
   }
+  /** Every attempt once, including suggestion calls on the labeller's key (labelling loop M2). */
   totalSpend() {
     let knownUsd = 0,
       unknown = 0;
-    for (const a of this.#attempts) {
+    for (const a of [...this.#attempts, ...this.#suggestionAttempts]) {
       if (a.costUsd !== null) knownUsd += a.costUsd;
       else if (a.ok || a.charge !== "none") unknown++;
     }
@@ -1402,12 +1430,9 @@ export class BackstageRun {
     };
   }
   evidence() {
-    if (
-      this.manifest.mode === "compare" &&
-      !this.#revealed &&
-      this.#answers.length > 0
-    )
-      throw new Error("Reveal results before downloading comparison evidence.");
+    // Jev-only too: evidence holds every answer, so before reveal it would show answers for cases not yet picked blind.
+    if (!this.#revealed && this.#answers.length > 0)
+      throw new Error("Reveal results (finish judging) before downloading evidence.");
     if (this.#unsafe)
       throw new Error("Export blocked: this run contains a provider key.");
     return {

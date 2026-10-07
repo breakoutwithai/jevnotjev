@@ -71,15 +71,16 @@ async function csvWithoutTimes(blob: Blob | undefined): Promise<string> {
 }
 const LABELS_HEADER = "case_id,truth,final,suggestion_shown";
 
-test("[integration] U1 labels and current position survive reload, and a final pick revises beside the blind one", async () => {
+test("[integration] U1 labels and current position survive reload, and a later final pick is recorded beside the blind one", async () => {
   const store = new Store(); const p = await page("label", store);
   p.get("bH").click(); p.get("next").click(); p.get("bA").click();
   const reloaded = await page("label", store);
   expect(reloaded.get("status").textContent).toContain("2 of 40 labelled");
   expect(reloaded.get("pos").textContent).toContain("Message 2 of 40");
-  reloaded.get("prev").click(); await settle(); reloaded.key("a");
+  // No suggestion is served here, so the final pick can only keep the blind one.
+  reloaded.get("prev").click(); await settle(); reloaded.key("h");
   const revised = await page("label", store); revised.get("dl").click();
-  expect(await csvWithoutTimes(revised.blobs[0])).toBe(`${LABELS_HEADER}\nm01,hand_off,answer,false\nm02,answer,,\n`);
+  expect(await csvWithoutTimes(revised.blobs[0])).toBe(`${LABELS_HEADER}\nm01,hand_off,hand_off,false\nm02,answer,,\n`);
 });
 test("[integration] U1 unavailable storage reports unsaved work without breaking labels/export", async () => {
   const store = new Store(); store.blocked = true; const p = await page("label", store);
@@ -100,6 +101,8 @@ test("[integration] U4 pressed states follow navigation; the blind pick stays pr
   expect(p.get("bA").getAttribute("aria-pressed")).toBe("false");
   expect(p.get("bA").disabled).toBe(true);
   await settle(); p.key("a");
+  expect(p.get("pos").textContent).toContain("Message 1 of 40");
+  p.key("h");
   expect(p.get("pos").textContent).toContain("Message 2 of 40");
   expect(p.get("bA").getAttribute("aria-pressed")).toBe("false");
   expect(p.get("bA").disabled).toBe(false);
@@ -127,12 +130,12 @@ test("[integration] U3 completed shop reload directs review instead of choosing 
   expect(reloaded.get("idle").textContent).toContain("All 40 calls are complete");
   expect(reloaded.get("idle").textContent).toContain("review");
 });
-test("[integration] U5 full CSV is ordered, complete and includes final-pick revisions", async () => {
+test("[integration] U5 full CSV is ordered and complete, and with no suggestion a final pick cannot change the blind one", async () => {
   const p = await page("label", new Store());
   for (let i = 0; i < 40; i++) { p.key("a"); await settle(); p.key("a"); }
   p.key("ArrowLeft"); p.key("h"); p.get("dl").click();
   const text = await csvWithoutTimes(p.blobs[0]); expect(text.trim().split("\n")).toHaveLength(41);
-  expect(text).toContain("m39,answer,hand_off,false\nm40,answer,answer,false\n");
+  expect(text).toContain("m39,answer,answer,false\nm40,answer,answer,false\n");
   expect(p.created.some(el => el.download === "labels.csv")).toBe(true);
   expect(p.fetched).toHaveLength(40);
 });

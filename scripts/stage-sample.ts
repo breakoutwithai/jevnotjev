@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { fileSeed } from "../src/core/calc.ts";
 import { groupCohorts, metricsOfCohortRows, type Arm } from "../src/core/metrics.ts";
 import { verdict } from "../src/core/verdict.ts";
-import { validate, type Row } from "../src/format/validate.ts";
+import { truthLabel, validate, type Row } from "../src/format/validate.ts";
 
 const ROOT = join(import.meta.dir, "..");
 export const RECORDS_REL = "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv";
@@ -128,8 +128,8 @@ export async function buildSample(csv: string): Promise<StageSample> {
     const c = m.get("C");
     if (a === undefined || b === undefined || c === undefined) throw new Error(`case ${id} lacks a method`);
     const cell = (row: Row): StageCase["arms"]["A"] => {
-      const label = str(row, "label");
-      if (label !== "accept" && label !== "reject") throw new Error(`case ${id}: no label`);
+      const label = truthLabel(row);
+      if (label !== "accept" && label !== "reject") throw new Error(`case ${id}: no reviewed label (empty or agent)`);
       const confidence = row.get("confidence");
       return { picked: str(row, "output"), cost: num(row, "cost_usd"), label, ...(typeof confidence === "number" ? { confidence } : {}) };
     };

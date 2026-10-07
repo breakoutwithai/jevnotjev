@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Answer, type Column, type RecordRow, applyLabels, formatRecords, parseRecords, record, ruleOutput } from "./arms.ts";
+import { APPROVED_DRAFT_2026_10_03, type Answer, type Column, type RecordRow, applyLabels, formatRecords, parseRecords, record, ruleOutput } from "./arms.ts";
 import {
   ARMS, DEMO_IDS, DEMO_OUT, EXAMPLE_DIR, LABEL_OUT, RUN_DIR, build, buildDemo, judge, labelPage, readDemoScript, recordedInputs,
 } from "./stage-demo.ts";
@@ -82,7 +82,7 @@ describe("stage-door demo data", () => {
     const dir = await mkdtemp(join(tmpdir(), "jnj-stage-"));
     try {
       await cp(RUN_DIR, dir, { recursive: true });
-      await writeFile(join(dir, "records.csv"), formatRecords(applyLabels(rows, truth)));
+      await writeFile(join(dir, "records.csv"), formatRecords(applyLabels(rows, truth, APPROVED_DRAFT_2026_10_03)));
       const labelled = parseRecords(await readFile(join(dir, "records.csv"), "utf8"));
       const built = await build(dir, EXAMPLE_DIR);
       const d = buildDemo(labelled, await sheet());
@@ -120,6 +120,22 @@ describe("stage-door demo data", () => {
     expect(judge({ ...base, label: "hand_off" })).toEqual({ verdict: "reject", truth: "hand_off" });
     expect(judge({ ...base, label: "answer" })).toEqual({ verdict: "accept", truth: "answer" });
     expect(() => judge({ ...base, label: "maybe" })).toThrow();
+  });
+
+  test("[unit] M1 an unreviewed agent label is pending, never a verdict", () => {
+    const base = record({ case_id: "m01", case_input: "x" }, "jev", "jev-1.13.0", "answer");
+    const agent = { ...base, label_source: "agent", labelled_by: "model-1", labelled_at: "2026-10-07", label_blind: "false" };
+    expect(judge({ ...agent, label: "accept" })).toEqual({ verdict: "pending", truth: null });
+    expect(judge({ ...agent, label: "reject", label_source: "human_reviewed" })).toEqual({ verdict: "reject", truth: "hand_off" });
+  });
+
+  test("[unit] M1 one agent-labelled arm beside reviewed arms stays pending and does not conflict with their answer", async () => {
+    const rows = (await records()).map((r) => (r.answerer === "jev" && r.case_id === "m01" ? { ...r, label_source: "agent" } : r));
+    const d = buildDemo(rows, await sheet());
+    expect(d.mode).toBe("labelled");
+    const reviewed = rows.find((r) => r.answerer === "rule" && r.case_id === "m01");
+    if (reviewed === undefined) throw new Error("no rule m01 row");
+    expect(judge(reviewed).truth).not.toBeNull();
   });
 
   test("[unit] UC13-STAGE-4 the 8 include a rule-word message the rule hands off and a no-rule-word message another arm hands off", async () => {
@@ -216,7 +232,7 @@ describe("stage-door demo data refuses an inconsistent run", () => {
 
   test("[unit] UC13-STAGE-8 arms that imply different human answers fail, for any of the 40 cases, not only the 8 shown", async () => {
     const truth = new Map<string, Answer>((await records()).map((r) => [r.case_id, "answer"]));
-    const labelled = applyLabels(await records(), truth);
+    const labelled = applyLabels(await records(), truth, APPROVED_DRAFT_2026_10_03);
     expect(DEMO_IDS.includes("m01")).toBe(false);
     const flipped = labelled.map((r) => (r.answerer === "jev" && r.case_id === "m01" ? { ...r, label: r.label === "accept" ? "reject" : "accept" } : r));
     expect(() => buildDemo(flipped, "x")).toThrow(/m01/);

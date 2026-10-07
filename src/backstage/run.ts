@@ -18,7 +18,7 @@ import {
 } from "./catalog.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { requestFingerprint } from "./fingerprint.ts";
-import { COLUMNS, validate } from "../format/validate.ts";
+import { COLUMNS_V1_1, LABELLER_HANDLE, validate } from "../format/validate.ts";
 import { formatRows, readDictRows } from "../format/csv.ts";
 import { cohortMetrics } from "../core/metrics.ts";
 import { fileSeed } from "../core/calc.ts";
@@ -30,6 +30,30 @@ export type Transport = (
   signal: AbortSignal,
 ) => Promise<unknown>;
 export type Label = "accept" | "reject" | null;
+/** format/README.md "Label provenance": human = a person picked it; human_reviewed = AI drafted, a person approved; agent = not reviewed. */
+export type LabelSource = "human" | "human_reviewed" | "agent";
+/** Who made a label call and how. Every call to BackstageRun.label names one; there is no default. */
+export interface LabelProvenance {
+  readonly source: LabelSource;
+  /** A handle, never an email address: labelled_by in the export. */
+  readonly by: string;
+  /** True only when the call was made before seeing any answer or suggestion for the case. */
+  readonly blind: boolean;
+}
+/**
+ * A person's accept/reject click in the Backstage judging room. The browser does not know which signed-in operator
+ * is clicking (the session holds an email server-side and no identity reaches the page), so the handle is the role.
+ * The card shows the answer being judged, so the call is not blind.
+ */
+export const BACKSTAGE_PICK: LabelProvenance = Object.freeze({
+  source: "human",
+  by: "backstage-operator",
+  blind: false,
+});
+interface StoredLabel extends LabelProvenance {
+  readonly label: "accept" | "reject";
+  readonly at: string;
+}
 export interface Selection {
   readonly arms: readonly string[];
 }
@@ -533,7 +557,7 @@ export class BackstageRun {
   readonly manifest: Manifest;
   #attempts: AnswerResult[] = [];
   #answers: RowAnswer[] = [];
-  #labels = new Map<string, Label>();
+  #labels = new Map<string, StoredLabel>();
   #order = new Map<string, number>();
   #controller: AbortController | null = null;
   #started = false;
@@ -684,7 +708,7 @@ export class BackstageRun {
         input:
           this.manifest.scene.cases.find((c) => c.id === a.caseId)?.input ?? "",
         output: a.output,
-        label: this.#labels.get(this.#labelKey(a)) ?? null,
+        label: this.#labels.get(this.#labelKey(a))?.label ?? null,
       }));
   }
   results(): readonly Pick<
@@ -700,7 +724,8 @@ export class BackstageRun {
       confidence,
     }));
   }
-  label(id: string, label: Label) {
+  /** Record (or clear, with null) a label call; `provenance` says who made it and how, and is exported with it. */
+  label(id: string, label: Label, provenance: LabelProvenance, at: Date = new Date()) {
     if (!this.#labeling)
       throw new Error(
         "Open blind judging before labeling. This locks retries.",
@@ -711,7 +736,22 @@ export class BackstageRun {
       throw new Error("Stop or finish the run before labeling.");
     const answer = this.#answers.find((a) => a.id === id);
     if (!answer) throw new Error("Unknown answer card.");
-    this.#labels.set(this.#labelKey(answer), label);
+    if (!LABELLER_HANDLE.test(provenance.by))
+      throw new Error(
+        "Invalid labeller handle: letters, digits and _ . : + - only, never an email.",
+      );
+    if (provenance.source === "human_reviewed" && provenance.blind)
+      throw new Error("A human_reviewed label is not blind: approving a draft means seeing it.");
+    const key = this.#labelKey(answer);
+    if (label === null) this.#labels.delete(key);
+    else
+      this.#labels.set(key, {
+        label,
+        source: provenance.source,
+        by: provenance.by,
+        blind: provenance.blind,
+        at: at.toISOString(),
+      });
   }
   stop() {
     this.#controller?.abort();
@@ -918,11 +958,11 @@ export class BackstageRun {
       throw new Error("Export blocked: this run contains a provider key.");
     const s = this.manifest.scene;
     return formatRows([
-      COLUMNS,
+      COLUMNS_V1_1,
       ...answers.map((a) => {
-        const label = this.#labels.get(this.#labelKey(a)) ?? null;
+        const stored = this.#labels.get(this.#labelKey(a));
         const data: Record<string, string | number | null> = {
-          format_version: "jnj-record/1",
+          format_version: "jnj-record/1.1",
           run_id: runId,
           prompt_version: this.manifest.promptVersion,
           case_id: a.caseId,
@@ -939,14 +979,17 @@ export class BackstageRun {
           answerer_model: a.model,
           output: a.output,
           confidence: a.confidence,
-          label,
-          label_source: label === null ? null : "human",
+          label: stored?.label ?? null,
+          label_source: stored?.source ?? null,
           tokens_in: a.tokensIn,
           tokens_out: a.tokensOut,
           cost_usd: a.costUsd,
           latency_ms: a.latencyMs,
+          labelled_by: stored?.by ?? null,
+          labelled_at: stored?.at ?? null,
+          label_blind: stored === undefined ? null : String(stored.blind),
         };
-        return COLUMNS.map((k) =>
+        return COLUMNS_V1_1.map((k) =>
           data[k] === null || data[k] === undefined ? "" : String(data[k]),
         );
       }),
@@ -980,9 +1023,9 @@ export class BackstageRun {
   csv(): string {
     const outputs = this.exports();
     return outputs.length === 1
-      ? (outputs[0]?.csv ?? formatRows([COLUMNS]))
+      ? (outputs[0]?.csv ?? formatRows([COLUMNS_V1_1]))
       : formatRows([
-          COLUMNS,
+          COLUMNS_V1_1,
           ...outputs.flatMap((output) =>
             readDictRows(output.csv).rows.map((row) => row.fields),
           ),
@@ -1087,7 +1130,7 @@ export class BackstageRun {
         if (
           parsed.errors.length &&
           !(
-            output.csv === formatRows([COLUMNS]) &&
+            output.csv === formatRows([COLUMNS_V1_1]) &&
             !this.#answers.some(
               (a) =>
                 a.armId === JEV_ARM_ID ||
@@ -1152,13 +1195,20 @@ export class BackstageRun {
       manifest: this.manifest,
       funding: this.#funded ? "trial" : "byok",
       attempts: this.attempts,
-      labels: this.#answers.map((a) => ({
-        caseId: a.caseId,
-        armId: a.armId,
-        provider: a.provider,
-        output: a.output,
-        label: this.#labels.get(this.#labelKey(a)) ?? null,
-      })),
+      labels: this.#answers.map((a) => {
+        const stored = this.#labels.get(this.#labelKey(a));
+        return {
+          caseId: a.caseId,
+          armId: a.armId,
+          provider: a.provider,
+          output: a.output,
+          label: stored?.label ?? null,
+          labelSource: stored?.source ?? null,
+          labelledBy: stored?.by ?? null,
+          labelledAt: stored?.at ?? null,
+          labelBlind: stored?.blind ?? null,
+        };
+      }),
       extraSpend: this.extraSpend(),
       totalSpend: this.totalSpend(),
       comparisons: this.exports(),

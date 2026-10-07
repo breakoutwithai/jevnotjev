@@ -1,4 +1,5 @@
 import {
+  BACKSTAGE_PICK,
   BackstageRun,
   CaseImportState,
   checkRunnerHealth,
@@ -629,7 +630,7 @@ function renderCard() {
 function label(value: "accept" | "reject" | null) {
   const card = run?.cards()[cardIndex];
   if (!card || !run || run.running || !run.labeling || run.revealed) return;
-  run.label(card.id, value);
+  run.label(card.id, value, BACKSTAGE_PICK);
   cardIndex = Math.min(cardIndex + 1, run.cards().length - 1);
   void render();
 }

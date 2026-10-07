@@ -14,6 +14,16 @@ async function rowsOf(rel: string): Promise<Row[]> {
   return result.rows.map((r) => r.values);
 }
 
+describe("case table: agent labels are not truth (M1)", () => {
+  test("[unit] M1 an agent label reads as unlabelled in the cell and never matches", () => {
+    const agent = new Map<string, string | null>([["output", "yes"], ["cost_usd", null], ["label", "accept"], ["label_source", "agent"]]);
+    const human = new Map<string, string | null>([["output", "no"], ["cost_usd", null], ["label", "reject"], ["label_source", "human"]]);
+    expect(caseCell(agent)).toBe("yes, cost missing, unlabelled");
+    expect(matchingMethods({ caseId: "x", rows: { llm: human, rule: agent, jev: undefined } })).toBe("none among labelled methods; rule unlabelled");
+    expect(matchingMethods({ caseId: "x", rows: { llm: undefined, rule: agent, jev: undefined } })).toBe("unlabelled");
+  });
+});
+
 describe("case table: shared rows (F5)", () => {
   test("[unit] F5-T1 cases come in file order with one row per method, and a method with no row is undefined", async () => {
     const lines = caseLines(await rowsOf("examples/d12-three-methods/records.csv"));

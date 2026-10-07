@@ -204,3 +204,15 @@ describe("hand check CSV", () => {
     expect(parseCsv('a,"x ""q"", y"\r\nb,\n')).toEqual([["a", 'x "q", y'], ["b", ""]]);
   });
 });
+
+describe("hand check agent labels (M1)", () => {
+  test("[unit] M1 the independent checker reads an agent label as unlabelled", () => {
+    const header =
+      "format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output," +
+      "confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms,labelled_by,labelled_at,label_blind";
+    const row = (source: string): string =>
+      `jnj-record/1.1,r,p.v1,m01,x,q1,Q?,yes|no,jev,jev-1.13.0,yes,,accept,${source},1,1,0.1,1,op-1,2026-10-07,true`;
+    expect(loadRecords(`${header}\n${row("agent")}\n`)[0]?.label).toBe("");
+    expect(loadRecords(`${header}\n${row("human")}\n`)[0]?.label).toBe("accept");
+  });
+});

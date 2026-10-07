@@ -78,7 +78,8 @@ function other(a: Answer): Answer {
 export function judge(row: RecordRow): { verdict: Verdict; truth: Answer | null } {
   if (!isAnswer(row.output)) throw new Error(`${row.answerer} ${row.case_id}: output ${JSON.stringify(row.output)} is not one of ${ANSWERS.join(", ")}`);
   const l = row.label;
-  if (l === "") return { verdict: "pending", truth: null };
+  // An unreviewed agent label is not truth (format/README.md "Label provenance"): the row waits for a person.
+  if (l === "" || row.label_source === "agent") return { verdict: "pending", truth: null };
   if (l === "accept") return { verdict: "accept", truth: row.output };
   if (l === "reject") return { verdict: "reject", truth: other(row.output) };
   if (isAnswer(l)) return { verdict: row.output === l ? "accept" : "reject", truth: l };
@@ -132,7 +133,9 @@ export function buildDemo(rows: readonly RecordRow[], factSheet: string, ids: re
 
   /** One human answer per case, the same whichever arm's row it is read from. */
   const truthOf = (caseId: string): Answer | null => {
-    const seen = new Set(ARMS.map((a) => judge(rowOf(a.key, caseId)).truth));
+    // An unreviewed agent label states no human answer, so it neither sets nor contradicts the reviewed one.
+    const reviewed = ARMS.map((a) => rowOf(a.key, caseId)).filter((r) => r.label_source !== "agent");
+    const seen = new Set(reviewed.map((r) => judge(r).truth));
     if (seen.size > 1) throw new Error(`${caseId}: arms imply different human answers (${[...seen].join(", ")})`);
     return [...seen][0] ?? null;
   };

@@ -9,8 +9,15 @@ import { iterErrors, type Value } from "./schema.ts";
 
 export const SCHEMA: unknown = schemaJson;
 export const COLUMNS: readonly string[] = schemaJson.required;
+/** Label provenance (format/README.md "Label provenance"): required on a labelled jnj-record/1.1 row, empty otherwise. */
+export const PROVENANCE_COLUMNS: readonly string[] = ["labelled_by", "labelled_at", "label_blind"];
+/** The header a jnj-record/1.1 writer uses: every /1 column, then the provenance columns. */
+export const COLUMNS_V1_1: readonly string[] = [...COLUMNS, ...PROVENANCE_COLUMNS];
+/** labelled_by and labelled_at as the schema states them, for writers that check a value before it reaches a file. */
+export const LABELLER_HANDLE = new RegExp(schemaJson.properties.labelled_by.pattern, "u");
+export const LABELLED_AT = new RegExp(schemaJson.properties.labelled_at.pattern, "u");
 /** Columns a file may leave out of its header (format/README.md "Optional columns"). The database does not store them. */
-const OPTIONAL_COLUMNS: readonly string[] = ["price_table_date"];
+const OPTIONAL_COLUMNS: readonly string[] = ["price_table_date", ...PROVENANCE_COLUMNS];
 
 const INTEGER_COLUMNS = new Set(["tokens_in", "tokens_out", "latency_ms"]);
 const NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);
@@ -130,6 +137,24 @@ function text(row: Row, column: string): string {
   return value;
 }
 
+/** YYYY-MM-DD that names a real day (the schema pattern allows 2026-02-31; this does not). Years 0000-0099 included. */
+export function isCalendarDate(date: string): boolean {
+  const [year = NaN, month = NaN, day = NaN] = date.split("-").map(Number);
+  const parsed = new Date(0);
+  parsed.setUTCFullYear(year, month - 1, day);
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
+/** An `agent` label was never reviewed by a person, so it is never counted as truth: the row reads as unlabelled. */
+export function countsAsTruth(row: Row): boolean {
+  return row.get("label_source") !== "agent";
+}
+
+/** The label every count, table and gap reads: the row's label, or null when it is empty or an unreviewed `agent` label. */
+export function truthLabel(row: Row): Value {
+  return countsAsTruth(row) ? (row.get("label") ?? null) : null;
+}
+
 /** Errors, gaps and rows for one file's text. Errors make the file invalid; gaps are missing costs or labels. */
 export function validate(csvText: string): Validation {
   const { errors, rows } = readRows(csvText);
@@ -164,6 +189,17 @@ export function validate(csvText: string): Validation {
       answered.set(caseKey, entry);
     }
     if (rowErrors.length > 0) continue;
+    // A schema pattern's $ also matches before a final line break (the message contract); a handle or time never holds one.
+    const brokenAt = PROVENANCE_COLUMNS.find((column) => {
+      const value = row.get(column);
+      return typeof value === "string" && /[\r\n]/.test(value);
+    });
+    const labelledAt = row.get("labelled_at");
+    if (brokenAt !== undefined) {
+      errors.push(`line ${line}: ${brokenAt}: ${quoteText(String(row.get(brokenAt)))} ends with a line break`);
+    } else if (typeof labelledAt === "string" && !isCalendarDate(labelledAt.slice(0, 10))) {
+      errors.push(`line ${line}: labelled_at: ${quoteText(labelledAt)} is not a calendar date`);
+    }
     const caseId = text(row, "case_id");
     const questionId = text(row, "question_id");
     const answerer = text(row, "answerer");
@@ -196,6 +232,7 @@ export function validate(csvText: string): Validation {
     }
     if (cell(row, "cost_usd") === null) gaps.push(`line ${line}: cost_usd missing ${where}`);
     if (cell(row, "label") === null) gaps.push(`line ${line}: unlabelled ${where}`);
+    else if (!countsAsTruth(row)) gaps.push(`line ${line}: agent label not reviewed ${where}`);
   }
   // D12: each case needs a row from every method; `human` is not one of them. An absent method is a gap, not an error.
   for (const { label, methods } of answered.values()) {
@@ -211,7 +248,7 @@ export function summary(rows: readonly ParsedRow[]): string[] {
   const answerers = [...new Set(rows.map(({ values }) => text(values, "answerer")))].sort(compareCodePoints);
   return answerers.map((answerer) => {
     const mine = rows.map(({ values }) => values).filter((row) => cell(row, "answerer") === answerer);
-    const labelled = mine.filter((row) => cell(row, "label") !== null);
+    const labelled = mine.filter((row) => cell(row, "label") !== null && countsAsTruth(row));
     const accepted = labelled.filter((row) => cell(row, "label") === "accept").length;
     let total = 0;
     let complete = true;

@@ -6,7 +6,9 @@
 //                                            only when raw.json's inputs_sha256 matches the current inputs
 //   bun scripts/uc13/run-arms.ts replay      rebuild the Jev rows from examples/uc13-shop-bot/fixtures/uc13.jev.json, no network
 //   bun scripts/uc13/run-arms.ts page        label.html: fact sheet, acceptance rule, messages; no arm output
-//   bun scripts/uc13/run-arms.ts label       merge labels.csv (case_id,truth) into records.csv
+//   bun scripts/uc13/run-arms.ts label --source <s> --by <handle> --at <time> --blind <true|false>
+//                                            merge labels.csv (case_id,truth) into records.csv, stamped with that
+//                                            provenance (format/README.md "Label provenance"); no default
 //
 // Jev calls go through $JEV_CALL (default ~/.claude/scripts/jaylo-jev.sh call <body.json>), which reads the key
 // itself; this process never holds it. The LLM arm runs with no tools, no MCP servers and no user settings,
@@ -17,17 +19,20 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  CASE_IDS, CRITERIA, PROMPT_VERSION, QUESTION, RUN_ID, applyLabels, armRecord, formatRecords, jevBody, loadExample,
-  parseJevResponse, parseLlmResponse, parseRecords, parseTruth, ruleRecord, truthFromRows, type Answer, type ArmReply,
-  type Case, type RecordRow,
+  CASE_IDS, CRITERIA, PROMPT_VERSION, QUESTION, RUN_ID, applyLabels, armRecord, formatRecords, jevBody, loadExample, isLabelSource,
+  parseJevResponse, parseLlmResponse, parseRecords, parseTruth, provenanceByCase, ruleRecord, truthFromRows, type Answer,
+  type ArmReply, type Case, type LabelProvenance, type RecordRow,
 } from "./arms.ts";
 import { jevEntry, readFixture, replayJev, sha256Hex, writeFixture, type JevEntry } from "./calls.ts";
+import { isCalendarDate, LABELLED_AT, LABELLER_HANDLE } from "../../src/format/validate.ts";
 
 const LLM_MODEL = "haiku";
 const CONCURRENCY = 4;
 /** A call that has not answered by now is killed; the slowest recorded LLM call took under 10 s. */
 const CALL_DEADLINE_MS = 120_000;
-const USAGE = "usage: bun scripts/uc13/run-arms.ts run [--dry | --arm jev] | replay | label | page";
+const USAGE =
+  "usage: bun scripts/uc13/run-arms.ts run [--dry | --arm jev] | replay | page | " +
+  "label --source <human|human_reviewed|agent> --by <handle> --at <YYYY-MM-DD or UTC time> --blind <true|false>";
 
 export interface Paths {
   readonly example: string;
@@ -48,16 +53,49 @@ export function defaultPaths(): Paths {
 
 type Arm = "jev" | "llm";
 type Command = "run" | "replay" | "label" | "page";
-export interface Args { readonly command: Command; readonly dry: boolean; readonly arm: "jev" | null }
+export interface Args {
+  readonly command: Command;
+  readonly dry: boolean;
+  readonly arm: "jev" | null;
+  /** label only: how labels.csv was made. Required, so no label is ever stamped human by default. */
+  readonly provenance: LabelProvenance | null;
+}
 
 function isCommand(value: string | undefined): value is Command {
   return value === "run" || value === "replay" || value === "label" || value === "page";
+}
+
+const LABEL_FLAGS = ["--source", "--by", "--at", "--blind"];
+
+/** label --source <human|human_reviewed|agent> --by <handle> --at <time> --blind <true|false>, each exactly once. */
+function labelProvenance(flags: readonly string[]): LabelProvenance {
+  const given = new Map<string, string>();
+  for (let i = 0; i < flags.length; i += 2) {
+    const flag = flags[i] ?? "";
+    const value = flags[i + 1];
+    if (!LABEL_FLAGS.includes(flag) || given.has(flag)) throw new Error(`unknown or repeated flag ${flag}; ${USAGE}`);
+    if (value === undefined) throw new Error(`${flag} needs a value; ${USAGE}`);
+    given.set(flag, value);
+  }
+  const missing = LABEL_FLAGS.filter((flag) => !given.has(flag));
+  if (missing.length > 0) throw new Error(`label needs ${missing.join(", ")}: say who labelled labels.csv and how; ${USAGE}`);
+  const source = given.get("--source") ?? "";
+  const by = given.get("--by") ?? "";
+  const at = given.get("--at") ?? "";
+  const blind = given.get("--blind") ?? "";
+  if (!isLabelSource(source)) throw new Error(`--source takes human, human_reviewed or agent, got ${source}`);
+  if (!LABELLER_HANDLE.test(by)) throw new Error(`--by takes a handle (letters, digits, _ . : + -), never an email, got ${by}`);
+  if (!LABELLED_AT.test(at) || !isCalendarDate(at.slice(0, 10))) throw new Error(`--at takes YYYY-MM-DD or a UTC time like 2026-10-07T09:30:00Z, got ${at}`);
+  if (blind !== "true" && blind !== "false") throw new Error(`--blind takes true or false, got ${blind}`);
+  if (source === "human_reviewed" && blind === "true") throw new Error("--source human_reviewed takes --blind false: approving a draft means seeing it");
+  return { source, by, at, blind: blind === "true" };
 }
 
 /** The command line against an explicit whitelist; an unknown, repeated or conflicting flag fails before any side effect. */
 export function parseArgs(argv: readonly string[]): Args {
   const [command, ...flags] = argv;
   if (!isCommand(command)) throw new Error(USAGE);
+  if (command === "label") return { command, dry: false, arm: null, provenance: labelProvenance(flags) };
   let dry = false;
   let arm: "jev" | null = null;
   for (let i = 0; i < flags.length; i++) {
@@ -71,7 +109,7 @@ export function parseArgs(argv: readonly string[]): Args {
     } else throw new Error(`unknown or repeated flag ${flag ?? ""}; ${USAGE}`);
   }
   if (dry && arm !== null) throw new Error("--dry and --arm jev conflict: a dry run calls no arm");
-  return { command, dry, arm };
+  return { command, dry, arm, provenance: null };
 }
 
 function llmSystem(factSheet: string): string {
@@ -175,7 +213,14 @@ function assertArmComplete(arm: Arm, rows: readonly RecordRow[], calls: readonly
   }
 }
 
-interface Kept { readonly rows: RecordRow[]; readonly calls: readonly RawCall[]; readonly truth: Map<string, Answer>; readonly inputsSha256: string | null }
+interface Kept {
+  readonly rows: RecordRow[];
+  readonly calls: readonly RawCall[];
+  readonly truth: Map<string, Answer>;
+  /** How the kept labels were made, carried through a rebuild unchanged. */
+  readonly provenance: Map<string, LabelProvenance>;
+  readonly inputsSha256: string | null;
+}
 
 /** The recorded llm arm, complete and consistent, plus the truth its labels encode. */
 async function keptLlm(out: string): Promise<Kept> {
@@ -184,7 +229,7 @@ async function keptLlm(out: string): Promise<Kept> {
   const rows = all.filter((r) => r.answerer === "llm");
   const calls = raw.calls.filter((x) => x.arm === "llm");
   assertArmComplete("llm", rows, calls);
-  return { rows, calls, truth: truthFromRows(all), inputsSha256: raw.inputsSha256 };
+  return { rows, calls, truth: truthFromRows(all), provenance: provenanceByCase(all), inputsSha256: raw.inputsSha256 };
 }
 
 async function write(out: string, rows: readonly RecordRow[], calls: readonly RawCall[], inputs: string | null): Promise<void> {
@@ -253,7 +298,7 @@ async function run(paths: Paths, dry: boolean, only: Arm | null): Promise<void> 
     captured.sort((a, b) => (order.get(a.case_id) ?? 0) - (order.get(b.case_id) ?? 0));
     await writeFixture(paths.fixture, captured, new Date().toISOString());
   }
-  const all = kept === null ? rows : applyLabels([...rows, ...kept.rows], kept.truth);
+  const all = kept === null ? rows : applyLabels([...rows, ...kept.rows], kept.truth, kept.provenance);
   await write(paths.out, all, [...calls, ...(kept?.calls ?? [])], inputs);
 }
 
@@ -267,12 +312,13 @@ async function replay(paths: Paths): Promise<void> {
   const replayed = replayJev(await readFixture(paths.fixture), cases, (c) => jevBody(factSheet, c));
   const rows = [...cases.map(ruleRecord), ...replayed.map(({ case_, reply, ms }) => armRecord(case_, "jev", reply, ms)), ...kept.rows];
   const calls = [...replayed.map(({ case_, reply }) => rawCall(case_, "jev", reply)), ...kept.calls];
-  await write(paths.out, applyLabels(rows, kept.truth), calls, kept.inputsSha256);
+  await write(paths.out, applyLabels(rows, kept.truth, kept.provenance), calls, kept.inputsSha256);
 }
 
-async function label(paths: Paths): Promise<void> {
+/** Merge labels.csv, stamped with the provenance the command line states (there is no default). */
+async function label(paths: Paths, provenance: LabelProvenance): Promise<void> {
   const truth = parseTruth(await Bun.file(join(paths.out, "labels.csv")).text());
-  const rows = applyLabels(parseRecords(await Bun.file(join(paths.out, "records.csv")).text()), truth);
+  const rows = applyLabels(parseRecords(await Bun.file(join(paths.out, "records.csv")).text()), truth, provenance);
   await Bun.write(join(paths.out, "records.csv"), formatRecords(rows));
   console.log(`labelled ${rows.filter((r) => r.label !== "").length} of ${rows.length} rows from ${truth.size} truth labels`);
 }
@@ -299,7 +345,10 @@ export async function main(argv: readonly string[], paths: Paths): Promise<void>
   const args = parseArgs(argv);
   if (args.command === "run") await run(paths, args.dry, args.arm);
   else if (args.command === "replay") await replay(paths);
-  else if (args.command === "label") await label(paths);
+  else if (args.command === "label") {
+    if (args.provenance === null) throw new Error(USAGE);
+    await label(paths, args.provenance);
+  }
   else await page(paths);
 }
 

@@ -154,3 +154,8 @@ export function ruleKeywords(ruleMd: string): readonly string[] {
   if (!line) throw new Error("rule.md has no keyword list");
   return line.split(",").map((term) => term.trim()).filter(Boolean);
 }
+
+/** Stub: fit a keyword list into Backstage's cap. */
+export function fitKeywords(terms: readonly string[], cap: number): { readonly kept: readonly string[]; readonly redundant: readonly string[]; readonly dropped: readonly string[] } {
+  return { kept: terms.slice(0, cap), redundant: [], dropped: [] };
+}

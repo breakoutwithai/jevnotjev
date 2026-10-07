@@ -8,7 +8,7 @@ import { verdict, type Condition } from "../../src/core/verdict.ts";
 import { readDictRows } from "../../src/format/csv.ts";
 import { validate } from "../../src/format/validate.ts";
 import { CRITERIA, formatRecords, loadExample, record, type RecordRow } from "../uc13/arms.ts";
-import { buildReport, casesCsv, checkRecords, readOpeningNight, ruleKeywords, scanForSecrets, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
+import { buildReport, casesCsv, checkRecords, fitKeywords, readOpeningNight, ruleKeywords, scanForSecrets, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
 const example = await loadExample(EXAMPLE);
@@ -200,5 +200,18 @@ describe("#134 UC13 inputs", () => {
     const terms = ruleKeywords(rule);
     expect(terms).toHaveLength(29); expect(terms).toContain("injur"); expect(terms).toContain("this weekend");
     expect(terms.every((term) => term.trim() !== "")).toBe(true);
+  });
+  test("[unit] #134 row 38 fits rule.md into the Backstage 20-keyword cap and names what it left out", async () => {
+    const terms = ruleKeywords(await Bun.file(join(EXAMPLE, "rule.md")).text());
+    const fit = fitKeywords(terms, 20);
+    expect(fit.kept).toHaveLength(20);
+    // Backstage matches by case-insensitive substring (src/backstage/run.ts:1220), so a term containing a kept term adds nothing.
+    expect(fit.redundant).toEqual(["in stock", "booked", "booking", "confirmed", "broken"]);
+    expect(fit.dropped).toEqual(["this weekend", "saturday", "sunday", "tomorrow"]);
+    expect([...fit.kept, ...fit.redundant, ...fit.dropped].sort()).toEqual([...terms].sort());
+    for (const term of fit.redundant) expect(fit.kept.some((k) => term.includes(k))).toBe(true);
+  });
+  test("[unit] #134 row 39 a list within the cap is kept whole and in order", () => {
+    expect(fitKeywords(["refund", "money back"], 20)).toEqual({ kept: ["refund", "money back"], redundant: [], dropped: [] });
   });
 });

@@ -324,12 +324,16 @@ footer {
   padding: 22px 0;
   font: 12px var(--sans);
 }
-.colophon {
+.colophon,
+.demo-notice {
   max-width: 980px;
-  padding: 0 24px 32px;
+  padding: 0 24px;
   margin: auto;
   color: var(--muted);
   font: 12px/1.6 var(--sans);
+}
+.demo-notice {
+  padding-bottom: 32px;
 }
 .sr-only {
   position: absolute;

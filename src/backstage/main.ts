@@ -40,6 +40,7 @@ import type { Spend, CostPerAccepted } from "../core/metrics.ts";
 import { importedLabelSummary, parseCaseImport, type ImportedLabel } from "./run.ts";
 import { mountCalibration } from "./calibration-view.ts";
 import { UC13_CALIBRATION } from "../labels/calibration-set.ts";
+import { PACK_PARAM, packFromSearch } from "../labels/pack-link.ts";
 import { STARTER_PACKS, starterPackCsv, type StarterPack } from "../labels/starter-packs.ts";
 declare const BACKSTAGE_BUILD_VERSION: string;
 function element(id: string): HTMLElement {
@@ -1196,3 +1197,13 @@ for (const pack of STARTER_PACKS) {
 }
 mountCalibration(UC13_CALIBRATION);
 showRoom(0, false);
+// One link, one click: /backstage/?pack=p5 fills the scene and cases as the pack's button does, and calls no model.
+// The pack query is then dropped from the address so a reload keeps the tester's edits instead of reloading the pack.
+const linkedPack = packFromSearch(location.search);
+if (linkedPack !== null) {
+  loadStarterPack(linkedPack);
+  const rest = new URLSearchParams(location.search);
+  rest.delete(PACK_PARAM);
+  const query = rest.toString();
+  history.replaceState(null, "", location.pathname + (query === "" ? "" : "?" + query));
+}

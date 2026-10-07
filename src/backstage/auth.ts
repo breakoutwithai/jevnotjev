@@ -10,10 +10,18 @@ const deriveScrypt = (password: string, salt: string, length: number): Promise<B
 });
 
 // Ported from breakout-research-v3 src/lib/auth/dashboard-access.ts:94-111 at d40a5cc4.
+// A same-origin /backstage path, optionally with the one query a link may carry: ?pack=<id> (persona pack deep link).
 export function sanitizeNextPath(path: string | null | undefined): string {
-  if (!path || !/^\/backstage\/(?:[A-Za-z0-9/._-]*)$/.test(path)) return "/backstage/";
+  if (!path || !/^\/backstage\/(?:[A-Za-z0-9/._-]*)(?:\?pack=[A-Za-z0-9]{1,16})?$/.test(path)) return "/backstage/";
   if (path.includes("//") || path.includes("..")) return "/backstage/";
   return path;
+}
+
+// The sign-in URL for a gated address: next keeps the pack query, percent-encoded so it stays one parameter.
+export function signInLocation(pathname: string, search: string): string {
+  const next = sanitizeNextPath(pathname + search);
+  const mark = next.indexOf("?");
+  return `/backstage/sign-in?next=${mark < 0 ? next : next.slice(0, mark) + encodeURIComponent(next.slice(mark))}`;
 }
 
 export function normalizeEmail(value: string): string {

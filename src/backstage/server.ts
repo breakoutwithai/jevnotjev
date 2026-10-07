@@ -1,7 +1,7 @@
 import { join, resolve, sep } from "node:path";
 import { isIP } from "node:net";
 import { randomBytes, randomUUID } from "node:crypto";
-import { cookie, cookieName, credentialFingerprint, GoogleStates, inspectSession, isSameOrigin, LoginLimiter, normalizeEmail, OperatorStore, parseCookie, RevokedSessions, sanitizeNextPath, SESSION_TTL_MS, signSession, validateGoogleProfile, verifyPasswordHash } from "./auth.ts";
+import { cookie, cookieName, credentialFingerprint, GoogleStates, inspectSession, isSameOrigin, LoginLimiter, normalizeEmail, OperatorStore, parseCookie, RevokedSessions, sanitizeNextPath, SESSION_TTL_MS, signInLocation, signSession, validateGoogleProfile, verifyPasswordHash } from "./auth.ts";
 import { createEventLogger } from "./log.ts";
 import type { AuthEvent, GoogleDeniedReason, SessionRejectedReason, RunEvent } from "./log.ts";
 import type { Provider } from "./contracts.ts";
@@ -320,7 +320,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     }
     if ((options.requireSession === true || request.headers.get("x-backstage-gate") === "session") && gatedPrefix && !sessionFrom(request, emitAuth)) {
       if (gatedPrefix === "/api/backstage/") return denied();
-      return redirect(`/backstage/sign-in?next=${sanitizeNextPath(pathname)}`, 302);
+      return redirect(signInLocation(pathname, url.search), 302);
     }
     const trialHeld = trial.available && (fundingHeld || trial.ledger.held());
     if (pathname === "/api/backstage/health")

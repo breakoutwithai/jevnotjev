@@ -37,6 +37,7 @@ class FakeElement extends FakeNode {
   }
   getAttribute(name: string) { return this.attributes.get(name) ?? null; }
   removeAttribute(name: string) { this.attributes.delete(name); }
+  attributeText(): string { return [...this.attributes.values(), this.value].join("\n"); }
   focus() { if (this.owner) this.owner.activeElement = this; }
   click() { this.onclick?.(); this.dispatchEvent(new Event("click")); }
 }
@@ -62,6 +63,13 @@ class FakeDocument {
   }
   createTextNode(value: string): FakeNode { const node = new FakeNode("#text"); node.textContent = value; return node; }
   getElementById(id: string): FakeElement | null { return this.elements.find((element) => element.id === id) ?? null; }
+  /** Everything in the connected tree from the page's root element: text, attributes and field values, hidden or not. */
+  connectedText(): string {
+    const walk = (node: FakeNode): string =>
+      [node.textContent, node instanceof FakeElement ? node.attributeText() : "", ...node.children.map(walk)].join("\n");
+    const root = this.elements[0];
+    return root === undefined ? "" : walk(root);
+  }
   querySelectorAll(selector: string): FakeElement[] {
     if (selector === "[data-panel]") return this.elements.filter((element) => element.dataset.panel !== undefined);
     if (selector === "[data-room]") return this.elements.filter((element) => element.dataset.room !== undefined);
@@ -519,7 +527,7 @@ test("[integration] D03 the revealed Backstage run shows kept and cost figures a
   typeInto(page, "cases", "Please refund my mug");
   await runFirstCase(page);
   await openJudging(page);
-  page.get("accept").click();
+  page.get("pick-first").click();
   page.get("reveal").click();
   page.get("confirm-reveal-yes").click();
   await tick();
@@ -527,6 +535,168 @@ test("[integration] D03 the revealed Backstage run shows kept and cost figures a
   // Positive control: the metrics table rendered, so an absent word is absent from displayed content.
   expect(rendered).toContain("Kept / labelled");
   expect(rendered).toContain("Cost / kept");
+  expect(rendered).toContain("1 / 1");
   expect(rendered).not.toMatch(/latency/i);
   expect(rendered).not.toMatch(/labell?ing time/i);
+});
+
+/** Jev answers yes with confidence 0.82 and per-option probabilities: distinctive text a leak would show. */
+async function answerYesRanked(request: AnswerRequest) {
+  return { ...(await answerYes(request)), confidence: 0.82, probabilities: { yes: 0.82, no: 0.18 } };
+}
+/** What would show Jev's answer for a case: the ranking, its percentages, the confidence, the answers table. */
+const SUGGESTION_MARKERS = [/82%/, /18%/, /0\.82/, /Jev's choice/, /Jev's ranking/, /Returned confidence/, /^Jev answers$/m];
+function leaks(page: Awaited<ReturnType<typeof mount>>): string[] {
+  const text = page.document.connectedText();
+  return SUGGESTION_MARKERS.filter((marker) => marker.test(text)).map(String);
+}
+function within(node: FakeNode, id: string): FakeElement | null {
+  for (const child of node.children) {
+    if (child instanceof FakeElement && child.id === id) return child;
+    const found = within(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+function answerCalls(page: Awaited<ReturnType<typeof mount>>): number {
+  return page.urls.filter((url) => url === "/api/backstage/answer").length;
+}
+
+test("[e2e] M2 blind integrity: no Jev answer, ranking or confidence is in the DOM or network before the blind pick", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYesRanked);
+  fillScene(page, "");
+  typeInto(page, "cases", "Please refund my mug");
+  await runFirstCase(page);
+  const runCalls = answerCalls(page);
+  expect(runCalls).toBe(1);
+  // After the run, before judging: Learning Lines holds no answer for the unpicked case.
+  expect(leaks(page)).toEqual([]);
+  await openJudging(page);
+  // Judging open, case on screen, not yet picked: the case and both choices, nothing of Jev's answer.
+  expect(textOf(page.get("blind-card"))).toContain("Please refund my mug");
+  expect(page.get("pick-first").textContent).toBe("yes");
+  expect(page.get("pick-second").textContent).toBe("no");
+  expect(page.get("pick-actions").hidden).toBe(false);
+  expect(leaks(page)).toEqual([]);
+  expect(answerCalls(page)).toBe(runCalls);
+  // The blind pick: now the ranking appears (positive control), from the recorded answer with no new call.
+  page.get("pick-second").click();
+  await tick();
+  expect(leaks(page)).toEqual(SUGGESTION_MARKERS.map(String));
+  expect(textOf(page.get("suggestion"))).toContain("#1 yes 82% (Jev's choice)");
+  expect(textOf(page.get("suggestion"))).toContain("#2 no 18%");
+  expect(answerCalls(page)).toBe(runCalls);
+  expect(page.get("pick-actions").hidden).toBe(true);
+  // Keep or change: the final pick is recorded beside the blind one.
+  const change = within(page.get("suggestion"), "final-yes");
+  if (!change) throw new Error("no final-yes button in the suggestion panel");
+  change.click();
+  await tick();
+  expect(textOf(page.get("blind-card"))).toContain("Your blind pick: no");
+  // getElementById in this fake also finds replaced nodes; read the buttons from the live panel.
+  expect(within(page.get("suggestion"), "final-yes")?.getAttribute("aria-pressed")).toBe("true");
+  expect(within(page.get("suggestion"), "final-no")?.getAttribute("aria-pressed")).toBe("false");
+});
+
+test("[integration] M2 unsure records no label and still shows the ranking after the pick", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYesRanked);
+  fillScene(page, "");
+  typeInto(page, "cases", "Please refund my mug");
+  await runFirstCase(page);
+  await openJudging(page);
+  expect(leaks(page)).toEqual([]);
+  page.get("pick-unsure").click();
+  await tick();
+  expect(textOf(page.get("blind-card"))).toContain("Your blind pick: unsure");
+  expect(textOf(page.get("suggestion"))).toContain("#1 yes 82% (Jev's choice)");
+  expect(textOf(page.get("suggestion"))).toContain("Unsure: no label is recorded for this case.");
+  expect(within(page.get("suggestion"), "final-yes")).toBeNull();
+});
+
+test("[e2e] M2 blind integrity per case: picking one case shows its ranking and answer, never another case's", async () => {
+  const page = await mount(undefined, undefined, undefined, async (request) =>
+    request.input.includes("order")
+      ? { ...(await answerYes(request)), output: "no", confidence: 0.37, probabilities: { yes: 0.37, no: 0.63 } }
+      : answerYesRanked(request),
+  );
+  fillScene(page, "");
+  typeInto(page, "cases", "Please refund my mug\nWhere is my order");
+  page.get("run-all").click();
+  await until(() => page.document.getElementById("open-judging") !== null);
+  await openJudging(page);
+  const secondCase = [/63%/, /37%/, /0\.37/];
+  const text = () => page.document.connectedText();
+  expect(leaks(page)).toEqual([]);
+  page.get("pick-first").click();
+  await tick();
+  // Case 1 picked: its ranking and its Learning Lines row show; nothing of case 2 does.
+  expect(text()).toContain("#1 yes 82% (Jev's choice)");
+  expect(textOf(page.get("progress"))).toContain("0.82");
+  for (const marker of secondCase) expect(text()).not.toMatch(marker);
+  // Case 2 on screen, not yet picked: still nothing of its answer.
+  page.get("next-card").click();
+  await tick();
+  expect(textOf(page.get("blind-card"))).toContain("Where is my order");
+  expect(page.get("suggestion").children).toEqual([]);
+  for (const marker of secondCase) expect(text()).not.toMatch(marker);
+  // Positive control: its blind pick reveals it.
+  page.get("pick-second").click();
+  await tick();
+  expect(textOf(page.get("suggestion"))).toContain("#1 no 63% (Jev's choice)");
+  // Evidence holds every answer, so it stays locked until judging finishes.
+  expect(page.get("download-evidence").disabled).toBe(true);
+});
+
+/** Compare mode with the keyword rule, so a case whose Jev call failed still has an answer to pick. */
+async function compareWithFailedJevOnSecondCase(jevKey: string) {
+  let failSecond = true;
+  const sent: AnswerRequest[] = [];
+  const page = await mount(undefined, undefined, undefined, async (request) => {
+    sent.push(request);
+    if (failSecond && request.input.includes("order")) throw new Error("network");
+    return answerYesRanked(request);
+  });
+  fillScene(page, "");
+  page.get("compare").checked = true;
+  page.get("include-rule").checked = true;
+  typeInto(page, "keywords", "refund");
+  typeInto(page, "cases", "Please refund my mug\nWhere is my order");
+  page.get("run-all").click();
+  await until(() => page.document.getElementById("open-judging") !== null);
+  await openJudging(page);
+  failSecond = false;
+  page.get("jev-key").value = jevKey;
+  page.get("next-card").click();
+  await tick();
+  expect(textOf(page.get("blind-card"))).toContain("Where is my order");
+  page.get("pick-second").click();
+  await tick();
+  return { page, sent };
+}
+
+test("[integration] M2 m4 no recorded Jev answer: Ask Jev makes one call on the typed key, however often it is clicked", async () => {
+  const { page, sent } = await compareWithFailedJevOnSecondCase("jev-typed-labeller-key");
+  expect(textOf(page.get("suggestion"))).toContain("No suggestion yet: this run has no Jev answer for this case.");
+  const before = sent.length;
+  const ask = within(page.get("suggestion"), "ask-jev");
+  if (!ask) throw new Error("no Ask Jev button");
+  ask.click();
+  ask.click();
+  await until(() => textOf(page.get("suggestion")).includes("Jev's ranking"));
+  expect(sent.length).toBe(before + 1);
+  expect(sent.at(-1)?.key).toBe("jev-typed-labeller-key");
+  expect(sent.at(-1)?.provider).toBe("jev");
+  expect(textOf(page.get("suggestion"))).toContain("#1 yes 82% (Jev's choice)");
+  expect(within(page.get("suggestion"), "ask-jev")).toBeNull();
+});
+
+test("[integration] M2 m4 no recorded Jev answer and no Jev key: no Ask Jev button, no call, keep only", async () => {
+  const { page, sent } = await compareWithFailedJevOnSecondCase("");
+  const before = sent.length;
+  expect(textOf(page.get("suggestion"))).toContain("No suggestion yet");
+  expect(within(page.get("suggestion"), "ask-jev")).toBeNull();
+  expect(within(page.get("suggestion"), "final-no")?.textContent).toBe("Keep no");
+  expect(within(page.get("suggestion"), "final-yes")).toBeNull();
+  await tick();
+  expect(sent.length).toBe(before);
 });

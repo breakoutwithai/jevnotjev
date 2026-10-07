@@ -87,6 +87,8 @@ export interface AnswerSuccess extends AttemptEvidence {
   readonly ok: true;
   readonly output: string;
   readonly confidence: number | null;
+  /** Jev's per-option probabilities when it returned them (keys = the two choice names); absent or null otherwise. */
+  readonly probabilities?: Readonly<Record<string, number>> | null;
 }
 export interface AnswerFailure extends AttemptEvidence {
   readonly ok: false;

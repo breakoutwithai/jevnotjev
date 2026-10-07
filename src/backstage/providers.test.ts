@@ -58,6 +58,22 @@ test("[unit] B3 Jev pins model and captures real usage from allowlisted fields",
   expect(result.costUsd).toBeCloseTo(0.0000042);
   expect(JSON.stringify(result)).not.toContain(request.key);
 });
+test("[unit] M2 a Jev answer passes its per-option probabilities through for ranking; none stays null", async () => {
+  const withProbabilities = await callProvider(request, async () =>
+    Response.json({
+      model: "jev-1.13.0",
+      answers: { q1: { choice: "keep", confidence: 0.82, probabilities: { keep: 0.82, cut: 0.18 } } },
+      usage: { input_tokens: 100, output_tokens: 0 },
+    }),
+  );
+  if (!withProbabilities.ok) throw new Error("expected an answer");
+  expect(withProbabilities.probabilities).toEqual({ keep: 0.82, cut: 0.18 });
+  const without = await callProvider(request, async () =>
+    Response.json({ model: "jev-1.13.0", answers: { q1: { choice: "keep" } }, usage: { input_tokens: 100, output_tokens: 0 } }),
+  );
+  if (!without.ok) throw new Error("expected an answer");
+  expect(without.probabilities).toBeNull();
+});
 test("[unit] B3 off-model and unsafe outputs fail without forwarding upstream bodies", async () => {
   for (const payload of [
     { model: "wrong", error: request.key },

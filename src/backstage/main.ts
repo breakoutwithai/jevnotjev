@@ -1,11 +1,13 @@
 import {
-  BACKSTAGE_PICK,
+  BACKSTAGE_BLIND_PICK,
   BackstageRun,
   CaseImportState,
   checkRunnerHealth,
   validateSceneKeys,
   trialTransport,
+  type PickCard,
 } from "./run.ts";
+import { rankJevOptions, type JevSuggestion } from "../labels/rank.ts";
 import { MODEL_CATALOG, CATALOG_CHECKED_DATE, JEV_ARM_ID } from "./catalog.ts";
 import { copyDecision } from "./copy.ts";
 import { signOut, signOutRequest } from "./signout.ts";
@@ -299,7 +301,7 @@ async function start(firstOnly: boolean, retry = false, funded = false) {
       notice(
         current.manifest.mode === "compare"
           ? "Calls stopped. Decide whether to retry unfinished calls, then open blind judging in Rehearsals."
-          : "Calls stopped. Jev answers appear below. Retry unfinished calls or open judging in Rehearsals to label and export.",
+          : "Calls stopped. Each Jev answer shows here once you pick its case blind in Rehearsals. Retry unfinished calls or open judging in Rehearsals to label and export.",
       );
   } catch (error) {
     notice(error instanceof Error ? error.message : "Could not start the run.");
@@ -379,15 +381,14 @@ async function render() {
   element("comparison-note").hidden = !comparison;
   text(
     "judging-direction",
-    comparison
-      ? "Judge the answer before you learn who gave it."
-      : "Judge Jev’s answer against your acceptance rule.",
+    "Pick the right answer for each case before you see any answer. Then Jev’s ranking appears: keep your pick or change it.",
   );
   text(
     "judging-note",
-    comparison
-      ? "Player, model, confidence, cost and timing are hidden here. Order is shuffled. Labels are yours; no model grades itself."
-      : "This run contains Jev only. Confidence is the model’s score, not measured accuracy. Your labels are optional and remain separate.",
+    (comparison
+      ? "Every player’s answer is scored against your first pick, made blind. "
+      : "Jev’s answer is scored against your first pick, made blind. ") +
+      "Your final pick is recorded beside it, never instead of it. Confidence is the model’s score, not measured accuracy. Labels are optional; unsure leaves a case unlabelled.",
   );
   button("run-trial").disabled =
     !trialAvailable || starting || !!current || imports.pending;
@@ -404,11 +405,9 @@ async function render() {
   button("new-scene").disabled = running || starting;
   button("download-csv").disabled =
     !current?.exportable || (!current.revealed && current.cards().length > 0);
+  // Evidence holds every answer: before reveal it would show answers for cases not yet picked blind.
   button("download-evidence").disabled =
-    !current?.exportable ||
-    (current.manifest.mode === "compare" &&
-      !current.revealed &&
-      current.cards().length > 0);
+    !current?.exportable || (!current.revealed && current.cards().length > 0);
   button("reveal").textContent = comparison
     ? "Reveal results and lock labels"
     : "Finish judging and unlock downloads";
@@ -432,7 +431,7 @@ async function render() {
       progress.append(
         node(
           "p",
-          `${current.pending} selected calls have no answer. Failed attempts: ${money(extra.knownUsd)} known spend, ${extra.unknown} with unknown charges. ${comparison ? "Provider details stay hidden until results are revealed." : "Completed Jev answers and returned confidence appear below."}`,
+          `${current.pending} selected calls have no answer. Failed attempts: ${money(extra.knownUsd)} known spend, ${extra.unknown} with unknown charges. ${comparison ? "Provider details stay hidden until results are revealed; Jev's ranking for a case shows after you pick it." : "Each Jev answer and its returned confidence appear below once you pick its case blind in Rehearsals."}`,
         ),
       );
     }
@@ -469,7 +468,7 @@ async function render() {
         "p",
         comparison
           ? "Results stay hidden until you reveal them in Rehearsals."
-          : "Jev answers are visible in Learning Lines. Finish judging in Rehearsals to unlock the summary and downloads; labels are optional.",
+          : "Jev answers appear in Learning Lines as you pick each case blind. Finish judging in Rehearsals to unlock the summary and downloads; labels are optional.",
       ),
     );
     return;
@@ -565,20 +564,13 @@ function renderCard() {
   const current = run;
   const container = element("blind-card");
   const cards =
-    current && !current.running && current.labeling ? current.cards() : [];
+    current && !current.running && current.labeling ? current.pickCards() : [];
   cardIndex = Math.max(0, Math.min(cardIndex, cards.length - 1));
   const card = cards[cardIndex];
-  button("unlabel").removeAttribute("aria-pressed");
-  for (const [id, value] of [
-    ["accept", "accept"],
-    ["reject", "reject"],
-  ])
-    if (id)
-      button(id).setAttribute(
-        "aria-pressed",
-        String(!!card && card.label === value),
-      );
-  element("label-actions").hidden = !card || !!current?.revealed;
+  element("pick-actions").hidden = !card || card.picked || !!current?.revealed;
+  button("pick-first").textContent = card?.choices[0] ?? "First choice";
+  button("pick-second").textContent = card?.choices[1] ?? "Second choice";
+  element("suggestion").replaceChildren();
   button("previous-card").disabled = !card || cardIndex === 0;
   button("next-card").disabled = !card || cardIndex >= cards.length - 1;
   // No active card (no run, new scene, still running): nothing from an earlier scene may stay on screen.
@@ -617,21 +609,111 @@ function renderCard() {
     return;
   }
   container.className = "answer-card";
-  const answer = node("p", card.output);
-  answer.className = "answer";
   container.replaceChildren(
-    node("p", `Answer ${cardIndex + 1} of ${cards.length} / ${card.caseId}`),
+    node("p", `Case ${cardIndex + 1} of ${cards.length} / ${card.caseId}`),
     node("h3", current?.manifest.scene.question ?? ""),
     node("p", card.input),
-    answer,
-    node("p", `Your label: ${card.label ?? "No label"}`),
+    node(
+      "p",
+      card.picked
+        ? `Your blind pick: ${card.blind ?? "unsure"}`
+        : "Pick before you see any answer.",
+    ),
+  );
+  // Blind integrity: nothing of Jev's answer for this case is built until its blind pick is committed.
+  if (current && card.picked) renderSuggestion(current, card);
+}
+function rankingLines(card: PickCard, answer: JevSuggestion): HTMLElement[] {
+  const ranking = rankJevOptions(card.choices, answer);
+  const lines = ranking.options.map((o) =>
+    node(
+      "li",
+      (o.rank === null ? "unranked " : `#${o.rank} `) +
+        o.option +
+        (o.probability === null ? "" : ` ${Math.round(o.probability * 100)}%`) +
+        (o.jevChoice ? " (Jev's choice)" : ""),
+    ),
+  );
+  const list = document.createElement("ol");
+  list.append(...lines);
+  return [
+    node("h3", "Jev's ranking"),
+    list,
+    node(
+      "p",
+      ranking.ranked
+        ? "Ordered by Jev's probability for each option."
+        : "Jev returned no probabilities: its choice first, the rest unranked.",
+    ),
+    node(
+      "p",
+      answer.confidence === null
+        ? "Jev's confidence: not returned."
+        : `Jev's confidence: ${answer.confidence}`,
+    ),
+  ];
+}
+function finalButton(card: PickCard, choice: string): HTMLElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.id = "final-" + choice;
+  b.className = "secondary";
+  b.textContent = choice === card.blind ? `Keep ${choice}` : `Change to ${choice}`;
+  b.setAttribute("aria-pressed", String(card.final === choice));
+  b.onclick = () => finalPick(card.caseId, choice);
+  return b;
+}
+function renderSuggestion(current: BackstageRun, card: PickCard) {
+  const panel = element("suggestion");
+  const suggestion = current.knownSuggestion(card.caseId);
+  const shown = suggestion.kind !== "none";
+  const parts: HTMLElement[] = shown ? rankingLines(card, suggestion.answer) : [];
+  if (!shown)
+    parts.push(
+      node(
+        "p",
+        suggestion.reason === "call-failed"
+          ? "No suggestion yet: the call on your key did not return a usable answer."
+          : "No suggestion yet: this run has no Jev answer for this case.",
+      ),
+    );
+  if (!shown && suggestion.reason === "no-key" && keys().jev && !current.revealed) {
+    const ask = document.createElement("button");
+    ask.type = "button";
+    ask.id = "ask-jev";
+    ask.className = "secondary";
+    ask.textContent = "Ask Jev with your key (one paid call)";
+    ask.onclick = () => askJev(current, card.caseId);
+    parts.push(ask);
+  }
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  if (card.blind === null) parts.push(node("p", "Unsure: no label is recorded for this case."));
+  else if (current.revealed) parts.push(node("p", `Your final pick: ${card.final ?? "not made"}`));
+  else if (shown) actions.append(...card.choices.map((choice) => finalButton(card, choice)));
+  else actions.append(finalButton(card, card.blind));
+  panel.replaceChildren(...parts, actions);
+}
+function askJev(current: BackstageRun, caseId: string) {
+  if (current !== run || current.revealed) return;
+  void current.suggestion(caseId, keys().jev ?? null).then(
+    () => {
+      if (current === run) void render();
+    },
+    (error: unknown) => notice(error instanceof Error ? error.message : "Could not ask Jev."),
   );
 }
-function label(value: "accept" | "reject" | null) {
-  const card = run?.cards()[cardIndex];
-  if (!card || !run || run.running || !run.labeling || run.revealed) return;
-  run.label(card.id, value, BACKSTAGE_PICK);
-  cardIndex = Math.min(cardIndex + 1, run.cards().length - 1);
+function pickBlind(choice: string | null) {
+  const current = run;
+  const card = current?.pickCards()[cardIndex];
+  if (!current || !card || card.picked || current.running || !current.labeling || current.revealed) return;
+  current.pickBlind(card.caseId, choice, BACKSTAGE_BLIND_PICK);
+  void render();
+}
+function finalPick(caseId: string, choice: string) {
+  const current = run;
+  if (!current || current.running || !current.labeling || current.revealed) return;
+  current.pickFinal(caseId, choice);
   void render();
 }
 function download(name: string, content: string, type: string) {
@@ -765,9 +847,13 @@ function clearScene() {
   notice("Scene unlocked. Your next run gets a new identity.");
   showRoom(0);
 }
-button("accept").onclick = () => label("accept");
-button("reject").onclick = () => label("reject");
-button("unlabel").onclick = () => label(null);
+button("pick-first").onclick = () => {
+  if (run) pickBlind(run.manifest.scene.choices[0].name);
+};
+button("pick-second").onclick = () => {
+  if (run) pickBlind(run.manifest.scene.choices[1].name);
+};
+button("pick-unsure").onclick = () => pickBlind(null);
 button("previous-card").onclick = () => {
   cardIndex--;
   renderCard();
@@ -783,9 +869,7 @@ button("download-csv").onclick = () => {
 button("download-evidence").onclick = () => {
   if (
     run?.exportable &&
-    (run.manifest.mode !== "compare" ||
-      run.revealed ||
-      run.cards().length === 0)
+    (run.revealed || run.cards().length === 0)
   )
     download(
       "backstage-evidence.json",

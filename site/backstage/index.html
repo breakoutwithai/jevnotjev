@@ -293,12 +293,12 @@
         <p class="eyebrow">ACT III / YOUR JUDGMENT</p>
         <h2 id="rehearsal-title" tabindex="-1">Rehearsals</h2>
         <p id="judging-direction" class="direction">
-          Judge Jev’s answer against your acceptance rule.
+          Pick the right answer for each case before you see any answer.
         </p>
         <p id="rubric"></p>
         <p id="leave-out"></p>
         <div id="blind-card">
-          <p>Run your cases first. Answers appear here when the run stops.</p>
+          <p>Run your cases first. Cases to pick appear here when the run stops.</p>
         </div>
         <div
           id="confirm-judging"
@@ -323,18 +323,19 @@
             </button>
           </div>
         </div>
-        <div class="actions" id="label-actions" hidden>
-          <button id="accept" class="keep">Accept</button
-          ><button id="reject" class="cut">Reject</button
-          ><button id="unlabel" class="secondary">Clear label</button>
+        <div class="actions" id="pick-actions" hidden>
+          <button id="pick-first" class="keep" type="button">First choice</button
+          ><button id="pick-second" class="cut" type="button">Second choice</button
+          ><button id="pick-unsure" class="secondary" type="button">Unsure</button>
         </div>
+        <div id="suggestion" aria-live="polite"></div>
         <div class="actions">
-          <button id="previous-card" class="secondary">Previous answer</button
-          ><button id="next-card" class="secondary">Next answer</button>
+          <button id="previous-card" class="secondary">Previous case</button
+          ><button id="next-card" class="secondary">Next case</button>
         </div>
         <p id="judging-note" class="fine">
-          Player, model, confidence, cost and timing are hidden here. Order is
-          shuffled. Labels are yours; no model grades itself.
+          Your first pick, made blind, is the one the answers are scored
+          against. Labels are yours; no model grades itself.
         </p>
         <button id="reveal" disabled>Reveal results and lock labels</button>
         <div

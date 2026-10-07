@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { APPROVED_DRAFT_2026_10_03, type Answer, type Column, type RecordRow, applyLabels, formatRecords, parseRecords, record, ruleOutput } from "./arms.ts";
 import {
-  ARMS, DEMO_IDS, DEMO_OUT, EXAMPLE_DIR, LABEL_OUT, RUN_DIR, build, buildDemo, judge, labelPage, readDemoScript, recordedInputs,
+  ARMS, DEMO_IDS, DEMO_OUT, EXAMPLE_DIR, LABEL_OUT, RUN_DIR, SUGGESTIONS_OUT, build, buildDemo, judge, labelPage, readDemoScript,
+  recordedInputs,
 } from "./stage-demo.ts";
 import { renderPage } from "./run-arms.ts";
 
@@ -192,13 +193,46 @@ describe("stage-door demo data", () => {
     const hostile = labelPage(renderPage(template, "</script><script>alert(1)</script>", [{ case_id: "m01", case_input: "</SCRIPT><img src=x onerror=alert(1)>" }]));
     expect(hostile.match(/<\/script/gi)?.length).toBe(1);
     expect(hostile).not.toContain("<script>alert");
-    expect(page).not.toMatch(/\bfetch\(|XMLHttpRequest|WebSocket|sendBeacon|import\(/);
+    // M2: one network read, the picked case's suggestion file beside the page; nothing else leaves the page.
+    expect(page.match(/\bfetch\(/g)?.length).toBe(1);
+    expect(page).toMatch(/\bfetch\("suggestions\/" \+ encodeURIComponent\(id\) \+ "\.json"/);
+    expect(page).not.toMatch(/XMLHttpRequest|WebSocket|sendBeacon|import\(/);
     expect(page).not.toMatch(/(src|href)="(https?:)?\/\//);
     expect(page).toContain("labels.csv");
     expect(page).toContain('href="../"');
     for (const code of [0x2013, 0x2014]) expect(page.includes(String.fromCharCode(code))).toBe(false);
-    // Blind labelling: no arm's model id appears on the page.
+    // Blind labelling: no arm's model id, output probability or confidence appears on the page itself.
     for (const r of await records()) expect(page.includes(r.answerer_model)).toBe(false);
+    expect(page).not.toMatch(/"probabilit/);
+  });
+
+  test("[integration] M2 the committed suggestion files are the recorded Jev arm, ranked by its probabilities: 40 cases, 0 new calls", async () => {
+    const rows = await records();
+    const raw: unknown = JSON.parse(await readFile(join(RUN_DIR, "raw.json"), "utf8"));
+    const calls = list(field(raw, "calls")).filter((c) => field(c, "arm") === "jev");
+    const built = await build();
+    const committed = (await readdir(SUGGESTIONS_OUT)).sort();
+    expect(committed).toEqual([...built.suggestions.keys()].map((id) => `${id}.json`).sort());
+    expect(committed).toHaveLength(40);
+    let ranked = 0;
+    for (const [id, text] of built.suggestions) {
+      expect(await readFile(join(SUGGESTIONS_OUT, `${id}.json`), "utf8")).toBe(text);
+      const s: unknown = JSON.parse(text);
+      const call = calls.find((c) => field(c, "case_id") === id);
+      const jev = rows.find((r) => r.case_id === id && r.answerer === "jev");
+      // The choice is the recorded output; the top option is the recorded probabilities' argmax; confidence as recorded.
+      expect(field(s, "choice")).toBe(jev?.output);
+      expect(field(s, "choice")).toBe(field(call, "choice"));
+      expect(field(s, "confidence")).toBe(Number(jev?.confidence));
+      const probabilities = field(call, "probabilities");
+      const top = ["answer", "hand_off"].sort((a, b) => Number(field(probabilities, b)) - Number(field(probabilities, a)))[0];
+      const options = list(field(s, "options"));
+      expect(field(options[0], "option")).toBe(top);
+      expect(options.map((o) => field(o, "probability"))).toEqual(options.map((o) => field(probabilities, String(field(o, "option")))));
+      if (field(s, "ranked") === true) ranked++;
+    }
+    console.log(`M2: ${ranked} of ${built.suggestions.size} recorded Jev answers carry probabilities and are ranked by them`);
+    expect(ranked).toBe(40);
   });
 });
 

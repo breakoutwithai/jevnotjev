@@ -51,6 +51,14 @@
     "label_blind": {
       "enum": ["true", "false", null],
       "description": "jnj-record/1.1. true when the call was made before seeing any answerer's output or any suggestion for that case."
+    },
+    "label_final": {
+      "enum": ["accept", "reject", null],
+      "description": "jnj-record/1.1, optional column. The call on this answer from the labeller's final pick, made after the blind pick and the suggestion step. Reported beside label, never instead of it: label stays the scoring truth."
+    },
+    "suggestion_shown": {
+      "enum": ["true", "false", null],
+      "description": "jnj-record/1.1, optional column. true when Jev's ranked suggestion for the case was shown before the final pick; false when none was available. Present exactly when label_final is."
     }
   },
   "allOf": [
@@ -66,7 +74,9 @@
           "label_source": { "enum": ["human", null] },
           "labelled_by": { "type": "null" },
           "labelled_at": { "type": "null" },
-          "label_blind": { "type": "null" }
+          "label_blind": { "type": "null" },
+          "label_final": { "type": "null" },
+          "suggestion_shown": { "type": "null" }
         }
       }
     },
@@ -87,13 +97,30 @@
         "properties": {
           "labelled_by": { "type": "null" },
           "labelled_at": { "type": "null" },
-          "label_blind": { "type": "null" }
+          "label_blind": { "type": "null" },
+          "label_final": { "type": "null" },
+          "suggestion_shown": { "type": "null" }
         }
       }
     },
     {
       "if": { "properties": { "label_source": { "const": "human_reviewed" } } },
       "then": { "properties": { "label_blind": { "const": "false" } } }
+    },
+    {
+      "if": { "required": ["label_final"], "properties": { "label_final": { "type": "string" } } },
+      "then": {
+        "required": ["suggestion_shown"],
+        "properties": {
+          "suggestion_shown": { "type": "string" },
+          "label_blind": { "const": "true" },
+          "label_source": { "const": "human" }
+        }
+      }
+    },
+    {
+      "if": { "required": ["suggestion_shown"], "properties": { "suggestion_shown": { "type": "string" } } },
+      "then": { "properties": { "label_final": { "type": "string" } } }
     }
   ]
 }

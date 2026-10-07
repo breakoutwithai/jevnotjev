@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { leaderboardNames, scanSite } from "./site-content.ts";
+import { leaderboardNames, leaderboardPath, scanSite } from "./site-content.ts";
 
 const SITE = join(import.meta.dir, "..", "site");
 const CLI = join(import.meta.dir, "site-content.ts");
@@ -102,6 +102,30 @@ describe("site content CLI (the real-leaderboard scan)", () => {
     const r = cli([SITE, "--leaderboard", join(tmpdir(), "no-such-leaderboard.md")]);
     expect(r.code).toBe(2);
     expect(r.out).toContain("leaderboard not readable");
+  });
+
+  test("[integration] SITE-10 an unset JNJ_LEADERBOARD with no flag fails with a clear error, never falls back to a default path", () => {
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "JNJ_LEADERBOARD"));
+    const p = Bun.spawnSync(["bun", CLI, SITE], { env });
+    const out = p.stdout.toString() + p.stderr.toString();
+    expect(p.exitCode).toBe(2);
+    expect(out).toContain("leaderboard path not set");
+    expect(out).toContain("JNJ_LEADERBOARD");
+  });
+
+  test("[unit] SITE-10 leaderboardPath is undefined when the variable is unset or empty, and the variable's value when set", () => {
+    const saved = process.env.JNJ_LEADERBOARD;
+    try {
+      delete process.env.JNJ_LEADERBOARD;
+      expect(leaderboardPath()).toBeUndefined();
+      process.env.JNJ_LEADERBOARD = "";
+      expect(leaderboardPath()).toBeUndefined();
+      process.env.JNJ_LEADERBOARD = "board.md";
+      expect(leaderboardPath()).toBe("board.md");
+    } finally {
+      if (saved === undefined) delete process.env.JNJ_LEADERBOARD;
+      else process.env.JNJ_LEADERBOARD = saved;
+    }
   });
 
   test("[integration] SITE-10 with a leaderboard: passes on site/, fails on a planted copy", async () => {

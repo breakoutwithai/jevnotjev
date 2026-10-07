@@ -54,7 +54,7 @@
     "src/backstage/signout.test.ts": 7,
     "src/backstage/trial.test.ts": 14,
     "src/browser/results-loader.dom.test.ts": 38,
-    "src/browser/shop-verdict.test.ts": 7,
+    "src/browser/shop-verdict.test.ts": 8,
     "src/core/calc.test.ts": 22,
     "src/core/case-table.test.ts": 5,
     "src/core/metrics.test.ts": 19,
@@ -68,7 +68,7 @@
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/stack.test.ts": 18,
     "src/format/cli.test.ts": 3,
-    "src/format/provenance.test.ts": 33,
+    "src/format/provenance.test.ts": 36,
     "src/format/quote.test.ts": 4,
     "src/format/validate.test.ts": 60,
     "src/jev-answer.test.ts": 26

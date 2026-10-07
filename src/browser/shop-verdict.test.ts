@@ -70,6 +70,11 @@ describe("shop verdict (the Little Shop page's verdict, read by src/core)", () =
     expect(validate(out).errors).toEqual([]);
   });
 
+  test("[unit] M1 a source row in a format version the validator does not accept is refused, not relabelled as /1", async () => {
+    const text = (await csv()).replace(/^jnj-record\/1\.1,/m, "jnj-record/999,");
+    expect(() => labelRecords(text, { m01: "answer" })).toThrow("jnj-record/999");
+  });
+
   test("[unit] SHOP-V3 an unknown case id or a call that is not answer or hand_off fails", async () => {
     const text = await csv();
     expect(() => labelRecords(text, { m99: "answer" })).toThrow("m99");

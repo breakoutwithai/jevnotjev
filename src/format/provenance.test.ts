@@ -144,10 +144,19 @@ describe("label provenance (jnj-record/1.1)", () => {
     expect(validate(write(rows)).errors).toEqual([`line 2: labelled_at: '${value}' is not a calendar date`]);
   });
 
-  test("[unit] M1 labelled_at on a leap day is accepted", () => {
+  test.each(["2028-02-29", "0099-01-01"])("[unit] M1 labelled_at %s, a calendar date, is accepted", (value) => {
     const rows = v11Rows();
-    first(rows)["labelled_at"] = "2028-02-29";
+    first(rows)["labelled_at"] = value;
     expect(validate(write(rows)).errors).toEqual([]);
+  });
+
+  test.each([
+    ["labelled_by", "op-1\n"],
+    ["labelled_at", "2026-10-07\n"],
+  ])("[unit] M1 a %s ending in a line break is rejected", (column, value) => {
+    const rows = v11Rows();
+    first(rows)[column] = value;
+    expect(validate(write(rows)).errors).toEqual([`line 3: ${column}: ${JSON.stringify(value).replace(/"/g, "'")} ends with a line break`]);
   });
 
   test("[unit] M1 an agent label is never counted as truth: unlabelled in the summary, reported as a gap", () => {

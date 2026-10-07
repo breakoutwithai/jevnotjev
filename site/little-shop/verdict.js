@@ -843,7 +843,8 @@
   }
   function isCalendarDate(date) {
     const [year = NaN, month = NaN, day = NaN] = date.split("-").map(Number);
-    const parsed = new Date(Date.UTC(year, month - 1, day));
+    const parsed = new Date(0);
+    parsed.setUTCFullYear(year, month - 1, day);
     return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
   }
   function countsAsTruth(row) {
@@ -880,8 +881,14 @@
       }
       if (rowErrors.length > 0)
         continue;
+      const brokenAt = PROVENANCE_COLUMNS.find((column) => {
+        const value = row.get(column);
+        return typeof value === "string" && /[\r\n]/.test(value);
+      });
       const labelledAt = row.get("labelled_at");
-      if (typeof labelledAt === "string" && !isCalendarDate(labelledAt.slice(0, 10))) {
+      if (brokenAt !== undefined) {
+        errors.push(`line ${line}: ${brokenAt}: ${quoteText(String(row.get(brokenAt)))} ends with a line break`);
+      } else if (typeof labelledAt === "string" && !isCalendarDate(labelledAt.slice(0, 10))) {
         errors.push(`line ${line}: labelled_at: ${quoteText(labelledAt)} is not a calendar date`);
       }
       const caseId = text(row, "case_id");
@@ -1262,9 +1269,14 @@
     const outputAt = at("output");
     const labelAt = at("label");
     const sourceAt = at("label_source");
+    const versionAt = at("format_version");
     for (const { fields, line } of rows) {
       if (fields.length !== header.length)
         throw new Error(`records.csv line ${line}: ${fields.length} fields, header has ${header.length}`);
+      const version = fields[versionAt] ?? "";
+      if (version !== "jnj-record/1" && version !== "jnj-record/1.1") {
+        throw new Error(`records.csv line ${line}: format_version ${JSON.stringify(version)} is not jnj-record/1 or jnj-record/1.1`);
+      }
     }
     const known = new Set(rows.map(({ fields }) => fields[caseAt] ?? ""));
     const own = Object.keys(calls);
@@ -1282,7 +1294,6 @@
       return isCall(c) ? c : null;
     };
     const keep = header.flatMap((name, i) => PROVENANCE_COLUMNS.includes(name) ? [] : [i]);
-    const versionAt = at("format_version");
     const out = rows.map(({ fields }) => {
       const row = [...fields];
       const call = callOf(fields[caseAt] ?? "");

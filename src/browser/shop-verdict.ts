@@ -39,8 +39,13 @@ export function labelRecords(csvText: string, calls: Readonly<Record<string, unk
   const outputAt = at("output");
   const labelAt = at("label");
   const sourceAt = at("label_source");
+  const versionAt = at("format_version");
   for (const { fields, line } of rows) {
     if (fields.length !== header.length) throw new Error(`records.csv line ${line}: ${fields.length} fields, header has ${header.length}`);
+    const version = fields[versionAt] ?? "";
+    if (version !== "jnj-record/1" && version !== "jnj-record/1.1") {
+      throw new Error(`records.csv line ${line}: format_version ${JSON.stringify(version)} is not jnj-record/1 or jnj-record/1.1`);
+    }
   }
   const known = new Set(rows.map(({ fields }) => fields[caseAt] ?? ""));
   const own = Object.keys(calls);
@@ -58,7 +63,6 @@ export function labelRecords(csvText: string, calls: Readonly<Record<string, unk
   // human labels. A jnj-record/1.1 source (its labels AI-drafted and approved) loses its provenance columns here, so
   // no recorded labeller or time is carried onto a visitor's call, and the labelled text matches a /1 source's.
   const keep = header.flatMap((name, i) => (PROVENANCE_COLUMNS.includes(name) ? [] : [i]));
-  const versionAt = at("format_version");
   const out = rows.map(({ fields }) => {
     const row = [...fields];
     const call = callOf(fields[caseAt] ?? "");

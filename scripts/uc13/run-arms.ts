@@ -24,6 +24,7 @@ import {
   type ArmReply, type Case, type LabelProvenance, type RecordRow,
 } from "./arms.ts";
 import { jevEntry, readFixture, replayJev, sha256Hex, writeFixture, type JevEntry } from "./calls.ts";
+import { isCalendarDate } from "../../src/format/validate.ts";
 
 const LLM_MODEL = "haiku";
 const CONCURRENCY = 4;
@@ -87,7 +88,7 @@ function labelProvenance(flags: readonly string[]): LabelProvenance {
   const blind = given.get("--blind") ?? "";
   if (!isLabelSource(source)) throw new Error(`--source takes human, human_reviewed or agent, got ${source}`);
   if (!HANDLE.test(by)) throw new Error(`--by takes a handle (letters, digits, _ . : + -), never an email, got ${by}`);
-  if (!LABELLED_AT.test(at)) throw new Error(`--at takes YYYY-MM-DD or a UTC time like 2026-10-07T09:30:00Z, got ${at}`);
+  if (!LABELLED_AT.test(at) || !isCalendarDate(at.slice(0, 10))) throw new Error(`--at takes YYYY-MM-DD or a UTC time like 2026-10-07T09:30:00Z, got ${at}`);
   if (blind !== "true" && blind !== "false") throw new Error(`--blind takes true or false, got ${blind}`);
   return { source, by, at, blind: blind === "true" };
 }

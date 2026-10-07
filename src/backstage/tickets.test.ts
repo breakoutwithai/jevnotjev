@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHandler } from "./server.ts";
-import { TicketStore } from "./tickets.ts";
+import { checkTicket, RATE_LIMIT, TicketLimiter, TicketStore } from "./tickets.ts";
 
 const ORIGIN = "http://localhost:3456";
 const SEEDED = "seeded-7f3a91@example.test";
@@ -37,7 +37,7 @@ describe("ticket office endpoint", () => {
     const issued = await handler(...ask(valid));
     expect(issued.status).toBe(200);
     const body: unknown = await issued.json();
-    expect(typeof body === "object" && body !== null && "ticket" in body && typeof body.ticket === "string" && /^JNJ-[A-Z0-9]{8}$/.test(body.ticket)).toBe(true);
+    expect(typeof body === "object" && body !== null && "ticket" in body && typeof body.ticket === "string" && /^JNJ-[0-9A-F]{12}$/.test(body.ticket)).toBe(true);
     expect(store.count()).toBe(1);
   });
 
@@ -80,5 +80,47 @@ describe("ticket office endpoint", () => {
     expect(store.count()).toBe(3);
     const ranking = await handler(new Request(`${ORIGIN}/api/tickets/ranking`));
     expect(await ranking.json()).toEqual({ ids: ["uc9", "uc13"], counts: { uc9: 2 } });
+  });
+});
+
+describe("ticket office hardening", () => {
+  test("[integration] a retried submission with the same request key returns the same ticket and stores 1 row", async () => {
+    const { handler, store } = setup();
+    const keyed = { ...valid, request_key: "attempt-7f3a91c2d4e5" };
+    const first: unknown = await (await handler(...ask(keyed))).json();
+    const again: unknown = await (await handler(...ask(keyed))).json();
+    expect(again).toEqual(first);
+    expect(store.count()).toBe(1);
+  });
+
+  test("[integration] T4 malformed bodies use up the address allowance before any body is parsed", async () => {
+    const { handler, store } = setup();
+    const broken = (): [Request, { remoteAddress: string }] => [
+      new Request(`${ORIGIN}/api/tickets`, { method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{not json" }),
+      { remoteAddress: "203.0.113.50" },
+    ];
+    for (let i = 0; i < RATE_LIMIT; i++) expect((await handler(...broken())).status).toBe(413);
+    expect((await handler(...ask(valid, "203.0.113.50"))).status).toBe(429);
+    expect(store.count()).toBe(0);
+  });
+
+  test("[unit] an apostrophe in the local part is a valid email", () => {
+    const shows = new Set(["uc13"]);
+    expect(checkTicket({ ...valid, email: "o'connor@example.com" }, shows).ok).toBe(true);
+    expect(checkTicket({ ...valid, email: "a@exa'mple.com" }, shows)).toEqual({ ok: false, reason: "bad-email" });
+  });
+
+  test("[unit] a full limiter refuses new addresses instead of evicting an active limit", () => {
+    let now = 0;
+    const limiter = new TicketLimiter(() => now, 3);
+    for (let i = 0; i < RATE_LIMIT; i++) expect(limiter.allow("a")).toBe(true);
+    expect(limiter.allow("a")).toBe(false);
+    expect(limiter.allow("b")).toBe(true);
+    expect(limiter.allow("c")).toBe(true);
+    expect(limiter.allow("d")).toBe(false);
+    expect(limiter.allow("a")).toBe(false);
+    now = 11 * 60_000;
+    expect(limiter.allow("d")).toBe(true);
+    expect(limiter.allow("a")).toBe(true);
   });
 });

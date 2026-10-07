@@ -10,7 +10,11 @@ export type Stage = "script-reading" | "rehearsal" | "show";
 export interface RunSummary {
   readonly folder: string;
   readonly rows: number;
-  /** Cases where both Jev and the LLM have a labelled row for the same question. */
+  /** Cohorts (run, prompt version, question) in the file. */
+  readonly cohorts: number;
+  /** The question the poster's counts describe: the cohort with the most paired labelled cases; null when none. */
+  readonly question: string | null;
+  /** In that cohort: cases where both Jev and the LLM have a counted label. */
   readonly labelledPaired: number;
   /** The verdict name from src/core/verdict.ts; null under 30 paired labelled cases (verdict-rules.md rule 1). */
   readonly verdict: string | null;
@@ -83,7 +87,7 @@ export const HALF_LIFE_DAYS = 14;
  *   score      = 0.5 * recency + 0.5 * popularity
  * Ties go to the newer item, then the lower id. At most MAX_POSTERS are kept.
  */
-export function rankPosters(posters: readonly Poster[], tickets: Readonly<Record<string, number>>): Poster[] {
+export function rankPosters(posters: readonly Poster[], tickets: Readonly<Record<string, number>>, limit: number = MAX_POSTERS): Poster[] {
   const days = (p: Poster): number => Date.parse(`${p.date}T00:00:00Z`) / DAY_MS;
   const newest = Math.max(...posters.map(days));
   const most = Math.max(0, ...posters.map((p) => tickets[p.id] ?? 0));
@@ -94,5 +98,10 @@ export function rankPosters(posters: readonly Poster[], tickets: Readonly<Record
   };
   return [...posters]
     .sort((a, b) => score(b) - score(a) || b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
-    .slice(0, MAX_POSTERS);
+    .slice(0, limit);
+}
+
+/** The full catalogue, newest first (the ranking with no tickets), never truncated. */
+export function latestFirst(posters: readonly Poster[]): Poster[] {
+  return rankPosters(posters, {}, Number.POSITIVE_INFINITY);
 }

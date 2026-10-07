@@ -16,6 +16,8 @@
       "run": {
         "folder": "2026-10-03-tokenmax",
         "rows": 30,
+        "cohorts": 2,
+        "question": null,
         "labelledPaired": 0,
         "verdict": null,
         "reason": null,
@@ -60,6 +62,8 @@
       "run": {
         "folder": "2026-10-01-uc13-shop-bot",
         "rows": 120,
+        "cohorts": 1,
+        "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?",
         "labelledPaired": 40,
         "verdict": "not enough evidence",
         "reason": "not enough evidence: Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM -0.11, not above -0.10)",

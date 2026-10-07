@@ -135,7 +135,7 @@ MODULES=(static backstage)
 # Backstage sources are not a hand list: they are the import graph of the entrypoints
 # scripts/backstage-build.ts bundles, read from origin/main by .deploy/backstage-deps.ts.
 SHARED_PATHS=(.deploy/lib.sh .deploy/config.sh)
-BACKSTAGE_FIXED_PATHS=(site/backstage/ scripts/backstage-build.ts '.deploy/backstage*' package.json bun.lock)
+BACKSTAGE_FIXED_PATHS=(site/backstage/ site/shows/posters.json scripts/backstage-build.ts '.deploy/backstage*' package.json bun.lock)
 BACKSTAGE_DEPS=""
 BACKSTAGE_DEPS_RC=""
 # Computes BACKSTAGE_DEPS once per run (call it outside a subshell). Returns 1 when the graph

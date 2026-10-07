@@ -24,7 +24,13 @@
 
   var form = $("tkForm"), select = $("tkShow"), wrap = $("tkPosters");
   if (!form || !wrap) return;
+  var MAX = 10;
   var posters = [];
+  var requestKey = null;
+  function newKey() {
+    var a = new Uint8Array(16); crypto.getRandomValues(a);
+    return Array.prototype.map.call(a, function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+  }
 
   function kind() { return form.querySelector("input[name=kind]:checked").value; }
   function syncKind() {
@@ -38,7 +44,15 @@
   }
   form.querySelectorAll("input[name=kind]").forEach(function (r) { r.addEventListener("change", syncKind); });
   select.addEventListener("change", syncKind);
+  function reopen() {
+    if (!form.hidden) return;
+    $("tkIssued").hidden = true;
+    form.reset();
+    requestKey = null;
+    form.hidden = false;
+  }
   function choose(k, id) {
+    reopen();
     form.querySelector("input[value=" + k + "]").checked = true;
     if (id) select.value = id;
     syncKind();
@@ -99,7 +113,7 @@
     wrap.innerHTML = "";
     var seen = {};
     var counts = { "show": 0, "rehearsal": 0, "script-reading": 0 };
-    order.forEach(function (p) {
+    order.slice(0, MAX).forEach(function (p) {
       var card = poster(p);
       counts[p.stage]++;
       if (!seen[p.stage]) { card.id = "stage-" + p.stage; seen[p.stage] = true; }
@@ -118,22 +132,37 @@
     select.value = keep;
   }
 
-  fetch("shows/posters.json").then(function (r) { return r.json(); }).then(function (data) {
-    posters = data.posters || [];
+  function catalogueFailed() {
+    wrap.textContent = "The show list did not load, so show tickets are paused. Reload the page, or go backstage with your own decision.";
+    var watch = form.querySelector("input[value=show]");
+    watch.disabled = true;
+    form.querySelector("input[value=backstage]").checked = true;
+    syncKind();
+  }
+  fetch("shows/posters.json").then(function (r) {
+    if (!r.ok) throw new Error("posters " + r.status);
+    return r.json();
+  }).then(function (data) {
+    if (!data || !Array.isArray(data.posters)) throw new Error("posters shape");
+    posters = data.posters;
     render(posters); fill(); syncKind();
     return fetch("/api/tickets/ranking").then(function (r) { return r.ok ? r.json() : null; }).then(function (rank) {
       if (!rank || !Array.isArray(rank.ids)) return;
       var byId = {};
       posters.forEach(function (p) { byId[p.id] = p; });
+      /* Ranked ids first; posters the server does not know (a newer static release) keep their place after them. */
       var ordered = rank.ids.map(function (id) { return byId[id]; }).filter(Boolean);
-      if (ordered.length) { posters = ordered; render(posters); fill(); }
+      var known = {};
+      ordered.forEach(function (p) { known[p.id] = true; });
+      posters.forEach(function (p) { if (!known[p.id]) ordered.push(p); });
+      if (ordered.length) { posters = ordered; render(posters); fill(); syncKind(); }
       var counts = rank.counts || {};
       document.querySelectorAll(".tk-poster").forEach(function (card) {
         var n = counts[card.getAttribute("data-id")];
         if (n > 0) { var c = card.querySelector(".tk-count"); c.textContent = n + (n === 1 ? " ticket issued" : " tickets issued"); c.hidden = false; }
       });
     }).catch(function () { /* Static host with no ticket server: keep the generated order. */ });
-  });
+  }).catch(catalogueFailed);
 
   function setErr(id, text, input) {
     var e = $(id); e.textContent = text || ""; e.hidden = !text;
@@ -152,7 +181,9 @@
     ].filter(Boolean);
     setErr("tkFormErr", "");
     if (bad.length) { bad[0].focus(); return; }
+    if (!requestKey) requestKey = newKey();
     var body = {
+      request_key: requestKey,
       kind: k, email: email, consent: true, follow_up: $("tkFollow").checked,
       show: k === "show" ? select.value : null,
       website: k === "backstage" ? $("tkWebsite").value.trim() : "",
@@ -164,17 +195,25 @@
       .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
       .then(function (res) {
         btn.disabled = false;
-        if (res.status === 200 && res.body.ticket) return issued(res.body);
-        var msg = {
-          "bad-email": "That email address was not accepted. Check it and try again.",
-          "bad-website": "That website was not accepted. Use an address like https://example.com, or leave it empty.",
-          "bad-show": "Choose a show from the list.",
-          "rate-limited": "Too many tickets from this network just now. Try again in ten minutes.",
+        if (res.status === 200 && res.body.ticket) { requestKey = null; return issued(res.body); }
+        var field = {
+          "bad-email": ["tkEmailErr", "tkEmail", "That email address was not accepted. Check it and try again."],
+          "bad-website": ["tkWebsiteErr", "tkWebsite", "That website was not accepted. Use an address like https://example.com, or leave it empty."],
+          "bad-show": ["tkShowErr", "tkShow", "Choose a show from the list."],
+          "no-consent": ["tkConsentErr", "tkConsent", "Tick this box to get a ticket. We need to keep your email to hold it."]
+        }[res.body.code];
+        if (field) { setErr(field[0], field[2], $(field[1])).focus(); return; }
+        requestKey = null;
+        setErr("tkFormErr", {
+          "rate-limited": "Too many tickets from this network just now. Try again in ten minutes. Nothing was stored.",
           "tickets-unavailable": "The ticket office is closed right now. Nothing was stored."
-        }[res.body.code] || "The ticket could not be issued. Nothing was stored.";
-        setErr("tkFormErr", msg);
+        }[res.body.code] || "The ticket could not be issued. Nothing was stored.");
       })
-      .catch(function () { btn.disabled = false; setErr("tkFormErr", "The ticket office is closed right now. Nothing was stored."); });
+      .catch(function () {
+        btn.disabled = false;
+        /* The request may have reached the store; the same request key makes a retry return that ticket, not a second one. */
+        setErr("tkFormErr", "We could not confirm your ticket: the connection dropped. Press the button again; the same request is never stored twice.");
+      });
   });
 
   function issued(t) {

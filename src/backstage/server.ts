@@ -569,13 +569,13 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       if (request.headers.get("origin") !== origin || request.headers.get("sec-fetch-site") === "cross-site") return reject("origin-rejected", 403);
       if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") return reject("json-required", 415);
       if (!ticketStore) return reject("tickets-unavailable", 503);
+      if (!ticketLimiter.allow(ip)) return reject("rate-limited", 429);
       if (Number(request.headers.get("content-length") ?? 0) > MAX_TICKET_BODY) return reject("too-large", 413);
       let decoded: unknown;
       try {
         const raw = await boundedText(new Response(request.body), MAX_TICKET_BODY, AbortSignal.timeout(5000));
         decoded = JSON.parse(raw);
       } catch { return reject("too-large-or-invalid", 413); }
-      if (!ticketLimiter.allow(ip)) return reject("rate-limited", 429);
       const checked = checkTicket(decoded, new Set((await posters()).map((p) => p.id)));
       if (!checked.ok) return reject(checked.reason, 400);
       if ("trap" in checked) { logger.ticket({ event: "ticket.rejected", rid, reason: "honeypot" }); return json({ ok: true }); }

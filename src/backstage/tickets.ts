@@ -15,6 +15,8 @@ export interface TicketInput {
   readonly idea: string | null;
   /** The separate, optional follow-up box; the ticket never depends on it. */
   readonly followUp: boolean;
+  /** The page's per-attempt key: a retried submission returns the ticket already issued for it. */
+  readonly requestKey: string | null;
 }
 
 export type TicketCheck =
@@ -22,14 +24,17 @@ export type TicketCheck =
   | { readonly ok: true; readonly trap: true }
   | { readonly ok: false; readonly reason: TicketRejectReason };
 
-export type TicketRejectReason = "no-consent" | "bad-email" | "bad-website" | "bad-show" | "bad-kind" | "bad-idea" | "bad-body";
+export type TicketRejectReason = "no-consent" | "bad-email" | "bad-website" | "bad-show" | "bad-kind" | "bad-idea" | "bad-body" | "bad-request-key";
 
 export const MAX_TICKET_BODY = 4096;
 export const MAX_IDEA = 280;
 export const RATE_LIMIT = 5;
 export const RATE_WINDOW_MS = 10 * 60_000;
 
-const EMAIL = /^[^\s@<>"']{1,64}@[^\s@<>"']+\.[^\s@<>"']{2,}$/u;
+// Local part may hold an apostrophe (o'connor@...), as the browser's own check allows; the domain may not.
+const EMAIL = /^[^\s@<>"]{1,64}@[^\s@<>"']+\.[^\s@<>"']{2,}$/u;
+const REQUEST_KEY = /^[A-Za-z0-9_-]{16,64}$/;
+export const MAX_LIMITED_ADDRESSES = 10_000;
 
 function field(body: object, name: string): unknown {
   return Object.prototype.hasOwnProperty.call(body, name) ? Reflect.get(body, name) : undefined;
@@ -66,9 +71,11 @@ export function checkTicket(body: unknown, shows: ReadonlySet<string>): TicketCh
   if (site === false || (site !== null && !website(site))) return { ok: false, reason: "bad-website" };
   const idea = optionalText(field(body, "idea"));
   if (idea === false || (idea !== null && idea.length > MAX_IDEA)) return { ok: false, reason: "bad-idea" };
+  const key = optionalText(field(body, "request_key"));
+  if (key === false || (key !== null && !REQUEST_KEY.test(key))) return { ok: false, reason: "bad-request-key" };
   const show = optionalText(field(body, "show"));
   if (show === false || (kind === "show" && (show === null || !shows.has(show)))) return { ok: false, reason: "bad-show" };
-  return { ok: true, ticket: { kind, show: kind === "show" ? show : null, email: email.toLowerCase(), website: kind === "backstage" ? site : null, idea: kind === "backstage" ? idea : null, followUp: field(body, "follow_up") === true } };
+  return { ok: true, ticket: { kind, show: kind === "show" ? show : null, email: email.toLowerCase(), website: kind === "backstage" ? site : null, idea: kind === "backstage" ? idea : null, followUp: field(body, "follow_up") === true, requestKey: key } };
 }
 
 export class TicketStore {
@@ -81,15 +88,31 @@ export class TicketStore {
     this.#db.exec(`CREATE TABLE IF NOT EXISTS tickets (
       id TEXT PRIMARY KEY, created_at TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('show','backstage')),
       show TEXT, email TEXT NOT NULL, website TEXT, idea TEXT, consent INTEGER NOT NULL CHECK(consent = 1),
-      follow_up INTEGER NOT NULL DEFAULT 0 CHECK(follow_up IN (0, 1)))`);
+      follow_up INTEGER NOT NULL DEFAULT 0 CHECK(follow_up IN (0, 1)), request_key TEXT UNIQUE)`);
   }
 
+  /** Issues a ticket, or returns the one already issued for the same request key. 48-bit ids; a clash retries. */
   issue(input: TicketInput, now: number): string {
-    const id = `JNJ-${randomBytes(5).toString("hex").toUpperCase().slice(0, 8)}`;
-    this.#db
-      .query("INSERT INTO tickets (id, created_at, kind, show, email, website, idea, consent, follow_up) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)")
-      .run(id, new Date(now).toISOString(), input.kind, input.show, input.email, input.website, input.idea, input.followUp ? 1 : 0);
-    return id;
+    if (input.requestKey) {
+      const prior = this.#db.query<{ id: string }, [string]>("SELECT id FROM tickets WHERE request_key = ?").get(input.requestKey);
+      if (prior) return prior.id;
+    }
+    for (let attempt = 0; ; attempt++) {
+      const id = `JNJ-${randomBytes(6).toString("hex").toUpperCase()}`;
+      try {
+        this.#db
+          .query("INSERT INTO tickets (id, created_at, kind, show, email, website, idea, consent, follow_up, request_key) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)")
+          .run(id, new Date(now).toISOString(), input.kind, input.show, input.email, input.website, input.idea, input.followUp ? 1 : 0, input.requestKey);
+        return id;
+      } catch (error) {
+        const clash = error instanceof Error && /UNIQUE constraint failed: tickets\.(id|request_key)/.test(error.message);
+        if (!clash || attempt >= 3) throw error;
+        if (input.requestKey && /request_key/.test(error instanceof Error ? error.message : "")) {
+          const prior = this.#db.query<{ id: string }, [string]>("SELECT id FROM tickets WHERE request_key = ?").get(input.requestKey);
+          if (prior) return prior.id;
+        }
+      }
+    }
   }
 
   count(): number {
@@ -107,10 +130,13 @@ export class TicketStore {
   }
 }
 
-/** Fixed-window count per network address. */
+/**
+ * Fixed-window count per network address. When MAX_LIMITED_ADDRESSES addresses are tracked, expired windows are
+ * dropped first; if every tracked window is still active, a new address is refused rather than evicting a limit.
+ */
 export class TicketLimiter {
   #hits = new Map<string, number[]>();
-  constructor(private readonly clock: () => number) {}
+  constructor(private readonly clock: () => number, private readonly capacity: number = MAX_LIMITED_ADDRESSES) {}
 
   allow(address: string): boolean {
     const now = this.clock();
@@ -119,9 +145,12 @@ export class TicketLimiter {
       this.#hits.set(address, recent);
       return false;
     }
+    if (!this.#hits.has(address) && this.#hits.size >= this.capacity) {
+      for (const [key, times] of this.#hits) if (times.every((t) => now - t >= RATE_WINDOW_MS)) this.#hits.delete(key);
+      if (this.#hits.size >= this.capacity) return false;
+    }
     recent.push(now);
     this.#hits.set(address, recent);
-    if (this.#hits.size > 10_000) this.#hits.delete(this.#hits.keys().next().value ?? "");
     return true;
   }
 }

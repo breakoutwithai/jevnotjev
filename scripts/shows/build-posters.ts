@@ -9,8 +9,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { evaluateText } from "../../src/browser/results-loader.ts";
-import { validate } from "../../src/format/validate.ts";
-import { parseUseCase, rankPosters, stageOf, verdictWordShown, type Poster, type RunSummary } from "../../src/shows/posters.ts";
+import { truthLabel, validate } from "../../src/format/validate.ts";
+import { groupCohorts } from "../../src/core/metrics.ts";
+import { latestFirst, parseUseCase, stageOf, verdictWordShown, type MethodLine, type Poster, type RunSummary } from "../../src/shows/posters.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 export const USE_CASES_REL = "docs/product/use-cases";
@@ -31,50 +32,75 @@ function addedDate(root: string, rel: string): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export async function summariseRun(root: string, folder: string): Promise<RunSummary | null> {
-  const file = join(root, RUNS_REL, folder, "records.csv");
-  if (!existsSync(file)) return null;
-  const csv = readFileSync(file, "utf8");
-  const { rows } = validate(csv);
-  const labelled = new Map<string, Set<string>>();
-  const sources = new Set<string>();
-  for (const { values } of rows) {
-    if (values.get("label") === null || values.get("label") === undefined) continue;
-    const key = `${text(values.get("question_id"))}\u0000${text(values.get("case_id"))}`;
-    const arms = labelled.get(key) ?? new Set<string>();
-    arms.add(text(values.get("answerer")));
-    labelled.set(key, arms);
-    const blind = text(values.get("label_blind"));
-    sources.add(`${text(values.get("label_source"))}${blind ? `, blind: ${blind === "true" ? "yes" : "no"}` : ""}`);
-  }
+type Rows = ReturnType<typeof validate>["rows"];
+
+function methodLines(rows: Rows): MethodLine[] {
   const arms = new Map<string, { rows: number; labelled: number; accepted: number; spend: number | null }>();
   for (const { values } of rows) {
     const arm = text(values.get("answerer"));
     const line = arms.get(arm) ?? { rows: 0, labelled: 0, accepted: 0, spend: 0 };
     line.rows++;
-    const label = values.get("label");
-    if (label !== null && label !== undefined) line.labelled++;
+    const label = truthLabel(values);
+    if (label !== null) line.labelled++;
     if (label === "accept") line.accepted++;
     const cost = values.get("cost_usd");
     line.spend = line.spend === null || typeof cost !== "number" ? null : line.spend + cost;
     arms.set(arm, line);
   }
-  const methods = ["llm", "rule", "jev"].filter((arm) => arms.has(arm)).map((arm) => {
+  return ["llm", "rule", "jev"].filter((arm) => arms.has(arm)).map((arm) => {
     const line = arms.get(arm) ?? { rows: 0, labelled: 0, accepted: 0, spend: null };
     return { arm, rows: line.rows, labelled: line.labelled, accepted: line.accepted, spendUsd: line.spend === null ? null : Math.round(line.spend * 1e6) / 1e6 };
   });
-  const labelledPaired = [...labelled.values()].filter((arms) => arms.has("jev") && arms.has("llm")).length;
+}
+
+/**
+ * One run folder's poster facts. Counts are per cohort (run, prompt version, question), as src/core/metrics.ts
+ * groups them; the poster describes the cohort with the most paired labelled cases. Only labels truthLabel()
+ * accepts count (an unreviewed agent label does not). An invalid records.csv stops generation.
+ */
+export async function summariseRun(root: string, folder: string): Promise<RunSummary | null> {
+  const file = join(root, RUNS_REL, folder, "records.csv");
+  if (!existsSync(file)) return null;
+  const csv = readFileSync(file, "utf8");
+  const checked = validate(csv);
+  if (checked.errors.length > 0) throw new Error(`${RUNS_REL}/${folder}/records.csv is invalid: ${checked.errors.slice(0, 3).join("; ")}`);
+  const groups = groupCohorts(checked.rows);
+  const cohortOf = (values: Rows[number]["values"]): string =>
+    JSON.stringify([text(values.get("run_id")), text(values.get("prompt_version")), text(values.get("question_id"))]);
+  const paired = groups.map(({ key }) => {
+    const id = JSON.stringify([key.runId, key.promptVersion, key.questionId]);
+    const rows = checked.rows.filter(({ values }) => cohortOf(values) === id);
+    const byCase = new Map<string, Set<string>>();
+    for (const { values } of rows) {
+      if (truthLabel(values) === null) continue;
+      const arms = byCase.get(text(values.get("case_id"))) ?? new Set<string>();
+      arms.add(text(values.get("answerer")));
+      byCase.set(text(values.get("case_id")), arms);
+    }
+    return { key, rows, n: [...byCase.values()].filter((arms) => arms.has("jev") && arms.has("llm")).length };
+  });
+  const best = paired.reduce<(typeof paired)[number] | null>((a, b) => (a === null || b.n > a.n ? b : a), null);
+  const labelledPaired = best?.n ?? 0;
+  const judgedRows = best && labelledPaired > 0 ? best.rows : checked.rows;
+  const sources = new Set<string>();
+  for (const { values } of judgedRows) {
+    if (truthLabel(values) === null) continue;
+    const blind = text(values.get("label_blind"));
+    sources.add(`${text(values.get("label_source"))}${blind ? `, blind: ${blind === "true" ? "yes" : "no"}` : ""}`);
+  }
   const result = await evaluateText(`${folder}/records.csv`, csv);
-  const first = result.questions[0];
-  const judged = verdictWordShown(labelledPaired) && first?.verdict ? first : null;
+  const question = best ? result.questions.find((q) => q.runId === best.key.runId && q.promptVersion === best.key.promptVersion && q.questionId === best.key.questionId) : undefined;
+  const judged = verdictWordShown(labelledPaired) && question?.verdict ? question : null;
   return {
     folder,
-    rows: rows.length,
+    rows: checked.rows.length,
+    cohorts: groups.length,
+    question: labelledPaired > 0 && question ? question.question : null,
     labelledPaired,
     verdict: judged?.verdict ?? null,
     reason: judged?.reason ?? null,
     labels: sources.size === 0 ? null : [...sources].sort().join("; "),
-    methods,
+    methods: methodLines(judgedRows),
   };
 }
 
@@ -99,7 +125,8 @@ export async function buildPosters(root: string = ROOT): Promise<Poster[]> {
     const date = run ? run.folder.slice(0, 10) : addedDate(root, source);
     posters.push({ id: parsed.id, title: parsed.title, story: parsed.story, fit: parsed.fit, stage: stageOf(run), date, source, run, watch: run ? watchPage(root, run.folder) : null });
   }
-  return rankPosters(posters, {});
+  // Every use case is kept: the ten-poster limit applies after ranking with ticket counts (server and page).
+  return latestFirst(posters);
 }
 
 export function render(posters: readonly Poster[]): string {

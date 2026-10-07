@@ -842,3 +842,131 @@ test("[integration] M2 m4 no recorded Jev answer and no Jev key: no Ask Jev butt
   await tick();
   expect(sent.length).toBe(before);
 });
+
+// Labelling loop M3: calibration before the tester's own cases, starter packs, and the optional CSV label column.
+test("[integration] M3 calibration: 5 practice cases, the reference hidden until each pick, then shown as human_reviewed with agreement", async () => {
+  const { UC13_CALIBRATION } = await import("../labels/calibration-set.ts");
+  const page = await mount();
+  page.get("next").click();
+  page.get("next").click();
+  page.get("next").click();
+  const calibration = page.get("calibration");
+  expect(textOf(calibration)).toContain("Practice case 1 of 5");
+  expect(textOf(calibration)).toContain(UC13_CALIBRATION.question);
+  expect(page.get("calibration-first").textContent).toBe("answer");
+  expect(page.get("calibration-second").textContent).toBe("hand_off");
+  // Picks: m16 answer (agree), m10 answer (differs), m29 unsure, m26 hand_off (agree), m19 hand_off (agree) -> 3 of 4.
+  const picks = ["calibration-first", "calibration-first", "calibration-unsure", "calibration-second", "calibration-second"];
+  for (const [index, id] of picks.entries()) {
+    const c = UC13_CALIBRATION.cases[index];
+    if (c === undefined) throw new Error("missing calibration case");
+    expect(textOf(calibration)).toContain(c.input);
+    // Before the pick, nothing of the reference is on the page.
+    expect(textOf(page.get("calibration-feedback"))).toBe("");
+    expect(page.document.connectedText()).not.toContain("Reference label");
+    page.get(id).click();
+    expect(textOf(page.get("calibration-feedback"))).toContain(`Reference label: ${c.truth}`);
+    expect(textOf(page.get("calibration-feedback"))).toContain("human_reviewed");
+    // The pick buttons hide; focus moves to Next rather than dropping to the page.
+    expect(page.get("calibration-actions").hidden).toBe(true);
+    expect(page.document.activeElement?.id).toBe("calibration-next");
+    page.get("calibration-next").click();
+    expect(page.document.activeElement?.id).toBe(index < 4 ? "calibration-case" : "calibration-result");
+  }
+  const result = textOf(page.get("calibration-result"));
+  expect(result).toContain("You agreed with the reference on 3 of 4 picked cases (75%); 1 unsure.");
+  expect(result).toContain("m10");
+});
+
+test("[integration] M3 starter packs load their scene and 10 cases, and say where their labels came from", async () => {
+  const page = await mount();
+  page.get("starter-p1").click();
+  expect(page.get("question").value).toContain("fact sheet");
+  expect(page.get("choice-a").value).toBe("hand_off");
+  expect(page.get("choice-b").value).toBe("answer");
+  expect(page.get("acceptance").value).toContain("Larchfield");
+  expect(page.get("cases").value.split("\n").length).toBe(10);
+  expect(page.get("notice").textContent).toContain("10 cases");
+  expect(page.get("notice").textContent).toContain("10 human_reviewed");
+  page.get("starter-p4").click();
+  expect(page.get("question").value).toBe("Does this outfit suit the occasion?");
+  expect(page.get("notice").textContent).toContain("10 agent");
+  expect(page.get("notice").textContent).not.toContain("human_reviewed");
+  // Editing the cases drops the pack's labels, and says so.
+  typeInto(page, "cases", "one new case");
+  expect(page.get("notice").textContent).toContain("dropped 10 imported labels");
+});
+
+test("[integration] M3 a starter pack's human_reviewed labels reach the export when nobody picks", async () => {
+  const { spyOn } = await import("bun:test");
+  const { validate } = await import("../format/validate.ts");
+  const blobs: Blob[] = [];
+  const created = spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+    if (blob instanceof Blob) blobs.push(blob);
+    return "blob:test";
+  });
+  const revoked = spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  try {
+    const page = await mount(undefined, undefined, undefined, async (request) => ({
+      ...(await answerYes(request)),
+      output: request.choices[0].name,
+    }));
+    page.get("starter-p1").click();
+    page.get("jev-key").value = "jev-secret-value";
+    page.get("run-all").click();
+    await until(() => page.document.getElementById("open-judging") !== null);
+    await openJudging(page);
+    page.get("reveal").click();
+    page.get("confirm-reveal-yes").click();
+    await tick();
+    page.get("download-csv").click();
+    const csv = await blobs.at(-1)?.text();
+    if (csv === undefined) throw new Error("no CSV downloaded");
+    const parsed = validate(csv);
+    expect(parsed.errors).toEqual([]);
+    const sources = parsed.rows.map(({ values }) => [values.get("label_source"), values.get("labelled_by"), values.get("label_blind")]);
+    expect(sources.length).toBe(10);
+    expect(sources.every((s) => s[0] === "human_reviewed" && s[1] === "operator" && s[2] === "false")).toBe(true);
+  } finally {
+    created.mockRestore();
+    revoked.mockRestore();
+  }
+});
+
+test("[integration] M3 a CSV label column reaches the export: imported labels stay agent, a pick in the UI is human", async () => {
+  const { spyOn } = await import("bun:test");
+  const { validate } = await import("../format/validate.ts");
+  const blobs: Blob[] = [];
+  const created = spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+    if (blob instanceof Blob) blobs.push(blob);
+    return "blob:test";
+  });
+  const revoked = spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  try {
+    const page = await mount(undefined, undefined, undefined, answerYes);
+    fillScene(page, "");
+    await importCsv(page, "case_id,case_input,label\nc1,Please refund my mug,yes\nc2,Where is my order,no\n");
+    expect(page.get("notice").textContent).toContain("Imported 2 cases");
+    expect(page.get("notice").textContent).toContain("2 agent");
+    page.get("run-all").click();
+    await until(() => page.document.getElementById("open-judging") !== null);
+    await openJudging(page);
+    page.get("pick-second").click();
+    page.get("reveal").click();
+    page.get("confirm-reveal-yes").click();
+    await tick();
+    page.get("download-csv").click();
+    const csv = await blobs.at(-1)?.text();
+    if (csv === undefined) throw new Error("no CSV downloaded");
+    const parsed = validate(csv);
+    expect(parsed.errors).toEqual([]);
+    const cells = parsed.rows.map(({ values }) => ["case_id", "label", "label_source", "labelled_by"].map((k) => values.get(k)));
+    expect(cells).toEqual([
+      ["c1", "reject", "human", "backstage-operator"],
+      ["c2", "reject", "agent", "csv-import"],
+    ]);
+  } finally {
+    created.mockRestore();
+    revoked.mockRestore();
+  }
+});

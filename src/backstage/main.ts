@@ -36,6 +36,11 @@ import {
 } from "./confirm.ts";
 import type { Scene, RunMode, Provider, ProviderKeys } from "./contracts.ts";
 import type { Spend, CostPerAccepted } from "../core/metrics.ts";
+// Labelling loop M3: imported labels, calibration and starter packs.
+import { importedLabelSummary, parseCaseImport, type ImportedLabel } from "./run.ts";
+import { mountCalibration } from "./calibration-view.ts";
+import { UC13_CALIBRATION } from "../labels/calibration-set.ts";
+import { STARTER_PACKS, starterPackCsv, type StarterPack } from "../labels/starter-packs.ts";
 declare const BACKSTAGE_BUILD_VERSION: string;
 function element(id: string): HTMLElement {
   const value = document.getElementById(id);
@@ -69,6 +74,8 @@ let run: BackstageRun | undefined;
 let cardIndex = 0;
 let renderEpoch = 0;
 let imported: Scene["cases"] | undefined;
+/** Labels that came with the imported cases; held in memory only, so a reload drops them (the cases survive). */
+let importedLabels: readonly ImportedLabel[] = [];
 const imports = new CaseImportState();
 let startup: AbortController | undefined;
 function notice(message: string) {
@@ -305,9 +312,12 @@ async function start(firstOnly: boolean, retry = false, funded = false) {
       const candidate = scene(firstOnly);
       const selectedMode = mode();
       if (!funded) validateSceneKeys(candidate, activeKeys, selectedMode);
-      current = new BackstageRun(candidate, BACKSTAGE_BUILD_VERSION, {
-        arms: funded ? [JEV_ARM_ID] : selectedArms(),
-      });
+      current = new BackstageRun(
+        candidate,
+        BACKSTAGE_BUILD_VERSION,
+        { arms: funded ? [JEV_ARM_ID] : selectedArms() },
+        imported ? importedLabels.filter((l) => candidate.cases.some((c) => c.id === l.caseId)) : [],
+      );
       imports.invalidate();
       freezeFields(true);
     } else if (!current || current.labeling)
@@ -1003,6 +1013,9 @@ button("download-evidence").onclick = () => {
 field("cases").addEventListener("input", () => {
   imports.invalidate();
   imported = undefined;
+  if (importedLabels.length > 0)
+    notice(`Editing the cases dropped ${importedLabels.length} imported labels. Import the file or load the pack again to keep them.`);
+  importedLabels = [];
   void render();
 });
 field("import-cases").addEventListener("change", async () => {
@@ -1017,15 +1030,16 @@ field("import-cases").addEventListener("change", async () => {
   try {
     if (file.size > 1000000)
       throw new Error("Case CSV must be smaller than 1 MB.");
-    const reading = imports.read(file.text());
+    const reading = imports.readImport(file.text());
     void render();
     const loaded = await reading;
     if (!loaded || starting || run) return;
-    imported = loaded;
-    field("cases").value = importedDisplay(loaded);
+    imported = loaded.cases;
+    importedLabels = loaded.labels;
+    field("cases").value = importedDisplay(loaded.cases);
     persistDraft();
     notice(
-      `Imported ${loaded.length} cases; original multiline text is preserved.`,
+      `Imported ${loaded.cases.length} cases; original multiline text is preserved. ${importedLabelSummary(loaded.labels)}`.trim(),
     );
   } catch (error) {
     notice(error instanceof Error ? error.message : "Could not read CSV.");
@@ -1144,4 +1158,41 @@ for (const id of SCENE_DRAFT_FIELDS) {
   field(id).addEventListener("input", persistDraft);
 }
 imported = savedDraft.imported;
+// Starter packs (labelling loop M3): a pack goes through the same CSV import as a tester's file, labels included.
+function loadStarterPack(pack: StarterPack) {
+  if (starting || run || signingOut) {
+    notice("This scene is frozen. Start a new scene to load a starter pack.");
+    return;
+  }
+  imports.invalidate();
+  const loaded = parseCaseImport(starterPackCsv(pack));
+  const values: Record<string, string> = {
+    question: pack.question,
+    "choice-a": pack.choices[0].name,
+    "choice-b": pack.choices[1].name,
+    "definition-a": pack.choices[0].definition,
+    "definition-b": pack.choices[1].definition,
+    acceptance: pack.acceptance,
+    exclusions: pack.exclusions,
+    keywords: pack.keywords.join("\n"),
+  };
+  for (const [id, value] of Object.entries(values)) field(id).value = value;
+  imported = loaded.cases;
+  importedLabels = loaded.labels;
+  field("cases").value = importedDisplay(loaded.cases);
+  persistDraft();
+  notice(`Loaded ${pack.title}: ${loaded.cases.length} cases. ${importedLabelSummary(loaded.labels)}`.trim());
+  void render();
+}
+for (const pack of STARTER_PACKS) {
+  const choice = document.createElement("button");
+  choice.id = "starter-" + pack.id;
+  choice.setAttribute("type", "button");
+  choice.className = "secondary";
+  choice.textContent = pack.title;
+  choice.title = pack.persona;
+  choice.onclick = () => loadStarterPack(pack);
+  element("starter-pack-buttons").append(choice);
+}
+mountCalibration(UC13_CALIBRATION);
 showRoom(0, false);

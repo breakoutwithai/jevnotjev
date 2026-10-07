@@ -32,10 +32,10 @@ A real builder, unaided, takes one typed yes/no decision from their own project,
 |---|---|
 | M0 - Gate stable on main | `bun scripts/gate.ts` prints `gate: PASS` with files and tests at or above floor on 5 consecutive full runs of the main SHA (closes #115) |
 | M1 - Served build equals main | `ship.sh --verify <main SHA>` exits 0; S1, S2, S3 all PASS; release tag on origin is on the main SHA |
-| M2 - Rollback rehearsed | each module rolled back to the previous verified release and forward again, `--verify` exit 0 after each step |
+| M2 - Rollback rehearsed | each module rolled back to the previous verified release and forward again, the rollback command's own module check passes after each step, and whole-stack `--verify` exits 0 once both modules serve the same SHA (`.deploy/ship.sh:410` requires matching SHAs) |
 | M3 - Production UAT executed on the served SHA | scripted browser run on the live URL passes every positive check and every negative control fails as designed; report names the served SHA |
 | M4 - Live provider traces | one Backstage comparison run with real keys: requested vs returned model ids, usage, cost and failed-attempt spend recorded in the evidence JSON; an invalid-key control fails only its arm |
-| M5 - First blind human-labelled verdict | 30 or more paired cases labelled by a person blind to arm, no AI pre-drafting; verdict, numbers and limitations reproduce from the downloaded CSV in `bun run validate` and the Stage loader |
+| M5 - First blind human-labelled verdict | 30 or more paired cases labelled by a person blind to arm, no AI pre-drafting; verdict, numbers and limitations reproduce from the downloaded CSV in the command-line verdict and the Stage loader |
 | M6 - A team member's own workflow, unaided | a team member who did not build Backstage runs one decision from their own project end to end without help; friction log committed |
 | M7 - Outside builder run, unaided | a builder outside the team completes the journey on the live site and returns CSV and evidence JSON that reproduce the verdict |
 | M8 - Release | release tag on the SHA that passed M3 to M7; definition of done (below) all true |
@@ -93,7 +93,7 @@ Each move: action, expected observation, what failure looks like, likely reactio
 
 **Move 2.1 Roll each module back and forward.**
 - Action: `.deploy/ship.sh --module static --rollback --dry-run`, then without `--dry-run`; `.deploy/ship.sh --module backstage --rollback <full 40-char SHA of the previous verified release>` (`docs/DEPLOY.md:24-25`, `ship.sh:111-117`). Then roll forward by re-promoting main the same way: `.deploy/ship.sh --module backstage --rollback <main SHA>` (a fresh deploy of an already verified release is refused, `.deploy/backstage-deploy.sh:77`, `.deploy/backstage-lib.sh:71`), and redeploy static (Move 1.3).
-- Expected: after rollback, `--verify` passes with the old SHA; after roll-forward, with main.
+- Expected: after each single-module rollback, that module's closing check passes (the other module still serves main, so whole-stack `--verify` is expected to differ); once both are back on one SHA, `--verify` passes; after roll-forward, `--verify` passes with main.
 - Failure looks like: no previous verified release on the host; or the session gate refuses the target because it does not declare `"gate": "session"` (`docs/DEPLOY.md:40`).
 - Counteraction: if the previous release predates the session gate, it is not a valid rollback target for the Backstage module. Record the oldest valid target and test rollback to it instead. Rolling back past the session gate would reopen the old gate and is an abort, not a workaround.
 - Second-order: a static rollback alone leaves the Stage and Backstage on different SHAs. Both must be checked with `--status` after every rollback.
@@ -240,10 +240,10 @@ Every scripted UAT run names the served SHA it ran against and refuses to run wh
 ## Abort conditions (stop and escalate)
 
 - **A1** A co-tenant site on the shared host is down or changed after a deploy or rollback and the module rollback did not restore it.
-- **A2** `ship.sh --verify` fails after a rollback (no known-good state is serving).
+- **A2** a module's rollback check fails, or `ship.sh --verify` fails once both modules serve the same SHA (no known-good state is serving).
 - **A3** A provider key, or a canary standing in for one, appears in any log, file or response.
 - **A4** Personal data appears in a case, a returned file or a commit.
-- **A5** The Stage, `bun run validate` and Backstage give different numbers for the same CSV.
+- **A5** The Stage, the command-line verdict and Backstage give different numbers for the same CSV.
 - **A6** Fixing anything would require lowering a test floor, editing a label after reveal, or changing a verdict rule to move a verdict. Verdict-rule changes take the full pipeline path (`docs/spec/spec.md:164`).
 - **A7** A tester is locked out of the shared host by an intrusion jail.
 
@@ -252,9 +252,9 @@ Every scripted UAT run names the served SHA it ran against and refuses to run wh
 1. `ship.sh --status` exits 0 and `ship.sh --verify <SHA>` exits 0 for the release SHA; S1, S2, S3 PASS.
 2. The gate prints PASS at or above floor on 5 consecutive runs of that SHA.
 3. A scripted browser UAT report exists for that served SHA, with every positive check PASS and every negative control failing as designed.
-4. Both modules have been rolled back and forward on the live host with `--verify` PASS after each step.
+4. Both modules have been rolled back and forward on the live host with each module's rollback check passing and `--verify` PASS whenever both modules serve the same SHA.
 5. One evidence JSON from a live comparison run records requested and returned model ids, usage, cost and failed-attempt spend; the invalid-key control failed only its arm; the key canary search found nothing.
-6. One run with 30 or more paired cases was labelled blind by a person with no AI drafting; its verdict, numbers and limitations reproduce identically in Backstage, `bun run validate` and the Stage loader.
+6. One run with 30 or more paired cases was labelled blind by a person with no AI drafting; its verdict, numbers and limitations reproduce identically in Backstage, the command-line verdict and the Stage loader.
 7. A team member and a builder outside the team each completed the journey unaided on their own decision, and each verdict reproduces from the returned CSV.
 8. No abort condition fired, or each one that fired is closed with its fix merged.
 9. The release notes state what was proven and what was not, including that verdicts cover the tester's own cases only.

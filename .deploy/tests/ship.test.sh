@@ -56,7 +56,7 @@ case "$cmd" in
     "mkdir /var/lock/jevnotjev-ship") [ -z "${FAKE_SHIP_LOCK_HELD:-}" ] || exit 1 ;;
     "rmdir /var/lock/jevnotjev-ship") ;;
     *"uname -m"*)
-        printf '%s\n' arch=x86_64 bun=1.3.0 user=absent port=free unit=absent snippet=absent \
+        printf '%s\n' arch=x86_64 bun=1.3.0 user=absent port=free unit=absent journald=absent snippet=absent \
             vhost=present vhost_link=yes include=absent enabled=no active=no \
             ht_tool=htpasswd nginx_group=www-data htpasswd=root:www-data:640:44 htpasswd_dir=root:www-data:750 \
             auth_request=yes session_check=401 auth_env=root:root:600:64 auth_secret=1 auth_trust_proxy=1 operators=jevnotjev-backstage:jevnotjev-backstage:600:64 ;;

@@ -36,7 +36,7 @@ body {
   border-top: 7px solid var(--curtain);
 }
 header {
-  max-width: 1100px;
+  max-width: 980px;
   margin: auto;
   padding: 20px 24px;
   display: flex;

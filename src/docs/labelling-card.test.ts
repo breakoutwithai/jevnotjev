@@ -40,7 +40,12 @@ describe("labelling card", () => {
 
   test("[unit] M3 no card example is a calibration or starter-pack case", async () => {
     const card = (await Bun.file(CARD).text()).toLowerCase();
-    const inputs = [...UC13_CALIBRATION.cases.map((c) => c.input), ...STARTER_PACKS.flatMap((p) => p.cases.map((c) => c.input))];
+    // A P1 case is the fact sheet then the customer message: compare the message, the part a card example could copy.
+    const message = (input: string): string => input.split("Customer message:\n").pop() ?? input;
+    const inputs = [
+      ...UC13_CALIBRATION.cases.map((c) => c.input),
+      ...STARTER_PACKS.flatMap((p) => p.cases.map((c) => message(c.input))),
+    ];
     for (const input of inputs) expect([input, card.includes(input.toLowerCase())]).toEqual([input, false]);
   });
 

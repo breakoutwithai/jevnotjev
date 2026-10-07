@@ -61,7 +61,8 @@ const P1: StarterPack = {
   title: "P1 Shop bot: answer or hand off",
   persona: "A shop-bot builder checking that the bot hands off what the fact sheet does not cover.",
   question: UC13_QUESTION,
-  // hand_off first: Backstage's keyword rule answers the first choice on a match, and the UC13 rule matches hand_off.
+  // hand_off first, so a tester who adds hand-off keywords gets a rule that points the right way (a match answers the
+  // first choice). P1 ships with none: see keywords below.
   choices: [UC13_CHOICES[1], UC13_CHOICES[0]],
   acceptance: "Decide from the fact sheet at the top of each case only.",
   exclusions: "Do not use anything the fact sheet does not state.",

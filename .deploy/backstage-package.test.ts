@@ -1,5 +1,10 @@
-import { test, expect } from "bun:test";
+import { test, expect, setDefaultTimeout } from "bun:test";
 import { checkRelease } from "./backstage-package.ts";
+
+// The integration tests run the real deploy scripts against a fake host, and several take
+// about 5 s, Bun's default per-test limit, so they failed by timeout under load. All 40
+// passed in 51.77 s with --timeout 60000 on e3b7a5a.
+setDefaultTimeout(30_000);
 import {
   mkdtemp,
   rm,

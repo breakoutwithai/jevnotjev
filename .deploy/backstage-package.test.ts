@@ -913,3 +913,14 @@ test("[integration] JF6 explicit rollback from a v2 release accepts the verified
   expect(result.current).toBe("b".repeat(40));
   expect(result.log).toContain("is-active --quiet");
 });
+test("[unit] ticket office locations are optional in the session layout and fail closed when altered", async () => {
+  const repo = await Bun.file(".deploy/backstage-nginx.conf").text();
+  const ticketBlock = /# Ticket office[^\n]*\nlocation = \/api\/tickets \{[^}]*\}\nlocation = \/api\/tickets\/ranking \{[^}]*\}\n/;
+  expect(ticketBlock.test(repo)).toBe(true);
+  expect(await authState(repo)).toEqual({ code: 0, out: "session" });
+  expect(await authState(repo.replace(ticketBlock, ""))).toEqual({ code: 0, out: "session" });
+  expect((await authState(repo.replace("client_max_body_size 4k;", "client_max_body_size 4k; auth_basic off;"))).code).toBe(1);
+  expect((await authState(repo.replace("client_max_body_size 4k;", "client_max_body_size 64m;"))).code).toBe(1);
+  const duplicate = repo.match(ticketBlock)?.[0] ?? "";
+  expect((await authState(repo + duplicate)).code).toBe(1);
+});

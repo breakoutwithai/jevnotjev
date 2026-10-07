@@ -9,6 +9,9 @@ export type AuthLog = { event: PlainAuthEvent; email: string; ip: string; rid: s
   { event: "signin.google.denied"; email: string; ip: string; rid: string; reason: GoogleDeniedReason } |
   { event: "session.rejected"; email: string; ip: string; rid: string; reason: SessionRejectedReason };
 export interface RunLog { event: RunEvent; rid: string; provider: Provider; model: string }
+/** Ticket office events carry ids and counts only, never an email, website or idea. */
+export type TicketLog = { event: "ticket.issued"; rid: string; ticket: string; kind: "show" | "backstage"; show: string | null } |
+  { event: "ticket.rejected"; rid: string; reason: string };
 
 // Ported from groit apps/booth/lib/api/email-audit.js:71-100 at bb29d8cc and clearance-dealmarket-v1 backend/src/modules/buyers/lib/login-outcome.ts at e2f7cefc.
 // A closed journal pipe raises an async EPIPE on stdout; one shared no-op listener keeps it from crashing the server.
@@ -25,6 +28,14 @@ export function createEventLogger(clock: () => number, sink?: (line: string) => 
         return fields.event === "signin.google.denied" || fields.event === "session.rejected"
           ? { ts, event, email, ip, rid, reason: fields.reason }
           : { ts, event, email, ip, rid };
+      });
+    },
+    ticket(fields: TicketLog): void {
+      write(() => {
+        const ts = new Date(clock()).toISOString();
+        return fields.event === "ticket.issued"
+          ? { ts, event: fields.event, rid: fields.rid, ticket: fields.ticket, kind: fields.kind, show: fields.show }
+          : { ts, event: fields.event, rid: fields.rid, reason: fields.reason };
       });
     },
     run(fields: RunLog): void {

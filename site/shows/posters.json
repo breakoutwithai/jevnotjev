@@ -1,0 +1,132 @@
+{
+  "schema": "jnj-posters/1",
+  "generated_by": "scripts/shows/build-posters.ts",
+  "posters": [
+    {
+      "id": "uc11",
+      "title": "CV against a job ad",
+      "story": "As a hiring manager I want each CV checked against each line of my job ad, so I read the strong ones first and stop paying an LLM to reread every CV in full.",
+      "fit": [
+        "Jev probably not",
+        "Jev could help"
+      ],
+      "stage": "rehearsal",
+      "date": "2026-10-03",
+      "source": "docs/product/use-cases/uc11-cv-vs-job-ad.md",
+      "run": {
+        "folder": "2026-10-03-tokenmax",
+        "rows": 30,
+        "labelledPaired": 0,
+        "verdict": null,
+        "reason": null,
+        "labels": null,
+        "methods": [
+          {
+            "arm": "llm",
+            "rows": 10,
+            "labelled": 0,
+            "accepted": 0,
+            "spendUsd": 0.022662
+          },
+          {
+            "arm": "rule",
+            "rows": 10,
+            "labelled": 0,
+            "accepted": 0,
+            "spendUsd": 0
+          },
+          {
+            "arm": "jev",
+            "rows": 10,
+            "labelled": 0,
+            "accepted": 0,
+            "spendUsd": 0.000161
+          }
+        ]
+      },
+      "watch": null
+    },
+    {
+      "id": "uc13",
+      "title": "Shop bot, answer or hand off",
+      "story": "As a small shop owner running a website and phone bot, I want the bot to answer what its configured facts cover and hand everything else to staff, so customers never hear an invented price, stock level or booking.",
+      "fit": [
+        "!Jev",
+        "Jev could help"
+      ],
+      "stage": "show",
+      "date": "2026-10-01",
+      "source": "docs/product/use-cases/uc13-shop-bot-answer-or-handoff.md",
+      "run": {
+        "folder": "2026-10-01-uc13-shop-bot",
+        "rows": 120,
+        "labelledPaired": 40,
+        "verdict": "not enough evidence",
+        "reason": "not enough evidence: Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM -0.11, not above -0.10)",
+        "labels": "human_reviewed, blind: no",
+        "methods": [
+          {
+            "arm": "llm",
+            "rows": 40,
+            "labelled": 40,
+            "accepted": 38,
+            "spendUsd": 0.103167
+          },
+          {
+            "arm": "rule",
+            "rows": 40,
+            "labelled": 40,
+            "accepted": 29,
+            "spendUsd": 0
+          },
+          {
+            "arm": "jev",
+            "rows": 40,
+            "labelled": 40,
+            "accepted": 38,
+            "spendUsd": 0.001302
+          }
+        ]
+      },
+      "watch": "little-shop/"
+    },
+    {
+      "id": "uc12",
+      "title": "Requirement evidence check",
+      "story": "As a builder before a demo I want each requirement in my spec checked against the evidence I hold for it, so I know which ones are met, partly met or not met without rereading everything.",
+      "fit": [
+        "!Jev",
+        "Jev could help"
+      ],
+      "stage": "script-reading",
+      "date": "2026-09-30",
+      "source": "docs/product/use-cases/uc12-requirement-evidence-check.md",
+      "run": null,
+      "watch": null
+    },
+    {
+      "id": "uc10",
+      "title": "Tech stack choice",
+      "story": "As a user I want Jev to decide on my tech stack for my project.",
+      "fit": [
+        "Jev probably not"
+      ],
+      "stage": "script-reading",
+      "date": "2026-09-28",
+      "source": "docs/product/use-cases/uc10-tech-stack-choice.md",
+      "run": null,
+      "watch": null
+    },
+    {
+      "id": "uc9",
+      "title": "Website slop roast",
+      "story": "As a website builder I want to use Jev!Jev to roast and score my website as AI slop so that I can fix it and win awards for awesome web apps.",
+      "fit": [],
+      "stage": "script-reading",
+      "date": "2026-09-28",
+      "source": "docs/product/use-cases/uc9-website-slop-roast.md",
+      "run": null,
+      "watch": null
+    }
+  ]
+}

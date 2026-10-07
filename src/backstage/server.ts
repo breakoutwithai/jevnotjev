@@ -16,6 +16,8 @@ import {
 } from "./providers.ts";
 import type { ProviderFetch } from "./providers.ts";
 import { openTrial, validTrialInput } from "./trial.ts";
+import { checkTicket, MAX_TICKET_BODY, TicketLimiter, TicketStore } from "./tickets.ts";
+import { rankPosters, type Poster } from "../shows/posters.ts";
 import type { TrialConfig } from "./trial.ts";
 declare const BACKSTAGE_BUILD_VERSION: string;
 export function runtimeVersion(
@@ -40,6 +42,8 @@ export interface ServerOptions {
   readonly trustProxy?: boolean;
   readonly requireSession?: boolean;
   readonly log?: (line: string) => void;
+  /** Ticket office lead store; without a path the ticket routes answer 503. */
+  readonly tickets?: { readonly path?: string | undefined };
   readonly auth?: {
     readonly sessionSecret?: string | undefined;
     readonly operatorsPath?: string | undefined;
@@ -162,6 +166,17 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   );
   const root = resolve(options.staticRoot ?? "site"),
     trialCookieName = "backstage_trial";
+  const ticketStore = options.tickets?.path ? new TicketStore(options.tickets.path) : null;
+  const ticketLimiter = new TicketLimiter(clock);
+  // Read per request so a redeployed site/shows/posters.json is seen without a restart; a missing file means no shows.
+  const posters = async (): Promise<Poster[]> => {
+    try {
+      const data: unknown = await Bun.file(join(root, "shows", "posters.json")).json();
+      return typeof data === "object" && data !== null && "posters" in data && Array.isArray(data.posters)
+        ? data.posters.filter((p: unknown): p is Poster => typeof p === "object" && p !== null && "id" in p && typeof p.id === "string" && "date" in p && typeof p.date === "string")
+        : [];
+    } catch { return []; }
+  };
   const handler = async (
     request: Request,
     context?: RequestContext,
@@ -542,6 +557,32 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         else activeByok--;
       }
     }
+    if (pathname === "/api/tickets/ranking") {
+      if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+      const list = await posters();
+      const counts = ticketStore?.countsByShow() ?? {};
+      return json({ ids: list.length ? rankPosters(list, counts).map((p) => p.id) : [], counts });
+    }
+    if (pathname === "/api/tickets") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      const reject = (reason: string, status: number): Response => { logger.ticket({ event: "ticket.rejected", rid, reason }); return json({ code: reason }, status); };
+      if (request.headers.get("origin") !== origin || request.headers.get("sec-fetch-site") === "cross-site") return reject("origin-rejected", 403);
+      if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") return reject("json-required", 415);
+      if (!ticketStore) return reject("tickets-unavailable", 503);
+      if (Number(request.headers.get("content-length") ?? 0) > MAX_TICKET_BODY) return reject("too-large", 413);
+      let decoded: unknown;
+      try {
+        const raw = await boundedText(new Response(request.body), MAX_TICKET_BODY, AbortSignal.timeout(5000));
+        decoded = JSON.parse(raw);
+      } catch { return reject("too-large-or-invalid", 413); }
+      if (!ticketLimiter.allow(ip)) return reject("rate-limited", 429);
+      const checked = checkTicket(decoded, new Set((await posters()).map((p) => p.id)));
+      if (!checked.ok) return reject(checked.reason, 400);
+      if ("trap" in checked) { logger.ticket({ event: "ticket.rejected", rid, reason: "honeypot" }); return json({ ok: true }); }
+      const ticket = ticketStore.issue(checked.ticket, clock());
+      logger.ticket({ event: "ticket.issued", rid, ticket, kind: checked.ticket.kind, show: checked.ticket.show });
+      return json({ ticket, kind: checked.ticket.kind, show: checked.ticket.show });
+    }
     if (pathname.startsWith("/api/"))
       return json({ error: "Not found." }, 404);
     if (request.method !== "GET" && request.method !== "HEAD")
@@ -573,6 +614,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   return Object.assign(handler, {
     close() {
       if (trial.available) trial.ledger.close();
+      ticketStore?.close();
     },
   });
 }
@@ -596,6 +638,7 @@ if (import.meta.main) {
     trialPricingVersion: process.env.BACKSTAGE_TRIAL_PRICING_VERSION ?? "",
     trustProxy: process.env.BACKSTAGE_TRUST_PROXY === "loopback",
     requireSession: process.env.BACKSTAGE_REQUIRE_SESSION === "1",
+    tickets: { path: process.env.BACKSTAGE_TICKETS_PATH ?? (process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, "tickets.sqlite") : undefined) },
     auth: {
       sessionSecret: process.env.BACKSTAGE_SESSION_SECRET,
       operatorsPath: process.env.BACKSTAGE_OPERATORS_PATH ?? (process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, "operators.json") : undefined),

@@ -432,6 +432,7 @@ h1 em { font-weight: 500; color: var(--brass); }
 }
 </style>
 <link rel="stylesheet" href="theatre.css">
+<link rel="stylesheet" href="shows/office.css">
 <script>
 /* Decide motion before first paint so the curtains are closed on load, never flashed open. */
 (function () {
@@ -492,6 +493,7 @@ h1 em { font-weight: 500; color: var(--brass); }
     <div class="title-row">
       <h1 id="t1" tabindex="-1">To Jev or not to Jev: <em>that is the question</em></h1>
       <button class="door" id="door" type="button" aria-expanded="false" aria-controls="doorDemo">Running a shop bot? Step through the stage door.<small>A short shop-bot demo</small></button>
+      <a class="door-preview" href="#tickets">Ticket office: watch a recorded test, or bring your own decision.</a>
       <a class="door-preview" href="little-shop/">Preview: <em>Little Shop of Horrors</em>. Take your seat and make the call on 40 messages.</a>
     </div>
     <p class="byline">A play in five short acts about one decision your workflow makes, three ways of making it, and twenty cases that judge them.</p>
@@ -572,6 +574,68 @@ h1 em { font-weight: 500; color: var(--brass); }
       <ol id="repertoire"></ol>
     </div>
     <p class="fin" id="fin"></p>
+  </div>
+</section>
+
+
+<section class="office" id="tickets" aria-labelledby="officeTitle">
+  <div class="office-in">
+    <h2 id="officeTitle">Ticket office</h2>
+    <p class="office-lede">Watch a recorded test of one decision: an LLM, a simple rule and Jev answer the same cases, and each answer is checked. Or go backstage and bring a decision of your own.</p>
+    <p class="office-notfor">Not for you if you want a chatbot, a writer or a ranking. Jev picks one answer from a fixed list for one text, and code acts on it. <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/docs/product/use-cases/when-not-to-use-jev.md">When not to use Jev</a></p>
+    <div class="office-entry">
+      <a class="office-go" href="#tkForm" data-kind="show">Get a ticket to watch</a>
+      <a class="office-go alt" href="#tkForm" data-kind="backstage">Go backstage with my own decision</a>
+    </div>
+
+    <form class="tk-form" id="tkForm" novalidate>
+      <fieldset class="tk-kind">
+        <legend>Which ticket?</legend>
+        <label><input type="radio" name="kind" value="show" checked> Watch a show</label>
+        <label><input type="radio" name="kind" value="backstage"> Go backstage with my own decision</label>
+      </fieldset>
+      <div class="tk-field" id="tkShowField">
+        <label for="tkShow">Show</label>
+        <select id="tkShow" name="show" aria-describedby="tkShowErr"><option value="">Choose a show</option></select>
+        <p class="tk-err" id="tkShowErr" hidden></p>
+      </div>
+      <div class="tk-field">
+        <label for="tkEmail">Email (required)</label>
+        <input type="email" id="tkEmail" name="email" required autocomplete="email" aria-describedby="tkEmailErr">
+        <p class="tk-err" id="tkEmailErr" hidden></p>
+      </div>
+      <div class="tk-field" id="tkWebsiteField" hidden>
+        <label for="tkWebsite">Website (optional)</label>
+        <input type="url" id="tkWebsite" name="website" autocomplete="url" aria-describedby="tkWebsiteHelp tkWebsiteErr">
+        <p class="tk-help" id="tkWebsiteHelp">Where this decision runs, so we can read the workflow before we reply.</p>
+        <p class="tk-err" id="tkWebsiteErr" hidden></p>
+      </div>
+      <div class="tk-field" id="tkIdeaField" hidden>
+        <label for="tkIdea">Your decision, in one line (optional)</label>
+        <textarea id="tkIdea" name="idea" rows="2" maxlength="280" aria-describedby="tkIdeaHelp"></textarea>
+        <p class="tk-help" id="tkIdeaHelp">Any yes or no, or pick-one-of-a-list call. For example: can my shop bot answer this message, or must a person? Does this outfit suit the occasion?</p>
+      </div>
+      <div class="tk-trap" inert aria-hidden="true"><label>Leave empty <input type="text" name="nickname" tabindex="-1" autocomplete="off"></label></div>
+      <div class="tk-field tk-check">
+        <label><input type="checkbox" id="tkConsent" name="consent" aria-describedby="tkConsentErr"> Keep my email for this ticket (needed for a ticket)</label>
+        <p class="tk-err" id="tkConsentErr" hidden></p>
+      </div>
+      <div class="tk-field tk-check">
+        <label><input type="checkbox" id="tkFollow" name="follow_up"> You may email me about Jev!Jev (optional)</label>
+      </div>
+      <p class="tk-privacy">We keep your email, the show you picked, your follow-up choice, and your website and decision if you give them, on our own server. They are never shared or sold. We delete them 90 days after the 30 day challenge ends, or sooner if you ask: reply to any email from us or open an issue on the project's GitHub.</p>
+      <p class="tk-chosen" id="tkChosen" aria-live="polite"></p>
+      <button type="submit" class="tk-submit">Get my ticket</button>
+      <p class="tk-err" id="tkFormErr" role="alert" hidden></p>
+    </form>
+    <div class="tk-issued" id="tkIssued" hidden></div>
+
+    <nav class="tk-stages" aria-label="Stages">
+      <a href="#stage-show">Shows <span data-count="show"></span></a>
+      <a href="#stage-rehearsal">Rehearsals <span data-count="rehearsal"></span></a>
+      <a href="#stage-script-reading">Script readings <span data-count="script-reading"></span></a>
+    </nav>
+    <div class="tk-posters" id="tkPosters"></div>
   </div>
 </section>
 
@@ -852,5 +916,6 @@ h1 em { font-weight: 500; color: var(--brass); }
 <script src="stage-door.js"></script>
 <script src="results-loader.js"></script>
 <script src="theatre.js"></script>
+<script src="shows/office.js"></script>
 </body>
 </html>

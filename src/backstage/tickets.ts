@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 // The ticket office's lead store: one SQLite file in the Backstage state directory, never in the repo or logs.
 // Rows are written only with consent. Retention and deletion are stated on the page (docs/design/ticket-office.md).
@@ -26,13 +26,18 @@ export type TicketCheck =
 
 export type TicketRejectReason = "no-consent" | "bad-email" | "bad-website" | "bad-show" | "bad-kind" | "bad-idea" | "bad-body" | "bad-request-key";
 
+export type IssueResult =
+  | { readonly status: "issued" | "replay"; readonly id: string; readonly kind: TicketKind; readonly show: string | null }
+  | { readonly status: "conflict" };
+
 export const MAX_TICKET_BODY = 4096;
 export const MAX_IDEA = 280;
 export const RATE_LIMIT = 5;
 export const RATE_WINDOW_MS = 10 * 60_000;
 
 // Local part may hold an apostrophe (o'connor@...), as the browser's own check allows; the domain may not.
-const EMAIL = /^[^\s@<>"]{1,64}@[^\s@<>"']+\.[^\s@<>"']{2,}$/u;
+// Domain: dot-separated labels of letters, digits and inner hyphens, ending in a 2+ letter TLD.
+const EMAIL = /^[^\s@<>"]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/u;
 const REQUEST_KEY = /^[A-Za-z0-9_-]{16,64}$/;
 export const MAX_LIMITED_ADDRESSES = 10_000;
 
@@ -88,29 +93,41 @@ export class TicketStore {
     this.#db.exec(`CREATE TABLE IF NOT EXISTS tickets (
       id TEXT PRIMARY KEY, created_at TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('show','backstage')),
       show TEXT, email TEXT NOT NULL, website TEXT, idea TEXT, consent INTEGER NOT NULL CHECK(consent = 1),
-      follow_up INTEGER NOT NULL DEFAULT 0 CHECK(follow_up IN (0, 1)), request_key TEXT UNIQUE)`);
+      follow_up INTEGER NOT NULL DEFAULT 0 CHECK(follow_up IN (0, 1)), request_key TEXT UNIQUE, request_hash TEXT)`);
   }
 
-  /** Issues a ticket, or returns the one already issued for the same request key. 48-bit ids; a clash retries. */
-  issue(input: TicketInput, now: number): string {
-    if (input.requestKey) {
-      const prior = this.#db.query<{ id: string }, [string]>("SELECT id FROM tickets WHERE request_key = ?").get(input.requestKey);
-      if (prior) return prior.id;
-    }
+  /**
+   * Issues a ticket. A request key already stored with the same details returns that ticket as stored (a retry);
+   * the same key with different details is a conflict and stores nothing. 48-bit ids; an id clash retries.
+   */
+  issue(input: TicketInput, now: number): IssueResult {
+    const hash = createHash("sha256")
+      .update(JSON.stringify([input.kind, input.show, input.email, input.website, input.idea, input.followUp]))
+      .digest("hex");
+    const prior = (): IssueResult | null => {
+      if (!input.requestKey) return null;
+      const row = this.#db
+        .query<{ id: string; kind: TicketKind; show: string | null; request_hash: string | null }, [string]>("SELECT id, kind, show, request_hash FROM tickets WHERE request_key = ?")
+        .get(input.requestKey);
+      if (!row) return null;
+      return row.request_hash === hash ? { status: "replay", id: row.id, kind: row.kind, show: row.show } : { status: "conflict" };
+    };
+    const before = prior();
+    if (before) return before;
     for (let attempt = 0; ; attempt++) {
       const id = `JNJ-${randomBytes(6).toString("hex").toUpperCase()}`;
       try {
         this.#db
-          .query("INSERT INTO tickets (id, created_at, kind, show, email, website, idea, consent, follow_up, request_key) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)")
-          .run(id, new Date(now).toISOString(), input.kind, input.show, input.email, input.website, input.idea, input.followUp ? 1 : 0, input.requestKey);
-        return id;
+          .query("INSERT INTO tickets (id, created_at, kind, show, email, website, idea, consent, follow_up, request_key, request_hash) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)")
+          .run(id, new Date(now).toISOString(), input.kind, input.show, input.email, input.website, input.idea, input.followUp ? 1 : 0, input.requestKey, input.requestKey ? hash : null);
+        return { status: "issued", id, kind: input.kind, show: input.show };
       } catch (error) {
-        const clash = error instanceof Error && /UNIQUE constraint failed: tickets\.(id|request_key)/.test(error.message);
-        if (!clash || attempt >= 3) throw error;
-        if (input.requestKey && /request_key/.test(error instanceof Error ? error.message : "")) {
-          const prior = this.#db.query<{ id: string }, [string]>("SELECT id FROM tickets WHERE request_key = ?").get(input.requestKey);
-          if (prior) return prior.id;
+        const message = error instanceof Error ? error.message : "";
+        if (/UNIQUE constraint failed: tickets\.request_key/.test(message)) {
+          const raced = prior();
+          if (raced) return raced;
         }
+        if (!/UNIQUE constraint failed: tickets\.id/.test(message) || attempt >= 3) throw error;
       }
     }
   }

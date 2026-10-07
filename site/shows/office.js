@@ -24,6 +24,7 @@
 
   var form = $("tkForm"), select = $("tkShow"), wrap = $("tkPosters");
   if (!form || !wrap) return;
+  form.querySelector(".tk-submit").disabled = false;
   var MAX = 10;
   var posters = [];
   var requestKey = null;
@@ -49,10 +50,13 @@
     $("tkIssued").hidden = true;
     form.reset();
     requestKey = null;
+    ["tkShowErr", "tkEmailErr", "tkWebsiteErr", "tkConsentErr", "tkFormErr"].forEach(function (id) { setErr(id, ""); });
+    form.querySelectorAll("[aria-invalid]").forEach(function (e) { e.setAttribute("aria-invalid", "false"); });
     form.hidden = false;
   }
   function choose(k, id) {
     reopen();
+    if (k === "show" && form.querySelector("input[value=show]").disabled) k = "backstage";
     form.querySelector("input[value=" + k + "]").checked = true;
     if (id) select.value = id;
     syncKind();
@@ -74,7 +78,7 @@
     if (p.fit.length) card.appendChild(el("p", "tk-fit", "Fit check: " + p.fit.map(plainFit).join(" / ")));
     if (p.run) {
       var r = p.run;
-      if (r.labelledPaired > 0) {
+      if (r.methods.some(function (m) { return m.labelled > 0; })) {
         var ul = el("ul", "tk-methods");
         r.methods.forEach(function (m) {
           ul.appendChild(el("li", "", METHOD[m.arm] + ": " + m.accepted + " of " + m.labelled + " right, spend " + usd(m.spendUsd)));
@@ -136,6 +140,8 @@
     wrap.textContent = "The show list did not load, so show tickets are paused. Reload the page, or go backstage with your own decision.";
     var watch = form.querySelector("input[value=show]");
     watch.disabled = true;
+    var go = document.querySelector('.office-go[data-kind="show"]');
+    if (go) go.hidden = true;
     form.querySelector("input[value=backstage]").checked = true;
     syncKind();
   }
@@ -176,9 +182,10 @@
     var email = $("tkEmail").value.trim();
     var bad = [
       setErr("tkShowErr", k === "show" && !select.value ? "Choose a show." : "", select),
-      setErr("tkEmailErr", !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) ? "Enter an email address, like name@example.com." : "", $("tkEmail")),
+      setErr("tkEmailErr", !/^[^\s@<>"]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/.test(email) ? "Enter an email address, like name@example.com." : "", $("tkEmail")),
       setErr("tkConsentErr", !$("tkConsent").checked ? "Tick this box to get a ticket. We need to keep your email to hold it." : "", $("tkConsent"))
     ].filter(Boolean);
+    setErr("tkWebsiteErr", "", $("tkWebsite"));
     setErr("tkFormErr", "");
     if (bad.length) { bad[0].focus(); return; }
     if (!requestKey) requestKey = newKey();
@@ -203,11 +210,13 @@
           "no-consent": ["tkConsentErr", "tkConsent", "Tick this box to get a ticket. We need to keep your email to hold it."]
         }[res.body.code];
         if (field) { setErr(field[0], field[2], $(field[1])).focus(); return; }
-        requestKey = null;
+        /* The key is kept: if an earlier attempt was stored, the retry returns that ticket instead of a second one. */
         setErr("tkFormErr", {
-          "rate-limited": "Too many tickets from this network just now. Try again in ten minutes. Nothing was stored.",
+          "rate-limited": "Too many requests from this network just now. Wait ten minutes and press the button again; if an earlier try went through, you get that same ticket.",
+          "request-key-reused": "Your details changed after an earlier try that may have gone through. Reload the page to start a new request.",
+          "catalogue-unavailable": "The show list is being updated. Try again in a minute.",
           "tickets-unavailable": "The ticket office is closed right now. Nothing was stored."
-        }[res.body.code] || "The ticket could not be issued. Nothing was stored.");
+        }[res.body.code] || "The ticket could not be issued. Press the button again to retry.");
       })
       .catch(function () {
         btn.disabled = false;

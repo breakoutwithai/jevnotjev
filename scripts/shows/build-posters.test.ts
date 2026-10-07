@@ -28,7 +28,8 @@ describe("posters", () => {
   test("[unit] T2 posters generated, at most 10, none typed", async () => {
     const built = await buildPosters(ROOT);
     expect(readFileSync(POSTERS_OUT, "utf8")).toBe(render(built));
-    expect(built.length).toBe(Math.min(10, committed.posters.length));
+    const docs = readdirSync(join(ROOT, "docs/product/use-cases")).filter((f) => /^uc\d+-.+\.md$/.test(f));
+    expect(built.length).toBe(docs.length);
     expect(built.length).toBeGreaterThan(0);
     for (const p of built) {
       expect(page.includes(p.title)).toBe(false);
@@ -75,7 +76,7 @@ describe("summariseRun on fixtures", () => {
     const run = await summariseRun(root, "2026-01-01-fixture");
     expect(run?.labelledPaired).toBe(0);
     expect(run?.verdict).toBeNull();
-    expect(run?.methods.every((m) => m.labelled === 0 && m.accepted === 0)).toBe(true);
+    expect(run?.methods.map((m) => [m.arm, m.rows, m.labelled, m.accepted])).toEqual([["llm", 40, 0, 0], ["rule", 40, 0, 0], ["jev", 40, 0, 0]]);
   });
 
   test("[unit] two questions of 20 paired cases each are two cohorts, neither judged", async () => {

@@ -169,13 +169,15 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   const ticketStore = options.tickets?.path ? new TicketStore(options.tickets.path) : null;
   const ticketLimiter = new TicketLimiter(clock);
   // Read per request so a redeployed site/shows/posters.json is seen without a restart; a missing file means no shows.
-  const posters = async (): Promise<Poster[]> => {
+  // null means the catalogue could not be read or is malformed: an outage, never an empty catalogue.
+  const posters = async (): Promise<Poster[] | null> => {
     try {
       const data: unknown = await Bun.file(join(root, "shows", "posters.json")).json();
-      return typeof data === "object" && data !== null && "posters" in data && Array.isArray(data.posters)
-        ? data.posters.filter((p: unknown): p is Poster => typeof p === "object" && p !== null && "id" in p && typeof p.id === "string" && "date" in p && typeof p.date === "string")
-        : [];
-    } catch { return []; }
+      if (typeof data !== "object" || data === null || !("posters" in data) || !Array.isArray(data.posters)) return null;
+      const list: unknown[] = data.posters;
+      const valid = list.filter((p: unknown): p is Poster => typeof p === "object" && p !== null && "id" in p && typeof p.id === "string" && "date" in p && typeof p.date === "string");
+      return valid.length === list.length ? valid : null;
+    } catch { return null; }
   };
   const handler = async (
     request: Request,
@@ -560,6 +562,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     if (pathname === "/api/tickets/ranking") {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       const list = await posters();
+      if (list === null) { logger.ticket({ event: "ticket.rejected", rid, reason: "catalogue-unavailable" }); return json({ code: "catalogue-unavailable" }, 503); }
       const counts = ticketStore?.countsByShow() ?? {};
       return json({ ids: list.length ? rankPosters(list, counts).map((p) => p.id) : [], counts });
     }
@@ -576,12 +579,15 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         const raw = await boundedText(new Response(request.body), MAX_TICKET_BODY, AbortSignal.timeout(5000));
         decoded = JSON.parse(raw);
       } catch { return reject("too-large-or-invalid", 413); }
-      const checked = checkTicket(decoded, new Set((await posters()).map((p) => p.id)));
+      const catalogue = await posters();
+      if (catalogue === null) return reject("catalogue-unavailable", 503);
+      const checked = checkTicket(decoded, new Set(catalogue.map((p) => p.id)));
       if (!checked.ok) return reject(checked.reason, 400);
       if ("trap" in checked) { logger.ticket({ event: "ticket.rejected", rid, reason: "honeypot" }); return json({ ok: true }); }
-      const ticket = ticketStore.issue(checked.ticket, clock());
-      logger.ticket({ event: "ticket.issued", rid, ticket, kind: checked.ticket.kind, show: checked.ticket.show });
-      return json({ ticket, kind: checked.ticket.kind, show: checked.ticket.show });
+      const issued = ticketStore.issue(checked.ticket, clock());
+      if (issued.status === "conflict") return reject("request-key-reused", 409);
+      logger.ticket({ event: "ticket.issued", rid, ticket: issued.id, kind: issued.kind, show: issued.show });
+      return json({ ticket: issued.id, kind: issued.kind, show: issued.show, replay: issued.status === "replay" });
     }
     if (pathname.startsWith("/api/"))
       return json({ error: "Not found." }, 404);

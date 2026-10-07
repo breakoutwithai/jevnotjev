@@ -588,7 +588,7 @@ h1 em { font-weight: 500; color: var(--brass); }
       <a class="office-go alt" href="#tkForm" data-kind="backstage">Go backstage with my own decision</a>
     </div>
 
-    <form class="tk-form" id="tkForm" novalidate>
+    <form class="tk-form" id="tkForm" method="post" action="/api/tickets" novalidate>
       <fieldset class="tk-kind">
         <legend>Which ticket?</legend>
         <label><input type="radio" name="kind" value="show" checked> Watch a show</label>
@@ -625,7 +625,7 @@ h1 em { font-weight: 500; color: var(--brass); }
       </div>
       <p class="tk-privacy">We keep your email, the show you picked, your follow-up choice, and your website and decision if you give them, on our own server. They are never shared or sold. We delete them 90 days after the 30 day challenge ends, or sooner if you ask: reply to any email from us or open an issue on the project's GitHub.</p>
       <p class="tk-chosen" id="tkChosen" aria-live="polite"></p>
-      <button type="submit" class="tk-submit">Get my ticket</button>
+      <button type="submit" class="tk-submit" disabled>Get my ticket</button>
       <p class="tk-err" id="tkFormErr" role="alert" hidden></p>
     </form>
     <div class="tk-issued" id="tkIssued" hidden></div>

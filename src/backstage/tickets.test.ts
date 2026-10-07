@@ -89,7 +89,12 @@ describe("ticket office hardening", () => {
     const keyed = { ...valid, request_key: "attempt-7f3a91c2d4e5" };
     const first: unknown = await (await handler(...ask(keyed))).json();
     const again: unknown = await (await handler(...ask(keyed))).json();
-    expect(again).toEqual(first);
+    const id = (v: unknown): unknown => (typeof v === "object" && v !== null && "ticket" in v ? v.ticket : null);
+    expect(id(again)).toBe(id(first));
+    expect(again).toMatchObject({ kind: "show", show: "uc13", replay: true });
+    expect(store.count()).toBe(1);
+    const changed = await handler(...ask({ ...keyed, kind: "backstage", show: null }));
+    expect(changed.status).toBe(409);
     expect(store.count()).toBe(1);
   });
 
@@ -107,7 +112,16 @@ describe("ticket office hardening", () => {
   test("[unit] an apostrophe in the local part is a valid email", () => {
     const shows = new Set(["uc13"]);
     expect(checkTicket({ ...valid, email: "o'connor@example.com" }, shows).ok).toBe(true);
-    expect(checkTicket({ ...valid, email: "a@exa'mple.com" }, shows)).toEqual({ ok: false, reason: "bad-email" });
+    for (const email of ["a@exa'mple.com", "a@foo..com", "a@foo/bar.com", "a@-foo.com", "a@foo.c"])
+      expect(checkTicket({ ...valid, email }, shows)).toEqual({ ok: false, reason: "bad-email" });
+  });
+
+  test("[integration] a malformed catalogue is an outage (503), not an empty catalogue", async () => {
+    const { handler, store, path } = setup();
+    await Bun.write(join(path, "..", "site", "shows", "posters.json"), "{not json");
+    expect((await handler(new Request(`${ORIGIN}/api/tickets/ranking`))).status).toBe(503);
+    expect((await handler(...ask(valid))).status).toBe(503);
+    expect(store.count()).toBe(0);
   });
 
   test("[unit] a full limiter refuses new addresses instead of evicting an active limit", () => {

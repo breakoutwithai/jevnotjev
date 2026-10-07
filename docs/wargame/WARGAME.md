@@ -93,7 +93,7 @@ Each move: action, expected observation, what failure looks like, likely reactio
 
 **Move 2.1 Roll each module back and forward.**
 - Action: `.deploy/ship.sh --module static --rollback --dry-run`, then without `--dry-run`; `.deploy/ship.sh --module backstage --rollback <full 40-char SHA of the previous verified release>` (`docs/DEPLOY.md:24-25`, `ship.sh:111-117`). Then roll forward by re-promoting main the same way: `.deploy/ship.sh --module backstage --rollback <main SHA>` (a fresh deploy of an already verified release is refused, `.deploy/backstage-deploy.sh:77`, `.deploy/backstage-lib.sh:71`), and redeploy static (Move 1.3).
-- Expected: after each single-module rollback, that module's closing check passes (the other module still serves main, so whole-stack `--verify` is expected to differ); once both are back on one SHA, `--verify` passes; after roll-forward, `--verify` passes with main.
+- Expected: after each single-module rollback, that module's closing check passes (the other module still serves main, so whole-stack `--verify` is expected to differ); once both serve the previous release, `.deploy/ship.sh --verify <rollback SHA>` passes (a bare `--verify` checks freshly fetched origin/main, `.deploy/ship.sh:399-410`); after roll-forward, `.deploy/ship.sh --verify <main SHA>` passes.
 - Failure looks like: no previous verified release on the host; or the session gate refuses the target because it does not declare `"gate": "session"` (`docs/DEPLOY.md:40`).
 - Counteraction: if the previous release predates the session gate, it is not a valid rollback target for the Backstage module. Record the oldest valid target and test rollback to it instead. Rolling back past the session gate would reopen the old gate and is an abort, not a workaround.
 - Second-order: a static rollback alone leaves the Stage and Backstage on different SHAs. Both must be checked with `--status` after every rollback.
@@ -240,7 +240,7 @@ Every scripted UAT run names the served SHA it ran against and refuses to run wh
 ## Abort conditions (stop and escalate)
 
 - **A1** A co-tenant site on the shared host is down or changed after a deploy or rollback and the module rollback did not restore it.
-- **A2** a module's rollback check fails, or `ship.sh --verify` fails once both modules serve the same SHA (no known-good state is serving).
+- **A2** a module's rollback check fails, or `ship.sh --verify <SHA both modules serve>` fails (no known-good state is serving).
 - **A3** A provider key, or a canary standing in for one, appears in any log, file or response.
 - **A4** Personal data appears in a case, a returned file or a commit.
 - **A5** The Stage, the command-line verdict and Backstage give different numbers for the same CSV.

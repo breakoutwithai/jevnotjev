@@ -16,8 +16,13 @@ export const COLUMNS_V1_1: readonly string[] = [...COLUMNS, ...PROVENANCE_COLUMN
 /** labelled_by and labelled_at as the schema states them, for writers that check a value before it reaches a file. */
 export const LABELLER_HANDLE = new RegExp(schemaJson.properties.labelled_by.pattern, "u");
 export const LABELLED_AT = new RegExp(schemaJson.properties.labelled_at.pattern, "u");
+/**
+ * Blind-then-suggest (format/README.md "Blind and final picks"): the final pick's call and whether Jev's suggestion was
+ * shown. Optional 1.1 columns; `label` stays the blind pick and the only label counted as truth.
+ */
+export const SUGGESTION_COLUMNS: readonly string[] = ["label_final", "suggestion_shown"];
 /** Columns a file may leave out of its header (format/README.md "Optional columns"). The database does not store them. */
-const OPTIONAL_COLUMNS: readonly string[] = ["price_table_date", ...PROVENANCE_COLUMNS];
+const OPTIONAL_COLUMNS: readonly string[] = ["price_table_date", ...PROVENANCE_COLUMNS, ...SUGGESTION_COLUMNS];
 
 const INTEGER_COLUMNS = new Set(["tokens_in", "tokens_out", "latency_ms"]);
 const NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);

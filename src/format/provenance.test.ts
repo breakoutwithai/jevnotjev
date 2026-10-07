@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { formatRow, readDictRows } from "./csv.ts";
-import { COLUMNS, COLUMNS_V1_1, PROVENANCE_COLUMNS, report, summary, validate } from "./validate.ts";
+import { COLUMNS, COLUMNS_V1_1, PROVENANCE_COLUMNS, SUGGESTION_COLUMNS, report, summary, validate } from "./validate.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../format/example-v1.csv", import.meta.url));
 const exampleText = await Bun.file(EXAMPLE).text();
@@ -176,5 +176,90 @@ describe("label provenance (jnj-record/1.1)", () => {
     expect(result.gaps).toContain("line 2: agent label not reviewed (m01, q1, jev)");
     expect(summary(result.rows)[0]).toBe("jev: rows=3 labelled=2 accepted=2 cost=$0.000005");
     expect(report(result).exitCode).toBe(0);
+  });
+});
+
+// Blind-then-suggest (labelling loop M2): label stays the blind pick and the scoring truth; label_final is the
+// labeller's pick after the suggestion step, and suggestion_shown says whether Jev's ranked suggestion was shown.
+describe("blind and final picks (jnj-record/1.1, label_final and suggestion_shown)", () => {
+  const LOOP_COLUMNS = [...COLUMNS_V1_1, "label_final", "suggestion_shown"];
+  /** v11Rows with the loop's columns: every labelled row kept its blind call, suggestion shown. */
+  function loopRows(): Record[] {
+    return v11Rows().map((row) => ({
+      ...row,
+      label_final: row["label"] ?? "",
+      suggestion_shown: row["label"] === "" ? "" : "true",
+    }));
+  }
+
+  test("[unit] M2 the loop columns are label_final and suggestion_shown, optional, and a file with them is valid", () => {
+    expect(SUGGESTION_COLUMNS).toEqual(["label_final", "suggestion_shown"]);
+    expect(validate(write(loopRows(), LOOP_COLUMNS)).errors).toEqual([]);
+    expect(validate(write(v11Rows())).errors).toEqual([]);
+  });
+
+  test("[unit] M2 a final pick that differs from the blind pick is valid, and the summary still counts the blind label", () => {
+    const rows = loopRows();
+    first(rows)["label"] = "reject";
+    first(rows)["label_final"] = "accept";
+    const result = validate(write(rows, LOOP_COLUMNS));
+    expect(result.errors).toEqual([]);
+    expect(summary(result.rows)[0]).toBe("jev: rows=3 labelled=3 accepted=2 cost=$0.000005");
+  });
+
+  test("[unit] M2 the validator rejects a final pick without a blind pick", () => {
+    const rows = loopRows();
+    const unlabelled = rows.find((row) => row["label"] === "");
+    if (unlabelled === undefined) throw new Error("example has no unlabelled row");
+    unlabelled["label_final"] = "accept";
+    unlabelled["suggestion_shown"] = "true";
+    const errors = validate(write(rows, LOOP_COLUMNS)).errors;
+    const line = rows.indexOf(unlabelled) + 2;
+    expect(errors).toEqual([
+      `line ${line}: label_final: 'accept' is not of type 'null'`,
+      `line ${line}: suggestion_shown: 'true' is not of type 'null'`,
+      `line ${line}: label_blind: 'true' was expected`,
+    ]);
+  });
+
+  test("[unit] M2 a final pick needs suggestion_shown, and suggestion_shown needs a final pick", () => {
+    const noFlag = loopRows();
+    first(noFlag)["suggestion_shown"] = "";
+    expect(validate(write(noFlag, LOOP_COLUMNS)).errors).toEqual(["line 2: suggestion_shown: None is not of type 'string'"]);
+    const noFinal = loopRows();
+    first(noFinal)["label_final"] = "";
+    expect(validate(write(noFinal, LOOP_COLUMNS)).errors).toEqual(["line 2: label_final: None is not of type 'string'"]);
+  });
+
+  test("[unit] M2 a final pick exists only after a blind pick: label_blind must be true", () => {
+    const rows = loopRows();
+    first(rows)["label_blind"] = "false";
+    expect(validate(write(rows, LOOP_COLUMNS)).errors).toEqual(["line 2: label_blind: 'true' was expected"]);
+  });
+
+  test("[unit] M2 label_final and suggestion_shown take only their stated values", () => {
+    const badFinal = loopRows();
+    first(badFinal)["label_final"] = "keep";
+    expect(validate(write(badFinal, LOOP_COLUMNS)).errors).toEqual(["line 2: label_final: 'keep' is not one of ['accept', 'reject', None]"]);
+    const badShown = loopRows();
+    first(badShown)["suggestion_shown"] = "yes";
+    expect(validate(write(badShown, LOOP_COLUMNS)).errors).toEqual(["line 2: suggestion_shown: 'yes' is not one of ['true', 'false', None]"]);
+  });
+
+  test("[unit] M2 a jnj-record/1 row cannot carry a final pick", () => {
+    const { header, rows } = readDictRows(exampleText);
+    const columns = [...(header ?? []), "label_final", "suggestion_shown"];
+    const v1: Record[] = rows.map(({ fields }) => {
+      const row: Record = {};
+      (header ?? []).forEach((name, index) => {
+        row[name] = fields[index] ?? "";
+      });
+      return row;
+    });
+    first(v1)["label_final"] = "accept";
+    first(v1)["suggestion_shown"] = "true";
+    const errors = validate(write(v1, columns)).errors;
+    expect(errors).toContain("line 2: label_final: 'accept' is not of type 'null'");
+    expect(errors).toContain("line 2: suggestion_shown: 'true' is not of type 'null'");
   });
 });

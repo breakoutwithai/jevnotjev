@@ -18,7 +18,11 @@ import {
 } from "./catalog.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { requestFingerprint } from "./fingerprint.ts";
-import { COLUMNS_V1_1, LABELLER_HANDLE, validate } from "../format/validate.ts";
+import { COLUMNS_V1_1, LABELLER_HANDLE, SUGGESTION_COLUMNS, validate } from "../format/validate.ts";
+import type { JevSuggestion } from "../labels/rank.ts";
+import { SuggestionBook, callsForPick, type Call, type Suggestion } from "../labels/suggest.ts";
+/** Backstage writes jnj-record/1.1 with the blind loop's columns (format/README.md "Blind and final picks"). */
+const EXPORT_COLUMNS: readonly string[] = [...COLUMNS_V1_1, ...SUGGESTION_COLUMNS];
 import { formatRows, readDictRows } from "../format/csv.ts";
 import { cohortMetrics } from "../core/metrics.ts";
 import { fileSeed } from "../core/calc.ts";
@@ -50,9 +54,39 @@ export const BACKSTAGE_PICK: LabelProvenance = Object.freeze({
   by: "backstage-operator",
   blind: false,
 });
+/**
+ * A person's blind pick in the Rehearsals room (labelling loop M2): the case and its two choices are shown, no answer
+ * and no suggestion, so the call is blind. The handle is the role, as for BACKSTAGE_PICK.
+ */
+export const BACKSTAGE_BLIND_PICK: LabelProvenance = Object.freeze({
+  source: "human",
+  by: "backstage-operator",
+  blind: true,
+});
 interface StoredLabel extends LabelProvenance {
   readonly label: "accept" | "reject";
   readonly at: string;
+  /** Labelling loop M2: the final pick's call and whether a suggestion was shown; null when no final pick was made. */
+  readonly final: Call | null;
+  readonly suggestionShown: boolean | null;
+}
+/** One case's picks. blind null = unsure. at is when the blind pick was made. */
+interface CasePickState extends LabelProvenance {
+  readonly blindPick: string | null;
+  readonly finalPick: string | null;
+  readonly suggestionShown: boolean | null;
+  readonly at: string;
+}
+/** One case to pick in the Rehearsals room. Holds no answer, confidence or model, picked or not. */
+export interface PickCard {
+  readonly caseId: string;
+  readonly input: string;
+  readonly choices: readonly string[];
+  readonly picked: boolean;
+  /** The blind pick; null when unsure or not yet picked. */
+  readonly blind: string | null;
+  readonly final: string | null;
+  readonly suggestionShown: boolean | null;
 }
 export interface Selection {
   readonly arms: readonly string[];
@@ -84,6 +118,7 @@ interface RowAnswer {
   readonly provider: Provider | "rule";
   readonly output: string;
   readonly confidence: number | null;
+  readonly probabilities: Readonly<Record<string, number>> | null;
   readonly model: string;
   readonly tokensIn: number | null;
   readonly tokensOut: number | null;
@@ -320,6 +355,27 @@ function amount(v: unknown, integer = false): v is number | null {
 function short(v: unknown): v is string {
   return typeof v === "string" && v.length > 0 && v.length <= 200;
 }
+/**
+ * Optional per-option probabilities on an answer: absent or null is null; otherwise exactly the choice names, each in
+ * [0, 1], summing to 1 within 0.02 (the src/jev-answer.ts tolerance). Anything else is false: the answer is refused.
+ */
+function choiceProbabilities(
+  v: unknown,
+  choices: readonly { readonly name: string }[],
+): Readonly<Record<string, number>> | null | false {
+  if (v === undefined || v === null) return null;
+  if (!object(v)) return false;
+  const names = choices.map((c) => c.name);
+  if (Object.keys(v).length !== names.length || !names.every((n) => Object.hasOwn(v, n))) return false;
+  const out: Record<string, number> = {};
+  for (const name of names) {
+    const p = v[name];
+    if (typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 1) return false;
+    Object.defineProperty(out, name, { value: p, enumerable: true });
+  }
+  const total = Object.values(out).reduce((s, p) => s + p, 0);
+  return Math.abs(total - 1) <= 0.02 ? Object.freeze(out) : false;
+}
 function date(v: unknown): v is string {
   return (
     typeof v === "string" &&
@@ -425,12 +481,16 @@ export async function parseAnswerResult(
   };
   if (containsKey(common, [request.key]))
     throw new Error("Unsafe response evidence.");
+  // Only Jev returns per-option probabilities; another provider's are not read.
+  const probabilities =
+    request.provider === "jev" ? choiceProbabilities(value.probabilities, request.choices) : null;
   if (
     value.ok === true &&
     typeof value.output === "string" &&
     request.choices.some((c) => c.name === value.output) &&
     amount(value.confidence) &&
     (value.confidence === null || value.confidence <= 1) &&
+    probabilities !== false &&
     typeof value.returnedModel === "string" &&
     entry.acceptedResponseModelIds.includes(value.returnedModel)
   )
@@ -439,6 +499,7 @@ export async function parseAnswerResult(
       ok: true,
       output: value.output,
       confidence: value.confidence,
+      probabilities,
     };
   if (
     value.ok === false &&
@@ -558,6 +619,13 @@ export class BackstageRun {
   #attempts: AnswerResult[] = [];
   #answers: RowAnswer[] = [];
   #labels = new Map<string, StoredLabel>();
+  #picks = new Map<string, CasePickState>();
+  /** Suggestion calls on the labeller's key (labelling loop M2): spend, never answers or labels. */
+  #suggestionAttempts: AnswerResult[] = [];
+  #suggestionTransport: Transport = answerTransport;
+  #suggestions = new SuggestionBook({
+    ask: (caseId, key) => this.#askJev(caseId, key, this.#suggestionTransport),
+  });
   #order = new Map<string, number>();
   #controller: AbortController | null = null;
   #started = false;
@@ -711,21 +779,26 @@ export class BackstageRun {
         label: this.#labels.get(this.#labelKey(a))?.label ?? null,
       }));
   }
+  /**
+   * Answers the page may show. Compare mode: none until reveal. Jev-only: before reveal, only the cases whose blind
+   * pick (or unsure) is committed, so no answer for a case is on the page before its pick (labelling loop M2).
+   */
   results(): readonly Pick<
     RowAnswer,
     "caseId" | "armId" | "output" | "confidence"
   >[] {
     if (this.#unsafe || (this.manifest.mode === "compare" && !this.#revealed))
       return [];
-    return this.#answers.map(({ caseId, armId, output, confidence }) => ({
-      caseId,
-      armId,
-      output,
-      confidence,
-    }));
+    return this.#answers
+      .filter((a) => this.#revealed || this.#picks.has(a.caseId))
+      .map(({ caseId, armId, output, confidence }) => ({
+        caseId,
+        armId,
+        output,
+        confidence,
+      }));
   }
-  /** Record (or clear, with null) a label call; `provenance` says who made it and how, and is exported with it. */
-  label(id: string, label: Label, provenance: LabelProvenance, at: Date = new Date()) {
+  #assertLabelling() {
     if (!this.#labeling)
       throw new Error(
         "Open blind judging before labeling. This locks retries.",
@@ -734,14 +807,23 @@ export class BackstageRun {
       throw new Error("Labels are locked after revealing results.");
     if (this.running)
       throw new Error("Stop or finish the run before labeling.");
-    const answer = this.#answers.find((a) => a.id === id);
-    if (!answer) throw new Error("Unknown answer card.");
+  }
+  #assertProvenance(provenance: LabelProvenance) {
     if (!LABELLER_HANDLE.test(provenance.by))
       throw new Error(
         "Invalid labeller handle: letters, digits and _ . : + - only, never an email.",
       );
     if (provenance.source === "human_reviewed" && provenance.blind)
       throw new Error("A human_reviewed label is not blind: approving a draft means seeing it.");
+  }
+  /** Record (or clear, with null) a label call; `provenance` says who made it and how, and is exported with it. */
+  label(id: string, label: Label, provenance: LabelProvenance, at: Date = new Date()) {
+    this.#assertLabelling();
+    const answer = this.#answers.find((a) => a.id === id);
+    if (!answer) throw new Error("Unknown answer card.");
+    this.#assertProvenance(provenance);
+    if (this.#picks.has(answer.caseId))
+      throw new Error("This case was picked blind; its labels come from the picks.");
     const key = this.#labelKey(answer);
     if (label === null) this.#labels.delete(key);
     else
@@ -751,7 +833,138 @@ export class BackstageRun {
         by: provenance.by,
         blind: provenance.blind,
         at: at.toISOString(),
+        final: null,
+        suggestionShown: null,
       });
+  }
+  /** Cases to pick, in scene order: each case with at least one answer. Never carries an answer. */
+  pickCards(): readonly PickCard[] {
+    const answered = new Set(this.#answers.map((a) => a.caseId));
+    return this.manifest.scene.cases
+      .filter((c) => answered.has(c.id))
+      .map((c) => {
+        const pick = this.#picks.get(c.id);
+        return {
+          caseId: c.id,
+          input: c.input,
+          choices: this.manifest.scene.choices.map((choice) => choice.name),
+          picked: pick !== undefined,
+          blind: pick?.blindPick ?? null,
+          final: pick?.finalPick ?? null,
+          suggestionShown: pick?.suggestionShown ?? null,
+        };
+      });
+  }
+  #writePickLabels(caseId: string, pick: CasePickState) {
+    for (const answer of this.#answers.filter((a) => a.caseId === caseId)) {
+      const calls = callsForPick(answer.output, {
+        blind: pick.blindPick,
+        final: pick.finalPick,
+        suggestionShown: pick.suggestionShown,
+      });
+      const key = this.#labelKey(answer);
+      if (calls.label === null) this.#labels.delete(key);
+      else
+        this.#labels.set(key, {
+          label: calls.label,
+          source: pick.source,
+          by: pick.by,
+          blind: pick.blind,
+          at: pick.at,
+          final: calls.labelFinal,
+          suggestionShown: calls.suggestionShown,
+        });
+    }
+  }
+  #choice(choice: string): string {
+    if (!this.manifest.scene.choices.some((c) => c.name === choice))
+      throw new Error(`${JSON.stringify(choice)} is not one of the scene's choices.`);
+    return choice;
+  }
+  /**
+   * Commit the blind pick for a case (null = unsure). Made once: once committed the suggestion can be seen, so a
+   * second blind pick could not be blind. Every answer of the case gets the pick's call as its label.
+   */
+  pickBlind(caseId: string, choice: string | null, provenance: LabelProvenance, at: Date = new Date()) {
+    this.#assertLabelling();
+    if (!this.pickCards().some((c) => c.caseId === caseId)) throw new Error("Unknown case to pick.");
+    if (this.#picks.has(caseId)) throw new Error("This case is already picked; a blind pick is made once.");
+    if (!provenance.blind || provenance.source !== "human")
+      throw new Error("A blind pick is a person's blind call: source human, blind true.");
+    this.#assertProvenance(provenance);
+    const pick: CasePickState = {
+      ...provenance,
+      blindPick: choice === null ? null : this.#choice(choice),
+      finalPick: null,
+      suggestionShown: null,
+      at: at.toISOString(),
+    };
+    this.#picks.set(caseId, pick);
+    this.#writePickLabels(caseId, pick);
+  }
+  /** Record (or change) the final pick after the suggestion step. Needs a blind pick; label keeps the blind call. */
+  pickFinal(caseId: string, choice: string, suggestionShown: boolean) {
+    this.#assertLabelling();
+    const pick = this.#picks.get(caseId);
+    if (pick === undefined || pick.blindPick === null)
+      throw new Error("A final pick needs a blind pick for the case first.");
+    const next: CasePickState = { ...pick, finalPick: this.#choice(choice), suggestionShown };
+    this.#picks.set(caseId, next);
+    this.#writePickLabels(caseId, next);
+  }
+  #assertPicked(caseId: string) {
+    if (!this.#picks.has(caseId))
+      throw new Error("Make the blind pick for this case before seeing any suggestion.");
+  }
+  /** The run's own Jev answer for a picked case, for ranking (0 calls); null when Jev gave none. */
+  recordedSuggestion(caseId: string): JevSuggestion | null {
+    this.#assertPicked(caseId);
+    const jev = this.#answers.find((a) => a.caseId === caseId && a.armId === JEV_ARM_ID);
+    return jev === undefined
+      ? null
+      : { choice: jev.output, confidence: jev.confidence, probabilities: jev.probabilities };
+  }
+  /**
+   * Jev's suggestion for a picked case (labelling loop M2, metric m4): the run's own Jev answer when there is one
+   * (0 calls); otherwise one call per case on the labeller's own key, never a funded or shared key; otherwise none.
+   * A suggestion is never an answer, a row or a label; a call's attempt goes to evidence().suggestionAttempts.
+   */
+  async suggestion(caseId: string, labellerKey: string | null, transport: Transport = answerTransport): Promise<Suggestion> {
+    this.#assertPicked(caseId);
+    this.#suggestionTransport = transport;
+    const key = labellerKey !== null && validKey(labellerKey) ? labellerKey : null;
+    return this.#suggestions.get(caseId, this.recordedSuggestion(caseId), key);
+  }
+  async #askJev(caseId: string, key: string, transport: Transport): Promise<JevSuggestion | null> {
+    const scene = this.manifest.scene;
+    const c = scene.cases.find((x) => x.id === caseId);
+    const entry = this.manifest.models.find((m) => m.id === JEV_ARM_ID);
+    if (c === undefined || entry === undefined) return null;
+    const request: AnswerRequest = {
+      version: PROTOCOL_VERSION,
+      runId: this.manifest.runId,
+      revision: this.manifest.revision,
+      caseId: c.id,
+      question: scene.question,
+      choices: scene.choices,
+      input: c.input,
+      provider: entry.provider,
+      key,
+      armId: entry.id,
+      modelId: entry.modelId,
+      catalogVersion: this.manifest.catalogVersion,
+      promptVersion: this.manifest.promptVersion,
+    };
+    const controller = new AbortController();
+    let result: AnswerResult;
+    try {
+      result = await parseAnswerResult(await transport(request, controller.signal), request);
+      if (containsKey(result, [key])) throw new Error("Unsafe response evidence.");
+    } catch {
+      result = await failure(request, "transport_failure", "unknown", Date.now());
+    }
+    this.#suggestionAttempts.push(result);
+    return result.ok ? { choice: result.output, confidence: result.confidence, probabilities: result.probabilities ?? null } : null;
   }
   stop() {
     this.#controller?.abort();
@@ -849,6 +1062,7 @@ export class BackstageRun {
             : scene.otherwiseChoice,
           model: "keywords-v1",
           confidence: null,
+          probabilities: null,
           tokensIn: 0,
           tokensOut: 0,
           costUsd: 0,
@@ -941,6 +1155,7 @@ export class BackstageRun {
               output: result.output,
               model: result.model,
               confidence: result.confidence,
+              probabilities: result.probabilities ?? null,
               tokensIn: result.tokensIn,
               tokensOut: result.tokensOut,
               costUsd: result.costUsd,
@@ -958,7 +1173,7 @@ export class BackstageRun {
       throw new Error("Export blocked: this run contains a provider key.");
     const s = this.manifest.scene;
     return formatRows([
-      COLUMNS_V1_1,
+      EXPORT_COLUMNS,
       ...answers.map((a) => {
         const stored = this.#labels.get(this.#labelKey(a));
         const data: Record<string, string | number | null> = {
@@ -988,8 +1203,13 @@ export class BackstageRun {
           labelled_by: stored?.by ?? null,
           labelled_at: stored?.at ?? null,
           label_blind: stored === undefined ? null : String(stored.blind),
+          label_final: stored?.final ?? null,
+          suggestion_shown:
+            stored?.suggestionShown === undefined || stored.suggestionShown === null
+              ? null
+              : String(stored.suggestionShown),
         };
-        return COLUMNS_V1_1.map((k) =>
+        return EXPORT_COLUMNS.map((k) =>
           data[k] === null || data[k] === undefined ? "" : String(data[k]),
         );
       }),
@@ -1023,9 +1243,9 @@ export class BackstageRun {
   csv(): string {
     const outputs = this.exports();
     return outputs.length === 1
-      ? (outputs[0]?.csv ?? formatRows([COLUMNS_V1_1]))
+      ? (outputs[0]?.csv ?? formatRows([EXPORT_COLUMNS]))
       : formatRows([
-          COLUMNS_V1_1,
+          EXPORT_COLUMNS,
           ...outputs.flatMap((output) =>
             readDictRows(output.csv).rows.map((row) => row.fields),
           ),
@@ -1130,7 +1350,7 @@ export class BackstageRun {
         if (
           parsed.errors.length &&
           !(
-            output.csv === formatRows([COLUMNS_V1_1]) &&
+            output.csv === formatRows([EXPORT_COLUMNS]) &&
             !this.#answers.some(
               (a) =>
                 a.armId === JEV_ARM_ID ||
@@ -1207,8 +1427,11 @@ export class BackstageRun {
           labelledBy: stored?.by ?? null,
           labelledAt: stored?.at ?? null,
           labelBlind: stored?.blind ?? null,
+          labelFinal: stored?.final ?? null,
+          suggestionShown: stored?.suggestionShown ?? null,
         };
       }),
+      suggestionAttempts: structuredClone(this.#suggestionAttempts),
       extraSpend: this.extraSpend(),
       totalSpend: this.totalSpend(),
       comparisons: this.exports(),

@@ -37,6 +37,7 @@ class FakeElement extends FakeNode {
   }
   getAttribute(name: string) { return this.attributes.get(name) ?? null; }
   removeAttribute(name: string) { this.attributes.delete(name); }
+  attributeText(): string { return [...this.attributes.values(), this.value].join("\n"); }
   focus() { if (this.owner) this.owner.activeElement = this; }
   click() { this.onclick?.(); this.dispatchEvent(new Event("click")); }
 }
@@ -62,6 +63,13 @@ class FakeDocument {
   }
   createTextNode(value: string): FakeNode { const node = new FakeNode("#text"); node.textContent = value; return node; }
   getElementById(id: string): FakeElement | null { return this.elements.find((element) => element.id === id) ?? null; }
+  /** Everything in the connected tree from the page's root element: text, attributes and field values, hidden or not. */
+  connectedText(): string {
+    const walk = (node: FakeNode): string =>
+      [node.textContent, node instanceof FakeElement ? node.attributeText() : "", ...node.children.map(walk)].join("\n");
+    const root = this.elements[0];
+    return root === undefined ? "" : walk(root);
+  }
   querySelectorAll(selector: string): FakeElement[] {
     if (selector === "[data-panel]") return this.elements.filter((element) => element.dataset.panel !== undefined);
     if (selector === "[data-room]") return this.elements.filter((element) => element.dataset.room !== undefined);
@@ -519,7 +527,7 @@ test("[integration] D03 the revealed Backstage run shows kept and cost figures a
   typeInto(page, "cases", "Please refund my mug");
   await runFirstCase(page);
   await openJudging(page);
-  page.get("accept").click();
+  page.get("pick-first").click();
   page.get("reveal").click();
   page.get("confirm-reveal-yes").click();
   await tick();
@@ -527,6 +535,80 @@ test("[integration] D03 the revealed Backstage run shows kept and cost figures a
   // Positive control: the metrics table rendered, so an absent word is absent from displayed content.
   expect(rendered).toContain("Kept / labelled");
   expect(rendered).toContain("Cost / kept");
+  expect(rendered).toContain("1 / 1");
   expect(rendered).not.toMatch(/latency/i);
   expect(rendered).not.toMatch(/labell?ing time/i);
+});
+
+/** Jev answers yes with confidence 0.82 and per-option probabilities: distinctive text a leak would show. */
+async function answerYesRanked(request: AnswerRequest) {
+  return { ...(await answerYes(request)), confidence: 0.82, probabilities: { yes: 0.82, no: 0.18 } };
+}
+/** What would show Jev's answer for a case: the ranking, its percentages, the confidence, the answers table. */
+const SUGGESTION_MARKERS = [/82%/, /18%/, /0\.82/, /Jev's choice/, /Jev's ranking/, /Returned confidence/, /^Jev answers$/m];
+function leaks(page: Awaited<ReturnType<typeof mount>>): string[] {
+  const text = page.document.connectedText();
+  return SUGGESTION_MARKERS.filter((marker) => marker.test(text)).map(String);
+}
+function within(node: FakeNode, id: string): FakeElement | null {
+  for (const child of node.children) {
+    if (child instanceof FakeElement && child.id === id) return child;
+    const found = within(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+function answerCalls(page: Awaited<ReturnType<typeof mount>>): number {
+  return page.urls.filter((url) => url === "/api/backstage/answer").length;
+}
+
+test("[e2e] M2 blind integrity: no Jev answer, ranking or confidence is in the DOM or network before the blind pick", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYesRanked);
+  fillScene(page, "");
+  typeInto(page, "cases", "Please refund my mug");
+  await runFirstCase(page);
+  const runCalls = answerCalls(page);
+  expect(runCalls).toBe(1);
+  // After the run, before judging: Learning Lines holds no answer for the unpicked case.
+  expect(leaks(page)).toEqual([]);
+  await openJudging(page);
+  // Judging open, case on screen, not yet picked: the case and both choices, nothing of Jev's answer.
+  expect(textOf(page.get("blind-card"))).toContain("Please refund my mug");
+  expect(page.get("pick-first").textContent).toBe("yes");
+  expect(page.get("pick-second").textContent).toBe("no");
+  expect(page.get("pick-actions").hidden).toBe(false);
+  expect(leaks(page)).toEqual([]);
+  expect(answerCalls(page)).toBe(runCalls);
+  // The blind pick: now the ranking appears (positive control), from the recorded answer with no new call.
+  page.get("pick-second").click();
+  await tick();
+  expect(leaks(page)).toEqual(SUGGESTION_MARKERS.map(String));
+  expect(textOf(page.get("suggestion"))).toContain("#1 yes 82% (Jev's choice)");
+  expect(textOf(page.get("suggestion"))).toContain("#2 no 18%");
+  expect(answerCalls(page)).toBe(runCalls);
+  expect(page.get("pick-actions").hidden).toBe(true);
+  // Keep or change: the final pick is recorded beside the blind one.
+  const change = within(page.get("suggestion"), "final-yes");
+  if (!change) throw new Error("no final-yes button in the suggestion panel");
+  change.click();
+  await tick();
+  expect(textOf(page.get("blind-card"))).toContain("Your blind pick: no");
+  // getElementById in this fake also finds replaced nodes; read the buttons from the live panel.
+  expect(within(page.get("suggestion"), "final-yes")?.getAttribute("aria-pressed")).toBe("true");
+  expect(within(page.get("suggestion"), "final-no")?.getAttribute("aria-pressed")).toBe("false");
+});
+
+test("[integration] M2 unsure records no label and still shows the ranking after the pick", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYesRanked);
+  fillScene(page, "");
+  typeInto(page, "cases", "Please refund my mug");
+  await runFirstCase(page);
+  await openJudging(page);
+  expect(leaks(page)).toEqual([]);
+  page.get("pick-unsure").click();
+  await tick();
+  expect(textOf(page.get("blind-card"))).toContain("Your blind pick: unsure");
+  expect(textOf(page.get("suggestion"))).toContain("#1 yes 82% (Jev's choice)");
+  expect(textOf(page.get("suggestion"))).toContain("Unsure: no label is recorded for this case.");
+  expect(within(page.get("suggestion"), "final-yes")).toBeNull();
 });

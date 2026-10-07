@@ -1,0 +1,22 @@
+{
+  "schema": "jnj-uc13-suggestion/1",
+  "case_id": "m33",
+  "model": "jev-1.13.0",
+  "choice": "hand_off",
+  "ranked": true,
+  "confidence": 0.78,
+  "options": [
+    {
+      "option": "hand_off",
+      "rank": 1,
+      "probability": 0.89,
+      "jevChoice": true
+    },
+    {
+      "option": "answer",
+      "rank": 2,
+      "probability": 0.11,
+      "jevChoice": false
+    }
+  ]
+}

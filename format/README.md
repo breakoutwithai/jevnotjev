@@ -25,7 +25,7 @@ VALID rows=9 cases=3 errors=0 gaps=2
 ```
 
 ## Columns
-These 18 are required in the header, any order; the optional columns below are `price_table_date` and the three label provenance columns. Any other unknown column is an error.
+These 18 are required in the header, any order; the optional columns below are `price_table_date`, the three label provenance columns and the two blind-loop columns. Any other unknown column is an error.
 
 | Column | Holds | Rule |
 |---|---|---|
@@ -76,8 +76,23 @@ A label is only as good as where it came from. A `jnj-record/1.1` row says who m
 - On a labelled 1.1 row all four are required: an empty one is an error (`line <n>: labelled_by: None is not of type 'string'`), and a file without one of the columns is an error on every labelled 1.1 row (`line <n>: row: 'labelled_by' is a required property`).
 - On an unlabelled 1.1 row all four are empty.
 - A `jnj-record/1` row leaves the three new columns empty and its `label_source` is `human` or empty, so every /1 file validates unchanged. A /1 `human` label states no labeller, time or blindness.
-- Backstage exports 1.1: a click in the judging room is `human`, labelled by `backstage-operator` (the page does not know which signed-in operator is clicking), and not blind, because the card shows the answer being judged.
+- Backstage exports 1.1: a pick in the judging room is `human`, labelled by `backstage-operator` (the page does not know which signed-in operator is clicking), and blind, because the case is picked before any answer or suggestion for it is on the page ([below](#blind-and-final-picks-jnj-record11)).
 - The database (`src/db/`) stores `jnj-record/1` only (`db/migrations/0001_records.sql:45`), so a 1.1 file does not load.
+
+## Blind and final picks (`jnj-record/1.1`)
+A labeller picks the right answer for a case blind, then sees Jev's options for that case ranked by Jev's probabilities, then keeps the pick or changes it. Both picks are kept. The blind pick stays the truth: a label Jev influenced cannot judge Jev.
+
+| Column | Holds | Rule |
+|---|---|---|
+| `label` | the blind pick's call on this answer: `accept` when the answer equals the blind pick, else `reject` | the only label counted as truth, as before |
+| `label_final` | `accept` / `reject` / empty: the final pick's call on this answer, made after the suggestion step | reported beside `label`, never instead of it; needs a `label` and `label_blind` `true` |
+| `suggestion_shown` | `true` / `false` / empty | `true` when Jev's ranked suggestion for the case was shown before the final pick, `false` when none was available; present exactly when `label_final` is |
+
+- Both columns are optional: a file without them validates unchanged, and every summary, metric and verdict reads `label` only.
+- A final pick without a blind pick is an error (`line <n>: label_final: 'accept' is not of type 'null'`), as is one without its flag (`line <n>: suggestion_shown: None is not of type 'string'`) or on a row whose `label_blind` is not `true` (`line <n>: label_blind: 'true' was expected`).
+- An unsure blind pick is no label: the case's rows stay unlabelled and carry no final pick.
+- A Jev suggestion is never stored as a label. It comes from the run's own Jev answer for the case (0 calls); with none, only from one call on the labeller's own key; otherwise the case shows "No suggestion yet". Ranking and call rules: `src/labels/rank.ts`, `src/labels/suggest.ts`.
+- `jnj-record/1` rows leave both columns empty.
 
 ## Versioning
 - The file format: `format_version` in every row. A renamed, removed or re-typed column ships as `jnj-record/2` with its own schema; `/1` files keep validating. `jnj-record/1.1` only adds optional columns and label sources, so the same schema and validator read both.

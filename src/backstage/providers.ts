@@ -322,6 +322,8 @@ export function buildProviderRequest(
 interface ParsedProvider {
   output: string | null;
   confidence: number | null;
+  /** Jev only: per-option probabilities, checked by checkJevResponse; null when not returned. */
+  probabilities: Readonly<Record<string, number>> | null;
   returnedModel: unknown;
   tokensIn: number | null;
   tokensOut: number | null;
@@ -335,7 +337,8 @@ function parseProvider(
   let tokensIn = token(usage.input_tokens),
     tokensOut = token(usage.output_tokens),
     output: string | null = null,
-    confidence: number | null = null;
+    confidence: number | null = null,
+    probabilities: Readonly<Record<string, number>> | null = null;
   let returnedModel: unknown = raw.model;
   let cacheUnknown = [
     "cache_read_input_tokens",
@@ -356,6 +359,7 @@ function parseProvider(
     if (checked.ok && checked.answers.q1) {
       output = checked.answers.q1.choice;
       confidence = checked.answers.q1.confidence;
+      probabilities = checked.answers.q1.probabilities;
     }
   } else if (request.provider === "anthropic") {
     if (raw.stop_reason === "end_turn" && Array.isArray(raw.content)) {
@@ -455,6 +459,7 @@ function parseProvider(
   return {
     output,
     confidence,
+    probabilities,
     returnedModel,
     tokensIn,
     tokensOut,
@@ -580,6 +585,7 @@ export async function callProvider(
       ok: true,
       output: parsed.output,
       confidence: parsed.confidence,
+      probabilities: parsed.probabilities,
     };
   } catch {
     return fail(

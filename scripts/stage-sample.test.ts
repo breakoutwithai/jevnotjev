@@ -167,7 +167,7 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
   });
 
   test("[unit] F2-D9 every router, Haiku, Sonnet or Opus mention in docs/product prose is marked historical or superseded, or is the UC13 run's own model", async () => {
-    const files = ["user-stories.md", "user-journeys.md", "jev-in-jevnotjev.md", join("use-cases", "README.md")];
+    const files = ["user-stories.md", "jev-in-jevnotjev.md", join("use-cases", "README.md")];
     for (const f of files) {
       const text = await readFile(join(ROOT, "docs", "product", f), "utf8");
       for (const line of text.split("\n").filter((l) => DOC_ROUTER.test(l))) {

@@ -9,7 +9,10 @@ Diagram: [docs/product/flow/comparison.html](docs/product/flow/comparison.html) 
 - **Historical (superseded 2026-09-28):** the first example was "How hard is this coding prompt? trivial / ordinary / hard", with code mapping the answer to Haiku, Sonnet or Opus (the Claude Code prompt router). That router was dropped and is not a v1 requirement.
 - **User:** a builder who runs LLM calls in their workflow and wants to know if Jev can make some of those decisions cheaper without losing quality.
 - **Accepted result:** an output a person marks "accept" under one written rule: correct and complete enough to use without edits. Labels are blind to which arm gave the answer. A Jev pre-grade may pre-fill a label but a person confirms it.
-- **Out of scope:** many workflows at once; production integrations; sensitive data (synthetic or redacted cases only); claims beyond the user's own test set; pooling or sharing subscriptions.
+- **Flagship use case:** TokenMax, more accepted results from the same token budget.
+- **First workflow:** UC11, a CV against a job ad: one yes/no question per ad line, asked of each CV. The spec names it the default sample and the default name until decided (`docs/spec/spec.md`). Its worked hand calculation is [examples/d06-tiny](examples/d06-tiny/). A second recorded run, UC13 (a shop bot that answers or hands off), is not the first workflow.
+- **Verdict:** follows [verdict-rules.md](docs/decision/verdict-rules.md); fewer than 30 paired labelled cases is always "not enough evidence".
+- **Out of scope:** many workflows at once; production integrations; sensitive data (synthetic or redacted cases only); claims beyond the user's own test set; pooling or sharing subscriptions; asking Jev "which model" to use; tasks that are not a typed answer on one text (counts or exit-code checks, diffs and document bundles, retrieval, free-text output, decisions where one wrong answer is not survivable); a claim that Jev is better in general (the evidence so far is synthetic or AI-drafted and approved by a person).
 
 ## Backstage live MVP (#67)
 
@@ -25,7 +28,7 @@ Backstage adds an explicit BYOK runner for one binary question: Jev, Anthropic a
 ## The three arms
 Each arm answers the same typed question on the same case; code then acts on the answer the same way whichever arm gave it. Example: UC11, "Does the CV show the person has built a usage dashboard or meter for a shared subscription?" yes / no ([uc11](docs/product/use-cases/uc11-cv-vs-job-ad.md)).
 
-| Arm | Portal name | `answerer` | What it does | Inputs it needs |
+| Arm | Plain name | `answerer` | What it does | Inputs it needs |
 |---|---|---|---|---|
 | A. What you do now | current LLM-only setup | `llm` | your LLM answers the question, as you would today; e.g. it reads the CV and answers yes or no | the case, the question, the answer set, your prompt and model |
 | B. A simple rule | a simple baseline | `rule` | a rule written before labelling answers the question; e.g. keyword match `dashboard\|meter` | the case and the rule |

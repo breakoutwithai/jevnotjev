@@ -140,7 +140,7 @@ export interface CostRatioInterval extends Interval {
   readonly redrawn: number;
 }
 
-/** mulberry32: 32-bit state, uniform on [0, 1) in steps of 2^-32 (plan.md "Reproducibility"). */
+/** mulberry32: 32-bit state, uniform on [0, 1) in steps of 2^-32 (docs/spec/spec.md "Reproducibility"). */
 export function mulberry32(seed: number): () => number {
   let state = seed >>> 0;
   return () => {

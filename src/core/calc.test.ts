@@ -221,7 +221,7 @@ describe("calc: cost ratio and its resampled interval", () => {
   test("[unit] R13.a same file gives identical interval twice", async () => {
     const text = readFileSync(TINY, "utf8");
     const seed = await fileSeed(text);
-    // The seed is the first 32 bits of the SHA-256 of the file text (plan.md "Reproducibility").
+    // The seed is the first 32 bits of the SHA-256 of the file text (docs/spec/spec.md "Reproducibility").
     const digest = new Bun.CryptoHasher("sha256").update(text).digest("hex");
     expect(seed).toBe(Number.parseInt(digest.slice(0, 8), 16));
     expect(await fileSeed(text)).toBe(seed);

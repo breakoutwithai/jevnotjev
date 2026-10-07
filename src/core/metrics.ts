@@ -1,6 +1,6 @@
 // Accepted-result counts and cost per accepted result for each comparison arm (day 7).
 // Pure: takes validated jnj-record/1 rows, uses no Node or Bun APIs, so the browser can import it.
-// Rules: docs/SPEC.md "Metrics and matched samples". A missing label is a gap, never a rejection;
+// Rules: docs/spec/spec.md R5 "Calculations per decision point". A missing label is a gap, never a rejection;
 // a missing cost makes spend incomplete, never zero; zero accepted makes cost per accepted undefined.
 
 import { truthLabel, type ParsedRow, type Row } from "../format/validate.ts";

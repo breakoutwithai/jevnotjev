@@ -129,6 +129,15 @@ describe("stage-door demo data", () => {
     expect(judge({ ...agent, label: "reject", label_source: "human_reviewed" })).toEqual({ verdict: "reject", truth: "hand_off" });
   });
 
+  test("[unit] M1 one agent-labelled arm beside reviewed arms stays pending and does not conflict with their answer", async () => {
+    const rows = (await records()).map((r) => (r.answerer === "jev" && r.case_id === "m01" ? { ...r, label_source: "agent" } : r));
+    const d = buildDemo(rows, await sheet());
+    expect(d.mode).toBe("labelled");
+    const reviewed = rows.find((r) => r.answerer === "rule" && r.case_id === "m01");
+    if (reviewed === undefined) throw new Error("no rule m01 row");
+    expect(judge(reviewed).truth).not.toBeNull();
+  });
+
   test("[unit] UC13-STAGE-4 the 8 include a rule-word message the rule hands off and a no-rule-word message another arm hands off", async () => {
     const d = buildDemo(await records(), await sheet());
     expect(d.messages.some((m) => ruleOutput(m.text) === "hand_off" && m.outputs.jev?.output === "answer")).toBe(true);

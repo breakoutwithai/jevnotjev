@@ -133,7 +133,9 @@ export function buildDemo(rows: readonly RecordRow[], factSheet: string, ids: re
 
   /** One human answer per case, the same whichever arm's row it is read from. */
   const truthOf = (caseId: string): Answer | null => {
-    const seen = new Set(ARMS.map((a) => judge(rowOf(a.key, caseId)).truth));
+    // An unreviewed agent label states no human answer, so it neither sets nor contradicts the reviewed one.
+    const reviewed = ARMS.map((a) => rowOf(a.key, caseId)).filter((r) => r.label_source !== "agent");
+    const seen = new Set(reviewed.map((r) => judge(r).truth));
     if (seen.size > 1) throw new Error(`${caseId}: arms imply different human answers (${[...seen].join(", ")})`);
     return [...seen][0] ?? null;
   };

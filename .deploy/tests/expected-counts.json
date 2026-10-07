@@ -34,7 +34,7 @@
     "scripts/uc13/calls.test.ts": 8,
     "scripts/uc13/little-shop.test.ts": 5,
     "scripts/uc13/run-arms.test.ts": 15,
-    "scripts/uc13/stage-demo.test.ts": 13,
+    "scripts/uc13/stage-demo.test.ts": 14,
     "skills/learning-lines/run.test.ts": 23,
     "src/backstage/auth-routes.test.ts": 16,
     "src/backstage/auth.test.ts": 18,

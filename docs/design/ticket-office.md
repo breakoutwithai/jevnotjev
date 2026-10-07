@@ -65,5 +65,5 @@ Ties go to the newer item, then the id in alphabetical order; at most 10 kept (`
 ## Not decided here
 
 - Retention period and whether a backstage ticket can ever grant access: operator decisions, defaults above.
-- Whether ticket sign-ups move the judge's gap c01 (no outside person has run a real decision): settled only by a judge forecast after deploy and the next real portal panel.
+- Whether ticket sign-ups lead any outside person to run a real decision: settled only by counting real runs after deploy.
 - nginx: the two ticket locations are added to `.deploy/backstage-nginx.conf`; they take effect only at an authorised deploy.

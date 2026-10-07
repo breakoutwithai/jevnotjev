@@ -6,7 +6,7 @@ import { fileSeed } from "../core/calc.ts";
 import { cohortMetrics, cohorts } from "../core/metrics.ts";
 import { verdict, type Condition, type VerdictName } from "../core/verdict.ts";
 import { formatRows, readDictRows } from "../format/csv.ts";
-import { validate } from "../format/validate.ts";
+import { PROVENANCE_COLUMNS, validate } from "../format/validate.ts";
 
 export type Call = "answer" | "hand_off";
 
@@ -54,14 +54,20 @@ export function labelRecords(csvText: string, calls: Readonly<Record<string, unk
     const c: unknown = calls[id];
     return isCall(c) ? c : null;
   };
+  // The visitor's calls are a person's picks, held in the page and never exported: they are written as jnj-record/1
+  // human labels. A jnj-record/1.1 source (its labels AI-drafted and approved) loses its provenance columns here, so
+  // no recorded labeller or time is carried onto a visitor's call, and the labelled text matches a /1 source's.
+  const keep = header.flatMap((name, i) => (PROVENANCE_COLUMNS.includes(name) ? [] : [i]));
+  const versionAt = at("format_version");
   const out = rows.map(({ fields }) => {
     const row = [...fields];
     const call = callOf(fields[caseAt] ?? "");
+    row[versionAt] = "jnj-record/1";
     row[labelAt] = call === null ? "" : fields[outputAt] === call ? "accept" : "reject";
     row[sourceAt] = call === null ? "" : "human";
-    return row;
+    return keep.map((i) => row[i] ?? "");
   });
-  return formatRows([header, ...out]);
+  return formatRows([keep.map((i) => header[i] ?? ""), ...out]);
 }
 
 /** The verdict on records.csv labelled with these calls; the seed is fileSeed() of the labelled text, as the CLI does. */

@@ -23,16 +23,42 @@ export const JEV_MODEL = "jev-1.13.0";
 export const JEV_PRICE_PER_M = 0.042;
 export const RULE_MODEL = "keywords.v1";
 
-export type Column =
+type V1Column =
   | "format_version" | "run_id" | "prompt_version" | "case_id" | "case_input" | "question_id" | "question"
   | "answer_set" | "answerer" | "answerer_model" | "output" | "confidence" | "label" | "label_source"
   | "tokens_in" | "tokens_out" | "cost_usd" | "latency_ms";
-export const COLUMNS: readonly Column[] = [
+type ProvenanceColumn = "labelled_by" | "labelled_at" | "label_blind";
+export type Column = V1Column | ProvenanceColumn;
+/** jnj-record/1 columns, in order. */
+export const COLUMNS_V1: readonly V1Column[] = [
   "format_version", "run_id", "prompt_version", "case_id", "case_input", "question_id", "question",
   "answer_set", "answerer", "answerer_model", "output", "confidence", "label", "label_source",
   "tokens_in", "tokens_out", "cost_usd", "latency_ms",
 ];
-export type RecordRow = Record<Column, string>;
+/** jnj-record/1.1: the /1 columns, then label provenance (format/README.md "Label provenance"). */
+export const COLUMNS: readonly Column[] = [...COLUMNS_V1, "labelled_by", "labelled_at", "label_blind"];
+/** One row; the provenance cells exist on jnj-record/1.1 rows (UC13) and are absent on /1 rows (TokenMax). */
+export type RecordRow = Record<V1Column, string> & Partial<Record<ProvenanceColumn, string>>;
+
+/** How a labels.csv truth became a label: written into label_source, labelled_by, labelled_at and label_blind. */
+export interface LabelProvenance {
+  readonly source: "human" | "human_reviewed" | "agent";
+  readonly by: string;
+  readonly at: string;
+  readonly blind: boolean;
+}
+
+/**
+ * The 2026-10-03 labels.csv (docs/product/runs/2026-10-01-uc13-shop-bot/LABELS.md): three AI labellers drafted every
+ * truth and agreed 40 of 40, then a person reviewed the drafted file and approved it on 2026-10-03. AI-drafted and
+ * person-approved is human_reviewed; the reviewer saw the drafts, so the calls are not blind.
+ */
+export const APPROVED_DRAFT_2026_10_03: LabelProvenance = Object.freeze({
+  source: "human_reviewed",
+  by: "operator",
+  at: "2026-10-03",
+  blind: false,
+});
 
 export interface Case { readonly case_id: string; readonly case_input: string }
 export interface Example { readonly factSheet: string; readonly cases: readonly Case[] }
@@ -106,10 +132,10 @@ export async function loadExample(dir: string): Promise<Example> {
 
 export function record(c: Case, answerer: string, model: string, output: Answer, extra: Partial<RecordRow> = {}): RecordRow {
   return {
-    format_version: "jnj-record/1", run_id: RUN_ID, prompt_version: PROMPT_VERSION, case_id: c.case_id,
+    format_version: "jnj-record/1.1", run_id: RUN_ID, prompt_version: PROMPT_VERSION, case_id: c.case_id,
     case_input: c.case_input, question_id: QUESTION_ID, question: QUESTION, answer_set: ANSWERS.join("|"),
-    answerer, answerer_model: model, output, confidence: "", label: "", label_source: "",
-    tokens_in: "", tokens_out: "", cost_usd: "", latency_ms: "", ...extra,
+    answerer, answerer_model: model, output, confidence: "",
+    tokens_in: "", tokens_out: "", cost_usd: "", latency_ms: "", ...UNLABELLED, ...extra,
   };
 }
 
@@ -200,24 +226,34 @@ export function armRecord(c: Case, answerer: "jev" | "llm", reply: ArmReply, lat
   });
 }
 
+/** The jnj-record/1.1 header when any row is 1.1, else the /1 header, so a /1 run (TokenMax) round-trips byte for byte. */
 export function formatRecords(rows: readonly RecordRow[]): string {
-  return formatRows([COLUMNS, ...rows.map((r) => COLUMNS.map((col) => r[col]))]);
+  const columns: readonly Column[] = rows.some((r) => r.format_version === "jnj-record/1.1") ? COLUMNS : COLUMNS_V1;
+  return formatRows([columns, ...rows.map((r) => columns.map((col) => r[col] ?? ""))]);
 }
 
-/** records.csv: the header must be exactly COLUMNS, every row exactly as wide, and the file valid jnj-record/1. */
+function withoutProvenance(row: RecordRow): RecordRow {
+  const { labelled_by: _by, labelled_at: _at, label_blind: _blind, ...v1 } = row;
+  return v1;
+}
+
+/** records.csv: the header is exactly the /1 or the 1.1 columns, every row exactly as wide, and the file valid. */
 export function parseRecords(text: string): RecordRow[] {
   const { header, rows } = readDictRows(text);
-  if (header === null || header.join(",") !== COLUMNS.join(",")) {
-    throw new Error(`records.csv header is not the ${COLUMNS.length} jnj-record/1 columns in order`);
+  const joined = header === null ? "" : header.join(",");
+  const columns: readonly Column[] | null =
+    joined === COLUMNS.join(",") ? COLUMNS : joined === COLUMNS_V1.join(",") ? COLUMNS_V1 : null;
+  if (columns === null) {
+    throw new Error(`records.csv header is not the ${COLUMNS_V1.length} jnj-record/1 or ${COLUMNS.length} jnj-record/1.1 columns in order`);
   }
   const parsed = rows.map(({ fields, line }) => {
-    if (fields.length !== COLUMNS.length) throw new Error(`records.csv line ${line}: ${fields.length} fields, expected ${COLUMNS.length}`);
+    if (fields.length !== columns.length) throw new Error(`records.csv line ${line}: ${fields.length} fields, expected ${columns.length}`);
     const row = record({ case_id: "", case_input: "" }, "", "", "answer");
-    COLUMNS.forEach((col, i) => { row[col] = fields[i] ?? ""; });
-    return row;
+    columns.forEach((col, i) => { row[col] = fields[i] ?? ""; });
+    return columns === COLUMNS ? row : withoutProvenance(row);
   });
   const { errors } = validate(text);
-  if (errors.length > 0) throw new Error(`records.csv is not valid jnj-record/1: ${errors.slice(0, 3).join("; ")}`);
+  if (errors.length > 0) throw new Error(`records.csv is not valid: ${errors.slice(0, 3).join("; ")}`);
   return parsed;
 }
 
@@ -239,15 +275,36 @@ export function parseTruth(text: string): Map<string, Answer> {
   return truth;
 }
 
-/** Accept or reject each row against its case's truth; a case with no truth stays unlabelled; an unknown id fails. */
-export function applyLabels(rows: readonly RecordRow[], truth: ReadonlyMap<string, Answer>): RecordRow[] {
+/** The label and provenance cells of an unlabelled row. */
+export const UNLABELLED: Readonly<Pick<RecordRow, "label" | "label_source" | "labelled_by" | "labelled_at" | "label_blind">> =
+  Object.freeze({ label: "", label_source: "", labelled_by: "", labelled_at: "", label_blind: "" });
+
+/**
+ * Accept or reject each row against its case's truth, stamped with how the truth was made; a case with no truth stays
+ * unlabelled; an unknown id fails. Every row comes out jnj-record/1.1. There is no default provenance: the caller
+ * states whether a person picked it.
+ */
+export function applyLabels(
+  rows: readonly RecordRow[],
+  truth: ReadonlyMap<string, Answer>,
+  provenance: LabelProvenance | null,
+): RecordRow[] {
   const ids = new Set(rows.map((r) => r.case_id));
   const unknown = [...truth.keys()].filter((id) => !ids.has(id));
   if (unknown.length > 0) throw new Error(`labels for cases not in records.csv: ${unknown.join(", ")}`);
+  if (truth.size > 0 && provenance === null) throw new Error("labels need a provenance: who labelled them and how");
   return rows.map((r) => {
     const t = truth.get(r.case_id);
-    if (t === undefined) return { ...r, label: "", label_source: "" };
-    return { ...r, label: r.output === t ? "accept" : "reject", label_source: "human" };
+    if (t === undefined || provenance === null) return { ...r, format_version: "jnj-record/1.1", ...UNLABELLED };
+    return {
+      ...r,
+      format_version: "jnj-record/1.1",
+      label: r.output === t ? "accept" : "reject",
+      label_source: provenance.source,
+      labelled_by: provenance.by,
+      labelled_at: provenance.at,
+      label_blind: String(provenance.blind),
+    };
   });
 }
 
@@ -265,4 +322,31 @@ export function truthFromRows(rows: readonly RecordRow[]): Map<string, Answer> {
     truth.set(r.case_id, t);
   }
   return truth;
+}
+
+function isSource(value: string): value is LabelProvenance["source"] {
+  return value === "human" || value === "human_reviewed" || value === "agent";
+}
+
+/**
+ * The one provenance every labelled row carries, so a rebuild (run --arm jev, replay) keeps it instead of restamping;
+ * null when nothing is labelled. Rows labelled in different ways fail: one labels.csv is one way of labelling.
+ */
+export function provenanceFromRows(rows: readonly RecordRow[]): LabelProvenance | null {
+  let found: LabelProvenance | null = null;
+  for (const r of rows) {
+    if (r.label === "") continue;
+    const source = r.label_source;
+    const by = r.labelled_by ?? "";
+    const at = r.labelled_at ?? "";
+    if (!isSource(source) || (r.label_blind !== "true" && r.label_blind !== "false") || by === "" || at === "") {
+      throw new Error(`records.csv ${r.case_id} ${r.answerer}: label without a complete provenance`);
+    }
+    const p: LabelProvenance = { source, by, at, blind: r.label_blind === "true" };
+    if (found !== null && JSON.stringify(found) !== JSON.stringify(p)) {
+      throw new Error(`records.csv ${r.case_id} ${r.answerer}: labels carry different provenance`);
+    }
+    found = p;
+  }
+  return found;
 }

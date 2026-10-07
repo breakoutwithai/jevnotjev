@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validate } from "../../src/format/validate.ts";
 import {
-  CASES_COUNT, applyLabels, formatRecords, jevBody, loadExample, parseJevResponse, parseLlmResponse, parseRecords,
-  parseTruth, ruleOutput, ruleRecord, truthFromRows,
+  APPROVED_DRAFT_2026_10_03, CASES_COUNT, applyLabels, formatRecords, jevBody, loadExample, parseJevResponse,
+  parseLlmResponse, parseRecords, parseTruth, provenanceFromRows, ruleOutput, ruleRecord, truthFromRows, type LabelProvenance,
 } from "./arms.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
@@ -109,15 +109,20 @@ describe("LLM arm", () => {
 });
 
 describe("labels", () => {
-  test("[unit] UC13-6 accept when the output equals the truth, reject otherwise, unlabelled stays empty", () => {
+  test("[unit] UC13-6 M1 accept when the output equals the truth, reject otherwise, stamped human_reviewed; unlabelled stays empty", () => {
     const truth = parseTruth("case_id,truth\nm01,hand_off\nm02,answer\n");
     const rows = [
       ruleRecord({ case_id: "m01", case_input: "Is it safe?" }),
       ruleRecord({ case_id: "m02", case_input: "Is it safe?" }),
       ruleRecord({ case_id: "m03", case_input: "Is it safe?" }),
     ];
-    const labelled = applyLabels(rows, truth);
-    expect(labelled.map((r) => [r.label, r.label_source])).toEqual([["accept", "human"], ["reject", "human"], ["", ""]]);
+    const labelled = applyLabels(rows, truth, APPROVED_DRAFT_2026_10_03);
+    expect(labelled.map((r) => [r.label, r.label_source, r.labelled_by, r.labelled_at, r.label_blind])).toEqual([
+      ["accept", "human_reviewed", "operator", "2026-10-03", "false"],
+      ["reject", "human_reviewed", "operator", "2026-10-03", "false"],
+      ["", "", "", "", ""],
+    ]);
+    expect(validate(formatRecords(labelled)).errors).toEqual([]);
   });
 
   test("[unit] UC13-6 a truth outside the answer set is refused", () => {
@@ -128,22 +133,56 @@ describe("labels", () => {
     expect(() => parseTruth("case_id,truth\nm01,answer\nm01,hand_off\n")).toThrow(/duplicate/);
     expect(() => parseTruth("case_id,truth\n,answer\n")).toThrow(/case_id/);
     const rows = [ruleRecord({ case_id: "m01", case_input: "Is it safe?" })];
-    expect(() => applyLabels(rows, parseTruth("case_id,truth\nm09,answer\n"))).toThrow(/m09/);
+    expect(() => applyLabels(rows, parseTruth("case_id,truth\nm09,answer\n"), APPROVED_DRAFT_2026_10_03)).toThrow(/m09/);
   });
 
   test("[unit] UC13-F2 truth is recovered from labelled rows and conflicts are refused", () => {
     const rows = applyLabels(
       [ruleRecord({ case_id: "m01", case_input: "Is it safe?" }), ruleRecord({ case_id: "m02", case_input: "helmets?" })],
       parseTruth("case_id,truth\nm01,answer\nm02,answer\n"),
+      APPROVED_DRAFT_2026_10_03,
     );
     expect([...truthFromRows(rows)]).toEqual([["m01", "answer"], ["m02", "answer"]]);
     const first = rows[0];
     if (first === undefined) throw new Error("no row");
     expect(() => truthFromRows([...rows, { ...first, answerer: "jev", label: "accept" }])).toThrow(/m01/);
   });
+
+  test("[unit] M1 labels without a provenance are refused; a rebuild reads the one provenance the rows carry", () => {
+    const rows = [ruleRecord({ case_id: "m01", case_input: "Is it safe?" }), ruleRecord({ case_id: "m02", case_input: "helmets?" })];
+    expect(() => applyLabels(rows, parseTruth("case_id,truth\nm01,answer\n"), null)).toThrow(/provenance/);
+    expect(applyLabels(rows, new Map(), null).every((r) => r.label === "" && r.labelled_by === "")).toBe(true);
+    const blind: LabelProvenance = { source: "human", by: "op-1", at: "2026-10-07T09:30:00Z", blind: true };
+    const labelled = applyLabels(rows, parseTruth("case_id,truth\nm01,answer\nm02,answer\n"), blind);
+    expect(provenanceFromRows(labelled)).toEqual(blind);
+    expect(provenanceFromRows(rows)).toBeNull();
+    const first = labelled[0];
+    if (first === undefined) throw new Error("no row");
+    expect(() => provenanceFromRows([...labelled, { ...first, answerer: "jev", label_source: "human_reviewed" }])).toThrow(/different provenance/);
+    expect(() => provenanceFromRows([{ ...first, labelled_at: "" }])).toThrow(/complete provenance/);
+  });
+
+  test("[smoke] M1 the recorded UC13 run: all 120 labels are human_reviewed by the operator on 2026-10-03, not blind", async () => {
+    const text = await Bun.file(fileURLToPath(new URL("../../docs/product/runs/2026-10-01-uc13-shop-bot/records.csv", import.meta.url))).text();
+    const rows = parseRecords(text);
+    expect(rows).toHaveLength(120);
+    expect(rows.every((r) => r.format_version === "jnj-record/1.1")).toBe(true);
+    expect(rows.filter((r) => r.label !== "")).toHaveLength(120);
+    expect(provenanceFromRows(rows)).toEqual(APPROVED_DRAFT_2026_10_03);
+    expect(rows.some((r) => r.label_source === "human")).toBe(false);
+  });
 });
 
 describe("records file", () => {
+  test("[unit] M1 a jnj-record/1 records file (TokenMax) still parses and round-trips byte for byte", () => {
+    const v1 = { ...ruleRecord({ case_id: "m01", case_input: "Is it safe?" }), format_version: "jnj-record/1" };
+    const { labelled_by: _by, labelled_at: _at, label_blind: _blind, ...row } = v1;
+    const text = formatRecords([row]);
+    expect(text.split("\n")[0]).not.toContain("labelled_by");
+    expect(formatRecords(parseRecords(text))).toBe(text);
+    expect(Object.keys(parseRecords(text)[0] ?? {})).not.toContain("labelled_by");
+  });
+
   const good = formatRecords([ruleRecord({ case_id: "m01", case_input: "Is it safe?" })]);
 
   test("[unit] UC13-F10 a truncated, widened or re-headed records file is refused", () => {

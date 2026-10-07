@@ -35,11 +35,11 @@ describe("run-arms commands", () => {
     });
   });
 
-  test("[unit] UC13-F2 replay keeps human labels on every arm, byte-identical", async () => {
+  test("[unit] UC13-F2 M1 replay keeps labels and their provenance on every arm, byte-identical", async () => {
     await withRun(async (paths) => {
       const rows = parseRecords(await read(join(paths.out, "records.csv")));
       const truth = parseTruth(`case_id,truth\nm01,hand_off\nm02,answer\nm03,answer\n`);
-      const labelled = formatRecords(applyLabels(rows, truth));
+      const labelled = formatRecords(applyLabels(rows, truth, { source: "human", by: "op-1", at: "2026-10-07T09:30:00Z", blind: true }));
       await writeFile(join(paths.out, "records.csv"), labelled);
       await main(["replay"], paths);
       expect(await read(join(paths.out, "records.csv"))).toBe(labelled);

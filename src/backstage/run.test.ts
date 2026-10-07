@@ -1,5 +1,6 @@
 import { describe, expect, test, spyOn } from "bun:test";
 import {
+  BACKSTAGE_PICK,
   BackstageRun,
   trialTransport,
   CaseImportState,
@@ -98,7 +99,7 @@ describe("Backstage run", () => {
     expect(run.cards().every((c) => !("provider" in c))).toBe(true);
     const order = run.cards().map((c) => c.id);
     run.beginLabeling();
-    for (const c of run.cards()) run.label(c.id, "accept");
+    for (const c of run.cards()) run.label(c.id, "accept", BACKSTAGE_PICK);
     expect(run.cards().map((c) => c.id)).toEqual(order);
     const report = await run.report();
     expect(validate(report.csv).errors).toEqual([]);
@@ -268,6 +269,68 @@ test("[unit] B4 secret rejection blocks exports including escaped keys and retry
   ).rejects.toThrow();
   expect(() => retryRun.evidence()).toThrow();
 });
+test("[unit] M1 export marks a UI pick human and an AI-drafted label agent, each with labeller, time and blind flag", async () => {
+  const run = new BackstageRun(scene(), "test", { arms: ["jev", "rule"] });
+  await run.start({ jev: keys.jev }, async (request) => ({
+    ...(await success(request)),
+    output: request.caseId === "c1" ? "yes" : "no",
+  }));
+  run.beginLabeling();
+  const c1 = run.cards().find((c) => c.caseId === "c1");
+  const c2 = run.cards().find((c) => c.caseId === "c2");
+  if (!c1 || !c2) throw new Error("missing card");
+  run.label(c1.id, "accept", BACKSTAGE_PICK, new Date("2026-10-07T09:30:00.000Z"));
+  run.label(c2.id, "reject", { source: "agent", by: "claude-opus-5-5", blind: false }, new Date("2026-10-07T09:31:00.000Z"));
+  const parsed = validate(run.csv());
+  expect(parsed.errors).toEqual([]);
+  const provenance = parsed.rows
+    .filter(({ values }) => values.get("answerer") === "jev")
+    .map(({ values }) =>
+      ["case_id", "format_version", "label", "label_source", "labelled_by", "labelled_at", "label_blind"].map((k) => values.get(k)),
+    );
+  expect(provenance).toEqual([
+    ["c1", "jnj-record/1.1", "accept", "human", "backstage-operator", "2026-10-07T09:30:00.000Z", "false"],
+    ["c2", "jnj-record/1.1", "reject", "agent", "claude-opus-5-5", "2026-10-07T09:31:00.000Z", "false"],
+  ]);
+  expect(parsed.gaps).toContain("line 5: agent label not reviewed (c2, decision, jev)");
+  run.reveal();
+  expect(run.evidence().labels.find((l) => l.caseId === "c2" && l.provider === "jev")).toMatchObject({
+    label: "reject",
+    labelSource: "agent",
+    labelledBy: "claude-opus-5-5",
+    labelledAt: "2026-10-07T09:31:00.000Z",
+    labelBlind: false,
+  });
+});
+test("[unit] M1 only the Backstage UI pick constant claims human, and an unlabelled row carries no provenance", async () => {
+  expect(BACKSTAGE_PICK).toEqual({ source: "human", by: "backstage-operator", blind: false });
+  const run = new BackstageRun(scene(), "test", { arms: ["jev"] });
+  await run.start({ jev: keys.jev }, success);
+  run.beginLabeling();
+  const card = run.cards()[0];
+  if (!card) throw new Error("missing card");
+  run.label(card.id, "accept", BACKSTAGE_PICK);
+  run.label(card.id, null, BACKSTAGE_PICK);
+  const parsed = validate(run.csv());
+  expect(parsed.errors).toEqual([]);
+  expect(
+    parsed.rows.map(({ values }) => ["label", "label_source", "labelled_by", "labelled_at", "label_blind"].map((k) => values.get(k))),
+  ).toEqual([
+    [null, null, null, null, null],
+    [null, null, null, null, null],
+  ]);
+});
+test("[unit] M1 a labeller handle that would make an invalid record is refused at label time", async () => {
+  const run = new BackstageRun(scene(), "test", { arms: ["jev"] });
+  await run.start({ jev: keys.jev }, success);
+  run.beginLabeling();
+  const card = run.cards()[0];
+  if (!card) throw new Error("missing card");
+  expect(() => run.label(card.id, "accept", { source: "human", by: "someone@example.com", blind: false })).toThrow(
+    "labeller handle",
+  );
+  expect(run.cards()[0]?.label).toBeNull();
+});
 test("[unit] B6 reveal irreversibly locks labels and retries", async () => {
   const run = new BackstageRun(scene(), "test", compareSelection);
   expect(() => run.reveal()).toThrow();
@@ -275,10 +338,10 @@ test("[unit] B6 reveal irreversibly locks labels and retries", async () => {
   const card = run.cards()[0];
   if (!card) throw new Error("missing card");
   run.beginLabeling();
-  run.label(card.id, "accept");
+  run.label(card.id, "accept", BACKSTAGE_PICK);
   run.reveal();
   expect(run.revealed).toBe(true);
-  expect(() => run.label(card.id, "reject")).toThrow();
+  expect(() => run.label(card.id, "reject", BACKSTAGE_PICK)).toThrow();
   await expect(run.retry(keys, success)).rejects.toThrow();
   expect(run.cards()[0]?.label).toBe("accept");
 });
@@ -399,10 +462,10 @@ test("[unit] B6 labeling locks retry decisions before first card judgment", asyn
   await run.start(keys, success);
   const card = run.cards()[0];
   if (!card) throw new Error("missing card");
-  expect(() => run.label(card.id, "accept")).toThrow();
+  expect(() => run.label(card.id, "accept", BACKSTAGE_PICK)).toThrow();
   run.beginLabeling();
   expect(run.labeling).toBe(true);
-  run.label(card.id, "accept");
+  run.label(card.id, "accept", BACKSTAGE_PICK);
   await expect(run.retry(keys, success)).rejects.toThrow();
 });
 test("[unit] B8 stale backend revision cannot enter frozen run", async () => {
@@ -544,7 +607,7 @@ test("[integration] JF1 Jev-only runs without competitor key and exports only ac
     ["yes", 0.87],
   ]);
   run.beginLabeling();
-  for (const card of run.cards()) run.label(card.id, "accept");
+  for (const card of run.cards()) run.label(card.id, "accept", BACKSTAGE_PICK);
   run.reveal();
   const parsed = validate(run.csv());
   expect(parsed.errors).toEqual([]);
@@ -690,7 +753,7 @@ test("[integration] JF4 labels share identical outputs and exports preserve sepa
   run.beginLabeling();
   const card = run.cards().find((c) => c.caseId === "c1");
   if (!card) throw Error("missing card");
-  run.label(card.id, "accept");
+  run.label(card.id, "accept", BACKSTAGE_PICK);
   expect(
     run
       .cards()

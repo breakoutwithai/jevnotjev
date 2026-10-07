@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Answer, type Column, type RecordRow, applyLabels, formatRecords, parseRecords, record, ruleOutput } from "./arms.ts";
+import { APPROVED_DRAFT_2026_10_03, type Answer, type Column, type RecordRow, applyLabels, formatRecords, parseRecords, record, ruleOutput } from "./arms.ts";
 import {
   ARMS, DEMO_IDS, DEMO_OUT, EXAMPLE_DIR, LABEL_OUT, RUN_DIR, build, buildDemo, judge, labelPage, readDemoScript, recordedInputs,
 } from "./stage-demo.ts";
@@ -82,7 +82,7 @@ describe("stage-door demo data", () => {
     const dir = await mkdtemp(join(tmpdir(), "jnj-stage-"));
     try {
       await cp(RUN_DIR, dir, { recursive: true });
-      await writeFile(join(dir, "records.csv"), formatRecords(applyLabels(rows, truth)));
+      await writeFile(join(dir, "records.csv"), formatRecords(applyLabels(rows, truth, APPROVED_DRAFT_2026_10_03)));
       const labelled = parseRecords(await readFile(join(dir, "records.csv"), "utf8"));
       const built = await build(dir, EXAMPLE_DIR);
       const d = buildDemo(labelled, await sheet());
@@ -216,7 +216,7 @@ describe("stage-door demo data refuses an inconsistent run", () => {
 
   test("[unit] UC13-STAGE-8 arms that imply different human answers fail, for any of the 40 cases, not only the 8 shown", async () => {
     const truth = new Map<string, Answer>((await records()).map((r) => [r.case_id, "answer"]));
-    const labelled = applyLabels(await records(), truth);
+    const labelled = applyLabels(await records(), truth, APPROVED_DRAFT_2026_10_03);
     expect(DEMO_IDS.includes("m01")).toBe(false);
     const flipped = labelled.map((r) => (r.answerer === "jev" && r.case_id === "m01" ? { ...r, label: r.label === "accept" ? "reject" : "accept" } : r));
     expect(() => buildDemo(flipped, "x")).toThrow(/m01/);

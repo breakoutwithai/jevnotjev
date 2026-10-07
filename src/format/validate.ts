@@ -9,8 +9,12 @@ import { iterErrors, type Value } from "./schema.ts";
 
 export const SCHEMA: unknown = schemaJson;
 export const COLUMNS: readonly string[] = schemaJson.required;
+/** Label provenance (format/README.md "Label provenance"): required on a labelled jnj-record/1.1 row, empty otherwise. */
+export const PROVENANCE_COLUMNS: readonly string[] = ["labelled_by", "labelled_at", "label_blind"];
+/** The header a jnj-record/1.1 writer uses: every /1 column, then the provenance columns. */
+export const COLUMNS_V1_1: readonly string[] = [...COLUMNS, ...PROVENANCE_COLUMNS];
 /** Columns a file may leave out of its header (format/README.md "Optional columns"). The database does not store them. */
-const OPTIONAL_COLUMNS: readonly string[] = ["price_table_date"];
+const OPTIONAL_COLUMNS: readonly string[] = ["price_table_date", ...PROVENANCE_COLUMNS];
 
 const INTEGER_COLUMNS = new Set(["tokens_in", "tokens_out", "latency_ms"]);
 const NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);
@@ -130,6 +134,11 @@ function text(row: Row, column: string): string {
   return value;
 }
 
+/** An `agent` label was never reviewed by a person, so it is never counted as truth: the row reads as unlabelled. */
+export function countsAsTruth(row: Row): boolean {
+  return row.get("label_source") !== "agent";
+}
+
 /** Errors, gaps and rows for one file's text. Errors make the file invalid; gaps are missing costs or labels. */
 export function validate(csvText: string): Validation {
   const { errors, rows } = readRows(csvText);
@@ -196,6 +205,7 @@ export function validate(csvText: string): Validation {
     }
     if (cell(row, "cost_usd") === null) gaps.push(`line ${line}: cost_usd missing ${where}`);
     if (cell(row, "label") === null) gaps.push(`line ${line}: unlabelled ${where}`);
+    else if (!countsAsTruth(row)) gaps.push(`line ${line}: agent label not reviewed ${where}`);
   }
   // D12: each case needs a row from every method; `human` is not one of them. An absent method is a gap, not an error.
   for (const { label, methods } of answered.values()) {
@@ -211,7 +221,7 @@ export function summary(rows: readonly ParsedRow[]): string[] {
   const answerers = [...new Set(rows.map(({ values }) => text(values, "answerer")))].sort(compareCodePoints);
   return answerers.map((answerer) => {
     const mine = rows.map(({ values }) => values).filter((row) => cell(row, "answerer") === answerer);
-    const labelled = mine.filter((row) => cell(row, "label") !== null);
+    const labelled = mine.filter((row) => cell(row, "label") !== null && countsAsTruth(row));
     const accepted = labelled.filter((row) => cell(row, "label") === "accept").length;
     let total = 0;
     let complete = true;

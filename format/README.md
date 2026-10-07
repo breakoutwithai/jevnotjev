@@ -1,4 +1,4 @@
-# Eval record format `jnj-record/1`
+# Eval record format `jnj-record/1` and `jnj-record/1.1`
 
 One CSV to test a question against Jev, a simple rule, an LLM or a person on the same cases, and keep the answers, your accept/reject labels and what each answer cost.
 
@@ -25,11 +25,11 @@ VALID rows=9 cases=3 errors=0 gaps=2
 ```
 
 ## Columns
-These 18 are required in the header, any order; `price_table_date` (below) is the one optional column. Any other unknown column is an error.
+These 18 are required in the header, any order; the optional columns below are `price_table_date` and the three label provenance columns. Any other unknown column is an error.
 
 | Column | Holds | Rule |
 |---|---|---|
-| `format_version` | `jnj-record/1` | fixed |
+| `format_version` | `jnj-record/1` or `jnj-record/1.1` | 1.1 adds label provenance ([below](#label-provenance-jnj-record11)) |
 | `run_id` | e.g. `run-001` | groups one run |
 | `prompt_version` | e.g. `refund-q.v1` | new wording = new version |
 | `case_id` | e.g. `m01` | the test case |
@@ -41,8 +41,8 @@ These 18 are required in the header, any order; `price_table_date` (below) is th
 | `answerer_model` | e.g. `jev-1.13.0`, a rule name, a model id | |
 | `output` | the answer | must be one of `answer_set` |
 | `confidence` | 0 to 1, or empty | empty when the answerer gives none (a rule) |
-| `label` | `accept` / `reject` / empty | a person's call on the answer |
-| `label_source` | `human` / empty | empty exactly when `label` is empty |
+| `label` | `accept` / `reject` / empty | the call on the answer |
+| `label_source` | `human` / `human_reviewed` / `agent` / empty | empty exactly when `label` is empty; a `jnj-record/1` row allows `human` or empty only |
 | `tokens_in`, `tokens_out` | integers or empty | from the answerer's usage fields |
 | `cost_usd` | number or empty | 0 for a rule |
 | `latency_ms` | integer or empty | wall clock |
@@ -50,6 +50,7 @@ These 18 are required in the header, any order; `price_table_date` (below) is th
 ## Missing cost or labels
 An empty `cost_usd` or `label` keeps the file **valid** and is listed as a `GAP`.
 - Accepted counts use labelled rows only, so an unlabelled answer is never counted as right or wrong.
+- An `agent` label was never reviewed by a person, so it is never counted as truth: the row counts as unlabelled in the summary and the metrics, and is listed as `GAP line <n>: agent label not reviewed (<case_id>, <question_id>, <answerer>)`.
 - An answerer with any missing cost shows `cost=incomplete` instead of a total that looks complete.
 - A case (one `case_id` under one `run_id`, `prompt_version` and `question_id`) with no row for `llm`, `rule` or `jev` gets one `GAP case <case_id> (question <question_id>, run <run_id>, prompt <prompt_version>): no <method> result` per absent method. `human` rows establish a case but satisfy no method, so a case with only human rows gets all three gaps. A worked file with one absent row and one blank cost: [examples/d12-three-methods](../examples/d12-three-methods/README.md).
 
@@ -62,8 +63,24 @@ A value that is present but malformed (`about a cent`, confidence `1.5`, answer 
 
 A file without the column stays valid `jnj-record/1`: every file written before the column existed validates unchanged, and the example above has none. When the column is present, a value that is not a real-looking date (`Sept 2026`, `2026-13-01`) is an error. The validator checks the format only; it does not compare the date to anything. The database (`src/db/`) does not store the column, so a load followed by an export drops it (#42).
 
+## Label provenance (`jnj-record/1.1`)
+A label is only as good as where it came from. A `jnj-record/1.1` row says who made the call, how, when, and whether it was made blind.
+
+| Column | Holds | Rule |
+|---|---|---|
+| `label_source` | `human`: a person picked it. `human_reviewed`: an AI drafted it and a person approved it. `agent`: an AI made it and nobody reviewed it | `agent` is never counted as truth (above) |
+| `labelled_by` | a handle: a person's handle (`operator`, `backstage-operator`) or an agent's model id | letters, digits and `_ . : + -`, 1 to 64; never an email address |
+| `labelled_at` | a UTC time (`2026-10-07T09:30:00Z`, seconds and milliseconds optional) or a date (`2026-10-03`) when only the day is known | |
+| `label_blind` | `true` / `false` | `true` only when the call was made before seeing any answerer's output or any suggestion for that case |
+
+- On a labelled 1.1 row all four are required: an empty one is an error (`line <n>: labelled_by: None is not of type 'string'`), and a file without one of the columns is an error on every labelled 1.1 row (`line <n>: row: 'labelled_by' is a required property`).
+- On an unlabelled 1.1 row all four are empty.
+- A `jnj-record/1` row leaves the three new columns empty and its `label_source` is `human` or empty, so every /1 file validates unchanged. A /1 `human` label states no labeller, time or blindness.
+- Backstage exports 1.1: a click in the judging room is `human`, labelled by `backstage-operator` (the page does not know which signed-in operator is clicking), and not blind, because the card shows the answer being judged.
+- The database (`src/db/`) stores `jnj-record/1` only (`db/migrations/0001_records.sql:45`), so a 1.1 file does not load.
+
 ## Versioning
-- The file format: `format_version` in every row. A renamed, removed or re-typed column ships as `jnj-record/2` with its own schema; `/1` files keep validating.
+- The file format: `format_version` in every row. A renamed, removed or re-typed column ships as `jnj-record/2` with its own schema; `/1` files keep validating. `jnj-record/1.1` only adds optional columns and label sources, so the same schema and validator read both.
 - The question: rewording a question under the same `prompt_version` is an error, so every answer can be traced to the exact wording that produced it.
 
 ## Message contract
@@ -83,7 +100,7 @@ Validator and loader output is part of the format: scripts and people match on i
 - `line <n>: row has more cells than the header` / `fewer cells`. Every row's cell count is reported, but any such error stops the check before schema and cross-row checks run. `file has no data rows`.
 - A schema error: `line <n>: <column>: <message>`, or `line <n>: row: <message>` for a whole-row rule. A row's schema errors come in schema order (keywords in document order, depth first); a row with any schema error gets no cross-row checks.
 - Cross-row errors: `line <n>: output <value> is not in answer_set <value>`, `line <n>: duplicate row for run <run_id> (<case_id>, <question_id>, <answerer>)`, `line <n>: case_input differs from the first row for case_id <case_id>`, `line <n>: question <question_id> changed within prompt_version <prompt_version>; give the new wording a new prompt_version`.
-- Gaps: `line <n>: cost_usd missing (<case_id>, <question_id>, <answerer>)`, `line <n>: unlabelled (...)`.
+- Gaps: `line <n>: cost_usd missing (<case_id>, <question_id>, <answerer>)`, `line <n>: unlabelled (...)`, `line <n>: agent label not reviewed (...)`.
 - Loader (values the validator accepts but the database cannot store): `line <n>: <column>: <value> ends with a line break` for a pattern-checked text column, `line <n>: <column>: contains a NUL character, which the database cannot store`, `line <n>: confidence: <text> is above 1`, plus integer and decimal range messages; and `workspace <value> must match [a-z0-9-]{1,64}`. A database error prints as `ERROR database error <SQLSTATE>`, never with the connection string or a cell.
 
 ### Schema messages

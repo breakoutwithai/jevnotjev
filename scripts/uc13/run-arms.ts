@@ -17,9 +17,9 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  CASE_IDS, CRITERIA, PROMPT_VERSION, QUESTION, RUN_ID, applyLabels, armRecord, formatRecords, jevBody, loadExample,
-  parseJevResponse, parseLlmResponse, parseRecords, parseTruth, ruleRecord, truthFromRows, type Answer, type ArmReply,
-  type Case, type RecordRow,
+  APPROVED_DRAFT_2026_10_03, CASE_IDS, CRITERIA, PROMPT_VERSION, QUESTION, RUN_ID, applyLabels, armRecord, formatRecords, jevBody, loadExample,
+  parseJevResponse, parseLlmResponse, parseRecords, parseTruth, provenanceFromRows, ruleRecord, truthFromRows, type Answer,
+  type ArmReply, type Case, type LabelProvenance, type RecordRow,
 } from "./arms.ts";
 import { jevEntry, readFixture, replayJev, sha256Hex, writeFixture, type JevEntry } from "./calls.ts";
 
@@ -175,7 +175,14 @@ function assertArmComplete(arm: Arm, rows: readonly RecordRow[], calls: readonly
   }
 }
 
-interface Kept { readonly rows: RecordRow[]; readonly calls: readonly RawCall[]; readonly truth: Map<string, Answer>; readonly inputsSha256: string | null }
+interface Kept {
+  readonly rows: RecordRow[];
+  readonly calls: readonly RawCall[];
+  readonly truth: Map<string, Answer>;
+  /** How the kept labels were made, carried through a rebuild unchanged. */
+  readonly provenance: LabelProvenance | null;
+  readonly inputsSha256: string | null;
+}
 
 /** The recorded llm arm, complete and consistent, plus the truth its labels encode. */
 async function keptLlm(out: string): Promise<Kept> {
@@ -184,7 +191,7 @@ async function keptLlm(out: string): Promise<Kept> {
   const rows = all.filter((r) => r.answerer === "llm");
   const calls = raw.calls.filter((x) => x.arm === "llm");
   assertArmComplete("llm", rows, calls);
-  return { rows, calls, truth: truthFromRows(all), inputsSha256: raw.inputsSha256 };
+  return { rows, calls, truth: truthFromRows(all), provenance: provenanceFromRows(all), inputsSha256: raw.inputsSha256 };
 }
 
 async function write(out: string, rows: readonly RecordRow[], calls: readonly RawCall[], inputs: string | null): Promise<void> {
@@ -253,7 +260,7 @@ async function run(paths: Paths, dry: boolean, only: Arm | null): Promise<void> 
     captured.sort((a, b) => (order.get(a.case_id) ?? 0) - (order.get(b.case_id) ?? 0));
     await writeFixture(paths.fixture, captured, new Date().toISOString());
   }
-  const all = kept === null ? rows : applyLabels([...rows, ...kept.rows], kept.truth);
+  const all = kept === null ? rows : applyLabels([...rows, ...kept.rows], kept.truth, kept.provenance);
   await write(paths.out, all, [...calls, ...(kept?.calls ?? [])], inputs);
 }
 
@@ -267,12 +274,13 @@ async function replay(paths: Paths): Promise<void> {
   const replayed = replayJev(await readFixture(paths.fixture), cases, (c) => jevBody(factSheet, c));
   const rows = [...cases.map(ruleRecord), ...replayed.map(({ case_, reply, ms }) => armRecord(case_, "jev", reply, ms)), ...kept.rows];
   const calls = [...replayed.map(({ case_, reply }) => rawCall(case_, "jev", reply)), ...kept.calls];
-  await write(paths.out, applyLabels(rows, kept.truth), calls, kept.inputsSha256);
+  await write(paths.out, applyLabels(rows, kept.truth, kept.provenance), calls, kept.inputsSha256);
 }
 
 async function label(paths: Paths): Promise<void> {
   const truth = parseTruth(await Bun.file(join(paths.out, "labels.csv")).text());
-  const rows = applyLabels(parseRecords(await Bun.file(join(paths.out, "records.csv")).text()), truth);
+  // labels.csv is the AI-drafted, person-approved truth of 2026-10-03 (LABELS.md), so it is stamped human_reviewed.
+  const rows = applyLabels(parseRecords(await Bun.file(join(paths.out, "records.csv")).text()), truth, APPROVED_DRAFT_2026_10_03);
   await Bun.write(join(paths.out, "records.csv"), formatRecords(rows));
   console.log(`labelled ${rows.filter((r) => r.label !== "").length} of ${rows.length} rows from ${truth.size} truth labels`);
 }

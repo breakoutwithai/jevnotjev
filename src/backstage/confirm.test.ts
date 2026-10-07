@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BackstageRun, inputFingerprint } from "./run.ts";
+import { BACKSTAGE_PICK, BackstageRun, inputFingerprint } from "./run.ts";
 import { type AnswerRequest, type Scene } from "./contracts.ts";
 import { getModelEntry } from "./catalog.ts";
 import {
@@ -170,7 +170,7 @@ describe("Backstage in-page confirm panels", () => {
     expect(snapshot(run)).toEqual({ ...before, revealed: true });
     const card = run.cards()[0];
     if (!card) throw new Error("expected a card");
-    expect(() => run.label(card.id, "accept")).toThrow("Labels are locked");
+    expect(() => run.label(card.id, "accept", BACKSTAGE_PICK)).toThrow("Labels are locked");
   });
 
   test("[unit] I88 Confirm at new scene clears without touching run labels", async () => {

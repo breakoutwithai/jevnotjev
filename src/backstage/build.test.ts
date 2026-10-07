@@ -24,6 +24,7 @@ test("[integration] B8 browser/backend build reproduces exact bytes and excludes
   expect(bundle).toContain("/api/backstage/answer");
   expect(bundle).not.toContain("x-api-key");
   expect(bundle).not.toContain("BACKSTAGE_TRIAL_KEY");
+  expect(bundle).not.toContain("BACKSTAGE_HOUSE_JEV_KEY");
   expect(bundle).not.toContain("bun:sqlite");
   expect(bundle).not.toContain("api.anthropic.com");
   expect(bundle).not.toContain("node:");

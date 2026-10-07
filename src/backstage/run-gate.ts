@@ -15,6 +15,8 @@ export interface RunGateInput {
   readonly caseCount: number;
   readonly armIds: readonly string[];
   readonly keys: ProviderKeys;
+  /** The local server holds a Jev key, so an empty Jev field is fine. Other providers are unaffected. */
+  readonly houseJev?: boolean;
 }
 
 function armProviders(armIds: readonly string[]): Provider[] {
@@ -32,6 +34,7 @@ export function runBlockers(input: RunGateInput): string[] {
   if (input.caseCount < 1) reasons.push("Add at least one case.");
   for (const provider of armProviders(input.armIds)) {
     if ((input.keys[provider] ?? "").trim()) continue;
+    if (provider === "jev" && input.houseJev === true) continue;
     reasons.push(
       provider === "jev"
         ? `Add your ${KEY_FIELD_NAMES.jev} on Casting.`

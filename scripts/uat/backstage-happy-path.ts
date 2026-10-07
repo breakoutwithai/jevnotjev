@@ -59,12 +59,25 @@ function realOf(path: string): string {
 function insideDir(path: string, dir: string): boolean {
   return path === dir || path.startsWith(dir.endsWith(sep) ? dir : dir + sep);
 }
+/**
+ * Real path of the git work tree containing cwd; null when cwd is in no repository; undefined when git cannot run
+ * (fail closed). Inherited GIT_* variables are dropped so an override cannot point the check at another tree.
+ */
+function workTreeTop(): string | null | undefined {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(process.env)) if (!name.startsWith("GIT_") && value !== undefined) env[name] = value;
+  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8", env });
+  if (top.error) return undefined;
+  if (top.status !== 0) return /not a git repository/i.test(top.stderr) ? null : undefined;
+  return realOf(top.stdout.replace(/\r?\n$/, ""));
+}
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2));
   if (!options) { console.error(clean(usage)); return 2; }
   // Run output never enters the repo: refuse an --out inside the git work tree this runs from.
-  const top = spawnSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" });
-  if (top.status === 0 && insideDir(realOf(resolve(options.out)), realOf(top.stdout.trim()))) {
+  const repoTop = workTreeTop();
+  if (repoTop === undefined) { console.error("Cannot run git to check that --out is outside the repository"); return 2; }
+  if (repoTop !== null && insideDir(realOf(resolve(options.out)), repoTop)) {
     console.error("--out must be outside the repository work tree; run output never enters the repo");
     return 2;
   }
@@ -95,6 +108,11 @@ async function main(): Promise<number> {
   const suffix = (options.cloneSha ?? version).slice(0, 7).replace(/[^A-Za-z0-9_.-]/g, "") || "unknown";
   const reportDir = resolve(options.out, `${new Date().toISOString().slice(0, 10)}-happy-path-${suffix}`);
   await mkdir(reportDir, { recursive: true });
+  // A symlinked dated folder under an outside --out could still point back into the repo.
+  if (repoTop !== null && insideDir(realpathSync(reportDir), repoTop)) {
+    console.error("The report folder resolves inside the repository work tree; run output never enters the repo");
+    return 2;
+  }
   const csvPath = join(reportDir, "cases.csv");
   await writeFile(csvPath, casesCsv(example.cases));
   const steps: ReportInput["steps"][number][] = [];

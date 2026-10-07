@@ -115,5 +115,19 @@ describe("#134 output stays outside the repo", () => {
     expect(result.status).toBe(2);
     expect(result.stderr).toContain("outside the repository");
     expect(existsSync(join(f.repo, "docs"))).toBe(false);
+    expect(git(f.repo, "status", "--porcelain", "--untracked-files=all")).toBe("");
+  }));
+  test("[integration] #134 control: an --out outside the work tree passes the guard", async () => withFixture(async (f) => {
+    // No server listens on port 9, so the run stops at the health check; the point is that the guard let it through.
+    const result = spawnSync("bun", [DRIVER, "--dry-run", "--out", f.out, "--base", "http://127.0.0.1:9"], { cwd: f.repo, encoding: "utf8" });
+    expect(result.status).not.toBe(2);
+    expect(result.stderr).not.toContain("outside the repository");
+    expect(git(f.repo, "status", "--porcelain", "--untracked-files=all")).toBe("");
+  }));
+  test("[integration] #134 an inherited GIT_WORK_TREE cannot move the check to another tree", async () => withFixture(async (f) => {
+    const env = { ...process.env, GIT_WORK_TREE: f.temp, GIT_DIR: join(f.temp, "none") };
+    const result = spawnSync("bun", [DRIVER, "--dry-run", "--out", join(f.repo, "docs"), "--base", "http://127.0.0.1:9"], { cwd: f.repo, encoding: "utf8", env });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("outside the repository");
   }));
 });

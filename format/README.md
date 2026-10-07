@@ -68,7 +68,7 @@ A label is only as good as where it came from. A `jnj-record/1.1` row says who m
 
 | Column | Holds | Rule |
 |---|---|---|
-| `label_source` | `human`: a person picked it. `human_reviewed`: an AI drafted it and a person approved it. `agent`: an AI made it and nobody reviewed it | `agent` is never counted as truth (above) |
+| `label_source` | `human`: a person picked it in the tool that wrote the file. `human_reviewed`: a person stands behind it but did not pick it in that tool (an AI draft a person approved, or a label imported into Backstage from a file that marked it `human`). `agent`: an AI made it and nobody reviewed it | `agent` is never counted as truth (above) |
 | `labelled_by` | a handle: a person's handle (`operator`, `backstage-operator`) or an agent's model id | letters, digits and `_ . : + -`, 1 to 64; never an email address |
 | `labelled_at` | a UTC time (`2026-10-07T09:30:00Z`, seconds and milliseconds optional) or a date (`2026-10-03`) when only the day is known | |
 | `label_blind` | `true` / `false` | `true` only when the call was made before seeing any answerer's output or any suggestion for that case; always `false` for `human_reviewed` |

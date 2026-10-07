@@ -18,7 +18,7 @@ import {
 } from "./catalog.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { requestFingerprint } from "./fingerprint.ts";
-import { COLUMNS_V1_1, LABELLER_HANDLE, SUGGESTION_COLUMNS, validate } from "../format/validate.ts";
+import { COLUMNS_V1_1, LABELLED_AT, LABELLER_HANDLE, SUGGESTION_COLUMNS, isCalendarDate, validate } from "../format/validate.ts";
 import type { JevSuggestion } from "../labels/rank.ts";
 import { ARGMAX_TOLERANCE, MASS_TOLERANCE } from "../jev-answer.ts";
 import { SuggestionBook, callsForPick, type Call, type Suggestion } from "../labels/suggest.ts";
@@ -35,7 +35,7 @@ export type Transport = (
   signal: AbortSignal,
 ) => Promise<unknown>;
 export type Label = "accept" | "reject" | null;
-/** format/README.md "Label provenance": human = a person picked it; human_reviewed = AI drafted, a person approved; agent = not reviewed. */
+/** format/README.md "Label provenance": human = a person picked it; human_reviewed = a person approved it but did not pick it here (an AI draft, or an imported human label); agent = not reviewed. */
 export type LabelSource = "human" | "human_reviewed" | "agent";
 /** Who made a label call and how. Every call to BackstageRun.label names one; there is no default. */
 export interface LabelProvenance {
@@ -249,15 +249,131 @@ function startLine(record: { line: number; fields: readonly string[] }): number 
     record.line,
   );
 }
+export type ImportedSource = Exclude<LabelSource, "human">;
+/** A case's label from the import file (labelling loop M3): the right choice for the case, and where it came from. */
+export interface ImportedLabel {
+  readonly caseId: string;
+  /** One of the scene's choice names; checked when the run is built. */
+  readonly choice: string;
+  /** Never human: only a pick in the Backstage UI is human. */
+  readonly source: ImportedSource;
+  readonly by: string;
+  /** labelled_at as the file gives it, or the import day (UTC) when it gives none. */
+  readonly at: string;
+}
+export interface CaseImport {
+  readonly cases: Scene["cases"];
+  readonly labels: readonly ImportedLabel[];
+}
+/** Optional columns after case_id,case_input, in this order (format/README.md "Label provenance" names the last three). */
+export const CASE_LABEL_COLUMNS: readonly string[] = Object.freeze(["label", "label_source", "labelled_by", "labelled_at"]);
+/** labelled_by for an imported label whose file names no labeller. */
+export const IMPORT_LABELLER = "csv-import";
+const LABEL_SOURCES: readonly LabelSource[] = ["human", "human_reviewed", "agent"];
+function isLabelSource(value: string): value is LabelSource {
+  return LABEL_SOURCES.some((source) => source === value);
+}
+/**
+ * The source an imported label is stored with. Only a person's pick in the Backstage UI is human, so a file's human
+ * becomes human_reviewed (a person stands behind it, but not a pick made here); human_reviewed and agent are kept;
+ * blank is agent.
+ */
+function isImportedSource(value: string): value is ImportedSource {
+  return value === "human_reviewed" || value === "agent";
+}
+function importedSource(supplied: string): ImportedSource {
+  if (supplied === "human" || supplied === "human_reviewed") return "human_reviewed";
+  return "agent";
+}
+/** Handles a file may not claim: they name a pick made in the Backstage UI (format/README.md "Label provenance"). */
+const UI_HANDLES: readonly string[] = [BACKSTAGE_PICK.by, BACKSTAGE_BLIND_PICK.by];
+function caseImportHeader(header: readonly string[]): readonly string[] {
+  const extra = header.slice(2);
+  const optional: readonly string[] = CASE_LABEL_COLUMNS;
+  const expected = `It must be ${CASE_HEADER}, optionally followed by ${CASE_LABEL_COLUMNS.join(", ")}.`;
+  if (header.slice(0, 2).join(",") !== CASE_HEADER)
+    throw new Error(`The header row is "${header.join(",").slice(0, 80)}". ${expected}`);
+  const unknown = extra.filter((column) => !optional.includes(column));
+  if (unknown.length > 0)
+    throw new Error(
+      `The header row has unknown columns ${unknown.map((column) => JSON.stringify(column)).join(", ").slice(0, 80)}. ${expected}`,
+    );
+  if (new Set(extra).size !== extra.length)
+    throw new Error(`The header row repeats a column. ${expected}`);
+  if (extra.length > 0 && !extra.includes("label"))
+    throw new Error(`The header row has ${extra.join(", ")} but no label column. Add label, or remove them.`);
+  return header;
+}
+/** One row's label cells; null when the row has no label. */
+function importedLabel(
+  header: readonly string[],
+  fields: readonly string[],
+  line: number,
+  caseId: string,
+  day: string,
+): ImportedLabel | null {
+  const cell = (name: string): string => {
+    const index = header.indexOf(name);
+    return index < 0 ? "" : (fields[index] ?? "").trim();
+  };
+  const choice = cell("label");
+  const source = cell("label_source");
+  const by = cell("labelled_by");
+  const at = cell("labelled_at");
+  if (!choice) {
+    const set = CASE_LABEL_COLUMNS.slice(1).find((name) => cell(name) !== "");
+    if (set !== undefined) throw new Error(`Line ${line}: ${set} is set but label is empty. Add the label or clear ${set}.`);
+    return null;
+  }
+  if (source && !isLabelSource(source))
+    throw new Error(
+      `Line ${line}: label_source "${source.slice(0, 40)}" is not allowed. Use human_reviewed (a person approved it; a supplied human is stored as human_reviewed) or agent, or leave it empty for agent.`,
+    );
+  if (by && !LABELLER_HANDLE.test(by))
+    throw new Error(
+      `Line ${line}: labelled_by "${by.slice(0, 40)}" is not a handle. Use 1 to 64 letters, digits or _ . : + -, never an email address.`,
+    );
+  if (by && UI_HANDLES.includes(by))
+    throw new Error(
+      `Line ${line}: labelled_by "${by}" is reserved for picks made in Backstage. Use the labeller's own handle.`,
+    );
+  if (at && (!LABELLED_AT.test(at) || !isCalendarDate(at.slice(0, 10))))
+    throw new Error(
+      `Line ${line}: labelled_at "${at.slice(0, 40)}" is not a date. Use 2026-10-07 or a UTC time such as 2026-10-07T09:30:00Z.`,
+    );
+  return {
+    caseId,
+    choice,
+    source: importedSource(source),
+    by: by || IMPORT_LABELLER,
+    at: at || day,
+  };
+}
 export function parseCases(csv: string): Scene["cases"] {
+  return parseCaseImport(csv).cases;
+}
+/** One line for the page after an import: how many labels came in, by source, and that a pick replaces them. */
+export function importedLabelSummary(labels: readonly ImportedLabel[]): string {
+  if (labels.length === 0) return "";
+  const counts = LABEL_SOURCES.flatMap((source) => {
+    const count = labels.filter((l) => l.source === source).length;
+    return count > 0 ? [`${count} ${source}`] : [];
+  });
+  const agentNote = labels.some((l) => l.source === "agent") ? " An agent label is never counted as truth." : "";
+  return `Labels on ${labels.length}: ${counts.join(", ")}.${agentNote} Your pick in Rehearsals replaces an imported label.`;
+}
+/**
+ * The D11 case import with an optional label column (labelling loop M3). Without label_source a label is agent, never
+ * human: the file cannot show that a person picked it. A person's pick in the Rehearsals room replaces it.
+ */
+export function parseCaseImport(csv: string, now: Date = new Date()): CaseImport {
   checkCaseCsvSyntax(csv);
   const parsed = readDictRows(csv);
   if (parsed.header === null)
     throw new Error(`The CSV file is empty. Its first row must be the header ${CASE_HEADER}.`);
-  if (parsed.header.join(",") !== CASE_HEADER || parsed.header.length !== 2)
-    throw new Error(
-      `The header row is "${parsed.header.join(",").slice(0, 80)}". It must be exactly ${CASE_HEADER}.`,
-    );
+  const header = caseImportHeader(parsed.header);
+  const day = now.toISOString().slice(0, 10);
+  const labels: ImportedLabel[] = [];
   if (parsed.rows.length === 0)
     throw new Error(
       `The CSV has a header but no case rows. Add at least one row, for example c1,Please refund my order.`,
@@ -267,13 +383,13 @@ export function parseCases(csv: string): Scene["cases"] {
       `The CSV has ${parsed.rows.length} case rows. Import at most 100.`,
     );
   const seen = new Map<string, number>();
-  return validCases(
+  const cases = validCases(
     parsed.rows.map((r) => {
       const line = startLine(r);
       const count = r.fields.length;
-      if (count !== 2)
+      if (count !== header.length)
         throw new Error(
-          `Line ${line} has ${count} ${count === 1 ? "column" : "columns"}; expected 2 (${CASE_HEADER}). If the case text contains a comma, wrap it in quotes, for example c1,"one, two".`,
+          `Line ${line} has ${count} ${count === 1 ? "column" : "columns"}; expected ${header.length} (${header.join(",")}). If the case text contains a comma, wrap it in quotes, for example c1,"one, two".`,
         );
       const id = r.fields[0] ?? "";
       const input = r.fields[1] ?? "";
@@ -297,9 +413,12 @@ export function parseCases(csv: string): Scene["cases"] {
         throw new Error(
           `Line ${line}: case_input is ${input.length} characters. Keep each case at most 8000 characters.`,
         );
+      const label = importedLabel(header, r.fields, line, id, day);
+      if (label !== null) labels.push(Object.freeze(label));
       return { id, input };
     }),
   );
+  return Object.freeze({ cases, labels: Object.freeze(labels) });
 }
 function freezeScene(s: Scene): Scene {
   const choices: Scene["choices"] = [
@@ -641,10 +760,13 @@ export class BackstageRun {
   #revealed = false;
   #labeling = false;
   #unsafe = false;
+  /** Labels that came with the case import, by case (labelling loop M3). A person's pick for the case replaces them. */
+  #imported = new Map<string, ImportedLabel>();
   constructor(
     scene: Scene,
     revision = "test",
     selection: Selection = { arms: [JEV_ARM_ID] },
+    importedLabels: readonly ImportedLabel[] = [],
   ) {
     if (!/^[A-Za-z0-9_.-]{1,64}$/.test(revision))
       throw new Error("Invalid run revision.");
@@ -706,6 +828,20 @@ export class BackstageRun {
       createdAt: new Date().toISOString(),
       scene: frozen,
     });
+    const choiceNames = frozen.choices.map((c) => c.name);
+    for (const imported of importedLabels) {
+      if (!frozen.cases.some((c) => c.id === imported.caseId))
+        throw new Error(`Imported label for unknown case ${JSON.stringify(imported.caseId)}.`);
+      if (this.#imported.has(imported.caseId))
+        throw new Error(`Case ${imported.caseId} has two imported labels.`);
+      if (!choiceNames.includes(imported.choice))
+        throw new Error(
+          `Case ${imported.caseId}: imported label ${JSON.stringify(imported.choice)} is not one of the scene's choices (${choiceNames.join(", ")}). Name the choices exactly as the file's labels (case matters), or fix the labels and import the file again.`,
+        );
+      if (!LABELLER_HANDLE.test(imported.by) || !LABELLED_AT.test(imported.at) || !isImportedSource(imported.source))
+        throw new Error(`Case ${imported.caseId}: imported label has an invalid source, labeller or time.`);
+      this.#imported.set(imported.caseId, Object.freeze({ ...imported }));
+    }
     const slots = frozen.cases.flatMap((c) =>
       arms.map((id) => c.id + ":" + id),
     );
@@ -1194,6 +1330,30 @@ export class BackstageRun {
       onChange?.();
     }
   }
+  /**
+   * The imported label's call on an answer, for a case nobody has picked in the UI: accept when the answer is the
+   * imported choice. Not blind: the file does not say when the call was made or what its labeller had seen.
+   * Any call a person made on the case in the UI (a pick, unsure included, or a label on one of its answers) replaces
+   * the imported label for the whole case, so one case never mixes a person's call with an imported one.
+   */
+  #importedCall(a: RowAnswer): StoredLabel | undefined {
+    const imported = this.#imported.get(a.caseId);
+    if (imported === undefined || this.#picks.has(a.caseId)) return undefined;
+    if (this.#answers.some((other) => other.caseId === a.caseId && this.#labels.has(this.#labelKey(other)))) return undefined;
+    return {
+      label: a.output === imported.choice ? "accept" : "reject",
+      source: imported.source,
+      by: imported.by,
+      blind: false,
+      at: imported.at,
+      final: null,
+      suggestionShown: null,
+    };
+  }
+  /** The label an export writes for an answer: a person's call in the UI, else the case's imported label. */
+  #labelFor(a: RowAnswer): StoredLabel | undefined {
+    return this.#labels.get(this.#labelKey(a)) ?? this.#importedCall(a);
+  }
   #csv(answers: readonly RowAnswer[], runId: string): string {
     if (this.#unsafe)
       throw new Error("Export blocked: this run contains a provider key.");
@@ -1201,7 +1361,7 @@ export class BackstageRun {
     return formatRows([
       EXPORT_COLUMNS,
       ...answers.map((a) => {
-        const stored = this.#labels.get(this.#labelKey(a));
+        const stored = this.#labelFor(a);
         const data: Record<string, string | number | null> = {
           format_version: "jnj-record/1.1",
           run_id: runId,
@@ -1441,7 +1601,7 @@ export class BackstageRun {
       funding: this.#funded ? "trial" : "byok",
       attempts: this.attempts,
       labels: this.#answers.map((a) => {
-        const stored = this.#labels.get(this.#labelKey(a));
+        const stored = this.#labelFor(a);
         return {
           caseId: a.caseId,
           armId: a.armId,
@@ -1542,12 +1702,16 @@ export class CaseImportState {
     this.#pending = false;
   }
   async read(text: Promise<string>): Promise<Scene["cases"] | undefined> {
+    return (await this.readImport(text))?.cases;
+  }
+  /** As read, with the optional label column's labels (labelling loop M3). */
+  async readImport(text: Promise<string>): Promise<CaseImport | undefined> {
     const generation = ++this.#generation;
     this.#pending = true;
     try {
       const csv = await text;
       if (generation !== this.#generation) return undefined;
-      return parseCases(csv);
+      return parseCaseImport(csv);
     } catch (error) {
       if (generation !== this.#generation) return undefined;
       throw error;

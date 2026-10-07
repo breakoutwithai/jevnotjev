@@ -57,6 +57,13 @@
             <li>Use synthetic or redacted data only.</li>
           </ul>
         </aside>
+        <div id="starter-packs">
+          <p class="fine">
+            Or start from a pack of 10 labelled cases.
+            <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/docs/product/labelling-card.md" target="_blank" rel="noopener">Label card</a>
+          </p>
+          <div class="actions" id="starter-pack-buttons"></div>
+        </div>
         <fieldset id="scene-fields">
           <legend class="sr-only">Your decision</legend>
           <p id="scene-safety" class="trust-sign">
@@ -269,7 +276,13 @@
           </label>
           <p class="fine">
             1 to 100 cases, up to 8,000 characters each. For multiline cases,
-            import a CSV with exactly case_id,case_input columns.
+            import a CSV whose first two columns are case_id,case_input.
+          </p>
+          <p class="fine" id="label-column-note">
+            Optional: add a label column (one of your two answers), then
+            label_source, labelled_by and labelled_at. A label without
+            label_source is stored as agent; a label marked human is stored as
+            human_reviewed. Only your own pick here is recorded as human.
           </p>
           <label
             >Import cases CSV<input
@@ -322,6 +335,23 @@
       <section data-panel="3" aria-labelledby="rehearsal-title" hidden>
         <p class="eyebrow">ACT IV / YOUR JUDGMENT</p>
         <h2 id="rehearsal-title" tabindex="-1">Rehearsals <span class="job">Judge answers</span></h2>
+        <section id="calibration" aria-labelledby="calibration-title">
+          <h3 id="calibration-title">Calibrate first: 5 practice cases</h3>
+          <p class="fine">
+            Pick each practice case before you pick your own. Each reference
+            label was drafted by AI and approved by a person (human_reviewed).
+            <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/docs/product/labelling-card.md" target="_blank" rel="noopener">Label card</a>
+          </p>
+          <div id="calibration-case" tabindex="-1"></div>
+          <div class="actions" id="calibration-actions">
+            <button id="calibration-first" type="button" class="secondary"></button
+            ><button id="calibration-second" type="button" class="secondary"></button
+            ><button id="calibration-unsure" type="button" class="secondary">Unsure</button>
+          </div>
+          <p id="calibration-feedback" aria-live="polite"></p>
+          <button id="calibration-next" type="button" class="secondary" hidden>Next practice case</button>
+          <p id="calibration-result" tabindex="-1" aria-live="polite"></p>
+        </section>
         <p id="judging-direction" class="direction">
           Pick the right answer for each case before you see any answer.
         </p>

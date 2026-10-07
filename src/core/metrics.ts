@@ -3,7 +3,7 @@
 // Rules: docs/SPEC.md "Metrics and matched samples". A missing label is a gap, never a rejection;
 // a missing cost makes spend incomplete, never zero; zero accepted makes cost per accepted undefined.
 
-import type { ParsedRow, Row } from "../format/validate.ts";
+import { truthLabel, type ParsedRow, type Row } from "../format/validate.ts";
 import type { CostCase } from "./calc.ts";
 
 export type Arm = "llm" | "rule" | "jev";
@@ -104,9 +104,10 @@ function cost(row: Row): number | null {
   return value;
 }
 
+/** A row's label as truth: an `agent` label was never reviewed by a person, so it reads as unlabelled (format/README.md). */
 function label(row: Row): "accept" | "reject" | null {
-  const value = row.get("label");
-  if (value === null || value === undefined) return null;
+  const value = truthLabel(row);
+  if (value === null) return null;
   if (value !== "accept" && value !== "reject") throw new Error(`label ${String(value)} after validation`);
   return value;
 }

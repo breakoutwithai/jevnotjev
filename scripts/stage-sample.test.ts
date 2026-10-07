@@ -176,3 +176,11 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
     }
   });
 });
+
+describe("Stage sample: agent labels (M1)", () => {
+  test("[unit] M1 a sample whose labels are unreviewed agent labels is refused, not shown as kept answers", async () => {
+    const csv = (await readFile(SAMPLE_RECORDS, "utf8")).replace(/,human_reviewed,/g, ",agent,");
+    expect(validate(csv).errors).toEqual([]);
+    await expect(buildSample(csv)).rejects.toThrow(/no reviewed label/);
+  });
+});

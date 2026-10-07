@@ -9,11 +9,13 @@ import { renderPage } from "./run-arms.ts";
 // `bun scripts/uc13/run-arms.ts label` has merged labels.csv, rerun this script: a labelled row is accept when its
 // output equals the human answer, and the tally adds accepts and misses per arm. No code change is needed.
 
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   ANSWERS, type Answer, CASE_IDS, type Case, type Column, PROMPT_VERSION, QUESTION, QUESTION_ID, RUN_ID, type RecordRow, loadExample,
   parseRecords,
 } from "./arms.ts";
+import { rankJevOptions } from "../../src/labels/rank.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 export const RUN_DIR = join(ROOT, "docs", "product", "runs", "2026-10-01-uc13-shop-bot");
@@ -21,6 +23,44 @@ export const EXAMPLE_DIR = join(ROOT, "examples", "uc13-shop-bot");
 export const RECORDS_REL = "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv";
 export const DEMO_OUT = join(ROOT, "site", "uc13-demo.js");
 export const LABEL_OUT = join(ROOT, "site", "label", "index.html");
+/** One file per case, fetched by the label page only after that case's blind pick (labelling loop M2). */
+export const SUGGESTIONS_OUT = join(ROOT, "site", "label", "suggestions");
+
+function prop(o: unknown, k: string): unknown {
+  return typeof o === "object" && o !== null && !Array.isArray(o) ? Reflect.get(o, k) : undefined;
+}
+
+/**
+ * Each case's suggestion from the recorded run, 0 new calls: Jev's recorded choice (records.csv) with its recorded
+ * per-option probabilities (raw.json), ranked by rankJevOptions. The two sources must agree on the choice.
+ */
+export function buildSuggestions(rows: readonly RecordRow[], raw: unknown): Map<string, string> {
+  const calls = prop(raw, "calls");
+  if (!Array.isArray(calls)) throw new Error("raw.json: no calls list");
+  const out = new Map<string, string>();
+  for (const id of CASE_IDS) {
+    const row = rows.find((r) => r.case_id === id && r.answerer === "jev");
+    const call: unknown = calls.find((c) => prop(c, "case_id") === id && prop(c, "arm") === "jev");
+    if (row === undefined || call === undefined) throw new Error(`${id}: no recorded Jev answer in records.csv and raw.json`);
+    if (prop(call, "choice") !== row.output) throw new Error(`${id}: raw.json Jev choice differs from records.csv output`);
+    const p = prop(call, "probabilities");
+    const probabilities: Record<string, number> = {};
+    for (const option of ANSWERS) {
+      const v = prop(p, option);
+      if (typeof v === "number") probabilities[option] = v;
+    }
+    const confidence = row.confidence === "" ? null : Number(row.confidence);
+    if (confidence !== null && !Number.isFinite(confidence)) throw new Error(`${id}: records.csv Jev confidence ${JSON.stringify(row.confidence)} is not a number`);
+    const ranking = rankJevOptions(ANSWERS, {
+      choice: row.output,
+      confidence,
+      probabilities: Object.keys(probabilities).length === ANSWERS.length ? probabilities : null,
+    });
+    const file = { schema: "jnj-uc13-suggestion/1", case_id: id, model: row.answerer_model, choice: row.output, ...ranking };
+    out.set(id, `${JSON.stringify(file, null, 2)}\n`);
+  }
+  return out;
+}
 
 /**
  * The 8 messages the demo plays, in order. Chosen for coverage, not outcome: all arms agree (m03, m10, m37),
@@ -78,7 +118,8 @@ function other(a: Answer): Answer {
 export function judge(row: RecordRow): { verdict: Verdict; truth: Answer | null } {
   if (!isAnswer(row.output)) throw new Error(`${row.answerer} ${row.case_id}: output ${JSON.stringify(row.output)} is not one of ${ANSWERS.join(", ")}`);
   const l = row.label;
-  if (l === "") return { verdict: "pending", truth: null };
+  // An unreviewed agent label is not truth (format/README.md "Label provenance"): the row waits for a person.
+  if (l === "" || row.label_source === "agent") return { verdict: "pending", truth: null };
   if (l === "accept") return { verdict: "accept", truth: row.output };
   if (l === "reject") return { verdict: "reject", truth: other(row.output) };
   if (isAnswer(l)) return { verdict: row.output === l ? "accept" : "reject", truth: l };
@@ -132,7 +173,9 @@ export function buildDemo(rows: readonly RecordRow[], factSheet: string, ids: re
 
   /** One human answer per case, the same whichever arm's row it is read from. */
   const truthOf = (caseId: string): Answer | null => {
-    const seen = new Set(ARMS.map((a) => judge(rowOf(a.key, caseId)).truth));
+    // An unreviewed agent label states no human answer, so it neither sets nor contradicts the reviewed one.
+    const reviewed = ARMS.map((a) => rowOf(a.key, caseId)).filter((r) => r.label_source !== "agent");
+    const seen = new Set(reviewed.map((r) => judge(r).truth));
     if (seen.size > 1) throw new Error(`${caseId}: arms imply different human answers (${[...seen].join(", ")})`);
     return [...seen][0] ?? null;
   };
@@ -229,13 +272,21 @@ export function readDemoScript(js: string): unknown {
 
 const BACK = '<p class="muted"><a href="../">Back to the stage</a></p>\n';
 
-/** The run's labelling page, served from site/label/ with a link back to the stage. Self-contained: it only downloads labels.csv. */
+/**
+ * The run's labelling page, served from site/label/ with a link back to the stage. It downloads labels.csv and reads one
+ * file from suggestions/, the picked case's, only after its blind pick.
+ */
 export function labelPage(runLabelHtml: string): string {
   if (!runLabelHtml.includes("<main>\n")) throw new Error("label.html has no <main> line to anchor the back link");
   return runLabelHtml.replace("<main>\n", `<main>\n${BACK}`);
 }
 
-export interface Built { readonly demo: string; readonly label: string }
+export interface Built {
+  readonly demo: string;
+  readonly label: string;
+  /** suggestions/<case_id>.json text by case id. */
+  readonly suggestions: ReadonlyMap<string, string>;
+}
 
 function isCase(v: unknown): v is Case {
   return typeof v === "object" && v !== null && typeof Reflect.get(v, "case_id") === "string" && typeof Reflect.get(v, "case_input") === "string";
@@ -279,7 +330,12 @@ export async function build(runDir = RUN_DIR, exampleDir = EXAMPLE_DIR): Promise
   const recorded = recordedInputs(html);
   checkInputs(recorded, await loadExample(exampleDir), rows);
   const template = await Bun.file(join(exampleDir, "label.template.html")).text();
-  return { demo: demoScript(buildDemo(rows, recorded.factSheet)), label: labelPage(renderPage(template, recorded.factSheet, recorded.cases)) };
+  const raw: unknown = JSON.parse(await Bun.file(join(runDir, "raw.json")).text());
+  return {
+    demo: demoScript(buildDemo(rows, recorded.factSheet)),
+    label: labelPage(renderPage(template, recorded.factSheet, recorded.cases)),
+    suggestions: buildSuggestions(rows, raw),
+  };
 }
 
 export const USAGE = "usage: bun scripts/uc13/stage-demo.ts [--check]";
@@ -295,11 +351,17 @@ if (import.meta.main) {
     const stale: string[] = [];
     if ((await Bun.file(DEMO_OUT).text().catch(() => "")) !== built.demo) stale.push("site/uc13-demo.js");
     if ((await Bun.file(LABEL_OUT).text().catch(() => "")) !== built.label) stale.push("site/label/index.html");
+    const present = await readdir(SUGGESTIONS_OUT).catch(() => []);
+    if (present.length !== built.suggestions.size) stale.push("site/label/suggestions/ (file count)");
+    for (const [id, text] of built.suggestions) {
+      if ((await Bun.file(join(SUGGESTIONS_OUT, `${id}.json`)).text().catch(() => "")) !== text) stale.push(`site/label/suggestions/${id}.json`);
+    }
     console.log(stale.length === 0 ? "stage demo up to date" : `stale: ${stale.join(", ")}; run bun scripts/uc13/stage-demo.ts`);
     process.exit(stale.length === 0 ? 0 : 1);
   }
   await Bun.write(DEMO_OUT, built.demo);
   await Bun.write(LABEL_OUT, built.label);
+  for (const [id, text] of built.suggestions) await Bun.write(join(SUGGESTIONS_OUT, `${id}.json`), text);
   const d = readDemoScript(built.demo);
-  console.log(`wrote site/uc13-demo.js and site/label/index.html (${JSON.stringify(d).length} bytes of demo data)`);
+  console.log(`wrote site/uc13-demo.js, site/label/index.html and ${built.suggestions.size} suggestion files (${JSON.stringify(d).length} bytes of demo data)`);
 }

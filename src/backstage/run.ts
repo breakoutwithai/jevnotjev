@@ -18,7 +18,12 @@ import {
 } from "./catalog.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { requestFingerprint } from "./fingerprint.ts";
-import { COLUMNS, validate } from "../format/validate.ts";
+import { COLUMNS_V1_1, LABELLED_AT, LABELLER_HANDLE, SUGGESTION_COLUMNS, isCalendarDate, validate } from "../format/validate.ts";
+import type { JevSuggestion } from "../labels/rank.ts";
+import { ARGMAX_TOLERANCE, MASS_TOLERANCE } from "../jev-answer.ts";
+import { SuggestionBook, callsForPick, type Call, type Suggestion } from "../labels/suggest.ts";
+/** Backstage writes jnj-record/1.1 with the blind loop's columns (format/README.md "Blind and final picks"). */
+const EXPORT_COLUMNS: readonly string[] = [...COLUMNS_V1_1, ...SUGGESTION_COLUMNS];
 import { formatRows, readDictRows } from "../format/csv.ts";
 import { cohortMetrics } from "../core/metrics.ts";
 import { fileSeed } from "../core/calc.ts";
@@ -30,6 +35,60 @@ export type Transport = (
   signal: AbortSignal,
 ) => Promise<unknown>;
 export type Label = "accept" | "reject" | null;
+/** format/README.md "Label provenance": human = a person picked it; human_reviewed = a person approved it but did not pick it here (an AI draft, or an imported human label); agent = not reviewed. */
+export type LabelSource = "human" | "human_reviewed" | "agent";
+/** Who made a label call and how. Every call to BackstageRun.label names one; there is no default. */
+export interface LabelProvenance {
+  readonly source: LabelSource;
+  /** A handle, never an email address: labelled_by in the export. */
+  readonly by: string;
+  /** True only when the call was made before seeing any answer or suggestion for the case. */
+  readonly blind: boolean;
+}
+/**
+ * A person's accept/reject click in the Backstage judging room. The browser does not know which signed-in operator
+ * is clicking (the session holds an email server-side and no identity reaches the page), so the handle is the role.
+ * The card shows the answer being judged, so the call is not blind.
+ */
+export const BACKSTAGE_PICK: LabelProvenance = Object.freeze({
+  source: "human",
+  by: "backstage-operator",
+  blind: false,
+});
+/**
+ * A person's blind pick in the Rehearsals room (labelling loop M2): the case and its two choices are shown, no answer
+ * and no suggestion, so the call is blind. The handle is the role, as for BACKSTAGE_PICK.
+ */
+export const BACKSTAGE_BLIND_PICK: LabelProvenance = Object.freeze({
+  source: "human",
+  by: "backstage-operator",
+  blind: true,
+});
+interface StoredLabel extends LabelProvenance {
+  readonly label: "accept" | "reject";
+  readonly at: string;
+  /** Labelling loop M2: the final pick's call and whether a suggestion was shown; null when no final pick was made. */
+  readonly final: Call | null;
+  readonly suggestionShown: boolean | null;
+}
+/** One case's picks. blind null = unsure. at is when the blind pick was made. */
+interface CasePickState extends LabelProvenance {
+  readonly blindPick: string | null;
+  readonly finalPick: string | null;
+  readonly suggestionShown: boolean | null;
+  readonly at: string;
+}
+/** One case to pick in the Rehearsals room. Holds no answer, confidence or model, picked or not. */
+export interface PickCard {
+  readonly caseId: string;
+  readonly input: string;
+  readonly choices: readonly string[];
+  readonly picked: boolean;
+  /** The blind pick; null when unsure or not yet picked. */
+  readonly blind: string | null;
+  readonly final: string | null;
+  readonly suggestionShown: boolean | null;
+}
 export interface Selection {
   readonly arms: readonly string[];
 }
@@ -60,6 +119,7 @@ interface RowAnswer {
   readonly provider: Provider | "rule";
   readonly output: string;
   readonly confidence: number | null;
+  readonly probabilities: Readonly<Record<string, number>> | null;
   readonly model: string;
   readonly tokensIn: number | null;
   readonly tokensOut: number | null;
@@ -189,15 +249,131 @@ function startLine(record: { line: number; fields: readonly string[] }): number 
     record.line,
   );
 }
+export type ImportedSource = Exclude<LabelSource, "human">;
+/** A case's label from the import file (labelling loop M3): the right choice for the case, and where it came from. */
+export interface ImportedLabel {
+  readonly caseId: string;
+  /** One of the scene's choice names; checked when the run is built. */
+  readonly choice: string;
+  /** Never human: only a pick in the Backstage UI is human. */
+  readonly source: ImportedSource;
+  readonly by: string;
+  /** labelled_at as the file gives it, or the import day (UTC) when it gives none. */
+  readonly at: string;
+}
+export interface CaseImport {
+  readonly cases: Scene["cases"];
+  readonly labels: readonly ImportedLabel[];
+}
+/** Optional columns after case_id,case_input, in this order (format/README.md "Label provenance" names the last three). */
+export const CASE_LABEL_COLUMNS: readonly string[] = Object.freeze(["label", "label_source", "labelled_by", "labelled_at"]);
+/** labelled_by for an imported label whose file names no labeller. */
+export const IMPORT_LABELLER = "csv-import";
+const LABEL_SOURCES: readonly LabelSource[] = ["human", "human_reviewed", "agent"];
+function isLabelSource(value: string): value is LabelSource {
+  return LABEL_SOURCES.some((source) => source === value);
+}
+/**
+ * The source an imported label is stored with. Only a person's pick in the Backstage UI is human, so a file's human
+ * becomes human_reviewed (a person stands behind it, but not a pick made here); human_reviewed and agent are kept;
+ * blank is agent.
+ */
+function isImportedSource(value: string): value is ImportedSource {
+  return value === "human_reviewed" || value === "agent";
+}
+function importedSource(supplied: string): ImportedSource {
+  if (supplied === "human" || supplied === "human_reviewed") return "human_reviewed";
+  return "agent";
+}
+/** Handles a file may not claim: they name a pick made in the Backstage UI (format/README.md "Label provenance"). */
+const UI_HANDLES: readonly string[] = [BACKSTAGE_PICK.by, BACKSTAGE_BLIND_PICK.by];
+function caseImportHeader(header: readonly string[]): readonly string[] {
+  const extra = header.slice(2);
+  const optional: readonly string[] = CASE_LABEL_COLUMNS;
+  const expected = `It must be ${CASE_HEADER}, optionally followed by ${CASE_LABEL_COLUMNS.join(", ")}.`;
+  if (header.slice(0, 2).join(",") !== CASE_HEADER)
+    throw new Error(`The header row is "${header.join(",").slice(0, 80)}". ${expected}`);
+  const unknown = extra.filter((column) => !optional.includes(column));
+  if (unknown.length > 0)
+    throw new Error(
+      `The header row has unknown columns ${unknown.map((column) => JSON.stringify(column)).join(", ").slice(0, 80)}. ${expected}`,
+    );
+  if (new Set(extra).size !== extra.length)
+    throw new Error(`The header row repeats a column. ${expected}`);
+  if (extra.length > 0 && !extra.includes("label"))
+    throw new Error(`The header row has ${extra.join(", ")} but no label column. Add label, or remove them.`);
+  return header;
+}
+/** One row's label cells; null when the row has no label. */
+function importedLabel(
+  header: readonly string[],
+  fields: readonly string[],
+  line: number,
+  caseId: string,
+  day: string,
+): ImportedLabel | null {
+  const cell = (name: string): string => {
+    const index = header.indexOf(name);
+    return index < 0 ? "" : (fields[index] ?? "").trim();
+  };
+  const choice = cell("label");
+  const source = cell("label_source");
+  const by = cell("labelled_by");
+  const at = cell("labelled_at");
+  if (!choice) {
+    const set = CASE_LABEL_COLUMNS.slice(1).find((name) => cell(name) !== "");
+    if (set !== undefined) throw new Error(`Line ${line}: ${set} is set but label is empty. Add the label or clear ${set}.`);
+    return null;
+  }
+  if (source && !isLabelSource(source))
+    throw new Error(
+      `Line ${line}: label_source "${source.slice(0, 40)}" is not allowed. Use human_reviewed (a person approved it; a supplied human is stored as human_reviewed) or agent, or leave it empty for agent.`,
+    );
+  if (by && !LABELLER_HANDLE.test(by))
+    throw new Error(
+      `Line ${line}: labelled_by "${by.slice(0, 40)}" is not a handle. Use 1 to 64 letters, digits or _ . : + -, never an email address.`,
+    );
+  if (by && UI_HANDLES.includes(by))
+    throw new Error(
+      `Line ${line}: labelled_by "${by}" is reserved for picks made in Backstage. Use the labeller's own handle.`,
+    );
+  if (at && (!LABELLED_AT.test(at) || !isCalendarDate(at.slice(0, 10))))
+    throw new Error(
+      `Line ${line}: labelled_at "${at.slice(0, 40)}" is not a date. Use 2026-10-07 or a UTC time such as 2026-10-07T09:30:00Z.`,
+    );
+  return {
+    caseId,
+    choice,
+    source: importedSource(source),
+    by: by || IMPORT_LABELLER,
+    at: at || day,
+  };
+}
 export function parseCases(csv: string): Scene["cases"] {
+  return parseCaseImport(csv).cases;
+}
+/** One line for the page after an import: how many labels came in, by source, and that a pick replaces them. */
+export function importedLabelSummary(labels: readonly ImportedLabel[]): string {
+  if (labels.length === 0) return "";
+  const counts = LABEL_SOURCES.flatMap((source) => {
+    const count = labels.filter((l) => l.source === source).length;
+    return count > 0 ? [`${count} ${source}`] : [];
+  });
+  const agentNote = labels.some((l) => l.source === "agent") ? " An agent label is never counted as truth." : "";
+  return `Labels on ${labels.length}: ${counts.join(", ")}.${agentNote} Your pick in Rehearsals replaces an imported label.`;
+}
+/**
+ * The D11 case import with an optional label column (labelling loop M3). Without label_source a label is agent, never
+ * human: the file cannot show that a person picked it. A person's pick in the Rehearsals room replaces it.
+ */
+export function parseCaseImport(csv: string, now: Date = new Date()): CaseImport {
   checkCaseCsvSyntax(csv);
   const parsed = readDictRows(csv);
   if (parsed.header === null)
     throw new Error(`The CSV file is empty. Its first row must be the header ${CASE_HEADER}.`);
-  if (parsed.header.join(",") !== CASE_HEADER || parsed.header.length !== 2)
-    throw new Error(
-      `The header row is "${parsed.header.join(",").slice(0, 80)}". It must be exactly ${CASE_HEADER}.`,
-    );
+  const header = caseImportHeader(parsed.header);
+  const day = now.toISOString().slice(0, 10);
+  const labels: ImportedLabel[] = [];
   if (parsed.rows.length === 0)
     throw new Error(
       `The CSV has a header but no case rows. Add at least one row, for example c1,Please refund my order.`,
@@ -207,13 +383,13 @@ export function parseCases(csv: string): Scene["cases"] {
       `The CSV has ${parsed.rows.length} case rows. Import at most 100.`,
     );
   const seen = new Map<string, number>();
-  return validCases(
+  const cases = validCases(
     parsed.rows.map((r) => {
       const line = startLine(r);
       const count = r.fields.length;
-      if (count !== 2)
+      if (count !== header.length)
         throw new Error(
-          `Line ${line} has ${count} ${count === 1 ? "column" : "columns"}; expected 2 (${CASE_HEADER}). If the case text contains a comma, wrap it in quotes, for example c1,"one, two".`,
+          `Line ${line} has ${count} ${count === 1 ? "column" : "columns"}; expected ${header.length} (${header.join(",")}). If the case text contains a comma, wrap it in quotes, for example c1,"one, two".`,
         );
       const id = r.fields[0] ?? "";
       const input = r.fields[1] ?? "";
@@ -237,9 +413,12 @@ export function parseCases(csv: string): Scene["cases"] {
         throw new Error(
           `Line ${line}: case_input is ${input.length} characters. Keep each case at most 8000 characters.`,
         );
+      const label = importedLabel(header, r.fields, line, id, day);
+      if (label !== null) labels.push(Object.freeze(label));
       return { id, input };
     }),
   );
+  return Object.freeze({ cases, labels: Object.freeze(labels) });
 }
 function freezeScene(s: Scene): Scene {
   const choices: Scene["choices"] = [
@@ -295,6 +474,32 @@ function amount(v: unknown, integer = false): v is number | null {
 }
 function short(v: unknown): v is string {
   return typeof v === "string" && v.length > 0 && v.length <= 200;
+}
+/**
+ * Optional per-option probabilities on an answer: absent or null is null; otherwise exactly the choice names, each in
+ * [0, 1], summing to 1 within MASS_TOLERANCE, with `output` carrying the top probability (src/jev-answer.ts rules).
+ * Anything else is false: the answer is refused.
+ */
+function choiceProbabilities(
+  v: unknown,
+  choices: readonly { readonly name: string }[],
+  output: unknown,
+): Readonly<Record<string, number>> | null | false {
+  if (v === undefined || v === null) return null;
+  if (!object(v)) return false;
+  const names = choices.map((c) => c.name);
+  if (Object.keys(v).length !== names.length || !names.every((n) => Object.hasOwn(v, n))) return false;
+  const out: Record<string, number> = {};
+  for (const name of names) {
+    const p = v[name];
+    if (typeof p !== "number" || !Number.isFinite(p) || p < 0 || p > 1) return false;
+    Object.defineProperty(out, name, { value: p, enumerable: true });
+  }
+  const total = Object.values(out).reduce((s, p) => s + p, 0);
+  if (Math.abs(total - 1) > MASS_TOLERANCE) return false;
+  const top = Math.max(...Object.values(out));
+  if (typeof output !== "string" || (out[output] ?? 0) < top - ARGMAX_TOLERANCE) return false;
+  return Object.freeze(out);
 }
 function date(v: unknown): v is string {
   return (
@@ -401,12 +606,16 @@ export async function parseAnswerResult(
   };
   if (containsKey(common, [request.key]))
     throw new Error("Unsafe response evidence.");
+  // Only Jev returns per-option probabilities; another provider's are not read.
+  const probabilities =
+    request.provider === "jev" ? choiceProbabilities(value.probabilities, request.choices, value.output) : null;
   if (
     value.ok === true &&
     typeof value.output === "string" &&
     request.choices.some((c) => c.name === value.output) &&
     amount(value.confidence) &&
     (value.confidence === null || value.confidence <= 1) &&
+    probabilities !== false &&
     typeof value.returnedModel === "string" &&
     entry.acceptedResponseModelIds.includes(value.returnedModel)
   )
@@ -415,6 +624,7 @@ export async function parseAnswerResult(
       ok: true,
       output: value.output,
       confidence: value.confidence,
+      probabilities,
     };
   if (
     value.ok === false &&
@@ -533,7 +743,16 @@ export class BackstageRun {
   readonly manifest: Manifest;
   #attempts: AnswerResult[] = [];
   #answers: RowAnswer[] = [];
-  #labels = new Map<string, Label>();
+  #labels = new Map<string, StoredLabel>();
+  #picks = new Map<string, CasePickState>();
+  /** Suggestion calls on the labeller's key (labelling loop M2): spend, never answers or labels. */
+  #suggestionAttempts: AnswerResult[] = [];
+  #suggestionTransport: Transport = answerTransport;
+  /** Suggestion results by case once a call was made (or failed). */
+  #called = new Map<string, Suggestion>();
+  #suggestions = new SuggestionBook({
+    ask: (caseId, key) => this.#askJev(caseId, key, this.#suggestionTransport),
+  });
   #order = new Map<string, number>();
   #controller: AbortController | null = null;
   #started = false;
@@ -541,10 +760,13 @@ export class BackstageRun {
   #revealed = false;
   #labeling = false;
   #unsafe = false;
+  /** Labels that came with the case import, by case (labelling loop M3). A person's pick for the case replaces them. */
+  #imported = new Map<string, ImportedLabel>();
   constructor(
     scene: Scene,
     revision = "test",
     selection: Selection = { arms: [JEV_ARM_ID] },
+    importedLabels: readonly ImportedLabel[] = [],
   ) {
     if (!/^[A-Za-z0-9_.-]{1,64}$/.test(revision))
       throw new Error("Invalid run revision.");
@@ -606,6 +828,20 @@ export class BackstageRun {
       createdAt: new Date().toISOString(),
       scene: frozen,
     });
+    const choiceNames = frozen.choices.map((c) => c.name);
+    for (const imported of importedLabels) {
+      if (!frozen.cases.some((c) => c.id === imported.caseId))
+        throw new Error(`Imported label for unknown case ${JSON.stringify(imported.caseId)}.`);
+      if (this.#imported.has(imported.caseId))
+        throw new Error(`Case ${imported.caseId} has two imported labels.`);
+      if (!choiceNames.includes(imported.choice))
+        throw new Error(
+          `Case ${imported.caseId}: imported label ${JSON.stringify(imported.choice)} is not one of the scene's choices (${choiceNames.join(", ")}). Name the choices exactly as the file's labels (case matters), or fix the labels and import the file again.`,
+        );
+      if (!LABELLER_HANDLE.test(imported.by) || !LABELLED_AT.test(imported.at) || !isImportedSource(imported.source))
+        throw new Error(`Case ${imported.caseId}: imported label has an invalid source, labeller or time.`);
+      this.#imported.set(imported.caseId, Object.freeze({ ...imported }));
+    }
     const slots = frozen.cases.flatMap((c) =>
       arms.map((id) => c.id + ":" + id),
     );
@@ -684,23 +920,29 @@ export class BackstageRun {
         input:
           this.manifest.scene.cases.find((c) => c.id === a.caseId)?.input ?? "",
         output: a.output,
-        label: this.#labels.get(this.#labelKey(a)) ?? null,
+        label: this.#labels.get(this.#labelKey(a))?.label ?? null,
       }));
   }
+  /**
+   * Answers the page may show. Compare mode: none until reveal. Jev-only: before reveal, only the cases whose blind
+   * pick (or unsure) is committed, so no answer for a case is on the page before its pick (labelling loop M2).
+   */
   results(): readonly Pick<
     RowAnswer,
     "caseId" | "armId" | "output" | "confidence"
   >[] {
     if (this.#unsafe || (this.manifest.mode === "compare" && !this.#revealed))
       return [];
-    return this.#answers.map(({ caseId, armId, output, confidence }) => ({
-      caseId,
-      armId,
-      output,
-      confidence,
-    }));
+    return this.#answers
+      .filter((a) => this.#revealed || this.#picks.has(a.caseId))
+      .map(({ caseId, armId, output, confidence }) => ({
+        caseId,
+        armId,
+        output,
+        confidence,
+      }));
   }
-  label(id: string, label: Label) {
+  #assertLabelling() {
     if (!this.#labeling)
       throw new Error(
         "Open blind judging before labeling. This locks retries.",
@@ -709,9 +951,181 @@ export class BackstageRun {
       throw new Error("Labels are locked after revealing results.");
     if (this.running)
       throw new Error("Stop or finish the run before labeling.");
+  }
+  #assertProvenance(provenance: LabelProvenance) {
+    if (!LABELLER_HANDLE.test(provenance.by))
+      throw new Error(
+        "Invalid labeller handle: letters, digits and _ . : + - only, never an email.",
+      );
+    if (provenance.source === "human_reviewed" && provenance.blind)
+      throw new Error("A human_reviewed label is not blind: approving a draft means seeing it.");
+  }
+  /** Record (or clear, with null) a label call; `provenance` says who made it and how, and is exported with it. */
+  label(id: string, label: Label, provenance: LabelProvenance, at: Date = new Date()) {
+    this.#assertLabelling();
     const answer = this.#answers.find((a) => a.id === id);
     if (!answer) throw new Error("Unknown answer card.");
-    this.#labels.set(this.#labelKey(answer), label);
+    this.#assertProvenance(provenance);
+    if (this.#picks.has(answer.caseId))
+      throw new Error("This case was picked blind; its labels come from the picks.");
+    const key = this.#labelKey(answer);
+    if (label === null) this.#labels.delete(key);
+    else
+      this.#labels.set(key, {
+        label,
+        source: provenance.source,
+        by: provenance.by,
+        blind: provenance.blind,
+        at: at.toISOString(),
+        final: null,
+        suggestionShown: null,
+      });
+  }
+  /** Cases to pick, in scene order: each case with at least one answer. Never carries an answer. */
+  pickCards(): readonly PickCard[] {
+    const answered = new Set(this.#answers.map((a) => a.caseId));
+    return this.manifest.scene.cases
+      .filter((c) => answered.has(c.id))
+      .map((c) => {
+        const pick = this.#picks.get(c.id);
+        return {
+          caseId: c.id,
+          input: c.input,
+          choices: this.manifest.scene.choices.map((choice) => choice.name),
+          picked: pick !== undefined,
+          blind: pick?.blindPick ?? null,
+          final: pick?.finalPick ?? null,
+          suggestionShown: pick?.suggestionShown ?? null,
+        };
+      });
+  }
+  #writePickLabels(caseId: string, pick: CasePickState) {
+    for (const answer of this.#answers.filter((a) => a.caseId === caseId)) {
+      const calls = callsForPick(answer.output, {
+        blind: pick.blindPick,
+        final: pick.finalPick,
+        suggestionShown: pick.suggestionShown,
+      });
+      const key = this.#labelKey(answer);
+      if (calls.label === null) this.#labels.delete(key);
+      else
+        this.#labels.set(key, {
+          label: calls.label,
+          source: pick.source,
+          by: pick.by,
+          blind: pick.blind,
+          at: pick.at,
+          final: calls.labelFinal,
+          suggestionShown: calls.suggestionShown,
+        });
+    }
+  }
+  #choice(choice: string): string {
+    if (!this.manifest.scene.choices.some((c) => c.name === choice))
+      throw new Error(`${JSON.stringify(choice)} is not one of the scene's choices.`);
+    return choice;
+  }
+  /**
+   * Commit the blind pick for a case (null = unsure). Made once: once committed the suggestion can be seen, so a
+   * second blind pick could not be blind. Every answer of the case gets the pick's call as its label.
+   */
+  pickBlind(caseId: string, choice: string | null, provenance: LabelProvenance, at: Date = new Date()) {
+    this.#assertLabelling();
+    if (!this.pickCards().some((c) => c.caseId === caseId)) throw new Error("Unknown case to pick.");
+    if (this.#picks.has(caseId)) throw new Error("This case is already picked; a blind pick is made once.");
+    if (this.#answers.some((a) => a.caseId === caseId && this.#labels.has(this.#labelKey(a))))
+      throw new Error("This case already has a label made on its answer; a blind pick cannot follow it.");
+    if (!provenance.blind || provenance.source !== "human")
+      throw new Error("A blind pick is a person's blind call: source human, blind true.");
+    this.#assertProvenance(provenance);
+    const pick: CasePickState = {
+      ...provenance,
+      blindPick: choice === null ? null : this.#choice(choice),
+      finalPick: null,
+      suggestionShown: null,
+      at: at.toISOString(),
+    };
+    this.#picks.set(caseId, pick);
+    this.#writePickLabels(caseId, pick);
+  }
+  /**
+   * Record (or change) the final pick after the suggestion step. Needs a blind pick; label keeps the blind call.
+   * suggestion_shown comes from the run itself: true when it holds a suggestion for the case (recorded or called).
+   * With none, only keeping the blind pick is a final pick.
+   */
+  pickFinal(caseId: string, choice: string) {
+    this.#assertLabelling();
+    const pick = this.#picks.get(caseId);
+    if (pick === undefined || pick.blindPick === null)
+      throw new Error("A final pick needs a blind pick for the case first.");
+    const suggestionShown = this.knownSuggestion(caseId).kind !== "none";
+    if (!suggestionShown && choice !== pick.blindPick)
+      throw new Error("With no suggestion shown, the final pick keeps the blind pick.");
+    const next: CasePickState = { ...pick, finalPick: this.#choice(choice), suggestionShown };
+    this.#picks.set(caseId, next);
+    this.#writePickLabels(caseId, next);
+  }
+  #assertPicked(caseId: string) {
+    if (!this.#picks.has(caseId))
+      throw new Error("Make the blind pick for this case before seeing any suggestion.");
+  }
+  /** The run's own Jev answer for a picked case, for ranking (0 calls); null when Jev gave none. */
+  recordedSuggestion(caseId: string): JevSuggestion | null {
+    this.#assertPicked(caseId);
+    const jev = this.#answers.find((a) => a.caseId === caseId && a.armId === JEV_ARM_ID);
+    return jev === undefined
+      ? null
+      : { choice: jev.output, confidence: jev.confidence, probabilities: jev.probabilities };
+  }
+  /** The suggestion the run holds for a picked case, without calling: recorded, called earlier, or none. */
+  knownSuggestion(caseId: string): Suggestion {
+    const recorded = this.recordedSuggestion(caseId);
+    if (recorded !== null) return { kind: "recorded", answer: recorded };
+    return this.#called.get(caseId) ?? { kind: "none", reason: "no-key" };
+  }
+  /**
+   * Jev's suggestion for a picked case (labelling loop M2, metric m4): the run's own Jev answer when there is one
+   * (0 calls); otherwise one call per case on the labeller's own key, never a funded or shared key; otherwise none.
+   * A suggestion is never an answer, a row or a label; a call's attempt goes to evidence().suggestionAttempts.
+   */
+  async suggestion(caseId: string, labellerKey: string | null, transport: Transport = answerTransport): Promise<Suggestion> {
+    this.#assertPicked(caseId);
+    this.#suggestionTransport = transport;
+    const key = labellerKey !== null && validKey(labellerKey) ? labellerKey : null;
+    const suggestion = await this.#suggestions.get(caseId, this.recordedSuggestion(caseId), key);
+    if (suggestion.kind !== "none" || key !== null) this.#called.set(caseId, suggestion);
+    return suggestion;
+  }
+  async #askJev(caseId: string, key: string, transport: Transport): Promise<JevSuggestion | null> {
+    const scene = this.manifest.scene;
+    const c = scene.cases.find((x) => x.id === caseId);
+    const entry = this.manifest.models.find((m) => m.id === JEV_ARM_ID);
+    if (c === undefined || entry === undefined) return null;
+    const request: AnswerRequest = {
+      version: PROTOCOL_VERSION,
+      runId: this.manifest.runId,
+      revision: this.manifest.revision,
+      caseId: c.id,
+      question: scene.question,
+      choices: scene.choices,
+      input: c.input,
+      provider: entry.provider,
+      key,
+      armId: entry.id,
+      modelId: entry.modelId,
+      catalogVersion: this.manifest.catalogVersion,
+      promptVersion: this.manifest.promptVersion,
+    };
+    const controller = new AbortController();
+    let result: AnswerResult;
+    try {
+      result = await parseAnswerResult(await transport(request, controller.signal), request);
+      if (containsKey(result, [key])) throw new Error("Unsafe response evidence.");
+    } catch {
+      result = await failure(request, "transport_failure", "unknown", Date.now());
+    }
+    this.#suggestionAttempts.push(result);
+    return result.ok ? { choice: result.output, confidence: result.confidence, probabilities: result.probabilities ?? null } : null;
   }
   stop() {
     this.#controller?.abort();
@@ -777,6 +1191,7 @@ export class BackstageRun {
       return (
         containsKey(scene, values) ||
         containsKey(this.#attempts, values) ||
+        containsKey(this.#suggestionAttempts, values) ||
         containsKey(this.#answers, values)
       );
     };
@@ -809,6 +1224,7 @@ export class BackstageRun {
             : scene.otherwiseChoice,
           model: "keywords-v1",
           confidence: null,
+          probabilities: null,
           tokensIn: 0,
           tokensOut: 0,
           costUsd: 0,
@@ -901,6 +1317,7 @@ export class BackstageRun {
               output: result.output,
               model: result.model,
               confidence: result.confidence,
+              probabilities: result.probabilities ?? null,
               tokensIn: result.tokensIn,
               tokensOut: result.tokensOut,
               costUsd: result.costUsd,
@@ -913,16 +1330,40 @@ export class BackstageRun {
       onChange?.();
     }
   }
+  /**
+   * The imported label's call on an answer, for a case nobody has picked in the UI: accept when the answer is the
+   * imported choice. Not blind: the file does not say when the call was made or what its labeller had seen.
+   * Any call a person made on the case in the UI (a pick, unsure included, or a label on one of its answers) replaces
+   * the imported label for the whole case, so one case never mixes a person's call with an imported one.
+   */
+  #importedCall(a: RowAnswer): StoredLabel | undefined {
+    const imported = this.#imported.get(a.caseId);
+    if (imported === undefined || this.#picks.has(a.caseId)) return undefined;
+    if (this.#answers.some((other) => other.caseId === a.caseId && this.#labels.has(this.#labelKey(other)))) return undefined;
+    return {
+      label: a.output === imported.choice ? "accept" : "reject",
+      source: imported.source,
+      by: imported.by,
+      blind: false,
+      at: imported.at,
+      final: null,
+      suggestionShown: null,
+    };
+  }
+  /** The label an export writes for an answer: a person's call in the UI, else the case's imported label. */
+  #labelFor(a: RowAnswer): StoredLabel | undefined {
+    return this.#labels.get(this.#labelKey(a)) ?? this.#importedCall(a);
+  }
   #csv(answers: readonly RowAnswer[], runId: string): string {
     if (this.#unsafe)
       throw new Error("Export blocked: this run contains a provider key.");
     const s = this.manifest.scene;
     return formatRows([
-      COLUMNS,
+      EXPORT_COLUMNS,
       ...answers.map((a) => {
-        const label = this.#labels.get(this.#labelKey(a)) ?? null;
+        const stored = this.#labelFor(a);
         const data: Record<string, string | number | null> = {
-          format_version: "jnj-record/1",
+          format_version: "jnj-record/1.1",
           run_id: runId,
           prompt_version: this.manifest.promptVersion,
           case_id: a.caseId,
@@ -939,14 +1380,22 @@ export class BackstageRun {
           answerer_model: a.model,
           output: a.output,
           confidence: a.confidence,
-          label,
-          label_source: label === null ? null : "human",
+          label: stored?.label ?? null,
+          label_source: stored?.source ?? null,
           tokens_in: a.tokensIn,
           tokens_out: a.tokensOut,
           cost_usd: a.costUsd,
           latency_ms: a.latencyMs,
+          labelled_by: stored?.by ?? null,
+          labelled_at: stored?.at ?? null,
+          label_blind: stored === undefined ? null : String(stored.blind),
+          label_final: stored?.final ?? null,
+          suggestion_shown:
+            stored?.suggestionShown === undefined || stored.suggestionShown === null
+              ? null
+              : String(stored.suggestionShown),
         };
-        return COLUMNS.map((k) =>
+        return EXPORT_COLUMNS.map((k) =>
           data[k] === null || data[k] === undefined ? "" : String(data[k]),
         );
       }),
@@ -980,9 +1429,9 @@ export class BackstageRun {
   csv(): string {
     const outputs = this.exports();
     return outputs.length === 1
-      ? (outputs[0]?.csv ?? formatRows([COLUMNS]))
+      ? (outputs[0]?.csv ?? formatRows([EXPORT_COLUMNS]))
       : formatRows([
-          COLUMNS,
+          EXPORT_COLUMNS,
           ...outputs.flatMap((output) =>
             readDictRows(output.csv).rows.map((row) => row.fields),
           ),
@@ -1060,20 +1509,22 @@ export class BackstageRun {
     }
     return [...advice].sort();
   }
+  /** Failed attempts, including failed suggestion calls on the labeller's key. */
   extraSpend() {
     let knownUsd = 0,
       unknown = 0;
-    for (const a of this.#attempts)
+    for (const a of [...this.#attempts, ...this.#suggestionAttempts])
       if (!a.ok) {
         if (a.costUsd !== null) knownUsd += a.costUsd;
         else if (a.charge !== "none") unknown++;
       }
     return { knownUsd, unknown };
   }
+  /** Every attempt once, including suggestion calls on the labeller's key (labelling loop M2). */
   totalSpend() {
     let knownUsd = 0,
       unknown = 0;
-    for (const a of this.#attempts) {
+    for (const a of [...this.#attempts, ...this.#suggestionAttempts]) {
       if (a.costUsd !== null) knownUsd += a.costUsd;
       else if (a.ok || a.charge !== "none") unknown++;
     }
@@ -1087,7 +1538,7 @@ export class BackstageRun {
         if (
           parsed.errors.length &&
           !(
-            output.csv === formatRows([COLUMNS]) &&
+            output.csv === formatRows([EXPORT_COLUMNS]) &&
             !this.#answers.some(
               (a) =>
                 a.armId === JEV_ARM_ID ||
@@ -1139,12 +1590,9 @@ export class BackstageRun {
     };
   }
   evidence() {
-    if (
-      this.manifest.mode === "compare" &&
-      !this.#revealed &&
-      this.#answers.length > 0
-    )
-      throw new Error("Reveal results before downloading comparison evidence.");
+    // Jev-only too: evidence holds every answer, so before reveal it would show answers for cases not yet picked blind.
+    if (!this.#revealed && this.#answers.length > 0)
+      throw new Error("Reveal results (finish judging) before downloading evidence.");
     if (this.#unsafe)
       throw new Error("Export blocked: this run contains a provider key.");
     return {
@@ -1152,13 +1600,23 @@ export class BackstageRun {
       manifest: this.manifest,
       funding: this.#funded ? "trial" : "byok",
       attempts: this.attempts,
-      labels: this.#answers.map((a) => ({
-        caseId: a.caseId,
-        armId: a.armId,
-        provider: a.provider,
-        output: a.output,
-        label: this.#labels.get(this.#labelKey(a)) ?? null,
-      })),
+      labels: this.#answers.map((a) => {
+        const stored = this.#labelFor(a);
+        return {
+          caseId: a.caseId,
+          armId: a.armId,
+          provider: a.provider,
+          output: a.output,
+          label: stored?.label ?? null,
+          labelSource: stored?.source ?? null,
+          labelledBy: stored?.by ?? null,
+          labelledAt: stored?.at ?? null,
+          labelBlind: stored?.blind ?? null,
+          labelFinal: stored?.final ?? null,
+          suggestionShown: stored?.suggestionShown ?? null,
+        };
+      }),
+      suggestionAttempts: structuredClone(this.#suggestionAttempts),
       extraSpend: this.extraSpend(),
       totalSpend: this.totalSpend(),
       comparisons: this.exports(),
@@ -1244,12 +1702,16 @@ export class CaseImportState {
     this.#pending = false;
   }
   async read(text: Promise<string>): Promise<Scene["cases"] | undefined> {
+    return (await this.readImport(text))?.cases;
+  }
+  /** As read, with the optional label column's labels (labelling loop M3). */
+  async readImport(text: Promise<string>): Promise<CaseImport | undefined> {
     const generation = ++this.#generation;
     this.#pending = true;
     try {
       const csv = await text;
       if (generation !== this.#generation) return undefined;
-      return parseCases(csv);
+      return parseCaseImport(csv);
     } catch (error) {
       if (generation !== this.#generation) return undefined;
       throw error;

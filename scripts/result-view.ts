@@ -4,7 +4,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { decodeUtf8, validate, type ParsedRow } from "../src/format/validate.ts";
+import { decodeUtf8, truthLabel, validate, type ParsedRow } from "../src/format/validate.ts";
 import { fileSeed } from "../src/core/calc.ts";
 import {
   ARMS,
@@ -78,7 +78,7 @@ function lineList(lines: readonly number[]): string {
 
 /** Gap counts (from src/core for the arms), with the CSV lines behind them (R8.a, R8.b). `mine` is one answerer's rows. */
 function gapText(mine: readonly ParsedRow[], unlabelledCount: number, spend: Spend): string {
-  const unlabelled = mine.filter((row) => row.values.get("label") === null).map((row) => row.line);
+  const unlabelled = mine.filter((row) => truthLabel(row.values) === null).map((row) => row.line);
   const noCost = mine.filter((row) => row.values.get("cost_usd") === null).map((row) => row.line);
   const parts: string[] = [];
   if (unlabelledCount > 0) parts.push(`${unlabelledCount} unlabelled (${lineList(unlabelled)})`);
@@ -97,7 +97,7 @@ function gaps(totals: ArmTotals, rows: readonly ParsedRow[]): string {
 function humanTable(scope: string, rows: readonly ParsedRow[]): string | null {
   const mine = rows.filter((row) => field(row, "answerer") === "human");
   if (mine.length === 0) return null;
-  const labels = mine.map((row) => row.values.get("label"));
+  const labels = mine.map((row) => truthLabel(row.values));
   const accepted = labels.filter((value) => value === "accept").length;
   const labelled = labels.filter((value) => value === "accept" || value === "reject").length;
   const spend = spendOf(mine.map((row) => row.values));

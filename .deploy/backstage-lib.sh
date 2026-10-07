@@ -172,6 +172,15 @@ backstage_snippet_auth() {
             allow(loc, "client_max_body_size 16k")
         }
         allow("callback", "access_log off")
+        # Ticket office (docs/design/ticket-office.md): public, optional; when present exactly these statements.
+        allow("tickets", "proxy_pass http://127.0.0.1:3456/api/tickets")
+        allow("tickets", "proxy_set_header Host $host")
+        allow("tickets", "proxy_set_header X-Backstage-Client-IP $remote_addr")
+        allow("tickets", "client_max_body_size 4k")
+        allow("tickets_ranking", "proxy_pass http://127.0.0.1:3456/api/tickets/ranking")
+        allow("tickets_ranking", "proxy_set_header Host $host")
+        allow("tickets_ranking", "proxy_set_header X-Backstage-Client-IP $remote_addr")
+        allow("tickets_ranking", "client_max_body_size 1k")
         allow("session_check", "internal")
         allow("session_check", "proxy_pass http://127.0.0.1:3456/api/auth/session")
         allow("session_check", "proxy_set_header Host $host")
@@ -243,6 +252,8 @@ backstage_snippet_auth() {
                     else if (h == "location = /api/auth/sign-out") { cur = "sign_out"; seen[cur]++ }
                     else if (h == "location = /api/auth/google") { cur = "google"; seen[cur]++ }
                     else if (h == "location = /api/auth/google/callback") { cur = "callback"; seen[cur]++ }
+                    else if (h == "location = /api/tickets") { cur = "tickets"; seen[cur]++ }
+                    else if (h == "location = /api/tickets/ranking") { cur = "tickets_ranking"; seen[cur]++ }
                     else if (h == "location @backstage_deny") { cur = "deny"; seen[cur]++ }
                     else if (h == "location @backstage_sign_in") { cur = "sign_in_redirect"; seen[cur]++ }
                     else if (h == "location @backstage_api_401") { cur = "api_401"; seen[cur]++ }
@@ -298,6 +309,10 @@ backstage_snippet_auth() {
             for (i = 1; i <= 12; i++) {
                 loc = locations[i]
                 if (loc != "page" && loc != "api" && loc != "session_check" && observed[loc] != required[loc]) { print "unknown"; exit }
+            }
+            for (k = 1; k <= 2; k++) {
+                loc = (k == 1 ? "tickets" : "tickets_ranking")
+                if (seen[loc] > 1 || (seen[loc] == 1 && observed[loc] != required[loc])) { print "unknown"; exit }
             }
             if (!statements["session_check", "internal"] ||
                 !statements["session_check", "proxy_pass http://127.0.0.1:3456/api/auth/session"] ||

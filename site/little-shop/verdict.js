@@ -163,320 +163,147 @@
     }
     return largest;
   }
-
-  // src/core/metrics.ts
-  var ARMS = ["llm", "rule", "jev"];
-  function text(row, column) {
-    const value = row.get(column);
-    if (typeof value !== "string")
-      throw new Error(`${column} is not text after validation`);
-    return value;
-  }
-  function cost(row) {
-    const value = row.get("cost_usd");
-    if (value === null || value === undefined)
-      return null;
-    if (typeof value !== "number")
-      throw new Error("cost_usd is not a number after validation");
-    return value;
-  }
-  function label(row) {
-    const value = row.get("label");
-    if (value === null || value === undefined)
-      return null;
-    if (value !== "accept" && value !== "reject")
-      throw new Error(`label ${String(value)} after validation`);
-    return value;
-  }
-  function spendOf(rows) {
-    let known = 0;
-    let missing = 0;
-    for (const row of rows) {
-      const value = cost(row);
-      if (value === null)
-        missing += 1;
-      else
-        known += value;
-    }
-    return missing === 0 ? { kind: "complete", usd: known } : { kind: "incomplete", knownUsd: known, missing };
-  }
-  function costPerAccepted(spend, accepted) {
-    if (spend.kind === "incomplete")
-      return { kind: "incomplete", reason: "cost missing" };
-    if (accepted === 0)
-      return { kind: "undefined", reason: "zero accepted" };
-    return { kind: "value", usd: spend.usd / accepted };
-  }
-  function totals(arm, rows) {
-    const labels = rows.map(label);
-    const accepted = labels.filter((value) => value === "accept").length;
-    const rejected = labels.filter((value) => value === "reject").length;
-    const labelled = accepted + rejected;
-    const spend = spendOf(rows);
-    return {
-      arm,
-      rows: rows.length,
-      labelled,
-      accepted,
-      rejected,
-      unlabelled: rows.length - labelled,
-      acceptRate: labelled === 0 ? null : accepted / labelled,
-      spend,
-      costPerAccepted: costPerAccepted(spend, accepted)
-    };
-  }
-  function pairArm(arm, rows) {
-    const accepted = rows.filter((row) => label(row) === "accept").length;
-    const spend = spendOf(rows);
-    return {
-      arm,
-      accepted,
-      acceptRate: rows.length === 0 ? null : accepted / rows.length,
-      spend,
-      costPerAccepted: costPerAccepted(spend, accepted)
-    };
-  }
-  function paired(other, jevByCase, otherByCase) {
-    if (jevByCase.size === 0 || otherByCase.size === 0)
-      return null;
-    const caseIds = [...new Set([...jevByCase.keys(), ...otherByCase.keys()])].sort();
-    const jevRows = [];
-    const otherRows = [];
-    const cases = [];
-    let excluded = 0;
-    let a = 0;
-    let b = 0;
-    let c = 0;
-    let d = 0;
-    for (const caseId of caseIds) {
-      const jevRow = jevByCase.get(caseId);
-      const otherRow = otherByCase.get(caseId);
-      const jevLabel = jevRow === undefined ? null : label(jevRow);
-      const otherLabel = otherRow === undefined ? null : label(otherRow);
-      if (jevRow === undefined || otherRow === undefined || jevLabel === null || otherLabel === null) {
-        excluded += 1;
-        continue;
+  // format/record-v1.schema.json
+  var record_v1_schema_default = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "https://github.com/breakoutwithai/jevnotjev/format/record-v1.schema.json",
+    title: "Jev!Jev eval record, format jnj-record/1 and jnj-record/1.1",
+    description: "One CSV row = one answerer's answer to one question about one test case. An empty CSV cell is read as null. See format/README.md.",
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "format_version",
+      "run_id",
+      "prompt_version",
+      "case_id",
+      "case_input",
+      "question_id",
+      "question",
+      "answer_set",
+      "answerer",
+      "answerer_model",
+      "output",
+      "confidence",
+      "label",
+      "label_source",
+      "tokens_in",
+      "tokens_out",
+      "cost_usd",
+      "latency_ms"
+    ],
+    properties: {
+      format_version: { enum: ["jnj-record/1", "jnj-record/1.1"], description: "1.1 adds label provenance; a /1 file validates unchanged" },
+      run_id: { type: "string", pattern: "^[A-Za-z0-9_.-]{1,64}$" },
+      prompt_version: { type: "string", pattern: "^[A-Za-z0-9_.-]{1,64}$" },
+      case_id: { type: "string", pattern: "^[A-Za-z0-9_-]{1,64}$" },
+      case_input: { type: "string", minLength: 1, maxLength: 8000 },
+      question_id: { type: "string", pattern: "^[A-Za-z0-9_-]{1,64}$" },
+      question: { type: "string", minLength: 1 },
+      answer_set: { type: "string", pattern: "^[^|]+(\\|[^|]+)+$", description: "Allowed answers separated by |, at least two" },
+      answerer: { enum: ["jev", "rule", "llm", "human"] },
+      answerer_model: { type: "string", minLength: 1, description: "e.g. jev-1.13.0, a rule name, an LLM model id, a person's initials" },
+      output: { type: "string", minLength: 1 },
+      confidence: { type: ["number", "null"], minimum: 0, maximum: 1 },
+      label: { enum: ["accept", "reject", null] },
+      label_source: {
+        enum: ["human", "human_reviewed", "agent", null],
+        description: "human: a person picked it. human_reviewed: an AI drafted it, a person approved it. agent: not reviewed, never counted as truth. A jnj-record/1 row allows human or empty only."
+      },
+      tokens_in: { type: ["integer", "null"], minimum: 0 },
+      tokens_out: { type: ["integer", "null"], minimum: 0 },
+      cost_usd: { type: ["number", "null"], minimum: 0 },
+      latency_ms: { type: ["integer", "null"], minimum: 0 },
+      price_table_date: {
+        type: ["string", "null"],
+        pattern: "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$",
+        description: "Optional column. Date (YYYY-MM-DD) of the list-price table that produced cost_usd. A file without the column stays valid."
+      },
+      labelled_by: {
+        type: ["string", "null"],
+        pattern: "^[A-Za-z0-9_.:+-]{1,64}$",
+        description: "jnj-record/1.1. A handle for who made the call: a person's handle, or an agent's model id. Never an email address."
+      },
+      labelled_at: {
+        type: ["string", "null"],
+        pattern: "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9](\\.[0-9]{1,3})?)?Z)?$",
+        description: "jnj-record/1.1. When the call was made: a UTC time (2026-10-07T09:30:00Z), or a date when only the day is known."
+      },
+      label_blind: {
+        enum: ["true", "false", null],
+        description: "jnj-record/1.1. true when the call was made before seeing any answerer's output or any suggestion for that case."
+      },
+      label_final: {
+        enum: ["accept", "reject", null],
+        description: "jnj-record/1.1, optional column. The call on this answer from the labeller's final pick, made after the blind pick and the suggestion step. Reported beside label, never instead of it: label stays the scoring truth."
+      },
+      suggestion_shown: {
+        enum: ["true", "false", null],
+        description: "jnj-record/1.1, optional column. true when Jev's ranked suggestion for the case was shown before the final pick; false when none was available. Present exactly when label_final is."
       }
-      jevRows.push(jevRow);
-      otherRows.push(otherRow);
-      const jevOk = jevLabel === "accept";
-      const otherOk = otherLabel === "accept";
-      cases.push({ caseId, jevAccepted: jevOk, otherAccepted: otherOk, jevCostUsd: cost(jevRow), otherCostUsd: cost(otherRow) });
-      if (jevOk && otherOk)
-        a += 1;
-      else if (jevOk)
-        b += 1;
-      else if (otherOk)
-        c += 1;
-      else
-        d += 1;
-    }
-    return {
-      other,
-      n: jevRows.length,
-      excluded,
-      jev: pairArm("jev", jevRows),
-      otherArm: pairArm(other, otherRows),
-      a,
-      b,
-      c,
-      d,
-      wins: b,
-      losses: c,
-      ties: a + d,
-      cases
-    };
-  }
-  function cohortId(key) {
-    return JSON.stringify([key.runId, key.promptVersion, key.questionId]);
-  }
-  function cohorts(rows) {
-    const seen = new Map;
-    for (const { values } of rows) {
-      const key = {
-        runId: text(values, "run_id"),
-        promptVersion: text(values, "prompt_version"),
-        questionId: text(values, "question_id")
-      };
-      const id = cohortId(key);
-      if (!seen.has(id))
-        seen.set(id, key);
-    }
-    return [...seen.values()];
-  }
-  function cohortMetrics(rows, key) {
-    const id = cohortId(key);
-    const mine = rows.map(({ values }) => values).filter((row) => cohortId({
-      runId: text(row, "run_id"),
-      promptVersion: text(row, "prompt_version"),
-      questionId: text(row, "question_id")
-    }) === id);
-    return metricsOfCohortRows(mine, key);
-  }
-  function metricsOfCohortRows(mine, key) {
-    const id = cohortId(key);
-    const first = mine[0];
-    if (first === undefined)
-      throw new Error(`no rows for cohort ${id}`);
-    const byArm = new Map(ARMS.map((arm) => [arm, new Map]));
-    for (const row of mine) {
-      const answerer = text(row, "answerer");
-      const known = ARMS.find((a) => a === answerer);
-      const arm = known === undefined ? undefined : byArm.get(known);
-      if (arm === undefined)
-        continue;
-      const caseId = text(row, "case_id");
-      if (arm.has(caseId))
-        throw new Error(`cohort ${id}: more than one ${answerer} row for case ${caseId}`);
-      arm.set(caseId, row);
-    }
-    const armMap = (arm) => byArm.get(arm) ?? new Map;
-    return {
-      key,
-      question: text(first, "question"),
-      answerSet: text(first, "answer_set"),
-      cases: new Set(mine.map((row) => text(row, "case_id"))).size,
-      arms: ARMS.filter((arm) => armMap(arm).size > 0).map((arm) => totals(arm, [...armMap(arm).values()])),
-      jevVsLlm: paired("llm", armMap("jev"), armMap("llm")),
-      jevVsRule: paired("rule", armMap("jev"), armMap("rule"))
-    };
-  }
-  function pairedCostCases(pair) {
-    const out = [];
-    for (const one of pair.cases) {
-      if (one.jevCostUsd === null || one.otherCostUsd === null)
-        return null;
-      out.push({ jevAccepted: one.jevAccepted, jevCostUsd: one.jevCostUsd, llmAccepted: one.otherAccepted, llmCostUsd: one.otherCostUsd });
-    }
-    return out;
-  }
-
-  // src/core/verdict.ts
-  var MIN_PAIRED = 30;
-  var MARGIN = 0.1;
-  var CHEAPER = 0.8;
-  var COST_TOLERANCE = 0.000000001;
-  var TEST_SET_ONLY = "These results are for this test set only, not production.";
-  function rows(n) {
-    return n === 1 ? "1 row" : `${n} rows`;
-  }
-  function limitationsOf(metrics, rule) {
-    const out = [TEST_SET_ONLY];
-    const paired = metrics.jevVsLlm?.n ?? 0;
-    if (paired < MIN_PAIRED)
-      out.push(`Below the minimum: ${paired} paired labelled Jev and LLM cases, fewer than ${MIN_PAIRED}.`);
-    if (rule.kind === "skipped")
-      out.push(`Rule comparison skipped: ${rule.reason}.`);
-    const unlabelled = metrics.arms.reduce((sum, totals) => sum + totals.unlabelled, 0);
-    if (unlabelled > 0)
-      out.push(`Missing labels: ${rows(unlabelled)} with no label, left out of every pairing.`);
-    const noCost = metrics.arms.reduce((sum, totals) => sum + (totals.spend.kind === "incomplete" ? totals.spend.missing : 0), 0);
-    if (noCost > 0)
-      out.push(`Missing costs: ${rows(noCost)} with no cost, so spend is incomplete.`);
-    return out;
-  }
-  function compare(counts) {
-    const interval = newcombePaired(counts);
-    return { ...counts, n: interval.n, p1: interval.p1, p2: interval.p2, diff: interval.diff, lower: interval.lower, upper: interval.upper };
-  }
-  function ruleComparison(pair, hasRuleRows, hasJevRows) {
-    if (!hasRuleRows)
-      return { kind: "skipped", reason: "no rule rows", paired: 0 };
-    if (!hasJevRows)
-      return { kind: "skipped", reason: "no Jev rows", paired: 0 };
-    const paired = pair?.n ?? 0;
-    if (pair === null || paired < MIN_PAIRED)
-      return { kind: "skipped", reason: `fewer than ${MIN_PAIRED} paired rule cases`, paired };
-    return { kind: "compared", ...compare({ a: pair.a, b: pair.c, c: pair.b, d: pair.d }) };
-  }
-  function plural(n) {
-    return n === 1 ? "1 more labelled case" : `${n} more labelled cases`;
-  }
-  function fixed(x) {
-    return x.toFixed(2);
-  }
-  function verdict(metrics, seed) {
-    const hasArm = (arm) => metrics.arms.some((totals) => totals.arm === arm);
-    const rule = ruleComparison(metrics.jevVsRule, hasArm("rule"), hasArm("jev"));
-    const pair = metrics.jevVsLlm;
-    const jevVsLlm = pair === null || pair.n === 0 ? null : compare(pair);
-    const limitations = limitationsOf(metrics, rule);
-    const base = {
-      jevVsLlm,
-      jevAccepted: pair?.jev.accepted ?? null,
-      llmAccepted: pair?.otherArm.accepted ?? null,
-      costRatio: null
-    };
-    const result = (verdictName, ruleNumber, condition, reason, extra = {}) => ({
-      verdict: verdictName,
-      rule: ruleNumber,
-      condition,
-      unmet: extra.unmet ?? [],
-      reason: `${verdictName}: ${reason}`,
-      addN: extra.addN ?? null,
-      numbers: extra.numbers ?? base,
-      ruleComparison: rule,
-      limitations
-    });
-    const notEnough = (condition, reason, addN) => result("not enough evidence", 1, condition, reason, addN === undefined ? {} : { addN });
-    if (!hasArm("jev"))
-      return notEnough("no-jev-rows", "no Jev results");
-    if (!hasArm("llm"))
-      return notEnough("no-llm-rows", "no LLM results");
-    if (pair === null || jevVsLlm === null || pair.n < MIN_PAIRED) {
-      const n = pair?.n ?? 0;
-      const add = MIN_PAIRED - n;
-      return notEnough("too-few-paired", `${n} paired Jev and LLM cases, fewer than ${MIN_PAIRED}; add ${plural(add)}`, add);
-    }
-    if (pair.jev.accepted === 0 && pair.otherArm.accepted === 0) {
-      return notEnough("both-zero-accepted", "Jev and the LLM both have 0 accepted; neither answer is being accepted");
-    }
-    const cases = pairedCostCases(pair);
-    if (cases === null || pair.jev.spend.kind !== "complete" || pair.otherArm.spend.kind !== "complete") {
-      return notEnough("cost-missing", "cost missing on a paired Jev or LLM row, so the cost ratio would look complete on partial spend");
-    }
-    const dont = (condition, reason, numbers) => result("don't use Jev", 2, condition, reason, numbers === undefined ? {} : { numbers });
-    if (rule.kind === "compared" && rule.lower > -MARGIN) {
-      return dont("rule-within-margin", `the rule is within 10 points of Jev (lower bound of rule minus Jev ${fixed(rule.lower)}, above -0.10, on ${rule.n} paired cases); a free rule does the job`);
-    }
-    if (jevVsLlm.upper < -MARGIN) {
-      return dont("jev-clearly-worse", `Jev is clearly worse than the LLM (upper bound of Jev minus LLM ${fixed(jevVsLlm.upper)}, below -0.10)`);
-    }
-    if (pair.jev.accepted === 0) {
-      return dont("jev-zero-accepted", `Jev has 0 accepted and the LLM has ${pair.otherArm.accepted}`);
-    }
-    const finiteSpend = Number.isFinite(pair.jev.spend.usd) && Number.isFinite(pair.otherArm.spend.usd);
-    if (!finiteSpend || !Number.isFinite(largestCaseCost(cases) * cases.length)) {
-      return notEnough("cost-not-finite", "costs too large to add up, so there is no cost ratio");
-    }
-    const ratio = costRatio({ spendUsd: pair.jev.spend.usd, accepted: pair.jev.accepted }, { spendUsd: pair.otherArm.spend.usd, accepted: pair.otherArm.accepted });
-    if (ratio === null) {
-      return pair.jev.spend.usd === 0 && pair.otherArm.spend.usd === 0 ? notEnough("no-cost-ratio", "Jev and the LLM both cost $0 per accepted answer, so there is no cost ratio") : notEnough("cost-not-finite", "the cost ratio is too large to represent");
-    }
-    const ci = { ratio, ...costRatioInterval(cases, seed) };
-    const numbers = { ...base, costRatio: ci };
-    if (ci.lower > 1 + COST_TOLERANCE) {
-      return dont("jev-clearly-dearer", `Jev is clearly dearer (cost ratio ${ratio.toFixed(3)}, lower bound ${ci.lower.toFixed(3)}, above 1)`, numbers);
-    }
-    const unmet = [];
-    if (!(jevVsLlm.lower > -MARGIN))
-      unmet.push("accept-rate-not-shown");
-    if (ratio > CHEAPER + COST_TOLERANCE)
-      unmet.push(ratio < 1 - COST_TOLERANCE ? "cheaper-by-less-than-20" : "not-cheaper");
-    if (!(ci.upper < 1 - COST_TOLERANCE))
-      unmet.push("cost-upper-bound-not-below-1");
-    const [first] = unmet;
-    if (first === undefined) {
-      return result("use Jev", 3, "use-jev", `Jev is within 10 points of the LLM (lower bound ${fixed(jevVsLlm.lower)}) and costs ${ratio.toFixed(3)} of it per accepted answer (upper bound ${ci.upper.toFixed(3)})`, { numbers });
-    }
-    const said = {
-      "accept-rate-not-shown": `Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM ${fixed(jevVsLlm.lower)}, not above -0.10)`,
-      "cheaper-by-less-than-20": `cheaper, but by less than 20% (cost ratio ${ratio.toFixed(3)})`,
-      "not-cheaper": `Jev is not cheaper (cost ratio ${ratio.toFixed(3)})`,
-      "cost-upper-bound-not-below-1": `the cost ratio's upper bound ${ci.upper.toFixed(3)} is not below 1`
-    };
-    return result("not enough evidence", 4, first, unmet.map((condition) => said[condition] ?? condition).join("; "), { unmet, numbers });
-  }
+    },
+    allOf: [
+      {
+        if: { properties: { label: { type: "null" } } },
+        then: { properties: { label_source: { type: "null" } } },
+        else: { properties: { label_source: { type: "string" } } }
+      },
+      {
+        if: { properties: { format_version: { const: "jnj-record/1" } } },
+        then: {
+          properties: {
+            label_source: { enum: ["human", null] },
+            labelled_by: { type: "null" },
+            labelled_at: { type: "null" },
+            label_blind: { type: "null" },
+            label_final: { type: "null" },
+            suggestion_shown: { type: "null" }
+          }
+        }
+      },
+      {
+        if: { properties: { format_version: { const: "jnj-record/1.1" }, label: { type: "string" } } },
+        then: {
+          required: ["labelled_by", "labelled_at", "label_blind"],
+          properties: {
+            labelled_by: { type: "string" },
+            labelled_at: { type: "string" },
+            label_blind: { type: "string" }
+          }
+        }
+      },
+      {
+        if: { properties: { format_version: { const: "jnj-record/1.1" }, label: { type: "null" } } },
+        then: {
+          properties: {
+            labelled_by: { type: "null" },
+            labelled_at: { type: "null" },
+            label_blind: { type: "null" },
+            label_final: { type: "null" },
+            suggestion_shown: { type: "null" }
+          }
+        }
+      },
+      {
+        if: { properties: { label_source: { const: "human_reviewed" } } },
+        then: { properties: { label_blind: { const: "false" } } }
+      },
+      {
+        if: { required: ["label_final"], properties: { label_final: { type: "string" } } },
+        then: {
+          required: ["suggestion_shown"],
+          properties: {
+            suggestion_shown: { type: "string" },
+            label_blind: { const: "true" },
+            label_source: { const: "human" }
+          }
+        }
+      },
+      {
+        if: { required: ["suggestion_shown"], properties: { suggestion_shown: { type: "string" } } },
+        then: { properties: { label_final: { type: "string" } } }
+      }
+    ]
+  };
 
   // src/format/csv.ts
   function physicalLines(text) {
@@ -629,67 +456,6 @@
 `) {
     return rows.map((row) => formatRow(row, lineTerminator)).join("");
   }
-  // format/record-v1.schema.json
-  var record_v1_schema_default = {
-    $schema: "https://json-schema.org/draft/2020-12/schema",
-    $id: "https://github.com/breakoutwithai/jevnotjev/format/record-v1.schema.json",
-    title: "Jev!Jev eval record, format jnj-record/1",
-    description: "One CSV row = one answerer's answer to one question about one test case. An empty CSV cell is read as null. See format/README.md.",
-    type: "object",
-    additionalProperties: false,
-    required: [
-      "format_version",
-      "run_id",
-      "prompt_version",
-      "case_id",
-      "case_input",
-      "question_id",
-      "question",
-      "answer_set",
-      "answerer",
-      "answerer_model",
-      "output",
-      "confidence",
-      "label",
-      "label_source",
-      "tokens_in",
-      "tokens_out",
-      "cost_usd",
-      "latency_ms"
-    ],
-    properties: {
-      format_version: { const: "jnj-record/1" },
-      run_id: { type: "string", pattern: "^[A-Za-z0-9_.-]{1,64}$" },
-      prompt_version: { type: "string", pattern: "^[A-Za-z0-9_.-]{1,64}$" },
-      case_id: { type: "string", pattern: "^[A-Za-z0-9_-]{1,64}$" },
-      case_input: { type: "string", minLength: 1, maxLength: 8000 },
-      question_id: { type: "string", pattern: "^[A-Za-z0-9_-]{1,64}$" },
-      question: { type: "string", minLength: 1 },
-      answer_set: { type: "string", pattern: "^[^|]+(\\|[^|]+)+$", description: "Allowed answers separated by |, at least two" },
-      answerer: { enum: ["jev", "rule", "llm", "human"] },
-      answerer_model: { type: "string", minLength: 1, description: "e.g. jev-1.13.0, a rule name, an LLM model id, a person's initials" },
-      output: { type: "string", minLength: 1 },
-      confidence: { type: ["number", "null"], minimum: 0, maximum: 1 },
-      label: { enum: ["accept", "reject", null] },
-      label_source: { enum: ["human", null] },
-      tokens_in: { type: ["integer", "null"], minimum: 0 },
-      tokens_out: { type: ["integer", "null"], minimum: 0 },
-      cost_usd: { type: ["number", "null"], minimum: 0 },
-      latency_ms: { type: ["integer", "null"], minimum: 0 },
-      price_table_date: {
-        type: ["string", "null"],
-        pattern: "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$",
-        description: "Optional column. Date (YYYY-MM-DD) of the list-price table that produced cost_usd. A file without the column stays valid."
-      }
-    },
-    allOf: [
-      {
-        if: { properties: { label: { type: "null" } } },
-        then: { properties: { label_source: { type: "null" } } },
-        else: { properties: { label_source: { type: "string" } } }
-      }
-    ]
-  };
 
   // src/format/quote.ts
   var NOT_PRINTABLE = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}\p{Zs}]/u;
@@ -1015,7 +781,12 @@
   // src/format/validate.ts
   var SCHEMA = record_v1_schema_default;
   var COLUMNS = record_v1_schema_default.required;
-  var OPTIONAL_COLUMNS = ["price_table_date"];
+  var PROVENANCE_COLUMNS = ["labelled_by", "labelled_at", "label_blind"];
+  var COLUMNS_V1_1 = [...COLUMNS, ...PROVENANCE_COLUMNS];
+  var LABELLER_HANDLE = new RegExp(record_v1_schema_default.properties.labelled_by.pattern, "u");
+  var LABELLED_AT = new RegExp(record_v1_schema_default.properties.labelled_at.pattern, "u");
+  var SUGGESTION_COLUMNS = ["label_final", "suggestion_shown"];
+  var OPTIONAL_COLUMNS = ["price_table_date", ...PROVENANCE_COLUMNS, ...SUGGESTION_COLUMNS];
   var INTEGER_COLUMNS = new Set(["tokens_in", "tokens_out", "latency_ms"]);
   var NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);
   var INTEGER_TEXT = /^[0-9]+\n?$/;
@@ -1098,11 +869,23 @@
       throw new Error(`row has no column ${column}`);
     return value;
   }
-  function text2(row, column) {
+  function text(row, column) {
     const value = cell(row, column);
     if (typeof value !== "string")
       throw new Error(`column ${column} is not text after schema validation`);
     return value;
+  }
+  function isCalendarDate(date) {
+    const [year = NaN, month = NaN, day = NaN] = date.split("-").map(Number);
+    const parsed = new Date(0);
+    parsed.setUTCFullYear(year, month - 1, day);
+    return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+  }
+  function countsAsTruth(row) {
+    return row.get("label_source") !== "agent";
+  }
+  function truthLabel(row) {
+    return countsAsTruth(row) ? row.get("label") ?? null : null;
   }
   function validate(csvText) {
     const { errors, rows } = readRows(csvText);
@@ -1132,13 +915,23 @@
       }
       if (rowErrors.length > 0)
         continue;
-      const caseId = text2(row, "case_id");
-      const questionId = text2(row, "question_id");
-      const answerer = text2(row, "answerer");
-      const runId = text2(row, "run_id");
-      const promptVersion = text2(row, "prompt_version");
-      const output = text2(row, "output");
-      const answerSet = text2(row, "answer_set");
+      const brokenAt = PROVENANCE_COLUMNS.find((column) => {
+        const value = row.get(column);
+        return typeof value === "string" && /[\r\n]/.test(value);
+      });
+      const labelledAt = row.get("labelled_at");
+      if (brokenAt !== undefined) {
+        errors.push(`line ${line}: ${brokenAt}: ${quoteText(String(row.get(brokenAt)))} ends with a line break`);
+      } else if (typeof labelledAt === "string" && !isCalendarDate(labelledAt.slice(0, 10))) {
+        errors.push(`line ${line}: labelled_at: ${quoteText(labelledAt)} is not a calendar date`);
+      }
+      const caseId = text(row, "case_id");
+      const questionId = text(row, "question_id");
+      const answerer = text(row, "answerer");
+      const runId = text(row, "run_id");
+      const promptVersion = text(row, "prompt_version");
+      const output = text(row, "output");
+      const answerSet = text(row, "answer_set");
       const where = `(${caseId}, ${questionId}, ${answerer})`;
       if (!answerSet.split("|").includes(output)) {
         errors.push(`line ${line}: output ${quoteText(output)} is not in answer_set ${quoteText(answerSet)}`);
@@ -1147,14 +940,14 @@
       if (seen.has(key))
         errors.push(`line ${line}: duplicate row for run ${runId} ${where}`);
       seen.add(key);
-      const caseInput = text2(row, "case_input");
+      const caseInput = text(row, "case_input");
       const firstInput = inputs.get(caseId);
       if (firstInput === undefined)
         inputs.set(caseId, caseInput);
       else if (firstInput !== caseInput) {
         errors.push(`line ${line}: case_input differs from the first row for case_id ${caseId}`);
       }
-      const asked = JSON.stringify([text2(row, "question"), answerSet]);
+      const asked = JSON.stringify([text(row, "question"), answerSet]);
       const version = JSON.stringify([promptVersion, questionId]);
       const firstAsked = questions.get(version);
       if (firstAsked === undefined)
@@ -1166,6 +959,8 @@
         gaps.push(`line ${line}: cost_usd missing ${where}`);
       if (cell(row, "label") === null)
         gaps.push(`line ${line}: unlabelled ${where}`);
+      else if (!countsAsTruth(row))
+        gaps.push(`line ${line}: agent label not reviewed ${where}`);
     }
     for (const { label, methods } of answered.values()) {
       for (const method of METHODS) {
@@ -1174,6 +969,320 @@
       }
     }
     return { errors, gaps, rows };
+  }
+
+  // src/core/metrics.ts
+  var ARMS = ["llm", "rule", "jev"];
+  function text2(row, column) {
+    const value = row.get(column);
+    if (typeof value !== "string")
+      throw new Error(`${column} is not text after validation`);
+    return value;
+  }
+  function cost(row) {
+    const value = row.get("cost_usd");
+    if (value === null || value === undefined)
+      return null;
+    if (typeof value !== "number")
+      throw new Error("cost_usd is not a number after validation");
+    return value;
+  }
+  function label(row) {
+    const value = truthLabel(row);
+    if (value === null)
+      return null;
+    if (value !== "accept" && value !== "reject")
+      throw new Error(`label ${String(value)} after validation`);
+    return value;
+  }
+  function spendOf(rows) {
+    let known = 0;
+    let missing = 0;
+    for (const row of rows) {
+      const value = cost(row);
+      if (value === null)
+        missing += 1;
+      else
+        known += value;
+    }
+    return missing === 0 ? { kind: "complete", usd: known } : { kind: "incomplete", knownUsd: known, missing };
+  }
+  function costPerAccepted(spend, accepted) {
+    if (spend.kind === "incomplete")
+      return { kind: "incomplete", reason: "cost missing" };
+    if (accepted === 0)
+      return { kind: "undefined", reason: "zero accepted" };
+    return { kind: "value", usd: spend.usd / accepted };
+  }
+  function totals(arm, rows) {
+    const labels = rows.map(label);
+    const accepted = labels.filter((value) => value === "accept").length;
+    const rejected = labels.filter((value) => value === "reject").length;
+    const labelled = accepted + rejected;
+    const spend = spendOf(rows);
+    return {
+      arm,
+      rows: rows.length,
+      labelled,
+      accepted,
+      rejected,
+      unlabelled: rows.length - labelled,
+      acceptRate: labelled === 0 ? null : accepted / labelled,
+      spend,
+      costPerAccepted: costPerAccepted(spend, accepted)
+    };
+  }
+  function pairArm(arm, rows) {
+    const accepted = rows.filter((row) => label(row) === "accept").length;
+    const spend = spendOf(rows);
+    return {
+      arm,
+      accepted,
+      acceptRate: rows.length === 0 ? null : accepted / rows.length,
+      spend,
+      costPerAccepted: costPerAccepted(spend, accepted)
+    };
+  }
+  function paired(other, jevByCase, otherByCase) {
+    if (jevByCase.size === 0 || otherByCase.size === 0)
+      return null;
+    const caseIds = [...new Set([...jevByCase.keys(), ...otherByCase.keys()])].sort();
+    const jevRows = [];
+    const otherRows = [];
+    const cases = [];
+    let excluded = 0;
+    let a = 0;
+    let b = 0;
+    let c = 0;
+    let d = 0;
+    for (const caseId of caseIds) {
+      const jevRow = jevByCase.get(caseId);
+      const otherRow = otherByCase.get(caseId);
+      const jevLabel = jevRow === undefined ? null : label(jevRow);
+      const otherLabel = otherRow === undefined ? null : label(otherRow);
+      if (jevRow === undefined || otherRow === undefined || jevLabel === null || otherLabel === null) {
+        excluded += 1;
+        continue;
+      }
+      jevRows.push(jevRow);
+      otherRows.push(otherRow);
+      const jevOk = jevLabel === "accept";
+      const otherOk = otherLabel === "accept";
+      cases.push({ caseId, jevAccepted: jevOk, otherAccepted: otherOk, jevCostUsd: cost(jevRow), otherCostUsd: cost(otherRow) });
+      if (jevOk && otherOk)
+        a += 1;
+      else if (jevOk)
+        b += 1;
+      else if (otherOk)
+        c += 1;
+      else
+        d += 1;
+    }
+    return {
+      other,
+      n: jevRows.length,
+      excluded,
+      jev: pairArm("jev", jevRows),
+      otherArm: pairArm(other, otherRows),
+      a,
+      b,
+      c,
+      d,
+      wins: b,
+      losses: c,
+      ties: a + d,
+      cases
+    };
+  }
+  function cohortId(key) {
+    return JSON.stringify([key.runId, key.promptVersion, key.questionId]);
+  }
+  function cohorts(rows) {
+    const seen = new Map;
+    for (const { values } of rows) {
+      const key = {
+        runId: text2(values, "run_id"),
+        promptVersion: text2(values, "prompt_version"),
+        questionId: text2(values, "question_id")
+      };
+      const id = cohortId(key);
+      if (!seen.has(id))
+        seen.set(id, key);
+    }
+    return [...seen.values()];
+  }
+  function cohortMetrics(rows, key) {
+    const id = cohortId(key);
+    const mine = rows.map(({ values }) => values).filter((row) => cohortId({
+      runId: text2(row, "run_id"),
+      promptVersion: text2(row, "prompt_version"),
+      questionId: text2(row, "question_id")
+    }) === id);
+    return metricsOfCohortRows(mine, key);
+  }
+  function metricsOfCohortRows(mine, key) {
+    const id = cohortId(key);
+    const first = mine[0];
+    if (first === undefined)
+      throw new Error(`no rows for cohort ${id}`);
+    const byArm = new Map(ARMS.map((arm) => [arm, new Map]));
+    for (const row of mine) {
+      const answerer = text2(row, "answerer");
+      const known = ARMS.find((a) => a === answerer);
+      const arm = known === undefined ? undefined : byArm.get(known);
+      if (arm === undefined)
+        continue;
+      const caseId = text2(row, "case_id");
+      if (arm.has(caseId))
+        throw new Error(`cohort ${id}: more than one ${answerer} row for case ${caseId}`);
+      arm.set(caseId, row);
+    }
+    const armMap = (arm) => byArm.get(arm) ?? new Map;
+    return {
+      key,
+      question: text2(first, "question"),
+      answerSet: text2(first, "answer_set"),
+      cases: new Set(mine.map((row) => text2(row, "case_id"))).size,
+      arms: ARMS.filter((arm) => armMap(arm).size > 0).map((arm) => totals(arm, [...armMap(arm).values()])),
+      jevVsLlm: paired("llm", armMap("jev"), armMap("llm")),
+      jevVsRule: paired("rule", armMap("jev"), armMap("rule"))
+    };
+  }
+  function pairedCostCases(pair) {
+    const out = [];
+    for (const one of pair.cases) {
+      if (one.jevCostUsd === null || one.otherCostUsd === null)
+        return null;
+      out.push({ jevAccepted: one.jevAccepted, jevCostUsd: one.jevCostUsd, llmAccepted: one.otherAccepted, llmCostUsd: one.otherCostUsd });
+    }
+    return out;
+  }
+
+  // src/core/verdict.ts
+  var MIN_PAIRED = 30;
+  var MARGIN = 0.1;
+  var CHEAPER = 0.8;
+  var COST_TOLERANCE = 0.000000001;
+  var TEST_SET_ONLY = "These results are for this test set only, not production.";
+  function rows(n) {
+    return n === 1 ? "1 row" : `${n} rows`;
+  }
+  function limitationsOf(metrics, rule) {
+    const out = [TEST_SET_ONLY];
+    const paired = metrics.jevVsLlm?.n ?? 0;
+    if (paired < MIN_PAIRED)
+      out.push(`Below the minimum: ${paired} paired labelled Jev and LLM cases, fewer than ${MIN_PAIRED}.`);
+    if (rule.kind === "skipped")
+      out.push(`Rule comparison skipped: ${rule.reason}.`);
+    const unlabelled = metrics.arms.reduce((sum, totals) => sum + totals.unlabelled, 0);
+    if (unlabelled > 0)
+      out.push(`Missing labels: ${rows(unlabelled)} with no label, left out of every pairing.`);
+    const noCost = metrics.arms.reduce((sum, totals) => sum + (totals.spend.kind === "incomplete" ? totals.spend.missing : 0), 0);
+    if (noCost > 0)
+      out.push(`Missing costs: ${rows(noCost)} with no cost, so spend is incomplete.`);
+    return out;
+  }
+  function compare(counts) {
+    const interval = newcombePaired(counts);
+    return { ...counts, n: interval.n, p1: interval.p1, p2: interval.p2, diff: interval.diff, lower: interval.lower, upper: interval.upper };
+  }
+  function ruleComparison(pair, hasRuleRows, hasJevRows) {
+    if (!hasRuleRows)
+      return { kind: "skipped", reason: "no rule rows", paired: 0 };
+    if (!hasJevRows)
+      return { kind: "skipped", reason: "no Jev rows", paired: 0 };
+    const paired = pair?.n ?? 0;
+    if (pair === null || paired < MIN_PAIRED)
+      return { kind: "skipped", reason: `fewer than ${MIN_PAIRED} paired rule cases`, paired };
+    return { kind: "compared", ...compare({ a: pair.a, b: pair.c, c: pair.b, d: pair.d }) };
+  }
+  function plural(n) {
+    return n === 1 ? "1 more labelled case" : `${n} more labelled cases`;
+  }
+  function fixed(x) {
+    return x.toFixed(2);
+  }
+  function verdict(metrics, seed) {
+    const hasArm = (arm) => metrics.arms.some((totals) => totals.arm === arm);
+    const rule = ruleComparison(metrics.jevVsRule, hasArm("rule"), hasArm("jev"));
+    const pair = metrics.jevVsLlm;
+    const jevVsLlm = pair === null || pair.n === 0 ? null : compare(pair);
+    const limitations = limitationsOf(metrics, rule);
+    const base = {
+      jevVsLlm,
+      jevAccepted: pair?.jev.accepted ?? null,
+      llmAccepted: pair?.otherArm.accepted ?? null,
+      costRatio: null
+    };
+    const result = (verdictName, ruleNumber, condition, reason, extra = {}) => ({
+      verdict: verdictName,
+      rule: ruleNumber,
+      condition,
+      unmet: extra.unmet ?? [],
+      reason: `${verdictName}: ${reason}`,
+      addN: extra.addN ?? null,
+      numbers: extra.numbers ?? base,
+      ruleComparison: rule,
+      limitations
+    });
+    const notEnough = (condition, reason, addN) => result("not enough evidence", 1, condition, reason, addN === undefined ? {} : { addN });
+    if (!hasArm("jev"))
+      return notEnough("no-jev-rows", "no Jev results");
+    if (!hasArm("llm"))
+      return notEnough("no-llm-rows", "no LLM results");
+    if (pair === null || jevVsLlm === null || pair.n < MIN_PAIRED) {
+      const n = pair?.n ?? 0;
+      const add = MIN_PAIRED - n;
+      return notEnough("too-few-paired", `${n} paired Jev and LLM cases, fewer than ${MIN_PAIRED}; add ${plural(add)}`, add);
+    }
+    if (pair.jev.accepted === 0 && pair.otherArm.accepted === 0) {
+      return notEnough("both-zero-accepted", "Jev and the LLM both have 0 accepted; neither answer is being accepted");
+    }
+    const cases = pairedCostCases(pair);
+    if (cases === null || pair.jev.spend.kind !== "complete" || pair.otherArm.spend.kind !== "complete") {
+      return notEnough("cost-missing", "cost missing on a paired Jev or LLM row, so the cost ratio would look complete on partial spend");
+    }
+    const dont = (condition, reason, numbers) => result("don't use Jev", 2, condition, reason, numbers === undefined ? {} : { numbers });
+    if (rule.kind === "compared" && rule.lower > -MARGIN) {
+      return dont("rule-within-margin", `the rule is within 10 points of Jev (lower bound of rule minus Jev ${fixed(rule.lower)}, above -0.10, on ${rule.n} paired cases); a free rule does the job`);
+    }
+    if (jevVsLlm.upper < -MARGIN) {
+      return dont("jev-clearly-worse", `Jev is clearly worse than the LLM (upper bound of Jev minus LLM ${fixed(jevVsLlm.upper)}, below -0.10)`);
+    }
+    if (pair.jev.accepted === 0) {
+      return dont("jev-zero-accepted", `Jev has 0 accepted and the LLM has ${pair.otherArm.accepted}`);
+    }
+    const finiteSpend = Number.isFinite(pair.jev.spend.usd) && Number.isFinite(pair.otherArm.spend.usd);
+    if (!finiteSpend || !Number.isFinite(largestCaseCost(cases) * cases.length)) {
+      return notEnough("cost-not-finite", "costs too large to add up, so there is no cost ratio");
+    }
+    const ratio = costRatio({ spendUsd: pair.jev.spend.usd, accepted: pair.jev.accepted }, { spendUsd: pair.otherArm.spend.usd, accepted: pair.otherArm.accepted });
+    if (ratio === null) {
+      return pair.jev.spend.usd === 0 && pair.otherArm.spend.usd === 0 ? notEnough("no-cost-ratio", "Jev and the LLM both cost $0 per accepted answer, so there is no cost ratio") : notEnough("cost-not-finite", "the cost ratio is too large to represent");
+    }
+    const ci = { ratio, ...costRatioInterval(cases, seed) };
+    const numbers = { ...base, costRatio: ci };
+    if (ci.lower > 1 + COST_TOLERANCE) {
+      return dont("jev-clearly-dearer", `Jev is clearly dearer (cost ratio ${ratio.toFixed(3)}, lower bound ${ci.lower.toFixed(3)}, above 1)`, numbers);
+    }
+    const unmet = [];
+    if (!(jevVsLlm.lower > -MARGIN))
+      unmet.push("accept-rate-not-shown");
+    if (ratio > CHEAPER + COST_TOLERANCE)
+      unmet.push(ratio < 1 - COST_TOLERANCE ? "cheaper-by-less-than-20" : "not-cheaper");
+    if (!(ci.upper < 1 - COST_TOLERANCE))
+      unmet.push("cost-upper-bound-not-below-1");
+    const [first] = unmet;
+    if (first === undefined) {
+      return result("use Jev", 3, "use-jev", `Jev is within 10 points of the LLM (lower bound ${fixed(jevVsLlm.lower)}) and costs ${ratio.toFixed(3)} of it per accepted answer (upper bound ${ci.upper.toFixed(3)})`, { numbers });
+    }
+    const said = {
+      "accept-rate-not-shown": `Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM ${fixed(jevVsLlm.lower)}, not above -0.10)`,
+      "cheaper-by-less-than-20": `cheaper, but by less than 20% (cost ratio ${ratio.toFixed(3)})`,
+      "not-cheaper": `Jev is not cheaper (cost ratio ${ratio.toFixed(3)})`,
+      "cost-upper-bound-not-below-1": `the cost ratio's upper bound ${ci.upper.toFixed(3)} is not below 1`
+    };
+    return result("not enough evidence", 4, first, unmet.map((condition) => said[condition] ?? condition).join("; "), { unmet, numbers });
   }
 
   // src/browser/shop-verdict.ts
@@ -1194,9 +1303,14 @@
     const outputAt = at("output");
     const labelAt = at("label");
     const sourceAt = at("label_source");
+    const versionAt = at("format_version");
     for (const { fields, line } of rows) {
       if (fields.length !== header.length)
         throw new Error(`records.csv line ${line}: ${fields.length} fields, header has ${header.length}`);
+      const version = fields[versionAt] ?? "";
+      if (version !== "jnj-record/1" && version !== "jnj-record/1.1") {
+        throw new Error(`records.csv line ${line}: format_version ${JSON.stringify(version)} is not jnj-record/1 or jnj-record/1.1`);
+      }
     }
     const known = new Set(rows.map(({ fields }) => fields[caseAt] ?? ""));
     const own = Object.keys(calls);
@@ -1213,14 +1327,16 @@
       const c = calls[id];
       return isCall(c) ? c : null;
     };
+    const keep = header.flatMap((name, i) => PROVENANCE_COLUMNS.includes(name) ? [] : [i]);
     const out = rows.map(({ fields }) => {
       const row = [...fields];
       const call = callOf(fields[caseAt] ?? "");
+      row[versionAt] = "jnj-record/1";
       row[labelAt] = call === null ? "" : fields[outputAt] === call ? "accept" : "reject";
       row[sourceAt] = call === null ? "" : "human";
-      return row;
+      return keep.map((i) => row[i] ?? "");
     });
-    return formatRows([header, ...out]);
+    return formatRows([keep.map((i) => header[i] ?? ""), ...out]);
   }
   async function shopVerdict(csvText, calls) {
     const labelled = labelRecords(csvText, calls);

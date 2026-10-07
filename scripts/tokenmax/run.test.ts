@@ -77,4 +77,26 @@ describe("TokenMax recorded live run", () => {
       await expect(main(["replay"], { ...paths, d06 })).rejects.toThrow(/inputs_sha256/);
     });
   });
+
+  test("[integration] M1 label refuses a jnj-record/1.1 records.csv instead of keeping another labeller's provenance", async () => {
+    await withRun(async (paths) => {
+      const v1 = await read(join(paths.out, "records.csv"));
+      const [header = "", ...lines] = v1.trimEnd().split("\n");
+      const v11 = [
+        `${header},labelled_by,labelled_at,label_blind`,
+        ...lines.map((l) => {
+          const up = l.replace(/^jnj-record\/1,/, "jnj-record/1.1,");
+          return /,(accept|reject),human,/.test(up) ? `${up},op-1,2026-10-07,true` : `${up},,,`;
+        }),
+        "",
+      ].join("\n");
+      expect(validate(v11).errors).toEqual([]);
+      await writeFile(join(paths.out, "records.csv"), v11);
+      const first = parseRecords(v11)[0];
+      if (first === undefined) throw new Error("no rows");
+      await writeFile(join(paths.out, "labels.csv"), `item_id,label\n${itemId(first)},reject\n`);
+      await expect(main(["label"], paths)).rejects.toThrow(/jnj-record\/1 only/);
+      expect(await read(join(paths.out, "records.csv"))).toBe(v11);
+    });
+  });
 });

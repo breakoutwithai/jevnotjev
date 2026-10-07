@@ -7,4 +7,4 @@
 3. All three agreed on all 40 messages: 20 `answer`, 20 `hand_off`.
 4. A person reviewed the agreed file, with the five least certain calls listed for review (m07, m12, m28, m33, m35), and approved it on 2026-10-03.
 
-`records.csv` marks every label `label_source: human` (`scripts/uc13/arms.ts:250`); read it as "approved by a person", with the drafting described above.
+`records.csv` (jnj-record/1.1) marks every label `label_source: human_reviewed`, `labelled_by: operator`, `labelled_at: 2026-10-03`, `label_blind: false` (`bun scripts/uc13/run-arms.ts label --source human_reviewed --by operator --at 2026-10-03 --blind false`; the same values are `APPROVED_DRAFT_2026_10_03` in `scripts/uc13/arms.ts`): AI-drafted, approved by a person who saw the drafts. Until 2026-10-07 the file marked them `human`, which a `jnj-record/1` file could not tell apart from a person's own pick.

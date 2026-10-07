@@ -3,7 +3,7 @@
 // wording for a missing row, a missing cost and a missing label is written once. Pure: strings and maps only.
 
 import { ARMS, type Arm } from "./metrics.ts";
-import type { Row } from "../format/validate.ts";
+import { truthLabel, type Row } from "../format/validate.ts";
 
 /** One case: its id and the first row each method gave it (undefined when the file has none). `human` rows are not a method. */
 export interface CaseLine {
@@ -33,7 +33,7 @@ export function caseCell(row: Row | undefined): string {
   if (row === undefined) return "missing";
   const cost = row.get("cost_usd");
   const parts = [text(row, "output"), typeof cost === "number" ? `$${cost.toFixed(6)}` : "cost missing"];
-  if (row.get("label") === null) parts.push("unlabelled");
+  if (truthLabel(row) === null) parts.push("unlabelled");
   return parts.join(", ");
 }
 
@@ -45,7 +45,7 @@ export function caseCell(row: Row | undefined): string {
 export function matchingMethods(line: CaseLine): string {
   const present = ARMS.flatMap((arm) => {
     const row = line.rows[arm];
-    return row === undefined ? [] : [{ arm, label: row.get("label") }];
+    return row === undefined ? [] : [{ arm, label: truthLabel(row) }];
   });
   if (present.every((p) => p.label === null)) return "unlabelled";
   const accepted = present.filter((p) => p.label === "accept").map((p) => p.arm);

@@ -11,6 +11,7 @@
 body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.5 system-ui, sans-serif; }
 main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
 h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 17px; margin: 18px 0 4px; }
 .muted { color: var(--muted); font-size: 14px; }
 details { background: var(--card); border:1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 16px 0; }
 summary { cursor: pointer; font-weight: 600; }
@@ -20,18 +21,21 @@ summary { cursor: pointer; font-weight: 600; }
 .row { display:flex; gap:12px; flex-wrap: wrap; }
 button { font: inherit; padding: 12px 18px; border-radius: 10px; border:2px solid var(--line); background: transparent; color: var(--ink); cursor:pointer; }
 button:focus-visible { outline: 3px solid var(--muted); outline-offset: 2px; }
+button:disabled { cursor: default; opacity: 0.7; }
 button.ans { border-color: var(--a); } button.ho { border-color: var(--h); }
-button.on.ans { background: var(--a); color: var(--bg); } button.on.ho { background: var(--h); color: var(--bg); }
+button.on.ans { background: var(--a); color: var(--bg); } button.on.ho { background: var(--h); color: var(--bg); } button.on.un { background: var(--muted); color: var(--bg); }
+button[aria-pressed="true"] { border-color: var(--ink); font-weight: 600; }
 .nav { margin-top: 18px; display:flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 10px; }
 .bar i { display:block; height:100%; background: var(--muted); }
 .rule { font-size: 15px; }
+#suggestion ol { margin: 4px 0 8px; padding-left: 22px; }
 </style>
 </head>
 <body>
 <main>
 <h1>Answer or hand off?</h1>
-<div class="muted">40 customer messages. For each one, say what the bot <em>should</em> do. You never see what any approach answered. Keys: <b>A</b> answer, <b>H</b> hand off, arrows to move.</div>
+<div class="muted">40 customer messages. For each one, pick what the bot <em>should</em> do before you see anything else. Then Jev's suggestion for that message appears: keep your pick or change it. Your first pick is the label; the second is recorded beside it. Keys: <b>A</b> answer, <b>H</b> hand off, <b>U</b> unsure, arrows to move.</div>
 
 <details open><summary>Acceptance rule</summary>
 <p class="rule" id="acceptanceRule"><b>answer</b>: everything asked is covered by the fact sheet, so the bot can reply without promising stock, availability, a booking, or anything the sheet does not state.<br>
@@ -45,7 +49,10 @@ button.on.ans { background: var(--a); color: var(--bg); } button.on.ho { backgro
   <div class="row">
     <button class="ans" id="bA" type="button" aria-pressed="false">Answer (A)</button>
     <button class="ho" id="bH" type="button" aria-pressed="false">Hand off (H)</button>
+    <button class="un" id="bU" type="button" aria-pressed="false">Unsure (U)</button>
   </div>
+  <div class="muted" id="picked"></div>
+  <div id="suggestion" aria-live="polite"></div>
   <div class="bar"><i id="fill"></i></div>
   <div class="nav">
     <button id="prev" type="button">&larr; Back</button>
@@ -59,28 +66,53 @@ button.on.ans { background: var(--a); color: var(--bg); } button.on.ho { backgro
 <script>
 const SHEET = __SHEET__;
 const CASES = __CASES__;
+const OPTIONS = ["answer", "hand_off"];
 document.getElementById("sheet").textContent = SHEET;
-const truth = {};
+// Blind pick per case (answer, hand_off or unsure), then the final pick after the suggestion step.
+const blind = {};
+const final = {};
+const shown = {};
+const pickedAt = {};
+// Suggestions are read one case at a time, only after that case's blind pick. null = none available.
+const suggestions = {};
+const loading = new Set();
 let i = 0;
-const STORAGE_KEY = "jnj.uc13.labels.v1";
+const STORAGE_KEY = "jnj.uc13.labels.v2";
 // Bind saved labels to the exact rubric, fact sheet and ordered messages.
 const dataset = JSON.stringify({ policy: document.getElementById("acceptanceRule").textContent, sheet: SHEET, cases: CASES });
 let store = null;
 let saveMessage = "No labels yet. Choices are saved in this browser; download a copy when finished.";
+function isCaseId(id) { return CASES.some(c => c.case_id === id); }
+function validSaved(saved) {
+  if (!saved || typeof saved !== "object") return false;
+  if (!Number.isInteger(saved.position) || saved.position < 0 || saved.position >= CASES.length) return false;
+  const maps = [saved.blind, saved.final, saved.shown, saved.pickedAt];
+  if (maps.some(m => !m || typeof m !== "object" || Array.isArray(m))) return false;
+  const ok = (m, test) => Object.entries(m).every(([id, v]) => isCaseId(id) && test(id, v));
+  return ok(saved.blind, (id, v) => v === "unsure" || OPTIONS.includes(v)) &&
+    ok(saved.final, (id, v) => OPTIONS.includes(v) && OPTIONS.includes(saved.blind[id]) && typeof saved.shown[id] === "boolean") &&
+    ok(saved.shown, (id, v) => typeof v === "boolean" && saved.final[id] !== undefined) &&
+    ok(saved.pickedAt, (id, v) => typeof v === "string" && saved.blind[id] !== undefined) &&
+    Object.keys(saved.blind).every(id => typeof saved.pickedAt[id] === "string");
+}
 try {
   store = window.localStorage;
   if (!store) throw new Error("Storage unavailable");
   const raw = store.getItem(STORAGE_KEY);
+  if (raw === null && store.getItem("jnj.uc13.labels.v1") !== null) {
+    saveMessage = "Labels from the earlier version of this page are kept in this browser but not loaded here. Download them from that version, or start again.";
+  }
   if (raw !== null) {
     const saved = JSON.parse(raw);
     if (!saved || saved.dataset !== dataset) {
       saveMessage = "The cases or acceptance rule changed. Previous labels were not loaded.";
-    } else if (!Number.isInteger(saved.position) || saved.position < 0 || saved.position >= CASES.length ||
-      !saved.truth || typeof saved.truth !== "object" || Array.isArray(saved.truth) ||
-      Object.entries(saved.truth).some(([id, call]) => !CASES.some(c => c.case_id === id) || (call !== "answer" && call !== "hand_off"))) {
+    } else if (!validSaved(saved)) {
       saveMessage = "Saved labels could not be restored. Start again or use your downloaded copy.";
     } else {
-      Object.assign(truth, saved.truth);
+      Object.assign(blind, saved.blind);
+      Object.assign(final, saved.final);
+      Object.assign(shown, saved.shown);
+      Object.assign(pickedAt, saved.pickedAt);
       i = saved.position;
       saveMessage = "Restored labels saved in this browser. Download a copy when finished.";
     }
@@ -91,28 +123,112 @@ try {
 function save() {
   try {
     if (!store) throw new Error("Storage unavailable");
-    store.setItem(STORAGE_KEY, JSON.stringify({ dataset, position: i, truth }));
+    store.setItem(STORAGE_KEY, JSON.stringify({ dataset, position: i, blind, final, shown, pickedAt }));
     saveMessage = "Saved in this browser. Download a copy when finished.";
   } catch (e) {
     saveMessage = "Latest changes are not saved. Keep this tab open and download your work.";
   }
 }
+function el(tag, text) { const e = document.createElement(tag); e.textContent = text; return e; }
+// A suggestion file as stage-demo.ts writes it; anything else reads as no suggestion.
+function validSuggestion(s, id) {
+  if (!s || s.case_id !== id || !OPTIONS.includes(s.choice) || typeof s.ranked !== "boolean" || !Array.isArray(s.options)) return null;
+  if (s.confidence !== null && typeof s.confidence !== "number") return null;
+  const good = s.options.length === OPTIONS.length && s.options.every(o => o && OPTIONS.includes(o.option) &&
+    (o.rank === null || Number.isInteger(o.rank)) && (o.probability === null || typeof o.probability === "number") && typeof o.jevChoice === "boolean");
+  return good ? s : null;
+}
+function loadSuggestion(id) {
+  if (blind[id] === undefined || id in suggestions || loading.has(id)) return;
+  loading.add(id);
+  fetch("suggestions/" + encodeURIComponent(id) + ".json")
+    .then(r => (r.ok ? r.json() : null))
+    .then(s => validSuggestion(s, id), () => null)
+    .then(s => {
+      suggestions[id] = s;
+      loading.delete(id);
+      if (CASES[i].case_id === id) renderSuggestion(id);
+    });
+}
+function finalButton(id, option, wasShown) {
+  const b = el("button", option === blind[id] ? "Keep " + option : "Change to " + option);
+  b.type = "button";
+  b.setAttribute("id", "final-" + option);
+  b.setAttribute("aria-pressed", String(final[id] === option));
+  b.onclick = () => finalPick(option, wasShown);
+  return b;
+}
+function renderSuggestion(id) {
+  const panel = document.getElementById("suggestion");
+  if (blind[id] === undefined) { panel.replaceChildren(); return; }
+  const s = suggestions[id];
+  const parts = [];
+  if (s === undefined) parts.push(el("p", "Loading the suggestion for this message."));
+  else if (s === null) parts.push(el("p", "No suggestion yet."));
+  else {
+    const list = document.createElement("ol");
+    list.append(...s.options.map(o => el("li",
+      (o.rank === null ? "unranked " : "#" + o.rank + " ") + o.option +
+      (o.probability === null ? "" : " " + Math.round(o.probability * 100) + "%") + (o.jevChoice ? " (Jev's choice)" : ""))));
+    parts.push(el("h2", "Jev's ranking"), list,
+      el("p", s.ranked ? "Ordered by Jev's probability for each option." : "Jev gave no probabilities: its choice first, the rest unranked."),
+      el("p", s.confidence === null ? "Jev's confidence: not returned." : "Jev's confidence: " + s.confidence));
+  }
+  if (blind[id] === "unsure") parts.push(el("p", "Unsure: no label is recorded for this case."));
+  else if (s !== undefined) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.append(...(s === null ? [blind[id]] : OPTIONS).map(o => finalButton(id, o, s !== null)));
+    parts.push(row);
+  }
+  panel.replaceChildren(...parts);
+}
 function show() {
   const c = CASES[i];
+  const b = blind[c.case_id];
   document.getElementById("pos").textContent = `Message ${i + 1} of ${CASES.length} (${c.case_id})`;
   document.getElementById("msg").textContent = c.case_input;
-  document.getElementById("bA").classList.toggle("on", truth[c.case_id] === "answer");
-  document.getElementById("bH").classList.toggle("on", truth[c.case_id] === "hand_off");
-  document.getElementById("bA").setAttribute("aria-pressed", String(truth[c.case_id] === "answer"));
-  document.getElementById("bH").setAttribute("aria-pressed", String(truth[c.case_id] === "hand_off"));
+  for (const [id, v] of [["bA", "answer"], ["bH", "hand_off"], ["bU", "unsure"]]) {
+    const button = document.getElementById(id);
+    button.classList.toggle("on", b === v);
+    button.setAttribute("aria-pressed", String(b === v));
+    button.disabled = b !== undefined;
+  }
+  document.getElementById("picked").textContent = b === undefined ? "Pick before you see any suggestion." : "Your blind pick: " + b;
   document.getElementById("saveStatus").textContent = saveMessage;
-  const done = Object.keys(truth).length;
-  document.getElementById("fill").style.width = (100 * done / CASES.length) + "%";
-  document.getElementById("status").textContent = `${done} of ${CASES.length} labelled` + (done === CASES.length ? ". All done, download the file." : "");
+  const labelled = CASES.filter(x => OPTIONS.includes(blind[x.case_id])).length;
+  const unsure = CASES.filter(x => blind[x.case_id] === "unsure").length;
+  document.getElementById("fill").style.width = (100 * (labelled + unsure) / CASES.length) + "%";
+  document.getElementById("status").textContent = `${labelled} of ${CASES.length} labelled` + (unsure ? `, ${unsure} unsure` : "") +
+    (labelled + unsure === CASES.length ? ". All done, download the file." : "");
+  renderSuggestion(c.case_id);
+  if (b !== undefined) loadSuggestion(c.case_id);
 }
-function pick(v) { truth[CASES[i].case_id] = v; if (i < CASES.length - 1) i++; save(); show(); }
+function finalPick(v, wasShown) {
+  const id = CASES[i].case_id;
+  if (!OPTIONS.includes(blind[id]) || !OPTIONS.includes(v)) return;
+  final[id] = v;
+  shown[id] = wasShown;
+  if (i < CASES.length - 1) i++;
+  save(); show();
+}
+// The first pick on a message is the blind one and is made once; after its suggestion, A and H set the final pick.
+function pick(v) {
+  const id = CASES[i].case_id;
+  if (blind[id] === undefined) {
+    blind[id] = v;
+    pickedAt[id] = new Date().toISOString();
+    save(); show();
+    return;
+  }
+  if (v === "unsure" || !(id in suggestions)) return;
+  // With no suggestion shown, the only final pick is keeping the blind one (the page offers only that button).
+  if (suggestions[id] === null && v !== blind[id]) return;
+  finalPick(v, suggestions[id] !== null);
+}
 document.getElementById("bA").onclick = () => pick("answer");
 document.getElementById("bH").onclick = () => pick("hand_off");
+document.getElementById("bU").onclick = () => pick("unsure");
 document.getElementById("prev").onclick = () => { if (i > 0) i--; save(); show(); };
 document.getElementById("next").onclick = () => { if (i < CASES.length - 1) i++; save(); show(); };
 // shortcut:start
@@ -122,6 +238,7 @@ function shortcut(e) {
   if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || "")) return null;
   if (e.key === "a" || e.key === "A") return "answer";
   if (e.key === "h" || e.key === "H") return "hand_off";
+  if (e.key === "u" || e.key === "U") return "unsure";
   if (e.key === "ArrowLeft") return "prev";
   if (e.key === "ArrowRight") return "next";
   return null;
@@ -131,11 +248,14 @@ document.addEventListener("keydown", (e) => {
   const s = shortcut(e);
   if (s === null) return;
   e.preventDefault();
-  if (s === "answer" || s === "hand_off") pick(s);
+  if (s === "answer" || s === "hand_off" || s === "unsure") pick(s);
   else document.getElementById(s).click();
 });
 document.getElementById("dl").onclick = () => {
-  const rows = ["case_id,truth", ...CASES.filter(c => truth[c.case_id]).map(c => `${c.case_id},${truth[c.case_id]}`)];
+  const rows = ["case_id,truth,final,suggestion_shown,labelled_at", ...CASES.filter(c => OPTIONS.includes(blind[c.case_id])).map(c => {
+    const id = c.case_id;
+    return [id, blind[id], final[id] ?? "", final[id] === undefined ? "" : String(shown[id]), pickedAt[id]].join(",");
+  })];
   const blob = new Blob([rows.join("\n") + "\n"], { type: "text/csv" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = "labels.csv"; a.click();

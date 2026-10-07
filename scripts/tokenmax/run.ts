@@ -19,7 +19,7 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatRecords, JEV_MODEL, parseRecords, type RecordRow } from "../uc13/arms.ts";
+import { formatRecords, JEV_MODEL, parseV1Records, type RecordRow } from "../uc13/arms.ts";
 import { assertNoSecrets, assertPinned } from "../uc13/calls.ts";
 import { pool, spawnJson } from "../uc13/run-arms.ts";
 import { validate } from "../../src/format/validate.ts";
@@ -167,7 +167,7 @@ export function preflight(inputs: Inputs): void {
 export async function publishRun(out: string, inputs: Inputs, fixture: Fixture): Promise<void> {
   const rawText = fixtureJson(fixture);
   const rows = rowsFromFixture(inputs, parseFixture(rawText));
-  parseRecords(formatRecords(rows));
+  parseV1Records(formatRecords(rows));
   await atomicWrite(join(out, "raw.json"), rawText);
   await writeRecords(out, rows);
 }
@@ -175,7 +175,7 @@ export async function publishRun(out: string, inputs: Inputs, fixture: Fixture):
 /** records.csv is validated first and replaced only when valid. */
 export async function writeRecords(out: string, rows: readonly RecordRow[]): Promise<void> {
   const text = formatRecords(rows);
-  parseRecords(text);
+  parseV1Records(text);
   await atomicWrite(join(out, "records.csv"), text);
   console.log(`wrote records.csv rows=${rows.length}`);
 }
@@ -212,7 +212,7 @@ async function run(paths: Paths, inputs: Inputs): Promise<void> {
 async function replay(paths: Paths, inputs: Inputs): Promise<void> {
   const fixture = parseFixture(await Bun.file(join(paths.out, "raw.json")).text());
   const file = Bun.file(join(paths.out, "records.csv"));
-  const old = (await file.exists()) ? parseRecords(await file.text()) : [];
+  const old = (await file.exists()) ? parseV1Records(await file.text()) : [];
   await writeRecords(paths.out, keepLabels(rowsFromFixture(inputs, fixture), old));
 }
 
@@ -226,13 +226,13 @@ export function renderPage(template: string, rows: readonly RecordRow[]): string
 }
 
 async function page(paths: Paths): Promise<void> {
-  const rows = parseRecords(await Bun.file(join(paths.out, "records.csv")).text());
+  const rows = parseV1Records(await Bun.file(join(paths.out, "records.csv")).text());
   await atomicWrite(join(paths.out, "label.html"), renderPage(await Bun.file(paths.template).text(), rows));
   console.log(`wrote label.html with ${rows.length} answers`);
 }
 
 async function label(paths: Paths, labelsPath: string): Promise<void> {
-  const rows = applyItemLabels(parseRecords(await Bun.file(join(paths.out, "records.csv")).text()), await Bun.file(labelsPath).text());
+  const rows = applyItemLabels(parseV1Records(await Bun.file(join(paths.out, "records.csv")).text()), await Bun.file(labelsPath).text());
   await writeRecords(paths.out, rows);
   console.log(`labelled ${rows.filter((r) => r.label !== "").length} of ${rows.length} rows`);
 }

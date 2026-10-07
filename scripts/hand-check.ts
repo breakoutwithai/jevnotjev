@@ -97,7 +97,7 @@ export function loadRecords(text: string): HandRecord[] {
     if (index < 0) throw new Error(`records file has no ${name} column`);
     return index;
   };
-  const at = { case: column("case_id"), q: column("question_id"), set: column("answer_set"), who: column("answerer"), out: column("output"), label: column("label"), cost: column("cost_usd") };
+  const at = { case: column("case_id"), q: column("question_id"), set: column("answer_set"), who: column("answerer"), out: column("output"), label: column("label"), source: column("label_source"), cost: column("cost_usd") };
   return body.map((cells, n) => {
     const cell = (index: number): string => {
       const value = cells[index];
@@ -113,7 +113,8 @@ export function loadRecords(text: string): HandRecord[] {
       answerer: cell(at.who),
       answers: cell(at.set).split("|"),
       output: cell(at.out),
-      label: cell(at.label),
+      // An unreviewed agent label is not truth (format/README.md "Label provenance"): read it as unlabelled.
+      label: cell(at.source) === "agent" ? "" : cell(at.label),
       cost,
     };
   });

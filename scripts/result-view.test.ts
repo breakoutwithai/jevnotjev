@@ -428,6 +428,28 @@ describe("result view of other files", () => {
     for (const key of [`${Q1}.reason`, `${Q1}.rule`, `${Q1}.vs-llm.n`, `${Q1}.jev.accepted`]) expect([key, cellIn(page, key)]).toEqual([key, cell(key)]);
   });
 
+  test("[unit] M1 an agent label is shown as unlabelled, with its line, for a method and for a person", async () => {
+    // The fixture as jnj-record/1.1; the first q1 Jev row and its human copy carry an unreviewed agent label.
+    const firstJev = dataLines.findIndex((line) => line.includes(",q1,") && line.includes(",jev,jev-1.13.0,"));
+    const jevLine = dataLines[firstJev] ?? "";
+    expect(jevLine).toContain(",accept,human,");
+    const v11 = (line: string, agent: boolean): string => {
+      const labelled = line.includes(",accept,human,") || line.includes(",reject,human,");
+      const out = line.replace(/\r$/, "").replace(/^jnj-record\/1,/, "jnj-record/1.1,");
+      const withSource = agent ? out.replace(",accept,human,", ",accept,agent,") : out;
+      return `${withSource},${labelled ? "op-1,2026-10-07,true" : ",,"}`;
+    };
+    const lines = dataLines.map((line, i) => v11(line, i === firstJev));
+    const human = v11(jevLine.replace(",jev,jev-1.13.0,", ",human,person,"), true);
+    const text = [`${header.replace(/\r$/, "")},labelled_by,labelled_at,label_blind`, ...lines, human, ""].join("\n");
+    expect(validate(text).errors).toEqual([]);
+    const page = await renderResultView(text, "with-agent.csv");
+    expect(cellIn(page, `${Q1}.jev.gaps`)).toBe(`1 unlabelled (line ${firstJev + 2})`);
+    expect(cellIn(page, `${Q1}.human.labelled`)).toBe("0");
+    expect(cellIn(page, `${Q1}.human.accepted`)).toBe("0");
+    expect(cellIn(page, `${Q1}.human.gaps`)).toBe(`1 unlabelled (line ${dataLines.length + 2})`);
+  });
+
   test("[unit] R4.d a file with no human rows shows no human table", () => {
     expect(keys(html).some((key) => key.includes(".human."))).toBe(false);
   });

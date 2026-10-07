@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
-import { COLUMNS, validate, type ParsedRow } from "../format/validate.ts";
+import { COLUMNS, COLUMNS_V1_1, validate, type ParsedRow } from "../format/validate.ts";
 import { formatRow } from "../format/csv.ts";
 import { cohortMetrics, cohorts, costPerAccepted, describeCostPerAccepted, spendOf, type CohortMetrics } from "./metrics.ts";
 
@@ -21,7 +21,7 @@ function arm(metrics: CohortMetrics, name: string) {
 type Cells = { [column: string]: string };
 
 /** Build a small valid file: one row per entry, defaults filled in. */
-function file(entries: readonly Cells[]): string {
+function file(entries: readonly Cells[], columns: readonly string[] = COLUMNS): string {
   const base: Cells = {
     format_version: "jnj-record/1",
     run_id: "run-t",
@@ -44,9 +44,9 @@ function file(entries: readonly Cells[]): string {
     const row = { ...base, ...entry };
     if (row.label === "") row.label_source = "";
     if (row.case_input === "synthetic") row.case_input = `synthetic ${row.case_id}`;
-    return COLUMNS.map((column) => row[column] ?? "");
+    return columns.map((column) => row[column] ?? "");
   });
-  return [COLUMNS, ...rows].map((fields) => formatRow(fields, "\n")).join("");
+  return [columns, ...rows].map((fields) => formatRow(fields, "\n")).join("");
 }
 
 describe("[unit] d06-tiny matches expected.md", async () => {
@@ -182,6 +182,25 @@ describe("[unit] missing cost or label data", () => {
     const metrics = cohortMetrics(rows, cohorts(rows)[0]!);
     expect(arm(metrics, "jev")).toMatchObject({ rows: 2, labelled: 1, accepted: 1, rejected: 0, unlabelled: 1 });
     expect(arm(metrics, "jev").acceptRate).toBe(1);
+    expect(metrics.jevVsLlm).toMatchObject({ n: 1, excluded: 1, b: 1 });
+  });
+
+  test("[unit] M1 an agent label is never counted as truth: the row reads as unlabelled and leaves the pair", () => {
+    const v11 = { format_version: "jnj-record/1.1", labelled_by: "op-1", labelled_at: "2026-10-07", label_blind: "true" };
+    const rows = load(
+      file(
+        [
+          { ...v11, case_id: "c1", answerer: "jev", label: "accept", label_source: "agent", labelled_by: "claude-opus-5-5" },
+          { ...v11, case_id: "c2", answerer: "jev", label: "accept" },
+          { ...v11, case_id: "c1", answerer: "llm", label: "accept", label_source: "human_reviewed", label_blind: "false" },
+          { ...v11, case_id: "c2", answerer: "llm", label: "reject" },
+        ],
+        COLUMNS_V1_1,
+      ),
+    );
+    const metrics = cohortMetrics(rows, cohorts(rows)[0]!);
+    expect(arm(metrics, "jev")).toMatchObject({ rows: 2, labelled: 1, accepted: 1, rejected: 0, unlabelled: 1 });
+    expect(arm(metrics, "llm")).toMatchObject({ rows: 2, labelled: 2, accepted: 1, rejected: 1, unlabelled: 0 });
     expect(metrics.jevVsLlm).toMatchObject({ n: 1, excluded: 1, b: 1 });
   });
 

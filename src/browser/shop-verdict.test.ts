@@ -57,6 +57,24 @@ describe("shop verdict (the Little Shop page's verdict, read by src/core)", () =
     expect(rows.filter((r) => r.case_id === "m05").every((r) => r.value !== "|")).toBe(true);
   });
 
+  test("[unit] M1 a visitor's calls on the human_reviewed 1.1 run are written as /1 human labels, the recorded provenance dropped", async () => {
+    const source = await csv();
+    expect(readDictRows(source).header).toContain("labelled_by");
+    const out = labelRecords(source, { m01: "hand_off" });
+    const { header, rows } = readDictRows(out);
+    expect(header).not.toContain("labelled_by");
+    expect(header).not.toContain("labelled_at");
+    expect(header).not.toContain("label_blind");
+    expect(new Set(rows.map(({ fields }) => fields[0]))).toEqual(new Set(["jnj-record/1"]));
+    expect(column(out, "label").filter((r) => r.value.endsWith("|human_reviewed"))).toEqual([]);
+    expect(validate(out).errors).toEqual([]);
+  });
+
+  test("[unit] M1 a source row in a format version the validator does not accept is refused, not relabelled as /1", async () => {
+    const text = (await csv()).replace(/^jnj-record\/1\.1,/m, "jnj-record/999,");
+    expect(() => labelRecords(text, { m01: "answer" })).toThrow("jnj-record/999");
+  });
+
   test("[unit] SHOP-V3 an unknown case id or a call that is not answer or hand_off fails", async () => {
     const text = await csv();
     expect(() => labelRecords(text, { m99: "answer" })).toThrow("m99");

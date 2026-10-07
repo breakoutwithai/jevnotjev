@@ -88,7 +88,7 @@ describe("Little Shop data and verdict bundle (scripts/uc13/little-shop.ts)", ()
     expect(field(d, "run_url")).toBe(RUN_URL);
     // the run id is read from the parsed rows, so a quoted first field reads the same
     const csv = await readFile(join(RUN_DIR, "records.csv"), "utf8");
-    const quoted = csv.replace(/^jnj-record\/1,/gm, '"jnj-record/1",');
+    const quoted = csv.replace(/^jnj-record\/1\.1,/gm, '"jnj-record/1.1",');
     expect(quoted).not.toBe(csv);
     expect(buildData(quoted, "sheet").run_date).toBe("2026-10-01");
     expect(list(field(field(d, "fact_sheet"), "lines")).length).toBeGreaterThan(0);

@@ -17,6 +17,6 @@ The simulation is [`sim.ts`](sim.ts) (Bun, seed 20260929, about 22 s on Bun 1.4.
 
 Result: 760 values compared (720 in Part A, 40 in Part B), 760 within tolerance, 360 identical. Largest difference 8 points: Part A, rho 0.5, margin 0.10, bootstrap, p_llm 0.9, drop 0.05, n=100, `ok` 26% before and 18% now, against a tolerance of 12.7. Largest Part B difference 5 points: ratio width, n=10, p_llm 0.9, 105% before and 100% now, tolerance 13.3. The regenerated file replaced the first run's output, and the numbers quoted from it here, in `docs/decision/verdict-rules.md` were updated to match.
 
-**Not proven.** Labelling time per answer is unmeasured. Grading accuracy was measured against AI-written labels on a synthetic set. The Jev price is from the vendor's docs page, not a bill.
+**Not proven.** Labelling time per answer is unmeasured.
 
 **How research is filed.** One folder per question under `docs/research/<date>-<slug>/`: a README with the question, the answer, sources with dates and what is unproven; scripts and outputs beside it. Raw captures and anything private stay out of this repo.

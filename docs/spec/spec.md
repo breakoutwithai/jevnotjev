@@ -12,7 +12,7 @@ Sources this file restates rather than replaces: [FLOW.md](../../FLOW.md) (scope
 
 ## Priorities
 - **must**: needed for the day-13 happy path (load a file, see a correct verdict with its numbers).
-- **should**: on the challenge route but the happy path works without it.
+- **should**: planned, but the happy path works without it.
 - **later**: after day 18, or blocked on an open decision.
 
 Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test whose name carries the id (`[unit] R5.e ...`: a `bun test` title starts with the tier in brackets, then the id); see [pipeline.md](../process/pipeline.md#planned-traceability).

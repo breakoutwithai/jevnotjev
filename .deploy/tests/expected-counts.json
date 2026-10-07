@@ -1,5 +1,5 @@
 {
-  "minFiles": 69,
+  "minFiles": 70,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,

@@ -122,6 +122,13 @@ describe("stage-door demo data", () => {
     expect(() => judge({ ...base, label: "maybe" })).toThrow();
   });
 
+  test("[unit] M1 an unreviewed agent label is pending, never a verdict", () => {
+    const base = record({ case_id: "m01", case_input: "x" }, "jev", "jev-1.13.0", "answer");
+    const agent = { ...base, label_source: "agent", labelled_by: "model-1", labelled_at: "2026-10-07", label_blind: "false" };
+    expect(judge({ ...agent, label: "accept" })).toEqual({ verdict: "pending", truth: null });
+    expect(judge({ ...agent, label: "reject", label_source: "human_reviewed" })).toEqual({ verdict: "reject", truth: "hand_off" });
+  });
+
   test("[unit] UC13-STAGE-4 the 8 include a rule-word message the rule hands off and a no-rule-word message another arm hands off", async () => {
     const d = buildDemo(await records(), await sheet());
     expect(d.messages.some((m) => ruleOutput(m.text) === "hand_off" && m.outputs.jev?.output === "answer")).toBe(true);

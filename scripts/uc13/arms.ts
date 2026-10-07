@@ -275,6 +275,10 @@ export function parseTruth(text: string): Map<string, Answer> {
   return truth;
 }
 
+function isOneProvenance(p: LabelProvenance | ReadonlyMap<string, LabelProvenance>): p is LabelProvenance {
+  return "source" in p;
+}
+
 /** The label and provenance cells of an unlabelled row. */
 export const UNLABELLED: Readonly<Pick<RecordRow, "label" | "label_source" | "labelled_by" | "labelled_at" | "label_blind">> =
   Object.freeze({ label: "", label_source: "", labelled_by: "", labelled_at: "", label_blind: "" });
@@ -282,28 +286,33 @@ export const UNLABELLED: Readonly<Pick<RecordRow, "label" | "label_source" | "la
 /**
  * Accept or reject each row against its case's truth, stamped with how the truth was made; a case with no truth stays
  * unlabelled; an unknown id fails. Every row comes out jnj-record/1.1. There is no default provenance: the caller
- * states whether a person picked it.
+ * states whether a person picked it, once for all cases or per case (a rebuild keeps each case's own).
  */
 export function applyLabels(
   rows: readonly RecordRow[],
   truth: ReadonlyMap<string, Answer>,
-  provenance: LabelProvenance | null,
+  provenance: LabelProvenance | ReadonlyMap<string, LabelProvenance>,
 ): RecordRow[] {
   const ids = new Set(rows.map((r) => r.case_id));
   const unknown = [...truth.keys()].filter((id) => !ids.has(id));
   if (unknown.length > 0) throw new Error(`labels for cases not in records.csv: ${unknown.join(", ")}`);
-  if (truth.size > 0 && provenance === null) throw new Error("labels need a provenance: who labelled them and how");
+  const provenanceOf = (caseId: string): LabelProvenance => {
+    const p = isOneProvenance(provenance) ? provenance : provenance.get(caseId);
+    if (p === undefined) throw new Error(`${caseId}: a label needs a provenance, who labelled it and how`);
+    return p;
+  };
   return rows.map((r) => {
     const t = truth.get(r.case_id);
-    if (t === undefined || provenance === null) return { ...r, format_version: "jnj-record/1.1", ...UNLABELLED };
+    if (t === undefined) return { ...r, format_version: "jnj-record/1.1", ...UNLABELLED };
+    const p = provenanceOf(r.case_id);
     return {
       ...r,
       format_version: "jnj-record/1.1",
       label: r.output === t ? "accept" : "reject",
-      label_source: provenance.source,
-      labelled_by: provenance.by,
-      labelled_at: provenance.at,
-      label_blind: String(provenance.blind),
+      label_source: p.source,
+      labelled_by: p.by,
+      labelled_at: p.at,
+      label_blind: String(p.blind),
     };
   });
 }
@@ -328,25 +337,34 @@ function isSource(value: string): value is LabelProvenance["source"] {
   return value === "human" || value === "human_reviewed" || value === "agent";
 }
 
+export function isLabelSource(value: string): value is LabelProvenance["source"] {
+  return value === "human" || value === "human_reviewed" || value === "agent";
+}
+
 /**
- * The one provenance every labelled row carries, so a rebuild (run --arm jev, replay) keeps it instead of restamping;
- * null when nothing is labelled. Rows labelled in different ways fail: one labels.csv is one way of labelling.
+ * Each labelled case's provenance, so a rebuild (run --arm jev, replay) keeps it instead of restamping. A labelled row
+ * with no complete provenance (a jnj-record/1 label) fails: nothing here can say who made it, so it is relabelled with
+ * `run-arms.ts label --source ...`, never guessed. Rows of one case that disagree fail.
  */
-export function provenanceFromRows(rows: readonly RecordRow[]): LabelProvenance | null {
-  let found: LabelProvenance | null = null;
+export function provenanceByCase(rows: readonly RecordRow[]): Map<string, LabelProvenance> {
+  const found = new Map<string, LabelProvenance>();
   for (const r of rows) {
     if (r.label === "") continue;
     const source = r.label_source;
     const by = r.labelled_by ?? "";
     const at = r.labelled_at ?? "";
-    if (!isSource(source) || (r.label_blind !== "true" && r.label_blind !== "false") || by === "" || at === "") {
-      throw new Error(`records.csv ${r.case_id} ${r.answerer}: label without a complete provenance`);
+    if (!isLabelSource(source) || (r.label_blind !== "true" && r.label_blind !== "false") || by === "" || at === "") {
+      throw new Error(
+        `records.csv ${r.case_id} ${r.answerer}: label without a complete provenance; relabel with ` +
+          "run-arms.ts label --source <human|human_reviewed|agent> --by <handle> --at <time> --blind <true|false>",
+      );
     }
     const p: LabelProvenance = { source, by, at, blind: r.label_blind === "true" };
-    if (found !== null && JSON.stringify(found) !== JSON.stringify(p)) {
-      throw new Error(`records.csv ${r.case_id} ${r.answerer}: labels carry different provenance`);
+    const seen = found.get(r.case_id);
+    if (seen !== undefined && JSON.stringify(seen) !== JSON.stringify(p)) {
+      throw new Error(`records.csv ${r.case_id} ${r.answerer}: rows of one case carry different provenance`);
     }
-    found = p;
+    found.set(r.case_id, p);
   }
   return found;
 }

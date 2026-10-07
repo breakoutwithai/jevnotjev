@@ -78,7 +78,8 @@ function other(a: Answer): Answer {
 export function judge(row: RecordRow): { verdict: Verdict; truth: Answer | null } {
   if (!isAnswer(row.output)) throw new Error(`${row.answerer} ${row.case_id}: output ${JSON.stringify(row.output)} is not one of ${ANSWERS.join(", ")}`);
   const l = row.label;
-  if (l === "") return { verdict: "pending", truth: null };
+  // An unreviewed agent label is not truth (format/README.md "Label provenance"): the row waits for a person.
+  if (l === "" || row.label_source === "agent") return { verdict: "pending", truth: null };
   if (l === "accept") return { verdict: "accept", truth: row.output };
   if (l === "reject") return { verdict: "reject", truth: other(row.output) };
   if (isAnswer(l)) return { verdict: row.output === l ? "accept" : "reject", truth: l };

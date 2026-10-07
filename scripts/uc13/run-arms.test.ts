@@ -46,6 +46,35 @@ describe("run-arms commands", () => {
     });
   });
 
+  test("[unit] M1 replay keeps each case's own provenance when cases were labelled differently", async () => {
+    await withRun(async (paths) => {
+      const rows = parseRecords(await read(join(paths.out, "records.csv")));
+      const blind = applyLabels(rows, parseTruth("case_id,truth\nm01,hand_off\n"), { source: "human", by: "op-1", at: "2026-10-07T09:30:00Z", blind: true });
+      const mixed = blind.map((r, i) => (r.case_id === "m01" ? r : rows[i] ?? r));
+      const text = formatRecords(mixed);
+      await writeFile(join(paths.out, "records.csv"), text);
+      await main(["replay"], paths);
+      expect(await read(join(paths.out, "records.csv"))).toBe(text);
+    });
+  });
+
+  test("[unit] M1 label stamps exactly the provenance given on the command line, and a /1 labelled run is refused on rebuild", async () => {
+    await withRun(async (paths) => {
+      await writeFile(join(paths.out, "labels.csv"), "case_id,truth\nm01,hand_off\n");
+      await main(["label", "--source", "human", "--by", "op-2", "--at", "2026-10-08T10:00:00Z", "--blind", "true"], paths);
+      const rows = parseRecords(await read(join(paths.out, "records.csv")));
+      expect(new Set(rows.filter((r) => r.label !== "").map((r) => [r.label_source, r.labelled_by, r.labelled_at, r.label_blind].join("|")))).toEqual(
+        new Set(["human|op-2|2026-10-08T10:00:00Z|true"]),
+      );
+      expect(rows.filter((r) => r.label !== "")).toHaveLength(3);
+      const v1 = formatRecords(
+        rows.map(({ labelled_by: _by, labelled_at: _at, label_blind: _blind, ...r }) => ({ ...r, format_version: "jnj-record/1" })),
+      );
+      await writeFile(join(paths.out, "records.csv"), v1);
+      await expect(main(["replay"], paths)).rejects.toThrow(/label --source/);
+    });
+  });
+
   test("[unit] UC13-F2 replay of the recorded run reproduces records.csv and raw.json", async () => {
     await withRun(async (paths) => {
       await main(["replay"], paths);
@@ -83,10 +112,22 @@ describe("argument parsing", () => {
     expect(() => parseArgs(["run", "--dry", "--arm", "jev"])).toThrow(/--dry/);
     expect(() => parseArgs(["run", "--arm", "llm"])).toThrow(/--arm/);
     expect(() => parseArgs(["replay", "--dry"])).toThrow(/--dry/);
+    expect(() => parseArgs(["label"])).toThrow(/--source/);
+    expect(() => parseArgs(["label", "--source", "human", "--by", "op-1", "--at", "2026-10-07"])).toThrow(/--blind/);
+    expect(() => parseArgs(["label", "--source", "person", "--by", "op-1", "--at", "2026-10-07", "--blind", "true"])).toThrow(/--source/);
+    expect(() => parseArgs(["label", "--source", "human", "--by", "a@b.c", "--at", "2026-10-07", "--blind", "true"])).toThrow(/--by/);
+    expect(() => parseArgs(["label", "--source", "human", "--by", "op-1", "--at", "today", "--blind", "true"])).toThrow(/--at/);
+    expect(() => parseArgs(["label", "--source", "human", "--by", "op-1", "--at", "2026-10-07", "--blind", "yes"])).toThrow(/--blind/);
+    expect(parseArgs(["label", "--source", "human_reviewed", "--by", "operator", "--at", "2026-10-03", "--blind", "false"])).toEqual({
+      command: "label",
+      dry: false,
+      arm: null,
+      provenance: { source: "human_reviewed", by: "operator", at: "2026-10-03", blind: false },
+    });
     expect(() => parseArgs(["deploy"])).toThrow(/usage/);
-    expect(parseArgs(["run", "--dry"])).toEqual({ command: "run", dry: true, arm: null });
-    expect(parseArgs(["run", "--arm", "jev"])).toEqual({ command: "run", dry: false, arm: "jev" });
-    expect(parseArgs(["replay"])).toEqual({ command: "replay", dry: false, arm: null });
+    expect(parseArgs(["run", "--dry"])).toEqual({ command: "run", dry: true, arm: null, provenance: null });
+    expect(parseArgs(["run", "--arm", "jev"])).toEqual({ command: "run", dry: false, arm: "jev", provenance: null });
+    expect(parseArgs(["replay"])).toEqual({ command: "replay", dry: false, arm: null, provenance: null });
   });
 });
 

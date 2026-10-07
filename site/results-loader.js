@@ -841,8 +841,16 @@
       throw new Error(`column ${column} is not text after schema validation`);
     return value;
   }
+  function isCalendarDate(date) {
+    const [year = NaN, month = NaN, day = NaN] = date.split("-").map(Number);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+  }
   function countsAsTruth(row) {
     return row.get("label_source") !== "agent";
+  }
+  function truthLabel(row) {
+    return countsAsTruth(row) ? row.get("label") ?? null : null;
   }
   function validate(csvText) {
     const { errors, rows } = readRows(csvText);
@@ -872,6 +880,10 @@
       }
       if (rowErrors.length > 0)
         continue;
+      const labelledAt = row.get("labelled_at");
+      if (typeof labelledAt === "string" && !isCalendarDate(labelledAt.slice(0, 10))) {
+        errors.push(`line ${line}: labelled_at: ${quoteText(labelledAt)} is not a calendar date`);
+      }
       const caseId = text(row, "case_id");
       const questionId = text(row, "question_id");
       const answerer = text(row, "answerer");
@@ -988,8 +1000,8 @@
     return value;
   }
   function label(row) {
-    const value = row.get("label");
-    if (value === null || value === undefined || !countsAsTruth(row))
+    const value = truthLabel(row);
+    if (value === null)
       return null;
     if (value !== "accept" && value !== "reject")
       throw new Error(`label ${String(value)} after validation`);
@@ -1173,14 +1185,14 @@
       return "missing";
     const cost = row.get("cost_usd");
     const parts = [text3(row, "output"), typeof cost === "number" ? `$${cost.toFixed(6)}` : "cost missing"];
-    if (row.get("label") === null)
+    if (truthLabel(row) === null)
       parts.push("unlabelled");
     return parts.join(", ");
   }
   function matchingMethods(line) {
     const present = ARMS.flatMap((arm) => {
       const row = line.rows[arm];
-      return row === undefined ? [] : [{ arm, label: row.get("label") }];
+      return row === undefined ? [] : [{ arm, label: truthLabel(row) }];
     });
     if (present.every((p) => p.label === null))
       return "unlabelled";

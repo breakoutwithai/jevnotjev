@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { validate } from "../../src/format/validate.ts";
 import {
   APPROVED_DRAFT_2026_10_03, CASES_COUNT, applyLabels, formatRecords, jevBody, loadExample, parseJevResponse,
-  parseLlmResponse, parseRecords, parseTruth, provenanceFromRows, ruleOutput, ruleRecord, truthFromRows, type LabelProvenance,
+  parseLlmResponse, parseRecords, parseTruth, provenanceByCase, ruleOutput, ruleRecord, truthFromRows, type LabelProvenance,
 } from "./arms.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
@@ -148,18 +148,19 @@ describe("labels", () => {
     expect(() => truthFromRows([...rows, { ...first, answerer: "jev", label: "accept" }])).toThrow(/m01/);
   });
 
-  test("[unit] M1 labels without a provenance are refused; a rebuild reads the one provenance the rows carry", () => {
+  test("[unit] M1 a label needs a provenance; a rebuild reads each case's own", () => {
     const rows = [ruleRecord({ case_id: "m01", case_input: "Is it safe?" }), ruleRecord({ case_id: "m02", case_input: "helmets?" })];
-    expect(() => applyLabels(rows, parseTruth("case_id,truth\nm01,answer\n"), null)).toThrow(/provenance/);
-    expect(applyLabels(rows, new Map(), null).every((r) => r.label === "" && r.labelled_by === "")).toBe(true);
+    expect(() => applyLabels(rows, parseTruth("case_id,truth\nm01,answer\n"), new Map())).toThrow(/m01: a label needs a provenance/);
+    expect(applyLabels(rows, new Map(), new Map()).every((r) => r.label === "" && r.labelled_by === "")).toBe(true);
     const blind: LabelProvenance = { source: "human", by: "op-1", at: "2026-10-07T09:30:00Z", blind: true };
-    const labelled = applyLabels(rows, parseTruth("case_id,truth\nm01,answer\nm02,answer\n"), blind);
-    expect(provenanceFromRows(labelled)).toEqual(blind);
-    expect(provenanceFromRows(rows)).toBeNull();
-    const first = labelled[0];
+    const both = parseTruth("case_id,truth\nm01,answer\nm02,answer\n");
+    const perCase = applyLabels(rows, both, new Map([["m01", blind], ["m02", APPROVED_DRAFT_2026_10_03]]));
+    expect([...provenanceByCase(perCase)]).toEqual([["m01", blind], ["m02", APPROVED_DRAFT_2026_10_03]]);
+    expect(provenanceByCase(rows).size).toBe(0);
+    const first = perCase[0];
     if (first === undefined) throw new Error("no row");
-    expect(() => provenanceFromRows([...labelled, { ...first, answerer: "jev", label_source: "human_reviewed" }])).toThrow(/different provenance/);
-    expect(() => provenanceFromRows([{ ...first, labelled_at: "" }])).toThrow(/complete provenance/);
+    expect(() => provenanceByCase([...perCase, { ...first, answerer: "jev", label_source: "human_reviewed" }])).toThrow(/different provenance/);
+    expect(() => provenanceByCase([{ ...first, labelled_at: "" }])).toThrow(/label --source/);
   });
 
   test("[smoke] M1 the recorded UC13 run: all 120 labels are human_reviewed by the operator on 2026-10-03, not blind", async () => {
@@ -168,7 +169,7 @@ describe("labels", () => {
     expect(rows).toHaveLength(120);
     expect(rows.every((r) => r.format_version === "jnj-record/1.1")).toBe(true);
     expect(rows.filter((r) => r.label !== "")).toHaveLength(120);
-    expect(provenanceFromRows(rows)).toEqual(APPROVED_DRAFT_2026_10_03);
+    expect(new Set([...provenanceByCase(rows).values()].map((p) => JSON.stringify(p)))).toEqual(new Set([JSON.stringify(APPROVED_DRAFT_2026_10_03)]));
     expect(rows.some((r) => r.label_source === "human")).toBe(false);
   });
 });

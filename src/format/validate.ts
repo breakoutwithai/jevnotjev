@@ -134,9 +134,21 @@ function text(row: Row, column: string): string {
   return value;
 }
 
+/** YYYY-MM-DD that names a real day (the schema pattern allows 2026-02-31; this does not). */
+function isCalendarDate(date: string): boolean {
+  const [year = NaN, month = NaN, day = NaN] = date.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+}
+
 /** An `agent` label was never reviewed by a person, so it is never counted as truth: the row reads as unlabelled. */
 export function countsAsTruth(row: Row): boolean {
   return row.get("label_source") !== "agent";
+}
+
+/** The label every count, table and gap reads: the row's label, or null when it is empty or an unreviewed `agent` label. */
+export function truthLabel(row: Row): Value {
+  return countsAsTruth(row) ? (row.get("label") ?? null) : null;
 }
 
 /** Errors, gaps and rows for one file's text. Errors make the file invalid; gaps are missing costs or labels. */
@@ -173,6 +185,10 @@ export function validate(csvText: string): Validation {
       answered.set(caseKey, entry);
     }
     if (rowErrors.length > 0) continue;
+    const labelledAt = row.get("labelled_at");
+    if (typeof labelledAt === "string" && !isCalendarDate(labelledAt.slice(0, 10))) {
+      errors.push(`line ${line}: labelled_at: ${quoteText(labelledAt)} is not a calendar date`);
+    }
     const caseId = text(row, "case_id");
     const questionId = text(row, "question_id");
     const answerer = text(row, "answerer");

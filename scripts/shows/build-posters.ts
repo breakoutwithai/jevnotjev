@@ -87,7 +87,7 @@ export async function summariseRun(root: string, folder: string): Promise<RunSum
   for (const { values } of judgedRows) {
     if (truthLabel(values) === null) continue;
     const blind = text(values.get("label_blind"));
-    sources.add(`${text(values.get("label_source"))}${blind ? `, blind: ${blind === "true" ? "yes" : "no"}` : ""}`);
+    sources.add(`${text(values.get("label_source")) || "source not recorded"}${blind ? `, blind: ${blind === "true" ? "yes" : "no"}` : ""}`);
   }
   const result = await evaluateText(`${folder}/records.csv`, csv);
   const question = best ? result.questions.find((q) => q.runId === best.key.runId && q.promptVersion === best.key.promptVersion && q.questionId === best.key.questionId) : undefined;

@@ -104,7 +104,7 @@ describe("ticket office hardening", () => {
       new Request(`${ORIGIN}/api/tickets`, { method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: "{not json" }),
       { remoteAddress: "203.0.113.50" },
     ];
-    for (let i = 0; i < RATE_LIMIT; i++) expect((await handler(...broken())).status).toBe(413);
+    for (let i = 0; i < RATE_LIMIT; i++) expect((await handler(...broken())).status).toBe(400);
     expect((await handler(...ask(valid, "203.0.113.50"))).status).toBe(429);
     expect(store.count()).toBe(0);
   });

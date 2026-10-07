@@ -580,7 +580,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       try {
         const raw = await boundedText(new Response(request.body), MAX_TICKET_BODY, AbortSignal.timeout(5000));
         decoded = JSON.parse(raw);
-      } catch { return reject("too-large-or-invalid", 413); }
+      } catch (error) { return error instanceof SyntaxError ? reject("bad-json", 400) : reject("too-large", 413); }
       // A retry (stored request key) and a backstage request need no catalogue; only a new show ticket does.
       const key = typeof decoded === "object" && decoded !== null && "request_key" in decoded && typeof decoded.request_key === "string" ? decoded.request_key : null;
       const stored = key ? ticketStore.showForKey(key) : undefined;
@@ -594,7 +594,9 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       const checked = checkTicket(decoded, shows);
       if (!checked.ok) return reject(checked.reason, 400);
       if ("trap" in checked) { logger.ticket({ event: "ticket.rejected", rid, reason: "honeypot" }); return json({ ok: true }); }
-      const issued = ticketStore.issue(checked.ticket, clock());
+      let issued;
+      try { issued = ticketStore.issue(checked.ticket, clock()); }
+      catch { return reject("store-error", 503); }
       if (issued.status === "conflict") return reject("request-key-reused", 409);
       logger.ticket({ event: "ticket.issued", rid, ticket: issued.id, kind: issued.kind, show: issued.show });
       return json({ ticket: issued.id, kind: issued.kind, show: issued.show, replay: issued.status === "replay" });

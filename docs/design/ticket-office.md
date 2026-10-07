@@ -35,7 +35,7 @@ popularity = tickets / most tickets on any item            0 when no item has a 
 score      = 0.5 * recency + 0.5 * popularity
 ```
 
-Ties go to the newer item, then the lower id; at most 10 kept (`src/shows/posters.ts` `rankPosters`). Date is the run folder's date, else the date the use-case doc was first committed. The page renders the generated order (latest first, no tickets yet) and reorders from `GET /api/tickets/ranking`, which applies the same function to the store's show-ticket counts. A 14-day half-life was picked so one ticket can lift an item a few days older; a span-scaled recency was rejected because it ties any two-item case.
+Ties go to the newer item, then the id in alphabetical order; at most 10 kept (`src/shows/posters.ts` `rankPosters`). Date is the run folder's date, else the date the use-case doc was first committed. The page renders the generated order (latest first, no tickets yet) and reorders from `GET /api/tickets/ranking`, which applies the same function to the store's show-ticket counts. A 14-day half-life was picked so one ticket can lift an item a few days older; a span-scaled recency was rejected because it ties any two-item case.
 
 ## Flow and layout
 
@@ -54,6 +54,13 @@ Ties go to the newer item, then the lower id; at most 10 kept (`src/shows/poster
 - Rows live only in SQLite at `BACKSTAGE_TICKETS_PATH` or `$STATE_DIRECTORY/tickets.sqlite` (operator: SQLite in the Backstage state dir, no third party). Logs record `ticket.issued` with ticket id, kind and show, or `ticket.rejected` with a reason; never an email, website or idea (test T5).
 - Privacy line on the page: what is kept (email, website and idea if given, show, follow-up choice), why (to hold the ticket and, only if ticked, follow up), where (our own server, never shared or sold), how long (prompt default, operator decision open: until the challenge ends plus 90 days), and deletion on request.
 - Backstage access is not granted by a ticket (prompt default, operator decision open): the operator adds an approved request to `operators.json` by hand.
+
+## Known limits (follow-up)
+
+- The per-address limit keys on the full address: one IPv6 /64 can rotate through many, and there is no global cap on stored rows per window.
+- The limit sees the visitor only when the server runs with `BACKSTAGE_TRUST_PROXY=loopback`; setup enforces that for the session layout the live host uses (`.deploy/backstage-setup.sh`), not for the basic-auth layouts.
+- A ranking response that arrives while a poster link has keyboard focus redraws the posters and drops that focus.
+- Deletion after the retention period is by hand; the page says so.
 
 ## Not decided here
 

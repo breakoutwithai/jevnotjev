@@ -213,24 +213,43 @@ const DRIVER_SELECTORS: readonly string[] = [
 const DRIVER_ROLE_AND_TEXT: readonly string[] = ['getByRole("button", { name: /Open .*judging/ })', 'getByText("Imported 40 cases", { exact: false })'];
 const PAGE_METHODS = new Set(["goto", "locator", "getByRole", "getByText", "waitForTimeout", "waitForFunction", "waitForEvent", "screenshot", "setDefaultTimeout"]);
 
+const LITERAL = String.raw`("[^"\n]*"|'[^'\n]*'|\`[^\`\n]*\`)`;
+/** Every interaction surface in a driver source, each required to be in its literal allowlisted form. */
+function driverSurfaceProblems(source: string): readonly string[] {
+  const problems: string[] = [];
+  // Count every call however it is spaced; each must also match the exact literal form, so a variable or a
+  // spaced selector is a problem rather than invisible.
+  const locatorCalls = source.match(/\blocator\s*\(/g)?.length ?? 0;
+  const literalLocators = [...source.matchAll(new RegExp(String.raw`\.locator\(` + LITERAL + String.raw`\)`, "g"))].map((m) => m[1] ?? "");
+  if (literalLocators.length !== locatorCalls) problems.push(`${locatorCalls - literalLocators.length} locator call(s) not in literal form`);
+  for (const selector of literalLocators) if (!DRIVER_SELECTORS.includes(selector)) problems.push(`selector ${selector}`);
+  const getByCalls = source.match(/\bgetBy\w*\s*\(/g)?.length ?? 0;
+  const getBys = DRIVER_ROLE_AND_TEXT.reduce((n, call) => n + source.split(call).length - 1, 0);
+  if (getByCalls !== getBys) problems.push(`${getByCalls - getBys} getBy call(s) not allowlisted`);
+  for (const m of source.matchAll(/\b(?:p|page)\s*\.\s*(\w+)\s*\(/g)) if (!PAGE_METHODS.has(m[1] ?? "")) problems.push(`page method ${m[1] ?? ""}`);
+  if (/\.(?:mouse|keyboard|touchscreen)\b|dispatchEvent|evaluate|addScriptTag|exposeFunction|\.route\s*\(|\.first\s*\(|\.last\s*\(|\.nth\s*\(|\.filter\s*\(|\[\s*["'`]click/.test(source)) problems.push("input or script path that bypasses a locator");
+  if ((source.match(/waitForFunction\s*\(/g)?.length ?? 0) !== 1) problems.push("waitForFunction count is not 1");
+  return problems;
+}
+
 test("[unit] #134 driver interacts only through allowlisted selectors (agents never label)", async () => {
   const source = await Bun.file(new URL("./backstage-happy-path.ts", import.meta.url)).text();
-  const selectors = [...source.matchAll(/\.locator\(((?:"[^"]*"|'[^']*'|`[^`]*`))\)/g)].map((m) => m[1] ?? "");
-  for (const selector of selectors) expect(DRIVER_SELECTORS).toContain(selector);
-  const roleAndText = [...source.matchAll(/getBy(?:Role|Text|Label|Placeholder|AltText|Title|TestId)\([^)]*\)/g)].map((m) => m[0]);
-  for (const call of roleAndText) expect(DRIVER_ROLE_AND_TEXT).toContain(call);
-  const pageCalls = [...source.matchAll(/\b(?:p|page)\.(\w+)\(/g)].map((m) => m[1] ?? "");
-  for (const method of pageCalls) expect(PAGE_METHODS.has(method)).toBe(true);
-  // No input or script path that bypasses a locator.
-  expect(source).not.toMatch(/\.(?:mouse|keyboard|touchscreen)\b|dispatchEvent|evaluate|addScriptTag|exposeFunction|\.route\(|\.first\(|\.last\(|\.nth\(|\.filter\(/);
-  expect(source.match(/waitForFunction\(/g)).toHaveLength(1);
+  expect(driverSurfaceProblems(source)).toEqual([]);
 });
 
-test("[unit] #134 the allowlist guard fails on a pick click", () => {
-  const mutated = 'await p.locator("#pick-actions button").click();';
-  const selectors = [...mutated.matchAll(/\.locator\(((?:"[^"]*"|'[^']*'|`[^`]*`))\)/g)].map((m) => m[1] ?? "");
-  expect(selectors).toEqual(['"#pick-actions button"']);
-  expect(DRIVER_SELECTORS).not.toContain(selectors[0]);
+test("[unit] #134 the allowlist guard fails on every pick-click shape seen in review", async () => {
+  const source = await Bun.file(new URL("./backstage-happy-path.ts", import.meta.url)).text();
+  for (const mutation of [
+    'await p.locator("#pick-actions button").click();',
+    'await p.locator( "#pick-first").click();',
+    'const pick = "#pick-first"; await p.locator(pick).click();',
+    'await p.locator("#pick-actions").locator("button").click();',
+    'await p.click("#pick-first");',
+    'await p . click("#pick-first");',
+    'await p.getByRole("button", { name: "hand_off" }).click();',
+    'await p.getByRole( "button", { name: "answer" }).click();',
+    'await p.locator("#pick-actions button").first().click();',
+  ]) expect(driverSurfaceProblems(source + "\n" + mutation).length).toBeGreaterThan(0);
 });
 
 describe("#134 UC13 inputs", () => {

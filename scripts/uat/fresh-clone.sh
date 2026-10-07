@@ -67,7 +67,7 @@ validation_status=0
 while IFS= read -r -d '' csv; do
   # Print only the verdict line: a diagnostic can quote a cell, and this script never sees the keys to redact them.
   if validation=$(bun run validate "$csv" 2>&1); then validation_rc=0; else validation_rc=1; validation_status=1; fi
-  printf '%s\n' "$validation" | grep -E '^(VALID|INVALID)' || printf 'validate exit %s\n' "$validation_rc"
+  printf '%s\n' "$validation" | grep -E '^(VALID|INVALID) rows=[0-9]+ cases=[0-9]+ errors=[0-9]+ gaps=[0-9]+$' || printf 'validate exit %s\n' "$validation_rc"
 done < <(find "$out" -name records.csv -type f -newer "$marker" -print0)
 if ! status=$(git -C "$clone" status --porcelain --untracked-files=all); then
   echo 'git status failed for clone' >&2

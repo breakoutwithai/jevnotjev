@@ -15,7 +15,7 @@ Sources this file restates rather than replaces: [FLOW.md](../../FLOW.md) (scope
 - **should**: planned, but the happy path works without it.
 - **later**: after day 18, or blocked on an open decision.
 
-Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test whose name carries the id (`[unit] R5.e ...`: a `bun test` title starts with the tier in brackets, then the id); see [pipeline.md](../process/pipeline.md#planned-traceability).
+Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test whose name carries the id (`[unit] R5.e ...`: a `bun test` title starts with the tier in brackets, then the id); see [pipeline.md](../process/pipeline.md#traceability).
 
 ## Requirements
 

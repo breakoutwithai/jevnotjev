@@ -2,7 +2,7 @@
 
 Ask one typed question (yes/no, pick one of N, or a score level) about a set of text cases, of up to four arms: Jev, the OpenAI Decisions API, an LLM and a keyword rule. Every answer comes back as a `jnj-record/1.2` row with its outcome, cost and pins. The run is priced before anything is spent, and once a person has labelled the rows the verdict comes back with a CI exit code.
 
-The same six tools are reached three ways: the command line (`src/decide/cli.ts`, this page), a stdio MCP server (added in M4) and HTTP under `/api/v1` (added in M5). The core is `src/decide/`; every surface is a thin wrapper over it.
+The same six tools are reached three ways: the command line (`src/decide/cli.ts`, this page), a stdio MCP server (`src/mcp/server.ts`) and HTTP under `/api/v1` (added in M5). The core is `src/decide/`; every surface is a thin wrapper over it.
 
 ## Contract (v1)
 
@@ -140,7 +140,71 @@ A `run` stopped by the budget cap still writes every row: the calls not made are
 
 ## MCP
 
-Added in M4.
+`bun src/mcp/server.ts` is a stdio MCP server with the six tools, for coding agents. It runs on the caller's machine: install with `bun install` in a clone of this repo.
+
+Keys come from the server process environment only, the same names as the CLI: `JEV_API_KEY` (or, when it is empty, `TYPESAFE_API_KEY`), `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`. They are read per call and never appear in a tool argument, result or error. With no `ANTHROPIC_API_KEY` the llm arm uses the local `claude` binary. Set only the keys for the arms you use.
+
+Claude Code, with `claude mcp add` (the shell expands the keys, and Claude Code stores the values in its local config):
+
+```sh
+claude mcp add jnj-decide -e JEV_API_KEY="$JEV_API_KEY" -e OPENAI_API_KEY="$OPENAI_API_KEY" \
+  -- bun /path/to/jevnotjev/src/mcp/server.ts
+```
+
+Or a project `.mcp.json`, where `${VAR}` is expanded from the environment Claude Code starts in, so no key value is written to any file:
+
+```json
+{
+  "mcpServers": {
+    "jnj-decide": {
+      "command": "bun",
+      "args": ["/path/to/jevnotjev/src/mcp/server.ts"],
+      "env": {
+        "JEV_API_KEY": "${JEV_API_KEY}",
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+Arguments are the contract's JSON shapes: `questions` is an array of QuestionSpec, `cases` an array of Case, `arms` an Arms object, `options` a RunOptions object. Each result is one text block of JSON, the same body the CLI prints; bad input is a tool error (`isError`) whose text names the field, the same message the CLI prints with exit 2.
+
+`run` returns the rows inline when called without `out`, like `ask`; with `out` it writes the jnj-record/1.2 CSV to that path on the server's machine (relative paths resolve from the server's working directory) and returns the summary. Use `out` for anything beyond a handful of cases, then `verdict` and `validate` on the same file.
+
+One call per tool (the `arguments` object of a `tools/call`):
+
+```jsonc
+// arms: arms, pinned models, dated prices, which key env names are set
+{}
+
+// estimate: provider calls, upper-bound cost, cases a verdict needs (spends 0)
+{ "questions": [{ "name": "needs_human", "type": "noul", "instructions": "Does this message need a person?" }],
+  "cases": [{ "id": "m04", "input": "Do you have women's boots in size 6?" }],
+  "arms": { "jev": true, "decisions": true, "llm": "claude-haiku-5-5" } }
+
+// ask: one case, rows with evidence
+{ "questions": [{ "name": "topic", "type": "choice", "instructions": "What is this message mainly about?",
+                  "choices": [{ "name": "stock", "definition": "Availability." }, { "name": "other", "definition": "Anything else." }] }],
+  "case": { "id": "m04", "input": "Do you have women's boots in size 6?" },
+  "arms": { "jev": true, "llm": false } }
+
+// run: many cases to a records file, stop before spending more than 5 cents
+{ "questions": [{ "name": "urgency", "type": "score", "instructions": "How urgent is this message?",
+                  "levels": [{ "label": "Not urgent", "description": "General." }, { "label": "Urgent", "description": "Today." }] }],
+  "cases": [{ "id": "m04", "input": "Do you have women's boots in size 6?" }, { "id": "m05", "input": "My order never came." }],
+  "options": { "budgetUsd": 0.05, "runId": "shop-001" },
+  "out": "/abs/path/records.csv" }
+
+// verdict: after a person has labelled the file; exit_code 0, 3 or 4 in the body; an invalid file is a tool error
+{ "file": "/abs/path/records.csv", "question": "urgency" }
+
+// validate: the record validator
+{ "file": "/abs/path/records.csv" }
+```
+
+`JNJ_DECIDE_FIXTURES` (see Test-only above) works the same way in the server's environment, with the same `NOTE` on stderr and the same row stamp (`evidence.replayed_fixture`, `-fixture` run id suffix), and is used by `src/mcp/server.test.ts`; never set it outside a test.
 
 ## HTTP
 

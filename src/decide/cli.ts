@@ -27,7 +27,7 @@ import { LLM_TRANSPORTS, type DecideSpawn } from "./llm.ts";
 import { PRICE_TABLE, PRICE_TABLE_DATE } from "./prices.ts";
 import { RULE_MODEL } from "./rule.ts";
 import { rowsToCsv } from "./rows.ts";
-import { DEFAULT_LLM, DEFAULT_PROMPT_VERSION, DEFAULT_RUN_ID, DecideError, estimate, run, type RunDeps } from "./run.ts";
+import { DEFAULT_LLM, DEFAULT_PROMPT_VERSION, DEFAULT_RUN_ID, DecideError, estimate, run, type DecideRequest, type RunDeps } from "./run.ts";
 import type { Case, DecideFetch, ProviderKeys, RuleArm } from "./types.ts";
 
 export const EXIT = { ok: 0, useJev: 0, failure: 1, invalid: 2, dontUseJev: 3, notEnoughEvidence: 4 } satisfies Record<string, number>;
@@ -53,7 +53,8 @@ export interface Io {
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
-class CliInputError extends Error {}
+/** Bad input from the caller: exit 2 on the CLI, a tool error on MCP. */
+export class CliInputError extends Error {}
 
 function json(value: unknown): string {
   return JSON.stringify(value, null, 2) + "\n";
@@ -89,7 +90,8 @@ export function fixtureDeps(set: FixtureSet): Pick<RunDeps, "fetch" | "spawn" | 
   return { fetch, spawn, which: () => (cli === null ? null : "claude") };
 }
 
-async function providerDeps(env: Env, io: Io): Promise<RunDeps> {
+/** The run's provider deps from the caller's env: the keys, plus the test-only fixture answers when FIXTURES_ENV is set. */
+export async function providerDeps(env: Env, io: Pick<Io, "err">): Promise<RunDeps> {
   const keys: ProviderKeys = keysFromEnv(env);
   const fixturePath = env[FIXTURES_ENV];
   if (fixturePath === undefined || fixturePath === "") return { keys };
@@ -98,7 +100,8 @@ async function providerDeps(env: Env, io: Io): Promise<RunDeps> {
   return { keys, ...fixtureDeps(set) };
 }
 
-function armsReport(env: Env): unknown {
+/** The arms tool's body: arms, models, dated prices, types and which key env names are set (never a key value). */
+export function armsReport(env: Env): unknown {
   const keySet = (name: string): boolean => (env[name] ?? "") !== "";
   const jevKeySet = keysFromEnv(env).jev !== undefined;
   const fixtureMode = (env[FIXTURES_ENV] ?? "") !== "";
@@ -161,35 +164,47 @@ function guardOut(c: SpendCommand): void {
   }
 }
 
-async function spend(c: SpendCommand, io: Io, env: Env): Promise<number> {
-  guardOut(c);
-  const { request } = await spendInput(c);
-  if (c.cmd === "estimate") {
-    io.out(json(estimate(request)));
-    return EXIT.ok;
-  }
-  if (c.dryRun) {
-    io.out(json({ dryRun: true, calls: 0, spentUsd: 0, estimate: estimate(request) }));
-    return EXIT.ok;
-  }
+/** A tool's answer, shared by the CLI and the MCP server: the exit code, the JSON body, and error lines for stderr. */
+export interface ToolAnswer {
+  readonly code: number;
+  readonly body: unknown;
+  readonly errors: readonly string[];
+}
+
+/**
+ * estimate, ask and run over a parsed request. `out` set: run writes the jnj-record/1.2 CSV there and returns a summary;
+ * `out` absent: run returns the rows inline, as ask does. Dry-run makes no call; deps are only built when a call is due.
+ * `env` decides fixture stamping (src/decide/fixture-stamp.ts). Throws DecideError on input the core rejects.
+ */
+export async function spendTool(
+  cmd: SpendCommand["cmd"], request: DecideRequest, out: string | undefined, deps: () => Promise<RunDeps>, env: Env,
+): Promise<ToolAnswer> {
+  if (cmd === "estimate") return { code: EXIT.ok, body: estimate(request), errors: [] };
+  if (request.options?.dryRun === true) return { code: EXIT.ok, body: { dryRun: true, calls: 0, spentUsd: 0, estimate: estimate(request) }, errors: [] };
   estimate(request); // reject bad input before any key or fixture is read
-  const raw = await run(request, await providerDeps(env, io));
+  const raw = await run(request, await deps());
   const result = fixtureModeActive(env) ? { ...raw, rows: stampFixtureRows(raw.rows) } : raw;
   const summary = { calls: result.calls, spentUsd: result.spentUsd, stoppedByBudget: result.stoppedByBudget, budgetNote: result.budgetNote, counts: result.counts, estimate: result.estimate };
-  if (c.cmd === "ask") {
-    io.out(json({ rows: result.rows, ...summary }));
-    return EXIT.ok;
-  }
-  const out = c.out ?? "";
+  if (cmd === "ask" || out === undefined) return { code: EXIT.ok, body: { rows: result.rows, ...summary }, errors: [] };
   try {
     await mkdir(dirname(out), { recursive: true });
     await Bun.write(out, rowsToCsv(result.rows));
   } catch (error) {
-    io.err(`ERROR cannot write ${out}: ${error instanceof Error ? error.message : "write failed"}`);
-    return EXIT.failure;
+    return { code: EXIT.failure, body: null, errors: [`cannot write ${out}: ${error instanceof Error ? error.message : "write failed"}`] };
   }
-  io.out(json({ out, rows: result.rows.length, ...summary }));
-  return EXIT.ok;
+  return { code: EXIT.ok, body: { out, rows: result.rows.length, ...summary }, errors: [] };
+}
+
+function emit(answer: ToolAnswer, io: Io): number {
+  for (const e of answer.errors) io.err(`ERROR ${e}`);
+  if (answer.body !== null) io.out(json(answer.body));
+  return answer.code;
+}
+
+async function spend(c: SpendCommand, io: Io, env: Env): Promise<number> {
+  guardOut(c);
+  const { request } = await spendInput(c);
+  return emit(await spendTool(c.cmd, request, c.out, () => providerDeps(env, io), env), io);
 }
 
 function exitFor(verdicts: readonly Verdict[]): number {
@@ -198,42 +213,48 @@ function exitFor(verdicts: readonly Verdict[]): number {
   return EXIT.useJev;
 }
 
-async function verdictCommand(file: string, question: string | undefined, io: Io): Promise<number> {
+/** Labelled records to verdicts and the exit code. An invalid file is code 2 with the validator's errors and no body;
+ * an unreadable file or no rows for the question throws CliInputError. */
+export async function verdictTool(file: string, question: string | undefined): Promise<ToolAnswer> {
   const text = await readText(file);
   const result = validate(text);
-  if (result.errors.length > 0) {
-    for (const e of result.errors) io.err(`ERROR ${e}`);
-    return EXIT.invalid;
-  }
+  if (result.errors.length > 0) return { code: EXIT.invalid, body: null, errors: result.errors };
   const groups = groupCohorts(result.rows).filter((g) => question === undefined || g.key.questionId === question);
   if (groups.length === 0) throw new CliInputError(question === undefined ? `${file}: no rows` : `${file}: no rows for question ${question}`);
   const seed = await fileSeed(text);
   const verdicts = groups.map((g) => ({ key: g.key, v: verdict(metricsOfCohortRows(g.rows, g.key), seed) }));
   const code = exitFor(verdicts.map((x) => x.v));
-  io.out(json({
+  const body = {
     exit_code: code,
     verdicts: verdicts.map(({ key, v }) => ({
       run_id: key.runId, prompt_version: key.promptVersion, question_id: key.questionId,
       verdict: v.verdict, rule: v.rule, condition: v.condition, unmet: v.unmet, reason: v.reason, addN: v.addN,
       limitations: v.limitations, numbers: v.numbers, ruleComparison: v.ruleComparison,
     })),
-  }));
-  return code;
+  };
+  return { code, body, errors: [] };
 }
 
-async function validateCommand(file: string, io: Io): Promise<number> {
+/** The record validator with its own codes: 0 valid, 1 invalid or unreadable. */
+export async function validateTool(file: string): Promise<ToolAnswer> {
   let text: string;
   try {
     text = await readText(file);
   } catch (error) {
-    io.err(`ERROR ${error instanceof Error ? error.message : "read failed"}`);
-    return 1;
+    return { code: 1, body: null, errors: [error instanceof Error ? error.message : "read failed"] };
   }
   const result = validate(text);
   const { lines, exitCode } = report(result);
-  for (const e of result.errors) io.err(`ERROR ${e}`);
-  io.out(json({ valid: exitCode === 0, exit_code: exitCode, errors: result.errors, gaps: result.gaps, summary: lines.at(-1) ?? "", lines }));
-  return exitCode;
+  const body = { valid: exitCode === 0, exit_code: exitCode, errors: result.errors, gaps: result.gaps, summary: lines.at(-1) ?? "", lines };
+  return { code: exitCode, body, errors: result.errors };
+}
+
+async function verdictCommand(file: string, question: string | undefined, io: Io): Promise<number> {
+  return emit(await verdictTool(file, question), io);
+}
+
+async function validateCommand(file: string, io: Io): Promise<number> {
+  return emit(await validateTool(file), io);
 }
 
 export async function main(argv: readonly string[], io: Io, env: Env): Promise<number> {

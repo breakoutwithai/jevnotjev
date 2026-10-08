@@ -1,5 +1,5 @@
 {
-  "minFiles": 89,
+  "minFiles": 90,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -89,6 +89,7 @@
     "src/labels/rank.test.ts": 9,
     "src/labels/starter-packs.test.ts": 8,
     "src/labels/suggest.test.ts": 10,
+    "src/mcp/server.test.ts": 5,
     "src/shows/posters.test.ts": 6
   }
 }

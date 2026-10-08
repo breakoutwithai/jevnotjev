@@ -167,7 +167,7 @@
   var record_v1_schema_default = {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: "https://github.com/breakoutwithai/jevnotjev/format/record-v1.schema.json",
-    title: "Jev!Jev eval record, format jnj-record/1 and jnj-record/1.1",
+    title: "Jev!Jev eval record, format jnj-record/1, jnj-record/1.1 and jnj-record/1.2",
     description: "One CSV row = one answerer's answer to one question about one test case. An empty CSV cell is read as null. See format/README.md.",
     type: "object",
     additionalProperties: false,
@@ -192,7 +192,7 @@
       "latency_ms"
     ],
     properties: {
-      format_version: { enum: ["jnj-record/1", "jnj-record/1.1"], description: "1.1 adds label provenance; a /1 file validates unchanged" },
+      format_version: { enum: ["jnj-record/1", "jnj-record/1.1", "jnj-record/1.2"], description: "1.1 adds label provenance; 1.2 adds the answerer decisions and the outcome column; /1 and /1.1 files validate unchanged" },
       run_id: { type: "string", pattern: "^[A-Za-z0-9_.-]{1,64}$" },
       prompt_version: { type: "string", pattern: "^[A-Za-z0-9_.-]{1,64}$" },
       case_id: { type: "string", pattern: "^[A-Za-z0-9_-]{1,64}$" },
@@ -200,9 +200,9 @@
       question_id: { type: "string", pattern: "^[A-Za-z0-9_-]{1,64}$" },
       question: { type: "string", minLength: 1 },
       answer_set: { type: "string", pattern: "^[^|]+(\\|[^|]+)+$", description: "Allowed answers separated by |, at least two" },
-      answerer: { enum: ["jev", "rule", "llm", "human"] },
+      answerer: { enum: ["jev", "rule", "llm", "human", "decisions"], description: "decisions (the OpenAI Decisions API) is jnj-record/1.2 only" },
       answerer_model: { type: "string", minLength: 1, description: "e.g. jev-1.13.0, a rule name, an LLM model id, a person's initials" },
-      output: { type: "string", minLength: 1 },
+      output: { type: ["string", "null"], minLength: 1, description: "Empty only on a jnj-record/1.2 row whose outcome is not answered" },
       confidence: { type: ["number", "null"], minimum: 0, maximum: 1 },
       label: { enum: ["accept", "reject", null] },
       label_source: {
@@ -236,12 +236,25 @@
         enum: ["accept", "reject", null],
         description: "jnj-record/1.1, optional column. The call on this answer from the labeller's final pick, made after the blind pick and the suggestion step. Reported beside label, never instead of it: label stays the scoring truth."
       },
+      outcome: {
+        enum: ["answered", "refused", "unsupported", "error", null],
+        description: "jnj-record/1.2, optional column. Whether the answerer gave an answer: answered, refused, unsupported (the answerer cannot take this input) or error. Empty or absent means answered. A row that is not answered has no output and no label."
+      },
       suggestion_shown: {
         enum: ["true", "false", null],
         description: "jnj-record/1.1, optional column. true when Jev's ranked suggestion for the case was shown before the final pick; false when none was available. Present exactly when label_final is."
       }
     },
     allOf: [
+      {
+        if: { required: ["outcome"], properties: { outcome: { enum: ["refused", "unsupported", "error"] } } },
+        then: { properties: { output: { type: "null" }, label: { type: "null" } } },
+        else: { properties: { output: { type: "string" } } }
+      },
+      {
+        if: { properties: { format_version: { enum: ["jnj-record/1", "jnj-record/1.1"] } } },
+        then: { properties: { answerer: { enum: ["jev", "rule", "llm", "human"] }, outcome: { type: "null" } } }
+      },
       {
         if: { properties: { label: { type: "null" } } },
         then: { properties: { label_source: { type: "null" } } },
@@ -261,7 +274,7 @@
         }
       },
       {
-        if: { properties: { format_version: { const: "jnj-record/1.1" }, label: { type: "string" } } },
+        if: { properties: { format_version: { enum: ["jnj-record/1.1", "jnj-record/1.2"] }, label: { type: "string" } } },
         then: {
           required: ["labelled_by", "labelled_at", "label_blind"],
           properties: {
@@ -272,7 +285,7 @@
         }
       },
       {
-        if: { properties: { format_version: { const: "jnj-record/1.1" }, label: { type: "null" } } },
+        if: { properties: { format_version: { enum: ["jnj-record/1.1", "jnj-record/1.2"] }, label: { type: "null" } } },
         then: {
           properties: {
             labelled_by: { type: "null" },
@@ -783,7 +796,8 @@
   var LABELLER_HANDLE = new RegExp(record_v1_schema_default.properties.labelled_by.pattern, "u");
   var LABELLED_AT = new RegExp(record_v1_schema_default.properties.labelled_at.pattern, "u");
   var SUGGESTION_COLUMNS = ["label_final", "suggestion_shown"];
-  var OPTIONAL_COLUMNS = ["price_table_date", ...PROVENANCE_COLUMNS, ...SUGGESTION_COLUMNS];
+  var COLUMNS_V1_2 = [...COLUMNS_V1_1, "price_table_date", "outcome"];
+  var OPTIONAL_COLUMNS = ["price_table_date", ...PROVENANCE_COLUMNS, ...SUGGESTION_COLUMNS, "outcome"];
   var INTEGER_COLUMNS = new Set(["tokens_in", "tokens_out", "latency_ms"]);
   var NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);
   var INTEGER_TEXT = /^[0-9]+\n?$/;
@@ -930,10 +944,10 @@
       const answerer = text(row, "answerer");
       const runId = text(row, "run_id");
       const promptVersion = text(row, "prompt_version");
-      const output = text(row, "output");
+      const output = cell(row, "output");
       const answerSet = text(row, "answer_set");
       const where = `(${caseId}, ${questionId}, ${answerer})`;
-      if (!answerSet.split("|").includes(output)) {
+      if (typeof output === "string" && !answerSet.split("|").includes(output)) {
         errors.push(`line ${line}: output ${quoteText(output)} is not in answer_set ${quoteText(answerSet)}`);
       }
       const key = JSON.stringify([runId, caseId, questionId, answerer]);
@@ -957,9 +971,10 @@
       }
       if (cell(row, "cost_usd") === null)
         gaps.push(`line ${line}: cost_usd missing ${where}`);
-      if (cell(row, "label") === null)
-        gaps.push(`line ${line}: unlabelled ${where}`);
-      else if (!countsAsTruth(row))
+      if (cell(row, "label") === null) {
+        if (output !== null)
+          gaps.push(`line ${line}: unlabelled ${where}`);
+      } else if (!countsAsTruth(row))
         gaps.push(`line ${line}: agent label not reviewed ${where}`);
     }
     for (const { label, methods } of answered.values()) {
@@ -1225,10 +1240,14 @@
     if (row === undefined)
       return "missing";
     const cost = row.get("cost_usd");
-    const parts = [text3(row, "output"), typeof cost === "number" ? `$${cost.toFixed(6)}` : "cost missing"];
+    const parts = [answerOf(row), typeof cost === "number" ? `$${cost.toFixed(6)}` : "cost missing"];
     if (truthLabel(row) === null)
       parts.push("unlabelled");
     return parts.join(", ");
+  }
+  function answerOf(row) {
+    const output = row.get("output");
+    return typeof output === "string" ? output : text3(row, "outcome");
   }
   function matchingMethods(line) {
     const present = ARMS.flatMap((arm) => {

@@ -1,0 +1,9 @@
+format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output,confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms,labelled_by,labelled_at,label_blind,price_table_date,outcome
+jnj-record/1.2,run-002,refund-q.v1,m01,"Hi, the kettle arrived broken. Can I get my money back?",q1,Is this message asking for a refund?,yes|no,jev,jev-1.13.0,yes,0.96,,,42,1,1.764e-06,380,,,,2026-10-08,answered
+jnj-record/1.2,run-002,refund-q.v1,m02,What time does the shop open on Saturday?,q1,Is this message asking for a refund?,yes|no,jev,jev-1.13.0,no,0.98,,,38,1,1.596e-06,350,,,,2026-10-08,answered
+jnj-record/1.2,run-002,refund-q.v1,m01,"Hi, the kettle arrived broken. Can I get my money back?",q1,Is this message asking for a refund?,yes|no,rule,keywords:refund|return|money back,yes,,,,0,0,0,1,,,,,answered
+jnj-record/1.2,run-002,refund-q.v1,m02,What time does the shop open on Saturday?,q1,Is this message asking for a refund?,yes|no,rule,keywords:refund|return|money back,no,,,,0,0,0,1,,,,,answered
+jnj-record/1.2,run-002,refund-q.v1,m01,"Hi, the kettle arrived broken. Can I get my money back?",q1,Is this message asking for a refund?,yes|no,llm,example-llm,yes,,,,120,3,0.000135,1900,,,,2026-10-08,answered
+jnj-record/1.2,run-002,refund-q.v1,m02,What time does the shop open on Saturday?,q1,Is this message asking for a refund?,yes|no,llm,example-llm,,,,,115,0,0.0000115,1750,,,,2026-10-08,error
+jnj-record/1.2,run-002,refund-q.v1,m01,"Hi, the kettle arrived broken. Can I get my money back?",q1,Is this message asking for a refund?,yes|no,decisions,example-decisions,yes,0.91,,,60,0,0.000006,900,,,,2026-10-08,answered
+jnj-record/1.2,run-002,refund-q.v1,m02,What time does the shop open on Saturday?,q1,Is this message asking for a refund?,yes|no,decisions,example-decisions,,,,,58,0,0.0000058,850,,,,2026-10-08,refused

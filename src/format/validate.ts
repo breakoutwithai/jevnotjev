@@ -1,4 +1,4 @@
-// Validate a Jev!Jev eval record CSV against format jnj-record/1.
+// Validate a Jev!Jev eval record CSV against format jnj-record/1, /1.1 and /1.2.
 // Output text (ERROR and GAP lines, per-answerer summary, VALID/INVALID) is the message contract in format/README.md.
 // Pure: takes the file's text, uses no Node or Bun APIs, so the browser imports it. CLI: cli.ts.
 
@@ -21,8 +21,12 @@ export const LABELLED_AT = new RegExp(schemaJson.properties.labelled_at.pattern,
  * shown. Optional 1.1 columns; `label` stays the blind pick and the only label counted as truth.
  */
 export const SUGGESTION_COLUMNS: readonly string[] = ["label_final", "suggestion_shown"];
+/** jnj-record/1.2 outcomes (format/README.md "Answerer decisions and outcomes"). An absent or empty outcome means answered. */
+export const OUTCOMES: readonly string[] = ["answered", "refused", "unsupported", "error"];
+/** The header a jnj-record/1.2 writer uses: the 1.1 columns, the price table date and the outcome. */
+export const COLUMNS_V1_2: readonly string[] = [...COLUMNS_V1_1, "price_table_date", "outcome"];
 /** Columns a file may leave out of its header (format/README.md "Optional columns"). The database does not store them. */
-const OPTIONAL_COLUMNS: readonly string[] = ["price_table_date", ...PROVENANCE_COLUMNS, ...SUGGESTION_COLUMNS];
+const OPTIONAL_COLUMNS: readonly string[] = ["price_table_date", ...PROVENANCE_COLUMNS, ...SUGGESTION_COLUMNS, "outcome"];
 
 const INTEGER_COLUMNS = new Set(["tokens_in", "tokens_out", "latency_ms"]);
 const NUMBER_COLUMNS = new Set(["confidence", "cost_usd"]);
@@ -210,10 +214,11 @@ export function validate(csvText: string): Validation {
     const answerer = text(row, "answerer");
     const runId = text(row, "run_id");
     const promptVersion = text(row, "prompt_version");
-    const output = text(row, "output");
+    // Null only on a 1.2 row whose outcome is not answered (the schema allows nothing else): no answer to check.
+    const output = cell(row, "output");
     const answerSet = text(row, "answer_set");
     const where = `(${caseId}, ${questionId}, ${answerer})`;
-    if (!answerSet.split("|").includes(output)) {
+    if (typeof output === "string" && !answerSet.split("|").includes(output)) {
       errors.push(`line ${line}: output ${quoteText(output)} is not in answer_set ${quoteText(answerSet)}`);
     }
     const key = JSON.stringify([runId, caseId, questionId, answerer]);
@@ -236,7 +241,10 @@ export function validate(csvText: string): Validation {
       );
     }
     if (cell(row, "cost_usd") === null) gaps.push(`line ${line}: cost_usd missing ${where}`);
-    if (cell(row, "label") === null) gaps.push(`line ${line}: unlabelled ${where}`);
+    // A row with no answer has nothing to label, so it is never an unlabelled gap.
+    if (cell(row, "label") === null) {
+      if (output !== null) gaps.push(`line ${line}: unlabelled ${where}`);
+    }
     else if (!countsAsTruth(row)) gaps.push(`line ${line}: agent label not reviewed ${where}`);
   }
   // D12: each case needs a row from every method; `human` is not one of them. An absent method is a gap, not an error.

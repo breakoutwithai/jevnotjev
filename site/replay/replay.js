@@ -45,8 +45,11 @@
   function limitsBlock(r) {
     function items(lines, prefix) { return "<ul>" + lines.map(function (t) { return "<li>" + esc(prefix + t) + "</li>"; }).join("") + "</ul>"; }
     var many = r.questions.length > 1;
+    var ids = r.questions.map(function (q) { return q.questionId; });
+    var unique = ids.every(function (id, i) { return ids.indexOf(id) === i; });
     var qs = r.questions.map(function (q) {
-      return (many ? '<p class="run-name" role="heading" aria-level="3">Question ' + esc(q.questionId) + ": " + esc(q.question) + "</p>" : "") + items(q.limitations, "Limitation: ");
+      var name = unique ? q.questionId : q.runId + " " + q.promptVersion + " " + q.questionId;
+      return (many ? '<p class="run-name" role="heading" aria-level="3">Question ' + esc(name) + ": " + esc(q.question) + "</p>" : "") + items(q.limitations, "Limitation: ");
     }).join("");
     return '<p class="run-name" role="heading" aria-level="3">What limits a verdict on this run</p>' + qs +
       '<p class="run-name" role="heading" aria-level="3">Where each method\'s labels came from</p>' + items(r.provenance, "");

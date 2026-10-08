@@ -1,0 +1,42 @@
+{
+ "schema": "jnj-decide-fixture/1",
+ "captured": "2026-10-08",
+ "arm": "llm",
+ "verified": false,
+ "note": "UNVERIFIED: no raw Messages API response was captured in M0 (the Anthropic key was empty, HTTP 401). The answer text is the real claude -p --model claude-haiku-5-5 reply from M0 (haiku-response.json result); the envelope (content blocks with a leading thinking block, stop_reason, usage) follows the documented Messages shape. usage.input_tokens is not measured.",
+ "source": "M0 haiku-response.json result text in a documented Messages envelope",
+ "http": 200,
+ "request": {
+  "model": "claude-haiku-5-5",
+  "max_tokens": 1024,
+  "messages": [
+   {
+    "role": "user",
+    "content": "Shop message: \"Do you have women's boots in size 6?\"\nAnswer three questions. Reply with JSON only, no prose, exactly this shape:\n{\"needs_human\":\"yes\"|\"no\",\"topic\":\"stock\"|\"price\"|\"other\",\"urgency\":\"Not urgent\"|\"Somewhat urgent\"|\"Very urgent\"}\nneeds_human: Does answering this shop message need a person to check live stock, a booking or a policy?\ntopic: What is this shop message mainly about? stock = whether an item or size is available; price = what something costs; other = anything else.\nurgency: How urgent is this shop message? Not urgent = general question; Somewhat urgent = wants an answer today; Very urgent = safety, injury or a booking about to start.\n"
+   }
+  ]
+ },
+ "response": {
+  "id": "msg_fixture_unverified_01",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-haiku-5-5",
+  "content": [
+   {
+    "type": "thinking",
+    "thinking": "The customer asks whether a size is in stock.",
+    "signature": "fixture"
+   },
+   {
+    "type": "text",
+    "text": "{\"needs_human\":\"yes\",\"topic\":\"stock\",\"urgency\":\"Not urgent\"}"
+   }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 190,
+   "output_tokens": 32
+  }
+ }
+}

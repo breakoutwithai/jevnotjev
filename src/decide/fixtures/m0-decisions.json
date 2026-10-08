@@ -1,0 +1,122 @@
+{
+ "schema": "jnj-decide-fixture/1",
+ "captured": "2026-10-08",
+ "arm": "decisions",
+ "verified": true,
+ "source": "M0 probe decisions-body.json and decisions-response.json, HTTP 200, 1324 ms",
+ "http": 200,
+ "request": {
+  "model": "gpt-6-luna",
+  "input": "Do you have women's boots in size 6?",
+  "questions": [
+   {
+    "type": "predicate",
+    "name": "needs_human",
+    "instructions": "Does answering this shop message need a person to check live stock, a booking or a policy?"
+   },
+   {
+    "type": "choice",
+    "name": "topic",
+    "instructions": "What is this shop message mainly about?",
+    "choices": [
+     {
+      "value": "stock",
+      "description": "Whether an item or size is available."
+     },
+     {
+      "value": "price",
+      "description": "What something costs."
+     },
+     {
+      "value": "other",
+      "description": "Anything else."
+     }
+    ]
+   },
+   {
+    "type": "score",
+    "name": "urgency",
+    "instructions": "How urgent is this shop message?",
+    "levels": [
+     {
+      "label": "Not urgent",
+      "description": "General question."
+     },
+     {
+      "label": "Somewhat urgent",
+      "description": "Wants an answer today."
+     },
+     {
+      "label": "Very urgent",
+      "description": "Safety, injury or a booking about to start."
+     }
+    ]
+   }
+  ]
+ },
+ "response": {
+  "model": "gpt-6-luna",
+  "answers": [
+   {
+    "type": "predicate",
+    "name": "needs_human",
+    "probability": 1
+   },
+   {
+    "type": "choice",
+    "name": "topic",
+    "choice": "stock",
+    "probabilities": [
+     {
+      "value": "stock",
+      "probability": 0.98
+     },
+     {
+      "value": "price",
+      "probability": 0
+     },
+     {
+      "value": "other",
+      "probability": 0.02
+     }
+    ],
+    "confidence": 0.97
+   },
+   {
+    "type": "score",
+    "name": "urgency",
+    "score": 0.02,
+    "probabilities": [
+     {
+      "value": 0,
+      "label": "Not urgent",
+      "probability": 0.98
+     },
+     {
+      "value": 1,
+      "label": "Somewhat urgent",
+      "probability": 0.02
+     },
+     {
+      "value": 2,
+      "label": "Very urgent",
+      "probability": 0
+     }
+    ],
+    "confidence": 0.97
+   }
+  ],
+  "usage": {
+   "input_tokens": 431,
+   "input_tokens_details": {
+    "cached_tokens": 0,
+    "cache_write_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "reasoning_tokens": 0
+   },
+   "total_tokens": 431
+  }
+ }
+}

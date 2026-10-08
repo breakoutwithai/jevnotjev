@@ -1,0 +1,23 @@
+{
+ "schema": "jnj-decide-fixture/1",
+ "captured": "2026-10-08",
+ "arm": "llm",
+ "verified": false,
+ "note": "UNVERIFIED: the documented stop_reason refusal (whats-new-haiku-5-5, read 2026-10-08) in a Messages envelope; no live refusal was captured.",
+ "source": "documented Messages shape",
+ "http": 200,
+ "request": null,
+ "response": {
+  "id": "msg_fixture_unverified_02",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-haiku-5-5",
+  "content": [],
+  "stop_reason": "refusal",
+  "stop_sequence": null,
+  "usage": {
+   "input_tokens": 60,
+   "output_tokens": 0
+  }
+ }
+}

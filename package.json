@@ -5,6 +5,7 @@
   "packageManager": "bun@latest",
   "scripts": {
     "validate": "bun src/format/cli.ts",
+    "decide": "bun src/decide/cli.ts",
     "migrate": "bun src/db/migrate-cli.ts",
     "load": "bun src/db/load-cli.ts",
     "export": "bun src/db/export-cli.ts",

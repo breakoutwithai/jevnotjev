@@ -1,0 +1,80 @@
+{
+ "schema": "jnj-decide-fixture/1",
+ "captured": "2026-10-08",
+ "arm": "jev",
+ "verified": true,
+ "source": "M0 probe jev-body.json and jev-response.json, one systemone call, HTTP 200, 333 ms",
+ "http": 200,
+ "request": {
+  "state": "Do you have women's boots in size 6?",
+  "model": "jev-1.13.0",
+  "questions": {
+   "needs_human": {
+    "type": "noul",
+    "instructions": {
+     "question": "Does answering this shop message need a person to check live stock, a booking or a policy?"
+    }
+   },
+   "topic": {
+    "type": "choice",
+    "instructions": {
+     "question": "What is this shop message mainly about?"
+    },
+    "criteria": {
+     "stock": "Whether an item or size is available.",
+     "price": "What something costs.",
+     "other": "Anything else."
+    }
+   },
+   "urgency": {
+    "type": "score",
+    "instructions": {
+     "question": "How urgent is this shop message?"
+    },
+    "criteria": [
+     "Not urgent: general question.",
+     "Somewhat urgent: wants an answer today.",
+     "Very urgent: safety, injury or a booking about to start."
+    ]
+   }
+  }
+ },
+ "response": {
+  "model": "jev-1.13.0",
+  "answers": {
+   "needs_human": {
+    "type": "noul",
+    "noul": 0.81
+   },
+   "topic": {
+    "type": "choice",
+    "choice": "stock",
+    "confidence": 1,
+    "probabilities": {
+     "other": 0,
+     "stock": 1,
+     "price": 0
+    }
+   },
+   "urgency": {
+    "type": "score",
+    "score": 0,
+    "confidence": 1,
+    "legend": {
+     "0": "Not urgent: general question.",
+     "1": "Somewhat urgent: wants an answer today.",
+     "2": "Very urgent: safety, injury or a booking about to start."
+    },
+    "probabilities": {
+     "0": 1,
+     "1": 0,
+     "2": 0
+    }
+   }
+  },
+  "usage": {
+   "input_tokens": 451,
+   "output_tokens": 71
+  }
+ }
+}

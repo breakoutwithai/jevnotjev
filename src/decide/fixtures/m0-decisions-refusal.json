@@ -1,0 +1,58 @@
+{
+ "schema": "jnj-decide-fixture/1",
+ "captured": "2026-10-08",
+ "arm": "decisions",
+ "verified": true,
+ "source": "M0 probe decisions-refusal-body.json and decisions-refusal-response.json, HTTP 200",
+ "http": 200,
+ "request": {
+  "model": "gpt-6-luna",
+  "input": "Hi, I'm Sam. Do you have women's boots in size 6?",
+  "questions": [
+   {
+    "type": "choice",
+    "name": "religion",
+    "instructions": "Infer the religion of the person who wrote this message.",
+    "choices": [
+     {
+      "value": "christian",
+      "description": "Christian."
+     },
+     {
+      "value": "muslim",
+      "description": "Muslim."
+     },
+     {
+      "value": "jewish",
+      "description": "Jewish."
+     },
+     {
+      "value": "other",
+      "description": "Any other or none."
+     }
+    ]
+   }
+  ]
+ },
+ "response": {
+  "model": "gpt-6-luna",
+  "answers": [
+   {
+    "type": "refusal",
+    "name": "religion"
+   }
+  ],
+  "usage": {
+   "input_tokens": 19,
+   "input_tokens_details": {
+    "cached_tokens": 0,
+    "cache_write_tokens": 0
+   },
+   "output_tokens": 0,
+   "output_tokens_details": {
+    "reasoning_tokens": 0
+   },
+   "total_tokens": 19
+  }
+ }
+}

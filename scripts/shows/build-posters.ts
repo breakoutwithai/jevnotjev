@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { evaluateText } from "../../src/browser/results-loader.ts";
 import { truthLabel, validate } from "../../src/format/validate.ts";
 import { groupCohorts } from "../../src/core/metrics.ts";
+import { RUN_SOURCES } from "../../src/evidence/replay.ts";
 import { latestFirst, parseUseCase, stageOf, verdictWordShown, type MethodLine, type Poster, type RunSummary } from "../../src/shows/posters.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -105,14 +106,19 @@ export async function summariseRun(root: string, folder: string): Promise<RunSum
   };
 }
 
-/** The first site/<dir>/ whose index.html names the run folder, as a page-relative link. */
+/**
+ * The first site/<dir>/ whose index.html names the run folder, as a page-relative link. When no page names it, the
+ * data-driven replay page (site/replay/, fed by src/evidence/replay.ts RUN_SOURCES) shows the run whose records file
+ * lives in that folder: `replay/?run=<key>`.
+ */
 export function watchPage(root: string, folder: string): string | null {
   const site = join(root, "site");
   for (const dir of readdirSync(site, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()) {
     const page = join(site, dir, "index.html");
     if (existsSync(page) && readFileSync(page, "utf8").includes(folder)) return `${dir}/`;
   }
-  return null;
+  const replay = RUN_SOURCES.find((source) => source.file.startsWith(`${RUNS_REL}/${folder}/`));
+  return replay ? `replay/?run=${encodeURIComponent(replay.key)}` : null;
 }
 
 export async function buildPosters(root: string = ROOT): Promise<Poster[]> {

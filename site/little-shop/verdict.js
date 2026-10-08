@@ -1189,12 +1189,16 @@
       out.push(`Below the minimum: ${paired} paired labelled Jev and LLM cases, fewer than ${MIN_PAIRED}.`);
     if (rule.kind === "skipped")
       out.push(`Rule comparison skipped: ${rule.reason}.`);
-    const unlabelled = metrics.arms.reduce((sum, totals) => sum + totals.unlabelled, 0);
-    if (unlabelled > 0)
-      out.push(`Missing labels: ${rows(unlabelled)} with no label, left out of every pairing.`);
-    const noCost = metrics.arms.reduce((sum, totals) => sum + (totals.spend.kind === "incomplete" ? totals.spend.missing : 0), 0);
-    if (noCost > 0)
-      out.push(`Missing costs: ${rows(noCost)} with no cost, so spend is incomplete.`);
+    const byMethod = (count) => metrics.arms.filter((totals) => count(totals) > 0).map((totals) => `${totals.arm} ${rows(count(totals))}`).join(", ");
+    const unlabelled = byMethod((totals) => totals.unlabelled);
+    if (unlabelled !== "")
+      out.push(`Missing labels: ${unlabelled} with no label, left out of every pairing.`);
+    const noCost = byMethod((totals) => totals.spend.kind === "incomplete" ? totals.spend.missing : 0);
+    if (noCost !== "")
+      out.push(`Missing costs: ${noCost} with no cost, so spend is incomplete.`);
+    const counts = new Set(metrics.arms.map((totals) => totals.rows));
+    if (counts.size > 1)
+      out.push(`Uneven cases across methods: ${metrics.arms.map((totals) => `${totals.arm} ${totals.rows}`).join(", ")}.`);
     return out;
   }
   function compare(counts) {

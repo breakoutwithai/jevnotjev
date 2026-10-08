@@ -307,6 +307,56 @@ export function describeSpend(value: Spend): string {
   return `incomplete ($${value.knownUsd.toFixed(6)} known, ${value.missing} missing)`;
 }
 
+/**
+ * Where one method's labels came from: labelled rows by label_source, and whether those calls were blind.
+ * `notRecorded` counts labelled jnj-record/1 rows, which carry no provenance. Agent labels are counted here
+ * (they are shown) although they never count as truth.
+ */
+export interface LabelProvenance {
+  readonly human: number;
+  readonly humanReviewed: number;
+  readonly agent: number;
+  readonly notRecorded: number;
+  readonly blind: "yes" | "no" | "mixed" | "not recorded";
+}
+
+/** Provenance of the labelled rows among `rows` (one method's rows). */
+export function labelProvenance(rows: readonly Row[]): LabelProvenance {
+  let human = 0;
+  let humanReviewed = 0;
+  let agent = 0;
+  let notRecorded = 0;
+  let blindYes = 0;
+  let blindNo = 0;
+  for (const row of rows) {
+    const labelled = row.get("label");
+    if (labelled === null || labelled === undefined) continue;
+    const source = row.get("label_source");
+    const blind = row.get("label_blind");
+    if (row.get("format_version") === "jnj-record/1") notRecorded += 1;
+    else if (source === "human_reviewed") humanReviewed += 1;
+    else if (source === "agent") agent += 1;
+    else human += 1;
+    if (blind === "true") blindYes += 1;
+    else if (blind === "false") blindNo += 1;
+  }
+  const blindKind = blindYes > 0 && blindNo > 0 ? "mixed" : blindYes > 0 ? "yes" : blindNo > 0 ? "no" : "not recorded";
+  return { human, humanReviewed, agent, notRecorded, blind: blindKind };
+}
+
+/** One line for a method's label provenance, never a silent blank. */
+export function describeProvenance(value: LabelProvenance): string {
+  const total = value.human + value.humanReviewed + value.agent + value.notRecorded;
+  if (total === 0) return "no labels";
+  if (value.notRecorded === total) return "label source not recorded";
+  const parts: string[] = [];
+  if (value.human > 0) parts.push(`human ${value.human}`);
+  if (value.humanReviewed > 0) parts.push(`human_reviewed ${value.humanReviewed}`);
+  if (value.agent > 0) parts.push(`agent ${value.agent}`);
+  if (value.notRecorded > 0) parts.push(`not recorded ${value.notRecorded}`);
+  return `labels: ${parts.join(", ")}; blind: ${value.blind}`;
+}
+
 /** The paired cases as resample input, Jev first; null when any paired row lacks a cost (rule 1 stops first). */
 export function pairedCostCases(pair: PairedSample): CostCase[] | null {
   const out: CostCase[] = [];

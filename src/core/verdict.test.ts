@@ -337,13 +337,51 @@ describe("verdict: limitations (D08)", () => {
 
   test("[unit] D08 a missing cost is listed with its count", async () => {
     const [got] = await verdictsOf(readFileSync(`${D08}r1-cost-missing.csv`, "utf8"));
-    expect(got?.limitations.filter((line) => line.startsWith("Missing costs: "))).toEqual(["Missing costs: 1 row with no cost, so spend is incomplete."]);
+    expect(got?.limitations.filter((line) => line.startsWith("Missing costs: "))).toEqual(["Missing costs: jev 1 row with no cost, so spend is incomplete."]);
+  });
+
+  test("[unit] evidence missing labels and costs name each method with its own count", async () => {
+    const { header, rows } = readDictRows(readFileSync(`${D08}r3-use-jev.csv`, "utf8"));
+    if (header === null) throw new Error("no header");
+    const [answerer, label, source, costCol] = [header.indexOf("answerer"), header.indexOf("label"), header.indexOf("label_source"), header.indexOf("cost_usd")];
+    const seen: Record<string, number> = {};
+    const lines = rows.map(({ fields }) => {
+      const next = [...fields];
+      const who = next[answerer] ?? "";
+      seen[who] = (seen[who] ?? 0) + 1;
+      if (who === "rule" && (seen[who] ?? 0) <= 4) {
+        next[label] = "";
+        next[source] = "";
+      }
+      if ((who === "jev" || who === "llm") && seen[who] === 1) next[costCol] = "";
+      return next;
+    });
+    const text = [header, ...lines].map((fields) => formatRow(fields, "\n")).join("");
+    const [got] = await verdictsOf(text);
+    expect(got?.limitations).toContain("Missing labels: rule 4 rows with no label, left out of every pairing.");
+    expect(got?.limitations).toContain("Missing costs: llm 1 row, jev 1 row with no cost, so spend is incomplete.");
+  });
+
+  test("[unit] evidence methods with different case counts in one question are flagged with each count", async () => {
+    const { header, rows } = readDictRows(readFileSync(`${D08}r3-use-jev.csv`, "utf8"));
+    if (header === null) throw new Error("no header");
+    const answerer = header.indexOf("answerer");
+    let dropped = 0;
+    const kept = rows.filter(({ fields }) => !(fields[answerer] === "rule" && dropped++ < 6));
+    const text = [header, ...kept.map(({ fields }) => fields)].map((fields) => formatRow(fields, "\n")).join("");
+    const [got] = await verdictsOf(text);
+    expect(got?.limitations).toContain("Uneven cases across methods: llm 30, rule 24, jev 30.");
+  });
+
+  test("[unit] evidence methods with equal case counts add no uneven line", async () => {
+    const [got] = await verdictsOf(readFileSync(`${D08}r3-use-jev.csv`, "utf8"));
+    expect(got?.limitations.some((line) => line.startsWith("Uneven"))).toBe(false);
   });
 
   test("[unit] D08 a missing label is listed with its count and pushes a 30-case file under the minimum", async () => {
     const text = blankFirstLlmLabel(readFileSync(`${D08}r3-use-jev.csv`, "utf8"));
     const [got] = await verdictsOf(text);
-    expect(got?.limitations).toContain("Missing labels: 1 row with no label, left out of every pairing.");
+    expect(got?.limitations).toContain("Missing labels: llm 1 row with no label, left out of every pairing.");
     expect(got?.limitations).toContain("Below the minimum: 29 paired labelled Jev and LLM cases, fewer than 30.");
     expect(got?.verdict).toBe("not enough evidence");
   });

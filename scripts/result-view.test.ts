@@ -185,7 +185,7 @@ describe("result view of d06-tiny", () => {
     const { scope } = await onlyVerdict(text);
     const page = await renderResultView(text, source);
     const shown = keys(page).filter((name) => name.startsWith(`${scope}.limitation-`)).map((name) => cellIn(page, name));
-    expect(shown).toContain("Missing costs: 1 row with no cost, so spend is incomplete.");
+    expect(shown).toContain("Missing costs: jev 1 row with no cost, so spend is incomplete.");
   });
 
   test("[unit] D09 committed docs/product/result-views/result-d06.html equals the rendered view", () => {
@@ -558,5 +558,10 @@ describe("result view: every case, per method (D12)", () => {
     const page = await renderResultView([header, ...dataLines, ...human, ""].join("\n"), "with-human.csv");
     expect(keys(page).filter((key) => key.includes(".case.")).sort()).toEqual(keys(html).filter((key) => key.includes(".case.")).sort());
     expect(keys(page).some((key) => key.endsWith(".human"))).toBe(false);
+  });
+
+  test("[unit] evidence each method's breakdown names where its labels came from", () => {
+    for (const arm of ["llm", "rule", "jev"]) expect(cell(`${Q1}.${arm}.provenance`)).toBe("label source not recorded");
+    expect(cell("file.jev.provenance")).toBe("label source not recorded");
   });
 });

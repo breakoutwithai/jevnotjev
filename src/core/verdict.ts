@@ -4,7 +4,7 @@
 // Pure: no Node or Bun APIs, so the browser can import it.
 
 import { costRatio, costRatioInterval, largestCaseCost, newcombePaired, type CostRatioInterval, type PairedCounts } from "./calc.ts";
-import { pairedCostCases, type CohortMetrics, type PairedSample } from "./metrics.ts";
+import { pairedCostCases, type ArmTotals, type CohortMetrics, type PairedSample } from "./metrics.ts";
 
 /** Minimum paired labelled cases (verdict-rules.md "Settings"). */
 export const MIN_PAIRED = 30;
@@ -104,10 +104,15 @@ function limitationsOf(metrics: CohortMetrics, rule: RuleComparison): string[] {
   const paired = metrics.jevVsLlm?.n ?? 0;
   if (paired < MIN_PAIRED) out.push(`Below the minimum: ${paired} paired labelled Jev and LLM cases, fewer than ${MIN_PAIRED}.`);
   if (rule.kind === "skipped") out.push(`Rule comparison skipped: ${rule.reason}.`);
-  const unlabelled = metrics.arms.reduce((sum, totals) => sum + totals.unlabelled, 0);
-  if (unlabelled > 0) out.push(`Missing labels: ${rows(unlabelled)} with no label, left out of every pairing.`);
-  const noCost = metrics.arms.reduce((sum, totals) => sum + (totals.spend.kind === "incomplete" ? totals.spend.missing : 0), 0);
-  if (noCost > 0) out.push(`Missing costs: ${rows(noCost)} with no cost, so spend is incomplete.`);
+  const byMethod = (count: (totals: ArmTotals) => number): string =>
+    metrics.arms.filter((totals) => count(totals) > 0).map((totals) => `${totals.arm} ${rows(count(totals))}`).join(", ");
+  const unlabelled = byMethod((totals) => totals.unlabelled);
+  if (unlabelled !== "") out.push(`Missing labels: ${unlabelled} with no label, left out of every pairing.`);
+  const noCost = byMethod((totals) => (totals.spend.kind === "incomplete" ? totals.spend.missing : 0));
+  if (noCost !== "") out.push(`Missing costs: ${noCost} with no cost, so spend is incomplete.`);
+  // Methods present in this question with different numbers of cases: each count is named so the gap is visible.
+  const counts = new Set(metrics.arms.map((totals) => totals.rows));
+  if (counts.size > 1) out.push(`Uneven cases across methods: ${metrics.arms.map((totals) => `${totals.arm} ${totals.rows}`).join(", ")}.`);
   return out;
 }
 

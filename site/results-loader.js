@@ -1210,6 +1210,52 @@
       jevVsRule: paired("rule", armMap("jev"), armMap("rule"))
     };
   }
+  function labelProvenance(rows) {
+    let human = 0;
+    let humanReviewed = 0;
+    let agent = 0;
+    let notRecorded = 0;
+    let blindYes = 0;
+    let blindNo = 0;
+    for (const row of rows) {
+      const labelled = row.get("label");
+      if (labelled === null || labelled === undefined)
+        continue;
+      const source = row.get("label_source");
+      const blind = row.get("label_blind");
+      if (row.get("format_version") === "jnj-record/1")
+        notRecorded += 1;
+      else if (source === "human_reviewed")
+        humanReviewed += 1;
+      else if (source === "agent")
+        agent += 1;
+      else
+        human += 1;
+      if (blind === "true")
+        blindYes += 1;
+      else if (blind === "false")
+        blindNo += 1;
+    }
+    const blindKind = blindYes > 0 && blindNo > 0 ? "mixed" : blindYes > 0 ? "yes" : blindNo > 0 ? "no" : "not recorded";
+    return { human, humanReviewed, agent, notRecorded, blind: blindKind };
+  }
+  function describeProvenance(value) {
+    const total = value.human + value.humanReviewed + value.agent + value.notRecorded;
+    if (total === 0)
+      return "no labels";
+    if (value.notRecorded === total)
+      return "label source not recorded";
+    const parts = [];
+    if (value.human > 0)
+      parts.push(`human ${value.human}`);
+    if (value.humanReviewed > 0)
+      parts.push(`human_reviewed ${value.humanReviewed}`);
+    if (value.agent > 0)
+      parts.push(`agent ${value.agent}`);
+    if (value.notRecorded > 0)
+      parts.push(`not recorded ${value.notRecorded}`);
+    return `labels: ${parts.join(", ")}; blind: ${value.blind}`;
+  }
   function pairedCostCases(pair) {
     const out = [];
     for (const one of pair.cases) {
@@ -1280,12 +1326,16 @@
       out.push(`Below the minimum: ${paired} paired labelled Jev and LLM cases, fewer than ${MIN_PAIRED}.`);
     if (rule.kind === "skipped")
       out.push(`Rule comparison skipped: ${rule.reason}.`);
-    const unlabelled = metrics.arms.reduce((sum, totals) => sum + totals.unlabelled, 0);
-    if (unlabelled > 0)
-      out.push(`Missing labels: ${rows(unlabelled)} with no label, left out of every pairing.`);
-    const noCost = metrics.arms.reduce((sum, totals) => sum + (totals.spend.kind === "incomplete" ? totals.spend.missing : 0), 0);
-    if (noCost > 0)
-      out.push(`Missing costs: ${rows(noCost)} with no cost, so spend is incomplete.`);
+    const byMethod = (count) => metrics.arms.filter((totals) => count(totals) > 0).map((totals) => `${totals.arm} ${rows(count(totals))}`).join(", ");
+    const unlabelled = byMethod((totals) => totals.unlabelled);
+    if (unlabelled !== "")
+      out.push(`Missing labels: ${unlabelled} with no label, left out of every pairing.`);
+    const noCost = byMethod((totals) => totals.spend.kind === "incomplete" ? totals.spend.missing : 0);
+    if (noCost !== "")
+      out.push(`Missing costs: ${noCost} with no cost, so spend is incomplete.`);
+    const counts = new Set(metrics.arms.map((totals) => totals.rows));
+    if (counts.size > 1)
+      out.push(`Uneven cases across methods: ${metrics.arms.map((totals) => `${totals.arm} ${totals.rows}`).join(", ")}.`);
     return out;
   }
   function compare(counts) {
@@ -1399,7 +1449,7 @@
     return (bytes / (1024 * 1024)).toFixed(1);
   }
   function failure(fileName, message) {
-    return { fileName, valid: false, errors: [message], gaps: [], headline: "INVALID rows=0 cases=0 errors=1 gaps=0", methods: [], questions: [] };
+    return { fileName, valid: false, errors: [message], gaps: [], headline: "INVALID rows=0 cases=0 errors=1 gaps=0", methods: [], provenance: [], questions: [] };
   }
   async function evaluateBytes(fileName, bytes) {
     let text;
@@ -1420,12 +1470,12 @@
     const { lines } = report(result);
     const headline = lines[lines.length - 1] ?? "";
     if (result.errors.length > 0) {
-      return { fileName, valid: false, errors: result.errors, gaps: result.gaps, headline, methods: [], questions: [] };
+      return { fileName, valid: false, errors: result.errors, gaps: result.gaps, headline, methods: [], provenance: [], questions: [] };
     }
     const groups = groupCohorts(result.rows);
     if (groups.length > MAX_COHORTS) {
       const message = "file has " + groups.length + " questions (run, prompt version and question id each count); the limit is " + MAX_COHORTS;
-      return { fileName, valid: false, errors: [message], gaps: result.gaps, headline: "INVALID rows=" + result.rows.length + " errors=1", methods: [], questions: [] };
+      return { fileName, valid: false, errors: [message], gaps: result.gaps, headline: "INVALID rows=" + result.rows.length + " errors=1", methods: [], provenance: [], questions: [] };
     }
     const seed = await fileSeed(text);
     const questions = [];
@@ -1448,7 +1498,14 @@
         questions.push({ ...head, verdict: null, reason: why, limitations: [] });
       }
     }
-    return { fileName, valid: true, errors: [], gaps: result.gaps, headline, methods: summary(result.rows), questions };
+    return { fileName, valid: true, errors: [], gaps: result.gaps, headline, methods: summary(result.rows), provenance: provenanceLines(result), questions };
+  }
+  function provenanceLines(result) {
+    const answerers = [...new Set(result.rows.map(({ values }) => String(values.get("answerer"))))].sort();
+    return answerers.map((answerer) => {
+      const mine = result.rows.map(({ values }) => values).filter((row) => row.get("answerer") === answerer);
+      return answerer + ": " + describeProvenance(labelProvenance(mine));
+    });
   }
   function escapeHtml(value) {
     return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
@@ -1478,7 +1535,7 @@
       list("ld-gaps", "GAP", r.gaps)
     ];
     if (r.valid) {
-      parts.push(el("h4", "ld-head", "Each method"), list("ld-methods", "", r.methods));
+      parts.push(el("h4", "ld-head", "Each method"), list("ld-methods", "", r.methods), el("h4", "ld-head", "Where each method's labels came from"), list("ld-provenance", "", r.provenance));
       const rows = r.questions.map((q) => '<li><span class="ld-id">' + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId) + "</span> " + '<span class="ld-q">' + escapeHtml(q.question) + '</span> <span class="ld-v">' + escapeHtml(q.verdict ?? "no verdict") + '</span> <span class="ld-why">' + escapeHtml(q.reason) + "</span>" + list("ld-limits", "Limitation:", q.limitations) + caseTable(q) + "</li>");
       parts.push(el("h4", "ld-head", "Verdict per question"), '<ul class="ld-verdicts">' + rows.join("") + "</ul>");
     }

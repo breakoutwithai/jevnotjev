@@ -44,9 +44,9 @@ One CSV in the `jnj-record/1` format, one row per answerer per question per case
 |---|---|---|
 | Tokens | the API's usage fields per call (Jev: `usage.input_tokens`, `usage.output_tokens`; model providers: `usage`) | Recorded as `tokens_in`, `tokens_out` (src/backstage/run.ts:1385-1386); not shown |
 | Spend per case | `cost_usd` of that arm's answer. Jev: input tokens x $0.042 per million, output free. LLM: tokens x one dated list-price table (its date goes in the optional `price_table_date` column, format/README.md). Rule: 0 | Shown per method in the case table, result view and loaded panel (src/core/case-table.ts:32-38); not in Backstage |
-| Spend per arm | sum of spend per case over all cases | Backstage "Answers-only spend" (src/backstage/main.ts:600); result view "Spend" (scripts/result-view.ts:147) |
-| Kept answers (accepted count) | human labels on each answer | Backstage "Kept / labelled" (src/backstage/main.ts:598); result view "Accepted" (scripts/result-view.ts:145) |
-| Cost per kept answer | spend per arm / kept answers; "undefined" when an arm keeps none | Backstage "Cost / kept" (src/backstage/main.ts:601); result view (scripts/result-view.ts:148) |
+| Spend per arm | sum of spend per case over all cases | Backstage "Answers-only spend" (src/backstage/main.ts:600); result view "Spend" (scripts/result-view.ts:150) |
+| Kept answers (accepted count) | human labels on each answer | Backstage "Kept / labelled" (src/backstage/main.ts:598); result view "Accepted" (scripts/result-view.ts:147) |
+| Cost per kept answer | spend per arm / kept answers; "undefined" when an arm keeps none | Backstage "Cost / kept" (src/backstage/main.ts:601); result view (scripts/result-view.ts:151) |
 | Wins, losses and ties vs Jev | per case: Jev kept and the other arm not (win), the reverse (loss), or both the same (tie), from the labels | Computed (src/core/metrics.ts:66-69). Backstage shows the Jev-only and other-only win counts (src/backstage/main.ts:620-623); ties and a per-case view are not shown |
 | Jev answer and confidence | `answers.<question>.choice` and `.confidence` in the Jev response | Backstage shows the answer and "Returned confidence" for a case once it is picked blind, and Jev's ranking after the pick (src/backstage/main.ts:374-381); the result view shows the answer without confidence (src/core/case-table.ts:35) |
 | Latency | client wall clock around each call | Recorded as `latency_ms` (src/backstage/run.ts:541 and src/backstage/run.ts:1388); shown nowhere; not used in the verdict |
@@ -54,10 +54,10 @@ One CSV in the `jnj-record/1` format, one row per answerer per question per case
 | Labelling time | none: no column holds it and nothing measures it | Not recorded, not shown |
 | Failed-attempt spend | charges of attempts that returned no answer: known dollars, plus a count of unknown charges (src/backstage/run.ts:1513-1522) | Backstage progress line (src/backstage/main.ts:533) |
 | Total attempts | every attempt's cost once, shared Jev answers billed once (src/backstage/run.ts:1524-1533) | Backstage "Total actual attempts" (src/backstage/main.ts:583-588) |
-| Unlabelled | answers with no label: neither kept nor rejected (src/core/metrics.ts:37) | Backstage "Unlabelled" (src/backstage/main.ts:599); result view "Gaps" (scripts/result-view.ts:146) |
+| Unlabelled | answers with no label: neither kept nor rejected (src/core/metrics.ts:37) | Backstage "Unlabelled" (src/backstage/main.ts:599); result view "Gaps" (scripts/result-view.ts:149) |
 | Excluded | cases where one answer is unlabelled or absent, left out of a pair (src/core/metrics.ts:57-58) | Backstage pair line (src/backstage/main.ts:619-620) |
-| Interval bounds | 95% Newcombe bounds and cost-ratio bounds (docs/decision/verdict-rules.md) | Result view numbers table (scripts/result-view.ts:207) and the verdict reason text |
-| Limitations | `limitations` on the verdict (src/core/verdict.ts) | Result view, per question (scripts/result-view.ts:252-253) and the loaded panel and current-verdict slot (src/browser/results-loader.ts) |
+| Interval bounds | 95% Newcombe bounds and cost-ratio bounds (docs/decision/verdict-rules.md) | Result view numbers table (scripts/result-view.ts:210) and the verdict reason text |
+| Limitations | `limitations` on the verdict (src/core/verdict.ts) | Result view, per question (scripts/result-view.ts:255-256) and the loaded panel and current-verdict slot (src/browser/results-loader.ts) |
 | Verdict | the rule below, applied to the numbers above | Backstage (src/backstage/main.ts:628-630); result view; loader |
 
 ## Verdict rule

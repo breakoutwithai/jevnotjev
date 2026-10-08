@@ -5,11 +5,21 @@ import { build, buildFiles, quad, render, type Label } from "../../examples/d08-
 import { formatRow, readDictRows } from "../format/csv.ts";
 import { validate } from "../format/validate.ts";
 import { fileSeed } from "./calc.ts";
-import { cohortMetrics, cohorts } from "./metrics.ts";
-import { verdict, type Verdict } from "./verdict.ts";
+import { armsInFile, cohortMetrics, cohorts } from "./metrics.ts";
+import { verdict, verdictLimitations, type Verdict } from "./verdict.ts";
 
 const D08 = fileURLToPath(new URL("../../examples/d08-verdicts/", import.meta.url));
 const TINY = fileURLToPath(new URL("../../examples/d06-tiny/records.csv", import.meta.url));
+const D14 = fileURLToPath(new URL("../../examples/d14-gaps/records.csv", import.meta.url));
+
+/** Verdicts that know every method the whole file has rows for, as the loader, result view and replay call it. */
+async function fileVerdictsOf(text: string): Promise<Verdict[]> {
+  const result = validate(text);
+  if (result.errors.length > 0) throw new Error(result.errors.join("\n"));
+  const seed = await fileSeed(text);
+  const arms = armsInFile(result.rows);
+  return cohorts(result.rows).map((key) => verdict(cohortMetrics(result.rows, key), seed, arms));
+}
 
 /** Every decision point's verdict for a file's text, seeded from the file as the page does. */
 async function verdictsOf(text: string): Promise<Verdict[]> {
@@ -376,6 +386,41 @@ describe("verdict: limitations (D08)", () => {
   test("[unit] evidence methods with equal case counts add no uneven line", async () => {
     const [got] = await verdictsOf(readFileSync(`${D08}r3-use-jev.csv`, "utf8"));
     expect(got?.limitations.some((line) => line.startsWith("Uneven"))).toBe(false);
+  });
+
+  test("[unit] evidence a method with rows in another question of the file is named with 0 where it has none", async () => {
+    const { header, rows } = readDictRows(readFileSync(`${D08}r3-use-jev.csv`, "utf8"));
+    if (header === null) throw new Error("no header");
+    const [answerer, question] = [header.indexOf("answerer"), header.indexOf("question_id")];
+    const second = rows.filter(({ fields }) => fields[answerer] !== "rule").map(({ fields }) => fields.map((cell, i) => (i === question ? "q-norule" : cell)));
+    const text = [header, ...rows.map(({ fields }) => fields), ...second].map((fields) => formatRow(fields, "\n")).join("");
+    const [full, noRule] = await fileVerdictsOf(text);
+    expect(full?.limitations.some((line) => line.startsWith("Uneven"))).toBe(false);
+    expect(noRule?.limitations).toContain("Uneven cases across methods: llm 30, rule 0, jev 30.");
+  });
+
+  test("[unit] evidence a file with no rule rows anywhere is not flagged as uneven", async () => {
+    const [got] = await fileVerdictsOf(render(build({ name: "no-rule", pairs: quad(27, 3, 0, 0) })));
+    expect(got?.limitations).toEqual([TEST_SET_ONLY, "Rule comparison skipped: no rule rows."]);
+  });
+
+  test("[unit] evidence the planted d14 file gives one missing label, one missing cost and one zero-row method", async () => {
+    const [q1, q2] = await fileVerdictsOf(readFileSync(D14, "utf8"));
+    expect(q1?.limitations).toContain("Missing labels: rule 1 row with no label, left out of every pairing.");
+    expect(q1?.limitations).toContain("Missing costs: llm 1 row with no cost, so spend is incomplete.");
+    expect(q1?.limitations.some((line) => line.startsWith("Uneven"))).toBe(false);
+    expect(q2?.limitations).toContain("Uneven cases across methods: llm 2, rule 0, jev 2.");
+  });
+
+  test("[unit] evidence verdictLimitations gives the same lines as the verdict", async () => {
+    const text = readFileSync(D14, "utf8");
+    const result = validate(text);
+    const arms = armsInFile(result.rows);
+    const seed = await fileSeed(text);
+    for (const key of cohorts(result.rows)) {
+      const metrics = cohortMetrics(result.rows, key);
+      expect(verdictLimitations(metrics, arms)).toEqual([...verdict(metrics, seed, arms).limitations]);
+    }
   });
 
   test("[unit] D08 a missing label is listed with its count and pushes a 30-case file under the minimum", async () => {

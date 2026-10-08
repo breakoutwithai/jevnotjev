@@ -48,4 +48,55 @@ describe("replay page data (scripts/replay-data.ts)", () => {
       expect(text).not.toMatch(/\/(?:Users|home)\//);
     }
   });
+
+  test("[unit] RD-4 the page lists each question's limitation lines and each method's label source from the data, escaped", async () => {
+    const built = await buildReplay();
+    const d12 = built.runs.find((r) => r.key === "d12");
+    if (d12 === undefined) throw new Error("no d12 run");
+    const hostile = { ...d12, provenance: [...d12.provenance, "<b>x</b>"] };
+    const data = { ...built, runs: built.runs.map((r) => (r.key === "d12" ? hostile : r)) };
+    const els = new Map<string, { innerHTML: string; textContent: string; hidden: boolean }>();
+    const el = (id: string) => {
+      const found = els.get(id);
+      if (found !== undefined) return found;
+      const made = { innerHTML: "", textContent: "", hidden: false, classList: { toggle: () => {} }, addEventListener: () => {}, focus: () => {} };
+      els.set(id, made);
+      return made;
+    };
+    const document = { getElementById: el, querySelectorAll: () => [], body: { setAttribute: () => {} } };
+    const location = { search: "?run=d12", href: "https://example.test/replay/?run=d12" };
+    const page = new Function("window", "document", "location", "history", "matchMedia", "CSS", await readFile(join(SITE, "replay.js"), "utf8"));
+    page({ JNJ_REPLAY: data }, document, location, { replaceState: () => {} }, () => ({ matches: false }), { escape: (s: string) => s });
+    const html = el("limits").innerHTML;
+    expect(html).toContain("<li>Limitation: Uneven cases across methods: llm 4, rule 3, jev 4.</li>");
+    expect(html).toContain("<li>Limitation: Missing costs: llm 1 row with no cost, so spend is incomplete.</li>");
+    for (const line of d12.provenance) expect(html).toContain(`<li>${line}</li>`);
+    expect(html).toContain("<li>&lt;b&gt;x&lt;/b&gt;</li>");
+    expect(html).not.toContain("<b>x</b>");
+  });
+
+  test("[unit] RD-5 a question id repeated across prompt versions gets a heading naming its run and prompt", async () => {
+    const built = await buildReplay();
+    const d12 = built.runs.find((r) => r.key === "d12");
+    if (d12 === undefined) throw new Error("no d12 run");
+    const q = d12.questions[0];
+    if (q === undefined) throw new Error("no d12 question");
+    const twin = { ...d12, questions: [{ ...q, promptVersion: "p.v1" }, { ...q, promptVersion: "p.v2" }] };
+    const data = { ...built, runs: built.runs.map((r) => (r.key === "d12" ? twin : r)) };
+    const els = new Map<string, { innerHTML: string; textContent: string; hidden: boolean }>();
+    const el = (id: string) => {
+      const found = els.get(id);
+      if (found !== undefined) return found;
+      const made = { innerHTML: "", textContent: "", hidden: false, classList: { toggle: () => {} }, addEventListener: () => {}, focus: () => {} };
+      els.set(id, made);
+      return made;
+    };
+    const document = { getElementById: el, querySelectorAll: () => [], body: { setAttribute: () => {} } };
+    const location = { search: "?run=d12", href: "https://example.test/replay/?run=d12" };
+    const page = new Function("window", "document", "location", "history", "matchMedia", "CSS", await readFile(join(SITE, "replay.js"), "utf8"));
+    page({ JNJ_REPLAY: data }, document, location, { replaceState: () => {} }, () => ({ matches: false }), { escape: (s: string) => s });
+    const html = el("limits").innerHTML;
+    expect(html).toContain(`Question ${q.runId} p.v1 ${q.questionId}: `);
+    expect(html).toContain(`Question ${q.runId} p.v2 ${q.questionId}: `);
+  });
 });

@@ -14,7 +14,7 @@
 import { mkdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileSeed } from "../core/calc.ts";
-import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
+import { armsInFile, groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
 import { MIN_PAIRED, verdict, type Verdict } from "../core/verdict.ts";
 import { readDictRows } from "../format/csv.ts";
 import { COLUMNS, decodeUtf8, report, validate } from "../format/validate.ts";
@@ -258,7 +258,8 @@ export async function verdictOfText(text: string, file: string, question: string
   const groups = groupCohorts(result.rows).filter((g) => question === undefined || g.key.questionId === question);
   if (groups.length === 0) throw new CliInputError(question === undefined ? `${file}: no rows` : `${file}: no rows for question ${question}`);
   const seed = await fileSeed(text);
-  const verdicts = groups.map((g) => ({ key: g.key, v: verdict(metricsOfCohortRows(g.rows, g.key), seed) }));
+  const arms = armsInFile(result.rows);
+  const verdicts = groups.map((g) => ({ key: g.key, v: verdict(metricsOfCohortRows(g.rows, g.key), seed, arms) }));
   const code = exitFor(verdicts.map((x) => x.v));
   const body = {
     exit_code: code,

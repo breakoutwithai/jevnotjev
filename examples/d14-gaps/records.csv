@@ -1,0 +1,11 @@
+format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output,confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms
+jnj-record/1,run-d14,delivery-q.v1,g1,Where is my parcel? It was due on Monday.,q1,Is this message asking where an order is?,yes|no,llm,example-llm,yes,,accept,human,110,2,,1800
+jnj-record/1,run-d14,delivery-q.v1,g1,Where is my parcel? It was due on Monday.,q1,Is this message asking where an order is?,yes|no,rule,keywords:where|parcel|order,yes,,accept,human,0,0,0,1
+jnj-record/1,run-d14,delivery-q.v1,g1,Where is my parcel? It was due on Monday.,q1,Is this message asking where an order is?,yes|no,jev,jev-1.13.0,yes,0.95,accept,human,40,1,0.000002,360
+jnj-record/1,run-d14,delivery-q.v1,g2,Do you sell gift cards?,q1,Is this message asking where an order is?,yes|no,llm,example-llm,no,,accept,human,95,2,0.00029,1500
+jnj-record/1,run-d14,delivery-q.v1,g2,Do you sell gift cards?,q1,Is this message asking where an order is?,yes|no,rule,keywords:where|parcel|order,no,,,,0,0,0,1
+jnj-record/1,run-d14,delivery-q.v1,g2,Do you sell gift cards?,q1,Is this message asking where an order is?,yes|no,jev,jev-1.13.0,no,0.97,accept,human,34,1,0.000002,340
+jnj-record/1,run-d14,delivery-q.v1,g1,Where is my parcel? It was due on Monday.,q2,Is the customer upset?,yes|no,llm,example-llm,no,,accept,human,105,2,0.00032,1700
+jnj-record/1,run-d14,delivery-q.v1,g1,Where is my parcel? It was due on Monday.,q2,Is the customer upset?,yes|no,jev,jev-1.13.0,no,0.81,accept,human,38,1,0.000002,350
+jnj-record/1,run-d14,delivery-q.v1,g2,Do you sell gift cards?,q2,Is the customer upset?,yes|no,llm,example-llm,no,,accept,human,92,2,0.00028,1450
+jnj-record/1,run-d14,delivery-q.v1,g2,Do you sell gift cards?,q2,Is the customer upset?,yes|no,jev,jev-1.13.0,no,0.9,accept,human,33,1,0.000002,330

@@ -5,8 +5,8 @@
 
 import { readDictRows, type CsvRecord } from "../format/csv.ts";
 import { parseCell, truthLabel, type ParsedRow } from "../format/validate.ts";
-import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
-import { MIN_PAIRED } from "../core/verdict.ts";
+import { armsInFile, groupCohorts, metricsOfCohortRows, provenanceByMethod } from "../core/metrics.ts";
+import { MIN_PAIRED, verdictLimitations } from "../core/verdict.ts";
 
 /** What the page shows for a label src/core/metrics.ts does not count (format/validate.ts truthLabel). */
 export const NOT_COUNTED = "not counted (AI label, not reviewed)";
@@ -55,6 +55,15 @@ export interface ReplayPair {
   readonly questionId: string;
   readonly other: "llm" | "rule";
   readonly n: number;
+}
+
+/** One question (cohort) of a run and what limits a verdict on it: the same lines the CSV loader shows. */
+export interface ReplayQuestion {
+  readonly runId: string;
+  readonly promptVersion: string;
+  readonly questionId: string;
+  readonly question: string;
+  readonly limitations: readonly string[];
 }
 
 export interface MethodStats {
@@ -117,6 +126,10 @@ export interface ReplayRun {
   readonly stats: readonly MethodStats[];
   readonly flags: readonly Flag[];
   readonly pairs: readonly ReplayPair[];
+  /** Per question (cohort): the verdict's limitation lines, from src/core/verdict.ts verdictLimitations. */
+  readonly questions: readonly ReplayQuestion[];
+  /** Per method: where its labels came from and whether they were blind (src/core/metrics.ts provenanceByMethod). */
+  readonly provenance: readonly string[];
   /** steps[i] is the tally after cases 0..i. */
   readonly steps: readonly (readonly StepTally[])[];
 }
@@ -283,6 +296,8 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
   // truthLabel and refuses a repeated (case, method) row by name.
   const groups = groupCohorts(parsed);
   const pairs: ReplayPair[] = [];
+  const questions: ReplayQuestion[] = [];
+  const fileArms = armsInFile(parsed);
   const multiCohort = groups.length > 1;
   const questionsUnique = new Set(groups.map((g) => g.key.questionId)).size === groups.length;
   for (const group of groups) {
@@ -292,6 +307,7 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
     if (metrics.jevVsLlm !== null) mine.push({ runId, promptVersion, questionId, other: "llm", n: metrics.jevVsLlm.n });
     if (metrics.jevVsRule !== null) mine.push({ runId, promptVersion, questionId, other: "rule", n: metrics.jevVsRule.n });
     pairs.push(...mine);
+    questions.push({ runId, promptVersion, questionId, question: metrics.question, limitations: verdictLimitations(metrics, fileArms) });
     if (!mine.some((p) => p.n < MIN_PAIRED)) continue;
     const fewest = Math.min(...mine.map((p) => p.n));
     const detail = mine.map((p) => `Jev against ${p.other === "llm" ? "the LLM" : "the rule"} ${p.n}`).join(", ");
@@ -325,6 +341,8 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
     stats,
     flags,
     pairs,
+    questions,
+    provenance: provenanceByMethod(parsed),
     steps: cases.map((_, i) => tallyThrough(base, i)),
   };
 }

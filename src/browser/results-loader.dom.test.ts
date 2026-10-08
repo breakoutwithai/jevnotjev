@@ -519,4 +519,15 @@ describe("the Stage tells one story once a file is loaded (F1)", () => {
     expect(r.provenance.length).toBeGreaterThan(0);
     expect(r.provenance).toEqual(["jev: labels: human_reviewed 10; blind: no", "llm: labels: human_reviewed 10; blind: no", "rule: labels: human_reviewed 10; blind: no"]);
   });
+
+  test("[unit] evidence the planted d14 file shows its missing label, missing cost and zero-row method on the page", async () => {
+    const csv = await example("examples/d14-gaps/records.csv");
+    const r = await evaluateText("d14.csv", csv);
+    const [q1, q2] = r.questions;
+    expect(q1?.limitations).toContain("Missing labels: rule 1 row with no label, left out of every pairing.");
+    expect(q1?.limitations).toContain("Missing costs: llm 1 row with no cost, so spend is incomplete.");
+    expect(q2?.limitations).toContain("Uneven cases across methods: llm 2, rule 0, jev 2.");
+    const p = await choose(file("d14.csv", csv));
+    expect(p.panel.innerHTML).toContain("<li>Limitation: Uneven cases across methods: llm 2, rule 0, jev 2.</li>");
+  });
 });

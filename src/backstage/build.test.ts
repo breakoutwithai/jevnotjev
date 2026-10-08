@@ -133,6 +133,58 @@ test("[integration] B8 production build ignores dirty working sources and uses a
   }
 });
 
+test("[integration] #67 committed build resolves package imports from the approved lockfile and ships a self-contained server", async () => {
+  const sha = Bun.spawnSync(["git", "rev-parse", "HEAD"]).stdout.toString().trim();
+  const out = await buildBackstage(process.cwd(), true);
+  const { checkRelease } = await import("../../.deploy/backstage-package.ts");
+  expect(await checkRelease(out, sha)).toContain("server.js");
+  const server = await Bun.file(`${out}/server.js`).text();
+  expect(server).not.toMatch(/from\s*"zod"|require\("zod"\)/);
+  // Run the bundle where no node_modules exist above it, as on the host.
+  const isolated = await mkdtemp(join(tmpdir(), "backstage-host-"));
+  try {
+    await Bun.write(join(isolated, "server.js"), server);
+    const child = Bun.spawn(["bun", "--no-install", join(isolated, "server.js")], {
+      cwd: isolated,
+      env: { ...process.env, BACKSTAGE_VERSION: "b".repeat(40) },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = setTimeout(() => child.kill(), 5000);
+    try {
+      expect(await child.exited).not.toBe(0);
+      const stderr = await new Response(child.stderr).text();
+      expect(stderr).not.toContain("Cannot find package");
+      expect(stderr).toContain("compiled server revision");
+    } finally {
+      clearTimeout(timer);
+      child.kill();
+    }
+  } finally {
+    await rm(isolated, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("[integration] #67 committed build refuses dependencies the revision's lockfile does not pin", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "backstage-lock-test-"));
+  try {
+    await Bun.write(
+      join(fixture, "package.json"),
+      JSON.stringify({ name: "fixture", dependencies: { zod: "4.6.5" } }),
+    );
+    await Bun.write(join(fixture, "src/backstage/main.ts"), "export {};");
+    for (const args of [
+      ["init"],
+      ["add", "."],
+      ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "fixture"],
+    ])
+      expect(Bun.spawnSync(["git", ...args], { cwd: fixture, stdout: "pipe", stderr: "pipe" }).exitCode).toBe(0);
+    await expect(buildBackstage(fixture, true)).rejects.toThrow("Cannot install approved dependencies");
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
 test("[integration] JF1 browser transport sends paid requests only to the same-origin backend", async () => {
   const { answerTransport } = await import("./run.ts");
   const { PROTOCOL_VERSION } = await import("./contracts.ts");

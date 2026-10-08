@@ -36,6 +36,31 @@ export async function buildBackstage(
       throw new Error("Cannot unpack approved revision.");
     }
     sourceRoot = snapshot;
+    // Package imports resolve from the snapshot's own committed bun.lock, never the checkout's
+    // node_modules. --frozen-lockfile fails if package.json and bun.lock disagree, but installs
+    // unpinned when bun.lock is absent, so a missing lockfile is refused first.
+    if (await Bun.file(join(snapshot, "package.json")).exists()) {
+      if (!(await Bun.file(join(snapshot, "bun.lock")).exists())) {
+        await rm(snapshot, { recursive: true, force: true });
+        throw new Error("Cannot install approved dependencies: no committed bun.lock.");
+      }
+      const install = Bun.spawnSync(
+        [
+          "bun",
+          "install",
+          "--frozen-lockfile",
+          "--production",
+          "--ignore-scripts",
+        ],
+        { cwd: snapshot, stdout: "pipe", stderr: "pipe" },
+      );
+      if (install.exitCode !== 0) {
+        await rm(snapshot, { recursive: true, force: true });
+        throw new Error(
+          `Cannot install approved dependencies: ${install.stderr.toString().trim()}`,
+        );
+      }
+    }
   }
   try {
     await mkdir(join(root, "dist"), { recursive: true });

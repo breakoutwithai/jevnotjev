@@ -7,7 +7,7 @@ Three gaps are planted on purpose:
 - case `g1`, question `q1`: the `llm` row has no `cost_usd`;
 - question `q2` has no `rule` rows, while `q1` has them.
 
-Each gap gives one limitation line, from `src/core/verdict.ts`, in the CSV loader, the replay view and the result view:
+Each gap gives one limitation line, from `src/core/verdict.ts`, in the CSV loader and the result view. The replay page lists only the uc13, tokenmax and d12 runs; for this file the replay model (`parseRun`) produces the same lines:
 
 ```
 Missing labels: rule 1 row with no label, left out of every pairing.

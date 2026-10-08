@@ -21,7 +21,7 @@
     "scripts/gate.test.ts": 14,
     "scripts/hand-check.test.ts": 24,
     "scripts/little-shop-seating.test.ts": 14,
-    "scripts/replay-data.test.ts": 4,
+    "scripts/replay-data.test.ts": 5,
     "scripts/result-view.test.ts": 46,
     "scripts/shows/build-posters.test.ts": 9,
     "scripts/site-content.test.ts": 9,

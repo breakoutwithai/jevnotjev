@@ -507,16 +507,16 @@ describe("the Stage tells one story once a file is loaded (F1)", () => {
     expect(p.current.innerHTML).not.toContain("one.csv");
   });
 
-  test("[unit] evidence a jnj-record/1 file shows 'label source not recorded' for every method", async () => {
+  test("[unit] evidence a jnj-record/1 file shows each method's human labels with blindness not recorded", async () => {
     const r = await evaluateText("d06.csv", await example(D06));
-    expect(r.provenance).toEqual(["jev: label source not recorded", "llm: label source not recorded", "rule: label source not recorded"]);
-    expect(renderResult(r)).toContain("<li>jev: label source not recorded</li>");
+    expect(r.provenance).toEqual(["jev: labels: human 10; blind: not recorded", "llm: labels: human 9; blind: not recorded", "rule: labels: human 10; blind: not recorded"]);
+    expect(renderResult(r)).toContain("<li>jev: labels: human 10; blind: not recorded</li>");
   });
 
   test("[unit] evidence a 1.1 file shows each method's label sources and blindness", async () => {
     const r = await evaluateText("tokenmax.csv", await example("docs/product/runs/2026-10-03-tokenmax/records.csv"));
     expect(r.valid).toBe(true);
     expect(r.provenance.length).toBeGreaterThan(0);
-    for (const line of r.provenance) expect(line).toMatch(/^[a-z]+: labels: .*; blind: (yes|no|mixed)$/);
+    expect(r.provenance).toEqual(["jev: labels: human_reviewed 10; blind: no", "llm: labels: human_reviewed 10; blind: no", "rule: labels: human_reviewed 10; blind: no"]);
   });
 });

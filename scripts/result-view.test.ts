@@ -561,7 +561,7 @@ describe("result view: every case, per method (D12)", () => {
   });
 
   test("[unit] evidence each method's breakdown names where its labels came from", () => {
-    for (const arm of ["llm", "rule", "jev"]) expect(cell(`${Q1}.${arm}.provenance`)).toBe("label source not recorded");
-    expect(cell("file.jev.provenance")).toBe("label source not recorded");
+    for (const arm of ["llm", "rule", "jev"]) expect(cell(`${Q1}.${arm}.provenance`)).toBe("labels: human 5; blind: not recorded");
+    expect(cell("file.jev.provenance")).toBe("labels: human 10; blind: not recorded");
   });
 });

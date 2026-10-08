@@ -255,8 +255,8 @@ describe("[unit] label provenance per method", () => {
     return describeProvenance(labelProvenance(rows.map((row) => row.values).filter((row) => row.get("answerer") === answerer)));
   };
 
-  test("[unit] a jnj-record/1 file says the label source is not recorded", () => {
-    expect(provenanceOf([{ case_id: "c1", answerer: "jev" }, { case_id: "c2", answerer: "jev", label: "reject" }], COLUMNS, "jev")).toBe("label source not recorded");
+  test("[unit] a jnj-record/1 file shows its human labels and says blindness is not recorded", () => {
+    expect(provenanceOf([{ case_id: "c1", answerer: "jev" }, { case_id: "c2", answerer: "jev", label: "reject" }], COLUMNS, "jev")).toBe("labels: human 2; blind: not recorded");
   });
 
   test("[unit] a 1.1 method counts its labels by source and says whether they were blind", () => {
@@ -266,7 +266,7 @@ describe("[unit] label provenance per method", () => {
       { ...v11, case_id: "c3", answerer: "jev", label_source: "human_reviewed", label_blind: "false" },
       { ...v11, case_id: "c4", answerer: "jev", label_source: "agent", labelled_by: "claude-opus-5-5", label_blind: "false" },
     ];
-    expect(provenanceOf(entries, COLUMNS_V1_1, "jev")).toBe("labels: human 2, human_reviewed 1, agent 1; blind: mixed");
+    expect(provenanceOf(entries, COLUMNS_V1_1, "jev")).toBe("labels: human 2, human_reviewed 1, agent 1; blind: 2 yes, 2 no");
   });
 
   test("[unit] all blind says yes, none blind says no, and unlabelled rows are not counted", () => {
@@ -279,9 +279,9 @@ describe("[unit] label provenance per method", () => {
     expect(provenanceOf(entries, COLUMNS_V1_1, "rule")).toBe("labels: human 1; blind: no");
   });
 
-  test("[unit] a method with no labels says so, and a mix of /1 and 1.1 rows names the unrecorded ones", () => {
+  test("[unit] a method with no labels says so, and a mix of /1 and 1.1 rows never reports unknown blindness as yes", () => {
     expect(provenanceOf([{ ...v11, case_id: "c1", answerer: "jev", label: "", labelled_by: "", labelled_at: "", label_blind: "" }], COLUMNS_V1_1, "jev")).toBe("no labels");
     const mixed = [{ ...v11, case_id: "c1", answerer: "jev" }, { case_id: "c2", answerer: "jev", format_version: "jnj-record/1", labelled_by: "", labelled_at: "", label_blind: "" }];
-    expect(provenanceOf(mixed, COLUMNS_V1_1, "jev")).toBe("labels: human 1, not recorded 1; blind: yes");
+    expect(provenanceOf(mixed, COLUMNS_V1_1, "jev")).toBe("labels: human 2; blind: 1 yes, 1 not recorded");
   });
 });

@@ -8,7 +8,9 @@
 // an error body. The server's own env keys and the funded trial key are never read here.
 // The llm arm runs only through the Messages API: the claude-cli transport would spend the operator's subscription on a
 // caller's behalf, so it is not offered, and with no x-anthropic-key the llm rows are outcome error, a named reason.
-// run returns the rows inline and writes no file. No CORS header is set: v1 has no browser callers.
+// run returns the rows inline (or, with options.format "csv", as one records CSV string) and writes no file. A run stops
+// starting provider calls when the client disconnects or the per-request deadline passes. No CORS header is set: v1 has
+// no browser callers.
 import { z } from "zod";
 import { armsReport, CliInputError, spendTool, validateOfText, verdictOfText, type ToolAnswer } from "../decide/cli.ts";
 import { KEY_ENV } from "../decide/cli-args.ts";
@@ -36,6 +38,8 @@ export const API_V1_LIMITS = {
   maxConcurrent: 4,
   /** Per provider call. */
   providerTimeoutMs: 30_000,
+  /** One /api/v1 request, under the idle timeout: past it no new provider call starts and the rest are incomplete. */
+  requestDeadlineMs: 100_000,
   /** Idle timeout of one /api/v1 connection on the Bun server (seconds). */
   requestTimeoutSeconds: 120,
 } as const;
@@ -62,7 +66,8 @@ const BODIES = {
   estimate: z.strictObject({ ...spendShape, cases }),
   ask: z.strictObject({ ...spendShape, case: caseArg }),
   // No `out`: the HTTP run writes no server file. A body naming one is rejected as an unknown key.
-  run: z.strictObject({ ...spendShape, cases }),
+  // options.format "csv" returns the rows as one `records` CSV string, the text verdict and validate take.
+  run: z.strictObject({ ...spendShape, cases, options: optionsArg.extend({ format: z.enum(["rows", "csv"]).optional().describe("rows (default) or csv") }).optional() }),
   verdict: z.strictObject({ records: z.string().min(1).describe("jnj-record CSV text"), question: z.string().optional() }),
   validate: z.strictObject({ records: z.string().min(1).describe("jnj-record CSV text") }),
 };
@@ -86,6 +91,8 @@ export interface ApiV1Options {
   /** Test-only: provider fetch, spawn and which in place of the network and the claude binary. */
   readonly deps?: Pick<RunDeps, "fetch" | "spawn" | "which">;
   readonly timeoutMs?: number;
+  /** Test-only: the per-request deadline in place of API_V1_LIMITS.requestDeadlineMs. */
+  readonly deadlineMs?: number;
 }
 
 /** One slot of the server's overall concurrency cap. */
@@ -133,17 +140,23 @@ function capped(request: DecideRequest): DecideRequest {
 export function createApiV1(opts: ApiV1Options): (request: Request, pathname: string, slot: ApiSlot) => Promise<ApiOutcome> {
   let active = 0;
   const timeoutMs = opts.timeoutMs ?? API_V1_LIMITS.providerTimeoutMs;
-  const timedFetch: DecideFetch = (url, init) =>
-    fetch(url, { method: init.method, headers: { ...init.headers }, body: init.body, signal: AbortSignal.timeout(timeoutMs) });
+  const deadlineMs = opts.deadlineMs ?? API_V1_LIMITS.requestDeadlineMs;
+  // Each call ends at its own timeout or when the request's signal fires (client gone, or the request deadline).
+  const timedFetch: DecideFetch = (url, init) => {
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = init.signal !== undefined ? AbortSignal.any([timeout, init.signal]) : timeout;
+    return fetch(url, { method: init.method, headers: { ...init.headers }, body: init.body, signal });
+  };
   const refuseSpawn: RunDeps["spawn"] = async () => {
     throw new Error("claude-cli is not offered over HTTP");
   };
-  const depsFor = (keys: ProviderKeys): RunDeps => ({
+  const depsFor = (keys: ProviderKeys, signal: AbortSignal): RunDeps => ({
     keys,
     fetch: opts.deps?.fetch ?? timedFetch,
     spawn: opts.deps?.spawn ?? refuseSpawn,
     which: opts.deps?.which ?? (() => null),
     llmTransports: API_LLM_TRANSPORTS,
+    signal,
   });
 
   const routeOf = (pathname: string): Route | null => {
@@ -170,8 +183,8 @@ export function createApiV1(opts: ApiV1Options): (request: Request, pathname: st
     }
   };
 
-  const dispatch = async (route: Exclude<Route, "arms">, value: unknown, keys: ProviderKeys): Promise<Response> => {
-    const deps = async (): Promise<RunDeps> => depsFor(keys);
+  const dispatch = async (route: Exclude<Route, "arms">, value: unknown, keys: ProviderKeys, signal: AbortSignal): Promise<Response> => {
+    const deps = async (): Promise<RunDeps> => depsFor(keys, signal);
     if (route === "verdict") {
       const b = BODIES.verdict.safeParse(value);
       if (!b.success) return invalid(zodErrors(b.error));
@@ -187,10 +200,16 @@ export function createApiV1(opts: ApiV1Options): (request: Request, pathname: st
       if (!b.success) return invalid(zodErrors(b.error));
       return answer(await spendTool("ask", capped(requestOf(b.data.questions, [caseOf(b.data.case)], b.data.arms, b.data.options)), undefined, deps, {}));
     }
-    const b = BODIES[route].safeParse(value);
+    if (route === "run") {
+      const b = BODIES.run.safeParse(value);
+      if (!b.success) return invalid(zodErrors(b.error));
+      const { format, ...options } = b.data.options ?? {};
+      const request = requestOf(b.data.questions, casesOf(b.data.cases), b.data.arms, options);
+      return answer(await spendTool("run", capped(request), undefined, deps, {}, format ?? "rows"));
+    }
+    const b = BODIES.estimate.safeParse(value);
     if (!b.success) return invalid(zodErrors(b.error));
-    const request = requestOf(b.data.questions, casesOf(b.data.cases), b.data.arms, b.data.options);
-    return answer(await spendTool(route, route === "run" ? capped(request) : request, undefined, deps, {}));
+    return answer(await spendTool("estimate", requestOf(b.data.questions, casesOf(b.data.cases), b.data.arms, b.data.options), undefined, deps, {}));
   };
 
   return async (request, pathname, slot) => {
@@ -201,11 +220,12 @@ export function createApiV1(opts: ApiV1Options): (request: Request, pathname: st
       return { route: label, tokenId, response: reply({ code: "unauthenticated" }, 401, { "www-authenticate": 'Bearer realm="jevnotjev-api"' }) };
     }
     if (route === null) return { route: label, tokenId, response: reply({ code: "not-found" }, 404) };
-    const method = route === "arms" ? "GET" : "POST";
-    if (request.method !== method) return { route, tokenId, response: reply({ code: "method-not-allowed" }, 405, { allow: method }) };
+    const methods = route === "arms" ? ["GET", "HEAD"] : ["POST"];
+    if (!methods.includes(request.method)) return { route, tokenId, response: reply({ code: "method-not-allowed" }, 405, { allow: methods.join(", ") }) };
     const keys = keysFrom(request);
     if (route === "arms") {
-      return { route, tokenId, response: reply({ ...armsReport(keyEnvOf(keys), API_LLM_TRANSPORTS), keyHeaders: API_KEY_HEADERS, limits: API_V1_LIMITS }) };
+      const arms = reply({ ...armsReport(keyEnvOf(keys), API_LLM_TRANSPORTS), keyHeaders: API_KEY_HEADERS, limits: API_V1_LIMITS });
+      return { route, tokenId, response: request.method === "HEAD" ? new Response(null, { status: 200, headers: arms.headers }) : arms };
     }
     if (active >= API_V1_LIMITS.maxConcurrent || !slot.acquire()) {
       return { route, tokenId, response: reply({ code: "runner-busy" }, 503) };
@@ -214,7 +234,9 @@ export function createApiV1(opts: ApiV1Options): (request: Request, pathname: st
     try {
       const parsed = await body(request);
       if (!parsed.ok) return { route, tokenId, response: parsed.response };
-      return { route, tokenId, response: await dispatch(route, parsed.value, keys) };
+      // The client going away (Bun aborts request.signal) or the request deadline stops the run before its next call.
+      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(deadlineMs)]);
+      return { route, tokenId, response: await dispatch(route, parsed.value, keys, signal) };
     } catch (error) {
       if (error instanceof CliInputError || error instanceof DecideError) return { route, tokenId, response: invalid([error.message]) };
       // Unexpected: no message is echoed (it could hold anything); the status says what kind of failure it was.

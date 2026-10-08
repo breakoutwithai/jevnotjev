@@ -50,6 +50,9 @@ export interface RunDeps {
   /** llm transports allowed, in preference order. The hosted API passes ["messages-api"] to disable the cli. */
   readonly llmTransports?: readonly LlmTransport[];
   readonly now?: () => number;
+  /** Fires when the caller is gone or its deadline passed: no new call starts, the call in flight is aborted, and every
+   * call not made is outcome error, reason aborted, counted as incomplete (as the budget cap marks them). */
+  readonly signal?: AbortSignal;
 }
 
 export interface ArmEstimate {
@@ -77,7 +80,7 @@ export interface OutcomeCounts {
   refused: number;
   unsupported: number;
   error: number;
-  /** Not asked: the budget cap stopped before this call. Counted here, not under error. */
+  /** Not asked: the budget cap or an abort stopped before this call. Counted here, not under error. */
   incomplete: number;
 }
 
@@ -87,6 +90,8 @@ export interface RunResult {
   readonly calls: number;
   readonly spentUsd: number;
   readonly stoppedByBudget: boolean;
+  /** The caller went away or its deadline passed (RunDeps.signal), so the remaining calls were not made. */
+  readonly stoppedByAbort: boolean;
   /** Set when the claude-cli transport made a call: its argv has no output cap, so the budget can be overshot by at most one call. */
   readonly budgetNote: string | null;
   readonly counts: Readonly<Record<ArmName, OutcomeCounts>>;
@@ -220,9 +225,13 @@ export async function run(req: DecideRequest, deps: RunDeps = {}): Promise<RunRe
   const r = resolve(req);
   const est = estimateResolved(r);
   const counts = emptyCounts();
-  if (r.dryRun) return { rows: [], estimate: est, calls: 0, spentUsd: 0, stoppedByBudget: false, budgetNote: null, counts };
+  if (r.dryRun) return { rows: [], estimate: est, calls: 0, spentUsd: 0, stoppedByBudget: false, stoppedByAbort: false, budgetNote: null, counts };
+  const signal = deps.signal;
+  // A function, not a narrowed property: the signal can fire during any await.
+  const aborted = (): boolean => signal?.aborted === true;
+  let abortStopped = false;
   const keys = deps.keys ?? {};
-  const doFetch: DecideFetch = deps.fetch ?? ((url, init) => fetch(url, { method: init.method, headers: { ...init.headers }, body: init.body }));
+  const doFetch: DecideFetch = deps.fetch ?? ((url, init) => fetch(url, { method: init.method, headers: { ...init.headers }, body: init.body, ...(init.signal !== undefined ? { signal: init.signal } : {}) }));
   const spawn = deps.spawn ?? bunSpawn;
   const which = deps.which ?? whichClaude;
   const transports = deps.llmTransports ?? LLM_TRANSPORTS;
@@ -312,6 +321,11 @@ export async function run(req: DecideRequest, deps: RunDeps = {}): Promise<RunRe
         emit(c, a, all("error", `missing key: ${a.arm} needs keys.${KEY_FIELD[a.arm]}`), NO_CALL);
         continue;
       }
+      if (aborted()) {
+        abortStopped = true;
+        emit(c, a, all("error", "aborted"), NO_CALL, true);
+        continue;
+      }
       const projected = estimateCall(a.arm, a.price, text, r.questions);
       if (stopped || (r.budgetUsd !== undefined && spentUsd + projected > r.budgetUsd)) {
         stopped = true;
@@ -341,13 +355,20 @@ export async function run(req: DecideRequest, deps: RunDeps = {}): Promise<RunRe
       const headers = a.arm === "jev" ? jevHeaders(secret) : a.arm === "decisions" ? decisionsHeaders(secret) : messagesHeaders(secret);
       let parsed: CallResult | null = null;
       try {
-        const res = await doFetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+        const res = await doFetch(url, { method: "POST", headers, body: JSON.stringify(body), ...(signal !== undefined ? { signal } : {}) });
         const json = await readJson(res);
         parsed = a.arm === "jev" ? parseJev(res.status, json, body, r.questions) : a.arm === "decisions" ? parseDecisions(res.status, json, r.questions) : parseMessages(res.status, json, r.questions);
       } catch {
         parsed = null;
       }
       const latencyMs = Math.max(0, Math.round(now() - start));
+      if (parsed === null && aborted()) {
+        // Aborted in flight: the provider may still bill it, so it counts against spend, but it has no answer.
+        spentUsd += projected;
+        abortStopped = true;
+        emit(c, a, all("error", "aborted"), { costUsd: null, tokensIn: null, tokensOut: null, latencyMs, ...(a.arm === "llm" ? { transport: "messages-api" } : {}) }, true);
+        continue;
+      }
       if (parsed === null) {
         spentUsd += projected;
         emit(c, a, all("error", "network error"), { costUsd: null, tokensIn: null, tokensOut: null, latencyMs, ...(a.arm === "llm" ? { transport: "messages-api" } : {}) });
@@ -361,7 +382,7 @@ export async function run(req: DecideRequest, deps: RunDeps = {}): Promise<RunRe
       });
     }
   }
-  return { rows, estimate: est, calls, spentUsd, stoppedByBudget: stopped, budgetNote: usedCli ? CLI_BUDGET_NOTE : null, counts };
+  return { rows, estimate: est, calls, spentUsd, stoppedByBudget: stopped, stoppedByAbort: abortStopped, budgetNote: usedCli ? CLI_BUDGET_NOTE : null, counts };
 }
 
 /** One case, the same questions and arms. */

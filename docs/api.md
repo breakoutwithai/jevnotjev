@@ -217,7 +217,7 @@ The six tools under `/api/v1` on the Backstage server (`src/backstage/server.ts`
 | `GET /api/v1/arms` | arms | none |
 | `POST /api/v1/estimate` | estimate | `{questions, cases, arms?, options?}` |
 | `POST /api/v1/ask` | ask | `{questions, case, arms?, options?}` |
-| `POST /api/v1/run` | run | `{questions, cases, arms?, options?}`; rows inline, no `out` |
+| `POST /api/v1/run` | run | `{questions, cases, arms?, options?}`; rows inline, no `out`; `options.format: "csv"` returns `records` |
 | `POST /api/v1/verdict` | verdict | `{records: "<jnj-record CSV text>", question?}` |
 | `POST /api/v1/validate` | validate | `{records: "<jnj-record CSV text>"}` |
 
@@ -233,7 +233,7 @@ bun scripts/api-token-mint.ts --label ci-bot
 
 - The state file keeps only each token's sha256 (with an id, label and date); a copy of the file cannot call the API. A presented token is compared in constant time against every stored hash.
 - Path: `JNJ_API_TOKENS_PATH`, else `$STATE_DIRECTORY/api-tokens.json` (the systemd state directory), else `$HOME/.jevnotjev/api-tokens.json`. All are outside the served `site/` directory; a path inside the static root is refused and every route stays 401. `api-tokens.json` and `.jevnotjev/` are gitignored.
-- The file is mode 0600 in a 0700 directory. The server re-reads it when it changes, so a new token works without a restart. To revoke, delete its entry by `id`.
+- The file is mode 0600 in a 0700 directory, set on every mint even when they already existed. A mint takes an exclusive `api-tokens.json.lock` (a lock older than 30 s is taken over), writes a temp file and renames it into place, so concurrent mints all persist. The server re-reads it when it changes, so a new token works without a restart. To revoke, delete its entry by `id`.
 - The browser routes keep their cookie session: a bearer token opens no `/backstage/` or `/api/backstage/` route, and a session cookie opens no `/api/v1` route.
 
 ### Provider keys: per request, the caller's own
@@ -245,8 +245,8 @@ bun scripts/api-token-mint.ts --label ci-bot
 | `x-anthropic-key` | llm (Messages API) |
 
 - Keys are read from the request headers for that request only. They are never logged, stored, echoed or put in an error body. The server's own environment keys and the funded trial key are never used for an API caller.
-- A missing key fails only its arm: that arm's rows are `outcome=error` with `reason` `missing key: <arm> needs keys.<name>`.
-- The `claude-cli` transport is not offered over HTTP (it would spend the operator's subscription on a caller's behalf). With no `x-anthropic-key` the llm rows are `outcome=error`, `reason` `missing key: llm needs keys.anthropic`; `arms` reports `transports: ["messages-api"]`.
+- A missing key fails only its arm: that arm's rows are `outcome=error` with `evidence.reason` `missing key: <arm> needs keys.<name>`.
+- The `claude-cli` transport is not offered over HTTP (it would spend the operator's subscription on a caller's behalf). With no `x-anthropic-key` the llm rows are `outcome=error`, `evidence.reason` `missing key: llm needs keys.anthropic`; `arms` reports `transports: ["messages-api"]`.
 - `arms` reports which key headers are set (`keySet`), never a value, plus `keyHeaders` and `limits`.
 
 ### Limits
@@ -259,9 +259,14 @@ bun scripts/api-token-mint.ts --label ci-bot
 | request body | 64 KiB (413 above) |
 | `/api/v1` requests in flight | 4, inside the server's overall cap of 8 (503 above) |
 | one provider call | 30 s |
+| one `/api/v1` request | 100 s, then no new provider call |
 | one `/api/v1` connection idle | 120 s |
 
 Send more cases as several `run` requests. `verdict` and `validate` take the CSV text, so a records file up to 64 KiB.
+
+- `run` with `options.format: "csv"` returns `records`, the rows as one jnj-record/1.2 CSV string, in place of `rows`. Label it, then send it to `verdict` or `validate` as is. The default, `"rows"`, returns the JSON rows.
+- A request stops starting provider calls when the client disconnects or after 100 s. The call in flight is aborted; it and every call not made are `outcome=error`, `evidence.reason` `aborted`, counted as `incomplete`, and the summary has `stoppedByAbort: true`. Its concurrency slot is freed when the run returns.
+- `HEAD /api/v1/arms` with a valid token answers 200 with no body.
 
 ### Status codes
 

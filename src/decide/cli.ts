@@ -199,9 +199,12 @@ export interface ToolAnswer {
  * estimate, ask and run over a parsed request. `out` set: run writes the jnj-record/1.2 CSV there and returns a summary;
  * `out` absent: run returns the rows inline, as ask does. Dry-run makes no call; deps are only built when a call is due.
  * `env` decides fixture stamping (src/decide/fixture-stamp.ts). Throws DecideError on input the core rejects.
+ * `inline` "csv" (run with no `out`): the rows come back as one `records` string of jnj-record/1.2 CSV, the text verdict
+ * and validate take, in place of the `rows` array.
  */
 export async function spendTool(
   cmd: SpendCommand["cmd"], request: DecideRequest, out: string | undefined, deps: () => Promise<RunDeps>, env: Env,
+  inline: "rows" | "csv" = "rows",
 ): Promise<ToolAnswer> {
   if (cmd === "estimate") return { code: EXIT.ok, body: estimate(request), errors: [] };
   if (request.options?.dryRun === true) return { code: EXIT.ok, body: { dryRun: true, calls: 0, spentUsd: 0, estimate: estimate(request) }, errors: [] };
@@ -209,7 +212,11 @@ export async function spendTool(
   estimate(request); // reject bad input before any key or fixture is read
   const raw = await run(request, await deps());
   const result = fixtureModeActive(env) ? { ...raw, rows: stampFixtureRows(raw.rows) } : raw;
-  const summary = { calls: result.calls, spentUsd: result.spentUsd, stoppedByBudget: result.stoppedByBudget, budgetNote: result.budgetNote, counts: result.counts, estimate: result.estimate };
+  const summary = {
+    calls: result.calls, spentUsd: result.spentUsd, stoppedByBudget: result.stoppedByBudget, stoppedByAbort: result.stoppedByAbort,
+    budgetNote: result.budgetNote, counts: result.counts, estimate: result.estimate,
+  };
+  if (cmd === "run" && out === undefined && inline === "csv") return { code: EXIT.ok, body: { records: rowsToCsv(result.rows), ...summary }, errors: [] };
   if (cmd === "ask" || out === undefined) return { code: EXIT.ok, body: { rows: result.rows, ...summary }, errors: [] };
   try {
     await mkdir(dirname(out), { recursive: true });

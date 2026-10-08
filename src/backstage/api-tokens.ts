@@ -5,7 +5,7 @@
 // State file: JNJ_API_TOKENS_PATH, else $STATE_DIRECTORY/api-tokens.json (systemd), else $HOME/.jevnotjev/api-tokens.json.
 // All three are outside the served site/ directory; the server refuses a path inside its static root.
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 
@@ -82,19 +82,81 @@ export interface Minted {
   readonly path: string;
 }
 
-/** Mint a token into the state file (created 0600 in a 0700 directory, written by rename). Returns the token once. */
-export function mintToken(path: string, label: string, now: Date = new Date()): Minted {
+export interface LockTiming {
+  /** How long a mint waits for another mint's lock before it gives up (ms). */
+  readonly waitMs: number;
+  /** A lock file older than this is from a mint that died, and is taken over (ms). */
+  readonly staleMs: number;
+}
+
+export const MINT_LOCK: LockTiming = { waitMs: 5_000, staleMs: 30_000 };
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function errorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  return typeof error.code === "string" ? error.code : undefined;
+}
+
+/** Take `<path>.lock` with an O_EXCL create, retrying until `waitMs`; a lock older than `staleMs` is moved aside and retaken. */
+function acquireLock(lock: string, timing: LockTiming): void {
+  const deadline = Date.now() + timing.waitMs;
+  for (;;) {
+    try {
+      closeSync(openSync(lock, "wx", 0o600));
+      return;
+    } catch (error) {
+      if (errorCode(error) !== "EEXIST") throw error;
+    }
+    try {
+      if (Date.now() - statSync(lock).mtimeMs > timing.staleMs) {
+        // Rename is atomic: of two mints that both see the stale lock, one moves it and the other gets ENOENT.
+        const aside = `${lock}.stale.${process.pid}.${randomBytes(4).toString("hex")}`;
+        renameSync(lock, aside);
+        rmSync(aside, { force: true });
+        continue;
+      }
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") throw error;
+      continue;
+    }
+    if (Date.now() >= deadline) throw new Error(`token file is locked by another mint (${lock}); try again`);
+    sleepSync(5 + Math.floor(Math.random() * 10));
+  }
+}
+
+/**
+ * Mint a token into the state file. The read-modify-write runs under an exclusive lock file, the new file is written to a
+ * temp file and renamed into place, and the directory and file are set to 0700 and 0600 even when they already existed.
+ * Returns the token once.
+ */
+export function mintToken(path: string, label: string, now: Date = new Date(), timing: LockTiming = MINT_LOCK): Minted {
   if (!LABEL.test(label)) throw new Error("label must match [A-Za-z0-9 _.@-]{1,64}");
-  const current = readTokenFile(path);
-  const token = TOKEN_PREFIX + randomBytes(32).toString("base64url");
-  const id = `tok_${randomBytes(6).toString("hex")}`;
-  const next: TokenFile = { format: API_TOKENS_FORMAT, tokens: [...current.tokens, { id, label, sha256: hashToken(token), created: now.toISOString() }] };
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n", { mode: 0o600 });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
-  return { token, id, path };
+  const dir = dirname(path);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700);
+  const lock = `${path}.lock`;
+  acquireLock(lock, timing);
+  try {
+    const current = readTokenFile(path);
+    const token = TOKEN_PREFIX + randomBytes(32).toString("base64url");
+    const id = `tok_${randomBytes(6).toString("hex")}`;
+    const next: TokenFile = { format: API_TOKENS_FORMAT, tokens: [...current.tokens, { id, label, sha256: hashToken(token), created: now.toISOString() }] };
+    const tmp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+    try {
+      writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+      chmodSync(tmp, 0o600);
+      renameSync(tmp, path);
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+    chmodSync(path, 0o600);
+    return { token, id, path };
+  } finally {
+    rmSync(lock, { force: true });
+  }
 }
 
 /** Verifies bearer tokens against the state file, re-read when its mtime, size or inode changes (a newly minted token works without a restart). */

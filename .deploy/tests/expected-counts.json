@@ -1,5 +1,5 @@
 {
-  "minFiles": 92,
+  "minFiles": 93,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -40,7 +40,8 @@
     "scripts/uc13/little-shop.test.ts": 5,
     "scripts/uc13/run-arms.test.ts": 15,
     "scripts/uc13/stage-demo.test.ts": 15,
-    "src/backstage/api-v1.test.ts": 22,
+    "src/backstage/api-tokens.test.ts": 3,
+    "src/backstage/api-v1.test.ts": 28,
     "src/backstage/auth-routes.test.ts": 16,
     "src/backstage/auth.test.ts": 18,
     "src/backstage/build.test.ts": 6,

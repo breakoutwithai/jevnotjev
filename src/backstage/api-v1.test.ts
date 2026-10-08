@@ -9,8 +9,9 @@ import { fixtureDeps } from "../decide/cli.ts";
 import { parseFixtures, type FixtureSet } from "../decide/cli-args.ts";
 import type { DecideSpawn } from "../decide/llm.ts";
 import type { DecideFetch, FetchInit } from "../decide/types.ts";
-import { mintToken } from "./api-tokens.ts";
-import { API_V1_LIMITS, API_V1_ROUTES } from "./api-v1.ts";
+import { formatRows, readDictRows } from "../format/csv.ts";
+import { ApiTokenStore, mintToken } from "./api-tokens.ts";
+import { API_V1_LIMITS, API_V1_ROUTES, createApiV1, type ApiSlot } from "./api-v1.ts";
 import { createHandler, type ServerOptions } from "./server.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -190,7 +191,7 @@ describe("API surface", () => {
     expect((await call(h, "GET", "/api/v1", null, auth)).status).toBe(404);
     const wrongMethod = await call(h, "POST", "/api/v1/arms", {}, auth);
     expect(wrongMethod.status).toBe(405);
-    expect(wrongMethod.headers.get("allow")).toBe("GET");
+    expect(wrongMethod.headers.get("allow")).toBe("GET, HEAD");
     expect((await call(h, "GET", "/api/v1/run", null, auth)).status).toBe(405);
     expect((await h.handler(new Request(BASE + "/api/v1/ask", { method: "POST", headers: { ...auth, "content-type": "text/plain" }, body: "{}" }))).status).toBe(415);
     const notJson = await call(h, "POST", "/api/v1/ask", "{not json", auth);
@@ -425,5 +426,172 @@ describe("KEY-CANARY", () => {
     const leaks = haystack.split(canary).length - 1;
     expect(leaks).toBe(0);
     expect(h.logs.length).toBeGreaterThan(0);
+  });
+});
+
+function verdictFixture(name: string): string {
+  return readFileSync(join(ROOT, "examples", "d08-verdicts", `${name}.csv`), "utf8");
+}
+
+describe("API-VERDICT exit codes over HTTP", () => {
+  test("[integration] API-VERDICT-3 r2-jev-worse answers 200 with exit_code 3, don't use Jev", async () => {
+    const h = harness();
+    const res = await call(h, "POST", "/api/v1/verdict", { records: verdictFixture("r2-jev-worse") }, bearer(h.token));
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(field(body, "exit_code")).toBe(3);
+    expect(field(body, "verdicts", 0, "verdict")).toBe("don't use Jev");
+  });
+
+  test("[integration] API-VERDICT-4 r1-29-paired answers 200 with exit_code 4, not enough evidence", async () => {
+    const h = harness();
+    const res = await call(h, "POST", "/api/v1/verdict", { records: verdictFixture("r1-29-paired") }, bearer(h.token));
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(field(body, "exit_code")).toBe(4);
+    expect(field(body, "verdicts", 0, "verdict")).toBe("not enough evidence");
+  });
+});
+
+describe("API-HEAD", () => {
+  test("[integration] API-HEAD an authenticated HEAD on /arms is 200 with no body; without a token it is 401", async () => {
+    const h = harness();
+    const res = await call(h, "HEAD", "/api/v1/arms", null, bearer(h.token));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("");
+    expect((await call(h, "HEAD", "/api/v1/arms", null, {})).status).toBe(401);
+    const run = await call(h, "HEAD", "/api/v1/run", null, bearer(h.token));
+    expect(run.status).toBe(405);
+    expect(run.headers.get("allow")).toBe("POST");
+  });
+});
+
+describe("API-CSV", () => {
+  test("[integration] API-CSV run with options.format csv returns records that, once labelled, verdict answers with 200", async () => {
+    const h = harness();
+    const auth = { ...bearer(h.token), "x-jev-key": "k-jev", "x-anthropic-key": "k-anthropic" };
+    const arms = { jev: true, llm: "claude-haiku-5-5" };
+    const res = await call(h, "POST", "/api/v1/run", { questions: QUESTIONS, cases: CASES, arms, options: { format: "csv" } }, auth);
+    expect(res.status).toBe(200);
+    const body: unknown = await res.json();
+    expect(field(body, "rows")).toBeUndefined();
+    expect(field(body, "calls")).toBe(4);
+    const records = field(body, "records");
+    if (typeof records !== "string") throw new Error("records is not a string");
+    const { header, rows } = readDictRows(records);
+    if (header === null) throw new Error("no header");
+    expect(rows).toHaveLength(CASES.length * 2 * QUESTIONS.length);
+    const at = (name: string): number => header.indexOf(name);
+    expect(rows.every((r) => r.fields[at("outcome")] === "answered")).toBe(true);
+    // A person labels every answered row as accepted, with the label provenance a labelled 1.2 row carries.
+    const labels: Readonly<Record<string, string>> = { label: "accept", label_source: "human", labelled_by: "tester", labelled_at: "2026-10-08", label_blind: "true" };
+    const labelled = formatRows([header, ...rows.map((r) => r.fields.map((v, i) => labels[header[i] ?? ""] ?? v))]);
+    const verdict = await call(h, "POST", "/api/v1/verdict", { records: labelled }, bearer(h.token));
+    expect(verdict.status).toBe(200);
+    expect(field(await verdict.json(), "exit_code")).toBe(4);
+    const valid = await call(h, "POST", "/api/v1/validate", { records: labelled }, bearer(h.token));
+    expect(field(await valid.json(), "valid")).toBe(true);
+    // The default is unchanged: rows inline. An unknown format is a 400 before any call.
+    const sentBefore = h.sent.length;
+    const plain = await call(h, "POST", "/api/v1/run", { questions: QUESTIONS, cases: CASES, arms }, auth);
+    expect(list(field(await plain.json(), "rows"))).toHaveLength(12);
+    const xml = await call(h, "POST", "/api/v1/run", { questions: QUESTIONS, cases: CASES, arms, options: { format: "xml" } }, auth);
+    expect(xml.status).toBe(400);
+    expect(h.sent.length).toBe(sentBefore + 4);
+  });
+});
+
+describe("API-ABORT", () => {
+  const TEN = Array.from({ length: API_V1_LIMITS.maxCases }, (_, i) => ({ id: `c${i}`, input: M0_TEXT }));
+
+  /** createApiV1 on its own, with a counting slot, so a test can see the slot come back. */
+  function direct(fetch: DecideFetch, deadlineMs?: number): { api: ReturnType<typeof createApiV1>; token: string; slot: ApiSlot; slots: { acquired: number; released: number } } {
+    const dir = mkdtempSync(join(tmpdir(), "jnj-api-v1-abort-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const tokensPath = join(dir, "state", "api-tokens.json");
+    const { token } = mintToken(tokensPath, "abort-test");
+    const slots = { acquired: 0, released: 0 };
+    const slot: ApiSlot = {
+      acquire: () => {
+        slots.acquired += 1;
+        return true;
+      },
+      release: () => {
+        slots.released += 1;
+      },
+    };
+    const api = createApiV1({
+      tokens: new ApiTokenStore(tokensPath),
+      deps: { fetch, which: () => null },
+      ...(deadlineMs !== undefined ? { deadlineMs } : {}),
+    });
+    return { api, token, slot, slots };
+  }
+
+  /** A provider that answers from the fixture after `delayOf(n)` ms and, like the real fetch, rejects once its signal aborts. */
+  function slowProvider(delayOf: (n: number) => number, onCall: (n: number) => void = () => {}): { fetch: DecideFetch; calls: () => number } {
+    const fx = fixtureDeps(fixtureSet());
+    let n = 0;
+    const fetch: DecideFetch = (url, init) => {
+      n += 1;
+      onCall(n);
+      return new Promise<Response>((resolveCall, rejectCall) => {
+        if (init.signal?.aborted === true) return rejectCall(new Error("aborted"));
+        const timer = setTimeout(() => {
+          if (fx.fetch === undefined) rejectCall(new Error("no fixture fetch"));
+          else resolveCall(fx.fetch(url, init));
+        }, delayOf(n));
+        init.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          rejectCall(new Error("aborted"));
+        }, { once: true });
+      });
+    };
+    return { fetch, calls: () => n };
+  }
+
+  function runRequest(token: string, signal?: AbortSignal): Request {
+    return new Request(BASE + "/api/v1/run", {
+      method: "POST",
+      headers: { ...bearer(token), "content-type": "application/json", "x-jev-key": "k-jev" },
+      body: JSON.stringify({ questions: QUESTIONS, cases: TEN, arms: { jev: true, llm: false } }),
+      ...(signal !== undefined ? { signal } : {}),
+    });
+  }
+
+  test("[integration] API-ABORT a client that disconnects mid-run stops new provider calls and frees the slot", async () => {
+    const controller = new AbortController();
+    // Call 1 answers; call 2 would hang for a minute, and the client goes away while it is in flight.
+    const provider = slowProvider((n) => (n === 1 ? 5 : 60_000), (n) => {
+      if (n === 2) setTimeout(() => controller.abort(), 20);
+    });
+    const d = direct(provider.fetch);
+    const started = performance.now();
+    const done = await d.api(runRequest(d.token, controller.signal), "/api/v1/run", d.slot);
+    expect(performance.now() - started).toBeLessThan(5_000);
+    await Bun.sleep(50);
+    expect(provider.calls()).toBe(2);
+    expect(d.slots).toEqual({ acquired: 1, released: 1 });
+    const body: unknown = await done.response.json();
+    expect(field(body, "stoppedByAbort")).toBe(true);
+    expect(field(body, "counts", "jev", "answered")).toBe(QUESTIONS.length);
+    expect(field(body, "counts", "jev", "incomplete")).toBe((TEN.length - 1) * QUESTIONS.length);
+    const reasons = new Set(list(field(body, "rows")).slice(QUESTIONS.length).map((r) => field(r, "evidence", "reason")));
+    expect([...reasons]).toEqual(["aborted"]);
+  });
+
+  test("[integration] API-DEADLINE a run past its per-request deadline stops calling and marks the rest incomplete", async () => {
+    expect(API_V1_LIMITS.requestDeadlineMs).toBeLessThan(API_V1_LIMITS.requestTimeoutSeconds * 1000);
+    expect(API_V1_LIMITS.requestDeadlineMs).toBeGreaterThan(API_V1_LIMITS.providerTimeoutMs);
+    const provider = slowProvider(() => 40);
+    const d = direct(provider.fetch, 100);
+    const done = await d.api(runRequest(d.token), "/api/v1/run", d.slot);
+    await Bun.sleep(100);
+    expect(provider.calls()).toBeGreaterThan(0);
+    expect(provider.calls()).toBeLessThan(TEN.length);
+    expect(d.slots).toEqual({ acquired: 1, released: 1 });
+    const body: unknown = await done.response.json();
+    expect(field(body, "stoppedByAbort")).toBe(true);
+    expect(Number(field(body, "counts", "jev", "incomplete"))).toBeGreaterThan(0);
   });
 });

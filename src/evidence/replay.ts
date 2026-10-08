@@ -14,7 +14,12 @@ export const NOT_COUNTED = "not counted (AI label, not reviewed)";
 /** The methods the site compares, in the order the site shows them (site/little-shop, site/index.html). */
 export const COMPARED: readonly string[] = ["llm", "rule", "jev"];
 /** The site's names for the three methods (site/uc13-demo.js, site/index.html). */
-export const METHOD_NAMES: Readonly<Record<string, string>> = { llm: "What you do now", rule: "A simple rule", jev: "Jev decides" };
+export const METHOD_NAMES: Readonly<Record<string, string>> = { llm: "What you do now", rule: "A simple rule", jev: "Jev decides", decisions: "OpenAI Decisions API" };
+
+/** The handle on a synthetic generator's labels: the case was written to be a yes or a no, so the label is known by construction. */
+export const GENERATOR_HANDLE = "synthetic-generator";
+
+export interface Spotlight { readonly caseKey: string; readonly heading: string }
 
 export interface RunSource {
   readonly key: string;
@@ -22,6 +27,12 @@ export interface RunSource {
   readonly file: string;
   readonly title: string;
   readonly synthetic: boolean;
+  /** Replay a long run in pages: the first `pageBy` cases one at a time, then `pageBy` cases per step. */
+  readonly pageBy?: number;
+  /** Methods the run was meant to include; one with no rows is listed and flagged once. */
+  readonly extraMethods?: readonly string[];
+  /** A case the page offers a popup for: its key and the heading over it. */
+  readonly spotlight?: Spotlight;
 }
 
 export const RUN_SOURCES: readonly RunSource[] = [
@@ -42,6 +53,8 @@ export interface ReplayRow {
   readonly truth: string;
   /** NOT_COUNTED when the row has a label that truth drops, else empty. */
   readonly labelNote: string;
+  /** Present (true) only when `truth` is a synthetic generator's label, counted in this replay's tally but never in a verdict. */
+  readonly generated?: true;
   readonly outcome: string;
   readonly answered: boolean;
   readonly costUsd: number | null;
@@ -132,6 +145,9 @@ export interface ReplayRun {
   readonly provenance: readonly string[];
   /** steps[i] is the tally after cases 0..i. */
   readonly steps: readonly (readonly StepTally[])[];
+  /** Present for a long run: the first `pageBy` cases play one at a time, then `pageBy` cases per step. */
+  readonly pageBy?: number;
+  readonly spotlight?: Spotlight;
 }
 
 /** The site's cost format (site/little-shop/seating.js usd): $0 for zero, 6 decimals under $1, else 4. A cost that
@@ -193,9 +209,13 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
     const label = col(record, "label");
     const values = parsed[i]?.values;
     const truthValue = values === undefined ? null : truthLabel(values);
-    const truth = typeof truthValue === "string" ? truthValue : "";
+    const counted = typeof truthValue === "string" ? truthValue : "";
+    const generated = counted === "" && col(record, "label_source") === "agent" && col(record, "labelled_by") === GENERATOR_HANDLE &&
+      (label === "accept" || label === "reject");
+    const truth = generated ? label : counted;
     return {
       truth,
+      ...(generated ? { generated: true as const } : {}),
       labelNote: label !== "" && truth === "" ? NOT_COUNTED : "",
       line: record.line,
       caseId,
@@ -216,7 +236,7 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
     };
   });
 
-  const present = [...new Set(rows.map((r) => r.answerer))];
+  const present = [...new Set([...rows.map((r) => r.answerer), ...(source.extraMethods ?? [])])];
   const methods = [...COMPARED.filter((m) => present.includes(m)), ...present.filter((m) => !COMPARED.includes(m)).sort()];
 
   const cases: ReplayCase[] = [];
@@ -263,6 +283,17 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
         lines: rows.filter((r) => r.caseKey === c.key).map((r) => r.line),
       });
     }
+  }
+  for (const method of source.extraMethods ?? []) {
+    if (rows.some((r) => r.answerer === method)) continue;
+    flags.push({
+      id: `${source.key}-${method}-no-rows`,
+      method,
+      kind: "missing",
+      caseKey: "",
+      text: `${methodName(method)} has no rows for any of the ${cases.length} cases, so it is not compared in this run`,
+      lines: [],
+    });
   }
   for (const row of rows) {
     if (row.costUsd !== null) continue;
@@ -327,6 +358,7 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
   const out: ReplayRow[] = rows.map((r) => ({
     line: r.line, caseKey: r.caseKey, answerer: r.answerer, model: r.model, input: r.input, output: r.output,
     label: r.label, truth: r.truth, labelNote: r.labelNote, outcome: r.outcome, answered: r.answered, costUsd: r.costUsd, costText: r.costText,
+    ...(r.generated === true ? { generated: true as const } : {}),
   }));
   const base = { cases, methods, rows: out };
   const { key, title, file, synthetic } = source;
@@ -344,5 +376,7 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
     questions,
     provenance: provenanceByMethod(parsed),
     steps: cases.map((_, i) => tallyThrough(base, i)),
+    ...(source.pageBy === undefined ? {} : { pageBy: source.pageBy }),
+    ...(source.spotlight === undefined ? {} : { spotlight: source.spotlight }),
   };
 }

@@ -218,6 +218,18 @@ describe("replay evidence (src/evidence/replay.ts)", () => {
     expect(d12.questions[0]?.limitations).toContain("Uneven cases across methods: llm 4, rule 3, jev 4.");
   });
 
+  test("[unit] RP-18 only the synthetic generator's agent label counts in the tally; any other agent label stays not counted", () => {
+    const head = `${HEADER},labelled_by,labelled_at,label_blind`;
+    const row = (by: string): string => `jnj-record/1.1,r,p,c1,CV,q1,Q?,yes|no,jev,jev-1.13.0,yes,,accept,agent,1,1,0.001,1,${by},2026-10-08,false`;
+    const gen = parseRun(`${head}\n${row("synthetic-generator")}\n`, INLINE);
+    expect(gen.rows[0]?.truth).toBe("accept");
+    expect(gen.rows[0]?.generated).toBe(true);
+    const other = parseRun(`${head}\n${row("some-model")}\n`, INLINE);
+    expect(other.rows[0]?.truth).toBe("");
+    expect(other.rows[0]?.labelNote).toBe("not counted (AI label, not reviewed)");
+    expect(other.rows[0]?.generated).toBeUndefined();
+  });
+
   test("[unit] RP-15 paired and accept counts equal src/core/metrics.ts and verdict.ts on every record file", async () => {
     for (const s of RUN_SOURCES) {
       const text = await readFile(join(ROOT, s.file), "utf8");

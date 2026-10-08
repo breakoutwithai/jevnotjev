@@ -52,6 +52,7 @@
     <div class="strip" id="strip" aria-label="Jump to a case"></div>
     <div class="msg" id="msg"></div>
     <div class="arms" id="arms"></div>
+    <div class="pagelist" id="pageList" hidden></div>
     <section class="tally" aria-labelledby="tallyTag">
       <h2 class="tag" id="tallyTag">Tally so far</h2>
       <table><thead><tr><th scope="col">Method</th><th scope="col">Accepted so far</th><th scope="col" class="opt">Share of all cases</th></tr></thead><tbody id="tally"></tbody></table>
@@ -73,7 +74,12 @@
 </footer>
 
 <noscript><p class="wrap">This page needs JavaScript to replay the run.</p></noscript>
+<dialog id="cv" class="cv" aria-label="CV of the developer we want to recruit">
+  <button type="button" class="cv-close" id="cvClose">Close</button>
+  <div id="cvBody"></div>
+</dialog>
 <script src="replay-data.js"></script>
+<script src="paging.js"></script>
 <script src="replay.js"></script>
 </body>
 </html>

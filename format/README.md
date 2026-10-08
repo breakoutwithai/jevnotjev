@@ -1,6 +1,6 @@
-# Eval record format `jnj-record/1` and `jnj-record/1.1`
+# Eval record format `jnj-record/1` with its minor versions 1.1 and 1.2
 
-One CSV to test a question against Jev, a simple rule, an LLM or a person on the same cases, and keep the answers, your accept/reject labels and what each answer cost.
+One CSV to test a question against Jev, a simple rule, an LLM, the OpenAI Decisions API or a person on the same cases, and keep the answers, your accept/reject labels and what each answer cost.
 
 One row = one answerer's answer to one question about one test case.
 
@@ -8,6 +8,7 @@ One row = one answerer's answer to one question about one test case.
 |---|---|
 | [record-v1.schema.json](record-v1.schema.json) | JSON Schema (draft 2020-12) for one row; an empty cell is read as null |
 | [example-v1.csv](example-v1.csv) | Fictional sample: 3 messages, 1 question, 3 answerers; one missing label, one missing cost |
+| [example-v1.2.csv](example-v1.2.csv) | Fictional `jnj-record/1.2` sample: 2 messages, 4 answerers including `decisions`; one refused and one error row, no labels yet |
 | [src/format/validate.ts](../src/format/validate.ts) | Checks a file against the schema and the cross-row rules below; no Node APIs, so the browser can import it. Command line: [src/format/cli.ts](../src/format/cli.ts) |
 
 ```
@@ -25,11 +26,11 @@ VALID rows=9 cases=3 errors=0 gaps=2
 ```
 
 ## Columns
-These 18 are required in the header, any order; the optional columns below are `price_table_date`, the three label provenance columns and the two blind-loop columns. Any other unknown column is an error.
+These 18 are required in the header, any order; the optional columns below are `price_table_date`, the three label provenance columns, the two blind-loop columns and `outcome`. Any other unknown column is an error.
 
 | Column | Holds | Rule |
 |---|---|---|
-| `format_version` | `jnj-record/1` or `jnj-record/1.1` | 1.1 adds label provenance ([below](#label-provenance-jnj-record11)) |
+| `format_version` | `jnj-record/1`, `jnj-record/1.1` or `jnj-record/1.2` | 1.1 adds label provenance ([below](#label-provenance-jnj-record11)); 1.2 adds `decisions` and `outcome` ([below](#answerer-decisions-and-outcomes-jnj-record12)) |
 | `run_id` | e.g. `run-001` | groups one run |
 | `prompt_version` | e.g. `refund-q.v1` | new wording = new version |
 | `case_id` | e.g. `m01` | the test case |
@@ -37,9 +38,9 @@ These 18 are required in the header, any order; the optional columns below are `
 | `question_id` | e.g. `q1` | |
 | `question` | the question asked | same text for the same `prompt_version` and `question_id` |
 | `answer_set` | e.g. `yes\|no` | allowed answers, at least two, separated by `\|` |
-| `answerer` | `jev` / `rule` / `llm` / `human` | who answered |
+| `answerer` | `jev` / `rule` / `llm` / `human`, and `decisions` in 1.2 | who answered |
 | `answerer_model` | e.g. `jev-1.13.0`, a rule name, a model id | |
-| `output` | the answer | must be one of `answer_set` |
+| `output` | the answer | must be one of `answer_set`; empty only on a 1.2 row whose `outcome` is not `answered` |
 | `confidence` | 0 to 1, or empty | empty when the answerer gives none (a rule) |
 | `label` | `accept` / `reject` / empty | the call on the answer |
 | `label_source` | `human` / `human_reviewed` / `agent` / empty | empty exactly when `label` is empty; a `jnj-record/1` row allows `human` or empty only |
@@ -96,8 +97,24 @@ A labeller picks the right answer for a case blind, then sees Jev's options for 
 - A Jev suggestion is never stored as a label. It comes from the run's own Jev answer for the case (0 calls); with none, only from one call on the labeller's own key; otherwise the case shows "No suggestion yet". Ranking and call rules: `src/labels/rank.ts`, `src/labels/suggest.ts`.
 - `jnj-record/1` rows leave both columns empty.
 
+## Answerer decisions and outcomes (`jnj-record/1.2`)
+A run through the API can ask the OpenAI Decisions API as a fourth arm, and an answerer can decline to answer. A `jnj-record/1.2` row is a 1.1 row (the label provenance rules above apply unchanged) with two additions.
+
+| Column | Holds | Rule |
+|---|---|---|
+| `answerer` | also `decisions`: the OpenAI Decisions API | 1.2 only |
+| `outcome` | `answered` / `refused` / `unsupported` / `error` / empty | optional column; empty or absent means `answered`. `refused`: the answerer declined. `unsupported`: the answerer cannot take this input (an image sent to an arm that reads text only). `error`: the call failed |
+
+- A row whose `outcome` is `refused`, `unsupported` or `error` has an empty `output` and an empty `label`: there is no answer to judge, so it is never counted as right or wrong. A filled one is an error (`line <n>: output: 'yes' is not of type 'null'`, `line <n>: label: 'reject' is not of type 'null'`). It still counts in `rows` and in cost, and it is not listed as an `unlabelled` gap.
+- An answered row (outcome `answered` or empty) needs an `output` in `answer_set`, as before: an empty one is `line <n>: output: None is not of type 'string'`.
+- An unknown outcome is `line <n>: outcome: 'skipped' is not one of ['answered', 'refused', 'unsupported', 'error', None]`.
+- A `jnj-record/1` or `jnj-record/1.1` row cannot name `decisions` (`line <n>: answerer: 'decisions' is not one of ['jev', 'rule', 'llm', 'human']`) and leaves `outcome` empty: the header may carry the column, as it may the 1.1 columns, but a filled cell is `line <n>: outcome: 'answered' is not of type 'null'`. Every /1 and /1.1 file validates unchanged.
+- `decisions` is not one of the three methods every case is compared on (llm, rule, jev), so a case without it gets no gap. The verdict and metrics (`src/core/`) read llm, rule and jev only.
+- The case table shows a row with no answer by its outcome: `refused, $0.000006, unlabelled`.
+- The database (`src/db/`) stores `jnj-record/1` only, so a 1.2 file does not load.
+
 ## Versioning
-- The file format: `format_version` in every row. A renamed, removed or re-typed column ships as `jnj-record/2` with its own schema; `/1` files keep validating. `jnj-record/1.1` only adds optional columns and label sources, so the same schema and validator read both.
+- The file format: `format_version` in every row. A renamed, removed or re-typed column ships as `jnj-record/2` with its own schema; `/1` files keep validating. `jnj-record/1.1` and `jnj-record/1.2` only add optional columns, label sources, an answerer and an outcome, so the same schema and validator read all three.
 - The question: rewording a question under the same `prompt_version` is an error, so every answer can be traced to the exact wording that produced it.
 
 ## Message contract

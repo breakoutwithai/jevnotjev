@@ -32,9 +32,15 @@ export function caseLines(rows: readonly Row[]): CaseLine[] {
 export function caseCell(row: Row | undefined): string {
   if (row === undefined) return "missing";
   const cost = row.get("cost_usd");
-  const parts = [text(row, "output"), typeof cost === "number" ? `$${cost.toFixed(6)}` : "cost missing"];
+  const parts = [answerOf(row), typeof cost === "number" ? `$${cost.toFixed(6)}` : "cost missing"];
   if (truthLabel(row) === null) parts.push("unlabelled");
   return parts.join(", ");
+}
+
+/** The output, or for a jnj-record/1.2 row that is not answered (no output) its outcome. */
+function answerOf(row: Row): string {
+  const output = row.get("output");
+  return typeof output === "string" ? output : text(row, "outcome");
 }
 
 /**

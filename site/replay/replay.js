@@ -7,7 +7,8 @@
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
   if (!D || !D.runs || !D.runs.length) { $("msg").textContent = "The replay data did not load."; return; }
 
-  var BADGE = { missing: "&#8709; Missing row", cost: "$? Cost missing", unlabelled: "? Unlabelled", "below-minimum": "&#9660; Below minimum" };
+  var BADGE = { missing: "&#8709; Missing row", cost: "$? Cost missing", unlabelled: "? Unlabelled", "below-minimum": "&#9660; Too few to decide" };
+  var KIND = { llm: "an LLM prompt", rule: "a keyword rule", jev: "Jev" };
   var wanted = new URLSearchParams(location.search).get("run");
   var cur = D.runs.some(function (r) { return r.key === wanted; }) ? wanted : D.runs[0].key;
   var pos = 0, timer = null;
@@ -25,9 +26,11 @@
   }
   function word(o) { return o === "hand_off" ? "hand off" : String(o); }
   function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+  function caseIndex(r, key) { for (var i = 0; i < r.cases.length; i++) if (r.cases[i].key === key) return i; return -1; }
 
   function flagItem(r, f) {
-    var btn = '<button type="button" class="rows" data-flag-rows="' + esc(r.key + "|" + f.id) + '">show ' + plural(f.lines.length, "row", "rows") + "</button>";
+    var label = "Show the " + plural(f.lines.length, "row", "rows") + " behind this flag: " + f.text;
+    var btn = '<button type="button" class="rows" data-flag-rows="' + esc(r.key + "|" + f.id) + '" aria-label="' + esc(label) + '">show ' + plural(f.lines.length, "row", "rows") + "</button>";
     return '<li class="flag" data-flag="' + esc(f.id) + '"><span class="badge ' + esc(f.kind) + '">' + BADGE[f.kind] + "</span>" +
       '<span class="flag-text">' + esc(f.text) + " " + btn + "</span></li>";
   }
@@ -37,45 +40,56 @@
   }
 
   function renderFlags() {
-    var r = run();
-    $("evidence").classList.toggle("clean", r.flags.length === 0);
-    $("flags").innerHTML = r.flags.length
-      ? r.flags.map(function (f) { return flagItem(r, f); }).join("")
-      : '<li class="flag"><span class="badge none">&#10003; Complete</span><span class="flag-text">Every method has a row, a label and a cost on all ' +
-        r.cases.length + " cases, with at least " + D.min_paired + " paired labelled cases for a verdict.</span></li>";
+    var r = run(), clean = r.flags.length === 0;
+    $("evidence").classList.toggle("clean", clean);
+    $("evidenceTag").textContent = clean ? "Evidence check: complete" : "Evidence check: " + plural(r.flags.length, "gap", "gaps") + " in this run";
+    $("synthetic").hidden = !r.synthetic;
+    $("flags").innerHTML = clean
+      ? '<li class="flag"><span class="badge none">&#10003; Complete</span><span class="flag-text">Every method has a row, a label and a cost on all ' +
+        r.cases.length + " cases, and there are at least " + D.min_paired + " paired labelled cases, enough for a verdict.</span></li>"
+      : r.flags.map(function (f) { return flagItem(r, f); }).join("");
     var others = D.runs.filter(function (x) { return x.key !== cur && x.flags.length; });
     var n = others.reduce(function (s, x) { return s + x.flags.length; }, 0);
     $("others").hidden = n === 0;
-    $("othersTitle").textContent = "Flags in the other runs (" + n + ")";
+    $("othersTitle").textContent = "Show the " + plural(n, "gap", "gaps") + " in the other runs (" + others.map(function (x) { return x.title; }).join(", ") + ")";
     $("othersBody").innerHTML = others.map(otherRun).join("");
     document.querySelectorAll("[data-flag-rows]").forEach(function (b) {
       b.addEventListener("click", function () {
         var parts = b.getAttribute("data-flag-rows").split("|");
         if (parts[0] !== cur) switchTo(parts[0]);
-        var rr = run(), f = rr.flags.filter(function (x) { return x.id === parts[1]; })[0];
-        if (f) showRows(rr, f.text, rr.rows.filter(function (x) { return f.lines.indexOf(x.line) >= 0; }));
+        showFlag(parts[1]);
       });
     });
   }
 
   function runButton(x) {
-    var note = plural(x.cases.length, "case", "cases") + (x.synthetic ? ", synthetic" : "") + (x.flags.length ? ", " + plural(x.flags.length, "flag", "flags") : ", complete");
+    var note = plural(x.cases.length, "case", "cases") + (x.synthetic ? ", synthetic" : "") + (x.flags.length ? ", " + plural(x.flags.length, "gap", "gaps") : ", complete");
     return '<button type="button" data-run="' + esc(x.key) + '" aria-pressed="' + (x.key === cur) + '">' + esc(x.title) + "<small>" + note + "</small></button>";
   }
   function totalRow(r, m) {
-    var s = stat(r, m);
-    var acc = '<button type="button" class="metric big" data-metric="' + esc(r.key + "." + m + ".accept") + '" data-m="' + esc(m) + '" data-s="accept">' + s.accept + "</button> of " + s.rows;
-    var cost = '<button type="button" class="metric" data-metric="' + esc(r.key + "." + m + ".cost") + '" data-m="' + esc(m) + '" data-s="cost">' + esc(s.costText) + "</button>";
-    var gap = s.cost === null ? '<span class="model">' + (s.rows - s.costed) + " of " + s.rows + " rows have no cost</span>" : "";
-    return "<tr><td>" + esc(s.name) + '<span class="model">' + esc(s.model) + '</span></td><td class="n">' + acc + '</td><td class="n">' + cost + gap + "</td></tr>";
+    var s = stat(r, m), n = r.cases.length;
+    var accLabel = s.name + ": " + s.accept + " accepted of " + s.rows + ". Show the rows";
+    var acc = '<button type="button" class="metric big" data-metric="' + esc(r.key + "." + m + ".accept") + '" data-m="' + esc(m) + '" data-s="accept" aria-label="' + esc(accLabel) + '">' + s.accept + "</button> of " + s.rows;
+    var accGap = s.casesCovered < n ? '<span class="gap">no row for ' + plural(n - s.casesCovered, "case", "cases") + " of " + n + "</span>" : "";
+    var costLabel = s.name + ": cost " + s.costText + ". Show the rows";
+    var cost = '<button type="button" class="metric" data-metric="' + esc(r.key + "." + m + ".cost") + '" data-m="' + esc(m) + '" data-s="cost" aria-label="' + esc(costLabel) + '">' + esc(s.costText) + "</button>";
+    var costGap = s.cost === null
+      ? '<span class="gap">' + esc(s.knownCostText) + " known; " + (s.rows - s.costed) + " of " + s.rows + " rows have no cost</span>"
+      : s.casesCovered < n ? '<span class="gap">covers ' + s.casesCovered + " of " + n + " cases</span>" : "";
+    return "<tr><td>" + esc(s.name) + '<span class="model">' + esc(KIND[m] || m) + ": " + esc(s.model) + '</span></td><td class="n">' + acc + accGap + '</td><td class="n">' + cost + costGap + "</td></tr>";
+  }
+  function headline(r) {
+    var parts = r.methods.map(function (m) { var s = stat(r, m); return "<b>" + esc(s.name) + "</b> " + s.accept + " of " + s.rows; });
+    var verdict = r.flags.length ? "Read the gaps above before trusting these numbers." : "The evidence is complete, so these numbers can be compared.";
+    return "Accepted answers: " + parts.join(" &middot; ") + ". " + verdict;
   }
   function sourceNotes(r) {
     var labelled = r.rows.filter(function (x) { return x.label !== ""; }).length;
     return [
       'Records: <a href="' + esc(r.sourceUrl) + '">' + esc(r.file) + "</a>, run " + esc(r.runId) + ", " + r.rows.length + " rows over " + r.cases.length + " cases.",
-      "Labels: " + labelled + " of " + r.rows.length + " rows labelled (" + esc(r.labelSource) + "). Accepted counts the rows labelled accept.",
-      "Cost: the sum of each method's cost_usd cells. A method with any blank cost shows incomplete, never a guessed total.",
-      "A verdict needs " + D.min_paired + " paired labelled cases per question.",
+      "Labels: " + labelled + " of " + r.rows.length + " rows labelled (" + esc(r.labelSource) + "). Accepted means a person marked that answer as right.",
+      "Cost: the sum of each method's cost_usd cells. A method with any blank cost shows incomplete with the known part, never a guessed total.",
+      "A verdict needs " + D.min_paired + " paired labelled cases per question: the same case answered by Jev and by the other method, both labelled.",
       r.synthetic ? "Synthetic: this file's outputs and costs were typed by hand to show the flags; no model was called." : "Recorded: every answer and cost came from a real call during the run.",
     ].map(function (t) { return "<li>" + t + "</li>"; }).join("");
   }
@@ -85,18 +99,19 @@
     $("runs").innerHTML = D.runs.map(runButton).join("");
     document.querySelectorAll("[data-run]").forEach(function (b) { b.addEventListener("click", function () { switchTo(b.getAttribute("data-run")); }); });
     renderFlags();
+    $("headline").innerHTML = headline(r);
     $("strip").style.gridTemplateColumns = "repeat(" + r.cases.length + ", minmax(0, 1fr))";
-    $("strip").innerHTML = r.cases.map(function (c, i) { return '<button type="button" data-step="' + i + '" aria-label="Case ' + (i + 1) + ": " + esc(c.key) + '"></button>'; }).join("");
+    $("strip").innerHTML = r.cases.map(function (c, i) { return '<button type="button" data-step="' + i + '" aria-label="Go to case ' + (i + 1) + " of " + r.cases.length + ": " + esc(c.key) + '"></button>'; }).join("");
     document.querySelectorAll("[data-step]").forEach(function (b) { b.addEventListener("click", function () { stop(); go(Number(b.getAttribute("data-step"))); }); });
     $("totals").innerHTML = r.methods.map(function (m) { return totalRow(r, m); }).join("");
-    document.querySelectorAll("[data-metric]").forEach(function (b) { b.addEventListener("click", function () { showMetric(b.getAttribute("data-m"), b.getAttribute("data-s")); }); });
+    document.querySelectorAll("[data-metric]").forEach(function (b) { b.addEventListener("click", function () { showMetric(b, b.getAttribute("data-m"), b.getAttribute("data-s")); }); });
     $("source").innerHTML = sourceNotes(r);
     renderDeck();
   }
 
   function armCell(r, c, m) {
     var row = r.rows.filter(function (x) { return x.caseKey === c.key && x.answerer === m; })[0], k = mark(row);
-    var meta = row ? (row.costUsd === null ? "cost not recorded" : esc(row.costText)) + " &middot; " + lineLink(r, row.line) : "no row for this case";
+    var meta = row ? (row.costUsd === null ? "cost not recorded" : esc(row.costText)) + " &middot; " + lineLink(r, row.line) : "this method has no row for this case";
     return '<div class="arm' + (row ? "" : " missing") + '"><span class="who">' + esc(nameOf(r, m)) + "</span>" +
       '<span class="out">' + (row ? esc(word(row.output || row.outcome)) : "No answer on file") + "</span>" +
       '<span class="v ' + k.k + '">' + k.t + '</span><span class="meta">' + meta + "</span></div>";
@@ -119,30 +134,53 @@
     $("tally").innerHTML = r.steps[pos].map(function (t) { return tallyRow(r, t); }).join("");
   }
 
-  function logRow(r, x) {
+  function logRow(r, x, gapLine) {
     var k = mark(x);
-    return '<tr data-row="' + x.line + '"><td>' + lineLink(r, x.line) + "</td><td>" + esc(x.caseKey) + "</td><td>" + esc(nameOf(r, x.answerer)) +
+    return '<tr data-row="' + x.line + '"' + (x.line === gapLine ? ' class="gap-row"' : "") + "><td>" + lineLink(r, x.line) + "</td><td>" + esc(x.caseKey) + "</td><td class=\"m\">" + esc(nameOf(r, x.answerer)) +
       '</td><td class="in opt">' + esc(x.input) + "</td><td>" + esc(word(x.output || x.outcome)) + '</td><td><span class="v ' + k.k + '">' + k.t +
-      "</span></td><td>" + esc(x.costUsd === null ? "not recorded" : x.costText) + "</td></tr>";
+      "</span></td><td>" + (x.costUsd === null ? '<b class="v missing">$? not recorded</b>' : esc(x.costText)) + "</td></tr>";
   }
-  function showRows(r, heading, rows) {
+  function missingRow(r, caseKey, m) {
+    return '<tr class="gap-row"><td>none</td><td>' + esc(caseKey) + "</td><td class=\"m\">" + esc(nameOf(r, m)) + '</td><td class="in opt"></td><td>No answer on file</td><td><span class="v missing">&#8709; No row recorded</span></td><td></td></tr>';
+  }
+  /* Opens the rows panel right after the section that asked for it, and moves focus to it. */
+  function showRows(anchor, r, heading, body, foot) {
     var log = $("log");
-    var head = '<tr><th scope="col">Line</th><th scope="col">Case</th><th scope="col">Method</th><th scope="col" class="opt">Message</th><th scope="col">Answer</th><th scope="col">Label</th><th scope="col">Cost</th></tr>';
+    var head = '<tr><th scope="col">Line</th><th scope="col">Case</th><th scope="col" class="m">Method</th><th scope="col" class="opt">Message</th><th scope="col">Answer</th><th scope="col">Label</th><th scope="col">Cost</th></tr>';
+    anchor.parentNode.insertBefore(log, anchor.nextSibling);
     log.hidden = false;
-    log.innerHTML = '<button type="button" class="close" id="closeLog">Close</button><p class="log-title" role="heading" aria-level="3">' + esc(heading) + "</p>" +
-      "<table><thead>" + head + "</thead><tbody>" + rows.map(function (x) { return logRow(r, x); }).join("") + "</tbody></table>";
+    log.classList.toggle("one-method", (body.match(/class="m"/g) || []).length > 0 && new Set((body.match(/<td class="m">[^<]*/g) || [])).size === 1);
+    log.innerHTML = '<button type="button" class="close" id="closeLog">Close the rows</button><p class="log-title" id="logTitle" role="heading" aria-level="3" tabindex="-1">' + esc(heading) + "</p>" +
+      '<div class="scroll"><table><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>" + (foot ? '<p class="log-foot">' + foot + "</p>" : "");
     $("closeLog").addEventListener("click", function () { log.hidden = true; });
     log.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    $("logTitle").focus({ preventScroll: true });
   }
 
-  function showMetric(m, which) {
+  function showFlag(id) {
+    var r = run(), f = r.flags.filter(function (x) { return x.id === id; })[0];
+    if (!f) return;
+    var rows = r.rows.filter(function (x) { return f.lines.indexOf(x.line) >= 0; });
+    var body = rows.map(function (x) { return logRow(r, x, f.kind === "cost" ? x.line : -1); }).join("");
+    if (f.kind === "missing") body += missingRow(r, f.caseKey, f.method);
+    var at = f.caseKey ? caseIndex(r, f.caseKey) : -1;
+    if (at >= 0) { stop(); go(at); }
+    var foot = f.kind === "missing" ? "The marked row is the gap: the other methods' rows for case " + esc(f.caseKey) + " are shown so you can see it is the only one missing." :
+      f.kind === "cost" ? "The marked row has a blank cost_usd cell." : "";
+    showRows($("evidence"), r, f.text, body, foot);
+  }
+
+  function showMetric(btn, m, which) {
     var r = run(), s = stat(r, m), rows = r.rows.filter(function (x) { return x.answerer === m; });
     var why = which === "accept"
       ? s.name + ": " + s.accept + " of these " + rows.length + " rows are labelled accept"
       : s.cost === null
         ? s.name + ": cost is incomplete, " + (rows.length - s.costed) + " of " + rows.length + " rows have no cost_usd"
         : s.name + ": " + s.costText + " is the sum of cost_usd on these " + rows.length + " rows";
-    showRows(r, why, rows);
+    var foot = which === "cost" ? "Sum of the recorded costs: " + esc(s.knownCostText) + " over " + s.costed + " of " + s.rows + " rows." :
+      "Accepted " + s.accept + ", rejected " + s.reject + ", unlabelled " + s.unlabelled + ", out of " + s.rows + " rows.";
+    var body = rows.map(function (x) { return logRow(r, x, x.costUsd === null ? x.line : -1); }).join("");
+    showRows(btn.closest("section"), r, why, body, foot);
   }
 
   function stop() { if (timer) { clearInterval(timer); timer = null; } $("play").textContent = "Play"; }

@@ -63,6 +63,9 @@ describe("replay evidence (src/evidence/replay.ts)", () => {
     expect(stat(d12, "rule").rows).toBe(3);
     expect(stat(d12, "llm").cost).toBeNull();
     expect(stat(d12, "llm").costText).toBe("incomplete");
+    expect(stat(d12, "llm").knownCostText).toBe("$0.001000");
+    expect([stat(d12, "rule").casesCovered, stat(d12, "jev").casesCovered]).toEqual([3, 4]);
+    expect(d12.flags.find((f) => f.kind === "below-minimum")?.text).toContain("do not pick a method from this run yet");
     expect(d12.flags.find((f) => f.id === "d12-llm-cost-d02")?.lines.length).toBe(1);
   });
 

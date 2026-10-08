@@ -22,16 +22,20 @@
   <header class="bill">
     <p class="kicker">Evidence &middot; Replay</p>
     <h1>Replay the run, watch the score build</h1>
-    <p class="lede">Step through the recorded cases. Each method's answer, its label and its cost appear as they were recorded, and the tally counts only the cases you have played.</p>
+    <p class="lede">Three ways of making the same call were tested on the same messages: what you do now (an LLM prompt), a simple keyword rule, and Jev. Step through the recorded cases to see each answer, whether a person accepted it and what it cost; the tally counts only the cases you have played.</p>
+    <p class="notfor">Not for you if you want a chatbot, a writer or a ranking. Jev picks one answer from a fixed list for one text, and code acts on it. <a href="../">What Jev!Jev is</a></p>
   </header>
 
   <nav class="runs" id="runs" aria-label="Recorded runs"></nav>
 
   <section class="evidence" id="evidence" aria-labelledby="evidenceTag">
-    <h2 class="tag" id="evidenceTag">Incomplete evidence in this run</h2>
+    <h2 class="tag" id="evidenceTag">Evidence check</h2>
+    <p class="synthetic" id="synthetic" hidden>Synthetic file: the outputs and costs were typed by hand to show what the flags catch. No model was called.</p>
     <ul class="flags" id="flags"></ul>
-    <details class="others" id="others"><summary id="othersTitle"></summary><div id="othersBody"></div></details>
+    <details class="others" id="others" hidden><summary id="othersTitle"></summary><div id="othersBody"></div></details>
   </section>
+
+  <p class="headline" id="headline" aria-live="polite"></p>
 
   <main class="deck" id="deck" aria-label="Replay deck" tabindex="-1">
     <div class="head">
@@ -49,7 +53,7 @@
     <div class="arms" id="arms"></div>
     <section class="tally" aria-labelledby="tallyTag">
       <h2 class="tag" id="tallyTag">Tally so far</h2>
-      <table><thead><tr><th scope="col">Method</th><th scope="col">Accepted so far</th><th scope="col" class="opt">Bar</th></tr></thead><tbody id="tally"></tbody></table>
+      <table><thead><tr><th scope="col">Method</th><th scope="col">Accepted so far</th><th scope="col" class="opt">Share of all cases</th></tr></thead><tbody id="tally"></tbody></table>
     </section>
   </main>
 

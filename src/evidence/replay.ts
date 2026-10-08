@@ -53,6 +53,11 @@ export interface MethodStats {
   /** Sum of cost_usd, or null when any of the method's rows has no cost. */
   readonly cost: number | null;
   readonly costText: string;
+  /** Sum of the cost_usd cells that are recorded, so an incomplete total still shows what is known. */
+  readonly knownCost: number;
+  readonly knownCostText: string;
+  /** Cases of the run this method has at least one row for. */
+  readonly casesCovered: number;
   readonly lines: readonly number[];
 }
 
@@ -178,7 +183,8 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
   const stats: MethodStats[] = methods.map((method) => {
     const mine = rows.filter((r) => r.answerer === method);
     const costed = mine.filter((r) => r.costUsd !== null);
-    const cost = costed.length === mine.length ? costed.reduce((sum, r) => sum + (r.costUsd ?? 0), 0) : null;
+    const knownCost = costed.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
+    const cost = costed.length === mine.length ? knownCost : null;
     return {
       method,
       name: methodName(method),
@@ -192,6 +198,9 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
       costed: costed.length,
       cost,
       costText: usd(cost),
+      knownCost,
+      knownCostText: usd(knownCost),
+      casesCovered: new Set(mine.map((r) => r.caseKey)).size,
       lines: mine.map((r) => r.line),
     };
   });
@@ -254,7 +263,7 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
       method: "all",
       kind: "below-minimum",
       caseKey: "",
-      text: `${multiQuestion ? `Question ${q}: ` : ""}${fewest} paired labelled cases (${detail}); a verdict needs ${MIN_PAIRED}`,
+      text: `${multiQuestion ? `Question ${q}: ` : ""}${fewest} paired labelled cases (${detail}); a verdict needs ${MIN_PAIRED}, so do not pick a method from this run yet`,
       lines: mine.map((r) => r.line),
     });
   }

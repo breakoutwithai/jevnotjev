@@ -3,7 +3,7 @@
 // fixtures in src/decide/fixtures through the test-only JNJ_DECIDE_FIXTURES file, the same injection the CLI uses; no test
 // calls a provider or starts a real claude binary.
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -282,6 +282,73 @@ describe("canary key", () => {
     } finally {
       await keyed.close();
       await cliOnly.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("run out guard", () => {
+  const cases = [{ id: "g1", input: M0_TEXT }];
+  const keys = (fixtures: string): Record<string, string> => ({ JEV_API_KEY: "k", OPENAI_API_KEY: "k", ANTHROPIC_API_KEY: "k", [FIXTURES_ENV]: fixtures });
+
+  test("[integration] MCP-OUT-GUARD-REFUSE out naming package.json, a non-record csv or a directory is refused with a reason and nothing changes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jnj-mcp-outguard-"));
+    const server = await spawnServer(keys(fixtureFile(dir)), dir);
+    try {
+      const pkg = join(dir, "package.json");
+      const pkgBytes = Buffer.from('{"name":"keep-me"}\n');
+      writeFileSync(pkg, pkgBytes);
+      const notes = join(dir, "notes.csv");
+      const notesBytes = Buffer.from("name,value\nkeep,me\n");
+      writeFileSync(notes, notesBytes);
+      const folder = join(dir, "folder.csv");
+      mkdirSync(folder);
+      const refused: Called[] = [];
+      for (const out of [pkg, notes, folder]) refused.push(await call(server.client, "run", { questions: QUESTIONS, cases, arms: ALL_ARMS, out }));
+      expect(refused.map((r) => r.isError)).toEqual([true, true, true]);
+      expect(refused[0]?.text).toContain(".csv");
+      expect(refused[1]?.text).toContain("jnj-record");
+      expect(refused[2]?.text).toContain("directory");
+      expect(readFileSync(pkg).equals(pkgBytes)).toBe(true);
+      expect(readFileSync(notes).equals(notesBytes)).toBe(true);
+      expect(statSync(folder).isDirectory()).toBe(true);
+      expect(readdirSync(folder)).toEqual([]);
+    } finally {
+      await server.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("[integration] MCP-OUT-GUARD-ALLOW a new x.csv is written and an existing jnj-record csv is overwritten", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jnj-mcp-outguard-"));
+    const server = await spawnServer(keys(fixtureFile(dir)), dir);
+    try {
+      const fresh = join(dir, "x.csv");
+      const first = await call(server.client, "run", { questions: QUESTIONS, cases, arms: ALL_ARMS, out: fresh });
+      expect(first.isError).toBe(false);
+      expect(validate(readFileSync(fresh, "utf8")).errors).toEqual([]);
+      writeFileSync(fresh, readFileSync(fresh, "utf8").split("\n")[0] + "\n");
+      const again = await call(server.client, "run", { questions: QUESTIONS, cases, arms: ALL_ARMS, out: fresh });
+      expect(again.isError).toBe(false);
+      expect(validate(readFileSync(fresh, "utf8")).errors).toEqual([]);
+      expect(readFileSync(fresh, "utf8").split("\n").length).toBeGreaterThan(2);
+    } finally {
+      await server.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("[integration] MCP-OUT-GUARD-DRYRUN run with options.dryRun and out writes no file and returns the dry-run body", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jnj-mcp-outguard-"));
+    const server = await spawnServer(keys(fixtureFile(dir)), dir);
+    try {
+      const dry = await call(server.client, "run", { questions: QUESTIONS, cases, arms: ALL_ARMS, options: { dryRun: true }, out: join(dir, "dry.csv") });
+      expect(dry.isError).toBe(false);
+      expect(field(dry.body, "dryRun")).toBe(true);
+      expect(field(dry.body, "calls")).toBe(0);
+      expect(readdirSync(dir).includes("dry.csv")).toBe(false);
+    } finally {
+      await server.close();
       rmSync(dir, { recursive: true, force: true });
     }
   });

@@ -173,6 +173,8 @@ Arguments are the contract's JSON shapes: `questions` is an array of QuestionSpe
 
 `run` returns the rows inline when called without `out`, like `ask`; with `out` it writes the jnj-record/1.2 CSV to that path on the server's machine (relative paths resolve from the server's working directory) and returns the summary. Use `out` for anything beyond a handful of cases, then `verdict` and `validate` on the same file.
 
+`out` rules (the CLI's `--out` follows the same ones): the path must end in `.csv`; it may be a new file, or an existing file whose first line is a jnj-record header (so a records file can be re-run over). An existing file with any other first line, and a directory, are refused with an `isError` result that names the reason, before any provider is called and with the file untouched. With `options.dryRun: true` and `out`, `run` writes no file and returns the dry-run body (`dryRun`, `calls: 0`, `spentUsd: 0`, `estimate`).
+
 One call per tool (the `arguments` object of a `tools/call`):
 
 ```jsonc

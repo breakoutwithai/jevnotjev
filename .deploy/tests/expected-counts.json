@@ -89,7 +89,7 @@
     "src/labels/rank.test.ts": 9,
     "src/labels/starter-packs.test.ts": 8,
     "src/labels/suggest.test.ts": 10,
-    "src/mcp/server.test.ts": 5,
+    "src/mcp/server.test.ts": 8,
     "src/shows/posters.test.ts": 6
   }
 }

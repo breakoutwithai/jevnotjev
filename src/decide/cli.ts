@@ -11,12 +11,13 @@
 // With no ANTHROPIC_API_KEY the llm arm uses the local claude binary (the core's claude-cli transport).
 // Exit codes: verdict 0 use Jev, 3 don't use Jev, 4 not enough evidence, 2 invalid input. validate keeps the validator's
 // 0 valid, 1 invalid, 2 usage. The other subcommands: 0 done, 2 invalid input or usage, 1 could not write --out.
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileSeed } from "../core/calc.ts";
 import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
 import { MIN_PAIRED, verdict, type Verdict } from "../core/verdict.ts";
-import { decodeUtf8, report, validate } from "../format/validate.ts";
+import { readDictRows } from "../format/csv.ts";
+import { COLUMNS, decodeUtf8, report, validate } from "../format/validate.ts";
 import {
   FIXTURES_ENV, JEV_KEY_FALLBACK_ENV, KEY_ENV, parseArgs, parseCase, parseCases, parseFixtures, parseQuestions, parseRule, toArms, keysFromEnv,
   type FixtureSet, type Parsed, type SpendCommand,
@@ -164,6 +165,27 @@ function guardOut(c: SpendCommand): void {
   }
 }
 
+/**
+ * Where `run` may write, for the CLI and the MCP server alike: a path ending in .csv that is new, or an existing file whose
+ * first line is a jnj-record header (every required column). Anything else (package.json, a notes csv, a directory) is
+ * refused before a provider is called, so a tool argument cannot overwrite an arbitrary file.
+ */
+export async function guardOutPath(out: string): Promise<void> {
+  if (!out.toLowerCase().endsWith(".csv")) throw new CliInputError(`out ${out} must be a .csv path`);
+  let isDirectory: boolean;
+  try {
+    isDirectory = (await stat(out)).isDirectory();
+  } catch {
+    return;
+  }
+  if (isDirectory) throw new CliInputError(`out ${out} is a directory; name a new .csv file`);
+  const head = (await Bun.file(out).slice(0, 65536).text()).replace(/^﻿/u, "");
+  const header = readDictRows(head).header ?? [];
+  if (!COLUMNS.every((column) => header.includes(column))) {
+    throw new CliInputError(`out ${out} exists and its first line is not a jnj-record header; it will not be overwritten`);
+  }
+}
+
 /** A tool's answer, shared by the CLI and the MCP server: the exit code, the JSON body, and error lines for stderr. */
 export interface ToolAnswer {
   readonly code: number;
@@ -181,6 +203,7 @@ export async function spendTool(
 ): Promise<ToolAnswer> {
   if (cmd === "estimate") return { code: EXIT.ok, body: estimate(request), errors: [] };
   if (request.options?.dryRun === true) return { code: EXIT.ok, body: { dryRun: true, calls: 0, spentUsd: 0, estimate: estimate(request) }, errors: [] };
+  if (cmd === "run" && out !== undefined) await guardOutPath(out);
   estimate(request); // reject bad input before any key or fixture is read
   const raw = await run(request, await deps());
   const result = fixtureModeActive(env) ? { ...raw, rows: stampFixtureRows(raw.rows) } : raw;

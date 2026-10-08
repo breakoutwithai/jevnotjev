@@ -8,6 +8,10 @@
 //   bun scripts/tokenmax/run.ts label [labels.csv]   merge the page's download (item_id,label; default
 //                                        <out>/labels.csv) into records.csv; a label for another run, CV, question or
 //                                        answer is refused
+//       [--source human|human_reviewed|agent --by <handle> --at <YYYY-MM-DD or UTC time> [--blind true|false]]
+//                                        state who made the labels and how; the file is then written as jnj-record/1.1
+//                                        with label_source, labelled_by, labelled_at and label_blind (default false).
+//                                        With no flags a label is a jnj-record/1 `human` pick, as before
 //
 // A run writes nothing until every call has succeeded; then raw.json and records.csv are each written to a temp name
 // and renamed into place, records.csv only after it validates. Single operator: do not run commands concurrently.
@@ -19,10 +23,10 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatRecords, JEV_MODEL, parseV1Records, type RecordRow } from "../uc13/arms.ts";
+import { formatRecords, JEV_MODEL, parseRecords, parseV1Records, UNLABELLED, type LabelProvenance, type RecordRow } from "../uc13/arms.ts";
 import { assertNoSecrets, assertPinned } from "../uc13/calls.ts";
 import { pool, spawnJson } from "../uc13/run-arms.ts";
-import { validate } from "../../src/format/validate.ts";
+import { LABELLED_AT, LABELLER_HANDLE, validate } from "../../src/format/validate.ts";
 import {
   LLM_MODEL, LLM_MODEL_IDS, LLM_PRICES, RUN_ID, applyItemLabels, samePriceTable, armRecord, blindItems, inputsSha256, jevBody, llmRequest, loadInputs,
   parseJev, parseLlm, rowKey, ruleRecord, sha256Hex, type Case, type Inputs, type Question, type Reply,
@@ -30,7 +34,8 @@ import {
 
 export const FIXTURE_SCHEMA = "jnj-tokenmax-fixture/1";
 const CONCURRENCY = 4;
-const USAGE = "usage: bun scripts/tokenmax/run.ts run | replay | page | label [labels.csv]";
+const USAGE =
+  "usage: bun scripts/tokenmax/run.ts run | replay | page | label [labels.csv] [--source human|human_reviewed|agent --by <handle> --at <date> [--blind true|false]]";
 
 export interface Paths { readonly d06: string; readonly out: string; readonly template: string; readonly jevCall: string; readonly claude: string }
 
@@ -130,14 +135,61 @@ export function rowsFromFixture(inputs: Inputs, fixture: Fixture): RecordRow[] {
 
 const LABEL_BINDING: readonly (keyof RecordRow)[] = ["run_id", "prompt_version", "case_input", "question", "answer_set", "output"];
 
-/** A label survives a replay only when the row it was given to shows the same run, prompt, CV, question, answer set and answer. */
+/**
+ * A label survives a replay only when the row it was given to shows the same run, prompt, CV, question, answer set and
+ * answer. A jnj-record/1.1 row stays 1.1, with its provenance when the label is kept and none when it is dropped.
+ */
 export function keepLabels(rows: readonly RecordRow[], old: readonly RecordRow[]): RecordRow[] {
   const byKey = new Map(old.map((r) => [rowKey(r), r]));
   return rows.map((r) => {
     const o = byKey.get(rowKey(r));
-    if (o === undefined || LABEL_BINDING.some((col) => o[col] !== r[col])) return r;
-    return { ...r, label: o.label, label_source: o.label_source };
+    if (o === undefined) return r;
+    const kept = !LABEL_BINDING.some((col) => o[col] !== r[col]);
+    if (o.format_version === "jnj-record/1.1") {
+      if (!kept) return { ...r, format_version: o.format_version, ...UNLABELLED };
+      return {
+        ...r, format_version: o.format_version, label: o.label, label_source: o.label_source,
+        labelled_by: o.labelled_by ?? "", labelled_at: o.labelled_at ?? "", label_blind: o.label_blind ?? "",
+      };
+    }
+    return kept ? { ...r, label: o.label, label_source: o.label_source } : r;
   });
+}
+
+const LABEL_SOURCES: readonly LabelProvenance["source"][] = ["human", "human_reviewed", "agent"];
+const FLAGS = ["--source", "--by", "--at", "--blind"];
+
+function isLabelSource(value: string): value is LabelProvenance["source"] {
+  return LABEL_SOURCES.some((s) => s === value);
+}
+
+/**
+ * `label` arguments: an optional labels-file path, then optional provenance flags. No flags: no provenance (a /1 `human`
+ * label, as before). Any flag: --source, --by and --at are all required, --blind defaults to false, and every value is
+ * checked here so a wrong one fails before records.csv is read.
+ */
+export function parseLabelArgs(args: readonly string[]): { readonly labelsPath: string | undefined; readonly provenance: LabelProvenance | undefined } {
+  const rest = [...args];
+  const labelsPath = rest[0] !== undefined && !rest[0].startsWith("--") ? rest.shift() : undefined;
+  const flags = new Map<string, string>();
+  while (rest.length > 0) {
+    const flag = rest.shift() ?? "";
+    const value = rest.shift();
+    if (!FLAGS.includes(flag) || value === undefined) throw new Error(USAGE);
+    if (flags.has(flag)) throw new Error(`${flag} given twice`);
+    flags.set(flag, value);
+  }
+  if (flags.size === 0) return { labelsPath, provenance: undefined };
+  const source = flags.get("--source");
+  const by = flags.get("--by");
+  const at = flags.get("--at");
+  const blind = flags.get("--blind") ?? "false";
+  if (source === undefined || !isLabelSource(source)) throw new Error(`--source must be one of ${LABEL_SOURCES.join(", ")}`);
+  if (by === undefined || !LABELLER_HANDLE.test(by)) throw new Error("--by must be a handle: letters, digits and _ . : + -, 1 to 64, never an email");
+  if (at === undefined || !LABELLED_AT.test(at)) throw new Error("--at must be a date (2026-10-07) or a UTC time (2026-10-07T09:30:00Z)");
+  if (blind !== "true" && blind !== "false") throw new Error("--blind must be true or false");
+  if (blind === "true" && source !== "human") throw new Error(`label_blind is always false for ${source} labels (format/README.md)`);
+  return { labelsPath, provenance: { source, by, at, blind: blind === "true" } };
 }
 
 /** Write to a uniquely named temp file in the same directory, then rename, so a reader never sees a half-written file. */
@@ -175,7 +227,7 @@ export async function publishRun(out: string, inputs: Inputs, fixture: Fixture):
 /** records.csv is validated first and replaced only when valid. */
 export async function writeRecords(out: string, rows: readonly RecordRow[]): Promise<void> {
   const text = formatRecords(rows);
-  parseV1Records(text);
+  parseRecords(text);
   await atomicWrite(join(out, "records.csv"), text);
   console.log(`wrote records.csv rows=${rows.length}`);
 }
@@ -212,7 +264,7 @@ async function run(paths: Paths, inputs: Inputs): Promise<void> {
 async function replay(paths: Paths, inputs: Inputs): Promise<void> {
   const fixture = parseFixture(await Bun.file(join(paths.out, "raw.json")).text());
   const file = Bun.file(join(paths.out, "records.csv"));
-  const old = (await file.exists()) ? parseV1Records(await file.text()) : [];
+  const old = (await file.exists()) ? parseRecords(await file.text()) : [];
   await writeRecords(paths.out, keepLabels(rowsFromFixture(inputs, fixture), old));
 }
 
@@ -226,22 +278,24 @@ export function renderPage(template: string, rows: readonly RecordRow[]): string
 }
 
 async function page(paths: Paths): Promise<void> {
-  const rows = parseV1Records(await Bun.file(join(paths.out, "records.csv")).text());
+  const rows = parseRecords(await Bun.file(join(paths.out, "records.csv")).text());
   await atomicWrite(join(paths.out, "label.html"), renderPage(await Bun.file(paths.template).text(), rows));
   console.log(`wrote label.html with ${rows.length} answers`);
 }
 
-async function label(paths: Paths, labelsPath: string): Promise<void> {
-  const rows = applyItemLabels(parseV1Records(await Bun.file(join(paths.out, "records.csv")).text()), await Bun.file(labelsPath).text());
+async function label(paths: Paths, labelsPath: string, provenance: LabelProvenance | undefined): Promise<void> {
+  const records = parseV1Records(await Bun.file(join(paths.out, "records.csv")).text());
+  const rows = applyItemLabels(records, await Bun.file(labelsPath).text(), provenance);
   await writeRecords(paths.out, rows);
-  console.log(`labelled ${rows.filter((r) => r.label !== "").length} of ${rows.length} rows`);
+  const how = provenance === undefined ? "human" : `${provenance.source} by ${provenance.by} at ${provenance.at}, blind=${String(provenance.blind)}`;
+  console.log(`labelled ${rows.filter((r) => r.label !== "").length} of ${rows.length} rows (${how})`);
 }
 
 export async function main(argv: readonly string[], paths: Paths): Promise<void> {
   const [command, ...rest] = argv;
   if (command === "label") {
-    if (rest.length > 1) throw new Error(USAGE);
-    await label(paths, rest[0] ?? join(paths.out, "labels.csv"));
+    const { labelsPath, provenance } = parseLabelArgs(rest);
+    await label(paths, labelsPath ?? join(paths.out, "labels.csv"), provenance);
     return;
   }
   if (rest.length > 0) throw new Error(USAGE);

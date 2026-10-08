@@ -43,7 +43,8 @@ describe("posters", () => {
 
   test("[unit] T2 a run under 30 paired labels carries no verdict word; a labelled run does", async () => {
     const rehearsal = await summariseRun(ROOT, "2026-10-03-tokenmax");
-    expect(rehearsal?.labelledPaired).toBe(0);
+    expect(rehearsal?.labelledPaired).toBe(5);
+    expect(rehearsal?.labels).toBe("human_reviewed, blind: no");
     expect(rehearsal?.verdict).toBeNull();
     const show = await summariseRun(ROOT, "2026-10-01-uc13-shop-bot");
     expect(show?.labelledPaired).toBe(40);

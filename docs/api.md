@@ -104,11 +104,11 @@ With several questions in one file, `verdict` exits 3 when any question is "don'
 
 `bun src/decide/cli.ts <command>` (or `bun run decide <command>`). JSON on stdout, errors on stderr.
 
-Keys come from the caller's environment only: `JEV_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`. No flag takes a key (argv is visible to every process on the host), and no key is printed or written. With no `ANTHROPIC_API_KEY` the llm arm uses the local `claude` binary; set `--arms` without `llm` to skip it.
+Keys come from the caller's environment only: `JEV_API_KEY` (or, when it is empty, `TYPESAFE_API_KEY`, the name the Backstage copy tells you to set), `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`. No flag takes a key (argv is visible to every process on the host), and no key is printed or written. With no `ANTHROPIC_API_KEY` the llm arm uses the local `claude` binary; set `--arms` without `llm` to skip it.
 
 Input files: questions are one QuestionSpec or a JSON array of them; cases are JSONL (one Case per line, path ending `.jsonl`) or a JSON array; a rule file is `{"keywords": [...], "match": "...", "otherwise": "..."}`.
 
-Flags: `--arms jev,decisions,llm,rule` (exactly these arms; without it the defaults), `--llm-model <id>`, `--rule <file>`, `--budget <usd>`, `--dry-run`, `--run-id <id>`, `--prompt-version <v>`.
+Flags: `--questions <file>`, `--cases <file>` (estimate, run), `--case <file>` or `--input <text>` (ask, exactly one), `--case-id <id>` (ask with `--input` only; with `--case` it is an error, the file carries its id), `--out <file>` (run; must not be the cases, questions or rule file), `--question <id>` (verdict), `--arms jev,decisions,llm,rule` (exactly these arms; without it the defaults), `--llm-model <id>`, `--rule <file>`, `--budget <usd>`, `--dry-run`, `--run-id <id>`, `--prompt-version <v>`.
 
 ```sh
 # arms, models and dated prices
@@ -136,7 +136,7 @@ A `run` stopped by the budget cap still writes every row: the calls not made are
 
 ### Test-only: recorded fixtures
 
-`JNJ_DECIDE_FIXTURES=<file>` makes `ask` and `run` answer every provider call from a JSON file of recorded responses (`{"hosts": {"api.typesafe.ai": {"http": 200, "response": {...}}}, "cli": {"stdout": "...", "exitCode": 0}}`) and never call a provider or start a `claude` binary. A request carrying no key gets a 401. The CLI prints a `NOTE` on stderr when it is set. It exists for `src/decide/cli.test.ts`; never set it outside a test.
+`JNJ_DECIDE_FIXTURES=<file>` makes `ask` and `run` answer every provider call from a JSON file of recorded responses (`{"hosts": {"api.typesafe.ai": {"http": 200, "response": {...}}}, "cli": {"stdout": "...", "exitCode": 0}}`) and never call a provider or start a `claude` binary. A request carrying no key gets a 401. The CLI prints a `NOTE` on stderr when it is set, and stamps every row: `evidence.replayed_fixture` is `true` and the `run_id` gets a `-fixture` suffix (the suffix is what reaches the CSV, where evidence is not a column). It exists for `src/decide/cli.test.ts`; never set it outside a test.
 
 ## MCP
 

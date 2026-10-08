@@ -16,6 +16,9 @@ export const KEY_ENV: Readonly<Record<keyof ProviderKeys, string>> = {
   anthropic: "ANTHROPIC_API_KEY",
 };
 
+/** Read when JEV_API_KEY is empty: the name the Backstage copy tells users to set (src/backstage/main.ts). */
+export const JEV_KEY_FALLBACK_ENV = "TYPESAFE_API_KEY";
+
 export type CommandName = "arms" | "estimate" | "ask" | "run" | "verdict" | "validate";
 export const COMMANDS: readonly CommandName[] = ["arms", "estimate", "ask", "run", "verdict", "validate"];
 const ARM_NAMES: readonly ArmName[] = ["jev", "decisions", "llm", "rule"];
@@ -165,6 +168,9 @@ export function parseArgs(argv: readonly string[]): Parsed<Command> {
   }
   const runId = values.get("--run-id");
   const promptVersion = values.get("--prompt-version");
+  if (first === "ask" && casePath !== undefined && values.has("--case-id")) {
+    return fail("ask: --case-id only applies with --input; a --case file carries its own id");
+  }
   const caseId = first === "ask" && input !== undefined ? (values.get("--case-id") ?? "case-1") : undefined;
   const command: SpendCommand = {
     cmd: first,
@@ -205,7 +211,7 @@ export function keysFromEnv(env: Readonly<Record<string, string | undefined>>): 
     const v = env[name];
     return v === undefined || v === "" ? undefined : v;
   };
-  const jev = pick(KEY_ENV.jev);
+  const jev = pick(KEY_ENV.jev) ?? pick(JEV_KEY_FALLBACK_ENV);
   const openai = pick(KEY_ENV.openai);
   const anthropic = pick(KEY_ENV.anthropic);
   return { ...(jev !== undefined ? { jev } : {}), ...(openai !== undefined ? { openai } : {}), ...(anthropic !== undefined ? { anthropic } : {}) };

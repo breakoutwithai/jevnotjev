@@ -12,16 +12,17 @@
 // Exit codes: verdict 0 use Jev, 3 don't use Jev, 4 not enough evidence, 2 invalid input. validate keeps the validator's
 // 0 valid, 1 invalid, 2 usage. The other subcommands: 0 done, 2 invalid input or usage, 1 could not write --out.
 import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileSeed } from "../core/calc.ts";
 import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
 import { MIN_PAIRED, verdict, type Verdict } from "../core/verdict.ts";
 import { decodeUtf8, report, validate } from "../format/validate.ts";
 import {
-  FIXTURES_ENV, KEY_ENV, parseArgs, parseCase, parseCases, parseFixtures, parseQuestions, parseRule, toArms, keysFromEnv,
+  FIXTURES_ENV, JEV_KEY_FALLBACK_ENV, KEY_ENV, parseArgs, parseCase, parseCases, parseFixtures, parseQuestions, parseRule, toArms, keysFromEnv,
   type FixtureSet, type Parsed, type SpendCommand,
 } from "./cli-args.ts";
 import { whichClaude } from "./cli-spawn.ts";
+import { fixtureModeActive, stampFixtureRows } from "./fixture-stamp.ts";
 import { LLM_TRANSPORTS, type DecideSpawn } from "./llm.ts";
 import { PRICE_TABLE, PRICE_TABLE_DATE } from "./prices.ts";
 import { RULE_MODEL } from "./rule.ts";
@@ -41,7 +42,7 @@ Usage: bun src/decide/cli.ts <command> [flags]
   verdict  FILE [--question ID]              labelled records to verdict and exit code (spends 0)
   validate FILE                              the record validator (spends 0)
 Arm and run flags: --arms jev,decisions,llm,rule  --llm-model ID  --rule F  --budget USD  --dry-run  --run-id ID  --prompt-version V
-Keys from env only: ${KEY_ENV.jev}, ${KEY_ENV.openai}, ${KEY_ENV.anthropic}. No ${KEY_ENV.anthropic}: the llm arm uses the local claude binary.
+Keys from env only: ${KEY_ENV.jev} (else ${JEV_KEY_FALLBACK_ENV}), ${KEY_ENV.openai}, ${KEY_ENV.anthropic}. No ${KEY_ENV.anthropic}: the llm arm uses the local claude binary.
 Exit: verdict 0 use Jev, 3 don't use Jev, 4 not enough evidence, 2 invalid input; validate 0 valid, 1 invalid, 2 usage.
 Docs: docs/api.md`;
 
@@ -99,6 +100,7 @@ async function providerDeps(env: Env, io: Io): Promise<RunDeps> {
 
 function armsReport(env: Env): unknown {
   const keySet = (name: string): boolean => (env[name] ?? "") !== "";
+  const jevKeySet = keysFromEnv(env).jev !== undefined;
   const fixtureMode = (env[FIXTURES_ENV] ?? "") !== "";
   const models = (arm: string): unknown[] =>
     PRICE_TABLE.filter((p) => p.arm === arm).map((p) => ({
@@ -116,7 +118,7 @@ function armsReport(env: Env): unknown {
     defaults: { jev: true, decisions: false, llm: DEFAULT_LLM, rule: false, runId: DEFAULT_RUN_ID, promptVersion: DEFAULT_PROMPT_VERSION },
     casesForVerdict: MIN_PAIRED,
     arms: [
-      { arm: "jev", default: true, keyEnv: KEY_ENV.jev, keySet: keySet(KEY_ENV.jev), models: models("jev") },
+      { arm: "jev", default: true, keyEnv: KEY_ENV.jev, keyEnvFallback: JEV_KEY_FALLBACK_ENV, keySet: jevKeySet, models: models("jev") },
       { arm: "decisions", default: false, keyEnv: KEY_ENV.openai, keySet: keySet(KEY_ENV.openai), models: models("decisions") },
       {
         arm: "llm", default: true, keyEnv: KEY_ENV.anthropic, keySet: keySet(KEY_ENV.anthropic), models: models("llm"),
@@ -149,7 +151,18 @@ async function spendInput(c: SpendCommand): Promise<SpendInput> {
   return { cases, request: { cases, questions, arms: toArms(c, rule), options } };
 }
 
+/** --out must not be a file the command reads: writing it would destroy the input before the next run. */
+function guardOut(c: SpendCommand): void {
+  if (c.out === undefined) return;
+  const out = resolve(c.out);
+  const inputs: readonly (readonly [string, string | undefined])[] = [["cases", c.cases], ["questions", c.questions], ["rule", c.rulePath]];
+  for (const [label, path] of inputs) {
+    if (path !== undefined && resolve(path) === out) throw new CliInputError(`--out ${c.out} is the ${label} file; choose a different output path`);
+  }
+}
+
 async function spend(c: SpendCommand, io: Io, env: Env): Promise<number> {
+  guardOut(c);
   const { request } = await spendInput(c);
   if (c.cmd === "estimate") {
     io.out(json(estimate(request)));
@@ -160,7 +173,8 @@ async function spend(c: SpendCommand, io: Io, env: Env): Promise<number> {
     return EXIT.ok;
   }
   estimate(request); // reject bad input before any key or fixture is read
-  const result = await run(request, await providerDeps(env, io));
+  const raw = await run(request, await providerDeps(env, io));
+  const result = fixtureModeActive(env) ? { ...raw, rows: stampFixtureRows(raw.rows) } : raw;
   const summary = { calls: result.calls, spentUsd: result.spentUsd, stoppedByBudget: result.stoppedByBudget, budgetNote: result.budgetNote, counts: result.counts, estimate: result.estimate };
   if (c.cmd === "ask") {
     io.out(json({ rows: result.rows, ...summary }));

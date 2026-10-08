@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { validate } from "../format/validate.ts";
 import { FIXTURES_ENV, keysFromEnv, parseArgs, parseCases, parseQuestions, parseRule, toArms, type Command, type SpendCommand } from "./cli-args.ts";
 import { cliEnv } from "./cli-spawn.ts";
+import { fixtureModeActive } from "./fixture-stamp.ts";
 import { DEFAULT_LLM } from "./run.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -178,7 +179,7 @@ describe("input files", () => {
 
   test("[unit] CLI-KEYS keys come from JEV_API_KEY, OPENAI_API_KEY and ANTHROPIC_API_KEY; empty is absent", () => {
     expect(keysFromEnv({ JEV_API_KEY: "j", OPENAI_API_KEY: "o", ANTHROPIC_API_KEY: "a" })).toEqual({ jev: "j", openai: "o", anthropic: "a" });
-    expect(keysFromEnv({ JEV_API_KEY: "", TYPESAFE_API_KEY: "t" })).toEqual({});
+    expect(keysFromEnv({ JEV_API_KEY: "", OPENAI_API_KEY: "", ANTHROPIC_API_KEY: "" })).toEqual({});
   });
 });
 
@@ -304,6 +305,106 @@ describe("subcommands end to end", () => {
       expect(done.code).toBe(2);
       expect(done.stderr).toContain("claude-haiku-5-5");
       expect(done.stdout).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("fixture replays are stamped", () => {
+  test("[integration] CLI-FIXTURE-STAMP a fixture-mode ask and run --out stamp every row and keep the NOTE", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jnj-cli-stamp-"));
+    try {
+      writeFileSync(join(dir, "q.json"), JSON.stringify(QUESTIONS));
+      writeFileSync(join(dir, "c.jsonl"), `${JSON.stringify({ id: "m04", input: M0_TEXT })}\n`);
+      writeFileSync(join(dir, "case.json"), JSON.stringify({ id: "m04", input: M0_TEXT }));
+      const env = { JEV_API_KEY: "k", OPENAI_API_KEY: "k", [FIXTURES_ENV]: fixtureFile(dir) };
+      const q = ["--questions", join(dir, "q.json")];
+      const asked = cli(["ask", ...q, "--case", join(dir, "case.json"), "--arms", "jev,decisions"], env);
+      expect(asked.code).toBe(0);
+      expect(asked.stderr).toContain("NOTE");
+      const rows = field(json(asked.stdout), "rows");
+      expect(Array.isArray(rows) ? rows.length : 0).toBe(6);
+      for (const row of Array.isArray(rows) ? rows : []) {
+        expect(field(row, "evidence", "replayed_fixture")).toBe(true);
+        expect(String(field(row, "run_id"))).toEndWith("-fixture");
+      }
+      const out = join(dir, "r.csv");
+      const ran = cli(["run", ...q, "--cases", join(dir, "c.jsonl"), "--arms", "jev,decisions", "--out", out], env);
+      expect(ran.code).toBe(0);
+      expect(ran.stderr).toContain("NOTE");
+      const lines = readFileSync(out, "utf8").split("\n").filter((l) => l !== "").slice(1);
+      expect(lines).toHaveLength(6);
+      for (const line of lines) expect(line.startsWith("jnj-record/1.2,run-001-fixture,")).toBe(true);
+      expect(validate(readFileSync(out, "utf8")).errors).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("[unit] CLI-FIXTURE-MODE fixtureModeActive is true only for a non-empty JNJ_DECIDE_FIXTURES", () => {
+    expect(fixtureModeActive({})).toBe(false);
+    expect(fixtureModeActive({ [FIXTURES_ENV]: "" })).toBe(false);
+    expect(fixtureModeActive({ [FIXTURES_ENV]: "/x.json" })).toBe(true);
+  });
+});
+
+describe("flag guards", () => {
+  test("[unit] CLI-CASEID ask --case with --case-id is an error naming --case-id", () => {
+    const got = parseArgs(["ask", "--questions", "q", "--case", "c.json", "--case-id", "X"]);
+    expect(got.ok).toBe(false);
+    expect(got.ok ? "" : got.error).toContain("--case-id");
+    expect(ok(parseArgs(["ask", "--questions", "q", "--input", "hi", "--case-id", "X"]))).toMatchObject({ caseId: "X" });
+  });
+
+  test("[integration] CLI-OUT-GUARD run --out equal to the cases, questions or rule file exits 2 and leaves the input intact", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jnj-cli-out-"));
+    try {
+      const questions = join(dir, "q.json");
+      const cases = join(dir, "c.jsonl");
+      const rule = join(dir, "rule.json");
+      writeFileSync(questions, JSON.stringify(QUESTIONS));
+      writeFileSync(cases, `${JSON.stringify({ id: "m04", input: M0_TEXT })}\n`);
+      writeFileSync(rule, JSON.stringify({ keywords: ["size"], match: "yes", otherwise: "no" }));
+      const before = readFileSync(cases, "utf8");
+      const same = cli(["run", "--questions", questions, "--cases", cases, "--dry-run", "--out", join(dir, ".", "c.jsonl")]);
+      expect(same.code).toBe(2);
+      expect(same.stderr).toContain("--out");
+      expect(same.stderr).toContain("cases");
+      const q = cli(["run", "--questions", questions, "--cases", cases, "--dry-run", "--out", questions]);
+      expect(q.code).toBe(2);
+      expect(q.stderr).toContain("questions");
+      const r = cli(["run", "--questions", questions, "--cases", cases, "--arms", "jev,rule", "--rule", rule, "--dry-run", "--out", rule]);
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain("rule");
+      expect(readFileSync(cases, "utf8")).toBe(before);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("key name fallback", () => {
+  test("[unit] CLI-KEYS-FALLBACK the Jev key is JEV_API_KEY, else TYPESAFE_API_KEY; JEV_API_KEY wins", () => {
+    expect(keysFromEnv({ TYPESAFE_API_KEY: "t" })).toEqual({ jev: "t" });
+    expect(keysFromEnv({ JEV_API_KEY: "j", TYPESAFE_API_KEY: "t" })).toEqual({ jev: "j" });
+    expect(keysFromEnv({ JEV_API_KEY: "", TYPESAFE_API_KEY: "t" })).toEqual({ jev: "t" });
+    expect(keysFromEnv({ JEV_API_KEY: "", TYPESAFE_API_KEY: "" })).toEqual({});
+  });
+
+  test("[integration] CLI-KEYS-TYPESAFE ask answers from TYPESAFE_API_KEY alone, arms reports the key set, no key is printed", () => {
+    const canary = `sk-canary-${crypto.randomUUID().replaceAll("-", "")}`;
+    const dir = mkdtempSync(join(tmpdir(), "jnj-cli-tskey-"));
+    try {
+      writeFileSync(join(dir, "q.json"), JSON.stringify(QUESTIONS));
+      const env = { TYPESAFE_API_KEY: canary, [FIXTURES_ENV]: fixtureFile(dir) };
+      const asked = cli(["ask", "--questions", join(dir, "q.json"), "--input", M0_TEXT, "--arms", "jev"], env);
+      expect(asked.code).toBe(0);
+      const rows = field(json(asked.stdout), "rows");
+      expect((Array.isArray(rows) ? rows : []).map((r: unknown) => field(r, "outcome"))).toEqual(["answered", "answered", "answered"]);
+      const arms = cli(["arms"], { TYPESAFE_API_KEY: canary });
+      expect(field(json(arms.stdout), "arms", 0, "keySet")).toBe(true);
+      expect(occurrences(asked.stdout + asked.stderr + arms.stdout + arms.stderr, canary)).toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -88,6 +88,8 @@ export interface Evidence {
   readonly transport?: "messages-api" | "claude-cli";
   /** How cost_usd was found when not from usage x the price table. */
   readonly cost_basis?: string;
+  /** Set by src/decide/fixture-stamp.ts when the row was answered from a test-only fixture file, not a provider. */
+  readonly replayed_fixture?: true;
 }
 
 /** One jnj-record/1.2 row per (case, question, arm), plus its evidence. The label is always empty: a model answer is never truth. */

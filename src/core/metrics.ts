@@ -307,6 +307,68 @@ export function describeSpend(value: Spend): string {
   return `incomplete ($${value.knownUsd.toFixed(6)} known, ${value.missing} missing)`;
 }
 
+/**
+ * Where one method's labels came from: labelled rows by label_source, and whether those calls were blind.
+ * jnj-record/1 rows record label_source (human) but not blindness, so their blindness counts as not recorded.
+ * Agent labels are counted here (they are shown) although they never count as truth.
+ */
+export interface LabelProvenance {
+  readonly human: number;
+  readonly humanReviewed: number;
+  readonly agent: number;
+  /** Labelled rows with no label_source. */
+  readonly sourceNotRecorded: number;
+  readonly blindYes: number;
+  readonly blindNo: number;
+  readonly blindNotRecorded: number;
+}
+
+/** Provenance of the labelled rows among `rows` (one method's rows). */
+export function labelProvenance(rows: readonly Row[]): LabelProvenance {
+  let human = 0;
+  let humanReviewed = 0;
+  let agent = 0;
+  let sourceNotRecorded = 0;
+  let blindYes = 0;
+  let blindNo = 0;
+  let blindNotRecorded = 0;
+  for (const row of rows) {
+    const labelled = row.get("label");
+    if (labelled === null || labelled === undefined) continue;
+    const source = row.get("label_source");
+    const blind = row.get("label_blind");
+    if (source === "human") human += 1;
+    else if (source === "human_reviewed") humanReviewed += 1;
+    else if (source === "agent") agent += 1;
+    else sourceNotRecorded += 1;
+    if (blind === "true") blindYes += 1;
+    else if (blind === "false") blindNo += 1;
+    else blindNotRecorded += 1;
+  }
+  return { human, humanReviewed, agent, sourceNotRecorded, blindYes, blindNo, blindNotRecorded };
+}
+
+/** One line for a method's label provenance, never a silent blank. A single blind value is shown bare only when every label has it. */
+export function describeProvenance(value: LabelProvenance): string {
+  const total = value.human + value.humanReviewed + value.agent + value.sourceNotRecorded;
+  if (total === 0) return "no labels";
+  const sources: [string, number][] = [
+    ["human", value.human],
+    ["human_reviewed", value.humanReviewed],
+    ["agent", value.agent],
+    ["source not recorded", value.sourceNotRecorded],
+  ];
+  const blinds: [string, number][] = [
+    ["yes", value.blindYes],
+    ["no", value.blindNo],
+    ["not recorded", value.blindNotRecorded],
+  ];
+  const counted = (pairs: [string, number][]): string[] => pairs.filter(([, n]) => n > 0).map(([name, n]) => `${n} ${name}`);
+  const only = blinds.find(([, n]) => n === total);
+  const blind = only === undefined ? counted(blinds).join(", ") : only[0];
+  return `labels: ${sources.filter(([, n]) => n > 0).map(([name, n]) => `${name} ${n}`).join(", ")}; blind: ${blind}`;
+}
+
 /** The paired cases as resample input, Jev first; null when any paired row lacks a cost (rule 1 stops first). */
 export function pairedCostCases(pair: PairedSample): CostCase[] | null {
   const out: CostCase[] = [];

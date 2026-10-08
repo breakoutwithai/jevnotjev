@@ -6,7 +6,7 @@
 
 import { fileSeed } from "../core/calc.ts";
 import { caseCell, caseLines, matchingMethods } from "../core/case-table.ts";
-import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
+import { describeProvenance, groupCohorts, labelProvenance, metricsOfCohortRows } from "../core/metrics.ts";
 import { verdict } from "../core/verdict.ts";
 import { decodeUtf8, report, summary, validate, type Validation } from "../format/validate.ts";
 
@@ -58,12 +58,14 @@ export interface LoadedResult {
   readonly headline: string;
   /** One line per method (answerer); empty when the file is invalid. */
   readonly methods: readonly string[];
+  /** One line per method (same order as `methods`): where its labels came from and whether they were blind. */
+  readonly provenance: readonly string[];
   /** One verdict per question; empty when the file is invalid. */
   readonly questions: readonly QuestionVerdict[];
 }
 
 function failure(fileName: string, message: string): LoadedResult {
-  return { fileName, valid: false, errors: [message], gaps: [], headline: "INVALID rows=0 cases=0 errors=1 gaps=0", methods: [], questions: [] };
+  return { fileName, valid: false, errors: [message], gaps: [], headline: "INVALID rows=0 cases=0 errors=1 gaps=0", methods: [], provenance: [], questions: [] };
 }
 
 /** Validate, summarise and judge one file's bytes. A file that cannot be read is INVALID, never an exception. */
@@ -87,12 +89,12 @@ export async function evaluateText(fileName: string, text: string): Promise<Load
   const { lines } = report(result);
   const headline = lines[lines.length - 1] ?? "";
   if (result.errors.length > 0) {
-    return { fileName, valid: false, errors: result.errors, gaps: result.gaps, headline, methods: [], questions: [] };
+    return { fileName, valid: false, errors: result.errors, gaps: result.gaps, headline, methods: [], provenance: [], questions: [] };
   }
   const groups = groupCohorts(result.rows);
   if (groups.length > MAX_COHORTS) {
     const message = "file has " + groups.length + " questions (run, prompt version and question id each count); the limit is " + MAX_COHORTS;
-    return { fileName, valid: false, errors: [message], gaps: result.gaps, headline: "INVALID rows=" + result.rows.length + " errors=1", methods: [], questions: [] };
+    return { fileName, valid: false, errors: [message], gaps: result.gaps, headline: "INVALID rows=" + result.rows.length + " errors=1", methods: [], provenance: [], questions: [] };
   }
   const seed = await fileSeed(text);
   const questions: QuestionVerdict[] = [];
@@ -115,7 +117,16 @@ export async function evaluateText(fileName: string, text: string): Promise<Load
       questions.push({ ...head, verdict: null, reason: why, limitations: [] });
     }
   }
-  return { fileName, valid: true, errors: [], gaps: result.gaps, headline, methods: summary(result.rows), questions };
+  return { fileName, valid: true, errors: [], gaps: result.gaps, headline, methods: summary(result.rows), provenance: provenanceLines(result), questions };
+}
+
+/** Per method (answerer, sorted as summary() sorts them), where its labels came from. */
+function provenanceLines(result: Validation): string[] {
+  const answerers = [...new Set(result.rows.map(({ values }) => String(values.get("answerer"))))].sort();
+  return answerers.map((answerer) => {
+    const mine = result.rows.map(({ values }) => values).filter((row) => row.get("answerer") === answerer);
+    return answerer + ": " + describeProvenance(labelProvenance(mine));
+  });
 }
 
 /** Text safe to place inside HTML element content or a quoted attribute. */
@@ -169,7 +180,7 @@ export function renderResult(r: LoadedResult): string {
     list("ld-gaps", "GAP", r.gaps),
   ];
   if (r.valid) {
-    parts.push(el("h4", "ld-head", "Each method"), list("ld-methods", "", r.methods));
+    parts.push(el("h4", "ld-head", "Each method"), list("ld-methods", "", r.methods), el("h4", "ld-head", "Where each method's labels came from"), list("ld-provenance", "", r.provenance));
     const rows = r.questions.map(
       (q) =>
         '<li><span class="ld-id">' + escapeHtml("run " + q.runId + ", prompt " + q.promptVersion + ", question " + q.questionId) + "</span> " +

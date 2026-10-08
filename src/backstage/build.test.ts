@@ -144,7 +144,7 @@ test("[integration] #67 committed build resolves package imports from the approv
   const isolated = await mkdtemp(join(tmpdir(), "backstage-host-"));
   try {
     await Bun.write(join(isolated, "server.js"), server);
-    const child = Bun.spawn(["bun", join(isolated, "server.js")], {
+    const child = Bun.spawn(["bun", "--no-install", join(isolated, "server.js")], {
       cwd: isolated,
       env: { ...process.env, BACKSTAGE_VERSION: "b".repeat(40) },
       stdout: "pipe",

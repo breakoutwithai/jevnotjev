@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Replay the run: where each score came from | Jev!Jev</title>
+<meta name="description" content="Step through a recorded run case by case: the message, each method's answer, its label and its cost. The score builds as you go, and any method with incomplete evidence is flagged.">
+<meta property="og:title" content="Replay the run: where each score came from">
+<meta property="og:description" content="Every case, answer, label and cost behind the score, with incomplete evidence flagged.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://jevnotjev.breakoutwithai.com/replay/">
+<meta property="og:image" content="https://jevnotjev.breakoutwithai.com/og.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;0,800;1,400;1,500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="replay.css">
+</head>
+<body>
+<a class="skiplink" href="#deck">Skip to the replay</a>
+<div class="wrap">
+  <a class="back" href="../">Back to the stage</a>
+  <header class="bill">
+    <p class="kicker">Evidence &middot; Replay</p>
+    <h1>Replay the run, watch the score build</h1>
+    <p class="lede">Three ways of making the same call were tested on the same messages: what you do now (an LLM prompt), a simple keyword rule, and Jev. Step through the recorded cases to see each answer, whether a person accepted it and what it cost; the tally counts only the cases you have played.</p>
+    <p class="notfor">Not for you if you want a chatbot, a writer or a ranking. Jev picks one answer from a fixed list for one text, and code acts on it. <a href="../">What Jev!Jev is</a></p>
+  </header>
+
+  <nav class="runs" id="runs" aria-label="Recorded runs"></nav>
+
+  <section class="evidence" id="evidence" aria-labelledby="evidenceTag">
+    <h2 class="tag" id="evidenceTag">Evidence check</h2>
+    <p class="synthetic" id="synthetic" hidden>Synthetic file: the outputs and costs were typed by hand to show what the flags catch. No model was called.</p>
+    <ul class="flags" id="flags"></ul>
+    <details class="others" id="others" hidden><summary id="othersTitle"></summary><div id="othersBody"></div></details>
+  </section>
+
+  <p class="headline" id="headline" aria-live="polite"></p>
+
+  <main class="deck" id="deck" aria-label="Replay deck" tabindex="-1">
+    <div class="head">
+      <p class="counter" id="counter" aria-live="polite"></p>
+      <div class="ctrl">
+        <button type="button" id="first" aria-label="First case">&lsaquo;&lsaquo;</button>
+        <button type="button" id="prev" aria-label="Previous case">&lsaquo;</button>
+        <button type="button" id="play" class="play">Play</button>
+        <button type="button" id="next" aria-label="Next case">&rsaquo;</button>
+        <button type="button" id="last" aria-label="Last case">&rsaquo;&rsaquo;</button>
+      </div>
+    </div>
+    <div class="strip" id="strip" aria-label="Jump to a case"></div>
+    <div class="msg" id="msg"></div>
+    <div class="arms" id="arms"></div>
+    <section class="tally" aria-labelledby="tallyTag">
+      <h2 class="tag" id="tallyTag">Tally so far</h2>
+      <table><thead><tr><th scope="col">Method</th><th scope="col">Accepted so far</th><th scope="col" class="opt">Share of all cases</th></tr></thead><tbody id="tally"></tbody></table>
+    </section>
+  </main>
+
+  <section class="totals" aria-labelledby="totalsTag">
+    <h2 class="tag" id="totalsTag">Where the replay ends: the recorded totals</h2>
+    <p class="how">Each number counts rows in the records file. Choose a number to see the rows it counts.</p>
+    <table><thead><tr><th scope="col">Method</th><th scope="col">Accepted</th><th scope="col">Cost of all answers</th></tr></thead><tbody id="totals"></tbody></table>
+  </section>
+
+  <section class="log" id="log" hidden aria-live="polite"></section>
+</div>
+
+<footer class="notes">
+  <h2>Where these numbers come from</h2>
+  <ul id="source"></ul>
+</footer>
+
+<noscript><p class="wrap">This page needs JavaScript to replay the run.</p></noscript>
+<script src="replay-data.js"></script>
+<script src="replay.js"></script>
+</body>
+</html>

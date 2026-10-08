@@ -181,6 +181,16 @@ backstage_snippet_auth() {
         allow("tickets_ranking", "proxy_set_header Host $host")
         allow("tickets_ranking", "proxy_set_header X-Backstage-Client-IP $remote_addr")
         allow("tickets_ranking", "client_max_body_size 1k")
+        # HTTP API v1 (src/backstage/api-v1.ts): public at nginx, bearer auth in the server; optional, exactly these statements.
+        allow("api_v1", "proxy_set_header X-Backstage-Gate session")
+        allow("api_v1", "proxy_pass http://127.0.0.1:3456")
+        allow("api_v1", "proxy_set_header Host $host")
+        allow("api_v1", "proxy_set_header X-Backstage-Client-IP $remote_addr")
+        allow("api_v1", "client_max_body_size 64k")
+        allow("api_v1", "client_body_timeout 5s")
+        allow("api_v1", "proxy_read_timeout 110s")
+        allow("api_v1", "proxy_send_timeout 110s")
+        allow("api_v1", "access_log off")
         allow("session_check", "internal")
         allow("session_check", "proxy_pass http://127.0.0.1:3456/api/auth/session")
         allow("session_check", "proxy_set_header Host $host")
@@ -254,6 +264,7 @@ backstage_snippet_auth() {
                     else if (h == "location = /api/auth/google/callback") { cur = "callback"; seen[cur]++ }
                     else if (h == "location = /api/tickets") { cur = "tickets"; seen[cur]++ }
                     else if (h == "location = /api/tickets/ranking") { cur = "tickets_ranking"; seen[cur]++ }
+                    else if (h == "location ^~ /api/v1/") { cur = "api_v1"; seen[cur]++ }
                     else if (h == "location @backstage_deny") { cur = "deny"; seen[cur]++ }
                     else if (h == "location @backstage_sign_in") { cur = "sign_in_redirect"; seen[cur]++ }
                     else if (h == "location @backstage_api_401") { cur = "api_401"; seen[cur]++ }
@@ -310,8 +321,8 @@ backstage_snippet_auth() {
                 loc = locations[i]
                 if (loc != "page" && loc != "api" && loc != "session_check" && observed[loc] != required[loc]) { print "unknown"; exit }
             }
-            for (k = 1; k <= 2; k++) {
-                loc = (k == 1 ? "tickets" : "tickets_ranking")
+            for (k = 1; k <= 3; k++) {
+                loc = (k == 1 ? "tickets" : k == 2 ? "tickets_ranking" : "api_v1")
                 if (seen[loc] > 1 || (seen[loc] == 1 && observed[loc] != required[loc])) { print "unknown"; exit }
             }
             if (!statements["session_check", "internal"] ||

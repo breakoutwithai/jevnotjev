@@ -924,3 +924,27 @@ test("[unit] ticket office locations are optional in the session layout and fail
   const duplicate = repo.match(ticketBlock)?.[0] ?? "";
   expect((await authState(repo + duplicate)).code).toBe(1);
 });
+test("[unit] /api/v1 location is optional in the session layout and fails closed when gated or altered", async () => {
+  const repo = await Bun.file(".deploy/backstage-nginx.conf").text();
+  const apiBlock = /# HTTP API v1[^\n]*\n(?:#[^\n]*\n)*location \^~ \/api\/v1\/ \{[^}]*\}\n/;
+  expect(apiBlock.test(repo)).toBe(true);
+  expect(await authState(repo)).toEqual({ code: 0, out: "session" });
+  expect(await authState(repo.replace(apiBlock, ""))).toEqual({ code: 0, out: "session" });
+  const inBlock = (extra: string): string => repo.replace("proxy_send_timeout 110s;", `proxy_send_timeout 110s; ${extra}`);
+  for (const extra of [
+    "auth_request /_backstage_session;",
+    "auth_basic off;",
+    'auth_basic "x"; auth_basic_user_file /tmp/htpasswd;',
+    'add_header Access-Control-Allow-Origin "*";',
+    "access_log on;",
+  ]) {
+    expect((await authState(inBlock(extra))).code).toBe(1);
+  }
+  expect((await authState(repo.replace("proxy_read_timeout 110s;", "proxy_read_timeout 40s;"))).code).toBe(1);
+  const v1Gate = "    proxy_set_header X-Backstage-Gate session;\n    proxy_pass http://127.0.0.1:3456;\n    proxy_set_header Host $host;\n    proxy_set_header X-Backstage-Client-IP $remote_addr;\n    client_max_body_size 64k;\n    client_body_timeout 5s;\n    proxy_read_timeout 110s;";
+  expect(repo.includes(v1Gate)).toBe(true);
+  expect((await authState(repo.replace(v1Gate, v1Gate.replace("    proxy_set_header X-Backstage-Gate session;\n", "")))).code).toBe(1);
+  expect((await authState(repo.replace("client_max_body_size 64k;\n    client_body_timeout 5s;\n    proxy_read_timeout 110s;", "client_max_body_size 64m;\n    client_body_timeout 5s;\n    proxy_read_timeout 110s;"))).code).toBe(1);
+  const duplicate = repo.match(apiBlock)?.[0] ?? "";
+  expect((await authState(repo + duplicate)).code).toBe(1);
+});

@@ -356,6 +356,23 @@ function filesUnder(dir: string): string[] {
   });
 }
 
+describe("API-NGINX", () => {
+  test("[integration] API-NGINX the gate header nginx sets on /api/v1/ leaves the bearer routes as they were and closes a ..\\ hop into the gated routes", async () => {
+    const h = harness({ auth: { sessionSecret: "s".repeat(32) } });
+    const gate = { "x-backstage-gate": "session" };
+    expect((await call(h, "GET", "/api/v1/arms", null, { ...bearer(h.token), ...gate })).status).toBe(200);
+    const anon = await call(h, "GET", "/api/v1/arms", null, gate);
+    expect(anon.status).toBe(401);
+    expect(anon.headers.get("www-authenticate")).toBe('Bearer realm="jevnotjev-api"');
+    // nginx matches ^~ /api/v1/ on /api/v1/..\backstage/health and forwards it raw; Bun resolves it to /api/backstage/health.
+    expect((await call(h, "GET", "/api/v1/..\\backstage/health", null)).status).toBe(200);
+    expect((await call(h, "GET", "/api/v1/..\\backstage/health", null, gate)).status).toBe(401);
+    const page = await call(h, "GET", "/api/v1/..\\..\\backstage/", null, gate);
+    expect(page.status).toBe(302);
+    expect(page.headers.get("location")).toStartWith("/backstage/sign-in?next=");
+  });
+});
+
 describe("KEY-CANARY", () => {
   test("[integration] KEY-CANARY-HTTP canary keys in all three headers reach the providers and no body, header, log, stdout, stderr or file (m3 == 0)", async () => {
     const canary = `sk-canary-${crypto.randomUUID().replaceAll("-", "")}`;

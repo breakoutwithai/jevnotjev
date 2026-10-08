@@ -16,7 +16,9 @@
     "backstage:dev": "PORT=8787 BACKSTAGE_ORIGIN=http://localhost:8787 BACKSTAGE_REQUIRE_SESSION=1 bun .agents/scripts/preview"
   },
   "dependencies": {
-    "postgres": "3.4.9"
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "postgres": "3.4.9",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",

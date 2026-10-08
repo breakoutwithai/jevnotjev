@@ -46,7 +46,7 @@
           }
         ]
       },
-      "watch": null
+      "watch": "replay/?run=tokenmax"
     },
     {
       "id": "uc13",

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { formatRows, readDictRows } from "../../src/format/csv.ts";
 import { join } from "node:path";
-import { buildPosters, POSTERS_OUT, render, summariseRun } from "./build-posters.ts";
+import { buildPosters, POSTERS_OUT, render, summariseRun, watchPage } from "./build-posters.ts";
 import type { Poster } from "../../src/shows/posters.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -113,5 +113,27 @@ describe("fit checks", () => {
     mkdirSync(join(root, "site"), { recursive: true });
     writeFileSync(join(root, "docs/product/use-cases/uc99-x.md"), "# UC99: X\n\n**User story:** As a builder.\n\n## Jev or not\nNo verdict here.\n");
     expect(buildPosters(root)).rejects.toThrow("no fit check found");
+  });
+});
+
+describe("watch links", () => {
+  test("[unit] a run shown only by the data-driven replay page links to replay/?run=<key>", async () => {
+    const built = await buildPosters(ROOT);
+    expect(built.find((p) => p.id === "uc11")?.watch).toBe("replay/?run=tokenmax");
+    expect(committed.posters.find((p) => p.id === "uc11")?.watch).toBe("replay/?run=tokenmax");
+  });
+
+  test("[unit] a run named by a site page keeps that page", async () => {
+    const built = await buildPosters(ROOT);
+    expect(built.find((p) => p.id === "uc13")?.watch).toBe("little-shop/");
+    expect(watchPage(ROOT, "2026-10-01-uc13-shop-bot")).toBe("little-shop/");
+  });
+
+  test("[unit] a run folder no page names and no replay source holds has no watch link", () => {
+    const root = mkdtempSync(join(tmpdir(), "posters-watch-"));
+    mkdirSync(join(root, "site", "other"), { recursive: true });
+    writeFileSync(join(root, "site", "other", "index.html"), "<p>nothing here</p>");
+    expect(watchPage(root, "2026-01-01-nowhere")).toBeNull();
+    expect(watchPage(ROOT, "2026-01-01-nowhere")).toBeNull();
   });
 });

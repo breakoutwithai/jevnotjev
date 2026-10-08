@@ -6,6 +6,9 @@ import { createEventLogger } from "./log.ts";
 import type { AuthEvent, GoogleDeniedReason, SessionRejectedReason, RunEvent } from "./log.ts";
 import type { Provider } from "./contracts.ts";
 import { renderSignInPage } from "./sign-in-page.ts";
+import { ApiTokenStore, apiTokensPath, isInside } from "./api-tokens.ts";
+import { API_V1_LIMITS, API_V1_PREFIX, createApiV1 } from "./api-v1.ts";
+import type { RunDeps } from "../decide/run.ts";
 import { CATALOG_VERSION, MODEL_CATALOG, getModelEntry } from "./catalog.ts";
 import { PROTOCOL_VERSION } from "./contracts.ts";
 import {
@@ -44,6 +47,13 @@ export interface ServerOptions {
   readonly log?: (line: string) => void;
   /** Ticket office lead store; without a path the ticket routes answer 503. */
   readonly tickets?: { readonly path?: string | undefined };
+  /** /api/v1 bearer-token state file (src/backstage/api-tokens.ts); without one, or inside staticRoot, every /api/v1 route answers 401. */
+  readonly api?: {
+    readonly tokensPath?: string | undefined;
+    /** Test-only: provider fetch, spawn and which for the decide arms. */
+    readonly deps?: Pick<RunDeps, "fetch" | "spawn" | "which">;
+    readonly timeoutMs?: number;
+  };
   readonly auth?: {
     readonly sessionSecret?: string | undefined;
     readonly operatorsPath?: string | undefined;
@@ -168,6 +178,12 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     trialCookieName = "backstage_trial";
   const ticketStore = options.tickets?.path ? new TicketStore(options.tickets.path) : null;
   const ticketLimiter = new TicketLimiter(clock);
+  const tokensPath = options.api?.tokensPath;
+  const api = createApiV1({
+    tokens: new ApiTokenStore(tokensPath !== undefined && tokensPath !== "" && !isInside(tokensPath, root) ? tokensPath : null),
+    ...(options.api?.deps !== undefined ? { deps: options.api.deps } : {}),
+    ...(options.api?.timeoutMs !== undefined ? { timeoutMs: options.api.timeoutMs } : {}),
+  });
   // Read per request so a redeployed site/shows/posters.json is seen without a restart; a missing file means no shows.
   // null means the catalogue could not be read or is malformed: an outage, never an empty catalogue.
   const posters = async (): Promise<Poster[] | null> => {
@@ -561,6 +577,13 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         else activeByok--;
       }
     }
+    if (pathname === API_V1_PREFIX || pathname.startsWith(`${API_V1_PREFIX}/`)) {
+      const maxConcurrent = options.maxConcurrent ?? 8;
+      const slot = { acquire: (): boolean => { if (active >= maxConcurrent) return false; active++; return true; }, release: (): void => { active--; } };
+      const done = await api(request, pathname, slot);
+      logger.api({ event: "api.request", rid, route: done.route, method: request.method, status: done.response.status, token: done.tokenId });
+      return done.response;
+    }
     if (pathname === "/api/tickets/ranking") {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);
       const list = await posters();
@@ -656,6 +679,7 @@ if (import.meta.main) {
     trialPricingVersion: process.env.BACKSTAGE_TRIAL_PRICING_VERSION ?? "",
     trustProxy: process.env.BACKSTAGE_TRUST_PROXY === "loopback",
     requireSession: process.env.BACKSTAGE_REQUIRE_SESSION === "1",
+    api: { tokensPath: apiTokensPath(process.env) },
     tickets: { path: process.env.BACKSTAGE_TICKETS_PATH ?? (process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, "tickets.sqlite") : undefined) },
     auth: {
       sessionSecret: process.env.BACKSTAGE_SESSION_SECRET,
@@ -670,6 +694,8 @@ if (import.meta.main) {
     maxRequestBodySize: 65536,
     idleTimeout: 40,
     fetch(request, server) {
+      // A decide run makes provider calls in sequence; give /api/v1 longer than the 40 s idle default.
+      if (new URL(request.url).pathname.startsWith(`${API_V1_PREFIX}/`)) server.timeout(request, API_V1_LIMITS.requestTimeoutSeconds);
       const address = server.requestIP(request)?.address;
       return handler(request, address ? { remoteAddress: address } : undefined);
     },

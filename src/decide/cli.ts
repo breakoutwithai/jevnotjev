@@ -24,7 +24,7 @@ import {
 } from "./cli-args.ts";
 import { whichClaude } from "./cli-spawn.ts";
 import { fixtureModeActive, stampFixtureRows } from "./fixture-stamp.ts";
-import { LLM_TRANSPORTS, type DecideSpawn } from "./llm.ts";
+import { LLM_TRANSPORTS, type DecideSpawn, type LlmTransport } from "./llm.ts";
 import { PRICE_TABLE, PRICE_TABLE_DATE } from "./prices.ts";
 import { RULE_MODEL } from "./rule.ts";
 import { rowsToCsv } from "./rows.ts";
@@ -101,8 +101,9 @@ export async function providerDeps(env: Env, io: Pick<Io, "err">): Promise<RunDe
   return { keys, ...fixtureDeps(set) };
 }
 
-/** The arms tool's body: arms, models, dated prices, types and which key env names are set (never a key value). */
-export function armsReport(env: Env): unknown {
+/** The arms tool's body: arms, models, dated prices, types and which key env names are set (never a key value).
+ * `transports` is the llm transports the surface allows (the HTTP API passes ["messages-api"]). */
+export function armsReport(env: Env, transports: readonly LlmTransport[] = LLM_TRANSPORTS): Readonly<Record<string, unknown>> {
   const keySet = (name: string): boolean => (env[name] ?? "") !== "";
   const jevKeySet = keysFromEnv(env).jev !== undefined;
   const fixtureMode = (env[FIXTURES_ENV] ?? "") !== "";
@@ -115,7 +116,8 @@ export function armsReport(env: Env): unknown {
       readDate: p.readDate,
       source: p.source,
     }));
-  const llmTransport = keySet(KEY_ENV.anthropic) ? "messages-api" : !fixtureMode && whichClaude() !== null ? "claude-cli" : null;
+  const cliAllowed = transports.includes("claude-cli");
+  const llmTransport = keySet(KEY_ENV.anthropic) ? "messages-api" : cliAllowed && !fixtureMode && whichClaude() !== null ? "claude-cli" : null;
   return {
     priceTableDate: PRICE_TABLE_DATE,
     types: ["noul", "choice", "score"],
@@ -126,7 +128,7 @@ export function armsReport(env: Env): unknown {
       { arm: "decisions", default: false, keyEnv: KEY_ENV.openai, keySet: keySet(KEY_ENV.openai), models: models("decisions") },
       {
         arm: "llm", default: true, keyEnv: KEY_ENV.anthropic, keySet: keySet(KEY_ENV.anthropic), models: models("llm"),
-        transports: LLM_TRANSPORTS, transportNow: llmTransport,
+        transports, transportNow: llmTransport,
       },
       { arm: "rule", default: false, keyEnv: null, keySet: false, models: [{ model: RULE_MODEL, inputUsdPerMTok: 0, outputUsdPerMTok: 0 }], types: ["choice (2 options)"] },
     ],
@@ -239,7 +241,11 @@ function exitFor(verdicts: readonly Verdict[]): number {
 /** Labelled records to verdicts and the exit code. An invalid file is code 2 with the validator's errors and no body;
  * an unreadable file or no rows for the question throws CliInputError. */
 export async function verdictTool(file: string, question: string | undefined): Promise<ToolAnswer> {
-  const text = await readText(file);
+  return verdictOfText(await readText(file), file, question);
+}
+
+/** verdictTool over records text already in memory (the HTTP API); `file` names the input in errors. */
+export async function verdictOfText(text: string, file: string, question: string | undefined): Promise<ToolAnswer> {
   const result = validate(text);
   if (result.errors.length > 0) return { code: EXIT.invalid, body: null, errors: result.errors };
   const groups = groupCohorts(result.rows).filter((g) => question === undefined || g.key.questionId === question);
@@ -266,6 +272,11 @@ export async function validateTool(file: string): Promise<ToolAnswer> {
   } catch (error) {
     return { code: 1, body: null, errors: [error instanceof Error ? error.message : "read failed"] };
   }
+  return validateOfText(text);
+}
+
+/** validateTool over records text already in memory (the HTTP API). */
+export function validateOfText(text: string): ToolAnswer {
   const result = validate(text);
   const { lines, exitCode } = report(result);
   const body = { valid: exitCode === 0, exit_code: exitCode, errors: result.errors, gaps: result.gaps, summary: lines.at(-1) ?? "", lines };

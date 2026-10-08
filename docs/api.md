@@ -2,7 +2,7 @@
 
 Ask one typed question (yes/no, pick one of N, or a score level) about a set of text cases, of up to four arms: Jev, the OpenAI Decisions API, an LLM and a keyword rule. Every answer comes back as a `jnj-record/1.2` row with its outcome, cost and pins. The run is priced before anything is spent, and once a person has labelled the rows the verdict comes back with a CI exit code.
 
-The same six tools are reached three ways: the command line (`src/decide/cli.ts`, this page), a stdio MCP server (`src/mcp/server.ts`) and HTTP under `/api/v1` (added in M5). The core is `src/decide/`; every surface is a thin wrapper over it.
+The same six tools are reached three ways: the command line (`src/decide/cli.ts`, this page), a stdio MCP server (`src/mcp/server.ts`) and HTTP under `/api/v1` (see HTTP below). The core is `src/decide/`; every surface is a thin wrapper over it.
 
 ## Contract (v1)
 
@@ -210,4 +210,105 @@ One call per tool (the `arguments` object of a `tools/call`):
 
 ## HTTP
 
-Added in M5.
+The six tools under `/api/v1` on the Backstage server (`src/backstage/server.ts`, routes in `src/backstage/api-v1.ts`), for scripts, CI jobs and agents. Same contract as the CLI and MCP: the request body is the MCP tool's arguments, and the response body is the JSON the CLI prints.
+
+| Route | Tool | Body |
+|---|---|---|
+| `GET /api/v1/arms` | arms | none |
+| `POST /api/v1/estimate` | estimate | `{questions, cases, arms?, options?}` |
+| `POST /api/v1/ask` | ask | `{questions, case, arms?, options?}` |
+| `POST /api/v1/run` | run | `{questions, cases, arms?, options?}`; rows inline, no `out` |
+| `POST /api/v1/verdict` | verdict | `{records: "<jnj-record CSV text>", question?}` |
+| `POST /api/v1/validate` | validate | `{records: "<jnj-record CSV text>"}` |
+
+### Auth: operator-minted bearer tokens
+
+Every `/api/v1` route, `GET /arms` included, answers `401 {"code":"unauthenticated"}` (with `WWW-Authenticate: Bearer`) unless the request carries `Authorization: Bearer <token>` with a minted token. There is no sign-up: the operator mints each token on the host that serves the API, as the user the server runs as:
+
+```sh
+bun scripts/api-token-mint.ts --label ci-bot
+# stderr: minted tok_3f9c... for "ci-bot" into <state file>; the token below is shown once and not stored
+# stdout: jnj_...   (43 characters after the prefix; copy it now, it is not shown again)
+```
+
+- The state file keeps only each token's sha256 (with an id, label and date); a copy of the file cannot call the API. A presented token is compared in constant time against every stored hash.
+- Path: `JNJ_API_TOKENS_PATH`, else `$STATE_DIRECTORY/api-tokens.json` (the systemd state directory), else `$HOME/.jevnotjev/api-tokens.json`. All are outside the served `site/` directory; a path inside the static root is refused and every route stays 401. `api-tokens.json` and `.jevnotjev/` are gitignored.
+- The file is mode 0600 in a 0700 directory. The server re-reads it when it changes, so a new token works without a restart. To revoke, delete its entry by `id`.
+- The browser routes keep their cookie session: a bearer token opens no `/backstage/` or `/api/backstage/` route, and a session cookie opens no `/api/v1` route.
+
+### Provider keys: per request, the caller's own
+
+| Header | Arm |
+|---|---|
+| `x-jev-key` | jev |
+| `x-openai-key` | decisions |
+| `x-anthropic-key` | llm (Messages API) |
+
+- Keys are read from the request headers for that request only. They are never logged, stored, echoed or put in an error body. The server's own environment keys and the funded trial key are never used for an API caller.
+- A missing key fails only its arm: that arm's rows are `outcome=error` with `reason` `missing key: <arm> needs keys.<name>`.
+- The `claude-cli` transport is not offered over HTTP (it would spend the operator's subscription on a caller's behalf). With no `x-anthropic-key` the llm rows are `outcome=error`, `reason` `missing key: llm needs keys.anthropic`; `arms` reports `transports: ["messages-api"]`.
+- `arms` reports which key headers are set (`keySet`), never a value, plus `keyHeaders` and `limits`.
+
+### Limits
+
+| Limit | Value |
+|---|---|
+| cases per `estimate` or `run` | 10 |
+| questions per request | 5 |
+| `options.budgetUsd` on `ask` and `run` | 1.00 when absent; above 5.00 is a 400 |
+| request body | 64 KiB (413 above) |
+| `/api/v1` requests in flight | 4, inside the server's overall cap of 8 (503 above) |
+| one provider call | 30 s |
+| one `/api/v1` connection idle | 120 s |
+
+Send more cases as several `run` requests. `verdict` and `validate` take the CSV text, so a records file up to 64 KiB.
+
+### Status codes
+
+| Status | When |
+|---|---|
+| 200 | the tool answered; `verdict` carries `exit_code` 0, 3 or 4, `validate` `exit_code` 0 or 1 |
+| 400 | `{code: "invalid-input", exit_code: 2, errors}`: bad body, an unknown key such as `out`, a floating model id, invalid records for `verdict`; or `invalid-json` |
+| 401 | no bearer token, or not a minted one |
+| 404, 405, 413, 415, 503 | unknown route, wrong method (`Allow` names the right one), body too large, not `application/json`, busy |
+
+No CORS header is set on any response: v1 has no browser callers.
+
+### One request per route
+
+```sh
+API=https://<host>/api/v1
+AUTH="Authorization: Bearer $JNJ_API_TOKEN"
+
+# arms: arms, pinned models, dated prices, which key headers are set, limits
+curl -sS "$API/arms" -H "$AUTH"
+
+# estimate: provider calls, upper-bound cost, cases a verdict needs (spends 0)
+curl -sS "$API/estimate" -H "$AUTH" -H 'content-type: application/json' -d '{
+  "questions": [{"name": "needs_human", "type": "noul", "instructions": "Does this message need a person?"}],
+  "cases": [{"id": "m04", "input": "Do you have boots in size 6?"}],
+  "arms": {"jev": true, "decisions": true, "llm": "claude-haiku-5-5"}}'
+
+# ask: one case, rows with evidence
+curl -sS "$API/ask" -H "$AUTH" -H "x-jev-key: $JEV_API_KEY" -H 'content-type: application/json' -d '{
+  "questions": [{"name": "topic", "type": "choice", "instructions": "What is this message mainly about?",
+                 "choices": [{"name": "stock", "definition": "Availability."}, {"name": "other", "definition": "Anything else."}]}],
+  "case": {"id": "m04", "input": "Do you have boots in size 6?"},
+  "arms": {"jev": true, "llm": false}}'
+
+# run: up to 10 cases, rows inline, stop before spending more than 5 cents
+curl -sS "$API/run" -H "$AUTH" -H "x-jev-key: $JEV_API_KEY" -H "x-anthropic-key: $ANTHROPIC_API_KEY" \
+  -H 'content-type: application/json' -d '{
+  "questions": [{"name": "urgency", "type": "score", "instructions": "How urgent is this message?",
+                 "levels": [{"label": "Not urgent", "description": "General."}, {"label": "Urgent", "description": "Today."}]}],
+  "cases": [{"id": "m04", "input": "Do you have boots in size 6?"}, {"id": "m05", "input": "My order never came."}],
+  "arms": {"jev": true, "llm": "claude-haiku-5-5"},
+  "options": {"budgetUsd": 0.05, "runId": "shop-001"}}'
+
+# verdict: after a person has labelled the records; exit_code 0 use Jev, 3 don't use Jev, 4 not enough evidence
+jq -Rs '{records: ., question: "urgency"}' records.csv |
+  curl -sS "$API/verdict" -H "$AUTH" -H 'content-type: application/json' -d @-
+
+# validate: the record validator
+jq -Rs '{records: .}' records.csv | curl -sS "$API/validate" -H "$AUTH" -H 'content-type: application/json' -d @-
+```

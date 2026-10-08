@@ -4,7 +4,12 @@
 // scripts/replay-data.ts writes their output for site/replay/.
 
 import { readDictRows, type CsvRecord } from "../format/csv.ts";
+import { parseCell, truthLabel, type ParsedRow } from "../format/validate.ts";
+import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
 import { MIN_PAIRED } from "../core/verdict.ts";
+
+/** What the page shows for a label src/core/metrics.ts does not count (format/validate.ts truthLabel). */
+export const NOT_COUNTED = "not counted (AI label, not reviewed)";
 
 /** The methods the site compares, in the order the site shows them (site/little-shop, site/index.html). */
 export const COMPARED: readonly string[] = ["llm", "rule", "jev"];
@@ -33,10 +38,23 @@ export interface ReplayRow {
   readonly input: string;
   readonly output: string;
   readonly label: string;
+  /** The label every count reads (truthLabel): empty when the cell is empty or an unreviewed `agent` label. */
+  readonly truth: string;
+  /** NOT_COUNTED when the row has a label that truth drops, else empty. */
+  readonly labelNote: string;
   readonly outcome: string;
   readonly answered: boolean;
   readonly costUsd: number | null;
   readonly costText: string;
+}
+
+/** Paired labelled cases for Jev against one other method in one cohort, as src/core/metrics.ts counts them. */
+export interface ReplayPair {
+  readonly runId: string;
+  readonly promptVersion: string;
+  readonly questionId: string;
+  readonly other: "llm" | "rule";
+  readonly n: number;
 }
 
 export interface MethodStats {
@@ -98,6 +116,7 @@ export interface ReplayRun {
   readonly rows: readonly ReplayRow[];
   readonly stats: readonly MethodStats[];
   readonly flags: readonly Flag[];
+  readonly pairs: readonly ReplayPair[];
   /** steps[i] is the tally after cases 0..i. */
   readonly steps: readonly (readonly StepTally[])[];
 }
@@ -135,7 +154,7 @@ export function tallyThrough(run: Pick<ReplayRun, "cases" | "methods" | "rows">,
   return run.methods.map((method) => {
     const rows = run.rows.filter((r) => r.answerer === method && seen.has(r.caseKey));
     const covered = new Set(rows.map((r) => r.caseKey)).size;
-    return { method, accepted: rows.filter((r) => r.label === "accept").length, played: rows.length, missing: seen.size - covered };
+    return { method, accepted: rows.filter((r) => r.truth === "accept").length, played: rows.length, missing: seen.size - covered };
   });
 }
 
@@ -147,12 +166,24 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
     return i < 0 ? "" : (record.fields[i] ?? "");
   };
   const multiQuestion = new Set(records.map((r) => col(r, "question_id"))).size > 1;
-  const rows: Parsed[] = records.map((record) => {
+  // The same cells src/format/validate.ts parses, so truthLabel and the metrics read exactly what they read there.
+  const parsed: ParsedRow[] = records.map((record) => ({
+    line: record.line,
+    values: new Map(header.map((name, i) => [name, parseCell(name, record.fields[i] ?? "")])),
+    raw: new Map(header.map((name, i) => [name, record.fields[i] ?? ""])),
+  }));
+  const rows: Parsed[] = records.map((record, i) => {
     const outcome = col(record, "outcome");
     const caseId = col(record, "case_id");
     const questionId = col(record, "question_id");
     const costUsd = num(col(record, "cost_usd"));
+    const label = col(record, "label");
+    const values = parsed[i]?.values;
+    const truthValue = values === undefined ? null : truthLabel(values);
+    const truth = typeof truthValue === "string" ? truthValue : "";
     return {
+      truth,
+      labelNote: label !== "" && truth === "" ? NOT_COUNTED : "",
       line: record.line,
       caseId,
       questionId,
@@ -162,7 +193,7 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
       answerer: col(record, "answerer"),
       model: col(record, "answerer_model"),
       output: col(record, "output"),
-      label: col(record, "label"),
+      label,
       labelSource: col(record, "label_source"),
       labelledBy: col(record, "labelled_by"),
       outcome: outcome === "" ? "answered" : outcome,
@@ -191,10 +222,10 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
       model: [...new Set(mine.map((r) => r.model))].join(" + "),
       rows: mine.length,
       answered: mine.filter((r) => r.answered).length,
-      labelled: mine.filter((r) => r.label !== "").length,
-      accept: mine.filter((r) => r.label === "accept").length,
-      reject: mine.filter((r) => r.label === "reject").length,
-      unlabelled: mine.filter((r) => r.answered && r.label === "").length,
+      labelled: mine.filter((r) => r.truth !== "").length,
+      accept: mine.filter((r) => r.truth === "accept").length,
+      reject: mine.filter((r) => r.truth === "reject").length,
+      unlabelled: mine.filter((r) => r.answered && r.truth === "").length,
       costed: costed.length,
       cost,
       costText: usd(cost),
@@ -209,12 +240,13 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
   for (const c of cases) {
     for (const method of COMPARED.filter((m) => methods.includes(m))) {
       if (rows.some((r) => r.caseKey === c.key && r.answerer === method)) continue;
+      const covered = new Set(rows.filter((r) => r.answerer === method).map((r) => r.caseKey)).size;
       flags.push({
         id: `${source.key}-${method}-missing-${c.key}`,
         method,
         kind: "missing",
         caseKey: c.key,
-        text: `${methodName(method)} has no row for case ${c.key}, so its count covers ${cases.length - 1} of ${cases.length} cases`,
+        text: `${methodName(method)} has no row for case ${c.key}, so its count covers ${covered} of ${cases.length} cases`,
         lines: rows.filter((r) => r.caseKey === c.key).map((r) => r.line),
       });
     }
@@ -230,48 +262,55 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
       lines: [row.line],
     });
   }
-  const unlabelled = rows.filter((r) => r.answered && r.label === "");
-  if (unlabelled.length > 0) {
-    const answered = rows.filter((r) => r.answered).length;
+  for (const method of methods) {
+    const answered = rows.filter((r) => r.answerer === method && r.answered);
+    const missing = answered.filter((r) => r.truth === "");
+    if (missing.length === 0) continue;
+    const counted = answered.length - missing.length;
+    const has = missing.length === 1 ? "has" : "have";
+    const rate = counted === 0 ? "so it has no accept rate" : `so its accept rate counts ${counted === 1 ? "1 row" : `${counted} rows`}`;
     flags.push({
-      id: `${source.key}-unlabelled`,
-      method: "all",
+      id: `${source.key}-${method}-unlabelled`,
+      method,
       kind: "unlabelled",
       caseKey: "",
-      text: `${answered - unlabelled.length} of ${answered} answered rows labelled, so no method has an accept rate`,
-      lines: unlabelled.map((r) => r.line),
+      text: `${methodName(method)}: ${missing.length} of ${answered.length} answered rows ${has} no reviewed label, ${rate}`,
+      lines: missing.map((r) => r.line),
     });
   }
 
-  // Paired labelled cases per question, counted as src/core/metrics.ts paired() does: Jev against the other method on
-  // the same case, both rows labelled, and an `agent` label (never reviewed) is not truth.
-  const truth = (r: Parsed | undefined): boolean => r !== undefined && r.label !== "" && r.labelSource !== "agent";
-  for (const q of [...new Set(rows.map((r) => r.questionId))]) {
-    const mine = rows.filter((r) => r.questionId === q);
-    const jevRows = mine.filter((r) => r.answerer === "jev");
-    const pairs: { other: string; n: number }[] = [];
-    for (const other of ["llm", "rule"]) {
-      const otherRows = mine.filter((r) => r.answerer === other);
-      if (jevRows.length === 0 || otherRows.length === 0) continue;
-      pairs.push({ other, n: jevRows.filter((j) => truth(j) && truth(otherRows.find((o) => o.caseId === j.caseId))).length });
-    }
-    if (!pairs.some((p) => p.n < MIN_PAIRED)) continue;
-    const fewest = Math.min(...pairs.map((p) => p.n));
-    const detail = pairs.map((p) => `Jev against ${p.other === "llm" ? "the LLM" : "the rule"} ${p.n}`).join(", ");
+  // Paired labelled cases per cohort (run, prompt version, question), from src/core/metrics.ts itself: it applies
+  // truthLabel and refuses a repeated (case, method) row by name.
+  const groups = groupCohorts(parsed);
+  const pairs: ReplayPair[] = [];
+  const multiCohort = groups.length > 1;
+  const questionsUnique = new Set(groups.map((g) => g.key.questionId)).size === groups.length;
+  for (const group of groups) {
+    const { runId, promptVersion, questionId } = group.key;
+    const metrics = metricsOfCohortRows(group.rows, group.key);
+    const mine: ReplayPair[] = [];
+    if (metrics.jevVsLlm !== null) mine.push({ runId, promptVersion, questionId, other: "llm", n: metrics.jevVsLlm.n });
+    if (metrics.jevVsRule !== null) mine.push({ runId, promptVersion, questionId, other: "rule", n: metrics.jevVsRule.n });
+    pairs.push(...mine);
+    if (!mine.some((p) => p.n < MIN_PAIRED)) continue;
+    const fewest = Math.min(...mine.map((p) => p.n));
+    const detail = mine.map((p) => `Jev against ${p.other === "llm" ? "the LLM" : "the rule"} ${p.n}`).join(", ");
+    const name = questionsUnique ? questionId : `${runId} ${promptVersion} ${questionId}`;
+    const lines = new Set(group.rows);
     flags.push({
-      id: `${source.key}-below-minimum${multiQuestion ? `-${q}` : ""}`,
+      id: `${source.key}-below-minimum${multiCohort ? `-${name.replaceAll(" ", "-")}` : ""}`,
       method: "all",
       kind: "below-minimum",
       caseKey: "",
-      text: `${multiQuestion ? `Question ${q}: ` : ""}${fewest} paired labelled cases (${detail}); a verdict needs ${MIN_PAIRED}, so do not pick a method from this run yet`,
-      lines: mine.map((r) => r.line),
+      text: `${multiCohort ? `Question ${name}: ` : ""}${fewest} paired labelled cases (${detail}); a verdict needs ${MIN_PAIRED}, so do not pick a method from this run yet`,
+      lines: parsed.filter((p) => lines.has(p.values)).map((p) => p.line),
     });
   }
 
   const sources = [...new Set(rows.filter((r) => r.label !== "").map((r) => [r.labelSource, r.labelledBy].filter((s) => s !== "").join(" by ")))];
   const out: ReplayRow[] = rows.map((r) => ({
     line: r.line, caseKey: r.caseKey, answerer: r.answerer, model: r.model, input: r.input, output: r.output,
-    label: r.label, outcome: r.outcome, answered: r.answered, costUsd: r.costUsd, costText: r.costText,
+    label: r.label, truth: r.truth, labelNote: r.labelNote, outcome: r.outcome, answered: r.answered, costUsd: r.costUsd, costText: r.costText,
   }));
   const base = { cases, methods, rows: out };
   const { key, title, file, synthetic } = source;
@@ -285,6 +324,7 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
     ...base,
     stats,
     flags,
+    pairs,
     steps: cases.map((_, i) => tallyThrough(base, i)),
   };
 }

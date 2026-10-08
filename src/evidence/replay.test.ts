@@ -2,7 +2,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { MIN_PAIRED } from "../core/verdict.ts";
+import { MIN_PAIRED, verdict } from "../core/verdict.ts";
+import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
+import { validate } from "../format/validate.ts";
 import { RUN_SOURCES, parseRun, tallyThrough, usd, type ReplayRun, type RunSource } from "./replay.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -92,10 +94,9 @@ describe("replay evidence (src/evidence/replay.ts)", () => {
       "jnj-record/1,r,p.v1,c1,Hi,q1,Ok?,yes|no,llm,m,yes,,,,1,1,0.000001,1",
       "jnj-record/1,r,p.v1,c2,Hi,q1,Ok?,yes|no,jev,j,no,0.9,,,1,1,0.000001,1",
     ].join("\n"), INLINE);
-    const flag = run.flags.find((f) => f.kind === "unlabelled");
-    expect(flag?.id).toBe("t-unlabelled");
-    expect(flag?.lines.length).toBe(3);
-    expect(flag?.text).toBe("0 of 3 answered rows labelled, so no method has an accept rate");
+    const flags = run.flags.filter((f) => f.kind === "unlabelled");
+    expect(flags.map((f) => [f.id, f.lines.length])).toEqual([["t-llm-unlabelled", 1], ["t-jev-unlabelled", 2]]);
+    expect(flags[1]?.text).toBe("Jev decides: 2 of 2 answered rows have no reviewed label, so it has no accept rate");
   });
 
   test("[unit] RP-8 a 1.2 refused row is not answered, not a reject and not unlabelled", () => {
@@ -136,5 +137,82 @@ describe("replay evidence (src/evidence/replay.ts)", () => {
     if (typeof fn !== "function") throw new Error("seating.js exposes no usd");
     for (const v of [0, 0.00003242, 0.103167, 0.00130176, 1.5, 12.34567]) expect(usd(v)).toBe(String(fn(v)));
     expect(usd(null)).toBe("incomplete");
+  });
+
+  test("[unit] RP-11 an agent label is not truth: not an accept, counted unlabelled, flagged, and shown as not counted", () => {
+    const run = parseRun([
+      HEADER,
+      "jnj-record/1,r,p.v1,c1,Hi,q1,Ok?,yes|no,jev,j,yes,0.9,accept,agent,1,1,0.000001,1",
+      "jnj-record/1,r,p.v1,c2,Hi,q1,Ok?,yes|no,jev,j,yes,0.9,accept,human,1,1,0.000001,1",
+    ].join("\n"), INLINE);
+    const jev = stat(run, "jev");
+    expect([jev.accept, jev.labelled, jev.unlabelled]).toEqual([1, 1, 1]);
+    expect(run.steps[0]?.[0]?.accepted).toBe(0);
+    expect(run.flags.find((f) => f.kind === "unlabelled")?.lines).toEqual([2]);
+    expect([run.rows[0]?.truth, run.rows[0]?.labelNote]).toEqual(["", "not counted (AI label, not reviewed)"]);
+    expect([run.rows[1]?.truth, run.rows[1]?.labelNote]).toEqual(["accept", ""]);
+  });
+
+  test("[unit] RP-12 a method missing two cases says it covers the real count", () => {
+    const lines = [HEADER];
+    for (const c of ["d01", "d02", "d03", "d04"]) {
+      for (const m of c === "d03" || c === "d04" ? ["jev"] : ["jev", "rule"]) lines.push(`jnj-record/1,r,p.v1,${c},Hi,q1,Ok?,yes|no,${m},x,yes,,accept,human,1,1,0.000001,1`);
+    }
+    const missing = parseRun(lines.join("\n"), INLINE).flags.filter((f) => f.kind === "missing");
+    expect(missing.map((f) => f.caseKey)).toEqual(["d03", "d04"]);
+    for (const f of missing) expect(f.text).toContain("covers 2 of 4 cases");
+  });
+
+  test("[unit] RP-13 one unlabelled llm row names that method and its count", () => {
+    const run = parseRun([
+      HEADER,
+      "jnj-record/1,r,p.v1,c1,Hi,q1,Ok?,yes|no,jev,j,yes,0.9,accept,human,1,1,0.000001,1",
+      "jnj-record/1,r,p.v1,c1,Hi,q1,Ok?,yes|no,llm,m,yes,,accept,human,1,1,0.000001,1",
+      "jnj-record/1,r,p.v1,c2,Hi,q1,Ok?,yes|no,jev,j,no,0.9,reject,human,1,1,0.000001,1",
+      "jnj-record/1,r,p.v1,c2,Hi,q1,Ok?,yes|no,llm,m,no,,,,1,1,0.000001,1",
+    ].join("\n"), INLINE);
+    const flags = run.flags.filter((f) => f.kind === "unlabelled");
+    expect(flags.map((f) => [f.id, f.method, f.lines])).toEqual([["t-llm-unlabelled", "llm", [5]]]);
+    expect(flags[0]?.text).toBe("What you do now: 1 of 2 answered rows has no reviewed label, so its accept rate counts 1 row");
+  });
+
+  test("[unit] RP-14 pairing keys on run, prompt version and question, and a duplicate row is refused by name", () => {
+    const split = parseRun([
+      HEADER,
+      "jnj-record/1,r,p.v1,c1,Hi,q1,Ok?,yes|no,jev,j,yes,0.9,accept,human,1,1,0.000001,1",
+      "jnj-record/1,r,p.v1,c1,Hi,q1,Ok?,yes|no,llm,m,yes,,accept,human,1,1,0.000001,1",
+      "jnj-record/1,r,p.v2,c1,Hi,q1,Ok?,yes|no,llm,m,yes,,accept,human,1,1,0.000001,1",
+    ].join("\n"), INLINE);
+    expect(split.pairs.map((p) => [p.promptVersion, p.other, p.n])).toEqual([["p.v1", "llm", 1]]);
+    expect(() => parseRun([
+      HEADER,
+      "jnj-record/1,r,p.v1,c1,Hi,q1,Ok?,yes|no,jev,j,yes,0.9,accept,human,1,1,0.000001,1",
+      "jnj-record/1,r,p.v1,c1,Hi,q1,Ok?,yes|no,jev,j,no,0.9,reject,human,1,1,0.000001,1",
+      "jnj-record/1,r,p.v1,c1,Hi,q1,Ok?,yes|no,llm,m,yes,,accept,human,1,1,0.000001,1",
+    ].join("\n"), INLINE)).toThrow("more than one jev row for case c1");
+  });
+
+  test("[unit] RP-15 paired and accept counts equal src/core/metrics.ts and verdict.ts on every record file", async () => {
+    for (const s of RUN_SOURCES) {
+      const text = await readFile(join(ROOT, s.file), "utf8");
+      const run = parseRun(text, s);
+      const checked = validate(text);
+      expect(checked.errors).toEqual([]);
+      const groups = groupCohorts(checked.rows).map((g) => ({ key: g.key, m: metricsOfCohortRows(g.rows, g.key) }));
+      for (const arm of ["llm", "rule", "jev"]) {
+        const want = groups.reduce((sum, g) => sum + (g.m.arms.find((a) => a.arm === arm)?.accepted ?? 0), 0);
+        expect([s.key, arm, stat(run, arm).accept]).toEqual([s.key, arm, want]);
+      }
+      const want = groups.flatMap((g) => {
+        const v = verdict(g.m, 1);
+        const out: [string, string, string, string, number][] = [];
+        if (g.m.jevVsLlm !== null) out.push([g.key.runId, g.key.promptVersion, g.key.questionId, "llm", v.numbers.jevVsLlm?.n ?? g.m.jevVsLlm.n]);
+        const rule = v.ruleComparison;
+        if (g.m.jevVsRule !== null) out.push([g.key.runId, g.key.promptVersion, g.key.questionId, "rule", rule.kind === "compared" ? rule.n : rule.paired]);
+        return out;
+      });
+      expect(want.length).toBeGreaterThan(0);
+      expect(run.pairs.map((p) => [p.runId, p.promptVersion, p.questionId, p.other, p.n])).toEqual(want);
+    }
   });
 });

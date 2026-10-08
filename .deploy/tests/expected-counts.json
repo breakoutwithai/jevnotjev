@@ -81,7 +81,7 @@
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/labelling-card.test.ts": 4,
     "src/docs/stack.test.ts": 18,
-    "src/evidence/replay.test.ts": 10,
+    "src/evidence/replay.test.ts": 15,
     "src/format/cli.test.ts": 3,
     "src/format/provenance.test.ts": 45,
     "src/format/quote.test.ts": 4,

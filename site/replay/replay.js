@@ -20,8 +20,9 @@
   function mark(row) {
     if (!row) return { k: "missing", t: "&#8709; No row recorded" };
     if (!row.answered) return { k: "missing", t: "&#8856; " + esc(row.outcome) };
-    if (row.label === "accept") return { k: "accept", t: "&#10003; Accepted" };
-    if (row.label === "reject") return { k: "reject", t: "&#10005; Rejected" };
+    if (row.truth === "accept") return { k: "accept", t: "&#10003; Accepted" };
+    if (row.truth === "reject") return { k: "reject", t: "&#10005; Rejected" };
+    if (row.labelNote) return { k: "unlabelled", t: "? " + esc(row.labelNote) };
     return { k: "unlabelled", t: "? Unlabelled" };
   }
   function word(o) { return o === "hand_off" ? "hand off" : String(o); }
@@ -84,10 +85,12 @@
     return "Accepted answers: " + parts.join(" &middot; ") + ". " + verdict;
   }
   function sourceNotes(r) {
-    var labelled = r.rows.filter(function (x) { return x.label !== ""; }).length;
+    var labelled = r.rows.filter(function (x) { return x.truth !== ""; }).length;
+    var dropped = r.rows.filter(function (x) { return x.labelNote !== ""; }).length;
     return [
       'Records: <a href="' + esc(r.sourceUrl) + '">' + esc(r.file) + "</a>, run " + esc(r.runId) + ", " + r.rows.length + " rows over " + r.cases.length + " cases.",
-      "Labels: " + labelled + " of " + r.rows.length + " rows labelled (" + esc(r.labelSource) + "). Accepted means a person marked that answer as right.",
+      "Labels: " + labelled + " of " + r.rows.length + " rows labelled (" + esc(r.labelSource) + "). Accepted means a person marked that answer as right." +
+        (dropped ? " " + plural(dropped, "row has an AI label", "rows have an AI label") + " no person reviewed: not counted." : ""),
       "Cost: the sum of each method's cost_usd cells. A method with any blank cost shows incomplete with the known part, never a guessed total.",
       "A verdict needs " + D.min_paired + " paired labelled cases per question: the same case answered by Jev and by the other method, both labelled.",
       r.synthetic ? "Synthetic: this file's outputs and costs were typed by hand to show the flags; no model was called." : "Recorded: every answer and cost came from a real call during the run.",
@@ -100,7 +103,6 @@
     document.querySelectorAll("[data-run]").forEach(function (b) { b.addEventListener("click", function () { switchTo(b.getAttribute("data-run")); }); });
     renderFlags();
     $("headline").innerHTML = headline(r);
-    $("strip").style.gridTemplateColumns = "repeat(" + r.cases.length + ", minmax(0, 1fr))";
     $("strip").innerHTML = r.cases.map(function (c, i) { return '<button type="button" data-step="' + i + '" aria-label="Go to case ' + (i + 1) + " of " + r.cases.length + ": " + esc(c.key) + '"></button>'; }).join("");
     document.querySelectorAll("[data-step]").forEach(function (b) { b.addEventListener("click", function () { stop(); go(Number(b.getAttribute("data-step"))); }); });
     $("totals").innerHTML = r.methods.map(function (m) { return totalRow(r, m); }).join("");
@@ -143,8 +145,9 @@
   function missingRow(r, caseKey, m) {
     return '<tr class="gap-row"><td>none</td><td>' + esc(caseKey) + "</td><td class=\"m\">" + esc(nameOf(r, m)) + '</td><td class="in opt"></td><td>No answer on file</td><td><span class="v missing">&#8709; No row recorded</span></td><td></td></tr>';
   }
-  /* Opens the rows panel right after the section that asked for it, and moves focus to it. */
-  function showRows(anchor, r, heading, body, foot) {
+  /* Opens the rows panel right after the section that asked for it, and moves focus to it. `opener` is a selector for
+   * the control that opened it, looked up again on close because switching runs redraws the controls. */
+  function showRows(anchor, r, heading, body, foot, opener) {
     var log = $("log");
     var head = '<tr><th scope="col">Line</th><th scope="col">Case</th><th scope="col" class="m">Method</th><th scope="col" class="opt">Message</th><th scope="col">Answer</th><th scope="col">Label</th><th scope="col">Cost</th></tr>';
     anchor.parentNode.insertBefore(log, anchor.nextSibling);
@@ -152,7 +155,11 @@
     log.classList.toggle("one-method", (body.match(/class="m"/g) || []).length > 0 && new Set((body.match(/<td class="m">[^<]*/g) || [])).size === 1);
     log.innerHTML = '<button type="button" class="close" id="closeLog">Close the rows</button><p class="log-title" id="logTitle" role="heading" aria-level="3" tabindex="-1">' + esc(heading) + "</p>" +
       '<div class="scroll"><table><thead>' + head + "</thead><tbody>" + body + "</tbody></table></div>" + (foot ? '<p class="log-foot">' + foot + "</p>" : "");
-    $("closeLog").addEventListener("click", function () { log.hidden = true; });
+    $("closeLog").addEventListener("click", function () {
+      log.hidden = true;
+      var back = opener ? document.querySelector(opener) : null;
+      (back || $("deck")).focus();
+    });
     log.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     $("logTitle").focus({ preventScroll: true });
   }
@@ -167,20 +174,20 @@
     if (at >= 0) { stop(); go(at); }
     var foot = f.kind === "missing" ? "The marked row is the gap: the other methods' rows for case " + esc(f.caseKey) + " are shown so you can see it is the only one missing." :
       f.kind === "cost" ? "The marked row has a blank cost_usd cell." : "";
-    showRows($("evidence"), r, f.text, body, foot);
+    showRows($("evidence"), r, f.text, body, foot, '#flags [data-flag-rows="' + CSS.escape(r.key + "|" + f.id) + '"]');
   }
 
   function showMetric(btn, m, which) {
     var r = run(), s = stat(r, m), rows = r.rows.filter(function (x) { return x.answerer === m; });
     var why = which === "accept"
-      ? s.name + ": " + s.accept + " of these " + rows.length + " rows are labelled accept"
+      ? s.name + ": " + s.accept + " of these " + rows.length + " rows are counted as accepted"
       : s.cost === null
         ? s.name + ": cost is incomplete, " + (rows.length - s.costed) + " of " + rows.length + " rows have no cost_usd"
         : s.name + ": " + s.costText + " is the sum of cost_usd on these " + rows.length + " rows";
     var foot = which === "cost" ? "Sum of the recorded costs: " + esc(s.knownCostText) + " over " + s.costed + " of " + s.rows + " rows." :
       "Accepted " + s.accept + ", rejected " + s.reject + ", unlabelled " + s.unlabelled + ", out of " + s.rows + " rows.";
     var body = rows.map(function (x) { return logRow(r, x, x.costUsd === null ? x.line : -1); }).join("");
-    showRows(btn.closest("section"), r, why, body, foot);
+    showRows(btn.closest("section"), r, why, body, foot, '[data-metric="' + CSS.escape(btn.getAttribute("data-metric")) + '"]');
   }
 
   function stop() { if (timer) { clearInterval(timer); timer = null; } $("play").textContent = "Play"; }

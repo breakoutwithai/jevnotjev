@@ -258,7 +258,7 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
       labelled: mine.filter((r) => r.truth !== "").length,
       accept: mine.filter((r) => r.truth === "accept").length,
       reject: mine.filter((r) => r.truth === "reject").length,
-      unlabelled: mine.filter((r) => r.answered && r.truth === "").length,
+      unlabelled: mine.filter((r) => r.answered && (r.truth === "" || r.generated === true)).length,
       costed: costed.length,
       cost,
       costText: usd(cost),
@@ -271,7 +271,7 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
 
   const flags: Flag[] = [];
   for (const c of cases) {
-    for (const method of COMPARED.filter((m) => methods.includes(m))) {
+    for (const method of methods.filter((m) => COMPARED.includes(m) || rows.some((r) => r.answerer === m))) {
       if (rows.some((r) => r.caseKey === c.key && r.answerer === method)) continue;
       const covered = new Set(rows.filter((r) => r.answerer === method).map((r) => r.caseKey)).size;
       flags.push({
@@ -308,7 +308,8 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
   }
   for (const method of methods) {
     const answered = rows.filter((r) => r.answerer === method && r.answered);
-    const missing = answered.filter((r) => r.truth === "");
+    // A generator label is counted in the tally but is not a reviewed label, so it still raises this flag.
+    const missing = answered.filter((r) => r.truth === "" || r.generated === true);
     if (missing.length === 0) continue;
     const counted = answered.length - missing.length;
     const has = missing.length === 1 ? "has" : "have";

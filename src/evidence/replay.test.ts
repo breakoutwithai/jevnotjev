@@ -230,6 +230,25 @@ describe("replay evidence (src/evidence/replay.ts)", () => {
     expect(other.rows[0]?.generated).toBeUndefined();
   });
 
+  test("[unit] RP-19 generator-labelled rows still raise the unlabelled flag, so a generator-only run is never 'complete'", () => {
+    const head = `${HEADER},labelled_by,labelled_at,label_blind`;
+    const row = (id: string): string => `jnj-record/1.1,r,p,${id},CV,q1,Q?,yes|no,jev,jev-1.13.0,yes,,accept,agent,1,1,0.001,1,synthetic-generator,2026-10-08,false`;
+    const run = parseRun(`${head}\n${row("c1")}\n${row("c2")}\n`, INLINE);
+    expect(stat(run, "jev").accept).toBe(2);
+    expect(stat(run, "jev").unlabelled).toBe(2);
+    const flag = run.flags.find((f) => f.kind === "unlabelled" && f.method === "jev");
+    expect(flag?.lines.length).toBe(2);
+  });
+
+  test("[unit] RP-20 an extra method with rows for some cases only is flagged missing on each case it lacks", () => {
+    const row = (id: string, who: string): string => `jnj-record/1,r,p,${id},CV,q1,Q?,yes|no,${who},m,yes,,accept,human_reviewed,1,1,0.001,1`;
+    const text = `${HEADER}\n${row("c1", "jev")}\n${row("c2", "jev")}\n${row("c1", "decisions")}\n`;
+    const run = parseRun(text, { ...INLINE, extraMethods: ["decisions"] });
+    expect(run.flags.filter((f) => f.kind === "missing" && f.method === "decisions").map((f) => f.caseKey)).toEqual(["c2"]);
+    const none = parseRun(`${HEADER}\n${row("c1", "jev")}\n`, { ...INLINE, extraMethods: ["decisions"] });
+    expect(none.flags.filter((f) => f.method === "decisions" && f.kind === "missing").length).toBe(1);
+  });
+
   test("[unit] RP-15 paired and accept counts equal src/core/metrics.ts and verdict.ts on every record file", async () => {
     for (const s of RUN_SOURCES) {
       const text = await readFile(join(ROOT, s.file), "utf8");

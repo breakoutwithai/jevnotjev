@@ -108,9 +108,23 @@ done
 cap_k="$(printf '%s\n' "$v1" | sed -n 's/^[[:space:]]*client_max_body_size \([0-9]*\)k;.*/\1/p')"
 [[ -n "$cap_k" && -n "$body_bytes" && $((cap_k * 1024)) -eq "$body_bytes" ]] && ok "/api/v1/ body cap ${cap_k}k equals the server cap ${body_bytes}" || nope "/api/v1/ body cap '${cap_k}k' differs from server cap '${body_bytes}'"
 grep -q '^export const API_V1_PREFIX = "/api/v1";' src/backstage/api-v1.ts && ok "server prefix is /api/v1, so nginx strips nothing" || nope "server API prefix changed"
-# Every other location is byte-for-byte what fae0400 shipped: the change is additive.
-without_v1="$(awk '/^# HTTP API v1/ { skip=1 } skip && /^}/ { skip=0; next } !skip' .deploy/backstage-nginx.conf)"
-[[ "$without_v1" == "$(git show fae0400:.deploy/backstage-nginx.conf)" ]] && ok "no other snippet location changed since fae0400" || nope "the snippet differs from fae0400 outside the /api/v1/ block"
+# Bun resolves ..\, %2e%2e and tab hops out of /api/v1/, so nginx marks that location's traffic and the server pins it
+# to /api/v1/ routes. Every other location proxying to 3456 clears the mark, so a client cannot put it on another path.
+[[ "$(printf '%s\n' "$v1" | grep -c '^[[:space:]]*proxy_set_header X-Backstage-Route api-v1;$')" == 1 ]] \
+    && ok "/api/v1/ marks its traffic X-Backstage-Route: api-v1" || nope "/api/v1/ does not mark its traffic for the server's route pin"
+[[ "$(printf '%s\n' "$snippet" | grep -c 'X-Backstage-Route api-v1')" == 1 ]] && ok "only /api/v1/ sets the route mark" || nope "the route mark is set outside /api/v1/"
+proxied=0; cleared=0
+while IFS= read -r block; do
+    [[ "$block" == *'proxy_pass http://127.0.0.1:3456'* ]] || continue
+    [[ "$block" == 'location ^~ /api/v1/ {'* ]] && continue
+    proxied=$((proxied+1))
+    [[ "$(printf '%s' "$block" | tr '\036' '\n' | grep -c '^[[:space:]]*proxy_set_header X-Backstage-Route "";$')" == 1 ]] && cleared=$((cleared+1)) \
+        || nope "${block%% \{*} proxies to Backstage without clearing X-Backstage-Route"
+done < <(printf '%s\n' "$snippet" | sed 's/#.*//' | awk '/^location / { if (b != "") print b; b = $0; next } b != "" { b = b "\036" $0 } END { if (b != "") print b }')
+[[ "$proxied" -eq 10 && "$cleared" -eq "$proxied" ]] && ok "all ${proxied} other Backstage proxy locations clear X-Backstage-Route" || nope "${cleared} of ${proxied} other proxy locations clear X-Backstage-Route (want 10 of 10)"
+# Every other location is what fae0400 shipped plus the route-mark clear: the change is additive.
+without_v1="$(awk '/^# HTTP API v1/ { skip=1 } skip && /^}/ { skip=0; next } !skip' .deploy/backstage-nginx.conf | grep -v '^    proxy_set_header X-Backstage-Route "";$')"
+[[ "$without_v1" == "$(git show fae0400:.deploy/backstage-nginx.conf)" ]] && ok "no other snippet location changed since fae0400 beyond the route-mark clear" || nope "the snippet differs from fae0400 outside the /api/v1/ block and the route-mark clear"
 
 if [[ ! -f "$CONF" ]]; then
     nope "missing committed vhost at ${CONF}"

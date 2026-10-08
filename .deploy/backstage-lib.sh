@@ -191,6 +191,12 @@ backstage_snippet_auth() {
         allow("api_v1", "proxy_read_timeout 110s")
         allow("api_v1", "proxy_send_timeout 110s")
         allow("api_v1", "access_log off")
+        # Route mark: set only in /api/v1 (the server pins that traffic to /api/v1/ routes), cleared in every other
+        # location that proxies to 3456. All clears present, or none (an install from before the mark); /api/v1 needs all.
+        allow("api_v1", "proxy_set_header X-Backstage-Route api-v1")
+        route_clear = "proxy_set_header X-Backstage-Route \"\""
+        n_clear_locs = split("sign_in password sign_out google callback tickets tickets_ranking session_check page api", clear_locs, " ")
+        for (c = 1; c <= n_clear_locs; c++) clear_ok[clear_locs[c]] = 1
         allow("session_check", "internal")
         allow("session_check", "proxy_pass http://127.0.0.1:3456/api/auth/session")
         allow("session_check", "proxy_set_header Host $host")
@@ -314,9 +320,15 @@ backstage_snippet_auth() {
             }
             for (key in statements) {
                 split(key, parts, SUBSEP); loc = parts[1]; statement = parts[2]
+                if (statement == route_clear) {
+                    if (!(loc in clear_ok) || statements[key] != 1) { print "unknown"; exit }
+                    cleared++; continue
+                }
                 if (!(key in permitted) || statements[key] != 1) { print "unknown"; exit }
                 observed[loc]++
             }
+            clear_want = 8 + (seen["tickets"] == 1) + (seen["tickets_ranking"] == 1)
+            if (cleared != clear_want && (cleared != 0 || seen["api_v1"] == 1)) { print "unknown"; exit }
             for (i = 1; i <= 12; i++) {
                 loc = locations[i]
                 if (loc != "page" && loc != "api" && loc != "session_check" && observed[loc] != required[loc]) { print "unknown"; exit }

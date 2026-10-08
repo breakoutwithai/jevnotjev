@@ -220,6 +220,11 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     catch { return json({ error: "Not found." }, 404); }
     if (pathname.includes("\\") || pathname.includes("//") || pathname.split("/").some((segment) => segment === "." || segment === ".."))
       return json({ error: "Not found." }, 404);
+    // nginx's ^~ /api/v1/ location forwards the raw URI and marks it X-Backstage-Route: api-v1 (every other location
+    // clears the header). Bun resolves ..\, %2e%2e and tab hops, so pin that traffic to /api/v1/ before any dispatch.
+    // Any non-empty value pins, so a malformed mark fails closed.
+    if ((request.headers.get("x-backstage-route") ?? "") !== "" && !pathname.startsWith(`${API_V1_PREFIX}/`))
+      return json({ error: "Not found." }, 404);
     const lowerPathname = pathname.toLowerCase();
     const gatedPrefix = lowerPathname.startsWith("/backstage/") ? "/backstage/" : lowerPathname.startsWith("/api/backstage/") ? "/api/backstage/" : null;
     if (gatedPrefix && pathname.slice(0, gatedPrefix.length) !== gatedPrefix) return json({ error: "Not found." }, 404);

@@ -93,6 +93,18 @@ row "anon GET /api/auth/session (no route outside nginx internal)" 404 /api/auth
 row "anon GET /_backstage_session (internal, mapped to 401)" 401 /_backstage_session
 row "anon GET / (static unchanged)" 200 /
 row "anon GET /api/auth/google (not configured)" 503 /api/auth/google
+# ^~ /api/v1/ forwards the raw URI; Bun resolves ..\ out of it. The route mark pins that traffic to /api/v1/ routes.
+# The bearer API's 401 carries WWW-Authenticate: Bearer by design, so this row checks it instead of row's no-challenge rule.
+v1="$("${C[@]}" -o /dev/null -D - "${ORIGIN}/api/v1/arms" | tr -d '\r')"
+if [[ "$(printf '%s\n' "$v1" | awk 'toupper($1) ~ /^HTTP/ {c=$2} END {print c}')" == 401 ]] && printf '%s\n' "$v1" | grep -qi '^www-authenticate: Bearer realm="jevnotjev-api"$'; then
+    PASS=$((PASS + 1)); echo "PASS anon GET /api/v1/arms                           401 Bearer challenge from the server"
+else FAIL=$((FAIL + 1)); echo "FAIL anon GET /api/v1/arms: want 401 with the Bearer challenge"; fi
+row "hop /api/v1/..\\..\\api/auth/password POST" 404 '/api/v1/..\..\api/auth/password' -X POST -H "origin: ${ORIGIN}" --data-urlencode "email=${EMAIL}" --data-urlencode "password=${PW}"
+row "hop /api/v1/..\\..\\api/auth/session" 404 '/api/v1/..\..\api/auth/session'
+row "hop /api/v1/..\\tickets" 404 '/api/v1/..\tickets'
+row "hop /api/v1/..\\backstage/health" 404 '/api/v1/..\backstage/health'
+row "spoofed route mark on /api/tickets is cleared" 405 /api/tickets -H 'X-Backstage-Route: api-v1'
+row "spoofed route mark on /backstage/sign-in is cleared" 200 /backstage/sign-in -H 'X-Backstage-Route: api-v1'
 row "pivot /api/auth/..\\..\\%62ackstage/" 404 '/api/auth/..\..\%62ackstage/'
 row "pivot /api/auth/..\\..\\/backstage/" 404 '/api/auth/..\..\/backstage/'
 row "pivot /api/auth/password\\..\\..\\backstage\\" 404 '/api/auth/password\..\..\backstage\'

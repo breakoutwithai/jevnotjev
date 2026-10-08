@@ -60,6 +60,8 @@ export interface FetchInit {
   readonly method: "POST";
   readonly headers: Readonly<Record<string, string>>;
   readonly body: string;
+  /** Set when the caller can go away (the HTTP API): a fetch should abort its call when it fires. */
+  readonly signal?: AbortSignal;
 }
 
 /** The injected fetch: every provider call goes through it, so a test can count and answer calls. */

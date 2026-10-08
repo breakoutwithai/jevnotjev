@@ -42,3 +42,7 @@ site/backstage/app.js
 
 # Local pipeline checkpoints
 .agents/pipeline/
+
+# /api/v1 bearer-token state (hashes only, still never committed)
+api-tokens.json
+.jevnotjev/

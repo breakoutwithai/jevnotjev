@@ -15,9 +15,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { armsReport, CliInputError, providerDeps, spendTool, validateTool, verdictTool, type Env, type ToolAnswer } from "../decide/cli.ts";
-import { COMMANDS, keysFromEnv, parseCase, parseCases, parseQuestions, type Parsed } from "../decide/cli-args.ts";
-import { DecideError, type DecideRequest, type RunDeps } from "../decide/run.ts";
-import type { Arms, Case, QuestionSpec, RunOptions } from "../decide/types.ts";
+import { COMMANDS, keysFromEnv } from "../decide/cli-args.ts";
+import { DecideError, type RunDeps } from "../decide/run.ts";
+import { armsArg as arms, caseArg, caseOf, casesOf, optionsArg as options, questionArg as question, requestOf } from "../decide/tool-args.ts";
 
 export const TOOL_NAMES: readonly string[] = COMMANDS;
 
@@ -28,77 +28,6 @@ const refuse = (lines: readonly string[]): ToolResult => ({ content: [{ type: "t
 
 function answer(a: ToolAnswer): ToolResult {
   return a.body === null ? refuse(a.errors) : reply(a.body);
-}
-
-function must<T>(parsed: Parsed<T>): T {
-  if (!parsed.ok) throw new CliInputError(parsed.error);
-  return parsed.value;
-}
-
-// ---- argument schemas: descriptive for the caller; the CLI's parsers and the core still decide what is valid ----
-
-const question = z.looseObject({
-  name: z.string().describe("[A-Za-z0-9_-]{1,64}"),
-  type: z.string().describe("noul (yes/no), choice or score"),
-  instructions: z.string(),
-  criteria: z.string().optional().describe("noul only"),
-  choices: z.array(z.object({ name: z.string(), definition: z.string() })).optional().describe("choice only: 2 to 10"),
-  levels: z.array(z.object({ label: z.string(), description: z.string() })).optional().describe("score only: 2 to 10, low to high"),
-});
-const caseArg = z.object({
-  id: z.string().describe("[A-Za-z0-9_-]{1,64}"),
-  input: z.union([z.string(), z.looseObject({ type: z.string() })]).describe("text; a non-text input is answered outcome unsupported"),
-});
-const rule = z.strictObject({ keywords: z.array(z.string()), match: z.string(), otherwise: z.string() });
-const arms = z
-  .strictObject({
-    jev: z.boolean().optional(),
-    decisions: z.boolean().optional(),
-    llm: z.union([z.string(), z.literal(false)]).optional().describe("a pinned model id (default claude-haiku-5-5) or false"),
-    rule: z.union([rule, z.literal(false)]).optional(),
-  })
-  .describe("defaults: jev true, decisions false, llm claude-haiku-5-5, rule false");
-const options = z.strictObject({
-  dryRun: z.boolean().optional().describe("price only, no provider call"),
-  budgetUsd: z.number().min(0).optional().describe("stop before a call that could pass this spend; the rest are outcome error, reason budget"),
-  runId: z.string().optional(),
-  promptVersion: z.string().optional(),
-});
-
-type ArmsArg = z.infer<typeof arms>;
-type OptionsArg = z.infer<typeof options>;
-
-function questionsOf(raw: unknown): readonly QuestionSpec[] {
-  return must(parseQuestions(JSON.stringify(raw)));
-}
-
-function casesOf(raw: unknown): readonly Case[] {
-  return must(parseCases(JSON.stringify(raw), "cases.json"));
-}
-
-// zod gives optional keys as `T | undefined`; the core's types are exact optionals, so absent keys are dropped here.
-function armsOf(a: ArmsArg | undefined): Arms {
-  if (a === undefined) return {};
-  return {
-    ...(a.jev !== undefined ? { jev: a.jev } : {}),
-    ...(a.decisions !== undefined ? { decisions: a.decisions } : {}),
-    ...(a.llm !== undefined ? { llm: a.llm } : {}),
-    ...(a.rule !== undefined ? { rule: a.rule } : {}),
-  };
-}
-
-function optionsOf(o: OptionsArg | undefined): RunOptions {
-  if (o === undefined) return {};
-  return {
-    ...(o.dryRun !== undefined ? { dryRun: o.dryRun } : {}),
-    ...(o.budgetUsd !== undefined ? { budgetUsd: o.budgetUsd } : {}),
-    ...(o.runId !== undefined ? { runId: o.runId } : {}),
-    ...(o.promptVersion !== undefined ? { promptVersion: o.promptVersion } : {}),
-  };
-}
-
-function requestOf(questions: unknown, cases: readonly Case[], a: ArmsArg | undefined, o: OptionsArg | undefined): DecideRequest {
-  return { questions: questionsOf(questions), cases, arms: armsOf(a), options: optionsOf(o) };
 }
 
 export interface DecideMcpOptions {
@@ -150,7 +79,7 @@ export function createDecideMcp(opts: DecideMcpOptions): McpServer {
       annotations: { openWorldHint: true },
     },
     async (a): Promise<ToolResult> =>
-      guarded(async () => answer(await spendTool("ask", requestOf(a.questions, [must(parseCase(JSON.stringify(a.case)))], a.arms, a.options), undefined, deps, env))),
+      guarded(async () => answer(await spendTool("ask", requestOf(a.questions, [caseOf(a.case)], a.arms, a.options), undefined, deps, env))),
   );
 
   server.registerTool(

@@ -54,7 +54,9 @@ export function messagesHeaders(key: string): Record<string, string> {
   return { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" };
 }
 
-/** argv for the claude-cli transport; the prompt goes on stdin. `--bare` is not used: it requires ANTHROPIC_API_KEY. */
+/** argv for the claude-cli transport; the prompt goes on stdin. `--bare` is not used: it requires ANTHROPIC_API_KEY.
+ * No output cap is set (no flag is assumed), so LLM_MAX_TOKENS does not bound a cli call: the run budget can be
+ * overshot by at most one call, then the run stops (RunResult.budgetNote). */
 export function cliArgv(binary: string, model: string): string[] {
   return [
     binary, "-p", "--model", model, "--output-format", "stream-json", "--verbose", "--tools", "", "--setting-sources", "",

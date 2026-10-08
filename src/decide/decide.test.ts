@@ -12,6 +12,7 @@ import { ACCEPTED_LLM_MODELS, PRICE_TABLE_DATE, callCost, priceFor, resolveLlmMo
 import { DecideError, ask, estimate, run } from "./run.ts";
 import { ROW_COLUMNS, rowsToCsv } from "./rows.ts";
 import { replyText, type DecideSpawn } from "./llm.ts";
+import { cliEnv } from "./cli-spawn.ts";
 import type { Arms, Case, DecideFetch, DecideRow, QuestionSpec } from "./types.ts";
 
 const FIXTURES = join(import.meta.dir, "fixtures");
@@ -410,6 +411,32 @@ describe("D-MULTI, D-PIN, D-BUDGET, D-NOKEY", () => {
     expect(result.spentUsd).toBeLessThanOrEqual(budgetUsd);
     const callsAfterCap = calls.length - answered.length;
     expect(callsAfterCap).toBe(0);
+    expect(stopped.length).toBeGreaterThan(0);
+    expect(stopped.every((r) => r.evidence.reason === "budget")).toBe(true);
+    expect(result.budgetNote).toBeNull();
+  });
+
+  test("[unit] D-BUDGET-CLI: a claude-cli call may overshoot the cap once; no call follows it", async () => {
+    const cases = Array.from({ length: 4 }, (_, i) => ({ id: `c${i}`, input: M0_TEXT }));
+    const arms: Arms = { jev: false };
+    const perCall = estimate({ cases: [M0_CASE], questions: [TOPIC], arms }).costUsd;
+    const budgetUsd = perCall * 1.5;
+    const lines = CLI_STDOUT.trim().split("\n");
+    const last: unknown = JSON.parse(lines.at(-1) ?? "null");
+    if (!isRecord(last)) throw new Error("fixture result event is not an object");
+    const overshoot = JSON.stringify({ ...last, total_cost_usd: budgetUsd * 4 });
+    const { spawn, runs } = fakeCli([...lines.slice(0, -1), overshoot].join("\n"));
+    const { fetch, calls } = fakeFetch({});
+    const result = await run({ cases, questions: [TOPIC], arms, options: { budgetUsd } }, { keys: {}, fetch, spawn, which: () => "/fake/bin/claude" });
+    expect(runs.length).toBe(1);
+    expect(calls.length).toBe(0);
+    expect(result.calls).toBe(1);
+    expect(result.spentUsd).toBeGreaterThan(budgetUsd);
+    expect(result.stoppedByBudget).toBe(true);
+    const stopped = result.rows.filter((r) => r.evidence.reason === "budget");
+    expect(stopped.length).toBe(cases.length - 1);
+    expect(stopped.every((r) => r.outcome === "error" && r.evidence.reason === "budget")).toBe(true);
+    expect(result.budgetNote).toContain("at most one call");
   });
 
   test("[unit] D-NOKEY: a missing key fails only that arm with a named reason", async () => {
@@ -424,6 +451,24 @@ describe("D-MULTI, D-PIN, D-BUDGET, D-NOKEY", () => {
     expect(dec.evidence.reason).toBe("missing key: decisions needs keys.openai");
     expect(only(result.rows, "jev", "topic").outcome).toBe("answered");
     expect(only(result.rows, "llm", "topic").outcome).toBe("answered");
+  });
+});
+
+describe("claude-cli child environment", () => {
+  test("[unit] D-SPAWN-ENV cliEnv drops provider keys", () => {
+    const env = cliEnv({
+      OPENAI_API_KEY: "sk-openai",
+      ANTHROPIC_API_KEY: "sk-ant",
+      JEV_API_KEY: "jev-secret",
+      AWS_SECRET_ACCESS_KEY: "aws-secret",
+      PATH: "/usr/bin",
+      HOME: "/home/u",
+      CLAUDE_CODE_ENTRYPOINT: "cli",
+      CLAUDE_CODE_OAUTH_TOKEN: "oauth-token",
+      CLAUDE_CONFIG_DIR: "/home/u/.claude",
+      EMPTY: undefined,
+    });
+    expect(env).toEqual({ PATH: "/usr/bin", HOME: "/home/u", CLAUDE_CODE_ENTRYPOINT: "cli", CLAUDE_CONFIG_DIR: "/home/u/.claude" });
   });
 });
 

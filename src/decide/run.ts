@@ -87,6 +87,8 @@ export interface RunResult {
   readonly calls: number;
   readonly spentUsd: number;
   readonly stoppedByBudget: boolean;
+  /** Set when the claude-cli transport made a call: its argv has no output cap, so the budget can be overshot by at most one call. */
+  readonly budgetNote: string | null;
   readonly counts: Readonly<Record<ArmName, OutcomeCounts>>;
 }
 
@@ -142,7 +144,13 @@ function providerBody(arm: ProviderArm, model: string, text: string, questions: 
   return messagesBody(model, text, questions);
 }
 
-/** Upper-bound cost of one call: request bytes plus overhead as input tokens; max_tokens as output for the llm. */
+const CLI_BUDGET_NOTE = `claude-cli sets no output cap, so the ${LLM_MAX_TOKENS}-token output estimate does not bound it: the budget can be overshot by at most one call, then the run stops`;
+
+/**
+ * Upper-bound cost of one call: request bytes plus overhead as input tokens; max_tokens as output for the llm.
+ * For the claude-cli transport the bound is not enforced (no output cap in its argv): the cap can be overshot by at
+ * most one call, because the check runs before each call and spend is added after it.
+ */
 function estimateCall(arm: ProviderArm, price: PriceEntry, text: string, questions: readonly QuestionSpec[]): number {
   const bytes = new TextEncoder().encode(JSON.stringify(providerBody(arm, price.model, text, questions))).length;
   return callCost(price, bytes + ESTIMATE_OVERHEAD_TOKENS, arm === "llm" ? LLM_MAX_TOKENS : 0);
@@ -212,7 +220,7 @@ export async function run(req: DecideRequest, deps: RunDeps = {}): Promise<RunRe
   const r = resolve(req);
   const est = estimateResolved(r);
   const counts = emptyCounts();
-  if (r.dryRun) return { rows: [], estimate: est, calls: 0, spentUsd: 0, stoppedByBudget: false, counts };
+  if (r.dryRun) return { rows: [], estimate: est, calls: 0, spentUsd: 0, stoppedByBudget: false, budgetNote: null, counts };
   const keys = deps.keys ?? {};
   const doFetch: DecideFetch = deps.fetch ?? ((url, init) => fetch(url, { method: init.method, headers: { ...init.headers }, body: init.body }));
   const spawn = deps.spawn ?? bunSpawn;
@@ -223,6 +231,7 @@ export async function run(req: DecideRequest, deps: RunDeps = {}): Promise<RunRe
   let calls = 0;
   let spentUsd = 0;
   let stopped = false;
+  let usedCli = false;
 
   const emit = (c: Case, a: PlannedArm, results: readonly QuestionResult[], meta: CallMeta, budget = false): void => {
     const n = r.questions.length;
@@ -312,6 +321,7 @@ export async function run(req: DecideRequest, deps: RunDeps = {}): Promise<RunRe
       const start = now();
       calls += 1;
       if (a.arm === "llm" && transport === "claude-cli" && binary !== null) {
+        usedCli = true;
         let parsed;
         try {
           parsed = parseCli(await spawn(cliArgv(binary, a.model), llmPrompt(text, r.questions)), a.model, r.questions);
@@ -351,7 +361,7 @@ export async function run(req: DecideRequest, deps: RunDeps = {}): Promise<RunRe
       });
     }
   }
-  return { rows, estimate: est, calls, spentUsd, stoppedByBudget: stopped, counts };
+  return { rows, estimate: est, calls, spentUsd, stoppedByBudget: stopped, budgetNote: usedCli ? CLI_BUDGET_NOTE : null, counts };
 }
 
 /** One case, the same questions and arms. */

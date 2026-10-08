@@ -924,3 +924,65 @@ test("[unit] ticket office locations are optional in the session layout and fail
   const duplicate = repo.match(ticketBlock)?.[0] ?? "";
   expect((await authState(repo + duplicate)).code).toBe(1);
 });
+test("[unit] /api/v1 location is optional in the session layout and fails closed when gated or altered", async () => {
+  const repo = await Bun.file(".deploy/backstage-nginx.conf").text();
+  const apiBlock = /# HTTP API v1[^\n]*\n(?:#[^\n]*\n)*location \^~ \/api\/v1\/ \{[^}]*\}\n/;
+  expect(apiBlock.test(repo)).toBe(true);
+  expect(await authState(repo)).toEqual({ code: 0, out: "session" });
+  expect(await authState(repo.replace(apiBlock, ""))).toEqual({ code: 0, out: "session" });
+  const inBlock = (extra: string): string => repo.replace("proxy_send_timeout 110s;", `proxy_send_timeout 110s; ${extra}`);
+  for (const extra of [
+    "auth_request /_backstage_session;",
+    "auth_basic off;",
+    'auth_basic "x"; auth_basic_user_file /tmp/htpasswd;',
+    'add_header Access-Control-Allow-Origin "*";',
+    "access_log on;",
+  ]) {
+    expect((await authState(inBlock(extra))).code).toBe(1);
+  }
+  expect((await authState(repo.replace("proxy_read_timeout 110s;", "proxy_read_timeout 40s;"))).code).toBe(1);
+  const v1Gate = "    proxy_set_header X-Backstage-Gate session;\n    proxy_pass http://127.0.0.1:3456;\n    proxy_set_header Host $host;\n    proxy_set_header X-Backstage-Client-IP $remote_addr;\n    client_max_body_size 64k;\n    client_body_timeout 5s;\n    proxy_read_timeout 110s;";
+  expect(repo.includes(v1Gate)).toBe(true);
+  expect((await authState(repo.replace(v1Gate, v1Gate.replace("    proxy_set_header X-Backstage-Gate session;\n", "")))).code).toBe(1);
+  expect((await authState(repo.replace("client_max_body_size 64k;\n    client_body_timeout 5s;\n    proxy_read_timeout 110s;", "client_max_body_size 64m;\n    client_body_timeout 5s;\n    proxy_read_timeout 110s;"))).code).toBe(1);
+  const duplicate = repo.match(apiBlock)?.[0] ?? "";
+  expect((await authState(repo + duplicate)).code).toBe(1);
+});
+test("[unit] the /api/v1 route header is accepted exactly: set in /api/v1, cleared in every other proxy location, else unknown", async () => {
+  const repo = await Bun.file(".deploy/backstage-nginx.conf").text();
+  const set = "    proxy_set_header X-Backstage-Route api-v1;";
+  const clear = '    proxy_set_header X-Backstage-Route "";';
+  const lines = repo.split("\n");
+  expect(lines.filter((l) => l === set).length).toBe(1);
+  const clears = lines.flatMap((l, i) => (l === clear ? [i] : []));
+  // sign-in, password, sign-out, google, callback, tickets, ranking, session check, page, api.
+  expect(clears.length).toBe(10);
+  expect(await authState(repo)).toEqual({ code: 0, out: "session" });
+  // The snippet installed before this change (no /api/v1, no route header) still reads as session, so the
+  // server deploy that must precede the snippet update is not refused.
+  const installed = new TextDecoder().decode(Bun.spawnSync(["git", "show", "fae0400:.deploy/backstage-nginx.conf"]).stdout);
+  expect(installed).toContain("location ^~ /api/backstage/ {");
+  expect(await authState(installed)).toEqual({ code: 0, out: "session" });
+  const apiBlock = /# HTTP API v1[^\n]*\n(?:#[^\n]*\n)*location \^~ \/api\/v1\/ \{[^}]*\}\n/;
+  expect(await authState(repo.replace(apiBlock, ""))).toEqual({ code: 0, out: "session" });
+  const unknown: string[] = [];
+  for (const i of clears) unknown.push(lines.filter((_, j) => j !== i).join("\n"));
+  for (const i of clears) unknown.push(lines.flatMap((l, j) => (j === i ? [l, l] : [l])).join("\n"));
+  for (const i of clears) unknown.push(lines.map((l, j) => (j === i ? set : l)).join("\n"));
+  unknown.push(
+    repo.replace(set + "\n", ""),
+    repo.replace(set, clear),
+    repo.replace(set, "    proxy_set_header X-Backstage-Route api-v2;"),
+    repo.replace(set, '    proxy_set_header X-Backstage-Route "api-v1";'),
+    repo.replace(set, `${set}\n${set}`),
+    repo.replaceAll(clear + "\n", ""),
+    repo.replace(apiBlock, "").replace(clear + "\n", ""),
+    repo.replace("location @backstage_deny { return 401; }", 'location @backstage_deny { proxy_set_header X-Backstage-Route ""; return 401; }'),
+    repo.replace("    client_max_body_size 1k;", `    client_max_body_size 1k;\n${set}`),
+  );
+  for (const variant of unknown) {
+    expect(variant).not.toBe(repo);
+    expect((await authState(variant)).code).toBe(1);
+  }
+  expect(unknown.length).toBe(39);
+});

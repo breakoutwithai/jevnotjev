@@ -356,6 +356,68 @@ function filesUnder(dir: string): string[] {
   });
 }
 
+describe("API-NGINX", () => {
+  test("[integration] API-NGINX the gate header nginx sets on /api/v1/ leaves the bearer routes as they were and closes a ..\\ hop into the gated routes", async () => {
+    const h = harness({ auth: { sessionSecret: "s".repeat(32) } });
+    const gate = { "x-backstage-gate": "session" };
+    expect((await call(h, "GET", "/api/v1/arms", null, { ...bearer(h.token), ...gate })).status).toBe(200);
+    const anon = await call(h, "GET", "/api/v1/arms", null, gate);
+    expect(anon.status).toBe(401);
+    expect(anon.headers.get("www-authenticate")).toBe('Bearer realm="jevnotjev-api"');
+    // nginx matches ^~ /api/v1/ on /api/v1/..\backstage/health and forwards it raw; Bun resolves it to /api/backstage/health.
+    expect((await call(h, "GET", "/api/v1/..\\backstage/health", null)).status).toBe(200);
+    expect((await call(h, "GET", "/api/v1/..\\backstage/health", null, gate)).status).toBe(401);
+    const page = await call(h, "GET", "/api/v1/..\\..\\backstage/", null, gate);
+    expect(page.status).toBe(302);
+    expect(page.headers.get("location")).toStartWith("/backstage/sign-in?next=");
+  });
+
+  // nginx's ^~ /api/v1/ forwards the raw URI and Bun resolves ..\, %2e%2e, .%2e and a tab hop out of /api/v1/,
+  // past the 16k and 4k caps and the access log of the exact locations. nginx marks the location's traffic with
+  // X-Backstage-Route: api-v1 and the server answers 404 for any of it that resolves outside /api/v1/.
+  const HOPS = ["..\\", "%2e%2e/", ".%2e/", ".\t./", "..;/"];
+  const TARGETS = ["/api/auth/password", "/tickets", "/api/tickets", "/api/auth/session", "/api/backstage/health"];
+  const route = { "x-backstage-route": "api-v1" };
+  const hop = (up: string, target: string): string => `/api/v1/${up}${up}${target.slice(1)}`;
+
+  test("[integration] API-HOP a hop out of /api/v1/ under the nginx route header answers 404 on every route outside /api/v1/", async () => {
+    const h = harness({ auth: { sessionSecret: "s".repeat(32) } });
+    let checked = 0;
+    for (const up of HOPS) {
+      for (const target of TARGETS) {
+        for (const headers of [{ ...route, ...bearer(h.token) }, route]) {
+          const res = await call(h, "GET", hop(up, target), null, headers);
+          // ..; is not a dot segment for Bun, so it never leaves /api/v1/ and the API's own bearer check answers.
+          const expected = up === "..;/" && !("authorization" in headers) ? 401 : 404;
+          expect(`${JSON.stringify(up)} ${target} ${res.status}`).toBe(`${JSON.stringify(up)} ${target} ${expected}`);
+          checked += 1;
+        }
+      }
+      const post = await call(h, "POST", hop(up, "/api/auth/password"), "email=a%40b.test&password=x".repeat(1000), { ...route, "content-type": "application/x-www-form-urlencoded" });
+      expect(`${JSON.stringify(up)} POST ${post.status}`).toBe(`${JSON.stringify(up)} POST ${up === "..;/" ? 401 : 404}`);
+    }
+    expect(checked).toBe(HOPS.length * TARGETS.length * 2);
+    expect((await call(h, "GET", "/api/v1/arms", null, { ...route, ...bearer(h.token) })).status).toBe(200);
+    const anon = await call(h, "GET", "/api/v1/arms", null, route);
+    expect(anon.status).toBe(401);
+    expect(anon.headers.get("www-authenticate")).toBe('Bearer realm="jevnotjev-api"');
+  });
+
+  test("[integration] API-HOP without the route header the same requests answer as before", async () => {
+    const h = harness({ auth: { sessionSecret: "s".repeat(32) } });
+    const before: Record<string, number> = { "/api/auth/password": 405, "/tickets": 404, "/api/tickets": 405, "/api/auth/session": 401, "/api/backstage/health": 200 };
+    for (const up of HOPS) {
+      for (const target of TARGETS) {
+        const res = await call(h, "GET", hop(up, target), null, bearer(h.token));
+        const expected = up === "..;/" ? 404 : before[target];
+        expect(`${JSON.stringify(up)} ${target} ${res.status}`).toBe(`${JSON.stringify(up)} ${target} ${expected}`);
+      }
+    }
+    expect((await call(h, "GET", "/api/v1/arms", null, bearer(h.token))).status).toBe(200);
+    expect((await call(h, "GET", "/api/auth/session", null)).status).toBe(401);
+  });
+});
+
 describe("KEY-CANARY", () => {
   test("[integration] KEY-CANARY-HTTP canary keys in all three headers reach the providers and no body, header, log, stdout, stderr or file (m3 == 0)", async () => {
     const canary = `sk-canary-${crypto.randomUUID().replaceAll("-", "")}`;

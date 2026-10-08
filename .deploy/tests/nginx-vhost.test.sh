@@ -69,8 +69,8 @@ basic='location ^~ /backstage/ { auth_basic "Backstage"; auth_basic_user_file /t
 [[ "$(printf '%s\n' "$basic" | backstage_snippet_auth)" == yes ]] && ok "Basic gate remains recognized" || nope "Basic gate classification changed"
 without_optional="${session/proxy_read_timeout 40s;/}"
 [[ "$(printf '%s\n' "$without_optional" | backstage_snippet_auth)" == session ]] && ok "shipped directive subset keeps a gated session location" || nope "optional gated directive treated as mandatory"
-[[ "$snippet" == *'proxy_set_header X-Backstage-Gate session;'* && "$(printf '%s\n' "$snippet" | grep -c 'proxy_set_header X-Backstage-Gate session;')" == 2 ]] \
-    && ok "both gated routes overwrite the session gate header" || nope "gated route lacks the session gate header"
+[[ "$snippet" == *'proxy_set_header X-Backstage-Gate session;'* && "$(printf '%s\n' "$snippet" | grep -c 'proxy_set_header X-Backstage-Gate session;')" == 3 ]] \
+    && ok "both gated routes and /api/v1/ overwrite the session gate header" || nope "gated route lacks the session gate header"
 [[ "$snippet" == *'absolute_redirect off;'* ]] && ok "sign-in redirect is relative" || nope "sign-in redirect can become absolute"
 [[ "$(printf '%s\n' '# auth_basic off;' "$session" | backstage_snippet_auth)" == session ]] && ok "commented Basic directive has no effect" || nope "comment changed session classification"
 for route in /backstage/sign-in /api/auth/password /api/auth/sign-out /api/auth/google /api/auth/google/callback; do
@@ -87,6 +87,44 @@ done
     && ok "no raw auth prefix or decoded redirect target" || nope "raw auth prefix or decoded redirect target"
 page="$(printf '%s\n' "$snippet" | sed -n '\|^location \^~ /backstage/ {|,/^}/p')"
 [[ "$page" == *'proxy_set_header X-Backstage-Client-IP $remote_addr;'* ]] && ok "gated page overwrites client address" || nope "gated page trusts visitor address"
+
+# /api/v1 (#67): bearer-token API. nginx must pass it through ungated, past the API's deadline.
+v1="$(printf '%s\n' "$snippet" | sed 's/#.*//' | sed -n '\|^location \^~ /api/v1/ {|,/^}/p')"
+[[ -n "$v1" ]] && ok "/api/v1/ prefix location exists" || nope "no location ^~ /api/v1/"
+[[ "$v1" == *'proxy_pass http://127.0.0.1:3456;'* ]] && ok "/api/v1/ proxies to the Backstage upstream with the path unchanged" || nope "/api/v1/ upstream or path rewrite differs"
+if printf '%s\n' "$v1" | grep -Eq 'auth_request|auth_basic|satisfy|allow|deny'; then nope "/api/v1/ carries an nginx session or Basic gate"; else ok "/api/v1/ has no auth_request, Basic gate or access rule"; fi
+[[ "$v1" == *'proxy_set_header X-Backstage-Gate session;'* ]] && ok "/api/v1/ sets the gate header, so a ..\\ hop into /api/backstage/ stays gated" || nope "/api/v1/ forwards a ..\\ hop into /api/backstage/ without the gate header"
+if printf '%s\n' "$v1" | grep -Eqi 'add_header|Access-Control'; then nope "/api/v1/ adds response headers (CORS)"; else ok "/api/v1/ adds no CORS or other response header"; fi
+if printf '%s\n' "$v1" | grep -Eqi 'proxy_set_header[[:space:]]+(Authorization|x-jev-key|x-openai-key|x-anthropic-key)|proxy_pass_request_headers|proxy_hide_header'; then nope "/api/v1/ rewrites or drops the bearer or key headers"; else ok "/api/v1/ passes Authorization and the x-*-key headers through untouched"; fi
+[[ "$v1" == *'proxy_set_header X-Backstage-Client-IP $remote_addr;'* ]] && ok "/api/v1/ overwrites the client address" || nope "/api/v1/ trusts a visitor client address"
+[[ "$v1" == *'access_log off;'* ]] && ok "/api/v1/ writes no access log line (no header can reach a log_format)" || nope "/api/v1/ logs requests"
+deadline_ms="$(sed -n 's/^[[:space:]]*requestDeadlineMs: \([0-9_]*\),.*/\1/p' src/backstage/api-v1.ts | tr -d '_')"
+body_bytes="$(sed -n 's/^[[:space:]]*maxBodyBytes: \([0-9_]*\),.*/\1/p' src/backstage/api-v1.ts | tr -d '_')"
+for d in proxy_read_timeout proxy_send_timeout; do
+    secs="$(printf '%s\n' "$v1" | sed -n "s/^[[:space:]]*${d} \([0-9]*\)s;.*/\1/p")"
+    [[ -n "$deadline_ms" && -n "$secs" && $((secs * 1000)) -gt "$deadline_ms" ]] \
+        && ok "/api/v1/ ${d} ${secs}s exceeds the ${deadline_ms} ms API deadline" || nope "/api/v1/ ${d} '${secs}' does not exceed the API deadline '${deadline_ms}'"
+done
+cap_k="$(printf '%s\n' "$v1" | sed -n 's/^[[:space:]]*client_max_body_size \([0-9]*\)k;.*/\1/p')"
+[[ -n "$cap_k" && -n "$body_bytes" && $((cap_k * 1024)) -eq "$body_bytes" ]] && ok "/api/v1/ body cap ${cap_k}k equals the server cap ${body_bytes}" || nope "/api/v1/ body cap '${cap_k}k' differs from server cap '${body_bytes}'"
+grep -q '^export const API_V1_PREFIX = "/api/v1";' src/backstage/api-v1.ts && ok "server prefix is /api/v1, so nginx strips nothing" || nope "server API prefix changed"
+# Bun resolves ..\, %2e%2e and tab hops out of /api/v1/, so nginx marks that location's traffic and the server pins it
+# to /api/v1/ routes. Every other location proxying to 3456 clears the mark, so a client cannot put it on another path.
+[[ "$(printf '%s\n' "$v1" | grep -c '^[[:space:]]*proxy_set_header X-Backstage-Route api-v1;$')" == 1 ]] \
+    && ok "/api/v1/ marks its traffic X-Backstage-Route: api-v1" || nope "/api/v1/ does not mark its traffic for the server's route pin"
+[[ "$(printf '%s\n' "$snippet" | grep -c 'X-Backstage-Route api-v1')" == 1 ]] && ok "only /api/v1/ sets the route mark" || nope "the route mark is set outside /api/v1/"
+proxied=0; cleared=0
+while IFS= read -r block; do
+    [[ "$block" == *'proxy_pass http://127.0.0.1:3456'* ]] || continue
+    [[ "$block" == 'location ^~ /api/v1/ {'* ]] && continue
+    proxied=$((proxied+1))
+    [[ "$(printf '%s' "$block" | tr '\036' '\n' | grep -c '^[[:space:]]*proxy_set_header X-Backstage-Route "";$')" == 1 ]] && cleared=$((cleared+1)) \
+        || nope "${block%% \{*} proxies to Backstage without clearing X-Backstage-Route"
+done < <(printf '%s\n' "$snippet" | sed 's/#.*//' | awk '/^location / { if (b != "") print b; b = $0; next } b != "" { b = b "\036" $0 } END { if (b != "") print b }')
+[[ "$proxied" -eq 10 && "$cleared" -eq "$proxied" ]] && ok "all ${proxied} other Backstage proxy locations clear X-Backstage-Route" || nope "${cleared} of ${proxied} other proxy locations clear X-Backstage-Route (want 10 of 10)"
+# Every other location is what fae0400 shipped plus the route-mark clear: the change is additive.
+without_v1="$(awk '/^# HTTP API v1/ { skip=1 } skip && /^}/ { skip=0; next } !skip' .deploy/backstage-nginx.conf | grep -v '^    proxy_set_header X-Backstage-Route "";$')"
+[[ "$without_v1" == "$(git show fae0400:.deploy/backstage-nginx.conf)" ]] && ok "no other snippet location changed since fae0400 beyond the route-mark clear" || nope "the snippet differs from fae0400 outside the /api/v1/ block and the route-mark clear"
 
 if [[ ! -f "$CONF" ]]; then
     nope "missing committed vhost at ${CONF}"

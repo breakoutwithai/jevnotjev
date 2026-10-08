@@ -133,7 +133,7 @@ describe("replay page data (scripts/replay-data.ts)", () => {
       expect(run.stats.find((s) => s.method === "jev")?.accept).toBe(25);
       expect(run.stats.find((s) => s.method === "rule")?.accept).toBe(0);
       expect(run.flags.map((f) => f.id)).toContain("custom-decisions-no-rows");
-      expect(run.flags.some((f) => f.kind === "unlabelled")).toBe(false);
+      expect(run.flags.some((f) => f.kind === "unlabelled" && f.method === "jev")).toBe(true);
     } finally {
       await Bun.file(path).delete();
     }

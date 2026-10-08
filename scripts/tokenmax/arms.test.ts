@@ -131,4 +131,23 @@ describe("TokenMax blind labelling", () => {
     ]);
     expect(validate(formatRecords(out)).errors).toEqual([]);
   });
+
+  test("[unit] TM-41 a provenance import never blanks an unlisted label: it keeps full provenance, refuses a /1 human label", () => {
+    const [ruleRow, jevRow] = [rows[0] ?? ruleRecord(cv1, q1), rows[1] ?? ruleRecord(cv1, q1)];
+    const text = `item_id,label\n${itemId(jevRow)},accept\n`;
+    const provenance = { source: "human" as const, by: "op", at: "2026-10-07", blind: true };
+    const bare = [{ ...ruleRow, label: "accept", label_source: "human" }, jevRow, ...rows.slice(2)];
+    expect(() => applyItemLabels(bare, text, provenance)).toThrow(/unlisted.*jnj-record\/1.*provenance/);
+    const full = [
+      { ...ruleRow, format_version: "jnj-record/1.1", label: "accept", label_source: "human_reviewed", labelled_by: "earlier", labelled_at: "2026-10-05", label_blind: "false" },
+      jevRow, ...rows.slice(2),
+    ];
+    const out = applyItemLabels(full, text, provenance);
+    expect(out.map((r) => [r.answerer, r.label, r.label_source, r.labelled_by, r.labelled_at, r.label_blind])).toEqual([
+      ["rule", "accept", "human_reviewed", "earlier", "2026-10-05", "false"],
+      ["jev", "accept", "human", "op", "2026-10-07", "true"],
+      ["llm", "", "", "", "", ""],
+    ]);
+    expect(validate(formatRecords(out)).errors).toEqual([]);
+  });
 });

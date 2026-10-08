@@ -1,5 +1,5 @@
 // TokenMax live run: the 5 fictional CVs and 2 questions of examples/d06-tiny, asked of three answerers.
-// Pure parts only; scripts/tokenmax/run.ts does the I/O. Labels are never set here: the operator labels blind.
+// Pure parts only; scripts/tokenmax/run.ts does the I/O. Labels are never set here: a person labels, either blind picks or an approval (human_reviewed) of an AI draft.
 import { createHash } from "node:crypto";
 import { readDictRows } from "../../src/format/csv.ts";
 import { JEV_MODEL, JEV_PRICE_PER_M, UNLABELLED, type LabelProvenance, type RecordRow } from "../uc13/arms.ts";
@@ -252,7 +252,8 @@ export function blindItems(rows: readonly RecordRow[]): BlindItem[] {
 }
 
 /**
- * labels.csv from the page (item_id,label): accept or reject, each id once, every id known. Unlisted rows stay blank.
+ * labels.csv from the page (item_id,label): accept or reject, each id once, every id known. Unlisted rows keep their label and provenance
+ * (a /1 label with no provenance cannot enter a 1.1 file, so that import is refused).
  * With no provenance a label is a jnj-record/1 `human` pick. With one, every row comes out jnj-record/1.1 and each label
  * carries its source, labeller, date and blindness (format/README.md "Label provenance").
  */
@@ -278,7 +279,13 @@ export function applyItemLabels(rows: readonly RecordRow[], text: string, proven
   return rows.map((r, i) => {
     const label = labels.get(ids[i] ?? "");
     if (provenance === undefined) return label === undefined ? r : { ...r, label, label_source: "human" };
-    if (label === undefined) return { ...r, format_version: "jnj-record/1.1", ...UNLABELLED };
+    if (label === undefined) {
+      if (r.label === "") return { ...r, format_version: "jnj-record/1.1", ...UNLABELLED };
+      if (!r.labelled_by || !r.labelled_at || !r.label_blind) {
+        throw new Error(`unlisted row ${ids[i]} has a ${r.label_source || "unsourced"} label without provenance (jnj-record/1 states no labeller, time or blindness); list it in labels.csv or import without provenance flags`);
+      }
+      return { ...r, format_version: "jnj-record/1.1" };
+    }
     return {
       ...r, format_version: "jnj-record/1.1", label, label_source: provenance.source,
       labelled_by: provenance.by, labelled_at: provenance.at, label_blind: String(provenance.blind),

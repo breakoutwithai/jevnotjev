@@ -27,7 +27,7 @@
     "scripts/stage-door.test.ts": 6,
     "scripts/stage-sample.test.ts": 11,
     "scripts/theatre.test.ts": 8,
-    "scripts/tokenmax/arms.test.ts": 12,
+    "scripts/tokenmax/arms.test.ts": 13,
     "scripts/tokenmax/hardening.test.ts": 10,
     "scripts/tokenmax/hardening2.test.ts": 4,
     "scripts/tokenmax/run.test.ts": 9,

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { readDictRows } from "../../src/format/csv.ts";
+import { validate } from "../../src/format/validate.ts";
+import { formatRecords } from "../uc13/arms.ts";
 import {
   applyItemLabels, armRecord, blindItems, itemId, jevBody, llmCost, llmRequest, loadInputs, parseJev, parseLlm, ruleOutput,
   ruleRecord, type Reply,
@@ -116,5 +118,17 @@ describe("TokenMax blind labelling", () => {
     expect(() => applyItemLabels(rows, "item_id,label\nnope,accept\n")).toThrow(/unknown item_id/);
     expect(() => applyItemLabels(rows, `item_id,label\n${id},maybe\n`)).toThrow(/accept or reject/);
     expect(() => applyItemLabels(rows, `item_id,label\n${id},accept\n${id},accept\n`)).toThrow(/duplicate/);
+  });
+
+  test("[unit] TM-40 labels with a stated provenance come out jnj-record/1.1 with all four provenance cells", () => {
+    const id = itemId(rows[1] ?? rows[0] ?? ruleRecord(cv1, q1));
+    const out = applyItemLabels(rows, `item_id,label\n${id},accept\n`, { source: "human_reviewed", by: "operator", at: "2026-10-07", blind: false });
+    expect(out.every((r) => r.format_version === "jnj-record/1.1")).toBe(true);
+    expect(out.map((r) => [r.answerer, r.label, r.label_source, r.labelled_by, r.labelled_at, r.label_blind])).toEqual([
+      ["rule", "", "", "", "", ""],
+      ["jev", "accept", "human_reviewed", "operator", "2026-10-07", "false"],
+      ["llm", "", "", "", "", ""],
+    ]);
+    expect(validate(formatRecords(out)).errors).toEqual([]);
   });
 });

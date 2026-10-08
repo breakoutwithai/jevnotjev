@@ -2,7 +2,7 @@
 // Pure parts only; scripts/tokenmax/run.ts does the I/O. Labels are never set here: the operator labels blind.
 import { createHash } from "node:crypto";
 import { readDictRows } from "../../src/format/csv.ts";
-import { JEV_MODEL, JEV_PRICE_PER_M, type RecordRow } from "../uc13/arms.ts";
+import { JEV_MODEL, JEV_PRICE_PER_M, UNLABELLED, type LabelProvenance, type RecordRow } from "../uc13/arms.ts";
 
 export const RUN_ID = "run-tokenmax-2026-10-03";
 export const PROMPT_VERSION = "tokenmax-cv.v1";
@@ -251,8 +251,12 @@ export function blindItems(rows: readonly RecordRow[]): BlindItem[] {
     .sort((a, b) => a.item_id.localeCompare(b.item_id));
 }
 
-/** labels.csv from the page (item_id,label): accept or reject, each id once, every id known. Unlisted rows stay blank. */
-export function applyItemLabels(rows: readonly RecordRow[], text: string): RecordRow[] {
+/**
+ * labels.csv from the page (item_id,label): accept or reject, each id once, every id known. Unlisted rows stay blank.
+ * With no provenance a label is a jnj-record/1 `human` pick. With one, every row comes out jnj-record/1.1 and each label
+ * carries its source, labeller, date and blindness (format/README.md "Label provenance").
+ */
+export function applyItemLabels(rows: readonly RecordRow[], text: string, provenance?: LabelProvenance): RecordRow[] {
   const { header, rows: lines } = readDictRows(text);
   const h = header ?? [];
   const repeated = h.filter((name, i) => h.indexOf(name) !== i);
@@ -273,6 +277,11 @@ export function applyItemLabels(rows: readonly RecordRow[], text: string): Recor
   }
   return rows.map((r, i) => {
     const label = labels.get(ids[i] ?? "");
-    return label === undefined ? r : { ...r, label, label_source: "human" };
+    if (provenance === undefined) return label === undefined ? r : { ...r, label, label_source: "human" };
+    if (label === undefined) return { ...r, format_version: "jnj-record/1.1", ...UNLABELLED };
+    return {
+      ...r, format_version: "jnj-record/1.1", label, label_source: provenance.source,
+      labelled_by: provenance.by, labelled_at: provenance.at, label_blind: String(provenance.blind),
+    };
   });
 }

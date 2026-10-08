@@ -3,13 +3,14 @@ import { describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseRecords } from "../uc13/arms.ts";
+import { formatRecords } from "../uc13/arms.ts";
 import { applyItemLabels, itemId, loadInputs } from "./arms.ts";
-import { defaultPaths, keepLabels, main, writeRecords } from "./run.ts";
+import { defaultPaths, keepLabels, main, parseFixture, rowsFromFixture, writeRecords } from "./run.ts";
 
 const REAL = defaultPaths();
 const read = (path: string) => Bun.file(path).text();
-const recorded = parseRecords(await read(join(REAL.out, "records.csv")));
+/** The run's rows as raw.json produces them, before any label. */
+const recorded = rowsFromFixture(loadInputs(await read(REAL.d06)), parseFixture(await read(join(REAL.out, "raw.json"))));
 const first = recorded[0];
 if (first === undefined) throw new Error("no recorded rows");
 
@@ -73,7 +74,7 @@ describe("PR #57 re-sweep fixes", () => {
   test("[unit] TM-32 (finding 6, temp names only) two writes in one process do not collide on a temp file", async () => {
     await withDir(async (dir) => {
       await Promise.all([writeRecords(dir, recorded), writeRecords(dir, recorded), writeRecords(dir, recorded)]);
-      expect(await read(join(dir, "records.csv"))).toBe(await read(join(REAL.out, "records.csv")));
+      expect(await read(join(dir, "records.csv"))).toBe(formatRecords(recorded));
       expect(await readdir(dir)).toEqual(["records.csv"]);
     });
   });

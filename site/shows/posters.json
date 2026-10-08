@@ -17,32 +17,32 @@
         "folder": "2026-10-03-tokenmax",
         "rows": 30,
         "cohorts": 2,
-        "question": null,
-        "labelledPaired": 0,
+        "question": "Does the CV show the person has built or run a product that pools AI subscriptions or tokens?",
+        "labelledPaired": 5,
         "verdict": null,
         "reason": null,
-        "labels": null,
+        "labels": "human_reviewed, blind: no",
         "methods": [
           {
             "arm": "llm",
-            "rows": 10,
-            "labelled": 0,
-            "accepted": 0,
-            "spendUsd": 0.022662
+            "rows": 5,
+            "labelled": 5,
+            "accepted": 5,
+            "spendUsd": 0.010851
           },
           {
             "arm": "rule",
-            "rows": 10,
-            "labelled": 0,
-            "accepted": 0,
+            "rows": 5,
+            "labelled": 5,
+            "accepted": 2,
             "spendUsd": 0
           },
           {
             "arm": "jev",
-            "rows": 10,
-            "labelled": 0,
-            "accepted": 0,
-            "spendUsd": 0.000161
+            "rows": 5,
+            "labelled": 5,
+            "accepted": 5,
+            "spendUsd": 0.000081
           }
         ]
       },

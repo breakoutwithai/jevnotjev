@@ -6,12 +6,13 @@ import { join } from "node:path";
 import { formatRows, readDictRows } from "../../src/format/csv.ts";
 import { parseRecords } from "../uc13/arms.ts";
 import { itemId, llmCost, loadInputs, parseLlm, applyItemLabels } from "./arms.ts";
-import { defaultPaths, keepLabels, main, parseFixture, writeRecords, type Paths } from "./run.ts";
+import { defaultPaths, keepLabels, main, parseFixture, rowsFromFixture, writeRecords, type Paths } from "./run.ts";
 
 const REAL = defaultPaths();
 const read = (path: string) => Bun.file(path).text();
 const d06Text = await read(REAL.d06);
-const recorded = parseRecords(await read(join(REAL.out, "records.csv")));
+/** The run's rows as raw.json produces them, before any label. */
+const recorded = rowsFromFixture(loadInputs(d06Text), parseFixture(await read(join(REAL.out, "raw.json"))));
 
 async function withDir(fn: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "tokenmax-hard-"));
@@ -24,8 +25,8 @@ async function withDir(fn: (dir: string) => Promise<void>): Promise<void> {
 
 async function withRun(fn: (paths: Paths) => Promise<void>): Promise<void> {
   await withDir(async (out) => {
-    await copyFile(join(REAL.out, "records.csv"), join(out, "records.csv"));
     await copyFile(join(REAL.out, "raw.json"), join(out, "raw.json"));
+    await writeRecords(out, recorded);
     await fn({ ...REAL, out, jevCall: join(out, "no-such-jev-call"), claude: join(out, "no-such-claude") });
   });
 }

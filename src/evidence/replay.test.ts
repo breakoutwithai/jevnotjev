@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { MIN_PAIRED, verdict } from "../core/verdict.ts";
 import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
 import { validate } from "../format/validate.ts";
+import { evaluateText } from "../browser/results-loader.ts";
 import { RUN_SOURCES, parseRun, tallyThrough, usd, type ReplayRun, type RunSource } from "./replay.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -190,6 +191,31 @@ describe("replay evidence (src/evidence/replay.ts)", () => {
       "jnj-record/1,r,p.v1,c1,Hi,q1,Ok?,yes|no,jev,j,no,0.9,reject,human,1,1,0.000001,1",
       "jnj-record/1,r,p.v1,c1,Hi,q1,Ok?,yes|no,llm,m,yes,,accept,human,1,1,0.000001,1",
     ].join("\n"), INLINE)).toThrow("more than one jev row for case c1");
+  });
+
+  test("[unit] RP-16 the planted d14 file gives each question the loader's limitation lines: missing label, missing cost, zero-row method", async () => {
+    const run = parseRun(await readFile(join(ROOT, "examples/d14-gaps/records.csv"), "utf8"), { key: "d14", file: "examples/d14-gaps/records.csv", title: "Gaps", synthetic: true });
+    const [q1, q2] = run.questions;
+    expect(run.questions.map((q) => q.questionId)).toEqual(["q1", "q2"]);
+    expect(q1?.limitations).toContain("Missing labels: rule 1 row with no label, left out of every pairing.");
+    expect(q1?.limitations).toContain("Missing costs: llm 1 row with no cost, so spend is incomplete.");
+    expect(q2?.limitations).toContain("Uneven cases across methods: llm 2, rule 0, jev 2.");
+    expect(run.provenance).toEqual(["jev: labels: human 4; blind: not recorded", "llm: labels: human 4; blind: not recorded", "rule: labels: human 1; blind: not recorded"]);
+  });
+
+  test("[unit] RP-17 every record file's limitation and provenance lines equal the core verdict and loader output", async () => {
+    for (const s of RUN_SOURCES) {
+      const text = await readFile(join(ROOT, s.file), "utf8");
+      const run = parseRun(text, s);
+      const loaded = await evaluateText(s.file, text);
+      expect(loaded.valid).toBe(true);
+      expect(run.provenance).toEqual(loaded.provenance);
+      expect(run.questions.map((q) => [q.runId, q.promptVersion, q.questionId, q.limitations])).toEqual(
+        loaded.questions.map((q) => [q.runId, q.promptVersion, q.questionId, q.limitations]),
+      );
+    }
+    const d12 = await load("d12");
+    expect(d12.questions[0]?.limitations).toContain("Uneven cases across methods: llm 4, rule 3, jev 4.");
   });
 
   test("[unit] RP-15 paired and accept counts equal src/core/metrics.ts and verdict.ts on every record file", async () => {

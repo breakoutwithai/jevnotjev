@@ -1182,7 +1182,7 @@
   function rows(n) {
     return n === 1 ? "1 row" : `${n} rows`;
   }
-  function limitationsOf(metrics, rule) {
+  function limitationsOf(metrics, rule, fileArms) {
     const out = [TEST_SET_ONLY];
     const paired = metrics.jevVsLlm?.n ?? 0;
     if (paired < MIN_PAIRED)
@@ -1196,9 +1196,10 @@
     const noCost = byMethod((totals) => totals.spend.kind === "incomplete" ? totals.spend.missing : 0);
     if (noCost !== "")
       out.push(`Missing costs: ${noCost} with no cost, so spend is incomplete.`);
-    const counts = new Set(metrics.arms.map((totals) => totals.rows));
-    if (counts.size > 1)
-      out.push(`Uneven cases across methods: ${metrics.arms.map((totals) => `${totals.arm} ${totals.rows}`).join(", ")}.`);
+    const expected = new Set([...fileArms, ...metrics.arms.map((totals) => totals.arm)]);
+    const cases = ARMS.filter((arm) => expected.has(arm)).map((arm) => ({ arm, rows: metrics.arms.find((totals) => totals.arm === arm)?.rows ?? 0 }));
+    if (new Set(cases.map((one) => one.rows)).size > 1)
+      out.push(`Uneven cases across methods: ${cases.map((one) => `${one.arm} ${one.rows}`).join(", ")}.`);
     return out;
   }
   function compare(counts) {
@@ -1221,12 +1222,12 @@
   function fixed(x) {
     return x.toFixed(2);
   }
-  function verdict(metrics, seed) {
+  function verdict(metrics, seed, fileArms = []) {
     const hasArm = (arm) => metrics.arms.some((totals) => totals.arm === arm);
     const rule = ruleComparison(metrics.jevVsRule, hasArm("rule"), hasArm("jev"));
     const pair = metrics.jevVsLlm;
     const jevVsLlm = pair === null || pair.n === 0 ? null : compare(pair);
-    const limitations = limitationsOf(metrics, rule);
+    const limitations = limitationsOf(metrics, rule, fileArms);
     const base = {
       jevVsLlm,
       jevAccepted: pair?.jev.accepted ?? null,

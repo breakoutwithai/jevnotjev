@@ -251,6 +251,15 @@ export function cohortMetrics(rows: readonly ParsedRow[], key: CohortKey): Cohor
   return metricsOfCohortRows(mine, key);
 }
 
+/**
+ * The compared methods with at least one row anywhere in the file, in ARMS order. A question that lacks one of them
+ * has 0 cases for it (verdict.ts "Uneven cases"); a method no question has is not expected of any.
+ */
+export function armsInFile(rows: readonly ParsedRow[]): Arm[] {
+  const answerers = new Set(rows.map(({ values }) => values.get("answerer")));
+  return ARMS.filter((arm) => answerers.has(arm));
+}
+
 /** Every cohort with its own rows, in first-seen order, from one pass over the file. */
 export function groupCohorts(rows: readonly ParsedRow[]): { readonly key: CohortKey; readonly rows: readonly Row[] }[] {
   const groups = new Map<string, { key: CohortKey; rows: Row[] }>();
@@ -346,6 +355,15 @@ export function labelProvenance(rows: readonly Row[]): LabelProvenance {
     else blindNotRecorded += 1;
   }
   return { human, humanReviewed, agent, sourceNotRecorded, blindYes, blindNo, blindNotRecorded };
+}
+
+/** Per answerer in the file, sorted by name: `<answerer>: <describeProvenance>` over all of its rows. */
+export function provenanceByMethod(rows: readonly ParsedRow[]): string[] {
+  const answerers = [...new Set(rows.map(({ values }) => String(values.get("answerer"))))].sort();
+  return answerers.map((answerer) => {
+    const mine = rows.map(({ values }) => values).filter((row) => row.get("answerer") === answerer);
+    return `${answerer}: ${describeProvenance(labelProvenance(mine))}`;
+  });
 }
 
 /** One line for a method's label provenance, never a silent blank. A single blind value is shown bare only when every label has it. */

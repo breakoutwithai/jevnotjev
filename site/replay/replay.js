@@ -40,6 +40,18 @@
     return name + '<ul class="flags">' + x.flags.map(function (f) { return flagItem(x, f); }).join("") + "</ul>";
   }
 
+  /* The lines the CSV loader shows for the same file, computed by src/core at build time (verdictLimitations,
+   * provenanceByMethod): what limits a verdict on each question, and where each method's labels came from. */
+  function limitsBlock(r) {
+    function items(lines, prefix) { return "<ul>" + lines.map(function (t) { return "<li>" + esc(prefix + t) + "</li>"; }).join("") + "</ul>"; }
+    var many = r.questions.length > 1;
+    var qs = r.questions.map(function (q) {
+      return (many ? '<p class="run-name" role="heading" aria-level="3">Question ' + esc(q.questionId) + ": " + esc(q.question) + "</p>" : "") + items(q.limitations, "Limitation: ");
+    }).join("");
+    return '<p class="run-name" role="heading" aria-level="3">What limits a verdict on this run</p>' + qs +
+      '<p class="run-name" role="heading" aria-level="3">Where each method\'s labels came from</p>' + items(r.provenance, "");
+  }
+
   function renderFlags() {
     var r = run(), clean = r.flags.length === 0;
     $("evidence").classList.toggle("clean", clean);
@@ -49,6 +61,7 @@
       ? '<li class="flag"><span class="badge none">&#10003; Complete</span><span class="flag-text">Every method has a row, a label and a cost on all ' +
         r.cases.length + " cases, and there are at least " + D.min_paired + " paired labelled cases, enough for a verdict.</span></li>"
       : r.flags.map(function (f) { return flagItem(r, f); }).join("");
+    $("limits").innerHTML = limitsBlock(r);
     var others = D.runs.filter(function (x) { return x.key !== cur && x.flags.length; });
     var n = others.reduce(function (s, x) { return s + x.flags.length; }, 0);
     $("others").hidden = n === 0;

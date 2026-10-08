@@ -4,7 +4,7 @@
 // Pure: no Node or Bun APIs, so the browser can import it.
 
 import { costRatio, costRatioInterval, largestCaseCost, newcombePaired, type CostRatioInterval, type PairedCounts } from "./calc.ts";
-import { pairedCostCases, type ArmTotals, type CohortMetrics, type PairedSample } from "./metrics.ts";
+import { ARMS, pairedCostCases, type Arm, type ArmTotals, type CohortMetrics, type PairedSample } from "./metrics.ts";
 
 /** Minimum paired labelled cases (verdict-rules.md "Settings"). */
 export const MIN_PAIRED = 30;
@@ -99,7 +99,7 @@ function rows(n: number): string {
 }
 
 /** The limitations of one verdict: test set only; below the minimum; rule comparison skipped; missing labels; missing costs. */
-function limitationsOf(metrics: CohortMetrics, rule: RuleComparison): string[] {
+function limitationsOf(metrics: CohortMetrics, rule: RuleComparison, fileArms: readonly Arm[]): string[] {
   const out = [TEST_SET_ONLY];
   const paired = metrics.jevVsLlm?.n ?? 0;
   if (paired < MIN_PAIRED) out.push(`Below the minimum: ${paired} paired labelled Jev and LLM cases, fewer than ${MIN_PAIRED}.`);
@@ -110,10 +110,21 @@ function limitationsOf(metrics: CohortMetrics, rule: RuleComparison): string[] {
   if (unlabelled !== "") out.push(`Missing labels: ${unlabelled} with no label, left out of every pairing.`);
   const noCost = byMethod((totals) => (totals.spend.kind === "incomplete" ? totals.spend.missing : 0));
   if (noCost !== "") out.push(`Missing costs: ${noCost} with no cost, so spend is incomplete.`);
-  // Methods present in this question with different numbers of cases: each count is named so the gap is visible.
-  const counts = new Set(metrics.arms.map((totals) => totals.rows));
-  if (counts.size > 1) out.push(`Uneven cases across methods: ${metrics.arms.map((totals) => `${totals.arm} ${totals.rows}`).join(", ")}.`);
+  // Methods with different numbers of cases: each count is named so the gap is visible. A method the file has rows
+  // for elsewhere but this question has none of counts as 0; a method the whole file lacks is not expected here.
+  const expected = new Set<Arm>([...fileArms, ...metrics.arms.map((totals) => totals.arm)]);
+  const cases = ARMS.filter((arm) => expected.has(arm)).map((arm) => ({ arm, rows: metrics.arms.find((totals) => totals.arm === arm)?.rows ?? 0 }));
+  if (new Set(cases.map((one) => one.rows)).size > 1) out.push(`Uneven cases across methods: ${cases.map((one) => `${one.arm} ${one.rows}`).join(", ")}.`);
   return out;
+}
+
+/**
+ * The limitation lines of one question's verdict without computing the verdict (no cost resample): what the replay
+ * view shows. `fileArms` is armsInFile() of the whole file; omitted, only this question's methods are compared.
+ */
+export function verdictLimitations(metrics: CohortMetrics, fileArms: readonly Arm[] = []): string[] {
+  const hasArm = (arm: Arm): boolean => metrics.arms.some((totals) => totals.arm === arm);
+  return limitationsOf(metrics, ruleComparison(metrics.jevVsRule, hasArm("rule"), hasArm("jev")), fileArms);
 }
 
 function compare(counts: PairedCounts): Comparison {
@@ -141,13 +152,15 @@ function fixed(x: number): string {
 /**
  * Apply the four rules in order to one decision point; the first match wins.
  * `seed` drives the cost ratio resample (fileSeed() of the file text), so the same file gives the same verdict.
+ * `fileArms` (armsInFile() of the whole file) only shapes the limitation lines: a method the file has elsewhere
+ * but this question lacks is named with 0 cases. It never changes the verdict.
  */
-export function verdict(metrics: CohortMetrics, seed: number): Verdict {
-  const hasArm = (arm: "jev" | "llm" | "rule"): boolean => metrics.arms.some((totals) => totals.arm === arm);
+export function verdict(metrics: CohortMetrics, seed: number, fileArms: readonly Arm[] = []): Verdict {
+  const hasArm = (arm: Arm): boolean => metrics.arms.some((totals) => totals.arm === arm);
   const rule = ruleComparison(metrics.jevVsRule, hasArm("rule"), hasArm("jev"));
   const pair = metrics.jevVsLlm;
   const jevVsLlm = pair === null || pair.n === 0 ? null : compare(pair);
-  const limitations = limitationsOf(metrics, rule);
+  const limitations = limitationsOf(metrics, rule, fileArms);
   const base: VerdictNumbers = {
     jevVsLlm,
     jevAccepted: pair?.jev.accepted ?? null,

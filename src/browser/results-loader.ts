@@ -6,7 +6,7 @@
 
 import { fileSeed } from "../core/calc.ts";
 import { caseCell, caseLines, matchingMethods } from "../core/case-table.ts";
-import { describeProvenance, groupCohorts, labelProvenance, metricsOfCohortRows } from "../core/metrics.ts";
+import { armsInFile, groupCohorts, metricsOfCohortRows, provenanceByMethod } from "../core/metrics.ts";
 import { verdict } from "../core/verdict.ts";
 import { decodeUtf8, report, summary, validate, type Validation } from "../format/validate.ts";
 
@@ -97,6 +97,7 @@ export async function evaluateText(fileName: string, text: string): Promise<Load
     return { fileName, valid: false, errors: [message], gaps: result.gaps, headline: "INVALID rows=" + result.rows.length + " errors=1", methods: [], provenance: [], questions: [] };
   }
   const seed = await fileSeed(text);
+  const arms = armsInFile(result.rows);
   const questions: QuestionVerdict[] = [];
   for (const { key, rows } of groups) {
     const metrics = metricsOfCohortRows(rows, key);
@@ -110,23 +111,14 @@ export async function evaluateText(fileName: string, text: string): Promise<Load
     }));
     const head = { question: metrics.question, questionId: key.questionId, runId: key.runId, promptVersion: key.promptVersion, cases, caseTotal: lines.length };
     try {
-      const v = verdict(metrics, seed);
+      const v = verdict(metrics, seed, arms);
       questions.push({ ...head, verdict: v.verdict, reason: v.reason, limitations: v.limitations });
     } catch (error) {
       const why = error instanceof Error ? error.message : "no verdict";
       questions.push({ ...head, verdict: null, reason: why, limitations: [] });
     }
   }
-  return { fileName, valid: true, errors: [], gaps: result.gaps, headline, methods: summary(result.rows), provenance: provenanceLines(result), questions };
-}
-
-/** Per method (answerer, sorted as summary() sorts them), where its labels came from. */
-function provenanceLines(result: Validation): string[] {
-  const answerers = [...new Set(result.rows.map(({ values }) => String(values.get("answerer"))))].sort();
-  return answerers.map((answerer) => {
-    const mine = result.rows.map(({ values }) => values).filter((row) => row.get("answerer") === answerer);
-    return answerer + ": " + describeProvenance(labelProvenance(mine));
-  });
+  return { fileName, valid: true, errors: [], gaps: result.gaps, headline, methods: summary(result.rows), provenance: provenanceByMethod(result.rows), questions };
 }
 
 /** Text safe to place inside HTML element content or a quoted attribute. */

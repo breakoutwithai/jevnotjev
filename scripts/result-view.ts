@@ -8,6 +8,7 @@ import { decodeUtf8, truthLabel, validate, type ParsedRow } from "../src/format/
 import { fileSeed } from "../src/core/calc.ts";
 import {
   ARMS,
+  armsInFile,
   cohortMetrics,
   cohorts,
   costPerAccepted,
@@ -334,10 +335,11 @@ export async function renderResultView(csvText: string, source: string): Promise
   if (result.errors.length > 0) throw new Error(`records file is invalid:\n${result.errors.join("\n")}`);
   const seed = await fileSeed(csvText);
   const keys = cohorts(result.rows);
+  const arms = armsInFile(result.rows);
   const sections = keys.map((key) => {
     const metrics = cohortMetrics(result.rows, key);
     const shared = keys.some((other) => other !== key && other.questionId === key.questionId);
-    return questionSection(metrics, cohortRows(result.rows, key), verdict(metrics, seed), shared);
+    return questionSection(metrics, cohortRows(result.rows, key), verdict(metrics, seed, arms), shared);
   });
   const d06 = isD06(source);
   const sourceLine = d06

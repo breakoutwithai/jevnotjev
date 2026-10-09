@@ -134,9 +134,13 @@ bun src/decide/cli.ts validate records.csv
 
 A `run` stopped by the budget cap still writes every row: the calls not made are `outcome=error`, `reason=budget`, and the summary has `stoppedByBudget: true`. The cap is checked before each call against an upper-bound estimate; the `claude-cli` transport has no output cap, so with it the budget can be overshot by at most one call, and the summary's `budgetNote` says so.
 
+An empty records file reports "the file is empty: expected a header row and data rows". A header with no records reports "file has no data rows". Provider error rows name rate limits, server errors, other HTTP failures and timeouts in `evidence.reason`. Every `ask` and `run` JSON summary lists distinct reasons in `errorReasons`, including `run --out`; the records CSV keeps its existing columns and omits evidence.
+
 ### Test-only: recorded fixtures
 
 `JNJ_DECIDE_FIXTURES=<file>` makes `ask` and `run` answer every provider call from a JSON file of recorded responses (`{"hosts": {"api.typesafe.ai": {"http": 200, "response": {...}}}, "cli": {"stdout": "...", "exitCode": 0}}`) and never call a provider or start a `claude` binary. A request carrying no key gets a 401. The CLI prints a `NOTE` on stderr when it is set, and stamps every row: `evidence.replayed_fixture` is `true` and the `run_id` gets a `-fixture` suffix (the suffix is what reaches the CSV, where evidence is not a column). It exists for `src/decide/cli.test.ts`; never set it outside a test.
+
+In tests, fixture `http: 0` simulates a provider timeout by raising `TimeoutError` without making a network request.
 
 ## MCP
 

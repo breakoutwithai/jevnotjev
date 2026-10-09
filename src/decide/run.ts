@@ -220,6 +220,12 @@ async function readJson(res: Response): Promise<unknown> {
   }
 }
 
+function providerHttpReason(arm: ProviderArm, status: number): string {
+  if (status === 429) return `${arm}: rate limited by the provider (HTTP 429)`;
+  if (status >= 500) return `${arm}: provider server error (HTTP ${status})`;
+  return `${arm}: provider returned HTTP ${status}`;
+}
+
 /** Run many cases. With options.dryRun it returns the estimate and makes no call. */
 export async function run(req: DecideRequest, deps: RunDeps = {}): Promise<RunResult> {
   const r = resolve(req);
@@ -354,11 +360,14 @@ export async function run(req: DecideRequest, deps: RunDeps = {}): Promise<RunRe
       const secret = key ?? "";
       const headers = a.arm === "jev" ? jevHeaders(secret) : a.arm === "decisions" ? decisionsHeaders(secret) : messagesHeaders(secret);
       let parsed: CallResult | null = null;
+      let fetchError: unknown = null;
       try {
         const res = await doFetch(url, { method: "POST", headers, body: JSON.stringify(body), ...(signal !== undefined ? { signal } : {}) });
         const json = await readJson(res);
         parsed = a.arm === "jev" ? parseJev(res.status, json, body, r.questions) : a.arm === "decisions" ? parseDecisions(res.status, json, r.questions) : parseMessages(res.status, json, r.questions);
-      } catch {
+        if (res.status < 200 || res.status > 299) parsed = { ...parsed, results: all("error", providerHttpReason(a.arm, res.status)) };
+      } catch (error) {
+        fetchError = error;
         parsed = null;
       }
       const latencyMs = Math.max(0, Math.round(now() - start));
@@ -371,7 +380,8 @@ export async function run(req: DecideRequest, deps: RunDeps = {}): Promise<RunRe
       }
       if (parsed === null) {
         spentUsd += projected;
-        emit(c, a, all("error", "network error"), { costUsd: null, tokensIn: null, tokensOut: null, latencyMs, ...(a.arm === "llm" ? { transport: "messages-api" } : {}) });
+        const timedOut = fetchError instanceof Error && fetchError.name === "TimeoutError";
+        emit(c, a, all("error", timedOut ? `${a.arm}: provider request timed out` : `${a.arm}: network error contacting provider`), { costUsd: null, tokensIn: null, tokensOut: null, latencyMs, ...(a.arm === "llm" ? { transport: "messages-api" } : {}) });
         continue;
       }
       const costUsd = parsed.tokensIn === null ? null : callCost(a.price, parsed.tokensIn, parsed.tokensOut ?? 0);

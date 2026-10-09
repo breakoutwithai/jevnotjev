@@ -1,0 +1,24 @@
+# Broken input paths
+
+These are the user-readable lines and JSON field values asserted by the named tests. A CLI file path changes with the supplied path, so the table quotes the complete fixed message after that path. The exit codes follow [api.md](api.md#exit-codes): invalid records give CLI verdict 2, validate 1, MCP validate `exit_code: 1`, and HTTP validate status 200 with `exit_code: 1`. Provider failures produce error rows with exit 0 for `ask` and `run`. Every JSON summary includes `errorReasons`; exported CSV rows retain `outcome=error` for each case and arm, but have no evidence column.
+
+Backstage import refuses a file containing undecodable bytes rather than importing with a warning. Replacing bad bytes during decoding would silently change case text and could produce an answer to text the user never supplied.
+
+| Input | Surfaces | Message | Test name |
+|---|---|---|---|
+| Empty records CSV | CLI, MCP, API verdict and validate | "the file is empty: expected a header row and data rows" (verdict prefixes the supplied file name) | `D16-CLI-EMPTY`, `D16-MCP-EMPTY`, `D16-API-EMPTY` |
+| Header-only records CSV | CLI, MCP, API verdict and validate | "file has no data rows" | `D16-CLI-HEADER`, `D16-MCP-HEADER`, `D16-API-HEADER` |
+| Zero cases | CLI, MCP, API run and estimate | CLI: "ERROR no cases"<br>MCP run: "MCP error -32602: Input validation error: Invalid arguments for tool run: no cases at cases"; estimate names `estimate` in place of `run`<br>API error: "cases: no cases" | `D16-CLI-CASES`, `D16-MCP-CASES`, `D16-API-CASES` |
+| Empty or array case file | CLI ask | "the case file is empty: expected one case object"; "case must be an object" | `D16-CLI-ASK-EMPTY` |
+| Missing case | MCP and API ask | MCP: "MCP error -32602: Input validation error: Invalid arguments for tool ask: Invalid input: expected object, received undefined at case"<br>API error: "case: Invalid input: expected object, received undefined" | `D16-MCP-ASK-EMPTY`, `D16-API-ASK-EMPTY` |
+| Both arms have zero accepted | CLI, MCP, API verdict | "not enough evidence: Jev and the LLM both have 0 accepted; neither answer is being accepted" | `D16-CLI-VERDICT r1-both-zero.csv`, `D16-MCP-VERDICT r1-both-zero.csv`, `D16-API-VERDICT r1-both-zero.csv` |
+| Missing Jev arm | CLI, MCP, API verdict | "not enough evidence: no Jev results" | `D16-CLI-VERDICT r1-no-jev.csv`, `D16-MCP-VERDICT r1-no-jev.csv`, `D16-API-VERDICT r1-no-jev.csv` |
+| Missing LLM arm | CLI, MCP, API verdict | "not enough evidence: no LLM results" | `D16-CLI-VERDICT r1-no-llm.csv`, `D16-MCP-VERDICT r1-no-llm.csv`, `D16-API-VERDICT r1-no-llm.csv` |
+| Unknown arm | CLI, MCP, API ask and run | CLI: "--arms: unknown arm \"mystery\"; accepted: jev, decisions, llm, rule"<br>MCP ask: "MCP error -32602: Input validation error: Invalid arguments for tool ask: Unrecognized key: \"mystery\" at arms"; run names `run` in place of `ask`<br>API error: "arms: Unrecognized key: \"mystery\"" | `D16-CLI-ARM`, `D16-MCP-ARM`, `D16-API-ARM` |
+| Provider HTTP 429 | CLI, MCP, API ask and run | "jev: rate limited by the provider (HTTP 429)"; "decisions: rate limited by the provider (HTTP 429)"; "llm: rate limited by the provider (HTTP 429)" | `D16-CLI-PROVIDER`, `D16-MCP-PROVIDER`, `D16-API-PROVIDER` (429) |
+| Provider HTTP 503 | CLI, MCP, API ask and run | "jev: provider server error (HTTP 503)"; "decisions: provider server error (HTTP 503)"; "llm: provider server error (HTTP 503)" | `D16-CLI-PROVIDER`, `D16-MCP-PROVIDER`, `D16-API-PROVIDER` (503) |
+| Provider HTTP 418 | CLI, MCP, API ask and run | "jev: provider returned HTTP 418"; "decisions: provider returned HTTP 418"; "llm: provider returned HTTP 418" | `D16-CLI-PROVIDER`, `D16-MCP-PROVIDER`, `D16-API-PROVIDER` (418) |
+| Provider TimeoutError | CLI, MCP, API ask and run | "jev: provider request timed out"; "decisions: provider request timed out"; "llm: provider request timed out" | `D16-CLI-PROVIDER`, `D16-MCP-PROVIDER`, `D16-API-PROVIDER` (0) |
+| Provider network or AbortError | MCP, API ask | "jev: network error contacting provider" | `D16-MCP-NETWORK`, `D16-MCP-ABORT`, `D16-API-NETWORK`, `D16-API-ABORT` |
+| Undecodable records bytes | CLI verdict and validate | `ERROR cannot read <file> as UTF-8: The encoded data was not valid for encoding utf-8` (`<file>` is the supplied path) | `D16-CLI-UTF8` |
+| Undecodable case CSV bytes | Backstage import | "Case CSV has undecodable UTF-8 bytes on line 2. Save it as UTF-8 and import again."; for two bad lines: "Case CSV has undecodable UTF-8 bytes on lines 2, 4. Save it as UTF-8 and import again." | `D16-BACKSTAGE-UTF8`, `D16-BACKSTAGE-LINE`, `D16-BACKSTAGE-LINES` |

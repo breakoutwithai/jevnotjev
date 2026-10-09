@@ -81,6 +81,7 @@ export function fixtureDeps(set: FixtureSet): Pick<RunDeps, "fetch" | "spawn" | 
     if (fx === undefined) throw new Error("no fixture for this host");
     const keyed = [init.headers.authorization, init.headers["x-api-key"]].some((v) => v !== undefined && v !== "" && v !== "Bearer ");
     if (!keyed) return new Response(JSON.stringify({ error: "no key" }), { status: 401 });
+    if (fx.http === 0) throw new DOMException("Fixture request timed out", "TimeoutError");
     return new Response(JSON.stringify(fx.response), { status: fx.http, headers: { "content-type": "application/json" } });
   };
   const cli = set.cli;
@@ -145,7 +146,11 @@ async function spendInput(c: SpendCommand): Promise<SpendInput> {
   const questions = must(parseQuestions(await readText(c.questions)), c.questions);
   let cases: readonly Case[];
   if (c.cases !== undefined) cases = must(parseCases(await readText(c.cases), c.cases), c.cases);
-  else if (c.casePath !== undefined) cases = [must(parseCase(await readText(c.casePath)), c.casePath)];
+  else if (c.casePath !== undefined) {
+    const text = await readText(c.casePath);
+    if (text.length === 0) throw new CliInputError(`${c.casePath}: the case file is empty: expected one case object`);
+    cases = [must(parseCase(text), c.casePath)];
+  }
   else cases = [{ id: c.caseId ?? "case-1", input: c.input ?? "" }];
   const rule: RuleArm | null = c.rulePath === undefined ? null : must(parseRule(await readText(c.rulePath)), c.rulePath);
   const options = {
@@ -215,6 +220,7 @@ export async function spendTool(
   const summary = {
     calls: result.calls, spentUsd: result.spentUsd, stoppedByBudget: result.stoppedByBudget, stoppedByAbort: result.stoppedByAbort,
     budgetNote: result.budgetNote, counts: result.counts, estimate: result.estimate,
+    errorReasons: [...new Set(result.rows.filter((row) => row.outcome === "error").map((row) => row.evidence.reason).filter((reason): reason is string => reason !== undefined))],
   };
   if (cmd === "run" && out === undefined && inline === "csv") return { code: EXIT.ok, body: { records: rowsToCsv(result.rows), ...summary }, errors: [] };
   if (cmd === "ask" || out === undefined) return { code: EXIT.ok, body: { rows: result.rows, ...summary }, errors: [] };
@@ -253,6 +259,7 @@ export async function verdictTool(file: string, question: string | undefined): P
 
 /** verdictTool over records text already in memory (the HTTP API); `file` names the input in errors. */
 export async function verdictOfText(text: string, file: string, question: string | undefined): Promise<ToolAnswer> {
+  if (text.length === 0) return { code: EXIT.invalid, body: null, errors: [`${file}: the file is empty: expected a header row and data rows`] };
   const result = validate(text);
   if (result.errors.length > 0) return { code: EXIT.invalid, body: null, errors: result.errors };
   const groups = groupCohorts(result.rows).filter((g) => question === undefined || g.key.questionId === question);
@@ -285,6 +292,10 @@ export async function validateTool(file: string): Promise<ToolAnswer> {
 
 /** validateTool over records text already in memory (the HTTP API). */
 export function validateOfText(text: string): ToolAnswer {
+  if (text.length === 0) {
+    const message = "the file is empty: expected a header row and data rows";
+    return { code: 1, body: { valid: false, exit_code: 1, errors: [message], gaps: [], summary: "INVALID", lines: [`ERROR ${message}`, "INVALID"] }, errors: [message] };
+  }
   const result = validate(text);
   const { lines, exitCode } = report(result);
   const body = { valid: exitCode === 0, exit_code: exitCode, errors: result.errors, gaps: result.gaps, summary: lines.at(-1) ?? "", lines };

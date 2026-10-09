@@ -1714,12 +1714,34 @@ export class CaseImportState {
     return (await this.readImport(text))?.cases;
   }
   /** As read, with the optional label column's labels (labelling loop M3). */
-  async readImport(text: Promise<string>): Promise<CaseImport | undefined> {
+  async readImport(text: Promise<string | ArrayBuffer>): Promise<CaseImport | undefined> {
     const generation = ++this.#generation;
     this.#pending = true;
     try {
-      const csv = await text;
+      const input = await text;
       if (generation !== this.#generation) return undefined;
+      let csv: string;
+      if (typeof input === "string") csv = input;
+      else {
+        const bytes = new Uint8Array(input);
+        const decoder = new TextDecoder("utf-8", { fatal: true });
+        try {
+          csv = decoder.decode(bytes);
+        } catch {
+          const lines: number[] = [];
+          let start = 0;
+          let line = 1;
+          for (let i = 0; i <= bytes.length; i++) {
+            if (i !== bytes.length && bytes[i] !== 10 && bytes[i] !== 13) continue;
+            try { decoder.decode(bytes.subarray(start, i)); }
+            catch { lines.push(line); }
+            if (bytes[i] === 13 && bytes[i + 1] === 10) i++;
+            start = i + 1;
+            line++;
+          }
+          throw new Error(`Case CSV has undecodable UTF-8 bytes on ${lines.length === 1 ? "line" : "lines"} ${lines.join(", ") || "unknown"}. Save it as UTF-8 and import again.`);
+        }
+      }
       return parseCaseImport(csv);
     } catch (error) {
       if (generation !== this.#generation) return undefined;

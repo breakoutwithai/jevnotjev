@@ -60,7 +60,7 @@ export const API_V1_ROUTES: readonly (readonly ["GET" | "POST", string])[] = [
 ];
 
 const questions = z.array(questionArg).min(1).max(API_V1_LIMITS.maxQuestions);
-const cases = z.array(caseArg).min(1).max(API_V1_LIMITS.maxCases);
+const cases = z.array(caseArg).min(1, "no cases").max(API_V1_LIMITS.maxCases);
 const spendShape = { questions, arms: armsArg.optional(), options: optionsArg.optional() };
 const BODIES = {
   estimate: z.strictObject({ ...spendShape, cases }),
@@ -68,8 +68,8 @@ const BODIES = {
   // No `out`: the HTTP run writes no server file. A body naming one is rejected as an unknown key.
   // options.format "csv" returns the rows as one `records` CSV string, the text verdict and validate take.
   run: z.strictObject({ ...spendShape, cases, options: optionsArg.extend({ format: z.enum(["rows", "csv"]).optional().describe("rows (default) or csv") }).optional() }),
-  verdict: z.strictObject({ records: z.string().min(1).describe("jnj-record CSV text"), question: z.string().optional() }),
-  validate: z.strictObject({ records: z.string().min(1).describe("jnj-record CSV text") }),
+  verdict: z.strictObject({ records: z.string().describe("jnj-record CSV text"), question: z.string().optional() }),
+  validate: z.strictObject({ records: z.string().describe("jnj-record CSV text") }),
 };
 
 const HEADERS = { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" };

@@ -73,7 +73,7 @@ export type Outcome = "answered" | "refused" | "unsupported" | "error";
 
 /** What a row keeps beside the record columns: never a CSV column, never a key. */
 export interface Evidence {
-  /** Why a row is not answered: "budget", "missing key: ...", "http 500", "reply outside answer_set", ... */
+  /** Why a row is not answered: "budget", "missing key: ...", "jev: provider server error (HTTP 500)", ... */
   readonly reason?: string;
   /** Probability per answer name (choice) or level label (score). */
   readonly probabilities?: Readonly<Record<string, number>>;

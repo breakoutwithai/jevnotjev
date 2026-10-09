@@ -1,5 +1,5 @@
 {
-  "minFiles": 100,
+  "minFiles": 103,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -46,6 +46,7 @@
     "scripts/uc13/run-arms.test.ts": 15,
     "scripts/uc13/stage-demo.test.ts": 15,
     "src/backstage/api-tokens.test.ts": 3,
+    "src/backstage/api-v1.broken-paths.test.ts": 22,
     "src/backstage/api-v1.test.ts": 31,
     "src/backstage/auth-routes.test.ts": 16,
     "src/backstage/auth.test.ts": 18,
@@ -57,13 +58,13 @@
     "src/backstage/demo-notice.test.ts": 7,
     "src/backstage/house-key.test.ts": 7,
     "src/backstage/log.test.ts": 9,
-    "src/backstage/main.dom.test.ts": 43,
+    "src/backstage/main.dom.test.ts": 45,
     "src/backstage/page-catchup.test.ts": 5,
     "src/backstage/page-ux.test.ts": 10,
     "src/backstage/page.test.ts": 7,
     "src/backstage/providers.test.ts": 23,
     "src/backstage/run-gate.test.ts": 6,
-    "src/backstage/run.test.ts": 66,
+    "src/backstage/run.test.ts": 71,
     "src/backstage/scene-draft.test.ts": 8,
     "src/backstage/server.test.ts": 24,
     "src/backstage/signout.test.ts": 7,
@@ -81,6 +82,7 @@
     "src/db/tests/review-r2.test.ts": 19,
     "src/db/tests/review-r3.test.ts": 8,
     "src/db/tests/roundtrip.test.ts": 10,
+    "src/decide/broken-paths.test.ts": 21,
     "src/decide/cli.test.ts": 27,
     "src/decide/decide.test.ts": 34,
     "src/docs/flow-metrics.test.ts": 26,
@@ -99,6 +101,7 @@
     "src/labels/rank.test.ts": 9,
     "src/labels/starter-packs.test.ts": 8,
     "src/labels/suggest.test.ts": 10,
+    "src/mcp/broken-paths.test.ts": 23,
     "src/mcp/server.test.ts": 8,
     "src/shows/posters.test.ts": 6
   }

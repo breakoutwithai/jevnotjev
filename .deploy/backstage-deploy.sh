@@ -23,7 +23,7 @@ if [[ -n "$ROLLBACK_SHA" ]]; then
  SHA="$ROLLBACK_SHA"
 fi
 if $DRY_RUN; then
- log_info "Would require clean HEAD == fresh origin/main and a merged issue-linked PR; build locally, validate/package artifacts, verify configured service and scoped nginx proxy."
+ log_info "Would require clean HEAD == fresh origin/main and a PR merged into main for HEAD; build locally, validate/package artifacts, verify configured service and scoped nginx proxy."
  log_info "Would promote ${ROOT}/${SHA}, restart ONLY ${SERVICE}, verify both version endpoints and neighbours; rollback the pair on failure."
  [[ -z "$ROLLBACK_SHA" ]] || log_info "Rollback requires ${ROOT}/${SHA}/.verified and restores that complete pair."
  exit 0
@@ -36,9 +36,9 @@ if [[ -z "$ROLLBACK_SHA" ]]; then
  backstage_clean_sources || fail "Dirty or untracked shippable sources present; refusing to build"
  git fetch origin main --no-tags
  [[ "$SHA" == "$(git rev-parse origin/main)" ]] || fail "HEAD is not fresh origin/main"
- # A merged PR and issue link are required even when main contains the SHA.
+ # A PR merged into main is required even when main contains the SHA (#91: no fixed issue number).
  PR_JSON="$(gh api "repos/breakoutwithai/jevnotjev/commits/${SHA}/pulls")"
- printf '%s' "$PR_JSON" | bun -e 'const p=await Bun.stdin.json();if(!Array.isArray(p)||!p.some(x=>x.merged_at&&x.base?.ref==="main"&&/#67\b/.test(x.body??"")))process.exit(1)' || fail "No merged main PR linked to #67 for HEAD"
+ printf '%s' "$PR_JSON" | bun .deploy/backstage-merged-pr.ts || fail "No PR merged into main for HEAD"
  BUILD_DIR="$(bun scripts/backstage-build.ts --committed)"
  ARCHIVE="$(bun .deploy/backstage-package.ts "$BUILD_DIR" "$SHA")"
 fi

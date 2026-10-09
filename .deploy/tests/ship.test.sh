@@ -132,6 +132,13 @@ case "\${1:-}" in
         exec "${REAL_GIT}" "\$@" >/dev/null 2>&1 ;;
     diff) [ -z "\${FAKE_GIT_DIFF_FAIL:-}" ] || exit 128 ;;
     log) [ -z "\${FAKE_GIT_LOG_FAIL:-}" ] || exit 128 ;;
+    status)
+        # FAKE_GIT_STATUS_FAIL_FROM=N: the Nth and later \`git status\` calls exit 128 with no output.
+        if [ -n "\${FAKE_GIT_STATUS_FAIL_FROM:-}" ]; then
+            n=\$(( \$(cat "\${FAKE_STATE}/git-status.n" 2>/dev/null || echo 0) + 1 ))
+            echo "\$n" > "\${FAKE_STATE}/git-status.n"
+            [ "\$n" -lt "\${FAKE_GIT_STATUS_FAIL_FROM}" ] || { echo 'fatal: injected git status failure' >&2; exit 128; }
+        fi ;;
     fetch) case "\$*" in *refs/tags/*)
         [ -z "\${FAKE_GIT_TAGFETCH_FAIL:-}" ] || exit 1
         # The race: a remote tag created after this fetch is not seen locally.
@@ -139,7 +146,39 @@ case "\${1:-}" in
 esac
 exec "${REAL_GIT}" "\$@"
 EOF
-chmod +x "${FAKEBIN}/ssh" "${FAKEBIN}/curl" "${FAKEBIN}/gh" "${FAKEBIN}/git"
+REAL_BUN="$(command -v bun)"
+cat > "${FAKEBIN}/bun" <<EOF
+#!/usr/bin/env bash
+# The dependency check and the Jev checklist question are faked here so a test never runs the real
+# test gate (which runs this file) or calls Jev. Each logs to bun.log; FAKE_BUN_*_RC fail a step.
+# Every other bun command (bun -e, backstage-deps.ts) is the real bun.
+log() { printf '%s\n' "\$ORIG" >> "\${FAKE_STATE}/bun.log"; }
+# The log keeps the full invocation (e.g. --no-env-file); dispatch ignores that one flag.
+ORIG="\$*"
+[ "\${1:-}" != --no-env-file ] || shift
+case "\${1:-} \${2:-}" in
+    "install --frozen-lockfile") log "\$*"; echo "\${FAKE_BUN_INSTALL_OUT:-installed}"; exit "\${FAKE_BUN_INSTALL_RC:-0}" ;;
+    "run typecheck") log "\$*"; exit "\${FAKE_BUN_TYPECHECK_RC:-0}" ;;
+    "scripts/gate.ts ")
+        log "\$*"
+        echo "   7 /    7  .deploy/tests/ship.test.sh"
+        echo "\${FAKE_GATE_LINE:-gate: PASS files=3 tests=42}"
+        # The checkout changing while the gate runs: a new commit, or a tracked edit.
+        if [ -n "\${FAKE_GATE_ADVANCES_HEAD:-}" ]; then
+            echo moved >> README && "${REAL_GIT}" commit -qam "moved during the gate" >/dev/null 2>&1
+        fi
+        [ -z "\${FAKE_GATE_DIRTIES_TREE:-}" ] || echo dirty >> README
+        exit "\${FAKE_BUN_GATE_RC:-0}" ;;
+    "scripts/deploy-checklist.ts --checklist")
+        log "\$*"
+        cp "\$3" "\${FAKE_STATE}/checklist.txt"
+        echo "Release checklist:"; sed 's/^/  /' "\$3"
+        echo "jev: \${FAKE_JEV_ANSWER:-yes} (p(yes)=0.930, jev-1.13.0); key from JEV_API_KEY (process env)"
+        exit "\${FAKE_JEV_RC:-0}" ;;
+esac
+exec "${REAL_BUN}" "\$@"
+EOF
+chmod +x "${FAKEBIN}/ssh" "${FAKEBIN}/curl" "${FAKEBIN}/gh" "${FAKEBIN}/git" "${FAKEBIN}/bun"
 KEY="${FAKEBIN}/key"; : > "$KEY"
 export JEVNOTJEV_SSH_KEY="$KEY"
 
@@ -598,7 +637,8 @@ STATUS_PW="pw-status-NEVER-LOGGED"
 make_fixture
 serve static "$C2"; serve backstage "$C2"
 out="$(BACKSTAGE_CURL_CONFIG= FAKE_AUTH=1 ship --status 2>&1)"; rc=$?
-[[ $rc -eq 1 && "$out" == *"BACKSTAGE_CURL_CONFIG"* && "$out" != *"401"* ]] \
+# Hex SHAs are removed first: a random fixture SHA containing "401" is not a 401 status.
+[[ $rc -eq 1 && "$out" == *"BACKSTAGE_CURL_CONFIG"* && "$(printf '%s' "$out" | sed -E 's/[0-9a-f]{7,40}//g')" != *"401"* ]] \
     && ok "auth snippet + BACKSTAGE_CURL_CONFIG unset -> status fails naming the variable, not a bare 401" \
     || nope "status auth no config: rc=${rc}; out: ${out}"
 grep -q 'api/backstage' "${FAKE_STATE}/curl.log" 2>/dev/null \
@@ -811,12 +851,17 @@ drop_fixture
 make_fixture
 out="$(ship --no-release 2>&1)"; rc=$?
 first_lock="$(grep -n '^mkdir /var/lock/jevnotjev-ship$' "${FAKE_STATE}/ssh.log" | head -1 | cut -d: -f1)"
-first_probe="$(grep -n 'jevnotjev-backstage-current' "${FAKE_STATE}/ssh.log" | head -1 | cut -d: -f1)"
+# Gate panel #1 (c90517a): a lock-free, read-only state read now precedes the lock (it decides
+# whether the dependency check runs). The authoritative read is under the lock, and nothing is
+# changed on the host before the lock is taken.
+first_probe="$(grep -n 'jevnotjev-backstage-current' "${FAKE_STATE}/ssh.log" | awk -F: -v l="${first_lock:-0}" '$1 > l {print $1; exit}')"
 last_unlock="$(grep -n '^rmdir /var/lock/jevnotjev-ship$' "${FAKE_STATE}/ssh.log" | tail -1 | cut -d: -f1)"
 last_probe="$(grep -n 'jevnotjev-backstage-current' "${FAKE_STATE}/ssh.log" | tail -1 | cut -d: -f1)"
-[[ $rc -eq 0 && -n "$first_lock" && -n "$last_unlock" && "$first_lock" -lt "$first_probe" && "$last_unlock" -gt "$last_probe" ]] \
-    && ok "#6 the ship lock is taken before the first state read and released after the final verification" \
-    || nope "#6 lock order: rc=${rc}, lock ${first_lock:-none}, unlock ${last_unlock:-none}, probes ${first_probe:-?}-${last_probe:-?}"
+first_change="$(mutating_commands | head -1)"
+[[ $rc -eq 0 && -n "$first_lock" && -n "$last_unlock" && -n "$first_probe" && "$last_unlock" -gt "$last_probe" \
+   && "$first_change" == "mkdir /var/lock/jevnotjev-ship" ]] \
+    && ok "#6 the ship lock is the first host change, a state read runs under it, and it is released after the final verification" \
+    || nope "#6 lock order: rc=${rc}, lock ${first_lock:-none}, unlock ${last_unlock:-none}, probes ${first_probe:-?}-${last_probe:-?}, first change '${first_change}'"
 drop_fixture
 
 make_fixture
@@ -1023,6 +1068,288 @@ out="$(ship --module backstage --rollback "$SHA40" 2>&1)"; rc=$?
 [[ $rc -eq 0 && "$out" == *"PASS S1 backstage version ${SHA40}"* ]] \
     && ok "backstage rollback that serves the given SHA passes the closing verify" \
     || nope "backstage rollback ok: rc=${rc}; out: ${out}"
+drop_fixture
+
+echo
+echo "[T1] dependency check: lockfile, typecheck and the test gate run before the host lock"
+bunlog() { tr '\n' '|' < "${FAKE_STATE}/bun.log" 2>/dev/null; }
+host_touched() { [[ -s "${FAKE_STATE}/ssh.log" ]]; }
+# Read-only state probes may precede the dependency check; the lock and any change may not.
+host_mutated() { [[ -n "$(mutating_commands)" ]]; }
+
+make_fixture
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$(bunlog)" == "install --frozen-lockfile|run typecheck|scripts/gate.ts|--no-env-file scripts/deploy-checklist.ts --checklist "* ]] \
+    && ok "a deploy runs bun install --frozen-lockfile, typecheck, the gate, then the Jev checklist, in that order" \
+    || nope "deps order: rc=${rc}, bun.log '$(bunlog)'; out: ${out}"
+drop_fixture
+
+# Sweep #2: Bun loads .env.local from cwd on its own; the checklist must run with --no-env-file so
+# resolveKey alone decides precedence and names the source.
+make_fixture
+out="$(ship 2>&1)"; rc=$?
+grep -qx -- "--no-env-file scripts/deploy-checklist.ts --checklist .*" "${FAKE_STATE}/bun.log" \
+    && ok "sweep #2: the Jev checklist runs as bun --no-env-file, so cwd .env.local cannot override the documented key order" \
+    || nope "sweep #2: checklist invocation '$(bunlog)'"
+drop_fixture
+
+# Sweep #4/#5: a failing git status is never 'clean', and a checklist that cannot be built stops
+# the deploy before Jev is asked.
+make_fixture
+out="$(FAKE_GIT_STATUS_FAIL_FROM=1 ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"git status failed"* && -z "$(calls)" && ! -s "${FAKE_STATE}/bun.log" ]] && ! host_touched \
+    && ok "sweep #4: git status failing at the preflight refuses the deploy (exit 1), never reads as a clean tree" \
+    || nope "sweep #4 preflight: rc=${rc}, bun.log '$(bunlog)', calls '$(calls)'; out: ${out}"
+drop_fixture
+
+make_fixture
+out="$(FAKE_GIT_STATUS_FAIL_FROM=2 ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"git status failed"* && "$out" == *"release checklist could not be built"* \
+   && "$out" != *"tracked tree clean: yes"* && "$(bunlog)" != *"deploy-checklist"* && -z "$(calls)" && -z "$(tags)" ]] \
+    && grep -qx 'rmdir /var/lock/jevnotjev-ship' "${FAKE_STATE}/ssh.log" \
+    && ok "sweep #4/#5: git status failing while the checklist is built: exit 1, Jev not asked, no module script, lock released" \
+    || nope "sweep #4/#5 checklist: rc=${rc}, bun.log '$(bunlog)', calls '$(calls)'; out: ${out}"
+ls "${TMPDIR}"/jevnotjev-checklist.* >/dev/null 2>&1 \
+    && nope "sweep #5: the private checklist directory was left behind" \
+    || ok "sweep #5: the private checklist directory is removed when the checklist fails"
+drop_fixture
+
+make_fixture
+out="$(FAKE_GIT_STATUS_FAIL_FROM=2 ship --dry-run 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"release checklist could not be built"* && "$out" != *"tracked tree clean: yes"* && -z "$(calls)" ]] \
+    && ok "sweep #4/#5: --dry-run also refuses a checklist it could not build" \
+    || nope "sweep #4/#5 dry-run: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+
+# Re-sweep #1: the checks are bound to the revision they ran on. HEAD moving (or the tree changing)
+# while the gate runs must stop the deploy before any module script, naming both SHAs.
+make_fixture
+out="$(FAKE_GATE_ADVANCES_HEAD=1 ship 2>&1)"; rc=$?
+moved="$("$REAL_GIT" -C "$WORK" rev-parse HEAD)"
+[[ $rc -eq 1 && "$moved" != "$C2" && "$out" == *"checked ${C2}"* && "$out" == *"now ${moved}"* \
+   && -z "$(calls)" && -z "$(tags)" && -z "$(pushes)" ]] \
+    && grep -qx 'rmdir /var/lock/jevnotjev-ship' "${FAKE_STATE}/ssh.log" \
+    && ok "re-sweep #1: HEAD advancing during the gate exits 1 naming both SHAs; no module script, no tag, lock released" \
+    || nope "re-sweep #1 HEAD moved: rc=${rc}, calls '$(calls)', moved ${moved}; out: ${out}"
+drop_fixture
+
+make_fixture
+out="$(FAKE_GATE_DIRTIES_TREE=1 ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"tracked tree changed during the checks"* && -z "$(calls)" && -z "$(tags)" ]] \
+    && ok "re-sweep #1: a tracked edit during the gate exits 1 before any module script" \
+    || nope "re-sweep #1 tree dirtied: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+
+for step in INSTALL:"bun install --frozen-lockfile" TYPECHECK:"bun run typecheck" GATE:"bun scripts/gate.ts"; do
+    var="FAKE_BUN_${step%%:*}_RC"; name="${step#*:}"
+    make_fixture
+    out="$(env "${var}=1" bash -c 'cd "$1" && PATH="$2:$PATH" bash .deploy/ship.sh' _ "$WORK" "$FAKEBIN" 2>&1)"; rc=$?
+    [[ $rc -eq 1 && "$out" == *"Dependency check failed at '${name}'"* && -z "$(calls)" && -z "$(tags)" ]] && ! host_mutated \
+        && ok "${name} failing exits 1 naming the step; no host lock or change, no module script, no tag" \
+        || nope "${name} fail: rc=${rc}, calls '$(calls)', ssh '$(cat "${FAKE_STATE}/ssh.log" 2>/dev/null)'; out: ${out}"
+    drop_fixture
+done
+
+make_fixture
+out="$(FAKE_GATE_LINE='gate: PASS files=0 tests=0' ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"reported no passing tests"* && -z "$(calls)" ]] && ! host_mutated \
+    && ok "a gate that exits 0 with tests=0 is a failure: exit 1 before the host lock" \
+    || nope "gate tests=0: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+
+make_fixture
+"$REAL_GIT" -C "$WORK" checkout -q "$C1" >/dev/null 2>&1
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"is not origin/main"* && ! -s "${FAKE_STATE}/bun.log" ]] \
+    && ok "HEAD != origin/main refuses before the dependency check runs" \
+    || nope "preflight order: rc=${rc}, bun.log '$(bunlog)'; out: ${out}"
+drop_fixture
+
+make_fixture
+out="$(ship --dry-run 2>&1)"; rc=$?
+[[ $rc -eq 0 && ! -s "${FAKE_STATE}/bun.log" && "$out" == *"would run, in order: bun install --frozen-lockfile; bun run typecheck; bun scripts/gate.ts"* \
+   && "$out" == *"jev: would ask whether the release is ready (dry-run, not asked)"* ]] \
+    && ok "--dry-run prints the dependency steps and the Jev question it would run, and runs neither" \
+    || nope "dry-run deps: rc=${rc}, bun.log '$(bunlog)'; out: ${out}"
+drop_fixture
+
+echo
+echo "[T1] Jev release checklist confirmation"
+
+make_fixture
+out="$(FAKE_JEV_ANSWER=no FAKE_JEV_RC=1 ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"Jev did not confirm the release checklist"* && -z "$(calls)" && -z "$(tags)" && -z "$(pushes)" && -z "$(ghcalls)" ]] \
+    && [[ -z "$(mutating_commands | grep -v '^mkdir /var/lock/jevnotjev-ship$' | grep -v '^rmdir /var/lock/jevnotjev-ship$')" ]] \
+    && grep -qx 'rmdir /var/lock/jevnotjev-ship' "${FAKE_STATE}/ssh.log" \
+    && ok "Jev answering no exits 1: no module script, no tag, no host change beyond the ship lock, which is released" \
+    || nope "jev no: rc=${rc}, calls '$(calls)', mutating '$(mutating_commands)'; out: ${out}"
+drop_fixture
+
+make_fixture
+out="$(ship 2>&1)"; rc=$?
+cl="$(cat "${FAKE_STATE}/checklist.txt" 2>/dev/null)"
+want_ok=true
+for want in "HEAD == origin/main: yes (HEAD ${C2}, origin/main ${C2})" "tracked tree clean: yes" \
+            "bun install --frozen-lockfile: pass" "bun run typecheck: pass" \
+            "bun scripts/gate.ts: pass (gate: PASS files=3 tests=42)" \
+            "static: deploy; serving ${C1}; drift none (sha differs, no module changes)" \
+            "backstage: deploy; serving ${C1}; drift none (sha differs, no module changes)" \
+            "setup present: static yes, backstage yes" "backstage curl config: set (private file)"; do
+    printf '%s\n' "$cl" | grep -qxF -- "$want" || { want_ok=false; echo "    missing checklist line: ${want}"; }
+done
+$want_ok && [[ $rc -eq 0 ]] && ok "the checklist Jev sees carries HEAD/main, clean tree, deps, typecheck, gate count, per-module drift, setup, curl config" \
+    || nope "checklist: rc=${rc}; ${cl}"
+grep -qF "## Release checklist and Jev" "${FAKE_STATE}/notes.md" && grep -qF "jev: yes (p(yes)=0.930, jev-1.13.0)" "${FAKE_STATE}/notes.md" \
+    && grep -qF "bun scripts/gate.ts: pass (gate: PASS files=3 tests=42)" "${FAKE_STATE}/notes.md" \
+    && ok "the GitHub release notes record the checklist and Jev's answer" \
+    || nope "release notes lack the checklist: $(cat "${FAKE_STATE}/notes.md" 2>/dev/null)"
+drop_fixture
+
+make_fixture
+out="$(FAKE_JEV_RC=1 ship --no-jev 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"--no-jev: deploying without asking Jev"* && "$(bunlog)" != *"deploy-checklist"* \
+   && "$(bunlog)" == *"scripts/gate.ts"* && "$(calls)" == "deploy.sh |backstage-deploy.sh |" ]] \
+    && grep -qF "jev: skipped (--no-jev)" "${FAKE_STATE}/notes.md" \
+    && ok "--no-jev skips only the question (logged, recorded in the release notes); the dependency check still runs" \
+    || nope "--no-jev: rc=${rc}, bun.log '$(bunlog)', calls '$(calls)'; out: ${out}"
+drop_fixture
+
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+out="$(FAKE_JEV_RC=1 ship --no-release 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"jev: not asked (every module is up to date)"* && "$(bunlog)" != *"deploy-checklist"* ]] \
+    && ok "with every module up to date, Jev is not asked and nothing deploys" \
+    || nope "all current jev: rc=${rc}, bun.log '$(bunlog)'; out: ${out}"
+drop_fixture
+
+make_fixture
+out="$(ship --help 2>&1)"
+[[ "$out" == *"--no-jev"* ]] && ok "--help lists --no-jev" || nope "--help lacks --no-jev"
+drop_fixture
+
+echo
+echo "[T1] gate panel on c90517a"
+
+# Panel #1: nothing to deploy -> no install, typecheck or gate (a retry that only needs the release
+# record must not wait minutes for, or be blocked by, the test gate).
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+out="$(FAKE_BUN_GATE_RC=1 ship 2>&1)"; rc=$?
+[[ $rc -eq 0 && ! -s "${FAKE_STATE}/bun.log" && -z "$(calls)" && "$out" == *"Dependency check: not run (every module is up to date)"* \
+   && "$out" == *"jev: not asked (every module is up to date)"* && "$("$REAL_GIT" -C "$WORK" cat-file -t "v${TODAY}.1" 2>/dev/null)" == tag ]] \
+    && ok "panel #1: every module current -> no install/typecheck/gate, Jev not asked, release still recorded" \
+    || nope "panel #1 all current: rc=${rc}, bun.log '$(bunlog)', calls '$(calls)'; out: ${out}"
+drop_fixture
+
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+out="$(ship --dry-run 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"Dependency check: not run (every module is up to date)"* && "$out" != *"would run, in order"* ]] \
+    && ok "panel #1: --dry-run with nothing to deploy says the dependency check would not run" \
+    || nope "panel #1 dry-run all current: rc=${rc}; out: ${out}"
+drop_fixture
+
+make_fixture
+out="$(ship 2>&1)"; rc=$?
+first_lock="$(grep -n '^mkdir /var/lock/jevnotjev-ship$' "${FAKE_STATE}/ssh.log" | head -1 | cut -d: -f1)"
+[[ $rc -eq 0 && "$(bunlog)" == "install --frozen-lockfile|run typecheck|scripts/gate.ts|"* && -n "$first_lock" ]] \
+    && ok "panel #1: with a module to deploy, the dependency check still runs, and the lock is taken after it" \
+    || nope "panel #1 deploy: rc=${rc}, bun.log '$(bunlog)'; out: ${out}"
+drop_fixture
+
+# Panel #2: refusals, not checklist items.
+make_fixture
+echo no > "${FAKE_STATE}/backstage_setup"
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"Backstage setup is missing"* && -z "$(calls)" && "$(bunlog)" != *"deploy-checklist"* && -z "$(tags)" ]] \
+    && grep -qx 'rmdir /var/lock/jevnotjev-ship' "${FAKE_STATE}/ssh.log" \
+    && ok "panel #2: backstage in the plan without setup refuses (exit 1) before any module script and before Jev" \
+    || nope "panel #2 setup: rc=${rc}, calls '$(calls)', bun.log '$(bunlog)'; out: ${out}"
+drop_fixture
+
+make_fixture
+serve static "$C0"; serve backstage "$C2"; echo no > "${FAKE_STATE}/backstage_setup"
+out="$(ship --no-release 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$(calls)" == "deploy.sh |" && "$out" != *"Backstage setup is missing"* ]] \
+    && ok "panel #2: the setup refusal applies only when backstage is in the plan (static-only deploy proceeds)" \
+    || nope "panel #2 setup scoped: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+
+make_fixture
+serve static "$C0"; serve backstage "$C2"
+chmod 644 "${FIX}/curl-config"
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"mode 0600"* && -z "$(calls)" && "$(bunlog)" != *"deploy-checklist"* ]] \
+    && ok "panel #2: a gated host with a non-private curl config refuses (exit 1) even for a static-only plan" \
+    || nope "panel #2 loose config: rc=${rc}, calls '$(calls)', bun.log '$(bunlog)'; out: ${out}"
+out="$(ship --dry-run 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"would refuse (exit 1)"* ]] \
+    && ok "panel #2: --dry-run reports the refusal it would make and stays exit 0" \
+    || nope "panel #2 loose config dry-run: rc=${rc}; out: ${out}"
+drop_fixture
+
+make_fixture
+out="$(BACKSTAGE_CURL_CONFIG= ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"export BACKSTAGE_CURL_CONFIG="* && -z "$(calls)" ]] \
+    && ok "panel #2: a gated host with no curl config refuses before any module script" \
+    || nope "panel #2 no config: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+
+# Panel #3: --no-jev only means something on a deploy.
+make_fixture
+nj_ok=true
+for action in "--status" "--verify" "--setup --module static" "--module static --rollback"; do
+    # shellcheck disable=SC2086
+    out="$(ship $action --no-jev 2>&1)"; rc=$?
+    [[ $rc -eq 2 && "$out" == *"--no-jev"* ]] || { nj_ok=false; echo "    ${action} --no-jev: rc=${rc}"; }
+done
+$nj_ok && [[ -z "$(calls)" ]] && ok "panel #3: --no-jev with --status, --verify, --setup or --rollback is a usage error (exit 2)" \
+    || nope "panel #3 usage: calls '$(calls)'"
+drop_fixture
+
+make_fixture
+out="$(ship --dry-run --no-jev 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"jev: would be skipped (--no-jev, dry-run)"* && "$out" != *"deploying without asking Jev"* ]] \
+    && ok "panel #3: --dry-run --no-jev says the question would be skipped, not that it is deploying" \
+    || nope "panel #3 dry-run: rc=${rc}; out: ${out}"
+drop_fixture
+
+# Panel #4: a backtick run in the checklist record cannot close the release-notes fence.
+make_fixture
+out="$(FAKE_JEV_ANSWER='yes ````' ship 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -qx '`````text' "${FAKE_STATE}/notes.md" && grep -qx '`````' "${FAKE_STATE}/notes.md" \
+    && ! grep -qx '```text' "${FAKE_STATE}/notes.md" \
+    && ok "panel #4: the checklist fence is longer than any backtick run in the record" \
+    || nope "panel #4 fence: rc=${rc}; notes: $(cat "${FAKE_STATE}/notes.md" 2>/dev/null)"
+drop_fixture
+
+echo
+echo "[T1] BACKSTAGE_CURL_CONFIG defaults to the documented private file"
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+"$REAL_GIT" -C "$WORK" tag -a v2026.01.01.1 -m r "$C2" && "$REAL_GIT" -C "$WORK" push -q origin refs/tags/v2026.01.01.1 >/dev/null 2>&1
+FAKE_HOME="${FIX}/home"; mkdir -p "${FAKE_HOME}/.config/jevnotjev"
+( umask 077; printf 'user = "tester:x"\n' > "${FAKE_HOME}/.config/jevnotjev/backstage-curl" )
+status_home() { (cd "$WORK" && env -u BACKSTAGE_CURL_CONFIG HOME="$FAKE_HOME" PATH="${FAKEBIN}:${PATH}" bash .deploy/ship.sh --status "$@"); }
+out="$(status_home 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep 'api/backstage/health' "${FAKE_STATE}/curl.log" | grep -qF -- "--config ${FAKE_HOME}/.config/jevnotjev/backstage-curl" \
+    && ok "unset variable + the documented file present: status uses \$HOME/.config/jevnotjev/backstage-curl" \
+    || nope "default config: rc=${rc}; out: ${out}"
+: > "${FAKE_STATE}/curl.log"
+out="$(cd "$WORK" && HOME="$FAKE_HOME" BACKSTAGE_CURL_CONFIG="${FIX}/curl-config" PATH="${FAKEBIN}:${PATH}" bash .deploy/ship.sh --status 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep 'api/backstage/health' "${FAKE_STATE}/curl.log" | grep -qF -- "--config ${FIX}/curl-config" \
+    && ! grep -qF "${FAKE_HOME}" "${FAKE_STATE}/curl.log" \
+    && ok "an explicit BACKSTAGE_CURL_CONFIG wins over the default" || nope "explicit config: rc=${rc}; out: ${out}"
+chmod 644 "${FAKE_HOME}/.config/jevnotjev/backstage-curl"
+out="$(status_home 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$out" == *"mode 0600"* ]] \
+    && ok "a group/world-readable default file is still refused by the private-file check" \
+    || nope "loose default: rc=${rc}; out: ${out}"
+rm -f "${FAKE_HOME}/.config/jevnotjev/backstage-curl"
+out="$(status_home 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"export BACKSTAGE_CURL_CONFIG="* ]] \
+    && ok "unset variable and no documented file: status still fails naming the variable" \
+    || nope "no default file: rc=${rc}; out: ${out}"
 drop_fixture
 
 echo

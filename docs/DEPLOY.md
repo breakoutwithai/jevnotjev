@@ -13,20 +13,26 @@ against `origin/main`, the skip of modules already current, and the release reco
 **The standard deploy is `.deploy/ship.sh` with no flags.** "Deploy" means the whole stack at
 `origin/main`; agents use the default and never narrow it to the module named earlier.
 
+The stack is two modules: static (`site/`) and backstage (the Bun service, which also serves the
+HTTP API under `/api/v1/`). The MCP server (`src/mcp/server.ts`) is a stdio server that runs on the
+caller's machine (`docs/api.md` § MCP); there is nothing on the host to deploy for it.
+
 | Action | Command |
 |---|---|
 | Live state and drift, read-only | `.deploy/ship.sh --status` |
 | Live verify against the spec, read-only | `.deploy/ship.sh --verify` (or `--verify <SHA>`) |
 | One-time setup (static: vhost + TLS; backstage: user, unit, nginx include) | `.deploy/ship.sh --setup --module static` or `--module backstage`, each with `--dry-run` first |
 | **Deploy the stack (standard)** | `.deploy/ship.sh --dry-run`, then `.deploy/ship.sh` |
+| Deploy without asking Jev (logged; the dependency check still runs) | `.deploy/ship.sh --no-jev` |
 | Deploy one module (refused while another module is stale) | `.deploy/ship.sh --module static` or `--module backstage` |
 | Deploy one module, deliberately leaving another stale | `.deploy/ship.sh --module backstage --allow-drift` |
 | Roll back static to the previous verified release | `.deploy/ship.sh --module static --rollback` |
 | Roll back backstage to a verified release | `.deploy/ship.sh --module backstage --rollback <full SHA>` |
 
 The default deploy fetches `origin/main` and refuses unless HEAD is that commit and the tracked
-tree is clean. It then takes one host lock, `/var/lock/jevnotjev-ship`, held across every state
-read, module deploy, final check and release record (a rollback takes it too; a held lock
+tree is clean. It then plans from a lock-free read-only state read, runs the dependency check
+(below) when anything will deploy, and takes one host lock, `/var/lock/jevnotjev-ship`, held across
+the authoritative state read, every module deploy, final check and release record (a rollback takes it too; a held lock
 refuses with exit 1). Per module it skips with `up to date` only when every observation names
 `origin/main`: the served SHA, a verified current release, and that release's own identity
 (static: its `DEPLOYED_SHA` marker; backstage: the release directory named by the SHA).
@@ -35,14 +41,55 @@ rest deploy, static first. A static failure stops before backstage; a backstage 
 the verified static release live. After every module succeeds, ship.sh re-reads the box with
 the same test, else it exits 1 and records no release. A curl that fails is never parsed, even
 when it delivered a complete body first.
-`backstage-deploy.sh` also refuses until Backstage setup exists and unless HEAD's merged PR body
-references #67; plain `ship.sh` then reports backstage FAILED with its exit code.
+`backstage-deploy.sh` also refuses until Backstage setup exists and unless a pull request merged
+into main contains HEAD (`.deploy/backstage-merged-pr.ts`; no issue number is required, #91);
+plain `ship.sh` then reports backstage FAILED with its exit code.
 With the installed session gate, a promotion or rollback target must declare `"gate": "session"`
 in `release.json`; the deploy refuses it before activation otherwise. Automatic fallback checks
 the previous release the same way and stops the service if it cannot safely activate it. The
 nginx snippet sets `X-Backstage-Gate: session` on both gated routes; the service uses that header
 to enforce the session. The session probe mints inside the post-restart retry loop, so a stopped
 or starting service can be replaced.
+
+### Dependency check and Jev confirmation
+
+After the HEAD == `origin/main` preflight, a deploy reads the host's state without the lock
+(read-only probes) to plan. When the plan deploys a module, it checks the tree it ships before
+taking the host lock, in order:
+
+1. `bun install --frozen-lockfile` (bun.lock agrees with package.json)
+2. `bun run typecheck`
+3. `bun scripts/gate.ts`, which must print `gate: PASS ... tests=N` with N > 0
+
+A failure exits 1 naming the step, before the lock or any change on the host. The gate runs every
+suite, so this step takes minutes. When every module is already current the checks are skipped
+(`Dependency check: not run (every module is up to date)`), so a rerun that only finishes the
+release record is not held up by the gate. The state is then re-read under the lock; if that read
+finds work the first did not, the checks run there.
+
+Two conditions refuse the deploy (exit 1) before any module script and before Jev, because the
+deploy could only fail later: Backstage in the plan without its one-time setup, and a gated host
+without a usable private `BACKSTAGE_CURL_CONFIG` (the closing verify probes Backstage on every
+deploy, so even a static-only plan would end in exit 6). `--dry-run` prints `would refuse (exit 1)`
+instead.
+
+After the drift read, ship.sh assembles a checklist of mechanical results (HEAD and `origin/main`
+SHAs, clean tree, the three steps above with the gate's test count, each module's plan, served SHA
+and drift, whether setup is present, whether the Backstage curl config is a private file) and asks
+Jev one noul (yes/no) question: is the release ready to deploy given this checklist
+(`scripts/deploy-checklist.ts`, pinned `jev-1.13.0`, answer checked by `src/jev-answer.ts`). Only
+"yes" continues; "no", an unreachable API, an invalid answer or a missing key exits 1 before any
+module script runs (the ship lock is released). The key is `JEV_API_KEY`, else `TYPESAFE_API_KEY`,
+from the environment, else the same names or `JEV_API_KEY_JAYLO` from the primary checkout's
+`.env.local`; only the variable name is printed. ship.sh runs the script with `bun --no-env-file`,
+so a `.env*` in the working directory never changes that order. `--no-jev` skips the question and
+logs it; it is a usage error (exit 2) with `--status`, `--verify`, `--setup` or `--rollback`. Jev is
+not asked when every module is already up to date. The checklist and Jev's answer (or the skip)
+go into the GitHub release notes. `--dry-run` prints the steps and the checklist and runs neither.
+
+The checks are bound to the commit they ran on: immediately before the first module script,
+ship.sh re-reads HEAD and the tracked tree. If HEAD is no longer the commit checked at the
+preflight, or the tree is no longer clean, it exits 1 naming both SHAs and deploys nothing.
 
 ### Drift and `--status`
 
@@ -121,7 +168,7 @@ variant in `docs/backstage-deploy.md` § Sign-in gate):
 install -d -o root -g www-data -m 0750 /etc/jevnotjev-backstage && htpasswd -B -c /etc/jevnotjev-backstage/htpasswd tester && chown root:www-data /etc/jevnotjev-backstage/htpasswd && chmod 0640 /etc/jevnotjev-backstage/htpasswd
 # On the workstation: private curl config holding the same login and password
 d="$HOME/.config/jevnotjev"; mkdir -p "$d" && chmod 700 "$d" && t="$(mktemp "$d/.backstage-curl.XXXXXX")" && chmod 600 "$t" && read -r -s -p 'Backstage password: ' BP && echo && printf 'user = "tester:%s"\n' "$BP" > "$t" && mv -f "$t" "$d/backstage-curl"; unset BP
-export BACKSTAGE_CURL_CONFIG="$HOME/.config/jevnotjev/backstage-curl"
+# Every .deploy script defaults BACKSTAGE_CURL_CONFIG to that file when the variable is unset
 ./.deploy/ship.sh --setup --module backstage --dry-run
 ./.deploy/ship.sh --setup --module backstage
 # Both print 401
@@ -132,7 +179,8 @@ curl -s -o /dev/null -w '%{http_code}\n' https://jevnotjev.breakoutwithai.com/ap
 Setup refuses, changing nothing, until the htpasswd is root:<nginx group> 0640 and non-empty, and
 verifies after the reload that both routes answer 401 without credentials and reach the upstream with them,
 restoring the previous nginx config otherwise. Backstage deploy, rollback and `--status` fail
-naming `BACKSTAGE_CURL_CONFIG` when the host has the gate and the variable is unset.
+naming `BACKSTAGE_CURL_CONFIG` when the host has the gate, the variable is unset and the default
+file is absent.
 
 After the sign-in-capable release is deployed and auth files are configured, setup replaces the
 Basic snippet with the session snippet and verifies the session row of S2. The curl config then
@@ -274,4 +322,5 @@ bun scripts/gate.ts
 | `JEVNOTJEV_SERVER_USER` | `root` |
 | `DEPLOY_ALLOW_BRANCH` | `main` (the commit must still exist on a remote branch) |
 | `CERTBOT_EMAIL` | none, required by `provision.sh` when a certificate is issued |
-| `BACKSTAGE_CURL_CONFIG` | none, required by Backstage setup, deploy, rollback, status and verify while the Basic or session gate is on the host |
+| `BACKSTAGE_CURL_CONFIG` | `$HOME/.config/jevnotjev/backstage-curl` when unset and that file exists (a set value, even empty, wins; the file must still be yours and mode 0600); required by Backstage setup, deploy, rollback, status and verify while the Basic or session gate is on the host |
+| `JEV_API_KEY` / `TYPESAFE_API_KEY` | the deploy's Jev checklist key; else read from the primary checkout's `.env.local` (also `JEV_API_KEY_JAYLO`) |

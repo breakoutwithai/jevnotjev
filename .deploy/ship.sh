@@ -11,6 +11,11 @@
 #     origin/main from a verified release is skipped ("up to date"); the rest deploy, static
 #     first. After all succeed every module must serve origin/main, and the stack is recorded as
 #     an annotated CalVer tag (vYYYY.MM.DD.N) plus a GitHub release.
+#   - A deploy that has a module to ship first checks the tree (bun install --frozen-lockfile,
+#     typecheck, the test gate with a non-zero test count), refuses a missing Backstage setup or an
+#     unusable curl config, then asks Jev one yes/no question over the mechanical checklist
+#     (scripts/deploy-checklist.ts). A failure or a "no" stops before any module deploys;
+#     --no-jev skips only the question. The checklist and answer go into the GitHub release notes.
 #   - `--status` compares each module's served SHA with origin/main and reports drift.
 #   - `--module X` deploys one module and refuses while another module is STALE or UNKNOWN,
 #     unless --allow-drift. Agents use the default.
@@ -41,6 +46,8 @@ Usage: .deploy/ship.sh [--module static|backstage|all] [ACTION] [--dry-run]
                                   script runs with --dry-run; no tag, push or gh call
   --allow-drift                   with --module: deploy one module even though another is STALE
   --no-release                    deploy without the tag and GitHub release (local testing only)
+  --no-jev                        deploy without asking Jev the release checklist question (logged;
+                                  the dependency check still runs)
   ACTION (one, default deploy):
     (none)                        deploy: static via deploy.sh, backstage via backstage-deploy.sh
     --status                      read-only, per module: served SHA, main, drift, release tag,
@@ -72,6 +79,7 @@ ACTION=""
 DRY_RUN=false
 ALLOW_DRIFT=false
 NO_RELEASE=false
+NO_JEV=false
 ROLLBACK_SHA=""
 VERIFY_SHA=""
 MODULE_GIVEN=false
@@ -89,6 +97,7 @@ while [[ $# -gt 0 ]]; do
         --dry-run) DRY_RUN=true; shift ;;
         --allow-drift) ALLOW_DRIFT=true; shift ;;
         --no-release) NO_RELEASE=true; shift ;;
+        --no-jev) NO_JEV=true; shift ;;
         --status) set_action status; shift ;;
         --setup) set_action setup; shift ;;
         --rollback)
@@ -102,6 +111,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 ACTION="${ACTION:-deploy}"
+[[ "$ACTION" == deploy ]] || ! $NO_JEV || usage_error "--no-jev applies only to a deploy; drop it with --${ACTION}"
 
 case "$MODULE" in
     static|backstage|all) ;;
@@ -485,6 +495,14 @@ release_yaml() {
     fi
 }
 
+# A code fence longer than the longest backtick run in $1 (at least 3), so the content cannot close it.
+notes_fence() {
+    local longest
+    longest="$(printf '%s\n' "$1" | grep -oE '`+' | awk '{ if (length($0) > m) m = length($0) } END { print m + 0 }')"
+    [[ "$longest" -ge 3 ]] || longest=2
+    printf '%*s' "$((longest + 1))" '' | tr ' ' '`'
+}
+
 release_notes() {
     local version="$1" sha="$2" prev="$3" yaml="$4"
     printf 'Full-stack release `%s` at `%s`.\n\n' "$version" "$sha"
@@ -494,6 +512,8 @@ release_notes() {
         "$(getv backstage protocol)" "$(getv backstage catalogVersion)" "$(getv backstage current)"
     printf '\nPrevious release: %s\n\n## Pull requests\n\n' "${prev:-none}"
     printf '%s\n' "$yaml" | sed -n 's/^  - "\(.*\)"$/- \1/p' | sed 's/\\"/"/g; s/\\\\/\\/g'
+    printf '\n## Release checklist and Jev\n\n%stext\n%s\n%s\n' "$(notes_fence "${CHECKLIST_RECORD:-not recorded}")" \
+        "${CHECKLIST_RECORD:-not recorded}" "$(notes_fence "${CHECKLIST_RECORD:-not recorded}")"
     printf '\n## Metadata\n\n```yaml\n%s\n```\n' "$yaml"
 }
 
@@ -617,6 +637,176 @@ if [[ "$ACTION" == rollback ]] && ! $DRY_RUN; then
     take_ship_lock
 fi
 
+# ------------------------------------------------------------------ dependency check + Jev checklist
+# Runs on the tree being shipped, after the HEAD == origin/main preflight and a lock-free state read,
+# and before the host lock, only when the plan deploys a module: the lockfile agrees with
+# package.json, the types check, and the test gate passes with a non-zero test count. Any failure
+# exits 1 naming the step; nothing on the host has been changed.
+DEPS_STEPS=("bun install --frozen-lockfile" "bun run typecheck" "bun scripts/gate.ts")
+GATE_LINE=""
+DEPS_RAN=false
+DEPS_NOT_RUN="dry-run"
+dependency_check() {
+    local out rc tests
+    if $DRY_RUN; then
+        echo "Dependency check (dry-run, not run): would run, in order: ${DEPS_STEPS[0]}; ${DEPS_STEPS[1]}; ${DEPS_STEPS[2]} (needs a non-zero test count)"
+        return 0
+    fi
+    DEPS_RAN=true
+    echo "Dependency check on the tree being shipped:"
+    out="$(bun install --frozen-lockfile 2>&1)"; rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        printf '%s\n' "$out" | tail -20 >&2
+        log_error "Dependency check failed at '${DEPS_STEPS[0]}' (rc=${rc}): bun.lock does not agree with package.json, or the install failed. Nothing deployed."
+        return 1
+    fi
+    echo "  ok   ${DEPS_STEPS[0]}"
+    out="$(bun run typecheck 2>&1)"; rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        printf '%s\n' "$out" | tail -20 >&2
+        log_error "Dependency check failed at '${DEPS_STEPS[1]}' (rc=${rc}). Nothing deployed."
+        return 1
+    fi
+    echo "  ok   ${DEPS_STEPS[1]}"
+    out="$(bun scripts/gate.ts 2>&1)"; rc=$?
+    GATE_LINE="$(printf '%s\n' "$out" | grep '^gate: ' | tail -1)"
+    if [[ "$rc" -ne 0 ]]; then
+        printf '%s\n' "$out" | tail -20 >&2
+        log_error "Dependency check failed at '${DEPS_STEPS[2]}' (rc=${rc}). Nothing deployed."
+        return 1
+    fi
+    tests="$(printf '%s' "$GATE_LINE" | sed -n 's/^gate: PASS .*tests=\([0-9][0-9]*\).*$/\1/p')"
+    if [[ -z "$tests" || "$tests" -eq 0 ]]; then
+        log_error "Dependency check failed at '${DEPS_STEPS[2]}': it exited 0 but reported no passing tests ('${GATE_LINE:-no gate line}'). Nothing deployed."
+        return 1
+    fi
+    echo "  ok   ${DEPS_STEPS[2]}: ${GATE_LINE}"
+}
+
+# Sets PLAN (" static backstage " style) from the state read; with "print", prints one row per module.
+plan_modules() {
+    local m served
+    PLAN=" "
+    for m in "${MODULES[@]}"; do
+        served="$(getv "$m" served)"
+        if module_current "$m"; then
+            [[ "${1:-}" != print ]] || row "$m" "up to date (serving ${served:0:7} from its verified release)"
+        else
+            [[ "${1:-}" != print ]] || row "$m" "deploy (served ${served:0:7}; drift $(getv "$m" drift))"
+            PLAN="${PLAN}${m} "
+        fi
+    done
+}
+
+# Hard refusals before any module runs, each a deploy that could only end badly: backstage in the
+# plan without its one-time setup, and a gated host without a usable private curl config (the
+# closing verify probes Backstage for every deploy, so even a static-only plan would exit 6).
+# --dry-run reports them and continues.
+preconditions_hold() {
+    local problems="" auth msg setup
+    [[ "$PLAN" != " " ]] || return 0
+    setup="$(probe_value "$(getv backstage probe)" setup)"
+    if [[ "$PLAN" == *" backstage "* && "$setup" != yes ]]; then
+        problems="${problems}Backstage setup is missing on the host (setup ${setup:-unknown}); run .deploy/ship.sh --setup --module backstage first.
+"
+    fi
+    auth="$(getv backstage auth)"
+    if ! msg="$(backstage_require_curl_config "${auth:-unknown}" 2>&1)"; then
+        problems="${problems}${msg:-the Backstage curl config check failed} The closing verify probes Backstage, so this deploy would end in exit 6.
+"
+    fi
+    [[ -n "$problems" ]] || return 0
+    while IFS= read -r msg; do
+        [[ -n "$msg" ]] || continue
+        if $DRY_RUN; then log_warn "would refuse (exit 1): ${msg}"; else log_error "$msg"; fi
+    done <<< "$problems"
+    $DRY_RUN && return 0
+    log_error "Refusing to deploy before any module runs; nothing deployed."
+    return 1
+}
+
+# The mechanical results Jev is asked about, one item per line.
+# Returns 1 (after naming the failure on stderr) when an input cannot be read; the caller aborts.
+checklist_lines() {
+    local m setup_s setup_b cfg plan tree
+    printf 'HEAD == origin/main: %s (HEAD %s, origin/main %s)\n' \
+        "$([[ -n "$MAIN_SHA" && "$HEAD_SHA" == "$MAIN_SHA" ]] && echo yes || echo NO)" "${HEAD_SHA:-none}" "${MAIN_SHA:-unresolved}"
+    # Output and exit code read separately: a failed git status prints nothing, which is not clean.
+    if ! tree="$(git status --porcelain --untracked-files=no)"; then
+        log_error "git status failed while building the release checklist; the tree state is unknown."
+        return 1
+    fi
+    printf 'tracked tree clean: %s\n' "$([[ -z "$tree" ]] && echo yes || echo NO)"
+    if ! $DEPS_RAN; then
+        printf '%s: not run (%s)\n' "${DEPS_STEPS[0]}" "$DEPS_NOT_RUN" "${DEPS_STEPS[1]}" "$DEPS_NOT_RUN" "${DEPS_STEPS[2]}" "$DEPS_NOT_RUN"
+    else
+        printf '%s: pass\n' "${DEPS_STEPS[0]}" "${DEPS_STEPS[1]}"
+        printf '%s: pass (%s)\n' "${DEPS_STEPS[2]}" "$GATE_LINE"
+    fi
+    for m in "${MODULES[@]}"; do
+        if [[ "$PLAN" == *" ${m} "* ]]; then plan=deploy; else plan="up to date"; fi
+        printf '%s: %s; serving %s; drift %s\n' "$m" "$plan" "$(getv "$m" served)" "$(getv "$m" drift)"
+    done
+    setup_s="$(probe_value "$(getv static probe)" setup)"; setup_b="$(probe_value "$(getv backstage probe)" setup)"
+    printf 'setup present: static %s, backstage %s\n' "${setup_s:-unknown}" "${setup_b:-unknown}"
+    if [[ -z "${BACKSTAGE_CURL_CONFIG:-}" ]]; then cfg="not set"
+    elif backstage_check_curl_config; then cfg="set (private file)"
+    else cfg="set but NOT a private file"; fi
+    printf 'backstage curl config: %s\n' "$cfg"
+}
+
+# Asks Jev whether the release is ready, given the checklist. Sets CHECKLIST_RECORD (the printed
+# checklist and answer, kept for the release notes). Returns 1 on "no" or any failure to get a
+# valid answer; --no-jev records the skip and returns 0.
+CHECKLIST_RECORD=""
+jev_checklist() {
+    local dir list out rc common env_file
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/jevnotjev-checklist.XXXXXX")" || { log_error "Cannot create a private checklist directory; refusing to deploy."; return 1; }
+    list="${dir}/checklist.txt"
+    if ! checklist_lines > "$list"; then
+        rm -rf "$dir"
+        log_error "The release checklist could not be built; Jev not asked, nothing deployed."
+        return 1
+    fi
+    echo
+    if $NO_JEV || $DRY_RUN || [[ "$PLAN" == " " ]]; then
+        out="Release checklist:
+$(sed 's/^/  /' "$list")"
+        if [[ "$PLAN" == " " ]]; then
+            out="${out}
+jev: not asked (every module is up to date)"
+        elif $DRY_RUN && $NO_JEV; then
+            out="${out}
+jev: would be skipped (--no-jev, dry-run)"
+        elif $DRY_RUN; then
+            out="${out}
+jev: would ask whether the release is ready (dry-run, not asked)"
+        else
+            log_warn "--no-jev: deploying without asking Jev the release checklist question."
+            out="${out}
+jev: skipped (--no-jev)"
+        fi
+        printf '%s\n' "$out"
+        CHECKLIST_RECORD="$out"
+        rm -rf "$dir"
+        return 0
+    fi
+    # The key file lives in the primary checkout; a deploy worktree shares its git common dir.
+    common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    env_file="${common%/.git}/.env.local"
+    [[ -n "$common" ]] || env_file="${dir}/no-env-file"
+    # --no-env-file: Bun would otherwise load .env* from the cwd into process.env, so a file key
+    # could beat an exported one and be named "process env". deploy-checklist.ts owns the order.
+    out="$(bun --no-env-file scripts/deploy-checklist.ts --checklist "$list" --env-file "$env_file" 2>&1)"; rc=$?
+    rm -rf "$dir"
+    printf '%s\n' "$out"
+    CHECKLIST_RECORD="$out"
+    if [[ "$rc" -ne 0 ]]; then
+        log_error "Jev did not confirm the release checklist (rc=${rc}); nothing deployed. Fix the checklist item, or skip the question deliberately with --no-jev."
+        return 1
+    fi
+}
+
 # ------------------------------------------------------------------ deploy preflight + plan
 PLAN=" "
 if [[ "$ACTION" == deploy ]]; then
@@ -631,11 +821,30 @@ if [[ "$ACTION" == deploy ]]; then
         if $DRY_RUN; then log_warn "${msg} (dry-run, not blocking)"; else log_error "$msg"; exit 1; fi
     fi
     # Checked here, not only in the module scripts: skipped modules never run their own guard.
-    if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+    # A failed git status prints nothing; that is an unknown tree, never a clean one.
+    if ! tree_status="$(git status --porcelain --untracked-files=no)"; then
+        msg="git status failed; the tracked tree state is unknown. Refusing to deploy."
+        if $DRY_RUN; then log_warn "${msg} (dry-run, not blocking)"; else log_error "$msg"; exit 1; fi
+    elif [[ -n "$tree_status" ]]; then
         msg="Uncommitted tracked changes present. The release records origin/main; deploy from a clean worktree."
         if $DRY_RUN; then log_warn "${msg} (dry-run, not blocking)"; else log_error "$msg"; exit 1; fi
     fi
+    # A lock-free, read-only state read decides whether anything will deploy. Only then do the
+    # minutes-long dependency checks run, still before the host lock; with every module current
+    # they are skipped (a rerun that only finishes the release record needs no test gate).
+    for m in "${ALL_MODULES[@]}"; do
+        read_state "$m" >/dev/null 2>&1 || true
+        compute_drift "$m"
+    done
+    plan_modules
+    if [[ "$PLAN" == " " ]]; then
+        DEPS_NOT_RUN="nothing to deploy"
+        echo "Dependency check: not run (every module is up to date)"
+    else
+        dependency_check || exit 1
+    fi
     $DRY_RUN || take_ship_lock
+    # The authoritative read, under the lock.
     for m in "${ALL_MODULES[@]}"; do
         read_state "$m" || log_warn "${m}: live state could not be read"
         compute_drift "$m"
@@ -662,15 +871,27 @@ if [[ "$ACTION" == deploy ]]; then
     fi
 
     echo "Plan against origin/main ${MAIN_SHA:-unresolved}$($DRY_RUN && echo ' (dry-run)'):"
-    for m in "${MODULES[@]}"; do
-        served="$(getv "$m" served)"
-        if module_current "$m"; then
-            row "$m" "up to date (serving ${served:0:7} from its verified release)"
-        else
-            row "$m" "deploy (served ${served:0:7}; drift $(getv "$m" drift))"
-            PLAN="${PLAN}${m} "
+    plan_modules print
+    # The locked read can find work the lock-free one did not; the checks then run here.
+    if [[ "$PLAN" != " " ]] && ! $DEPS_RAN && ! $DRY_RUN; then
+        dependency_check || exit 1
+    fi
+    preconditions_hold || exit 1
+    # Nothing changed on the host but the lock. A "no" exits 1 here; the trap releases the lock.
+    jev_checklist || exit 1
+    # The checks above ran on HEAD_SHA. The module scripts ship the checkout's HEAD, so it must be
+    # that same commit with a still-clean tracked tree, or nothing deploys.
+    if ! $DRY_RUN; then
+        now_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+        if [[ "$now_sha" != "$HEAD_SHA" ]]; then
+            log_error "HEAD moved during the checks: checked ${HEAD_SHA}, now ${now_sha:-unreadable}. Nothing deployed; rerun from a clean worktree at origin/main."
+            exit 1
         fi
-    done
+        if ! tree_status="$(git status --porcelain --untracked-files=no)" || [[ -n "$tree_status" ]]; then
+            log_error "The tracked tree changed during the checks (or git status failed) at ${HEAD_SHA}. Nothing deployed."
+            exit 1
+        fi
+    fi
 fi
 
 # ------------------------------------------------------------------ dispatch

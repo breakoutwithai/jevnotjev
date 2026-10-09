@@ -851,12 +851,17 @@ drop_fixture
 make_fixture
 out="$(ship --no-release 2>&1)"; rc=$?
 first_lock="$(grep -n '^mkdir /var/lock/jevnotjev-ship$' "${FAKE_STATE}/ssh.log" | head -1 | cut -d: -f1)"
-first_probe="$(grep -n 'jevnotjev-backstage-current' "${FAKE_STATE}/ssh.log" | head -1 | cut -d: -f1)"
+# Gate panel #1 (c90517a): a lock-free, read-only state read now precedes the lock (it decides
+# whether the dependency check runs). The authoritative read is under the lock, and nothing is
+# changed on the host before the lock is taken.
+first_probe="$(grep -n 'jevnotjev-backstage-current' "${FAKE_STATE}/ssh.log" | awk -F: -v l="${first_lock:-0}" '$1 > l {print $1; exit}')"
 last_unlock="$(grep -n '^rmdir /var/lock/jevnotjev-ship$' "${FAKE_STATE}/ssh.log" | tail -1 | cut -d: -f1)"
 last_probe="$(grep -n 'jevnotjev-backstage-current' "${FAKE_STATE}/ssh.log" | tail -1 | cut -d: -f1)"
-[[ $rc -eq 0 && -n "$first_lock" && -n "$last_unlock" && "$first_lock" -lt "$first_probe" && "$last_unlock" -gt "$last_probe" ]] \
-    && ok "#6 the ship lock is taken before the first state read and released after the final verification" \
-    || nope "#6 lock order: rc=${rc}, lock ${first_lock:-none}, unlock ${last_unlock:-none}, probes ${first_probe:-?}-${last_probe:-?}"
+first_change="$(mutating_commands | head -1)"
+[[ $rc -eq 0 && -n "$first_lock" && -n "$last_unlock" && -n "$first_probe" && "$last_unlock" -gt "$last_probe" \
+   && "$first_change" == "mkdir /var/lock/jevnotjev-ship" ]] \
+    && ok "#6 the ship lock is the first host change, a state read runs under it, and it is released after the final verification" \
+    || nope "#6 lock order: rc=${rc}, lock ${first_lock:-none}, unlock ${last_unlock:-none}, probes ${first_probe:-?}-${last_probe:-?}, first change '${first_change}'"
 drop_fixture
 
 make_fixture
@@ -1066,9 +1071,11 @@ out="$(ship --module backstage --rollback "$SHA40" 2>&1)"; rc=$?
 drop_fixture
 
 echo
-echo "[T1] dependency check: lockfile, typecheck and the test gate run before the host is touched"
+echo "[T1] dependency check: lockfile, typecheck and the test gate run before the host lock"
 bunlog() { tr '\n' '|' < "${FAKE_STATE}/bun.log" 2>/dev/null; }
 host_touched() { [[ -s "${FAKE_STATE}/ssh.log" ]]; }
+# Read-only state probes may precede the dependency check; the lock and any change may not.
+host_mutated() { [[ -n "$(mutating_commands)" ]]; }
 
 make_fixture
 out="$(ship 2>&1)"; rc=$?
@@ -1137,16 +1144,16 @@ for step in INSTALL:"bun install --frozen-lockfile" TYPECHECK:"bun run typecheck
     var="FAKE_BUN_${step%%:*}_RC"; name="${step#*:}"
     make_fixture
     out="$(env "${var}=1" bash -c 'cd "$1" && PATH="$2:$PATH" bash .deploy/ship.sh' _ "$WORK" "$FAKEBIN" 2>&1)"; rc=$?
-    [[ $rc -eq 1 && "$out" == *"Dependency check failed at '${name}'"* && -z "$(calls)" && -z "$(tags)" ]] && ! host_touched \
-        && ok "${name} failing exits 1 naming the step; no ssh, no module script, no tag" \
+    [[ $rc -eq 1 && "$out" == *"Dependency check failed at '${name}'"* && -z "$(calls)" && -z "$(tags)" ]] && ! host_mutated \
+        && ok "${name} failing exits 1 naming the step; no host lock or change, no module script, no tag" \
         || nope "${name} fail: rc=${rc}, calls '$(calls)', ssh '$(cat "${FAKE_STATE}/ssh.log" 2>/dev/null)'; out: ${out}"
     drop_fixture
 done
 
 make_fixture
 out="$(FAKE_GATE_LINE='gate: PASS files=0 tests=0' ship 2>&1)"; rc=$?
-[[ $rc -eq 1 && "$out" == *"reported no passing tests"* && -z "$(calls)" ]] && ! host_touched \
-    && ok "a gate that exits 0 with tests=0 is a failure: exit 1 before the host is touched" \
+[[ $rc -eq 1 && "$out" == *"reported no passing tests"* && -z "$(calls)" ]] && ! host_mutated \
+    && ok "a gate that exits 0 with tests=0 is a failure: exit 1 before the host lock" \
     || nope "gate tests=0: rc=${rc}, calls '$(calls)'; out: ${out}"
 drop_fixture
 
@@ -1218,6 +1225,102 @@ drop_fixture
 make_fixture
 out="$(ship --help 2>&1)"
 [[ "$out" == *"--no-jev"* ]] && ok "--help lists --no-jev" || nope "--help lacks --no-jev"
+drop_fixture
+
+echo
+echo "[T1] gate panel on c90517a"
+
+# Panel #1: nothing to deploy -> no install, typecheck or gate (a retry that only needs the release
+# record must not wait minutes for, or be blocked by, the test gate).
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+out="$(FAKE_BUN_GATE_RC=1 ship 2>&1)"; rc=$?
+[[ $rc -eq 0 && ! -s "${FAKE_STATE}/bun.log" && -z "$(calls)" && "$out" == *"Dependency check: not run (every module is up to date)"* \
+   && "$out" == *"jev: not asked (every module is up to date)"* && "$("$REAL_GIT" -C "$WORK" cat-file -t "v${TODAY}.1" 2>/dev/null)" == tag ]] \
+    && ok "panel #1: every module current -> no install/typecheck/gate, Jev not asked, release still recorded" \
+    || nope "panel #1 all current: rc=${rc}, bun.log '$(bunlog)', calls '$(calls)'; out: ${out}"
+drop_fixture
+
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+out="$(ship --dry-run 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"Dependency check: not run (every module is up to date)"* && "$out" != *"would run, in order"* ]] \
+    && ok "panel #1: --dry-run with nothing to deploy says the dependency check would not run" \
+    || nope "panel #1 dry-run all current: rc=${rc}; out: ${out}"
+drop_fixture
+
+make_fixture
+out="$(ship 2>&1)"; rc=$?
+first_lock="$(grep -n '^mkdir /var/lock/jevnotjev-ship$' "${FAKE_STATE}/ssh.log" | head -1 | cut -d: -f1)"
+[[ $rc -eq 0 && "$(bunlog)" == "install --frozen-lockfile|run typecheck|scripts/gate.ts|"* && -n "$first_lock" ]] \
+    && ok "panel #1: with a module to deploy, the dependency check still runs, and the lock is taken after it" \
+    || nope "panel #1 deploy: rc=${rc}, bun.log '$(bunlog)'; out: ${out}"
+drop_fixture
+
+# Panel #2: refusals, not checklist items.
+make_fixture
+echo no > "${FAKE_STATE}/backstage_setup"
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"Backstage setup is missing"* && -z "$(calls)" && "$(bunlog)" != *"deploy-checklist"* && -z "$(tags)" ]] \
+    && grep -qx 'rmdir /var/lock/jevnotjev-ship' "${FAKE_STATE}/ssh.log" \
+    && ok "panel #2: backstage in the plan without setup refuses (exit 1) before any module script and before Jev" \
+    || nope "panel #2 setup: rc=${rc}, calls '$(calls)', bun.log '$(bunlog)'; out: ${out}"
+drop_fixture
+
+make_fixture
+serve static "$C0"; serve backstage "$C2"; echo no > "${FAKE_STATE}/backstage_setup"
+out="$(ship --no-release 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$(calls)" == "deploy.sh |" && "$out" != *"Backstage setup is missing"* ]] \
+    && ok "panel #2: the setup refusal applies only when backstage is in the plan (static-only deploy proceeds)" \
+    || nope "panel #2 setup scoped: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+
+make_fixture
+serve static "$C0"; serve backstage "$C2"
+chmod 644 "${FIX}/curl-config"
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"mode 0600"* && -z "$(calls)" && "$(bunlog)" != *"deploy-checklist"* ]] \
+    && ok "panel #2: a gated host with a non-private curl config refuses (exit 1) even for a static-only plan" \
+    || nope "panel #2 loose config: rc=${rc}, calls '$(calls)', bun.log '$(bunlog)'; out: ${out}"
+out="$(ship --dry-run 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"would refuse (exit 1)"* ]] \
+    && ok "panel #2: --dry-run reports the refusal it would make and stays exit 0" \
+    || nope "panel #2 loose config dry-run: rc=${rc}; out: ${out}"
+drop_fixture
+
+make_fixture
+out="$(BACKSTAGE_CURL_CONFIG= ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"export BACKSTAGE_CURL_CONFIG="* && -z "$(calls)" ]] \
+    && ok "panel #2: a gated host with no curl config refuses before any module script" \
+    || nope "panel #2 no config: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+
+# Panel #3: --no-jev only means something on a deploy.
+make_fixture
+nj_ok=true
+for action in "--status" "--verify" "--setup --module static" "--module static --rollback"; do
+    # shellcheck disable=SC2086
+    out="$(ship $action --no-jev 2>&1)"; rc=$?
+    [[ $rc -eq 2 && "$out" == *"--no-jev"* ]] || { nj_ok=false; echo "    ${action} --no-jev: rc=${rc}"; }
+done
+$nj_ok && [[ -z "$(calls)" ]] && ok "panel #3: --no-jev with --status, --verify, --setup or --rollback is a usage error (exit 2)" \
+    || nope "panel #3 usage: calls '$(calls)'"
+drop_fixture
+
+make_fixture
+out="$(ship --dry-run --no-jev 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"jev: would be skipped (--no-jev, dry-run)"* && "$out" != *"deploying without asking Jev"* ]] \
+    && ok "panel #3: --dry-run --no-jev says the question would be skipped, not that it is deploying" \
+    || nope "panel #3 dry-run: rc=${rc}; out: ${out}"
+drop_fixture
+
+# Panel #4: a backtick run in the checklist record cannot close the release-notes fence.
+make_fixture
+out="$(FAKE_JEV_ANSWER='yes ````' ship 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -qx '`````text' "${FAKE_STATE}/notes.md" && grep -qx '`````' "${FAKE_STATE}/notes.md" \
+    && ! grep -qx '```text' "${FAKE_STATE}/notes.md" \
+    && ok "panel #4: the checklist fence is longer than any backtick run in the record" \
+    || nope "panel #4 fence: rc=${rc}; notes: $(cat "${FAKE_STATE}/notes.md" 2>/dev/null)"
 drop_fixture
 
 echo

@@ -30,8 +30,9 @@ caller's machine (`docs/api.md` § MCP); there is nothing on the host to deploy 
 | Roll back backstage to a verified release | `.deploy/ship.sh --module backstage --rollback <full SHA>` |
 
 The default deploy fetches `origin/main` and refuses unless HEAD is that commit and the tracked
-tree is clean. It then runs the dependency check (below) and takes one host lock, `/var/lock/jevnotjev-ship`, held across every state
-read, module deploy, final check and release record (a rollback takes it too; a held lock
+tree is clean. It then plans from a lock-free read-only state read, runs the dependency check
+(below) when anything will deploy, and takes one host lock, `/var/lock/jevnotjev-ship`, held across
+the authoritative state read, every module deploy, final check and release record (a rollback takes it too; a held lock
 refuses with exit 1). Per module it skips with `up to date` only when every observation names
 `origin/main`: the served SHA, a verified current release, and that release's own identity
 (static: its `DEPLOYED_SHA` marker; backstage: the release directory named by the SHA).
@@ -52,15 +53,25 @@ or starting service can be replaced.
 
 ### Dependency check and Jev confirmation
 
-Every deploy (not `--status`, `--verify`, `--setup` or `--rollback`) checks the tree it ships, after
-the HEAD == `origin/main` preflight and before the host lock, in order:
+After the HEAD == `origin/main` preflight, a deploy reads the host's state without the lock
+(read-only probes) to plan. When the plan deploys a module, it checks the tree it ships before
+taking the host lock, in order:
 
 1. `bun install --frozen-lockfile` (bun.lock agrees with package.json)
 2. `bun run typecheck`
 3. `bun scripts/gate.ts`, which must print `gate: PASS ... tests=N` with N > 0
 
-A failure exits 1 naming the step, before any ssh to the host. The gate runs every suite, so this
-step takes minutes.
+A failure exits 1 naming the step, before the lock or any change on the host. The gate runs every
+suite, so this step takes minutes. When every module is already current the checks are skipped
+(`Dependency check: not run (every module is up to date)`), so a rerun that only finishes the
+release record is not held up by the gate. The state is then re-read under the lock; if that read
+finds work the first did not, the checks run there.
+
+Two conditions refuse the deploy (exit 1) before any module script and before Jev, because the
+deploy could only fail later: Backstage in the plan without its one-time setup, and a gated host
+without a usable private `BACKSTAGE_CURL_CONFIG` (the closing verify probes Backstage on every
+deploy, so even a static-only plan would end in exit 6). `--dry-run` prints `would refuse (exit 1)`
+instead.
 
 After the drift read, ship.sh assembles a checklist of mechanical results (HEAD and `origin/main`
 SHAs, clean tree, the three steps above with the gate's test count, each module's plan, served SHA
@@ -71,7 +82,8 @@ Jev one noul (yes/no) question: is the release ready to deploy given this checkl
 module script runs (the ship lock is released). The key is `JEV_API_KEY`, else `TYPESAFE_API_KEY`,
 from the environment, else the same names or `JEV_API_KEY_JAYLO` from the primary checkout's
 `.env.local`; only the variable name is printed. ship.sh runs the script with `bun --no-env-file`,
-so a `.env*` in the working directory never changes that order. `--no-jev` skips the question and logs it; Jev is
+so a `.env*` in the working directory never changes that order. `--no-jev` skips the question and
+logs it; it is a usage error (exit 2) with `--status`, `--verify`, `--setup` or `--rollback`. Jev is
 not asked when every module is already up to date. The checklist and Jev's answer (or the skip)
 go into the GitHub release notes. `--dry-run` prints the steps and the checklist and runs neither.
 

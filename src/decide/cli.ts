@@ -5,6 +5,7 @@
 //   bun src/decide/cli.ts ask      --questions <q.json> (--case <case.json> | --input <text> [--case-id <id>]) [flags] [--dry-run]
 //   bun src/decide/cli.ts run      --questions <q.json> --cases <cases.jsonl> --out <records.csv> [flags] [--dry-run]
 //   bun src/decide/cli.ts verdict  <labelled.csv> [--question <id>]
+//   bun src/decide/cli.ts rescore  <records.csv> --labels <labels.csv> [--manifest <file>] [--write-manifest <file>]
 //   bun src/decide/cli.ts validate <records.csv>
 //
 // Keys come from the caller's env only (JEV_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY) and are never printed or written.
@@ -13,9 +14,9 @@
 // 0 valid, 1 invalid, 2 usage. The other subcommands: 0 done, 2 invalid input or usage, 1 could not write --out.
 import { mkdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { fileSeed } from "../core/calc.ts";
+import { RESAMPLES, fileSeed, mulberry32, pairedPhi, percentile, wilson } from "../core/calc.ts";
 import { armsInFile, groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
-import { MIN_PAIRED, verdict, type Verdict } from "../core/verdict.ts";
+import { MIN_PAIRED, verdict, type Comparison, type Verdict } from "../core/verdict.ts";
 import { readDictRows } from "../format/csv.ts";
 import { COLUMNS, decodeUtf8, report, validate } from "../format/validate.ts";
 import {
@@ -28,6 +29,7 @@ import { LLM_TRANSPORTS, type DecideSpawn, type LlmTransport } from "./llm.ts";
 import { PRICE_TABLE, PRICE_TABLE_DATE } from "./prices.ts";
 import { RULE_MODEL } from "./rule.ts";
 import { rowsToCsv } from "./rows.ts";
+import { rescoreInput, RescoreInputError } from "./rescore.ts";
 import { DEFAULT_LLM, DEFAULT_PROMPT_VERSION, DEFAULT_RUN_ID, DecideError, estimate, run, type DecideRequest, type RunDeps } from "./run.ts";
 import type { Case, DecideFetch, ProviderKeys, RuleArm } from "./types.ts";
 
@@ -41,6 +43,7 @@ Usage: bun src/decide/cli.ts <command> [flags]
   ask      --questions F (--case F | --input TEXT [--case-id ID])   one case (spends)
   run      --questions F --cases F --out F   many cases; writes jnj-record/1.2 CSV (spends)
   verdict  FILE [--question ID]              labelled records to verdict and exit code (spends 0)
+  rescore  FILE --labels F [--manifest F] [--write-manifest F]  apply truth labels and score (spends 0)
   validate FILE                              the record validator (spends 0)
 Arm and run flags: --arms jev,decisions,llm,rule  --llm-model ID  --rule F  --budget USD  --dry-run  --run-id ID  --prompt-version V
 Keys from env only: ${KEY_ENV.jev} (else ${JEV_KEY_FALLBACK_ENV}), ${KEY_ENV.openai}, ${KEY_ENV.anthropic}. No ${KEY_ENV.anthropic}: the llm arm uses the local claude binary.
@@ -251,6 +254,32 @@ function exitFor(verdicts: readonly Verdict[]): number {
   return EXIT.useJev;
 }
 
+function comparisonFields(pair: Comparison, seed: number): Readonly<Record<string, unknown>> {
+  const uniform = mulberry32(seed);
+  const differences = new Float64Array(RESAMPLES);
+  for (let sample = 0; sample < RESAMPLES; sample += 1) {
+    let firstOnly = 0;
+    let secondOnly = 0;
+    for (let draw = 0; draw < pair.n; draw += 1) {
+      const picked = Math.floor(uniform() * pair.n);
+      if (picked >= pair.a && picked < pair.a + pair.b) firstOnly += 1;
+      else if (picked >= pair.a + pair.b && picked < pair.a + pair.b + pair.c) secondOnly += 1;
+    }
+    differences[sample] = (firstOnly - secondOnly) / pair.n;
+  }
+  differences.sort();
+  return {
+    wilson1: wilson(pair.a + pair.b, pair.n),
+    wilson2: wilson(pair.a + pair.c, pair.n),
+    phi: pairedPhi(pair),
+    bootstrap: { seed, resamples: RESAMPLES, lower: percentile(differences, 2.5), upper: percentile(differences, 97.5) },
+  };
+}
+
+function comparisonJson(pair: Comparison, seed: number): Readonly<Record<string, unknown>> {
+  return { ...pair, ...comparisonFields(pair, seed) };
+}
+
 /** Labelled records to verdicts and the exit code. An invalid file is code 2 with the validator's errors and no body;
  * an unreadable file or no rows for the question throws CliInputError. */
 export async function verdictTool(file: string, question: string | undefined): Promise<ToolAnswer> {
@@ -258,13 +287,13 @@ export async function verdictTool(file: string, question: string | undefined): P
 }
 
 /** verdictTool over records text already in memory (the HTTP API); `file` names the input in errors. */
-export async function verdictOfText(text: string, file: string, question: string | undefined): Promise<ToolAnswer> {
+export async function verdictOfText(text: string, file: string, question: string | undefined, inputSeed?: number): Promise<ToolAnswer> {
   if (text.length === 0) return { code: EXIT.invalid, body: null, errors: [`${file}: the file is empty: expected a header row and data rows`] };
   const result = validate(text);
   if (result.errors.length > 0) return { code: EXIT.invalid, body: null, errors: result.errors };
   const groups = groupCohorts(result.rows).filter((g) => question === undefined || g.key.questionId === question);
   if (groups.length === 0) throw new CliInputError(question === undefined ? `${file}: no rows` : `${file}: no rows for question ${question}`);
-  const seed = await fileSeed(text);
+  const seed = inputSeed ?? await fileSeed(text);
   const arms = armsInFile(result.rows);
   const verdicts = groups.map((g) => ({ key: g.key, v: verdict(metricsOfCohortRows(g.rows, g.key), seed, arms) }));
   const code = exitFor(verdicts.map((x) => x.v));
@@ -273,7 +302,9 @@ export async function verdictOfText(text: string, file: string, question: string
     verdicts: verdicts.map(({ key, v }) => ({
       run_id: key.runId, prompt_version: key.promptVersion, question_id: key.questionId,
       verdict: v.verdict, rule: v.rule, condition: v.condition, unmet: v.unmet, reason: v.reason, addN: v.addN,
-      limitations: v.limitations, numbers: v.numbers, ruleComparison: v.ruleComparison,
+      limitations: v.limitations,
+      numbers: { ...v.numbers, jevVsLlm: v.numbers.jevVsLlm === null ? null : comparisonJson(v.numbers.jevVsLlm, seed) },
+      ruleComparison: v.ruleComparison.kind === "compared" ? { ...v.ruleComparison, ...comparisonFields(v.ruleComparison, seed) } : v.ruleComparison,
     })),
   };
   return { code, body, errors: [] };
@@ -328,17 +359,21 @@ export async function main(argv: readonly string[], io: Io, env: Env): Promise<n
         return EXIT.ok;
       case "verdict":
         return await verdictCommand(c.file, c.question, io);
+      case "rescore": {
+        const prepared = await rescoreInput(c);
+        return emit(await verdictOfText(prepared.text, c.file, undefined, prepared.seed), io);
+      }
       case "validate":
         return await validateCommand(c.file, io);
       default:
         return await spend(c, io, env);
     }
   } catch (error) {
-    if (error instanceof CliInputError || error instanceof DecideError) {
+    if (error instanceof CliInputError || error instanceof DecideError || error instanceof RescoreInputError) {
       io.err(`ERROR ${error.message}`);
       return EXIT.invalid;
     }
-    if (c.cmd === "verdict" && error instanceof Error) {
+    if ((c.cmd === "verdict" || c.cmd === "rescore") && error instanceof Error) {
       io.err(`ERROR ${error.message}`);
       return EXIT.invalid;
     }

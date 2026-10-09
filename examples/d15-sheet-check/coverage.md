@@ -44,15 +44,24 @@
 | `verdicts[].numbers.jevVsLlm.p1` | formula | (a + b) / n |
 | `verdicts[].numbers.jevVsLlm.p2` | formula | (a + c) / n |
 | `verdicts[].numbers.jevVsLlm.diff` | formula | p1 - p2 |
+| `verdicts[].numbers.jevVsLlm.wilson1.lower` | excluded | Computed by the sheet check but not compared with the app |
+| `verdicts[].numbers.jevVsLlm.wilson1.upper` | excluded | As wilson1.lower |
+| `verdicts[].numbers.jevVsLlm.wilson2.lower` | excluded | As wilson1.lower |
+| `verdicts[].numbers.jevVsLlm.wilson2.upper` | excluded | As wilson1.lower |
+| `verdicts[].numbers.jevVsLlm.phi` | excluded | Computed by the sheet check but not compared with the app |
+| `verdicts[].numbers.jevVsLlm.bootstrap.seed` | excluded | Seeded interval metadata is not compared |
+| `verdicts[].numbers.jevVsLlm.bootstrap.resamples` | excluded | Seeded interval metadata is not compared |
+| `verdicts[].numbers.jevVsLlm.bootstrap.lower` | excluded | Seeded interval bound is not recomputed or compared |
+| `verdicts[].numbers.jevVsLlm.bootstrap.upper` | excluded | Seeded interval bound is not recomputed or compared |
 | `verdicts[].numbers.jevVsLlm.lower` | formula | Newcombe method 10 from the two Wilson intervals and phi, recomputed in full |
 | `verdicts[].numbers.jevVsLlm.upper` | formula | As lower |
 | `verdicts[].numbers.jevAccepted` | formula | Jev accepted on the paired cases |
 | `verdicts[].numbers.llmAccepted` | formula | LLM accepted on the paired cases |
 | `verdicts[].numbers.costRatio.ratio` | formula | cost per accepted (jev) / cost per accepted (llm), with the 0 case; printed only once rule 1 and the cost-free rule 2 conditions pass. An infinite ratio (LLM at $0 per accepted, Jev above) prints as null, which is then the expected value |
-| `verdicts[].numbers.costRatio.lower` | partial | Bootstrap: 2,000 resamples from a seed the app does not print (#168), so the bound is not recomputed; checked to be 0 or more, at or below the upper bound and at or below the hand ratio |
+| `verdicts[].numbers.costRatio.lower` | partial | Bootstrap bound is not recomputed; checked to be 0 or more, at or below the upper bound and at or below the hand ratio |
 | `verdicts[].numbers.costRatio.upper` | partial | As lower; checked to be at or above the lower bound and the hand ratio. A null bound is read as infinity: a resample with Jev at 0 accepted keeps an infinite ratio, so an infinite upper bound beside a finite ratio is legitimate |
 | `verdicts[].numbers.costRatio.resamples` | formula | 2,000, verdict-rules.md "Cost ratio interval" |
-| `verdicts[].numbers.costRatio.redrawn` | excluded | Count of redrawn resamples: depends on the seeded draws (#168) |
+| `verdicts[].numbers.costRatio.redrawn` | excluded | Count of redrawn resamples depends on the seeded draws |
 | `verdicts[].ruleComparison.n` | formula | Cases where Jev and the rule both have a labelled row, when 30 or more |
 | `verdicts[].ruleComparison.a` | formula | Both accepted |
 | `verdicts[].ruleComparison.b` | formula | Rule accepted, Jev rejected (rule first) |
@@ -61,20 +70,22 @@
 | `verdicts[].ruleComparison.p1` | formula | Rule accept rate |
 | `verdicts[].ruleComparison.p2` | formula | Jev accept rate |
 | `verdicts[].ruleComparison.diff` | formula | Rule minus Jev |
+| `verdicts[].ruleComparison.wilson1.lower` | excluded | Computed by the sheet check but not compared with the app |
+| `verdicts[].ruleComparison.wilson1.upper` | excluded | As wilson1.lower |
+| `verdicts[].ruleComparison.wilson2.lower` | excluded | As wilson1.lower |
+| `verdicts[].ruleComparison.wilson2.upper` | excluded | As wilson1.lower |
+| `verdicts[].ruleComparison.phi` | excluded | Computed by the sheet check but not compared with the app |
+| `verdicts[].ruleComparison.bootstrap.seed` | excluded | Seeded interval metadata is not compared |
+| `verdicts[].ruleComparison.bootstrap.resamples` | excluded | Seeded interval metadata is not compared |
+| `verdicts[].ruleComparison.bootstrap.lower` | excluded | Seeded interval bound is not recomputed or compared |
+| `verdicts[].ruleComparison.bootstrap.upper` | excluded | Seeded interval bound is not recomputed or compared |
 | `verdicts[].ruleComparison.lower` | formula | Newcombe method 10, rule minus Jev |
 | `verdicts[].ruleComparison.upper` | formula | As lower |
 | `verdicts[].ruleComparison.paired` | partial | Compared when the question has rule and Jev rows and fewer than 30 pair; with no rule or no Jev rows the app prints a constant 0, not compared |
 
 States are compared by type and are not counted in `compared`: `verdict`, `condition`, `ruleComparison.kind`, each `spend.kind` and `costPerAccepted.kind` as text; `rule` and `exit_code` as numbers; `unmet` as an ordered list of text; `cases[*].caseId` as a set of distinct text; `numbers.jevVsLlm` as null when nothing pairs (`jevAccepted` and `llmAccepted` are still compared then); `numbers.costRatio` as null on every verdict that stops before the cost ratio (verdict.ts prints its `base` numbers there). `reason` and `limitations` are prose and are not compared.
 
-## Not printed by the app
-| Figure | Status | Reason |
-|---|---|---|
-| Wilson interval of each rate (`wilson1`, `wilson2`, lower and upper) | excluded | app does not expose it (#168); `lower` and `upper`, which are built from it, are compared |
-| `phi` | excluded | app does not expose it (#168); `lower` and `upper`, which are built from it, are compared |
-| Bootstrap seed | excluded | app does not expose it (#168) |
-
-`math-check.ts` still computes the excluded Wilson and phi values and lists them under `excluded` with the hand value, so a reader can check them against `expected.md`.
+`math-check.ts` computes Wilson and phi values and lists them under `excluded` with the hand value. They can be checked against `expected.md`, but the sheet check does not compare those values with the app's newly exposed fields.
 
 ## Record validation
 The input bytes are decoded as strict UTF-8 (a byte order mark is kept) and written to a temporary snapshot. The product validator (`bun src/decide/cli.ts validate <snapshot>`) runs on that snapshot before anything is compared, with or without `--app-json`; a non-zero exit stops the check with exit 2 and the validator's errors. Like `verdict`, it runs as a separate process and only its exit code and stdout are read. The verdict command runs on the same snapshot. math-check's own row reader adds a few checks of its own (labels, label sources, costs, duplicate rows) and does not repeat the full schema.

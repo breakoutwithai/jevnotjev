@@ -79,7 +79,7 @@ One `jnj-record/1.2` row per (case, question, arm), in the column order of [form
 
 ### Exit codes
 
-| Code | `verdict` | `validate` | other subcommands |
+| Code | `verdict` and `rescore` | `validate` | other subcommands |
 |---|---|---|---|
 | 0 | use Jev | valid | done |
 | 1 | | invalid file, or unreadable | could not write `--out` |
@@ -87,9 +87,11 @@ One `jnj-record/1.2` row per (case, question, arm), in the column order of [form
 | 3 | don't use Jev | | |
 | 4 | not enough evidence | | |
 
-With several questions in one file, `verdict` exits 3 when any question is "don't use Jev", else 4 when any is "not enough evidence", else 0. `--question <id>` scores one.
+With several questions in one file, `verdict` and `rescore` exit 3 when any question is "don't use Jev", else 4 when any is "not enough evidence", else 0. `verdict --question <id>` scores one.
 
-## The six tools
+`verdicts[].numbers.jevVsLlm` adds `wilson1` and `wilson2` (each `{lower, upper}` for the first and second accept rates), `phi` (the paired Newcombe correlation correction), and `bootstrap` (`{seed, resamples, lower, upper}` for a seeded paired bootstrap of the accept-rate difference). A compared `verdicts[].ruleComparison` carries the same fields, with the rule first and Jev second. Its skipped form is unchanged. Existing Newcombe `lower` and `upper`, cost-ratio interval, verdict name, rule, condition and reason retain their meanings. The bootstrap uses 2,000 paired resamples and the first 32 bits of the input records SHA-256 as its seed.
+
+## The six tools and the rescore CLI command
 
 | Tool | Does | Spends |
 |---|---|---|
@@ -100,6 +102,8 @@ With several questions in one file, `verdict` exits 3 when any question is "don'
 | `verdict` | labelled records to verdict and exit code (`src/core/verdict.ts`, unchanged) | 0 |
 | `validate` | the record validator (`src/format/validate.ts`) | 0 |
 
+`rescore` is a CLI command for replaying a run from its original `records.csv` and a separate `labels.csv`. It applies the reviewed truth with the existing UC13 labeller, replaces each record's label and label provenance, then uses the same verdict path as `verdict`. Its `labels.csv` has `case_id,truth` with one truth for every case in the records. The current labeller accepts the UC13 `m01` to `m40` case IDs and `answer` or `hand_off` truth values. A missing, extra, duplicate or empty truth set exits 2 without a verdict.
+
 ## Command line
 
 `bun src/decide/cli.ts <command>` (or `bun run decide <command>`). JSON on stdout, errors on stderr.
@@ -108,7 +112,7 @@ Keys come from the caller's environment only: `JEV_API_KEY` (or, when it is empt
 
 Input files: questions are one QuestionSpec or a JSON array of them; cases are JSONL (one Case per line, path ending `.jsonl`) or a JSON array; a rule file is `{"keywords": [...], "match": "...", "otherwise": "..."}`.
 
-Flags: `--questions <file>`, `--cases <file>` (estimate, run), `--case <file>` or `--input <text>` (ask, exactly one), `--case-id <id>` (ask with `--input` only; with `--case` it is an error, the file carries its id), `--out <file>` (run; must not be the cases, questions or rule file), `--question <id>` (verdict), `--arms jev,decisions,llm,rule` (exactly these arms; without it the defaults), `--llm-model <id>`, `--rule <file>`, `--budget <usd>`, `--dry-run`, `--run-id <id>`, `--prompt-version <v>`.
+Flags: `--questions <file>`, `--cases <file>` (estimate, run), `--case <file>` or `--input <text>` (ask, exactly one), `--case-id <id>` (ask with `--input` only; with `--case` it is an error, the file carries its id), `--out <file>` (run; must not be the cases, questions or rule file), `--question <id>` (verdict), `--labels <file>`, `--manifest <file>`, `--write-manifest <file>` (rescore), `--arms jev,decisions,llm,rule` (exactly these arms; without it the defaults), `--llm-model <id>`, `--rule <file>`, `--budget <usd>`, `--dry-run`, `--run-id <id>`, `--prompt-version <v>`.
 
 ```sh
 # arms, models and dated prices
@@ -128,6 +132,10 @@ JEV_API_KEY=... bun src/decide/cli.ts run --questions questions.json --cases cas
 # after a person has labelled records.csv: the verdict and its exit code
 bun src/decide/cli.ts verdict records.csv --question needs_human; echo "exit $?"
 
+# replay a separately labelled run, then verify the exact inputs on a later replay
+bun src/decide/cli.ts rescore records.csv --labels labels.csv --write-manifest manifest.json
+bun src/decide/cli.ts rescore records.csv --labels labels.csv --manifest manifest.json
+
 # the record validator
 bun src/decide/cli.ts validate records.csv
 ```
@@ -135,6 +143,8 @@ bun src/decide/cli.ts validate records.csv
 A `run` stopped by the budget cap still writes every row: the calls not made are `outcome=error`, `reason=budget`, and the summary has `stoppedByBudget: true`. The cap is checked before each call against an upper-bound estimate; the `claude-cli` transport has no output cap, so with it the budget can be overshot by at most one call, and the summary's `budgetNote` says so.
 
 An empty records file reports "the file is empty: expected a header row and data rows". A header with no records reports "file has no data rows". Provider error rows name rate limits, server errors, other HTTP failures and timeouts in `evidence.reason`. Every `ask` and `run` JSON summary lists distinct reasons in `errorReasons`, including `run --out`; the records CSV keeps its existing columns and omits evidence.
+
+`--write-manifest` writes stable, two-space JSON with a trailing newline: `{"format":"jnj-manifest/1","seed":2092528910,"resamples":2000,"models":{"jev":"jev-1.13.0","llm":"claude-haiku-4-5-20251001","rule":"keywords.v1"},"inputs":{"records":{"sha256":"..."},"labels":{"sha256":"..."}},"run_id":"...","prompt_version":"..."}`. The seed and model IDs shown are from UC13. It contains no timestamp or path. `--manifest` verifies the SHA-256 of both input files, seed, resample count, model IDs, run ID and prompt version before printing a verdict. A mismatch exits 2 and names the differing field with expected and received values. The manifest and labels are never written into the run folder by the command unless the caller explicitly gives such a path.
 
 ### Test-only: recorded fixtures
 

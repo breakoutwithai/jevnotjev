@@ -89,7 +89,7 @@ One `jnj-record/1.2` row per (case, question, arm), in the column order of [form
 
 With several questions in one file, `verdict` and `rescore` exit 3 when any question is "don't use Jev", else 4 when any is "not enough evidence", else 0. `verdict --question <id>` scores one.
 
-`verdicts[].numbers.jevVsLlm` adds `wilson1` and `wilson2` (each `{lower, upper}` for the first and second accept rates), `phi` (the paired Newcombe correlation correction), and `bootstrap` (`{seed, resamples, lower, upper}` for a seeded paired bootstrap of the accept-rate difference). A compared `verdicts[].ruleComparison` carries the same fields, with the rule first and Jev second. Its skipped form is unchanged. Existing Newcombe `lower` and `upper`, cost-ratio interval, verdict name, rule, condition and reason retain their meanings. The bootstrap uses 2,000 paired resamples and the first 32 bits of the input records SHA-256 as its seed.
+`verdicts[].numbers.jevVsLlm` and a compared `verdicts[].ruleComparison` add `bootstrap: {seed, resamples}`. The seed is the first 32 bits of the input records SHA-256 and the resample count is 2,000. Existing Newcombe `lower` and `upper`, cost-ratio interval, verdict name, rule, condition and reason retain their meanings.
 
 ## The six tools and the rescore CLI command
 
@@ -102,7 +102,7 @@ With several questions in one file, `verdict` and `rescore` exit 3 when any ques
 | `verdict` | labelled records to verdict and exit code (`src/core/verdict.ts`, unchanged) | 0 |
 | `validate` | the record validator (`src/format/validate.ts`) | 0 |
 
-`rescore` is a CLI command for replaying a run from its original `records.csv` and a separate `labels.csv`. It applies the reviewed truth with the existing UC13 labeller, replaces each record's label and label provenance, then uses the same verdict path as `verdict`. Its `labels.csv` has `case_id,truth` with one truth for every case in the records. The current labeller accepts the UC13 `m01` to `m40` case IDs and `answer` or `hand_off` truth values. A missing, extra, duplicate or empty truth set exits 2 without a verdict.
+`rescore` is a CLI command for replaying a run from its original `records.csv` and a separate `labels.csv`. It applies the reviewed truth with the existing UC13 labeller and uses the same verdict path as `verdict`. Label provenance comes from the records, including records whose label values have been cleared. A case without record provenance exits 2. Its `labels.csv` has `case_id,truth` with one truth for every case in the records. Truth must belong to the question's `answer_set`. The current labeller accepts the UC13 `m01` to `m40` case IDs and `answer` or `hand_off` truth values. A missing, extra, duplicate or empty truth set exits 2 without a verdict.
 
 ## Command line
 

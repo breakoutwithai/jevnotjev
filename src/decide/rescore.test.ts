@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatRows, readDictRows } from "../format/csv.ts";
-import { build, quad, render } from "../../examples/d08-verdicts/make.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const RUN = join(ROOT, "docs/product/runs/2026-10-01-uc13-shop-bot");
@@ -43,6 +42,7 @@ describe("rescore CLI", () => {
     expect(first.code).toBe(4);
     expect(first.stderr).toBe("");
     expect(first.stdout).toBe(second.stdout);
+    expect(createHash("sha256").update(first.stdout).digest("hex")).toBe("1f02f8560f15d041ae2498748040936f84a23e13945c50117e7ee891bc0e5d1c");
     const got = firstVerdict(first.stdout);
     const all = array(object(JSON.parse(readFileSync(join(ROOT, "site/shows/posters.json"), "utf8"))).posters);
     const uc13 = all.map(object).find((item) => item.id === "uc13");
@@ -73,6 +73,69 @@ describe("rescore CLI", () => {
       .reduce((sum, row) => sum + Number(row.fields[costAt]), 0);
     expect(Number(ruleSpend.toFixed(6))).toBe(Number(String(rule.spendUsd)));
   });
+
+  test("[integration] D17-LABELS stripped labels rebuild the published UC13 counts", () => withTemp((dir) => {
+    const baseline = cli(["rescore", RECORDS, "--labels", LABELS]);
+    const { header, rows } = readDictRows(readFileSync(RECORDS, "utf8"));
+    if (header === null) throw new Error("records header missing");
+    const labelAt = header.indexOf("label");
+    const stripped = join(dir, "stripped.csv");
+    writeFileSync(stripped, formatRows([header, ...rows.map(({ fields }) => fields.map((value, i) => i === labelAt ? "" : value))]));
+    const result = cli(["rescore", stripped, "--labels", LABELS]);
+    expect(result.code).toBe(4);
+    const actual = firstVerdict(result.stdout);
+    const expected = firstVerdict(baseline.stdout);
+    expect([actual.verdict, actual.reason]).toEqual([expected.verdict, expected.reason]);
+    const numbers = object(actual.numbers);
+    const published = object(expected.numbers);
+    expect([numbers.jevAccepted, numbers.llmAccepted, object(numbers.jevVsLlm).n]).toEqual([
+      published.jevAccepted, published.llmAccepted, object(published.jevVsLlm).n,
+    ]);
+  }));
+
+  test("[integration] D17-LABELS changing m01 truth changes accepted counts", () => withTemp((dir) => {
+    const baseline = cli(["rescore", RECORDS, "--labels", LABELS]);
+    const changed = join(dir, "flipped.csv");
+    writeFileSync(changed, readFileSync(LABELS, "utf8").replace("m01,hand_off", "m01,answer"));
+    const result = cli(["rescore", RECORDS, "--labels", changed]);
+    expect(result.code).toBe(4);
+    expect(result.stdout).not.toBe(baseline.stdout);
+    expect(object(firstVerdict(result.stdout).numbers).jevAccepted).not.toBe(object(firstVerdict(baseline.stdout).numbers).jevAccepted);
+  }));
+
+  test("[integration] D17-PROVENANCE retains per-case source and refuses a missing source", () => withTemp((dir) => {
+    const { header, rows } = readDictRows(readFileSync(RECORDS, "utf8"));
+    if (header === null) throw new Error("records header missing");
+    const sourceAt = header.indexOf("label_source");
+    const byAt = header.indexOf("labelled_by");
+    const atAt = header.indexOf("labelled_at");
+    const blindAt = header.indexOf("label_blind");
+    const labelAt = header.indexOf("label");
+    const path = join(dir, "provenance.csv");
+    writeFileSync(path, formatRows([header, ...rows.map(({ fields }) => fields.map((value, i) =>
+      fields[3] === "m01" && i === sourceAt ? "agent" :
+      fields[3] === "m01" && i === byAt ? "reviewer" :
+      fields[3] === "m01" && i === atAt ? "2026-10-04" :
+      fields[3] === "m01" && i === blindAt ? "true" : value))]));
+    const result = cli(["rescore", path, "--labels", LABELS]);
+    expect(result.code).toBe(4);
+    expect(object(object(firstVerdict(result.stdout).numbers).jevVsLlm).n).toBe(39);
+    writeFileSync(path, formatRows([header, ...rows.map(({ fields }) => fields.map((value, i) =>
+      fields[3] === "m01" && [labelAt, sourceAt, byAt, atAt, blindAt].includes(i) ? "" : value))]));
+    const missing = cli(["rescore", path, "--labels", LABELS]);
+    expect(missing.code).toBe(2);
+    expect(missing.stderr).toContain("records carry no label provenance for case m01");
+  }));
+
+  test("[integration] D17-TRUTH rejects values outside the question answer_set", () => withTemp((dir) => {
+    const path = join(dir, "truth.csv");
+    writeFileSync(path, readFileSync(LABELS, "utf8").replace("m01,hand_off", "m01,not_allowed"));
+    const result = cli(["rescore", RECORDS, "--labels", path]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("m01");
+    expect(result.stderr).toContain("q1");
+    expect(result.stderr).toContain("answer, hand_off");
+  }));
 
   test("[integration] D17-MANIFEST emit and verify preserves verdict bytes", () => withTemp((dir) => {
     const path = join(dir, "manifest.json");
@@ -119,6 +182,32 @@ describe("rescore CLI", () => {
     expect(badResamples.stderr).toContain("resamples: expected 2000, got 1000");
   }));
 
+  test("[integration] D17-MANIFEST rejects extra top-level and models keys", () => withTemp((dir) => {
+    const path = join(dir, "manifest.json");
+    expect(cli(["rescore", RECORDS, "--labels", LABELS, "--write-manifest", path]).code).toBe(4);
+    const saved = object(JSON.parse(readFileSync(path, "utf8")));
+    writeFileSync(path, JSON.stringify({ ...saved, extra: "value" }));
+    const extra = cli(["rescore", RECORDS, "--labels", LABELS, "--manifest", path]);
+    expect(extra.code).toBe(2);
+    expect(extra.stderr).toContain("extra");
+    writeFileSync(path, JSON.stringify({ ...saved, models: { ...object(saved.models), unexpected: "model" } }));
+    const model = cli(["rescore", RECORDS, "--labels", LABELS, "--manifest", path]);
+    expect(model.code).toBe(2);
+    expect(model.stderr).toContain("models.unexpected");
+  }));
+
+  test("[integration] D17-MANIFEST refuses symlink to an input", () => withTemp((dir) => {
+    const labelsCopy = join(dir, "labels.csv");
+    writeFileSync(labelsCopy, readFileSync(LABELS));
+    const link = join(dir, "manifest.json");
+    symlinkSync(labelsCopy, link);
+    const before = readFileSync(labelsCopy, "utf8");
+    const result = cli(["rescore", RECORDS, "--labels", labelsCopy, "--write-manifest", link]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("input file");
+    expect(readFileSync(labelsCopy, "utf8")).toBe(before);
+  }));
+
   test("[integration] D17-LABELS missing, unknown and empty truth rows exit 2", () => withTemp((dir) => {
     const { header, rows } = readDictRows(readFileSync(LABELS, "utf8"));
     if (header === null) throw new Error("labels header missing");
@@ -151,42 +240,25 @@ describe("rescore CLI", () => {
     expect(done.stderr).toContain("Usage:");
   });
 
-  test("[integration] D17-168 d06 carries Wilson, phi and seeded bootstrap fields", () => {
+  test("[integration] D17-168 d06 carries only bootstrap seed and resample count", () => {
     const done = cli(["verdict", join(ROOT, "examples/d06-tiny/records.csv")]);
     expect(done.code).toBe(4);
     const pair = object(object(firstVerdict(done.stdout).numbers).jevVsLlm);
-    expect(object(pair.wilson1)).toEqual({ lower: expect.any(Number), upper: expect.any(Number) });
-    expect(object(pair.wilson2)).toEqual({ lower: expect.any(Number), upper: expect.any(Number) });
-    expect(pair.phi).toBeNumber();
-    expect(object(pair.bootstrap)).toEqual({ seed: expect.any(Number), resamples: 2000, lower: expect.any(Number), upper: expect.any(Number) });
+    expect(pair).not.toHaveProperty("wilson1");
+    expect(pair).not.toHaveProperty("wilson2");
+    expect(pair).not.toHaveProperty("phi");
+    expect(object(pair.bootstrap)).toEqual({ seed: expect.any(Number), resamples: 2000 });
   });
 
-  test("[integration] D17-168 JSON comparison matches Newcombe Table III where it applies", () => withTemp((dir) => {
-    const oracle = object(JSON.parse(readFileSync(join(ROOT, "docs/decision/newcombe-table3.json"), "utf8")));
-    const row = object(array(oracle.rows)[0]);
-    const path = join(dir, "oracle.csv");
-    writeFileSync(path, render(build({ name: "oracle", pairs: quad(36, 12, 2, 0) })));
-    const done = cli(["verdict", path]);
-    const pair = object(object(firstVerdict(done.stdout).numbers).jevVsLlm);
-    expect(Number(pair.lower)).toBeCloseTo(Number(row.lower), 4);
-    expect(Number(pair.upper)).toBeCloseTo(Number(row.upper), 4);
-    expect(object(pair.wilson1).lower).toBeCloseTo(0.8654, 3);
-    expect(object(pair.wilson2).upper).toBeCloseTo(0.8570, 3);
-    expect(Number(pair.phi)).toBeCloseTo(-0.1147, 3);
-    const bootstrap = object(pair.bootstrap);
-    expect(Number(bootstrap.lower)).toBeLessThanOrEqual(Number(bootstrap.upper));
-    expect(bootstrap.resamples).toBe(2000);
-  }));
-
-  test("[integration] D17-168 rule comparison carries additive fields", () => {
+  test("[integration] D17-168 rule comparison carries only bootstrap metadata", () => {
     const done = cli(["verdict", join(ROOT, "examples/d08-verdicts/r3-use-jev.csv")]);
     expect(done.code).toBe(0);
     const rule = object(firstVerdict(done.stdout).ruleComparison);
     expect(rule.kind).toBe("compared");
-    expect(object(rule.wilson1).lower).toBeNumber();
-    expect(object(rule.wilson2).upper).toBeNumber();
-    expect(rule.phi).toBeNumber();
-    expect(object(rule.bootstrap).resamples).toBe(2000);
+    expect(rule).not.toHaveProperty("wilson1");
+    expect(rule).not.toHaveProperty("wilson2");
+    expect(rule).not.toHaveProperty("phi");
+    expect(object(rule.bootstrap)).toEqual({ seed: expect.any(Number), resamples: 2000 });
   });
 
   test("[integration] D17-168 D08 verdict name, rule, condition and reason remain unchanged", () => {

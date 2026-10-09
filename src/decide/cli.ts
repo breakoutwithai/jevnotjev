@@ -14,7 +14,7 @@
 // 0 valid, 1 invalid, 2 usage. The other subcommands: 0 done, 2 invalid input or usage, 1 could not write --out.
 import { mkdir, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { RESAMPLES, fileSeed, mulberry32, pairedPhi, percentile, wilson } from "../core/calc.ts";
+import { RESAMPLES, fileSeed } from "../core/calc.ts";
 import { armsInFile, groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
 import { MIN_PAIRED, verdict, type Comparison, type Verdict } from "../core/verdict.ts";
 import { readDictRows } from "../format/csv.ts";
@@ -254,30 +254,12 @@ function exitFor(verdicts: readonly Verdict[]): number {
   return EXIT.useJev;
 }
 
-function comparisonFields(pair: Comparison, seed: number): Readonly<Record<string, unknown>> {
-  const uniform = mulberry32(seed);
-  const differences = new Float64Array(RESAMPLES);
-  for (let sample = 0; sample < RESAMPLES; sample += 1) {
-    let firstOnly = 0;
-    let secondOnly = 0;
-    for (let draw = 0; draw < pair.n; draw += 1) {
-      const picked = Math.floor(uniform() * pair.n);
-      if (picked >= pair.a && picked < pair.a + pair.b) firstOnly += 1;
-      else if (picked >= pair.a + pair.b && picked < pair.a + pair.b + pair.c) secondOnly += 1;
-    }
-    differences[sample] = (firstOnly - secondOnly) / pair.n;
-  }
-  differences.sort();
-  return {
-    wilson1: wilson(pair.a + pair.b, pair.n),
-    wilson2: wilson(pair.a + pair.c, pair.n),
-    phi: pairedPhi(pair),
-    bootstrap: { seed, resamples: RESAMPLES, lower: percentile(differences, 2.5), upper: percentile(differences, 97.5) },
-  };
+function comparisonFields(seed: number): Readonly<Record<string, unknown>> {
+  return { bootstrap: { seed, resamples: RESAMPLES } };
 }
 
 function comparisonJson(pair: Comparison, seed: number): Readonly<Record<string, unknown>> {
-  return { ...pair, ...comparisonFields(pair, seed) };
+  return { ...pair, ...comparisonFields(seed) };
 }
 
 /** Labelled records to verdicts and the exit code. An invalid file is code 2 with the validator's errors and no body;
@@ -304,7 +286,7 @@ export async function verdictOfText(text: string, file: string, question: string
       verdict: v.verdict, rule: v.rule, condition: v.condition, unmet: v.unmet, reason: v.reason, addN: v.addN,
       limitations: v.limitations,
       numbers: { ...v.numbers, jevVsLlm: v.numbers.jevVsLlm === null ? null : comparisonJson(v.numbers.jevVsLlm, seed) },
-      ruleComparison: v.ruleComparison.kind === "compared" ? { ...v.ruleComparison, ...comparisonFields(v.ruleComparison, seed) } : v.ruleComparison,
+      ruleComparison: v.ruleComparison.kind === "compared" ? { ...v.ruleComparison, ...comparisonFields(seed) } : v.ruleComparison,
     })),
   };
   return { code, body, errors: [] };
@@ -361,7 +343,13 @@ export async function main(argv: readonly string[], io: Io, env: Env): Promise<n
         return await verdictCommand(c.file, c.question, io);
       case "rescore": {
         const prepared = await rescoreInput(c);
-        return emit(await verdictOfText(prepared.text, c.file, undefined, prepared.seed), io);
+        const answer = await verdictOfText(prepared.text, c.file, undefined, prepared.seed);
+        if (answer.code === EXIT.invalid) return emit(answer, io);
+        if (prepared.manifest !== undefined) {
+          try { await Bun.write(prepared.manifest.path, prepared.manifest.text); }
+          catch (error) { throw new RescoreInputError(`cannot write ${prepared.manifest.path}: ${error instanceof Error ? error.message : "write failed"}`); }
+        }
+        return emit(answer, io);
       }
       case "validate":
         return await validateCommand(c.file, io);

@@ -92,15 +92,19 @@ describe("D15 math check", () => {
 
     // The independent calculation of the fixture against every stated value. The cost-ratio interval is the app's,
     // stated in expected.md as read from the app: it only decides rules 2 to 4.
-    const bootstrap = (prefix: string): { lower: number; upper: number } | null => {
-      const lower = stated.get(`${prefix}:app.costRatio.lower`);
-      const upper = stated.get(`${prefix}:app.costRatio.upper`);
+    const bootstrap = (cohort: { readonly prefix: string }): { lower: number; upper: number } | null => {
+      const lower = stated.get(`${cohort.prefix}:app.costRatio.lower`);
+      const upper = stated.get(`${cohort.prefix}:app.costRatio.upper`);
       return lower === undefined || upper === undefined ? null : { lower: Number(lower), upper: Number(upper) };
     };
     const computed = new Map<string, number | string>();
     for (const cohort of cohortsOf(loadRows(fixtureText))) {
       const hand = handCohort(cohort, bootstrap);
-      for (const f of hand.figures) if (f.tolerance !== "within-bounds") computed.set(f.key, f.value);
+      for (const f of hand.figures) {
+        // The bound checks and the case-id set are comparisons with the app, not hand figures.
+        if (f.tolerance === "bound-lower" || f.tolerance === "bound-upper" || f.tolerance === "set" || f.value === null) continue;
+        computed.set(f.key, typeof f.value === "number" || typeof f.value === "string" ? f.value : f.value.join(","));
+      }
       for (const e of hand.excluded) if (e.hand !== null) computed.set(e.key, e.hand);
     }
     const problems: string[] = [];
@@ -238,6 +242,127 @@ describe("D15 planted faults on the app side", () => {
     const r = planted('"upper": 0.010741452991452991', '"upper": 0.009');
     expect(r.code).toBe(1);
     expect(r.keys).toEqual(["q1:numbers.costRatio.upper"]);
+  });
+});
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The app's verdict JSON for the fixture, parsed, with a change applied in place; written to a temp file. */
+function doctoredJson(change: (verdicts: unknown[]) => void): string {
+  const json: unknown = JSON.parse(JSON.stringify(runApp(FIXTURE)));
+  if (!isObject(json) || !Array.isArray(json.verdicts)) throw new Error("no verdicts");
+  change(json.verdicts);
+  return tempFile(JSON.stringify(json, null, 2), "json");
+}
+
+function q1Cases(verdicts: unknown[]): unknown[] {
+  const q1 = verdicts[0];
+  if (!isObject(q1) || !isObject(q1.numbers) || !isObject(q1.numbers.jevVsLlm) || !Array.isArray(q1.numbers.jevVsLlm.cases)) throw new Error("no q1 cases");
+  return q1.numbers.jevVsLlm.cases;
+}
+
+/** A small records file: `cases` cases, one Jev and one LLM row each, labels and costs from the callbacks. */
+function synthetic(cases: number, jev: (i: number) => [string, string], llm: (i: number) => [string, string]): string {
+  const header = fixtureText.split("\n")[0] ?? "";
+  const line = (i: number, who: string, model: string, [label, cost]: [string, string]): string =>
+    `jnj-record/1,run-t,t.v1,t${i},Fictional note ${i},q1,Is it a refund?,yes|no,${who},${model},yes,,${label},${label === "" ? "" : "human"},1,1,${cost},1,,,`;
+  const rows = [header];
+  for (let i = 1; i <= cases; i += 1) rows.push(line(i, "jev", "jev-1.13.0", jev(i)), line(i, "llm", "example-llm", llm(i)));
+  return rows.join("\n") + "\n";
+}
+
+describe("D15 review sweep regressions (2a83d38)", () => {
+  test("[unit] D15.g malformed or duplicate app verdict entries are refused", () => {
+    expect(main([FIXTURE, "--app-json", doctoredJson((v) => v.push(null))]).code).toBe(2);
+    expect(main([FIXTURE, "--app-json", doctoredJson((v) => v.push(v[0]))]).err).toContain("twice");
+  });
+
+  test("[unit] D15.g app verdicts match on run, prompt version and question", () => {
+    const file = doctoredJson((v) => v.forEach((one) => { if (isObject(one)) one.run_id = "WRONG"; }));
+    const { code, report } = check([FIXTURE, "--app-json", file]);
+    expect(code).toBe(1);
+    expect(mismatchKeys(report)).toContain("q1:verdict");
+  });
+
+  test("[unit] D15.g extra or duplicate paired cases in the app fail", () => {
+    const dup = check([FIXTURE, "--app-json", doctoredJson((v) => { const c = q1Cases(v); c.push(c[0]); })]);
+    expect(dup.code).toBe(1);
+    // The repeated case fails the membership check, and its per-case costs no longer resolve to one row.
+    expect(mismatchKeys(dup.report)).toEqual(["q1:numbers.jevVsLlm.cases[*].caseId", "q1:numbers.jevVsLlm.cases[c01].jevCostUsd", "q1:numbers.jevVsLlm.cases[c01].otherCostUsd"]);
+    const extra = check([FIXTURE, "--app-json", doctoredJson((v) => q1Cases(v).push({ caseId: "c99", jevAccepted: true, otherAccepted: true, jevCostUsd: 0.00002, otherCostUsd: 0.002 }))]);
+    expect(mismatchKeys(extra.report)).toEqual(["q1:numbers.jevVsLlm.cases[*].caseId"]);
+  });
+
+  test("[unit] D15.g accepted counts are checked when nothing pairs", () => {
+    const file = tempFile(synthetic(30, () => ["accept", "0.00002"], () => ["", "0.002"]));
+    const real = check([file]);
+    expect(mismatchKeys(real.report)).toEqual([]);
+    expect(handValue(real.report, "q1:numbers.jevAccepted")).toBe(0);
+    const app = JSON.stringify(runApp(file), null, 2).replace('"jevAccepted": 0', '"jevAccepted": 5');
+    const planted = check([file, "--app-json", tempFile(app, "json")]);
+    expect(planted.code).toBe(1);
+    expect(mismatchKeys(planted.report)).toEqual(["q1:numbers.jevAccepted"]);
+  });
+
+  test("[unit] D15.g states are type-checked: a text rule or a null in unmet fails", () => {
+    const text = check([FIXTURE, "--app-json", doctoredJson((v) => { const q1 = v[0]; if (isObject(q1)) q1.rule = "3"; })]);
+    expect(mismatchKeys(text.report)).toEqual(["q1:rule"]);
+    const unmet = check([FIXTURE, "--app-json", doctoredJson((v) => { const q1 = v[0]; if (isObject(q1)) q1.unmet = [null]; })]);
+    expect(mismatchKeys(unmet.report)).toEqual(["q1:unmet"]);
+  });
+
+  test("[unit] D15.g invalid records are bad input even with --app-json", () => {
+    const app = tempFile(JSON.stringify(runApp(FIXTURE)), "json");
+    const garbage = fixtureText.replaceAll(",reject,human,", ",garbage,human,");
+    expect(garbage).not.toBe(fixtureText);
+    const r = main([tempFile(garbage), "--app-json", app]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("label");
+    expect(main([tempFile(fixtureText.replace(",0.002,1800,", ",-0.002,1800,")), "--app-json", app]).code).toBe(2);
+  });
+
+  test("[unit] D15.g an infinite cost ratio is expected as null, never compared relatively", () => {
+    // LLM rows cost $0: the ratio is infinite and the app prints null for it and its bounds.
+    const file = tempFile(synthetic(30, () => ["accept", "0.00002"], () => ["accept", "0"]));
+    const real = check([file]);
+    expect(mismatchKeys(real.report)).toEqual([]);
+    expect(real.code).toBe(0);
+    const app = JSON.stringify(runApp(file), null, 2).replace('"ratio": null', '"ratio": 2');
+    const planted = check([file, "--app-json", tempFile(app, "json")]);
+    expect(planted.code).toBe(1);
+    expect(mismatchKeys(planted.report)).toContain("q1:numbers.costRatio.ratio");
+  });
+
+  test("[unit] D15.g a negative cost-ratio bound fails", () => {
+    const r = check([FIXTURE, "--app-json", doctoredJson((v) => {
+      const q1 = v[0];
+      if (isObject(q1) && isObject(q1.numbers) && isObject(q1.numbers.costRatio)) q1.numbers.costRatio.lower = -1;
+    })]);
+    expect(r.code).toBe(1);
+    expect(mismatchKeys(r.report)).toEqual(["q1:numbers.costRatio.lower"]);
+  });
+
+  test("[unit] D15.g a 6,000-case file is read in full", () => {
+    const file = tempFile(synthetic(6000, (i) => [i % 5 === 0 ? "reject" : "accept", "0.00002"], (i) => [i % 7 === 0 ? "reject" : "accept", "0.002"]));
+    const { code, report } = check([file]);
+    expect(mismatchKeys(report)).toEqual([]);
+    expect(report.compared).toBeGreaterThan(12000);
+    expect(code).toBe(0);
+  }, 60000);
+
+  test("[unit] D15.g a relative path is checked from the caller's directory", () => {
+    writeFileSync(join(tmp, "relative.csv"), fixtureText);
+    const before = process.cwd();
+    process.chdir(tmp);
+    try {
+      const r = main(["relative.csv"]);
+      expect(r.err).toBe("");
+      expect(r.code).toBe(0);
+    } finally {
+      process.chdir(before);
+    }
   });
 });
 

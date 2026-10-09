@@ -5,7 +5,8 @@
 ## Tolerances
 - Counts and rates (n, accepted, a to d, rates, p1, p2, diff, the interval bounds, addN, resamples): **1e-9 absolute**.
 - Money and ratios (spend, cost per accepted, per-case costs, the cost ratio): **1e-9 relative**, the scale of the float error in a sum of costs (verdict-rules.md "Cost guards and tolerance" uses the same 1e-9).
-- A blank, missing, `NaN`, text or non-finite app value where a number is expected is a mismatch, never a pass.
+- A blank, missing, `NaN`, text or non-finite app value where a number is expected is a mismatch, never a pass. The one exception is a hand value that is itself infinite: JSON prints infinity as `null`, so `null` is then the expected value, and an infinite hand value is never put through tolerance arithmetic.
+- The app's verdicts are matched on the full (run_id, prompt_version, question_id); a verdict entry that is not an object, lacks one of the three, or repeats a key is bad input.
 
 ## Statuses
 - **formula**: recomputed from the CSV by verdict-rules.md and compared.
@@ -38,7 +39,7 @@
 | `verdicts[].numbers.jevVsLlm.wins` | formula | b |
 | `verdicts[].numbers.jevVsLlm.losses` | formula | c |
 | `verdicts[].numbers.jevVsLlm.ties` | formula | a + d |
-| `verdicts[].numbers.jevVsLlm.cases[].jevCostUsd` | formula | Each paired case's Jev cost, matched by case id: catches a wrong pairing; a missing cost is null in the app and not compared |
+| `verdicts[].numbers.jevVsLlm.cases[].jevCostUsd` | formula | Each paired case's Jev cost, matched by case id: catches a wrong pairing; a missing cost is null in the app and not compared. Before any cost is read, the app's case ids must be distinct and exactly the hand's paired cases (state `cases[*].caseId`) |
 | `verdicts[].numbers.jevVsLlm.cases[].otherCostUsd` | formula | As above, LLM side |
 | `verdicts[].numbers.jevVsLlm.p1` | formula | (a + b) / n |
 | `verdicts[].numbers.jevVsLlm.p2` | formula | (a + c) / n |
@@ -47,9 +48,9 @@
 | `verdicts[].numbers.jevVsLlm.upper` | formula | As lower |
 | `verdicts[].numbers.jevAccepted` | formula | Jev accepted on the paired cases |
 | `verdicts[].numbers.llmAccepted` | formula | LLM accepted on the paired cases |
-| `verdicts[].numbers.costRatio.ratio` | formula | cost per accepted (jev) / cost per accepted (llm), with the 0 case; printed only once rule 1 and the cost-free rule 2 conditions pass. An infinite ratio prints as null in JSON and so reads as a mismatch |
-| `verdicts[].numbers.costRatio.lower` | partial | Bootstrap: 2,000 resamples from a seed the app does not print (#168), so the bound is not recomputed; checked to be at or below the hand ratio |
-| `verdicts[].numbers.costRatio.upper` | partial | As lower; checked to be at or above the hand ratio |
+| `verdicts[].numbers.costRatio.ratio` | formula | cost per accepted (jev) / cost per accepted (llm), with the 0 case; printed only once rule 1 and the cost-free rule 2 conditions pass. An infinite ratio (LLM at $0 per accepted, Jev above) prints as null, which is then the expected value |
+| `verdicts[].numbers.costRatio.lower` | partial | Bootstrap: 2,000 resamples from a seed the app does not print (#168), so the bound is not recomputed; checked to be 0 or more, at or below the upper bound and at or below the hand ratio |
+| `verdicts[].numbers.costRatio.upper` | partial | As lower; checked to be at or above the lower bound and the hand ratio. A null bound is read as infinity only when the hand ratio is infinite |
 | `verdicts[].numbers.costRatio.resamples` | formula | 2,000, verdict-rules.md "Cost ratio interval" |
 | `verdicts[].numbers.costRatio.redrawn` | excluded | Count of redrawn resamples: depends on the seeded draws (#168) |
 | `verdicts[].ruleComparison.n` | formula | Cases where Jev and the rule both have a labelled row, when 30 or more |
@@ -64,7 +65,7 @@
 | `verdicts[].ruleComparison.upper` | formula | As lower |
 | `verdicts[].ruleComparison.paired` | partial | Compared when the question has rule and Jev rows and fewer than 30 pair; with no rule or no Jev rows the app prints a constant 0, not compared |
 
-Text fields are compared exactly as states and are not counted in `compared`: `verdict`, `condition`, `unmet`, `ruleComparison.kind`, each `spend.kind` and `costPerAccepted.kind`. `reason` and `limitations` are prose and are not compared.
+States are compared by type and are not counted in `compared`: `verdict`, `condition`, `ruleComparison.kind`, each `spend.kind` and `costPerAccepted.kind` as text; `rule` and `exit_code` as numbers; `unmet` as an ordered list of text; `cases[*].caseId` as a set of distinct text; `numbers.jevVsLlm` as null when nothing pairs (`jevAccepted` and `llmAccepted` are still compared then). `reason` and `limitations` are prose and are not compared.
 
 ## Not printed by the app
 | Figure | Status | Reason |
@@ -76,7 +77,7 @@ Text fields are compared exactly as states and are not counted in `compared`: `v
 `math-check.ts` still computes the excluded Wilson and phi values and lists them under `excluded` with the hand value, so a reader can check them against `expected.md`.
 
 ## Exit codes
-0 when at least 1 figure was compared and none differ; 1 on any mismatch, each named with both values and the tolerance; 2 on bad input (unreadable file, malformed CSV, an invalid records file, `--last` that is not a whole number above 0, or fewer than N cases); 3 when no figure was compared (a file of person-answered rows only: the verdict stops at "no Jev results" and prints no number to check).
+0 when at least 1 figure was compared and none differ; 1 on any mismatch, each named with both values and the tolerance; 2 on bad input (unreadable file, malformed CSV, a records file that breaks the format/README.md contract, checked by math-check itself so `--app-json` cannot skip it, malformed app JSON, `--last` that is not a whole number above 0, or fewer than N cases); 3 when no figure was compared (a file of person-answered rows only: the verdict stops at "no Jev results" and prints no number to check).
 
 ## What this catches that `scripts/hand-check.ts` does not
 - `hand-check.ts` checks the d06 figures against `expected.md` only; it never reads the app's output, and it throws on any question that passes rule 1. `math-check.ts` compares against the app itself, on any records file.

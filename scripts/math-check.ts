@@ -11,7 +11,7 @@
 // Spends 0: the verdict command reads recorded rows only.
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,6 +31,8 @@ const Z = 1.959963984540054;
 /** Tolerances (coverage.md): absolute for counts and rates, relative for money and ratios. */
 export const ABS_TOLERANCE = 1e-9;
 export const REL_TOLERANCE = 1e-9;
+/** The verdict command's stdout is read in full: a 6,000-case file prints megabytes. */
+const MAX_APP_OUTPUT = 1024 * 1024 * 1024;
 
 export const EXIT_CODES = { ok: 0, mismatch: 1, badInput: 2, nothingCompared: 3 } satisfies Record<string, number>;
 
@@ -104,6 +106,23 @@ export type HandRow = {
   readonly cost: number | null;
 };
 
+/** The 18 columns format/README.md requires in every header. */
+const REQUIRED_COLUMNS = [
+  "format_version", "run_id", "prompt_version", "case_id", "case_input", "question_id", "question", "answer_set", "answerer",
+  "answerer_model", "output", "confidence", "label", "label_source", "tokens_in", "tokens_out", "cost_usd", "latency_ms",
+];
+const OPTIONAL_COLUMNS = ["price_table_date", "labelled_by", "labelled_at", "label_blind", "label_final", "suggestion_shown", "outcome"];
+const VERSIONS = ["jnj-record/1", "jnj-record/1.1", "jnj-record/1.2"];
+const ANSWERERS = ["jev", "rule", "llm", "human", "decisions"];
+const LABELS = ["", "accept", "reject"];
+const SOURCES = ["", "human", "human_reviewed", "agent"];
+const OUTCOMES = ["", "answered", "refused", "unsupported", "error"];
+const COST_PATTERN = /^\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/;
+
+function stripBom(text: string): string {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
 function columnsOf(header: readonly string[]): (name: string) => number {
   return (name) => {
     const index = header.indexOf(name);
@@ -112,23 +131,68 @@ function columnsOf(header: readonly string[]): (name: string) => number {
   };
 }
 
+/**
+ * The rows the calculation reads, after checking the record contract of format/README.md that the calculation depends
+ * on: header columns, row width, version, identities, answerer, label and label source, output in the answer set,
+ * outcome, cost, one row per (run, case, question, answerer) and one case_input per case. Any break is bad input,
+ * so a doctored records file cannot pass against a saved app verdict.
+ */
 export function loadRows(text: string): HandRow[] {
-  const [header, ...body] = parseCsv(text.replace(/^﻿/, ""));
+  const [header, ...body] = parseCsv(stripBom(text));
   if (header === undefined || body.length === 0) throw new BadInput("records file has no data rows");
+  if (new Set(header).size !== header.length) throw new BadInput("records header has a duplicate column");
+  const missing = REQUIRED_COLUMNS.filter((c) => !header.includes(c));
+  if (missing.length > 0) throw new BadInput(`records header is missing ${missing.join(", ")}`);
+  const unknown = header.filter((c) => !REQUIRED_COLUMNS.includes(c) && !OPTIONAL_COLUMNS.includes(c));
+  if (unknown.length > 0) throw new BadInput(`records header has unknown columns ${unknown.join(", ")}`);
   const col = columnsOf(header);
-  const at = { run: col("run_id"), pv: col("prompt_version"), id: col("case_id"), q: col("question_id"), who: col("answerer"), label: col("label"), source: col("label_source"), cost: col("cost_usd") };
+  const outcomeAt = header.indexOf("outcome");
+  const seen = new Set<string>();
+  const inputs = new Map<string, string>();
   return body.map((cells, i) => {
-    const cell = (index: number): string => {
-      const value = cells[index];
-      if (value === undefined) throw new BadInput(`records line ${i + 2} is short`);
-      return value;
+    const line = i + 2;
+    if (cells.length !== header.length) throw new BadInput(`records line ${line}: ${cells.length} cells, header has ${header.length}`);
+    const cell = (name: string): string => cells[col(name)] ?? "";
+    const bad = (why: string): never => {
+      throw new BadInput(`records line ${line}: ${why}`);
     };
-    const costText = cell(at.cost).trim();
+    if (!VERSIONS.includes(cell("format_version"))) bad(`format_version ${cell("format_version")} is not a jnj-record version`);
+    for (const name of ["run_id", "prompt_version", "case_id", "question_id", "question", "answerer_model"]) if (cell(name) === "") bad(`${name} is empty`);
+    const answerer = cell("answerer");
+    if (!ANSWERERS.includes(answerer)) bad(`answerer ${answerer} is not one of ${ANSWERERS.join(", ")}`);
+    const label = cell("label");
+    const source = cell("label_source");
+    if (!LABELS.includes(label)) bad(`label ${label} is not accept, reject or empty`);
+    if (!SOURCES.includes(source)) bad(`label_source ${source} is not human, human_reviewed, agent or empty`);
+    if ((label === "") !== (source === "")) bad("label and label_source must both be filled or both be empty");
+    const options = cell("answer_set").split("|");
+    if (options.length < 2 || options.some((o) => o === "")) bad(`answer_set ${cell("answer_set")} needs two or more answers`);
+    const outcome = outcomeAt < 0 ? "" : (cells[outcomeAt] ?? "");
+    if (!OUTCOMES.includes(outcome)) bad(`outcome ${outcome} is not a known outcome`);
+    const answered = outcome === "" || outcome === "answered";
+    if (answered && !options.includes(cell("output"))) bad(`output ${cell("output")} is not in answer_set ${cell("answer_set")}`);
+    if (!answered && (cell("output") !== "" || label !== "")) bad(`a ${outcome} row has no output and no label`);
+    const costText = cell("cost_usd").trim();
+    if (costText !== "" && !COST_PATTERN.test(costText)) bad(`cost_usd ${costText} is not a non-negative number`);
     const cost = costText === "" ? null : Number(costText);
-    if (cost !== null && !Number.isFinite(cost)) throw new BadInput(`records line ${i + 2}: cost_usd ${costText} is not a number`);
-    // format/README.md "Missing cost or labels": an agent label was never reviewed, so it counts as unlabelled.
-    const label = cell(at.source) === "agent" ? "" : cell(at.label);
-    return { runId: cell(at.run), promptVersion: cell(at.pv), caseId: cell(at.id), questionId: cell(at.q), answerer: cell(at.who), label, cost };
+    if (cost !== null && !Number.isFinite(cost)) bad(`cost_usd ${costText} is not finite`);
+    const key = JSON.stringify([cell("run_id"), cell("case_id"), cell("question_id"), answerer]);
+    if (seen.has(key)) bad(`duplicate row for run ${cell("run_id")} (${cell("case_id")}, ${cell("question_id")}, ${answerer})`);
+    seen.add(key);
+    const caseKey = JSON.stringify([cell("run_id"), cell("case_id")]);
+    const firstInput = inputs.get(caseKey);
+    if (firstInput === undefined) inputs.set(caseKey, cell("case_input"));
+    else if (firstInput !== cell("case_input")) bad(`case_input differs from the first row for case_id ${cell("case_id")}`);
+    return {
+      runId: cell("run_id"),
+      promptVersion: cell("prompt_version"),
+      caseId: cell("case_id"),
+      questionId: cell("question_id"),
+      answerer,
+      // format/README.md "Missing cost or labels": an agent label was never reviewed, so it counts as unlabelled.
+      label: source === "agent" ? "" : label,
+      cost,
+    };
   });
 }
 
@@ -139,7 +203,7 @@ export type Selection = { readonly text: string; readonly n: number; readonly ru
 
 /** Distinct case_id values in order of first appearance. */
 export function caseOrder(text: string): string[] {
-  const [header, ...body] = parseCsv(text.replace(/^﻿/, ""));
+  const [header, ...body] = parseCsv(stripBom(text));
   if (header === undefined) throw new BadInput("records file is empty");
   const id = columnsOf(header)("case_id");
   return [...new Set(body.map((cells) => cells[id] ?? ""))];
@@ -151,7 +215,7 @@ export function selectLast(text: string, last: number | null): Selection {
   if (last === null) return { text, n: order.length, rule: `whole file: all ${order.length} distinct case_id values`, cases: order };
   if (order.length < last) throw new BadInput(`fewer than ${last} cases: the file has ${order.length} distinct case_id values`);
   const keep = new Set(order.slice(order.length - last));
-  const [header, ...body] = parseCsv(text.replace(/^﻿/, ""));
+  const [header, ...body] = parseCsv(stripBom(text));
   if (header === undefined) throw new BadInput("records file is empty");
   const id = columnsOf(header)("case_id");
   const rows = body.filter((cells) => keep.has(cells[id] ?? ""));
@@ -166,21 +230,40 @@ export function selectLast(text: string, last: number | null): Selection {
 // ---------------------------------------------------------------------------------------------
 // The hand calculation, from verdict-rules.md
 
-/** How a figure is compared: absolute for counts and rates, relative for money and ratios, exact for states. */
-export type Tolerance = "abs" | "rel" | "exact" | "within-bounds";
+/**
+ * How a figure is compared. abs and rel: a finite app number within tolerance, or JSON null when the hand value is
+ * infinite (JSON prints a non-finite number as null). exact: the same string. list: the same strings in order.
+ * set: distinct strings, the same set. null: the app prints null. bound-lower and bound-upper: the app's cost-ratio
+ * interval holds the hand ratio, with 0 <= lower <= upper.
+ */
+export type Tolerance = "abs" | "rel" | "exact" | "list" | "set" | "null" | "bound-lower" | "bound-upper";
+
+export type HandValue = number | string | readonly string[] | null;
 
 export type HandFigure = {
   /** `<question>:<path in that question's verdict object>`, e.g. `q1:numbers.jevVsLlm.a`. */
   readonly key: string;
-  readonly value: number | string;
+  /** The cohort's (run_id, prompt_version, question_id) as JSON: the app verdict is matched on all three. */
+  readonly cohort: string;
+  readonly path: string;
+  readonly value: HandValue;
   readonly tolerance: Tolerance;
-  /** "figure" counts toward `compared`; "state" (verdict, rule, condition, kinds) is checked but not counted. */
+  /** "figure" counts toward `compared`; "state" (verdict, rule, condition, kinds, case ids) is checked but not counted. */
   readonly group: "figure" | "state";
 };
 
 export type Excluded = { readonly key: string; readonly reason: string; readonly hand: number | null };
 
-export type Cohort = { readonly prefix: string; readonly runId: string; readonly promptVersion: string; readonly questionId: string; readonly rows: readonly HandRow[] };
+export type Cohort = {
+  /** JSON of (run_id, prompt_version, question_id). */
+  readonly id: string;
+  /** Display name: the question id when the file has one run and prompt version. */
+  readonly prefix: string;
+  readonly runId: string;
+  readonly promptVersion: string;
+  readonly questionId: string;
+  readonly rows: readonly HandRow[];
+};
 
 type Side = { readonly accepted: number; readonly spend: number; readonly missing: number; readonly n: number };
 type Paired = {
@@ -292,35 +375,41 @@ function pairUp(rows: readonly HandRow[], other: string): Paired {
   return { ids: pairedIds, excluded, ...cells, jev: sideOf(jevRows), other: sideOf(otherRows), costs };
 }
 
+export function cohortId(runId: string, promptVersion: string, questionId: string): string {
+  return JSON.stringify([runId, promptVersion, questionId]);
+}
+
 export function cohortsOf(rows: readonly HandRow[]): Cohort[] {
   const groups = new Map<string, { runId: string; promptVersion: string; questionId: string; rows: HandRow[] }>();
   for (const row of rows) {
-    const id = JSON.stringify([row.runId, row.promptVersion, row.questionId]);
+    const id = cohortId(row.runId, row.promptVersion, row.questionId);
     const group = groups.get(id);
     if (group === undefined) groups.set(id, { runId: row.runId, promptVersion: row.promptVersion, questionId: row.questionId, rows: [row] });
     else group.rows.push(row);
   }
-  const list = [...groups.values()];
-  const single = new Set(list.map((g) => `${g.runId}\u0000${g.promptVersion}`)).size === 1;
-  return list.map((g) => ({ ...g, prefix: single ? g.questionId : `${g.runId}/${g.promptVersion}/${g.questionId}` }));
+  const list = [...groups.entries()];
+  const single = new Set(list.map(([, g]) => cohortId(g.runId, g.promptVersion, ""))).size === 1;
+  return list.map(([id, g]) => ({ ...g, id, prefix: single ? g.questionId : `${g.runId}/${g.promptVersion}/${g.questionId}` }));
 }
 
-/** The app's bootstrap bounds for a cohort, which this check cannot recompute (seed not in stdout, #168). */
+/** The app's cost-ratio interval for a cohort (null in JSON read as infinity), which this check cannot recompute (#168). */
 export type BootstrapBounds = { readonly lower: number; readonly upper: number } | null;
 
 export type HandCohort = { readonly figures: HandFigure[]; readonly excluded: Excluded[]; readonly verdict: string };
 
 /**
  * Every figure of one cohort that verdict-rules.md defines, keyed by the verdict JSON path.
- * `bootstrap` is the app's cost-ratio interval, read only to decide rules 2 (clearly dearer) to 4.
+ * `bootstrap` gives the app's cost-ratio interval, read only to decide rules 2 (clearly dearer) to 4.
  */
-export function handCohort(cohort: Cohort, bootstrap: (prefix: string) => BootstrapBounds): HandCohort {
+export function handCohort(cohort: Cohort, bootstrap: (cohort: Cohort) => BootstrapBounds): HandCohort {
   const figures: HandFigure[] = [];
   const excluded: Excluded[] = [];
   const p = cohort.prefix;
-  const fig = (path: string, value: number | string, tolerance: Tolerance): void => {
-    figures.push({ key: `${p}:${path}`, value, tolerance, group: typeof value === "string" ? "state" : "figure" });
+  const put = (path: string, value: HandValue, tolerance: Tolerance, group: "figure" | "state"): void => {
+    figures.push({ key: `${p}:${path}`, cohort: cohort.id, path, value, tolerance, group });
   };
+  const fig = (path: string, value: number, tolerance: "abs" | "rel"): void => put(path, value, tolerance, "figure");
+  const state = (path: string, value: string): void => put(path, value, "exact", "state");
   const exclude = (path: string, reason: string, hand: number | null): void => {
     excluded.push({ key: `${p}:${path}`, reason, hand });
   };
@@ -330,10 +419,15 @@ export function handCohort(cohort: Cohort, bootstrap: (prefix: string) => Bootst
   const hasLlm = has("llm");
   const hasRule = has("rule");
 
-  // Jev against the LLM.
+  // Jev against the LLM. The pair exists whenever both have rows; its numbers only when a case pairs.
   const pair = hasJev && hasLlm ? pairUp(rows, "llm") : null;
   const n = pair?.ids.length ?? 0;
   let nc: Newcombe | null = null;
+  if (pair !== null) {
+    fig("numbers.jevAccepted", pair.jev.accepted, "abs");
+    fig("numbers.llmAccepted", pair.other.accepted, "abs");
+    if (n === 0) put("numbers.jevVsLlm", null, "null", "state");
+  }
   if (pair !== null && n > 0) {
     const base = "numbers.jevVsLlm";
     nc = newcombe(pair.a, pair.b, pair.c, pair.d);
@@ -344,16 +438,16 @@ export function handCohort(cohort: Cohort, bootstrap: (prefix: string) => Bootst
       fig(`${base}.${side}.accepted`, s.accepted, "abs");
       fig(`${base}.${side}.acceptRate`, s.accepted / n, "abs");
       if (s.missing > 0) {
-        fig(`${base}.${side}.spend.kind`, "incomplete", "exact");
+        state(`${base}.${side}.spend.kind`, "incomplete");
         fig(`${base}.${side}.spend.knownUsd`, s.spend, "rel");
         fig(`${base}.${side}.spend.missing`, s.missing, "abs");
-        fig(`${base}.${side}.costPerAccepted.kind`, "incomplete", "exact");
+        state(`${base}.${side}.costPerAccepted.kind`, "incomplete");
       } else {
-        fig(`${base}.${side}.spend.kind`, "complete", "exact");
+        state(`${base}.${side}.spend.kind`, "complete");
         fig(`${base}.${side}.spend.usd`, s.spend, "rel");
-        if (s.accepted === 0) fig(`${base}.${side}.costPerAccepted.kind`, "undefined", "exact");
+        if (s.accepted === 0) state(`${base}.${side}.costPerAccepted.kind`, "undefined");
         else {
-          fig(`${base}.${side}.costPerAccepted.kind`, "value", "exact");
+          state(`${base}.${side}.costPerAccepted.kind`, "value");
           fig(`${base}.${side}.costPerAccepted.usd`, s.spend / s.accepted, "rel");
         }
       }
@@ -365,6 +459,8 @@ export function handCohort(cohort: Cohort, bootstrap: (prefix: string) => Bootst
     fig(`${base}.wins`, pair.b, "abs");
     fig(`${base}.losses`, pair.c, "abs");
     fig(`${base}.ties`, pair.a + pair.d, "abs");
+    // Exactly the paired cases, each once, before any per-case cost is read.
+    put(`${base}.cases[*].caseId`, [...pair.ids], "set", "state");
     for (const [id, [jc, oc]] of pair.costs) {
       if (jc !== null) fig(`${base}.cases[${id}].jevCostUsd`, jc, "rel");
       if (oc !== null) fig(`${base}.cases[${id}].otherCostUsd`, oc, "rel");
@@ -374,8 +470,6 @@ export function handCohort(cohort: Cohort, bootstrap: (prefix: string) => Bootst
     fig(`${base}.diff`, nc.diff, "abs");
     fig(`${base}.lower`, nc.lower, "abs");
     fig(`${base}.upper`, nc.upper, "abs");
-    fig("numbers.jevAccepted", pair.jev.accepted, "abs");
-    fig("numbers.llmAccepted", pair.other.accepted, "abs");
     const why = "app does not expose it (#168); lower and upper, which are built from it, are compared";
     exclude(`${base}.wilson1.lower`, why, nc.w1.lower);
     exclude(`${base}.wilson1.upper`, why, nc.w1.upper);
@@ -390,13 +484,13 @@ export function handCohort(cohort: Cohort, bootstrap: (prefix: string) => Bootst
     const rp = pairUp(rows, "rule");
     const rn = rp.ids.length;
     if (rn < MIN_PAIRED) {
-      fig("ruleComparison.kind", "skipped", "exact");
+      state("ruleComparison.kind", "skipped");
       fig("ruleComparison.paired", rn, "abs");
     } else {
       // Rule first: rule-only is b, Jev-only is c.
       const r = newcombe(rp.a, rp.c, rp.b, rp.d);
       ruleLower = r.lower;
-      fig("ruleComparison.kind", "compared", "exact");
+      state("ruleComparison.kind", "compared");
       fig("ruleComparison.n", rn, "abs");
       fig("ruleComparison.a", rp.a, "abs");
       fig("ruleComparison.b", rp.c, "abs");
@@ -414,37 +508,35 @@ export function handCohort(cohort: Cohort, bootstrap: (prefix: string) => Bootst
       exclude("ruleComparison.wilson2.upper", why, r.w2.upper);
       exclude("ruleComparison.phi", why, r.phi);
     }
-  } else fig("ruleComparison.kind", "skipped", "exact");
+  } else state("ruleComparison.kind", "skipped");
 
-  // The verdict, first match wins.
-  const decide = (verdict: string, rule: number, condition: string, unmet: readonly string[] = []): string => {
-    fig("verdict", verdict, "exact");
-    fig("rule", String(rule), "exact");
-    fig("condition", condition, "exact");
-    fig("unmet", unmet.join(","), "exact");
-    return verdict;
+  // The verdict, first match wins. rule is compared as a number, unmet as a list of strings.
+  const decide = (verdict: string, rule: number, condition: string, unmet: readonly string[] = []): HandCohort => {
+    state("verdict", verdict);
+    put("rule", rule, "abs", "state");
+    state("condition", condition);
+    put("unmet", unmet, "list", "state");
+    return { figures, excluded, verdict };
   };
   const nee = "not enough evidence";
   const dont = "don't use Jev";
-  if (!hasJev) return { figures, excluded, verdict: decide(nee, 1, "no-jev-rows") };
-  if (!hasLlm) return { figures, excluded, verdict: decide(nee, 1, "no-llm-rows") };
+  if (!hasJev) return decide(nee, 1, "no-jev-rows");
+  if (!hasLlm) return decide(nee, 1, "no-llm-rows");
   if (pair === null || nc === null || n < MIN_PAIRED) {
     fig("addN", MIN_PAIRED - n, "abs");
-    return { figures, excluded, verdict: decide(nee, 1, "too-few-paired") };
+    return decide(nee, 1, "too-few-paired");
   }
-  if (pair.jev.accepted === 0 && pair.other.accepted === 0) return { figures, excluded, verdict: decide(nee, 1, "both-zero-accepted") };
-  if (pair.jev.missing > 0 || pair.other.missing > 0) return { figures, excluded, verdict: decide(nee, 1, "cost-missing") };
-  if (ruleLower !== null && ruleLower > -MARGIN) return { figures, excluded, verdict: decide(dont, 2, "rule-within-margin") };
-  if (nc.upper < -MARGIN) return { figures, excluded, verdict: decide(dont, 2, "jev-clearly-worse") };
-  if (pair.jev.accepted === 0) return { figures, excluded, verdict: decide(dont, 2, "jev-zero-accepted") };
+  if (pair.jev.accepted === 0 && pair.other.accepted === 0) return decide(nee, 1, "both-zero-accepted");
+  if (pair.jev.missing > 0 || pair.other.missing > 0) return decide(nee, 1, "cost-missing");
+  if (ruleLower !== null && ruleLower > -MARGIN) return decide(dont, 2, "rule-within-margin");
+  if (nc.upper < -MARGIN) return decide(dont, 2, "jev-clearly-worse");
+  if (pair.jev.accepted === 0) return decide(dont, 2, "jev-zero-accepted");
   const jevSpend = pair.jev.spend;
   const llmSpend = pair.other.spend;
   let largest = 0;
   for (const [jc, oc] of pair.costs.values()) largest = Math.max(largest, jc ?? 0, oc ?? 0);
-  if (!Number.isFinite(jevSpend) || !Number.isFinite(llmSpend) || !Number.isFinite(largest * n)) {
-    return { figures, excluded, verdict: decide(nee, 1, "cost-not-finite") };
-  }
-  // cost_ratio: 0 when the LLM has 0 accepted, else cost per accepted of Jev over the LLM's.
+  if (!Number.isFinite(jevSpend) || !Number.isFinite(llmSpend) || !Number.isFinite(largest * n)) return decide(nee, 1, "cost-not-finite");
+  // cost_ratio: 0 when the LLM has 0 accepted; infinity when the LLM costs $0 per accepted and Jev more.
   const jevPer = jevSpend / pair.jev.accepted;
   const llmPer = pair.other.accepted === 0 ? Number.NaN : llmSpend / pair.other.accepted;
   let ratio: number | null;
@@ -452,30 +544,23 @@ export function handCohort(cohort: Cohort, bootstrap: (prefix: string) => Bootst
   else if (jevPer === 0 && llmPer === 0) ratio = null;
   else if (llmPer === 0) ratio = Number.POSITIVE_INFINITY;
   else ratio = Number.isFinite(jevPer / llmPer) ? jevPer / llmPer : null;
-  if (ratio === null) {
-    return { figures, excluded, verdict: decide(nee, 1, jevSpend === 0 && llmSpend === 0 ? "no-cost-ratio" : "cost-not-finite") };
-  }
+  if (ratio === null) return decide(nee, 1, jevSpend === 0 && llmSpend === 0 ? "no-cost-ratio" : "cost-not-finite");
   fig("numbers.costRatio.ratio", ratio, "rel");
   fig("numbers.costRatio.resamples", RESAMPLES, "abs");
   exclude("numbers.costRatio.redrawn", "seeded resampling; the seed is not in verdict output until #168", null);
-  const ci = bootstrap(p);
-  if (ci === null) {
-    // No interval from the app: the bounds are reported missing below, and rules 2 to 4 cannot be decided.
-    fig("numbers.costRatio.lower", ratio, "within-bounds");
-    fig("numbers.costRatio.upper", ratio, "within-bounds");
-    return { figures, excluded, verdict: decide("(needs the app's cost-ratio interval)", 0, "(unknown)") };
-  }
-  // Partial: the point ratio must lie inside the app's interval; the bounds themselves are not recomputed.
-  fig("numbers.costRatio.lower", ratio, "within-bounds");
-  fig("numbers.costRatio.upper", ratio, "within-bounds");
-  if (ci.lower > 1 + COST_TOLERANCE) return { figures, excluded, verdict: decide(dont, 2, "jev-clearly-dearer") };
+  // Partial: the app's interval must hold the hand ratio, with 0 <= lower <= upper; the bounds are not recomputed.
+  put("numbers.costRatio.lower", ratio, "bound-lower", "figure");
+  put("numbers.costRatio.upper", ratio, "bound-upper", "figure");
+  const ci = bootstrap(cohort);
+  if (ci === null) return decide("(needs the app's cost-ratio interval)", 0, "(unknown)");
+  if (ci.lower > 1 + COST_TOLERANCE) return decide(dont, 2, "jev-clearly-dearer");
   const unmet: string[] = [];
   if (!(nc.lower > -MARGIN)) unmet.push("accept-rate-not-shown");
   if (ratio > CHEAPER + COST_TOLERANCE) unmet.push(ratio < 1 - COST_TOLERANCE ? "cheaper-by-less-than-20" : "not-cheaper");
   if (!(ci.upper < 1 - COST_TOLERANCE)) unmet.push("cost-upper-bound-not-below-1");
   const [first] = unmet;
-  if (first === undefined) return { figures, excluded, verdict: decide("use Jev", 3, "use-jev") };
-  return { figures, excluded, verdict: decide(nee, 4, first, unmet) };
+  if (first === undefined) return decide("use Jev", 3, "use-jev");
+  return decide(nee, 4, first, unmet);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -485,46 +570,72 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** The verdict objects of the app's JSON, keyed the same way as the hand cohorts. */
+/** Every verdict object of the app's JSON keyed by (run_id, prompt_version, question_id); a malformed or repeated entry is refused. */
 export function appVerdicts(json: unknown): Map<string, Record<string, unknown>> {
   if (!isRecord(json) || !Array.isArray(json.verdicts)) throw new BadInput("app output has no verdicts array");
-  const list = json.verdicts.filter(isRecord);
-  const single = new Set(list.map((v) => `${String(v.run_id)}\u0000${String(v.prompt_version)}`)).size === 1;
   const out = new Map<string, Record<string, unknown>>();
-  for (const v of list) {
-    const key = single ? String(v.question_id) : `${String(v.run_id)}/${String(v.prompt_version)}/${String(v.question_id)}`;
-    out.set(key, v);
-  }
+  json.verdicts.forEach((v: unknown, i: number) => {
+    if (!isRecord(v)) throw new BadInput(`app output: verdicts[${i}] is not an object`);
+    const { run_id: run, prompt_version: pv, question_id: q } = v;
+    if (typeof run !== "string" || typeof pv !== "string" || typeof q !== "string") {
+      throw new BadInput(`app output: verdicts[${i}] lacks a text run_id, prompt_version or question_id`);
+    }
+    const id = cohortId(run, pv, q);
+    if (out.has(id)) throw new BadInput(`app output: verdict for run ${run}, prompt ${pv}, question ${q} appears twice`);
+    out.set(id, v);
+  });
   return out;
 }
 
-/** Walk `a.b.cases[c07].x` through a verdict object; an array segment `[id]` picks the element whose caseId is id. */
+/**
+ * Walk `a.b.cases[c07].x` through a verdict object. `[id]` picks the element whose caseId is id (undefined unless
+ * exactly one matches); `[*]` keeps the array, and the next segment then maps over its elements.
+ */
 export function resolvePath(root: unknown, path: string): unknown {
   let here: unknown = root;
+  let mapping = false;
   for (const segment of path.split(".")) {
     const m = /^([^[\]]+)(?:\[([^\]]+)\])?$/.exec(segment);
-    if (m === null || !isRecord(here)) return undefined;
-    here = here[m[1] ?? ""];
-    const id = m[2];
-    if (id !== undefined) {
+    if (m === null) return undefined;
+    const name = m[1] ?? "";
+    if (mapping) {
       if (!Array.isArray(here)) return undefined;
-      here = here.find((item) => isRecord(item) && item.caseId === id);
+      here = here.map((item: unknown) => (isRecord(item) ? item[name] : undefined));
+      mapping = false;
+    } else {
+      if (!isRecord(here)) return undefined;
+      here = here[name];
+    }
+    const id = m[2];
+    if (id === "*") {
+      if (!Array.isArray(here)) return undefined;
+      mapping = true;
+    } else if (id !== undefined) {
+      if (!Array.isArray(here)) return undefined;
+      const matches = here.filter((item: unknown) => isRecord(item) && item.caseId === id);
+      here = matches.length === 1 ? matches[0] : undefined;
     }
   }
   return here;
 }
 
+/** A cost-ratio bound as printed: a number, or null for infinity (JSON prints a non-finite number as null). */
+function boundValue(value: unknown): number | null {
+  if (value === null) return Number.POSITIVE_INFINITY;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function bootstrapOf(verdict: Record<string, unknown> | undefined): BootstrapBounds {
   if (verdict === undefined) return null;
-  const lower = resolvePath(verdict, "numbers.costRatio.lower");
-  const upper = resolvePath(verdict, "numbers.costRatio.upper");
-  return typeof lower === "number" && typeof upper === "number" ? { lower, upper } : null;
+  const lower = boundValue(resolvePath(verdict, "numbers.costRatio.lower"));
+  const upper = boundValue(resolvePath(verdict, "numbers.costRatio.upper"));
+  return lower === null || upper === null ? null : { lower, upper };
 }
 
 /** Every numeric leaf of a JSON value, arrays written `[]`: the coverage table's row keys. */
 export function numericLeaves(value: unknown, path = ""): string[] {
   if (typeof value === "number") return [path];
-  if (Array.isArray(value)) return [...new Set(value.flatMap((item) => numericLeaves(item, `${path}[]`)))];
+  if (Array.isArray(value)) return [...new Set(value.flatMap((item: unknown) => numericLeaves(item, `${path}[]`)))];
   if (!isRecord(value)) return [];
   return [...new Set(Object.entries(value).flatMap(([k, v]) => numericLeaves(v, path === "" ? k : `${path}.${k}`)))];
 }
@@ -535,7 +646,7 @@ export function numericLeaves(value: unknown, path = ""): string[] {
 export type FigureResult = {
   readonly key: string;
   readonly group: "figure" | "state";
-  readonly hand: number | string;
+  readonly hand: HandValue;
   readonly app: unknown;
   readonly tolerance: string;
   readonly ok: boolean;
@@ -556,30 +667,77 @@ export type Report = {
 function toleranceText(t: Tolerance): string {
   if (t === "abs") return `abs ${ABS_TOLERANCE}`;
   if (t === "rel") return `rel ${REL_TOLERANCE}`;
-  if (t === "within-bounds") return `hand ratio inside app interval, rel ${REL_TOLERANCE}`;
-  return "exact";
+  if (t === "bound-lower" || t === "bound-upper") return `0 <= lower <= hand ratio <= upper, rel ${REL_TOLERANCE}`;
+  return t;
+}
+
+function stringList(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") return null;
+    out.push(item);
+  }
+  return out;
+}
+
+type Outcome = { readonly ok: boolean; readonly note: string };
+
+function pass(ok: boolean, note: string): Outcome {
+  return { ok, note: ok ? "" : note };
+}
+
+function numberCheck(hand: number, app: unknown, t: "abs" | "rel"): Outcome {
+  // JSON prints a non-finite number as null: an infinite hand value expects null, and is never compared by arithmetic.
+  if (!Number.isFinite(hand)) return pass(app === null, `hand value is ${hand}, which the app prints as null`);
+  if (typeof app !== "number" || !Number.isFinite(app)) {
+    return { ok: false, note: app === undefined || app === null || app === "" ? "app value blank or missing" : "app value is not a finite number" };
+  }
+  const gap = Math.abs(hand - app);
+  const ok = t === "abs" ? gap <= ABS_TOLERANCE : gap <= REL_TOLERANCE * Math.max(Math.abs(hand), Math.abs(app));
+  return pass(ok, `differs by ${gap}`);
+}
+
+function boundCheck(ratio: number, verdict: Record<string, unknown>, which: "lower" | "upper"): Outcome {
+  const raw = resolvePath(verdict, `numbers.costRatio.${which}`);
+  const lower = boundValue(resolvePath(verdict, "numbers.costRatio.lower"));
+  const upper = boundValue(resolvePath(verdict, "numbers.costRatio.upper"));
+  const mine = which === "lower" ? lower : upper;
+  if (mine === null) return { ok: false, note: "app bound blank or not a number" };
+  // A null bound reads as infinity only where the hand ratio is infinite too.
+  if (raw === null && Number.isFinite(ratio)) return { ok: false, note: "app bound is null (infinite) but the hand ratio is finite" };
+  if (lower === null || upper === null) return { ok: false, note: "the other bound is blank or not a number" };
+  if (which === "lower" && !(lower >= 0)) return { ok: false, note: `lower bound ${lower} is below 0` };
+  if (!(lower <= upper)) return { ok: false, note: `lower bound ${lower} is above upper bound ${upper}` };
+  if (!Number.isFinite(ratio)) return pass(which === "lower" || upper === Number.POSITIVE_INFINITY, "hand ratio is infinite but the app's upper bound is finite");
+  const slack = REL_TOLERANCE * Math.abs(ratio);
+  if (which === "lower") return pass(lower <= ratio + slack, `hand ratio ${ratio} is below the app's lower bound`);
+  return pass(upper >= ratio - slack, `hand ratio ${ratio} is above the app's upper bound`);
 }
 
 function compareOne(f: HandFigure, verdict: Record<string, unknown> | undefined): FigureResult {
-  const colon = f.key.indexOf(":");
-  const path = f.key.slice(colon + 1);
-  const app = verdict === undefined ? undefined : resolvePath(verdict, path);
+  const app = verdict === undefined ? undefined : resolvePath(verdict, f.path);
   const base = { key: f.key, group: f.group, hand: f.value, app: app === undefined ? null : app, tolerance: toleranceText(f.tolerance) };
-  if (verdict === undefined) return { ...base, ok: false, note: "the app has no verdict for this question" };
-  if (typeof f.value === "string") {
-    const appText = typeof app === "number" ? String(app) : Array.isArray(app) ? app.join(",") : app;
-    return { ...base, ok: appText === f.value, note: appText === f.value ? "" : "differs" };
-  }
-  if (typeof app !== "number" || !Number.isFinite(app)) return { ...base, ok: false, note: app === undefined || app === null || app === "" ? "app value blank or missing" : "app value is not a finite number" };
+  if (verdict === undefined) return { ...base, ok: false, note: "the app has no verdict for this run, prompt version and question" };
+  let result: Outcome;
   const hand = f.value;
-  if (f.tolerance === "within-bounds") {
-    const slack = REL_TOLERANCE * Math.abs(hand);
-    const ok = path.endsWith(".lower") ? app <= hand + slack : app >= hand - slack;
-    return { ...base, ok, note: ok ? "" : `hand ratio ${hand} outside the app's interval` };
-  }
-  const gap = Math.abs(hand - app);
-  const ok = f.tolerance === "abs" ? gap <= ABS_TOLERANCE : gap <= REL_TOLERANCE * Math.max(Math.abs(hand), Math.abs(app));
-  return { ...base, ok, note: ok ? "" : `differs by ${gap}` };
+  if (f.tolerance === "null") result = pass(app === null, "app prints a value where null is expected");
+  else if (f.tolerance === "exact") result = pass(typeof app === "string" && app === hand, typeof app === "string" ? "differs" : "app value is not text");
+  else if (f.tolerance === "list" || f.tolerance === "set") {
+    const list = stringList(app);
+    const want = Array.isArray(hand) ? [...hand] : [];
+    if (list === null) result = { ok: false, note: "app value is not a list of text" };
+    else if (f.tolerance === "list") result = pass(list.length === want.length && list.every((v, i) => v === want[i]), "differs");
+    else if (new Set(list).size !== list.length) result = { ok: false, note: "app lists a case more than once" };
+    else {
+      const a = [...list].sort();
+      const b = [...want].sort();
+      result = pass(a.length === b.length && a.every((v, i) => v === b[i]), "app cases differ from the paired cases");
+    }
+  } else if (typeof hand !== "number") result = { ok: false, note: "hand value is not a number" };
+  else if (f.tolerance === "bound-lower" || f.tolerance === "bound-upper") result = boundCheck(hand, verdict, f.tolerance === "bound-lower" ? "lower" : "upper");
+  else result = numberCheck(hand, app, f.tolerance);
+  return { ...base, ...result };
 }
 
 /** The hand figures of every cohort in `text`, compared with the app's verdict JSON. */
@@ -589,18 +747,20 @@ export function compareWithApp(text: string, appJson: unknown, source: string, s
   const excluded: Excluded[] = [];
   const cohorts = cohortsOf(loadRows(text));
   const hands = cohorts.map((cohort) => {
-    const hand = handCohort(cohort, (prefix) => bootstrapOf(verdicts.get(prefix)));
+    const verdict = verdicts.get(cohort.id);
+    const hand = handCohort(cohort, () => bootstrapOf(verdict));
     excluded.push(...hand.excluded);
-    for (const f of hand.figures) figures.push(compareOne(f, verdicts.get(cohort.prefix)));
+    for (const f of hand.figures) figures.push(compareOne(f, verdict));
     return hand.verdict;
   });
   // Top-level exit code, docs/api.md "Exit codes": 3 when any is don't use Jev, else 4 when any is not enough evidence, else 0.
   const exit = hands.includes("don't use Jev") ? 3 : hands.includes("not enough evidence") ? 4 : 0;
   const appExit = isRecord(appJson) ? appJson.exit_code : undefined;
-  figures.push({ key: "exit_code", group: "state", hand: String(exit), app: appExit ?? null, tolerance: "exact", ok: appExit === exit, note: appExit === exit ? "" : "differs" });
-  for (const key of verdicts.keys()) {
-    if (!cohorts.some((c) => c.prefix === key)) {
-      figures.push({ key: `${key}:verdict`, group: "state", hand: "(no such question in the records)", app: key, tolerance: "exact", ok: false, note: "the app has a question the records do not" });
+  const exitCheck = numberCheck(exit, appExit, "abs");
+  figures.push({ key: "exit_code", group: "state", hand: exit, app: appExit ?? null, tolerance: toleranceText("abs"), ...exitCheck });
+  for (const [id, v] of verdicts) {
+    if (!cohorts.some((c) => c.id === id)) {
+      figures.push({ key: `${String(v.run_id)}/${String(v.prompt_version)}/${String(v.question_id)}:verdict`, group: "state", hand: "(no such question in the records)", app: v.verdict ?? null, tolerance: "exact", ok: false, note: "the app has a question the records do not" });
     }
   }
   return {
@@ -623,19 +783,46 @@ export function exitCodeOf(report: Report): number {
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-/** The app's verdict JSON for a records file, from the verdict command's stdout (exit 0, 3 or 4). */
+/** The app's verdict JSON for a records file (an absolute path), from the verdict command's stdout (exit 0, 3 or 4). */
 export function runApp(file: string): unknown {
   const cli = join(ROOT, "src", "decide", "cli.ts");
-  // Only PATH and HOME are passed on: the verdict command needs no key and must not see one.
-  const res = spawnSync(process.execPath, [cli, "verdict", file], { cwd: ROOT, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" } });
-  if (res.status === null || ![0, 3, 4].includes(res.status)) {
-    throw new BadInput(`verdict command exited ${String(res.status)}: ${(res.stderr || res.stdout).trim().split("\n").slice(0, 5).join(" | ")}`);
-  }
+  // stdout goes to a file, not a pipe: the verdict command calls process.exit() straight after writing, and a piped
+  // stdout loses everything past the first buffer (131,072 of 1,242,979 bytes on a 6,000-case file). A file write is
+  // synchronous, so the whole JSON lands.
+  const dir = mkdtempSync(join(tmpdir(), "math-check-app-"));
+  const outPath = join(dir, "verdict.json");
+  const fd = openSync(outPath, "w");
   try {
-    const parsed: unknown = JSON.parse(res.stdout);
-    return parsed;
-  } catch {
-    throw new BadInput("verdict command printed no JSON");
+    // Only PATH and HOME are passed on: the verdict command needs no key and must not see one.
+    const res = spawnSync(process.execPath, [cli, "verdict", file], {
+      cwd: ROOT, encoding: "utf8", maxBuffer: MAX_APP_OUTPUT, stdio: ["ignore", fd, "pipe"], env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+    });
+    const stdout = readFileSync(outPath, "utf8");
+    if (res.error !== undefined) throw new BadInput(`verdict command failed: ${res.error.message}`);
+    if (res.status === null || ![0, 3, 4].includes(res.status)) {
+      throw new BadInput(`verdict command exited ${String(res.status)}: ${(res.stderr || stdout).trim().split("\n").slice(0, 5).join(" | ")}`);
+    }
+    try {
+      const parsed: unknown = JSON.parse(stdout);
+      return parsed;
+    } catch {
+      throw new BadInput(`verdict command printed no complete JSON (${stdout.length} characters)`);
+    }
+  } finally {
+    closeSync(fd);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Run the app on a temporary copy of exactly `text`, so both sides read the same bytes whatever the caller's directory. */
+export function runAppOnText(text: string): unknown {
+  const dir = mkdtempSync(join(tmpdir(), "math-check-"));
+  try {
+    const file = join(dir, "records.csv");
+    writeFileSync(file, text);
+    return runApp(file);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -682,9 +869,8 @@ export function render(report: Report): string {
   return lines.join("\n") + "\n";
 }
 
-/** The whole command: returns the exit code and what to print. */
+/** The whole command: returns the exit code and what to print. The file is read once; the app runs on that text. */
 export function main(argv: readonly string[]): { readonly code: number; readonly out: string; readonly err: string } {
-  let tmp: string | null = null;
   try {
     const args = parseArgs(argv);
     let text: string;
@@ -694,6 +880,7 @@ export function main(argv: readonly string[]): { readonly code: number; readonly
       throw new BadInput(`cannot read ${args.file}`);
     }
     const selection = selectLast(text, args.last);
+    loadRows(selection.text);
     let appJson: unknown;
     if (args.appJson !== null) {
       try {
@@ -702,13 +889,7 @@ export function main(argv: readonly string[]): { readonly code: number; readonly
       } catch {
         throw new BadInput(`cannot read ${args.appJson} as JSON`);
       }
-    } else if (args.last === null) appJson = runApp(args.file);
-    else {
-      tmp = mkdtempSync(join(tmpdir(), "math-check-"));
-      const sliced = join(tmp, "records.csv");
-      writeFileSync(sliced, selection.text);
-      appJson = runApp(sliced);
-    }
+    } else appJson = runAppOnText(selection.text);
     const report = compareWithApp(selection.text, appJson, args.file, selection);
     const code = exitCodeOf(report);
     const head = `source=${report.source} n=${report.n} selection="${report.selection_rule}"\n`;
@@ -717,8 +898,6 @@ export function main(argv: readonly string[]): { readonly code: number; readonly
   } catch (error) {
     if (error instanceof BadInput) return { code: EXIT_CODES.badInput, out: "", err: `ERROR ${error.message}\n` };
     throw error;
-  } finally {
-    if (tmp !== null) rmSync(tmp, { recursive: true, force: true });
   }
 }
 

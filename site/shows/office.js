@@ -78,6 +78,11 @@
     card.appendChild(el("p", "tk-badge", st.name));
     card.appendChild(el("p", "tk-sub", st.sub));
     card.appendChild(el("h3", "", p.title));
+    if (p.run) {
+      if (p.run.headline) card.appendChild(el("h4", "tk-headline", p.run.headline));
+      if (p.run.verdict) card.appendChild(el("p", "tk-verdict", "Verdict: " + (VERDICT[p.run.verdict] || p.run.verdict)));
+      if (p.run.whyNotYet) card.appendChild(el("p", "tk-why", p.run.whyNotYet));
+    }
     if (p.story) card.appendChild(el("p", "tk-story", p.story));
     if (p.fit.length) card.appendChild(el("p", "tk-fit", "Fit check: " + p.fit.map(plainFit).join(" / ")));
     if (p.run) {
@@ -93,7 +98,6 @@
         card.appendChild(el("p", "tk-facts", r.rows + " answers recorded, none checked yet. Spend so far: " +
           r.methods.map(function (m) { return METHOD[m.arm] + " " + usd(m.spendUsd); }).join(", ")));
       }
-      if (r.verdict) card.appendChild(el("p", "tk-verdict", "Verdict: " + (VERDICT[r.verdict] || r.verdict)));
       if (r.labels) card.appendChild(el("p", "tk-labels", "Right answers " + labelsPlain(r.labels) + "."));
     }
     card.appendChild(el("p", "tk-date", p.date));

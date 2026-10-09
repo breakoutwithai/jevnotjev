@@ -27,7 +27,7 @@
     "scripts/replay-data.test.ts": 8,
     "scripts/replay-paging.test.ts": 7,
     "scripts/result-view.test.ts": 46,
-    "scripts/shows/build-posters.test.ts": 12,
+    "scripts/shows/build-posters.test.ts": 15,
     "scripts/site-content.test.ts": 9,
     "scripts/stage-door.test.ts": 6,
     "scripts/stage-sample.test.ts": 11,
@@ -42,7 +42,7 @@
     "scripts/uc13/arms.test.ts": 24,
     "scripts/uc13/calls.test.ts": 8,
     "scripts/uc13/label-page.dom.test.ts": 9,
-    "scripts/uc13/little-shop.test.ts": 5,
+    "scripts/uc13/little-shop.test.ts": 8,
     "scripts/uc13/run-arms.test.ts": 15,
     "scripts/uc13/stage-demo.test.ts": 15,
     "src/backstage/api-tokens.test.ts": 3,
@@ -103,6 +103,6 @@
     "src/labels/suggest.test.ts": 10,
     "src/mcp/broken-paths.test.ts": 23,
     "src/mcp/server.test.ts": 8,
-    "src/shows/posters.test.ts": 6
+    "src/shows/posters.test.ts": 19
   }
 }

@@ -10,9 +10,11 @@ import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 
 import { dirname, join } from "node:path";
 import { evaluateText } from "../../src/browser/results-loader.ts";
 import { truthLabel, validate } from "../../src/format/validate.ts";
-import { groupCohorts } from "../../src/core/metrics.ts";
+import { armsInFile, groupCohorts, metricsOfCohortRows } from "../../src/core/metrics.ts";
+import { fileSeed } from "../../src/core/calc.ts";
+import { verdict } from "../../src/core/verdict.ts";
 import { RUN_SOURCES } from "../../src/evidence/replay.ts";
-import { latestFirst, parseUseCase, stageOf, verdictWordShown, type MethodLine, type Poster, type RunSummary } from "../../src/shows/posters.ts";
+import { headlineOf, latestFirst, parseUseCase, stageOf, verdictWordShown, whyNotYetOf, type MethodLine, type Poster, type RunSummary } from "../../src/shows/posters.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 export const USE_CASES_REL = "docs/product/use-cases";
@@ -93,7 +95,10 @@ export async function summariseRun(root: string, folder: string): Promise<RunSum
   const result = await evaluateText(`${folder}/records.csv`, csv);
   const question = best ? result.questions.find((q) => q.runId === best.key.runId && q.promptVersion === best.key.promptVersion && q.questionId === best.key.questionId) : undefined;
   const judged = verdictWordShown(labelledPaired) && question?.verdict ? question : null;
-  return {
+  const metrics = best && judged ? metricsOfCohortRows(best.rows.map((row) => row.values), best.key) : null;
+  const decision = metrics === null ? null : verdict(metrics, await fileSeed(csv), armsInFile(checked.rows));
+  const pair = metrics?.jevVsLlm;
+  const summary: RunSummary = {
     folder,
     rows: checked.rows.length,
     cohorts: groups.length,
@@ -101,9 +106,12 @@ export async function summariseRun(root: string, folder: string): Promise<RunSum
     labelledPaired,
     verdict: judged?.verdict ?? null,
     reason: judged?.reason ?? null,
+    headline: null,
+    whyNotYet: whyNotYetOf(decision?.verdict ?? null, decision?.unmet ?? [], pair === null || pair === undefined ? null : { a: pair.a, b: pair.b, c: pair.c, d: pair.d }),
     labels: sources.size === 0 ? null : [...sources].sort().join("; "),
     methods: methodLines(judgedRows),
   };
+  return { ...summary, headline: headlineOf(pair ?? null, decision?.numbers.jevVsLlm?.n ?? 0) };
 }
 
 /**

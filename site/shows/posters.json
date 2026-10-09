@@ -21,6 +21,8 @@
         "labelledPaired": 5,
         "verdict": null,
         "reason": null,
+        "headline": null,
+        "whyNotYet": null,
         "labels": "human_reviewed, blind: no",
         "methods": [
           {
@@ -67,6 +69,8 @@
         "labelledPaired": 40,
         "verdict": "not enough evidence",
         "reason": "not enough evidence: Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM -0.11, not above -0.10)",
+        "headline": "Same accuracy as the LLM (38/40 each) at 1/79th of the cost",
+        "whyNotYet": "Not proven yet: the lower bound of Jev minus the LLM is -0.11, below the -0.10 margin, on 40 paired cases. If the next cases split the same way, about 6 more paired cases would bring it inside the margin.",
         "labels": "human_reviewed, blind: no",
         "methods": [
           {

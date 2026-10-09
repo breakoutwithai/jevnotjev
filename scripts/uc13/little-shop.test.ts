@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CASE_IDS, parseRecords, type RecordRow } from "./arms.ts";
 import { DATA_OUT, PAGE, RUN_URL, VERDICT_OUT, build, buildData, readShopScript } from "./little-shop.ts";
-import { RUN_DIR } from "./stage-demo.ts";
+import { EXAMPLE_DIR, RUN_DIR } from "./stage-demo.ts";
 import { shopVerdict } from "../../src/browser/shop-verdict.ts";
 
 async function records(): Promise<RecordRow[]> {
@@ -24,6 +25,43 @@ function loadBundle(js: string): unknown {
 }
 
 describe("Little Shop data and verdict bundle (scripts/uc13/little-shop.ts)", () => {
+  test("[integration] S6 recorded result page leads with headline, verdict, then projection", async () => {
+    const source = (await readFile(PAGE, "utf8")).replace(/<div class="recorded-run"[^>]*>[\s\S]*?<\/div>/, "");
+    expect(source).not.toContain('class="recorded-run"');
+    const built = await build(RUN_DIR, EXAMPLE_DIR, source);
+    const block = built.page.match(/<div class="recorded-run"[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? "";
+    const children = [...block.matchAll(/<(h3|p) class="([^"]+)">([^<]*)<\/\1>/g)].map((match) => ({ className: match[2], text: match[3] }));
+    expect(children).toEqual([
+      { className: "recorded-caption", text: "Recorded run, 1 October 2026: 40 paired cases" },
+      { className: "recorded-headline", text: "Same accuracy as the LLM (38/40 each) at 1/79th of the cost" },
+      { className: "recorded-verdict", text: "Verdict: not enough evidence" },
+      { className: "recorded-why", text: "Not proven yet: the lower bound of Jev minus the LLM is -0.11, below the -0.10 margin, on 40 paired cases. If the next cases split the same way, about 6 more paired cases would bring it inside the margin." },
+    ]);
+    expect(await readFile(PAGE, "utf8")).toBe(built.page);
+  });
+
+  test("[integration] S6 resolved run directory spelling gives the same result", async () => {
+    expect(await build(`${RUN_DIR}/.`)).toEqual(await build(RUN_DIR));
+  });
+
+  test("[integration] S6 a different run directory supplies its own headline", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "jnj-shop-run-"));
+    const other = join(temp, "2026-10-02-other-run");
+    try {
+      await mkdir(other);
+      const csv = await readFile(join(RUN_DIR, "records.csv"), "utf8");
+      const changed = csv.replace(",0.00209100,4189,", ",0.20209100,4189,");
+      expect(changed).not.toBe(csv);
+      await writeFile(join(other, "records.csv"), changed);
+      await writeFile(join(other, "label.html"), await readFile(join(RUN_DIR, "label.html"), "utf8"));
+      const built = await build(other);
+      expect(built.page).not.toContain("Same accuracy as the LLM (38/40 each) at 1/79th of the cost");
+      expect(built.page).toContain('class="recorded-headline"');
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
   test("[unit] LS-1 all 40 messages, each arm's output and the message text exactly as records.csv holds them", async () => {
     const rows = await records();
     const d = readShopScript((await build()).data);

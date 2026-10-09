@@ -52,7 +52,10 @@ test("[integration] API-MINT-2 the store accepts each minted token, rejects othe
   const second = mint({ [API_TOKENS_ENV]: path }, "second").out[0] ?? "";
   expect(store.verify(`Bearer ${second}`)).not.toBe(store.verify(`Bearer ${first}`));
   expect(store.verify(`Bearer ${second}`)).not.toBeNull();
-  for (const bad of [null, "", first, `Bearer ${first.slice(0, -1)}A`, `bearer ${first}`, `Bearer ${hashToken(first)}`, `Bearer jnj_${"A".repeat(43)}`]) {
+  // The altered last character must differ from the real one: a token ending in "A" made "...A" the valid token (1 in 64).
+  const altered = `${first.slice(0, -1)}${first.endsWith("A") ? "B" : "A"}`;
+  expect(altered).not.toBe(first);
+  for (const bad of [null, "", first, `Bearer ${altered}`, `bearer ${first}`, `Bearer ${hashToken(first)}`, `Bearer jnj_${"A".repeat(43)}`]) {
     expect(store.verify(bad)).toBeNull();
   }
   expect(new ApiTokenStore(null).verify(`Bearer ${first}`)).toBeNull();

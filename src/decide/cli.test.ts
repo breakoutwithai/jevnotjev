@@ -496,6 +496,7 @@ describe("verdict stdout is flushed before exit", () => {
 
       expect(fileBytes.length).toBeGreaterThan(1_000_000);
       expect(pipedBytes.length).toBe(fileBytes.length);
+      expect(pipedBytes.equals(fileBytes)).toBe(true);
       expect(pipedCode).toBe(redirectedCode);
       expect([0, 3, 4]).toContain(pipedCode);
       expect(field(json(pipedBytes.toString("utf8")), "exit_code")).toBe(pipedCode);

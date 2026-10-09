@@ -646,6 +646,11 @@ DEPS_STEPS=("bun install --frozen-lockfile" "bun run typecheck" "bun scripts/gat
 GATE_LINE=""
 DEPS_RAN=false
 DEPS_NOT_RUN="dry-run"
+# The checks run with none of the deploy's own exported state: the state read exports
+# BACKSTAGE_GATE (and a session mint BACKSTAGE_SESSION_JAR), backstage-lib.sh may export the
+# default BACKSTAGE_CURL_CONFIG, and the test gate's suites must not inherit any of them
+# (2026-10-09: BACKSTAGE_GATE=session failed 16 backstage-setup.test.sh cases).
+deps_env() { env -u BACKSTAGE_GATE -u BACKSTAGE_SESSION_JAR -u BACKSTAGE_CURL_CONFIG "$@"; }
 dependency_check() {
     local out rc tests
     if $DRY_RUN; then
@@ -654,21 +659,21 @@ dependency_check() {
     fi
     DEPS_RAN=true
     echo "Dependency check on the tree being shipped:"
-    out="$(bun install --frozen-lockfile 2>&1)"; rc=$?
+    out="$(deps_env bun install --frozen-lockfile 2>&1)"; rc=$?
     if [[ "$rc" -ne 0 ]]; then
         printf '%s\n' "$out" | tail -20 >&2
         log_error "Dependency check failed at '${DEPS_STEPS[0]}' (rc=${rc}): bun.lock does not agree with package.json, or the install failed. Nothing deployed."
         return 1
     fi
     echo "  ok   ${DEPS_STEPS[0]}"
-    out="$(bun run typecheck 2>&1)"; rc=$?
+    out="$(deps_env bun run typecheck 2>&1)"; rc=$?
     if [[ "$rc" -ne 0 ]]; then
         printf '%s\n' "$out" | tail -20 >&2
         log_error "Dependency check failed at '${DEPS_STEPS[1]}' (rc=${rc}). Nothing deployed."
         return 1
     fi
     echo "  ok   ${DEPS_STEPS[1]}"
-    out="$(bun scripts/gate.ts 2>&1)"; rc=$?
+    out="$(deps_env bun scripts/gate.ts 2>&1)"; rc=$?
     GATE_LINE="$(printf '%s\n' "$out" | grep '^gate: ' | tail -1)"
     if [[ "$rc" -ne 0 ]]; then
         printf '%s\n' "$out" | tail -20 >&2

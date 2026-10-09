@@ -128,7 +128,7 @@ button, input { font: inherit; color: inherit; }
 @keyframes sway { from { transform: skewX(0deg); } to { transform: skewX(.8deg); } }
 
 .sample {
-  position: fixed; top: 14px; right: 16px; z-index: 30;
+  position: absolute; top: 14px; right: 16px; z-index: 30;
   display: flex; align-items: center; gap: 10px;
   font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .14em;
   text-transform: uppercase;
@@ -138,6 +138,19 @@ button, input { font: inherit; color: inherit; }
 .house-lights {
   font-family: var(--sans); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
   background: none; border: 0; border-left: 1px solid var(--line); padding: 0 0 0 10px; cursor: pointer; color: var(--ink-soft);
+}
+.overture-actions .overture-jump {
+  display: inline-block; padding: 10px 16px; border: 1px solid #e0b04e;
+  background: #e0b04e; color: #1a0508; text-decoration: none;
+  font: 700 12px var(--sans); letter-spacing: .12em; text-transform: uppercase;
+}
+.overture-actions .overture-jump:focus-visible { outline-color: #ffe6a6; }
+.overture .ticket .fine { font-size: 12px; }
+.first-screen-note { max-width: 54ch; margin: 0 0 12px; font: 500 16px/1.35 var(--sans); color: var(--ink-soft); }
+.first-screen-jump {
+  display: inline-block; margin: 0 0 18px; padding: 10px 14px;
+  border: 1px solid var(--brass); color: var(--ink); text-decoration: none;
+  font: 700 13px var(--sans);
 }
 
 /* ---------- Acts ---------- */
@@ -406,6 +419,7 @@ h1 em { font-weight: 500; color: var(--brass); }
   .drape { width: 16px; }
   .valance { height: 30px; }
   .sample { top: 34px; right: 16px; font-size: 10px; }
+  .overture .playbill { gap: 14px; padding-top: 66px; padding-bottom: 18px; }
   .ask { grid-template-columns: minmax(0, 1fr) auto; }
   .ask label { grid-column: 1 / -1; font-size: 20px; }
   .ask input { font-size: 20px; }
@@ -454,13 +468,14 @@ h1 em { font-weight: 500; color: var(--brass); }
         <p class="admit">ADMIT ONE</p>
         <p class="show">To Jev or not to Jev</p>
         <dl><div><dt>Act</dt><dd>I</dd></div><div><dt>Row</dt><dd>J</dd></div><div><dt>Seat</dt><dd>J-EV</dd></div></dl>
-        <p class="fine">Phones off: brain rot blocked for the length of the performance. Latecomers seated at a suitable pause.</p>
+        <p class="fine">Jev picks one answer from a fixed list for each text. It does not write text.</p>
       </div>
       <div class="stub"><span>No. 0042</span></div>
     </div>
     <div class="overture-actions">
       <p class="cue-scroll" aria-hidden="true">Scroll to raise the curtain</p>
       <button class="skip" id="skipOverture" type="button">Skip the overture</button>
+      <a class="overture-jump" href="#tickets">Go to the ticket office</a>
     </div>
     <a class="poster" href="little-shop/">
       <span class="p-kicker">Preview</span>
@@ -490,6 +505,8 @@ h1 em { font-weight: 500; color: var(--brass); }
   <div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">I</span><span class="scene">The question</span></div></div>
   <div class="stage">
     <p class="prologue">Jev!Jev presents</p>
+    <p class="first-screen-note">Jev picks one answer from a fixed list for each text. It does not write text.</p>
+    <a class="first-screen-jump" href="#tickets">Go to the ticket office</a>
     <div class="title-row">
       <h1 id="t1" tabindex="-1">To Jev or not to Jev: <em>that is the question</em></h1>
       <button class="door" id="door" type="button" aria-expanded="false" aria-controls="doorDemo">Running a shop bot? Step through the stage door.<small>A short shop-bot demo</small></button>

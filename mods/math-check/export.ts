@@ -16,7 +16,6 @@ import { buildWorkbook, parseReport, selectRows, WorkbookError, type MathCheckRe
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const MATH_CHECK = join(ROOT, "scripts", "math-check.ts");
-const COVERAGE = join(ROOT, "examples", "d15-sheet-check", "coverage.md");
 
 export type ExportArgs = { readonly file: string; readonly last: number | null; readonly out: string | null };
 
@@ -78,13 +77,13 @@ function defaultOut(records: string, last: number | null, cases: number): string
   return join(process.cwd(), "jnj-math-check", `${runId}-last${cases}-${stamp(new Date())}.xlsx`);
 }
 
-/** The Summary sheet's sentence in words, from math-check's own counts: what the mod's toast says. */
+/** The result in words, from math-check's own counts, in the sheet's wording: what the mod's toast says. */
 export function summarySentence(report: MathCheckReport): string {
   if (report.compared === 0) return "No figures compared";
-  return report.mismatches === 0 ? `All ${report.compared} figures match` : `${report.mismatches} of ${report.compared} differ`;
+  return `${report.compared} figures checked, ${report.mismatches} differ`;
 }
 
-export type ExportResult ={ readonly code: number; readonly out: string; readonly err: string };
+export type ExportResult = { readonly code: number; readonly out: string; readonly err: string };
 
 /** The whole command: returns the exit code and what to print. */
 export function main(argv: readonly string[]): ExportResult {
@@ -102,7 +101,7 @@ export function main(argv: readonly string[]): ExportResult {
     const { code, report } = runMathCheck(inRepo.startsWith("..") || isAbsolute(inRepo) ? file : inRepo, args.last);
     const out = resolve(args.out ?? defaultOut(records, args.last, report.n));
     if (existsSync(out)) throw new WorkbookError(`${out} exists; a workbook is never overwritten`);
-    const bytes = buildWorkbook({ report, records, last: args.last, sha: gitSha(), coverage: readFileSync(COVERAGE, "utf8") });
+    const bytes = buildWorkbook({ report, records, last: args.last, sha: gitSha() });
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, bytes, { flag: "wx" });
     const lines = [

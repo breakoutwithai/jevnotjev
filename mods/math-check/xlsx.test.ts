@@ -11,15 +11,19 @@ import { buildWorkbook } from "./xlsx.ts";
 
 const D15 = fileURLToPath(new URL("../../examples/d15-sheet-check/records.csv", import.meta.url));
 const D06 = fileURLToPath(new URL("../../examples/d06-tiny/records.csv", import.meta.url));
-const SHEETS = ["Summary", "Cases", "Hand", "App", "Compare", "Coverage"];
+const SHEET = "Check";
 
 const tmp = mkdtempSync(join(tmpdir(), "math-check-xlsx-test-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 let written = 0;
-function exportTo(records: string, extra: readonly string[] = []): string {
+function nextPath(): string {
   written += 1;
-  const out = join(tmp, `w${written}.xlsx`);
+  return join(tmp, `w${written}.xlsx`);
+}
+
+function exportTo(records: string, extra: readonly string[] = []): string {
+  const out = nextPath();
   const result = main([records, ...extra, "--out", out]);
   if (result.code !== 0) throw new Error(`export exited ${result.code}: ${result.err}`);
   return out;
@@ -79,103 +83,6 @@ function sheetParts(parts: Map<string, string>): Array<{ name: string; path: str
   }));
 }
 
-describe("[unit] math-check xlsx writer", () => {
-  test("[unit] D15.h xlsx is a valid zip, six sheets", () => {
-    const parts = readZip(readFileSync(exportTo(D15)));
-    for (const name of ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels"]) expect(parts.has(name)).toBe(true);
-    const sheets = sheetParts(parts);
-    expect(sheets.map((s) => s.name)).toEqual(SHEETS);
-    const types = part(parts, "[Content_Types].xml");
-    for (const s of sheets) {
-      expect(parts.has(s.path)).toBe(true);
-      expect(types).toContain(`PartName="/${s.path}"`);
-    }
-    expect(part(parts, "xl/workbook.xml")).toContain('<calcPr fullCalcOnLoad="1"');
-  });
-
-  test("[unit] D15.i Hand cells are <f> formulas", () => {
-    const parts = readZip(readFileSync(exportTo(D15)));
-    const paths = new Map(sheetParts(parts).map((s) => [s.name, s.path]));
-    const hand = cellsOf(part(parts, paths.get("Hand") ?? ""));
-    const compare = cellsOf(part(parts, paths.get("Compare") ?? ""));
-    // Every Hand row Compare reads holds the figure in column B.
-    const handRefs = [...compare.entries()].flatMap(([ref, c]) => {
-      const m = /^B\d+$/.test(ref) ? /Hand!\$B\$(\d+)/.exec(c.formula ?? "") : null;
-      return m === null ? [] : [m[1]];
-    });
-    expect(handRefs.length).toBe(compared(D15));
-    for (const row of handRefs) {
-      const cell = hand.get(`B${row ?? ""}`);
-      expect(cell?.formula ?? "(no formula)").not.toBe("(no formula)");
-      expect(cell?.value).toBeNull();
-    }
-    // And no cell on any sheet stores a cached value beside a formula.
-    for (const { path } of sheetParts(parts)) for (const cell of cellsOf(part(parts, path)).values()) if (cell.formula !== null) expect(cell.value).toBeNull();
-    // The Hand formulas read the Cases sheet, not typed-in numbers.
-    const counts = [...hand.values()].filter((c) => (c.formula ?? "").includes("Cases!"));
-    expect(counts.length).toBeGreaterThan(100);
-  });
-
-  test("[unit] D15.j Summary sentence formula present", () => {
-    const parts = readZip(readFileSync(exportTo(D15)));
-    const paths = new Map(sheetParts(parts).map((s) => [s.name, s.path]));
-    const a1 = cellsOf(part(parts, paths.get("Summary") ?? "")).get("A1");
-    const f = a1?.formula ?? "";
-    expect(a1?.value).toBeNull();
-    expect(f).toContain('"All "&');
-    expect(f).toContain('" figures match"');
-    expect(f).toContain('" differ"');
-    const refs = [...f.matchAll(/Compare!\$B\$(\d+)/g)].map((m) => m[1] ?? "");
-    const compare = cellsOf(part(parts, paths.get("Compare") ?? ""));
-    const labels = new Set(refs.map((r) => compare.get(`A${r}`)?.text));
-    expect(labels).toEqual(new Set(["Compared", "Mismatched (MISMATCH or ERROR)"]));
-    for (const r of refs) expect(compare.get(`B${r}`)?.formula ?? "").toContain("COUNTIF(");
-  });
-
-  test("[unit] export: fewer than N cases and an existing file both exit 2 and write nothing new", () => {
-    const short = main([D15, "--last", "43", "--out", join(tmp, "short.xlsx")]);
-    expect(short.code).toBe(2);
-    expect(short.err).toContain("fewer than 43 cases");
-    expect(existsSync(join(tmp, "short.xlsx"))).toBe(false);
-    const first = exportTo(D15);
-    const before = readFileSync(first);
-    const again = main([D15, "--out", first]);
-    expect(again.code).toBe(2);
-    expect(again.err).toContain("never overwritten");
-    expect(readFileSync(first)).toEqual(before);
-  });
-
-  test("[unit] export prints the source, N and the selection rule", () => {
-    written += 1;
-    const out = join(tmp, `w${written}.xlsx`);
-    const result = main([D15, "--last", "30", "--out", out]);
-    expect(result.code).toBe(0);
-    expect(result.out).toContain("source: ");
-    expect(result.out).toContain("n: 30\n");
-    expect(result.out).toContain("selection: last 30 distinct case_id values in order of first appearance (of 42)");
-    expect(result.out).toContain(`workbook: ${out}`);
-  });
-
-  test("[unit] export prints the Summary sentence the mod toasts, from math-check's counts", () => {
-    written += 1;
-    const out = join(tmp, `w${written}.xlsx`);
-    const result = main([D15, "--out", out]);
-    const { report } = runMathCheck(D15, null);
-    expect(report.compared).toBeGreaterThan(0);
-    expect(result.out).toContain(`summary: All ${report.compared} figures match\n`);
-  });
-
-  test("[unit] export with no --out names the workbook <cwd>/jnj-math-check/<run_id>-last<N>-<yyyymmdd-hhmm>.xlsx", () => {
-    const cwd = realpathSync(mkdtempSync(join(tmp, "cwd-")));
-    const res = spawnSync(process.execPath, [fileURLToPath(new URL("./export.ts", import.meta.url)), D15, "--last", "30"], { cwd, encoding: "utf8" });
-    expect(res.status).toBe(0);
-    const files = readdirSync(join(cwd, "jnj-math-check"));
-    expect(files.length).toBe(1);
-    expect(files[0] ?? "").toMatch(/^[A-Za-z0-9._-]+-last30-\d{8}-\d{4}\.xlsx$/);
-    expect(res.stdout).toContain(`workbook: ${join(cwd, "jnj-math-check", files[0] ?? "")}`);
-  });
-});
-
 type ParsedCell = { formula: string | null; value: string | null; text: string | null };
 
 function unescape(value: string): string {
@@ -195,80 +102,201 @@ function cellsOf(xml: string): Map<string, ParsedCell> {
   return out;
 }
 
-/** Every sheet of a workbook as CSV rows, recalculated by LibreOffice headless; fails when soffice is absent. */
-function recalculate(workbook: string): Map<string, string[][]> {
+/** The first sheet's XML of an exported workbook. */
+function firstSheet(file: string): { readonly parts: Map<string, string>; readonly xml: string } {
+  const parts = readZip(readFileSync(file));
+  const [first] = sheetParts(parts);
+  return { parts, xml: part(parts, first?.path ?? "(none)") };
+}
+
+/** Rows of the figure blocks: after the "Figure | Hand | App | Status" header, before the case table's title. */
+function blockRows(cells: Map<string, ParsedCell>): { readonly first: number; readonly last: number } {
+  const rowOf = (test: (t: string) => boolean): number => {
+    const hit = [...cells.entries()].find(([ref, c]) => /^A\d+$/.test(ref) && test(c.text ?? ""));
+    return Number((hit?.[0] ?? "A0").slice(1));
+  };
+  return { first: rowOf((t) => t === "Figure") + 1, last: rowOf((t) => t.startsWith("Case table")) - 1 };
+}
+
+/** Rows that hold a figure: column D (Status) is a formula. */
+function figureRows(cells: Map<string, ParsedCell>): number[] {
+  return [...cells.entries()].flatMap(([ref, c]) => {
+    const m = /^D(\d+)$/.exec(ref);
+    return m !== null && c.formula !== null && Number(m[1]) > 1 ? [Number(m[1])] : [];
+  });
+}
+
+describe("[unit] math-check single-sheet writer", () => {
+  test("[unit] D15.h xlsx is a valid zip with exactly one sheet", () => {
+    const parts = readZip(readFileSync(exportTo(D15)));
+    for (const name of ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels"]) expect(parts.has(name)).toBe(true);
+    const sheets = sheetParts(parts);
+    expect(sheets.map((s) => s.name)).toEqual([SHEET]);
+    const types = part(parts, "[Content_Types].xml");
+    expect(parts.has(sheets[0]?.path ?? "")).toBe(true);
+    expect(types).toContain(`PartName="/${sheets[0]?.path ?? ""}"`);
+    expect([...parts.keys()].filter((k) => k.startsWith("xl/worksheets/")).length).toBe(1);
+    expect(part(parts, "xl/workbook.xml")).toContain('<calcPr fullCalcOnLoad="1"');
+  });
+
+  test("[unit] D15.i every Hand cell is <f> with no <v>", () => {
+    const { parts, xml } = firstSheet(exportTo(D15));
+    const cells = cellsOf(xml);
+    expect(figureRows(cells).length).toBeGreaterThan(40);
+    // Every Hand cell (column B of the figure blocks) is a formula with no stored value.
+    const { first, last } = blockRows(cells);
+    expect(last - first).toBeGreaterThan(40);
+    const hands = [...cells.entries()].filter(([ref]) => /^B\d+$/.test(ref) && Number(ref.slice(1)) >= first && Number(ref.slice(1)) <= last);
+    expect(hands.length).toBeGreaterThan(40);
+    for (const [ref, hand] of hands) {
+      expect(hand.formula ?? `(no formula in ${ref})`).not.toBe(`(no formula in ${ref})`);
+      expect(hand.value).toBeNull();
+    }
+    for (const xmlPart of [...parts.entries()].filter(([k]) => k.startsWith("xl/worksheets/")).map(([, v]) => v)) {
+      for (const cell of cellsOf(xmlPart).values()) if (cell.formula !== null) expect(cell.value).toBeNull();
+    }
+    // Short COUNTIFS and SUMIFS over the case table: no SUMPRODUCT stacks.
+    const formulas = [...cells.values()].flatMap((c) => (c.formula === null ? [] : [c.formula]));
+    expect(formulas.some((f) => f.includes("SUMPRODUCT"))).toBe(false);
+    expect(formulas.filter((f) => f.startsWith("COUNTIFS(")).length).toBeGreaterThan(10);
+  });
+
+  test("[unit] D15.j the result line formula", () => {
+    const { xml } = firstSheet(exportTo(D15));
+    const cells = cellsOf(xml);
+    const lines = [...cells.entries()].filter(([ref, c]) => /^A\d+$/.test(ref) && (c.formula ?? "").includes('" app-read"'));
+    // One line per question (q1, q2, q3) and one overall line.
+    expect(lines.length).toBe(4);
+    for (const [, c] of lines) {
+      const f = c.formula ?? "";
+      expect(f).toContain('" checked, "');
+      expect(f).toContain('" differ, "');
+      expect(f).toMatch(/COUNTIF\(\$D\$\d+:\$D\$\d+,"CHECKED"\)/);
+      expect(f).toMatch(/COUNTIF\(\$D\$\d+:\$D\$\d+,"DIFF"\)/);
+      expect(f).toMatch(/COUNTIF\(\$D\$\d+:\$D\$\d+,"ERROR"\)/);
+    }
+    for (const q of ["q1", "q2", "q3"]) expect(lines.some(([, c]) => (c.formula ?? "").startsWith(`"${q} "&`))).toBe(true);
+  });
+
+  test("[unit] the interval working rows are a collapsed row group", () => {
+    const { xml } = firstSheet(exportTo(D15));
+    expect(xml).toContain('<outlinePr summaryBelow="0"/>');
+    const grouped = [...xml.matchAll(/<row r="\d+"([^>]*)>/g)].filter((m) => (m[1] ?? "").includes('outlineLevel="1"'));
+    expect(grouped.length).toBeGreaterThan(5);
+    for (const m of grouped) expect(m[1] ?? "").toContain('hidden="1"');
+  });
+
+  test("[unit] export: fewer than N cases and an existing file both exit 2 and write nothing new", () => {
+    const short = main([D15, "--last", "43", "--out", join(tmp, "short.xlsx")]);
+    expect(short.code).toBe(2);
+    expect(short.err).toContain("fewer than 43 cases");
+    expect(existsSync(join(tmp, "short.xlsx"))).toBe(false);
+    const first = exportTo(D15);
+    const before = readFileSync(first);
+    const again = main([D15, "--out", first]);
+    expect(again.code).toBe(2);
+    expect(again.err).toContain("never overwritten");
+    expect(readFileSync(first)).toEqual(before);
+  });
+
+  test("[unit] export prints the source, N and the selection rule", () => {
+    const out = nextPath();
+    const result = main([D15, "--last", "30", "--out", out]);
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("source: ");
+    expect(result.out).toContain("n: 30\n");
+    expect(result.out).toContain("selection: last 30 distinct case_id values in order of first appearance (of 42)");
+    expect(result.out).toContain(`workbook: ${out}`);
+  });
+
+  test("[unit] export prints the sentence the mod toasts, from math-check's counts", () => {
+    const out = nextPath();
+    const result = main([D15, "--out", out]);
+    const { report } = runMathCheck(D15, null);
+    expect(report.compared).toBeGreaterThan(0);
+    expect(result.out).toContain(`summary: ${report.compared} figures checked, 0 differ\n`);
+  });
+
+  test("[unit] export with no --out names the workbook <cwd>/jnj-math-check/<run_id>-last<N>-<yyyymmdd-hhmm>.xlsx", () => {
+    const cwd = realpathSync(mkdtempSync(join(tmp, "cwd-")));
+    const res = spawnSync(process.execPath, [fileURLToPath(new URL("./export.ts", import.meta.url)), D15, "--last", "30"], { cwd, encoding: "utf8" });
+    expect(res.status).toBe(0);
+    const files = readdirSync(join(cwd, "jnj-math-check"));
+    expect(files.length).toBe(1);
+    expect(files[0] ?? "").toMatch(/^[A-Za-z0-9._-]+-last30-\d{8}-\d{4}\.xlsx$/);
+    expect(res.stdout).toContain(`workbook: ${join(cwd, "jnj-math-check", files[0] ?? "")}`);
+  });
+});
+
+/** The Check sheet as CSV rows, recalculated by LibreOffice headless; fails when soffice is absent. */
+function recalculate(workbook: string): string[][] {
   const which = spawnSync("sh", ["-c", "command -v soffice || ls /opt/homebrew/bin/soffice /Applications/LibreOffice.app/Contents/MacOS/soffice 2>/dev/null"], { encoding: "utf8" });
   const soffice = which.stdout.trim().split("\n")[0] ?? "";
   if (which.status !== 0 || soffice === "") throw new Error("soffice (LibreOffice) is not installed: the [integration] recalculation needs it; install LibreOffice and rerun");
   const dir = mkdtempSync(join(tmp, "soffice-"));
   const res = spawnSync(
     soffice,
-    [`-env:UserInstallation=${pathToFileURL(join(dir, "profile")).href}`, "--headless", "--convert-to", 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,false,true,false,false,false,-1', "--outdir", dir, workbook],
+    [`-env:UserInstallation=${pathToFileURL(join(dir, "profile")).href}`, "--headless", "--convert-to", "csv:Text - txt - csv (StarCalc):44,34,76,1,,0,false,true,false,false,false,1", "--outdir", dir, workbook],
     { encoding: "utf8", timeout: 120_000 },
   );
   if (res.status !== 0) throw new Error(`soffice exited ${String(res.status)}: ${res.stderr}`);
-  const base = basename(workbook, ".xlsx");
-  const out = new Map<string, string[][]>();
-  for (const sheet of SHEETS) {
-    const path = join(dir, `${base}-${sheet}.csv`);
-    if (!existsSync(path)) throw new Error(`soffice wrote no ${basename(path)}; files: ${readdirSync(dir).join(", ")}`);
-    out.set(sheet, parseCsv(readFileSync(path, "utf8")));
-  }
-  return out;
+  const path = join(dir, `${basename(workbook, ".xlsx")}-${SHEET}.csv`);
+  if (!existsSync(path)) throw new Error(`soffice wrote no ${basename(path)}; files: ${readdirSync(dir).join(", ")}`);
+  return parseCsv(readFileSync(path, "utf8"));
 }
 
-function sheet(sheets: Map<string, string[][]>, name: string): string[][] {
-  const rows = sheets.get(name);
-  if (rows === undefined) throw new Error(`no ${name} sheet`);
-  return rows;
+/** The result lines (column A text containing " app-read"), first the overall line, then one per question. */
+function resultLines(rows: string[][]): string[] {
+  return rows.map((r) => r[0] ?? "").filter((a) => a.endsWith(" app-read"));
 }
 
-/** Compare sheet statuses (column G) of the figure rows, keyed by figure. */
-function statuses(sheets: Map<string, string[][]>): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const row of sheet(sheets, "Compare").slice(1)) {
-    const key = row[0] ?? "";
-    if (key === "") break;
-    out.set(key, row[6] ?? "");
-  }
-  return out;
-}
-
-function compared(file: string, last: number | null = null): number {
-  const { report } = runMathCheck(file, last);
-  return report.compared;
+function statusesOf(rows: string[][]): string[] {
+  return rows.map((r) => r[3] ?? "").filter((s) => ["CHECKED", "DIFF", "ERROR", "APP-READ"].includes(s));
 }
 
 describe("[integration] math-check workbook recalculated by LibreOffice", () => {
-  const runs: ReadonlyArray<readonly [string, string, number | null]> = [["D15 fixture", D15, null], ["d06-tiny", D06, null], ["D15 fixture --last 30", D15, 30]];
-  for (const [name, file, last] of runs) {
-    test(`[integration] D15 recalc ${name}: Summary A1 reads All N figures match, no Compare ERROR or MISMATCH`, () => {
-      const n = compared(file, last);
-      expect(n).toBeGreaterThan(0);
-      const sheets = recalculate(exportTo(file, last === null ? [] : ["--last", String(last)]));
-      const bad = [...statuses(sheets)].filter(([, s]) => s !== "OK");
-      expect(bad).toEqual([]);
-      expect(statuses(sheets).size).toBe(n);
-      expect(sheet(sheets, "Summary")[0]?.[0]).toBe(`All ${n} figures match`);
-      expect(sheet(sheets, "Summary")[1]?.[1]).toBe("none");
+  const runs: ReadonlyArray<readonly [string, string, number | null, number]> = [
+    ["D15 fixture", D15, null, 3],
+    ["d06-tiny", D06, null, 2],
+    ["D15 fixture --last 30", D15, 30, 3],
+  ];
+  for (const [name, file, last, questions] of runs) {
+    test(`[integration] D15 recalc ${name}: every result line shows 0 differ`, () => {
+      const rows = recalculate(exportTo(file, last === null ? [] : ["--last", String(last)]));
+      const lines = resultLines(rows);
+      expect(lines.length).toBe(questions + 1);
+      for (const line of lines) expect(line).toContain(" 0 differ, ");
+      for (const line of lines) expect(line).not.toContain(" 0 checked");
+      const statuses = statusesOf(rows);
+      expect(statuses.filter((s) => s === "DIFF" || s === "ERROR")).toEqual([]);
+      expect(rows.some((r) => /^per-case costs: (\d+)\/\1 match$/.test(r[0] ?? ""))).toBe(true);
     }, 180_000);
   }
 
-  test("[integration] D15 recalc a changed app figure is MISMATCH and a blank one is ERROR", () => {
+  test("[integration] D15 recalc a planted app figure turns its question's line to DIFF", () => {
     const { report } = runMathCheck(D15, null);
-    const records = readFileSync(D15, "utf8");
-    const changed = "q1:numbers.jevVsLlm.a";
-    const blanked = "q1:numbers.jevVsLlm.lower";
-    const planted = { ...report, figures: report.figures.map((f) => (f.key === changed && typeof f.app === "number" ? { ...f, app: f.app + 1 } : f.key === blanked ? { ...f, app: null } : f)) };
-    written += 1;
-    const out = join(tmp, `w${written}.xlsx`);
-    writeFileSync(out, buildWorkbook({ report: planted, records, last: null, sha: "0".repeat(40), coverage: "" }));
-    const sheets = recalculate(out);
-    const s = statuses(sheets);
-    expect(s.get(changed)).toBe("MISMATCH");
-    expect(s.get(blanked)).toBe("ERROR");
-    expect([...s.values()].filter((v) => v !== "OK").length).toBe(2);
-    expect(sheet(sheets, "Summary")[0]?.[0]).toBe(`2 of ${report.compared} differ`);
-    expect(sheet(sheets, "Summary")[1]?.[1]).toBe(`${changed}; ${blanked}`);
+    const changed = "q2:numbers.jevVsLlm.a";
+    const planted = { ...report, figures: report.figures.map((f) => (f.key === changed && typeof f.app === "number" ? { ...f, app: f.app + 1 } : f)) };
+    const out = nextPath();
+    writeFileSync(out, buildWorkbook({ report: planted, records: readFileSync(D15, "utf8"), last: null, sha: "0".repeat(40) }));
+    const rows = recalculate(out);
+    const lines = resultLines(rows);
+    expect(lines.filter((l) => l.startsWith("q2 "))[0] ?? "").toContain(" 1 differ, ");
+    for (const l of lines.filter((x) => x.startsWith("q1 ") || x.startsWith("q3 "))) expect(l).toContain(" 0 differ, ");
+    expect(lines[0] ?? "").toContain(" 1 differ, ");
+    expect(statusesOf(rows).filter((s) => s === "DIFF").length).toBe(1);
+  }, 180_000);
+
+  test("[integration] D15 recalc a blank per-case app cost breaks the per-case line", () => {
+    const { report } = runMathCheck(D15, null);
+    const blanked = report.figures.find((f) => f.key.startsWith("q1:numbers.jevVsLlm.cases[") && f.key.endsWith(".otherCostUsd"))?.key ?? "(none)";
+    const planted = { ...report, figures: report.figures.map((f) => (f.key === blanked ? { ...f, app: null } : f)) };
+    const out = nextPath();
+    writeFileSync(out, buildWorkbook({ report: planted, records: readFileSync(D15, "utf8"), last: null, sha: "0".repeat(40) }));
+    const rows = recalculate(out);
+    const perCase = rows.map((r) => r[0] ?? "").filter((a) => a.startsWith("per-case costs: "));
+    const m = /^per-case costs: (\d+)\/(\d+) match$/.exec(perCase[0] ?? "");
+    expect(Number(m?.[1] ?? "0")).toBe(Number(m?.[2] ?? "0") - 1);
+    expect(resultLines(rows).filter((l) => l.startsWith("q1 "))[0] ?? "").toContain(" 1 differ, ");
   }, 180_000);
 });

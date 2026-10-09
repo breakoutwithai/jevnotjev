@@ -14,7 +14,7 @@
     "docs/research/2026-09-29-verdict-minimums/sim.test.ts": 6,
     "mods/math-check/compare-csv.test.ts": 2,
     "mods/math-check/hooks/run.test.ts": 9,
-    "mods/math-check/xlsx.test.ts": 11,
+    "mods/math-check/xlsx.test.ts": 13,
     "scripts/api-token-mint.test.ts": 3,
     "scripts/backstage-deps.test.ts": 6,
     "scripts/backstage-journal.test.ts": 5,

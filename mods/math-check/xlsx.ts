@@ -1,12 +1,15 @@
-// D15 (PR B): the "check the math by hand" workbook. Six sheets: Summary, Cases, Hand, App, Compare, Coverage.
-// Hand recomputes every figure with spreadsheet formulas over the Cases sheet, from
-// docs/decision/verdict-rules.md "Formulas"; App holds the app's figures exactly as `scripts/math-check.ts --json`
-// read them from the verdict command; Compare sets the two side by side. Nothing here computes a figure in
-// TypeScript, and no formula cell carries a cached value: a spreadsheet engine computes them all on open
-// (`fullCalcOnLoad`). The zip and the XML are written by hand with node:zlib only.
+// D15 (PR B): the "check the math by hand" workbook, one sheet ("Check"), top to bottom:
+//   1. an overall result line and one result line per question, by formula ("q1 use Jev: 18 checked, 0 differ, 4 app-read")
+//   2. the provenance line (source, N, selection rule, SHA) and the tolerance, stated once
+//   3. a block per question: Figure | Hand (live formula) | App | Status (CHECKED, DIFF, ERROR or APP-READ)
+//   4. a minimal case table; every Hand cell is a short COUNTIFS or SUMIFS over it
+// Hand follows docs/decision/verdict-rules.md "Formulas". App holds the app's figures exactly as
+// `scripts/math-check.ts --json` read them from the verdict command; nothing here computes a figure in TypeScript, and
+// no formula cell carries a cached value: the spreadsheet computes them all on open (`fullCalcOnLoad`). The zip and the
+// XML are written by hand with node:zlib only. README.md maps every math-check figure to its row.
 
 import { crc32, deflateRawSync } from "node:zlib";
-import { parseCsv } from "../../scripts/math-check.ts";
+import { ABS_TOLERANCE, parseCsv, REL_TOLERANCE } from "../../scripts/math-check.ts";
 
 // ---------------------------------------------------------------------------------------------
 // The math-check report, as read from its --json stdout
@@ -118,10 +121,12 @@ export function zip(entries: readonly ZipEntry[]): Uint8Array {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Cells and sheets
+// Cells, rows and the sheet
 
 /** A cell: text, a number, a formula (no leading `=`, never with a cached value), or empty. */
 export type Cell = { readonly text: string } | { readonly num: number } | { readonly formula: string } | null;
+
+type Row = { cells: Cell[]; readonly level: number; readonly collapsed: boolean };
 
 const text = (value: string): Cell => ({ text: value });
 const num = (value: number): Cell => ({ num: value });
@@ -163,26 +168,22 @@ const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 const MAIN_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-function sheetXml(rows: readonly (readonly Cell[])[], widths: readonly number[]): string {
-  const cols = widths.length === 0 ? "" : `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("")}</cols>`;
+/** Column widths (A onwards) and the hidden echo column. */
+const WIDTHS = [46, 18, 18, 11, 11, 11, 9, 34, 13, 13, 12, 12, 11, 12];
+
+function sheetXml(rows: readonly Row[]): string {
+  const cols = WIDTHS.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("") + `<col min="${ECHO_INDEX + 1}" max="${ECHO_INDEX + 1}" width="12" hidden="1" customWidth="1"/>`;
   const body = rows
-    .map((row, r) => `<row r="${r + 1}">${row.map((cell, c) => cellXml(`${columnName(c)}${r + 1}`, cell)).join("")}</row>`)
+    .map((row, r) => {
+      const attrs = `${row.level > 0 ? ` outlineLevel="${row.level}" hidden="1"` : ""}${row.collapsed ? ' collapsed="1"' : ""}`;
+      return `<row r="${r + 1}"${attrs}>${row.cells.map((cell, c) => cellXml(`${columnName(c)}${r + 1}`, cell)).join("")}</row>`;
+    })
     .join("");
-  return `${XML_HEAD}<worksheet xmlns="${MAIN_NS}" xmlns:r="${REL_NS}">${cols}<sheetData>${body}</sheetData></worksheet>`;
+  return `${XML_HEAD}<worksheet xmlns="${MAIN_NS}" xmlns:r="${REL_NS}"><sheetPr><outlinePr summaryBelow="0"/></sheetPr><sheetFormatPr defaultRowHeight="15" outlineLevelRow="1"/><cols>${cols}</cols><sheetData>${body}</sheetData></worksheet>`;
 }
 
 // ---------------------------------------------------------------------------------------------
-// Cases: the selected rows, raw, with formula helper columns
-
-type CasesLayout = {
-  /** Absolute range of a raw column (by CSV name) or a helper column (by helper name), rows 2 to the last row. */
-  readonly range: (column: string) => string;
-};
-
-/** The CSV columns the formulas match on. */
-const KEY_COLUMNS = ["run_id", "prompt_version", "question_id", "case_id"];
-
-type Helper = { readonly name: string; readonly formula: (r: number) => string };
+// Selection and the case table
 
 export type Selected = { readonly header: readonly string[]; readonly rows: ReadonlyArray<{ readonly line: number; readonly cells: readonly string[] }>; readonly cases: number };
 
@@ -203,246 +204,107 @@ export function selectRows(records: string, last: number | null): Selected {
   return { header, rows, cases: keep.size };
 }
 
+/** One answerer's row of a case, transcribed: accept 1, reject 0, or null with the reason it does not count. */
+type Arm = { readonly accept: number | null; readonly cost: number | null; readonly why: string };
+
+type CaseEntry = {
+  readonly caseId: string;
+  readonly prefix: string;
+  readonly jev: Arm;
+  readonly llm: Arm;
+  readonly rule: Arm;
+};
+
+const COST_PATTERN = /^\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/;
+
+/** The (run_id, prompt_version, question_id) groups as math-check names them: the question id, or run/prompt/question. */
+function prefixesOf(selected: Selected): { readonly order: readonly string[]; readonly of: (cells: readonly string[]) => string } {
+  const at = (name: string): number => {
+    const i = selected.header.indexOf(name);
+    if (i < 0) throw new WorkbookError(`records file has no ${name} column`);
+    return i;
+  };
+  const [run, pv, q] = [at("run_id"), at("prompt_version"), at("question_id")];
+  const single = new Set(selected.rows.map((r) => JSON.stringify([r.cells[run], r.cells[pv]]))).size === 1;
+  const of = (cells: readonly string[]): string => (single ? (cells[q] ?? "") : `${cells[run] ?? ""}/${cells[pv] ?? ""}/${cells[q] ?? ""}`);
+  const order = [...new Set(selected.rows.map((r) => of(r.cells)))];
+  // A COUNTIFS criterion treats * ? ~ as wildcards, a leading = < > as an operator, and ignores letter case.
+  const folded = new Map<string, string>();
+  for (const p of order) {
+    if (/[*?~]/.test(p) || /^[=<>]/.test(p)) throw new WorkbookError(`question "${p}" holds a character a spreadsheet criterion would read as a wildcard or operator`);
+    const seen = folded.get(p.toLowerCase());
+    if (seen !== undefined) throw new WorkbookError(`questions "${seen}" and "${p}" differ only in letter case`);
+    folded.set(p.toLowerCase(), p);
+  }
+  return { order, of };
+}
+
 /**
- * A spreadsheet compares text without regard to letter case; two ids that differ only in case would merge in the
- * Hand formulas, so such a file is refused rather than checked wrongly.
+ * One entry per (question, case) with a Jev or LLM row, in order of first appearance. The label is transcribed as
+ * 1 (accept) or 0 (reject); an unlabelled, unanswered or agent-labelled row is left blank, with its reason
+ * (format/README.md "Missing cost or labels": an agent label was never reviewed, so it counts as unlabelled).
  */
-function checkIdsDistinctByCase(selected: Selected): void {
-  for (const name of KEY_COLUMNS) {
-    const at = selected.header.indexOf(name);
-    if (at < 0) throw new WorkbookError(`records file has no ${name} column`);
-    const seen = new Map<string, string>();
-    for (const row of selected.rows) {
-      const value = row.cells[at] ?? "";
-      const folded = value.toLowerCase();
-      const first = seen.get(folded);
-      if (first !== undefined && first !== value) throw new WorkbookError(`${name} values "${first}" and "${value}" differ only in letter case`);
-      seen.set(folded, value);
-    }
-  }
-}
-
-const HELPERS = ["Included", "Accepted", "Cost blank", "LLM rows", "LLM included", "LLM accepted", "LLM cost", "LLM cost blank", "Paired with LLM", "Rule included", "Rule accepted", "Paired with rule"];
-
-function casesSheet(selected: Selected): { readonly rows: Cell[][]; readonly layout: CasesLayout } {
-  const header = selected.header;
-  const raw = (name: string): string => {
-    const at = header.indexOf(name);
-    if (at < 0) throw new WorkbookError(`records file has no ${name} column`);
-    return columnName(at + 1);
-  };
-  const last = selected.rows.length + 1;
-  const local = (column: string): string => `$${column}$2:$${column}$${last}`;
-  const col = (name: string): string => columnName(header.length + 1 + HELPERS.indexOf(name));
-  const run = raw("run_id");
-  const pv = raw("prompt_version");
-  const q = raw("question_id");
-  const cs = raw("case_id");
-  const who = raw("answerer");
-  const label = raw("label");
-  const source = raw("label_source");
-  const cost = raw("cost_usd");
-  /** Rows of `answerer` for this row's run, prompt version, question and case, times an optional column. */
-  const sameCase = (r: number, answerer: string, times: string | null): string =>
-    `SUMPRODUCT((${local(run)}=$${run}${r})*(${local(pv)}=$${pv}${r})*(${local(q)}=$${q}${r})*(${local(cs)}=$${cs}${r})*(${local(who)}="${answerer}")${times === null ? "" : `*${local(times)}`})`;
-  const helpers: Helper[] = [
-    { name: "Included", formula: (r) => `IF(AND($${label}${r}<>"",$${source}${r}<>"agent"),1,0)` },
-    { name: "Accepted", formula: (r) => `IF(AND($${col("Included")}${r}=1,$${label}${r}="accept"),1,0)` },
-    { name: "Cost blank", formula: (r) => `IF(ISNUMBER($${cost}${r}),0,1)` },
-    { name: "LLM rows", formula: (r) => sameCase(r, "llm", null) },
-    { name: "LLM included", formula: (r) => sameCase(r, "llm", col("Included")) },
-    { name: "LLM accepted", formula: (r) => sameCase(r, "llm", col("Accepted")) },
-    { name: "LLM cost", formula: (r) => sameCase(r, "llm", cost) },
-    { name: "LLM cost blank", formula: (r) => sameCase(r, "llm", col("Cost blank")) },
-    { name: "Paired with LLM", formula: (r) => `IF(AND($${who}${r}="jev",$${col("Included")}${r}=1,$${col("LLM included")}${r}>0),1,0)` },
-    { name: "Rule included", formula: (r) => sameCase(r, "rule", col("Included")) },
-    { name: "Rule accepted", formula: (r) => sameCase(r, "rule", col("Accepted")) },
-    { name: "Paired with rule", formula: (r) => `IF(AND($${who}${r}="jev",$${col("Included")}${r}=1,$${col("Rule included")}${r}>0),1,0)` },
-  ];
-  const costAt = header.indexOf("cost_usd");
-  const rows: Cell[][] = [[text("Source line"), ...header.map(text), ...helpers.map((h) => text(`${h.name} (formula)`))]];
-  for (const [i, row] of selected.rows.entries()) {
-    const r = i + 2;
-    const cells: Cell[] = [num(row.line)];
-    header.forEach((name, c) => {
-      const value = row.cells[c] ?? "";
-      checkXmlText(value, `records line ${row.line} ${name}`);
-      if (value === "") cells.push(null);
-      else if (c === costAt && /^\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/.test(value.trim())) cells.push(num(Number(value.trim())));
-      else cells.push(text(value));
-    });
-    for (const h of helpers) cells.push(formula(h.formula(r)));
-    rows.push(cells);
-  }
-  const range = (column: string): string => `Cases!${local(HELPERS.includes(column) ? col(column) : raw(column))}`;
-  return { rows, layout: { range } };
-}
-
-// ---------------------------------------------------------------------------------------------
-// Hand: every figure as a formula over Cases
-
-type Cohort = { readonly runId: string; readonly promptVersion: string; readonly questionId: string; readonly prefix: string };
-
-/** The (run_id, prompt_version, question_id) cohorts in order of first appearance, with math-check's key prefix. */
-function cohortsOf(selected: Selected): Cohort[] {
+function caseTable(selected: Selected, prefixOf: (cells: readonly string[]) => string): CaseEntry[] {
   const at = (name: string): number => selected.header.indexOf(name);
-  const seen = new Map<string, { runId: string; promptVersion: string; questionId: string }>();
+  const [cs, who, label, source, cost, outcome] = [at("case_id"), at("answerer"), at("label"), at("label_source"), at("cost_usd"), at("outcome")];
+  const groups = new Map<string, { caseId: string; prefix: string; by: Map<string, readonly string[]> }>();
   for (const row of selected.rows) {
-    const runId = row.cells[at("run_id")] ?? "";
-    const promptVersion = row.cells[at("prompt_version")] ?? "";
-    const questionId = row.cells[at("question_id")] ?? "";
-    const id = JSON.stringify([runId, promptVersion, questionId]);
-    if (!seen.has(id)) seen.set(id, { runId, promptVersion, questionId });
+    const prefix = prefixOf(row.cells);
+    const caseId = row.cells[cs] ?? "";
+    const id = JSON.stringify([prefix, caseId]);
+    const group = groups.get(id) ?? { caseId, prefix, by: new Map<string, readonly string[]>() };
+    group.by.set(row.cells[who] ?? "", row.cells);
+    groups.set(id, group);
   }
-  const list = [...seen.values()];
-  const single = new Set(list.map((c) => JSON.stringify([c.runId, c.promptVersion]))).size === 1;
-  return list.map((c) => ({ ...c, prefix: single ? c.questionId : `${c.runId}/${c.promptVersion}/${c.questionId}` }));
-}
-
-type HandSheet = { readonly rows: Cell[][]; readonly rowOf: ReadonlyMap<string, number> };
-
-export const NO_FORMULA = "no formula for this figure";
-
-function handSheet(cohorts: readonly Cohort[], keys: readonly string[], cases: CasesLayout): HandSheet {
-  const rows: Cell[][] = [[text("Figure"), text("Value (formula)"), text("How"), text("run_id"), text("prompt_version"), text("question_id"), text("case_id")]];
-  const rowOf = new Map<string, number>();
-  const add = (name: string, f: Cell, how: string, cohort: Cohort | null, caseId = ""): string => {
-    const r = rows.length + 1;
-    const ids: Cell[] = cohort === null ? [null, null, null] : [text(cohort.runId), text(cohort.promptVersion), text(cohort.questionId)];
-    rows.push([text(name), f, text(how), ...ids, caseId === "" ? null : text(caseId)]);
-    rowOf.set(name, r);
-    return `$B$${r}`;
+  const arm = (cells: readonly string[] | undefined, name: string): Arm => {
+    if (cells === undefined) return { accept: null, cost: null, why: `no ${name} row` };
+    const costText = (cells[cost] ?? "").trim();
+    const c = COST_PATTERN.test(costText) ? Number(costText) : null;
+    const l = cells[label] ?? "";
+    const o = outcome < 0 ? "" : (cells[outcome] ?? "");
+    if (l === "") return { accept: null, cost: c, why: o !== "" && o !== "answered" ? `${name} ${o}` : `${name} unlabelled` };
+    if ((cells[source] ?? "") === "agent") return { accept: null, cost: c, why: `${name} label by agent (unreviewed)` };
+    return { accept: l === "accept" ? 1 : 0, cost: c, why: "" };
   };
-  const z = add("z", formula("NORMSINV(0.975)"), "0.975 quantile of the standard normal: a two-sided 95% interval", null);
-  const keySet = new Set(keys);
-
-  for (const cohort of cohorts) {
-    const p = cohort.prefix;
-    const mine = keys.filter((k) => k.startsWith(`${p}:`));
-    if (mine.length === 0) continue;
-    rows.push([text(`Question ${cohort.questionId} (run ${cohort.runId}, prompt ${cohort.promptVersion})`)]);
-    const match = (r: number, caseCell: boolean): string =>
-      `(${cases.range("run_id")}=$D$${r})*(${cases.range("prompt_version")}=$E$${r})*(${cases.range("question_id")}=$F$${r})${caseCell ? `*(${cases.range("case_id")}=$G$${r})` : ""}`;
-    /** Rows of answerer `who` in this cohort (the row's own D:F cells, and G for one case), times Cases columns. */
-    const mask = (r: number, who: string, extra: readonly string[], caseCell = false): string =>
-      `SUMPRODUCT(${match(r, caseCell)}*(${cases.range("answerer")}="${who}")${extra.map((e) => `*${cases.range(e)}`).join("")})`;
-    const def = (path: string, build: (r: number) => string, how: string, caseId = ""): string => add(`${p}:${path}`, formula(build(rows.length + 1)), how, cohort, caseId);
-    const has = (path: string): boolean => keySet.has(`${p}:${path}`);
-    const hasAny = (start: string): boolean => mine.some((k) => k.startsWith(`${p}:${start}`));
-
-    /** Newcombe method 10 for p1 - p2 on paired cells a, b, c, d (verdict-rules.md "Formulas"). */
-    const newcombe = (base: string, n: string, a: string, b: string, c: string, d: string, first: string, second: string): void => {
-      const p1 = def(`${base}.p1`, () => `(${a}+${b})/${n}`, `(a + b) / n: ${first} accept rate`);
-      const p2 = def(`${base}.p2`, () => `(${a}+${c})/${n}`, `(a + c) / n: ${second} accept rate`);
-      def(`${base}.diff`, () => `${p1}-${p2}`, "p1 - p2");
-      const wilson = (x: string, pr: string, which: "lower" | "upper"): string => {
-        const centre = `${pr}+${z}^2/(2*${n})`;
-        const half = `${z}*SQRT(${pr}*(1-${pr})/${n}+${z}^2/(4*${n}^2))`;
-        const den = `(1+${z}^2/${n})`;
-        return which === "lower" ? `IF(${x}=0,0,(${centre}-${half})/${den})` : `IF(${x}=${n},1,(${centre}+${half})/${den})`;
-      };
-      const l1 = def(`${base}.wilson1.lower`, () => wilson(`(${a}+${b})`, p1, "lower"), "Wilson 95% lower bound of p1 (0 when a + b is 0)");
-      const u1 = def(`${base}.wilson1.upper`, () => wilson(`(${a}+${b})`, p1, "upper"), "Wilson 95% upper bound of p1 (1 when a + b is n)");
-      const l2 = def(`${base}.wilson2.lower`, () => wilson(`(${a}+${c})`, p2, "lower"), "Wilson 95% lower bound of p2");
-      const u2 = def(`${base}.wilson2.upper`, () => wilson(`(${a}+${c})`, p2, "upper"), "Wilson 95% upper bound of p2");
-      const root = `SQRT((${a}+${b})*(${c}+${d})*(${a}+${c})*(${b}+${d}))`;
-      const raw = `(${a}*${d}-${b}*${c})`;
-      const phi = def(
-        `${base}.phi`,
-        () => `IF(${root}=0,0,IF(${raw}>0,MAX(${raw}-${n}/2,0),${raw})/${root})`,
-        "(a*d - b*c) / sqrt((a+b)(c+d)(a+c)(b+d)), with a*d - b*c reduced by n/2 (not below 0) when positive; 0 when the root is 0",
-      );
-      const dl1 = `(${p1}-${l1})`;
-      const du1 = `(${u1}-${p1})`;
-      const dl2 = `(${p2}-${l2})`;
-      const du2 = `(${u2}-${p2})`;
-      def(`${base}.lower`, () => `(${p1}-${p2})-SQRT(MAX(${dl1}^2-2*${phi}*${dl1}*${du2}+${du2}^2,0))`, "Newcombe method 10 lower bound of p1 - p2");
-      def(`${base}.upper`, () => `(${p1}-${p2})+SQRT(MAX(${du1}^2-2*${phi}*${du1}*${dl2}+${dl2}^2,0))`, "Newcombe method 10 upper bound of p1 - p2");
-    };
-
-    if (hasAny("numbers.")) {
-      const base = "numbers.jevVsLlm";
-      const jevRows = def(`${base}.jev rows`, (r) => mask(r, "jev", []), "Jev rows in this question");
-      const llmRows = def(`${base}.llm rows`, (r) => mask(r, "llm", []), "LLM rows in this question");
-      const both = def(`${base}.cases with both rows`, (r) => `SUMPRODUCT(${match(r, false)}*(${cases.range("answerer")}="jev")*(${cases.range("LLM rows")}>0))`, "Cases with both a Jev and an LLM row, labelled or not");
-      const n = def(`${base}.n`, (r) => mask(r, "jev", ["Paired with LLM"]), "Paired cases: Jev and the LLM both have an included row");
-      def(`${base}.excluded`, () => `${jevRows}+${llmRows}-${both}-${n}`, "Cases with a Jev or LLM row that are not paired");
-      const jAcc = def(`${base}.jev.accepted`, (r) => mask(r, "jev", ["Paired with LLM", "Accepted"]), "Accepted Jev rows on the paired cases");
-      const oAcc = def(`${base}.otherArm.accepted`, (r) => mask(r, "jev", ["Paired with LLM", "LLM accepted"]), "Accepted LLM rows on the paired cases");
-      def(`${base}.jev.acceptRate`, () => `${jAcc}/${n}`, "accepted / n");
-      def(`${base}.otherArm.acceptRate`, () => `${oAcc}/${n}`, "accepted / n");
-      const spendHow = "sum of cost_usd over the paired rows, blank costs add 0 (arithmetic only, not tied to a bill)";
-      const jSpend = def(`${base}.jev.spend`, (r) => mask(r, "jev", ["Paired with LLM", "cost_usd"]), `Jev ${spendHow}`);
-      const oSpend = def(`${base}.otherArm.spend`, (r) => mask(r, "jev", ["Paired with LLM", "LLM cost"]), `LLM ${spendHow}`);
-      const jMiss = def(`${base}.jev.spend.missing`, (r) => mask(r, "jev", ["Paired with LLM", "Cost blank"]), "Paired Jev rows with no cost");
-      const oMiss = def(`${base}.otherArm.spend.missing`, (r) => mask(r, "jev", ["Paired with LLM", "LLM cost blank"]), "Paired LLM rows with no cost");
-      const cpaHow = "spend / accepted: undefined at 0 accepted, incomplete when a cost is missing";
-      const jCpa = def(`${base}.jev.costPerAccepted.usd`, () => `IF(${jMiss}>0,"incomplete",IF(${jAcc}=0,"undefined",${jSpend}/${jAcc}))`, cpaHow);
-      const oCpa = def(`${base}.otherArm.costPerAccepted.usd`, () => `IF(${oMiss}>0,"incomplete",IF(${oAcc}=0,"undefined",${oSpend}/${oAcc}))`, cpaHow);
-      const spends: ReadonlyArray<readonly [string, string]> = [["jev", jSpend], ["otherArm", oSpend]];
-      for (const [side, spend] of spends) {
-        if (has(`${base}.${side}.spend.usd`)) def(`${base}.${side}.spend.usd`, () => spend, "spend, every paired cost known (arithmetic only, not tied to a bill)");
-        if (has(`${base}.${side}.spend.knownUsd`)) def(`${base}.${side}.spend.knownUsd`, () => spend, "sum of the known paired costs, one or more missing (arithmetic only, not tied to a bill)");
-      }
-      const a = def(`${base}.a`, (r) => mask(r, "jev", ["Paired with LLM", "Accepted", "LLM accepted"]), "a: both accepted");
-      const b = def(`${base}.b`, (r) => `${mask(r, "jev", ["Paired with LLM", "Accepted"])}-${mask(r, "jev", ["Paired with LLM", "Accepted", "LLM accepted"])}`, "b: Jev accepted, LLM rejected");
-      const c = def(`${base}.c`, (r) => `${mask(r, "jev", ["Paired with LLM", "LLM accepted"])}-${mask(r, "jev", ["Paired with LLM", "Accepted", "LLM accepted"])}`, "c: LLM accepted, Jev rejected");
-      const d = def(`${base}.d`, () => `${n}-${a}-${b}-${c}`, "d: both rejected (n - a - b - c)");
-      def(`${base}.wins`, () => b, "b");
-      def(`${base}.losses`, () => c, "c");
-      def(`${base}.ties`, () => `${a}+${d}`, "a + d");
-      def("numbers.jevAccepted", () => jAcc, "Jev accepted on the paired cases");
-      def("numbers.llmAccepted", () => oAcc, "LLM accepted on the paired cases");
-      for (const key of mine) {
-        const m = /^numbers\.jevVsLlm\.cases\[(.+)\]\.(jevCostUsd|otherCostUsd)$/.exec(key.slice(p.length + 1));
-        if (m === null) continue;
-        const caseId = m[1] ?? "";
-        const leaf = m[2] ?? "";
-        const column = leaf === "jevCostUsd" ? "cost_usd" : "LLM cost";
-        def(`${base}.cases[${caseId}].${leaf}`, (r) => mask(r, "jev", ["Paired with LLM", column], true), `${leaf === "jevCostUsd" ? "Jev" : "LLM"} cost of paired case ${caseId}`, caseId);
-      }
-      if (has(`${base}.p1`)) newcombe(base, n, a, b, c, d, "Jev", "LLM");
-      if (has("addN")) def("addN", () => `30-${n}`, "30 minus the paired count (rule 1)");
-      if (has("numbers.costRatio.ratio")) {
-        const ratio = def("numbers.costRatio.ratio", () => `IF(${oAcc}=0,0,${jCpa}/${oCpa})`, "cost per accepted (Jev) / cost per accepted (LLM); 0 when the LLM has 0 accepted");
-        def("numbers.costRatio.resamples", () => "2000", "2,000 resamples, a constant of verdict-rules.md \"Cost ratio interval\"");
-        def("numbers.costRatio.lower", () => ratio, "partial: the hand ratio, which the app's bootstrap lower bound must not exceed (seed not printed, #168)");
-        def("numbers.costRatio.upper", () => ratio, "partial: the hand ratio, which the app's bootstrap upper bound must not fall below (seed not printed, #168)");
-      }
-    }
-
-    if (hasAny("ruleComparison.")) {
-      const base = "ruleComparison";
-      const n = def(`${base}.n`, (r) => mask(r, "jev", ["Paired with rule"]), "Cases where Jev and the rule both have an included row");
-      if (has(`${base}.paired`)) def(`${base}.paired`, () => n, "Paired count, when fewer than 30 pair");
-      if (has(`${base}.a`)) {
-        const both = (r: number): string => mask(r, "jev", ["Paired with rule", "Accepted", "Rule accepted"]);
-        const a = def(`${base}.a`, both, "a: both accepted");
-        const b = def(`${base}.b`, (r) => `${mask(r, "jev", ["Paired with rule", "Rule accepted"])}-${both(r)}`, "b: rule accepted, Jev rejected (rule first)");
-        const c = def(`${base}.c`, (r) => `${mask(r, "jev", ["Paired with rule", "Accepted"])}-${both(r)}`, "c: Jev accepted, rule rejected");
-        const d = def(`${base}.d`, () => `${n}-${a}-${b}-${c}`, "d: both rejected");
-        newcombe(base, n, a, b, c, d, "rule", "Jev");
-      }
-    }
-  }
-  // A figure the writer has no formula for gets a visible row with no value, so Compare says ERROR for it.
-  for (const key of keys) if (!rowOf.has(key)) add(key, text(NO_FORMULA), "math-check compares this figure; the workbook has no formula for it", null);
-  return { rows, rowOf };
+  return [...groups.values()]
+    .filter((g) => g.by.has("jev") || g.by.has("llm"))
+    .map((g) => ({ caseId: g.caseId, prefix: g.prefix, jev: arm(g.by.get("jev"), "Jev"), llm: arm(g.by.get("llm"), "LLM"), rule: arm(g.by.get("rule"), "rule") }));
 }
+
+/** Case table columns: the minimal record, then the app's per-case costs and two per-row checks, then the rule. */
+const T = { caseId: 0, question: 1, jevAccept: 2, llmAccept: 3, jevCost: 4, llmCost: 5, included: 6, reason: 7, appJevCost: 8, appLlmCost: 9, costChecks: 10, costMatches: 11, ruleAccept: 12, ruleIncluded: 13 };
+type TableColumn = keyof typeof T;
+const T_HEADERS = ["case_id", "question", "Jev accept", "LLM accept", "Jev cost", "LLM cost", "included", "reason", "app Jev cost", "app LLM cost", "costs checked", "costs matching", "rule accept", "rule included"];
+
+/** The hidden column holding a second app value a row also checks (wins beside b, jevAccepted beside Jev accepted). */
+const ECHO_INDEX = 15;
+const ECHO = columnName(ECHO_INDEX);
+
+/** The tolerance cell, stated once. */
+const TOL = "$B$3";
 
 // ---------------------------------------------------------------------------------------------
-// App, Compare, Summary, Coverage
+// Statuses
 
-type ToleranceKind = "abs" | "rel" | "bound-lower" | "bound-upper";
+type Kind = "abs" | "rel" | "bound-lower" | "bound-upper";
 
-function toleranceOf(f: ReportFigure): { readonly kind: ToleranceKind; readonly value: number } {
-  const m = /(\d+(?:\.\d+)?e[-+]?\d+)\s*$/i.exec(f.tolerance);
-  if (m === null) throw new WorkbookError(`figure ${f.key}: no tolerance number in "${f.tolerance}"`);
-  const value = Number(m[1]);
-  if (f.tolerance.startsWith("abs ")) return { kind: "abs", value };
-  if (f.tolerance.startsWith("rel ")) return { kind: "rel", value };
-  if (f.tolerance.startsWith("0 <= lower")) return { kind: f.key.endsWith(".upper") ? "bound-upper" : "bound-lower", value };
+function kindOf(f: ReportFigure): Kind {
+  if (f.tolerance.startsWith("abs ")) return "abs";
+  if (f.tolerance.startsWith("rel ")) return "rel";
+  if (f.tolerance.startsWith("0 <= lower")) return f.key.endsWith(".upper") ? "bound-upper" : "bound-lower";
   throw new WorkbookError(`figure ${f.key}: unknown tolerance "${f.tolerance}"`);
+}
+
+function agreeFormula(kind: Kind, hand: string, app: string): string {
+  if (kind === "abs") return `ABS(${app}-${hand})<=${TOL}`;
+  if (kind === "rel") return `ABS(${app}-${hand})<=${TOL}*MAX(ABS(${hand}),ABS(${app}))`;
+  if (kind === "bound-lower") return `AND(${app}>=0,${app}<=${hand}+${TOL}*ABS(${hand}))`;
+  return `${app}>=${hand}-${TOL}*ABS(${hand})`;
+}
+
+/** ERROR on any error, blank or text; else `ok` when every check holds, DIFF when one does not. */
+function statusFormula(cells: readonly string[], checks: readonly string[], ok: string): string {
+  return `IF(OR(${cells.map((c) => `ISERROR(${c})`).join(",")}),"ERROR",IF(AND(${cells.map((c) => `ISNUMBER(${c})`).join(",")}),IF(AND(${checks.join(",")}),"${ok}","DIFF"),"ERROR"))`;
 }
 
 function appCell(value: unknown): Cell {
@@ -452,26 +314,241 @@ function appCell(value: unknown): Cell {
   return text(JSON.stringify(value));
 }
 
-function checkFormula(kind: ToleranceKind, hand: string, app: string, tol: string): string {
-  if (kind === "abs") return `ABS(${app}-${hand})<=${tol}`;
-  if (kind === "rel") return `ABS(${app}-${hand})<=${tol}*MAX(ABS(${hand}),ABS(${app}))`;
-  if (kind === "bound-lower") return `AND(${app}>=0,${app}<=${hand}+${tol}*ABS(${hand}))`;
-  return `${app}>=${hand}-${tol}*ABS(${hand})`;
-}
+// ---------------------------------------------------------------------------------------------
+// The question blocks
 
-const TOLERANCE_NOTE = "1e-9 absolute for counts and rates; 1e-9 relative for spend, cost per accepted and ratios (coverage.md)";
+/** Where math-check's figure lands on the sheet: the row's Hand, its hidden echo, the per-case line, or an app-read bound. */
+export type KeyPlace = { readonly row: number; readonly via: "hand" | "echo" | "per-case" | "bound" };
 
-export type CoverageRow = { readonly leaf: string; readonly status: string; readonly reason: string };
+type Blocks = {
+  readonly rows: Row[];
+  readonly places: Map<string, KeyPlace>;
+  /** Per question: its first and last row and the verdict row. */
+  readonly spans: ReadonlyArray<{ readonly prefix: string; readonly first: number; readonly last: number; readonly verdict: number }>;
+};
 
-/** Every `| leaf | formula, partial or excluded | reason |` row of coverage.md, in order. */
-export function parseCoverage(markdown: string): CoverageRow[] {
-  const out: CoverageRow[] = [];
-  for (const line of markdown.split("\n")) {
-    const m = /^\| (.+?) \| (formula|partial|excluded) \| (.*) \|\s*$/.exec(line);
-    if (m !== null) out.push({ leaf: (m[1] ?? "").replace(/`/g, ""), status: m[2] ?? "", reason: m[3] ?? "" });
+function blocks(start: number, prefixes: readonly string[], report: MathCheckReport, range: (c: TableColumn) => string): Blocks {
+  const rows: Row[] = [];
+  const places = new Map<string, KeyPlace>();
+  const spans: Array<{ prefix: string; first: number; last: number; verdict: number }> = [];
+  const byKey = new Map(report.figures.map((f) => [f.key, f]));
+  const figureKeys = report.figures.filter((f) => f.group === "figure").map((f) => f.key);
+  const next = (): number => start + rows.length;
+  const push = (cells: Cell[], level = 0, collapsed = false): number => {
+    const r = next();
+    rows.push({ cells, level, collapsed });
+    return r;
+  };
+  const ref = (r: number): string => `$B$${r}`;
+
+  for (const p of prefixes) {
+    const mine = figureKeys.filter((k) => k.startsWith(`${p}:`));
+    const has = (path: string): boolean => byKey.get(`${p}:${path}`)?.group === "figure";
+    const hasAny = (startOf: string): boolean => mine.some((k) => k.startsWith(`${p}:${startOf}`));
+    const app = (path: string): unknown => byKey.get(`${p}:${path}`)?.app;
+    const q = `"${p.replace(/"/g, '""')}"`;
+    const countifs = (...pairs: ReadonlyArray<readonly [TableColumn, string | number]>): string =>
+      `COUNTIFS(${range("question")},${q}${pairs.map(([c, v]) => `,${range(c)},${String(v)}`).join("")})`;
+    const sumifs = (sum: TableColumn, ...pairs: ReadonlyArray<readonly [TableColumn, string | number]>): string =>
+      `SUMIFS(${range(sum)},${range("question")},${q}${pairs.map(([c, v]) => `,${range(c)},${String(v)}`).join("")})`;
+
+    /** A figure row: Hand formula, the app value of `path`, and a status; `echo` checks a second app value too. */
+    const fig = (label: string, hand: string, path: string | null, options: { echo?: { path: string; hand: string; cells: readonly string[] }; level?: number; collapsed?: boolean } = {}): string => {
+      const r = next();
+      const b = `$B$${r}`;
+      const c = `$C$${r}`;
+      const key = path === null ? null : `${p}:${path}`;
+      const f = key === null ? undefined : byKey.get(key);
+      if (f === undefined || f.group !== "figure") {
+        push([text(label), formula(hand)], options.level ?? 0, options.collapsed ?? false);
+        return b;
+      }
+      const kind = kindOf(f);
+      const cells: string[] = [b, c];
+      const checks: string[] = [agreeFormula(kind, b, c)];
+      const row: Cell[] = [text(label), formula(hand), appCell(f.app), null];
+      const echoKey = options.echo === undefined ? null : `${p}:${options.echo.path}`;
+      const echo = echoKey === null ? undefined : byKey.get(echoKey);
+      if (options.echo !== undefined && echo !== undefined && echo.group === "figure") {
+        const e = `$${ECHO}$${r}`;
+        cells.push(e, ...options.echo.cells);
+        checks.push(agreeFormula(kindOf(echo), `(${options.echo.hand})`, e));
+        while (row.length < ECHO_INDEX) row.push(null);
+        row.push(appCell(echo.app));
+        places.set(echo.key, { row: r, via: "echo" });
+      }
+      const bound = kind === "bound-lower" || kind === "bound-upper";
+      row[3] = formula(statusFormula(cells, checks, bound ? "APP-READ" : "CHECKED"));
+      places.set(f.key, { row: r, via: bound ? "bound" : "hand" });
+      push(row, options.level ?? 0, options.collapsed ?? false);
+      return b;
+    };
+    /** A working row: a Hand formula with no app counterpart and no status. */
+    const work = (label: string, hand: string, level = 0, appNote = "", collapsed = false): string =>
+      `$B$${push([text(label), formula(hand), appNote === "" ? null : text(appNote)], level, collapsed)}`;
+    /** Newcombe method 10 for p1 - p2 on paired cells a, b, c, d, with its Wilson chain in a collapsed group. */
+    const newcombe = (base: string, n: string, a: string, b: string, c: string, d: string, first: string, second: string): { lower: string; upper: string } => {
+      const p1 = fig(`p1 (${first} rate)`, `(${a}+${b})/${n}`, `${base}.p1`);
+      const p2 = fig(`p2 (${second} rate)`, `(${a}+${c})/${n}`, `${base}.p2`);
+      fig("diff (p1 - p2)", `${p1}-${p2}`, `${base}.diff`);
+      // Rows: phi, lower, upper, then the collapsed group (label, z, l1, u1, l2, u2, phi before the reduction).
+      const at = next();
+      const [z, l1, u1, l2, u2] = [4, 5, 6, 7, 8].map((k) => ref(at + k));
+      const root = `SQRT((${a}+${b})*(${c}+${d})*(${a}+${c})*(${b}+${d}))`;
+      const raw = `(${a}*${d}-${b}*${c})`;
+      const phi = work("phi (n/2 reduced)", `IF(${root}=0,0,IF(${raw}>0,MAX(${raw}-${n}/2,0),${raw})/${root})`, 0, "not printed (#168)");
+      const dl1 = `(${p1}-${l1})`;
+      const du1 = `(${u1}-${p1})`;
+      const dl2 = `(${p2}-${l2})`;
+      const du2 = `(${u2}-${p2})`;
+      const lower = fig("Newcombe lower", `${p1}-${p2}-SQRT(MAX(${dl1}^2-2*${phi}*${dl1}*${du2}+${du2}^2,0))`, `${base}.lower`);
+      const upper = fig("Newcombe upper", `${p1}-${p2}+SQRT(MAX(${du1}^2-2*${phi}*${du1}*${dl2}+${dl2}^2,0))`, `${base}.upper`);
+      push([text("interval working: Wilson bounds, phi before the n/2 reduction (expand)")], 0, true);
+      const wilson = (x: string, pr: string, which: "lower" | "upper"): string => {
+        const centre = `${pr}+${z}^2/(2*${n})`;
+        const half = `${z}*SQRT(${pr}*(1-${pr})/${n}+${z}^2/(4*${n}^2))`;
+        const den = `(1+${z}^2/${n})`;
+        return which === "lower" ? `IF(${x}=0,0,(${centre}-${half})/${den})` : `IF(${x}=${n},1,(${centre}+${half})/${den})`;
+      };
+      work("z (95%)", "NORMSINV(0.975)", 1);
+      work("l1 (Wilson lower of p1)", wilson(`(${a}+${b})`, p1, "lower"), 1);
+      work("u1 (Wilson upper of p1)", wilson(`(${a}+${b})`, p1, "upper"), 1);
+      work("l2 (Wilson lower of p2)", wilson(`(${a}+${c})`, p2, "lower"), 1);
+      work("u2 (Wilson upper of p2)", wilson(`(${a}+${c})`, p2, "upper"), 1);
+      work("phi before the n/2 reduction", `IF(${root}=0,0,${raw}/${root})`, 1);
+      return { lower, upper };
+    };
+
+    const first = push([text(`Question ${p}`)]);
+    const verdict = next();
+    push([text("verdict"), null, appCell(app("verdict")), formula(`IF(ISBLANK($C$${verdict}),"ERROR","APP-READ")`)]);
+    const unmet = app("unmet");
+    const unmetText = Array.isArray(unmet) && unmet.length > 0 ? ` (unmet: ${unmet.map(String).join(", ")})` : "";
+    const ruleApp = app("rule");
+    const ruleText = ruleApp === undefined || ruleApp === null ? null : text(`${String(ruleApp)}: ${String(app("condition") ?? "")}${unmetText}`);
+    const ruleRow = next();
+    push([text("rule fired"), null, ruleText, formula(`IF(ISBLANK($C$${ruleRow}),"ERROR","APP-READ")`)]);
+    // Deciding conditions, filled once the rows they read exist.
+    const conditions: Array<{ row: number; label: string; hand: () => string | null }> = [];
+    const condition = (label: string, hand: () => string | null): void => {
+      conditions.push({ row: push([]), label, hand });
+    };
+    let nRef: string | null = null;
+    let lowerRef: string | null = null;
+    let upperRef: string | null = null;
+    let ratioRef: string | null = null;
+    let ruleLowerRef: string | null = null;
+    const vs = (cell: string | null, threshold: string, test: string): string | null => (cell === null ? null : `ROUND(${cell},4)&" vs ${threshold}: "&IF(${cell}${test},"met","not met")`);
+    if (hasAny("numbers.")) condition("paired n vs 30 (rule 1 needs 30)", () => vs(nRef, "30", ">=30"));
+    if (has("numbers.jevVsLlm.lower")) condition("Newcombe lower vs -0.10 (rule 3 needs above)", () => vs(lowerRef, "-0.10", ">-0.1"));
+    if (has("numbers.jevVsLlm.upper")) condition("Newcombe upper vs -0.10 (rule 2 if below)", () => vs(upperRef, "-0.10", "<-0.1"));
+    if (has("numbers.costRatio.ratio")) condition("cost ratio vs 0.8 (rule 3 needs at most)", () => vs(ratioRef, "0.8", "<=0.8"));
+    if (has("ruleComparison.lower")) condition("rule minus Jev lower vs -0.10 (rule 2 if above)", () => vs(ruleLowerRef, "-0.10", ">-0.1"));
+
+    if (hasAny("numbers.")) {
+      const base = "numbers.jevVsLlm";
+      const n = fig("paired n", countifs(["included", 1]), `${base}.n`);
+      nRef = n;
+      if (has("addN")) fig("cases still needed (30 - n)", `30-${n}`, "addN");
+      if (has(`${base}.excluded`)) fig("excluded (not paired)", countifs(["included", 0]), `${base}.excluded`);
+      let a = "";
+      let b = "";
+      let c = "";
+      let d = "";
+      if (has(`${base}.a`)) {
+        a = fig("a: both accepted", countifs(["included", 1], ["jevAccept", 1], ["llmAccept", 1]), `${base}.a`);
+        const bRow = next();
+        b = fig("b: Jev only", countifs(["included", 1], ["jevAccept", 1], ["llmAccept", 0]), `${base}.b`, { echo: { path: `${base}.wins`, hand: `$B$${bRow}`, cells: [] } });
+        const cRow = next();
+        c = fig("c: LLM only", countifs(["included", 1], ["jevAccept", 0], ["llmAccept", 1]), `${base}.c`, { echo: { path: `${base}.losses`, hand: `$B$${cRow}`, cells: [] } });
+        const dRow = next();
+        d = fig("d: neither", countifs(["included", 1], ["jevAccept", 0], ["llmAccept", 0]), `${base}.d`, { echo: { path: `${base}.ties`, hand: `${a}+$B$${dRow}`, cells: [a] } });
+      }
+      const jRow = next();
+      const jAcc = has(`${base}.jev.accepted`)
+        ? fig("Jev accepted", countifs(["included", 1], ["jevAccept", 1]), `${base}.jev.accepted`, { echo: { path: "numbers.jevAccepted", hand: `$B$${jRow}`, cells: [] } })
+        : fig("Jev accepted", countifs(["included", 1], ["jevAccept", 1]), "numbers.jevAccepted");
+      if (has(`${base}.jev.acceptRate`)) fig("Jev rate", `${jAcc}/${n}`, `${base}.jev.acceptRate`);
+      const oRow = next();
+      const oAcc = has(`${base}.otherArm.accepted`)
+        ? fig("LLM accepted", countifs(["included", 1], ["llmAccept", 1]), `${base}.otherArm.accepted`, { echo: { path: "numbers.llmAccepted", hand: `$B$${oRow}`, cells: [] } })
+        : fig("LLM accepted", countifs(["included", 1], ["llmAccept", 1]), "numbers.llmAccepted");
+      if (has(`${base}.otherArm.acceptRate`)) fig("LLM rate", `${oAcc}/${n}`, `${base}.otherArm.acceptRate`);
+      if (has(`${base}.p1`)) {
+        const ci = newcombe(base, n, a, b, c, d, "Jev", "LLM");
+        lowerRef = ci.lower;
+        upperRef = ci.upper;
+      }
+      if (hasAny(`${base}.jev.spend`) || hasAny(`${base}.otherArm.spend`)) {
+        const spendRow = (side: "jev" | "otherArm", name: string, cost: TableColumn): { spend: string; missing: string } => {
+          const spend = fig(
+            has(`${base}.${side}.spend.knownUsd`) ? `${name} spend (known costs)` : `${name} spend`,
+            sumifs(cost, ["included", 1]),
+            has(`${base}.${side}.spend.knownUsd`) ? `${base}.${side}.spend.knownUsd` : `${base}.${side}.spend.usd`,
+          );
+          const missingFormula = `${countifs(["included", 1])}-${countifs(["included", 1], [cost, '">=0"'])}`;
+          // A row only when math-check compares it (some cost is missing); otherwise the count sits inside cost per accepted.
+          const missing = has(`${base}.${side}.spend.missing`) ? fig(`${name} costs missing`, missingFormula, `${base}.${side}.spend.missing`) : `(${missingFormula})`;
+          return { spend, missing };
+        };
+        const js = spendRow("jev", "Jev", "jevCost");
+        const os = spendRow("otherArm", "LLM", "llmCost");
+        const cpa = (side: "jev" | "otherArm", name: string, s: { spend: string; missing: string }, acc: string): string => {
+          const f = `IF(${s.missing}>0,"incomplete",IF(${acc}=0,"undefined",${s.spend}/${acc}))`;
+          return has(`${base}.${side}.costPerAccepted.usd`) ? fig(`${name} cost per accepted`, f, `${base}.${side}.costPerAccepted.usd`) : work(`${name} cost per accepted`, f);
+        };
+        const jc = cpa("jev", "Jev", js, jAcc);
+        const oc = cpa("otherArm", "LLM", os, oAcc);
+        if (has("numbers.costRatio.ratio")) {
+          const ratio = fig("cost ratio (Jev / LLM per accepted)", `IF(${oAcc}=0,0,${jc}/${oc})`, "numbers.costRatio.ratio");
+          ratioRef = ratio;
+          fig("bootstrap lower (app's, must be at most the ratio)", ratio, "numbers.costRatio.lower");
+          fig("bootstrap upper (app's, must be at least the ratio)", ratio, "numbers.costRatio.upper", { collapsed: has("numbers.costRatio.resamples") });
+          if (has("numbers.costRatio.resamples")) fig("bootstrap resamples (verdict-rules.md: 2,000)", "2000", "numbers.costRatio.resamples", { level: 1 });
+        }
+      }
+      const perCase = mine.filter((k) => /^.+:numbers\.jevVsLlm\.cases\[.+\]\.(jevCostUsd|otherCostUsd)$/.test(k));
+      if (perCase.length > 0) {
+        const r = next();
+        const matching = sumifs("costMatches");
+        push([
+          formula(`"per-case costs: "&${matching}&"/"&$B$${r}&" match"`),
+          formula(sumifs("costChecks")),
+          num(perCase.length),
+          formula(`IF(OR(ISERROR($B$${r}),ISERROR($C$${r})),"ERROR",IF(AND(ISNUMBER($B$${r}),ISNUMBER($C$${r})),IF(AND($B$${r}=$C$${r},${matching}=$B$${r}),"CHECKED","DIFF"),"ERROR"))`),
+        ]);
+        for (const k of perCase) places.set(k, { row: r, via: "per-case" });
+      }
+    }
+
+    if (hasAny("ruleComparison.")) {
+      const base = "ruleComparison";
+      push([text("Jev vs rule (rule minus Jev)")]);
+      const n = fig("rule-paired n", countifs(["ruleIncluded", 1]), has(`${base}.n`) ? `${base}.n` : `${base}.paired`);
+      if (has(`${base}.a`)) {
+        const a = fig("a: both accepted", countifs(["ruleIncluded", 1], ["ruleAccept", 1], ["jevAccept", 1]), `${base}.a`);
+        const b = fig("b: rule only", countifs(["ruleIncluded", 1], ["ruleAccept", 1], ["jevAccept", 0]), `${base}.b`);
+        const c = fig("c: Jev only", countifs(["ruleIncluded", 1], ["ruleAccept", 0], ["jevAccept", 1]), `${base}.c`);
+        const d = fig("d: neither", countifs(["ruleIncluded", 1], ["ruleAccept", 0], ["jevAccept", 0]), `${base}.d`);
+        ruleLowerRef = newcombe(base, n, a, b, c, d, "rule", "Jev").lower;
+      }
+    }
+
+    // A figure math-check compares that no row above holds is shown, never dropped: its Hand is not a number, so ERROR.
+    for (const k of mine) if (!places.has(k)) fig(`unmapped: ${k.slice(p.length + 1)}`, '"no formula"', k.slice(p.length + 1));
+
+    for (const cnd of conditions) {
+      const hand = cnd.hand();
+      rows[cnd.row - start] = { cells: [text(cnd.label), hand === null ? null : formula(hand)], level: 0, collapsed: false };
+    }
+    spans.push({ prefix: p, first, last: next() - 1, verdict });
+    push([]);
   }
-  return out;
+  return { rows, places, spans };
 }
+
+// ---------------------------------------------------------------------------------------------
+// The workbook
 
 export type WorkbookInput = {
   /** math-check's --json report on the same records and selection. */
@@ -482,100 +559,113 @@ export type WorkbookInput = {
   readonly last: number | null;
   /** jevnotjev git SHA (git rev-parse HEAD). */
   readonly sha: string;
-  /** coverage.md text. */
-  readonly coverage: string;
 };
 
-export const SHEET_NAMES = ["Summary", "Cases", "Hand", "App", "Compare", "Coverage"];
+export type Layout = {
+  readonly bytes: Uint8Array;
+  /** Every math-check figure key and the sheet row (1-based) that checks it. */
+  readonly places: ReadonlyMap<string, KeyPlace>;
+  /** Rows on the sheet. */
+  readonly rows: number;
+};
 
-/** The workbook bytes. */
-export function buildWorkbook(input: WorkbookInput): Uint8Array {
+export const SHEET_NAME = "Check";
+
+const status = (c: string): string => `COUNTIF(${c},"CHECKED")&" checked, "&(COUNTIF(${c},"DIFF")+COUNTIF(${c},"ERROR"))&" differ, "&COUNTIF(${c},"APP-READ")&" app-read"`;
+
+/** The workbook and where each math-check figure sits on it. */
+export function layoutWorkbook(input: WorkbookInput): Layout {
   const report = input.report;
   const selected = selectRows(input.records, input.last);
   if (selected.cases !== report.n) throw new WorkbookError(`the selection has ${selected.cases} cases, math-check reported ${report.n}`);
-  checkIdsDistinctByCase(selected);
-  const figures = report.figures.filter((f) => f.group === "figure");
+  if (ABS_TOLERANCE !== REL_TOLERANCE) throw new WorkbookError("the sheet states one tolerance; math-check's absolute and relative tolerances differ");
+  const { order, of } = prefixesOf(selected);
+  const keyed = new Set(report.figures.map((f) => f.key.split(":")[0] ?? ""));
+  const prefixes = order.filter((p) => keyed.has(p));
+  const entries = caseTable(selected, of);
+  const hasRule = entries.some((e) => e.rule.why !== "no rule row");
+  const width = hasRule ? T_HEADERS.length : T.ruleAccept;
 
-  const cases = casesSheet(selected);
-  const hand = handSheet(cohortsOf(selected), figures.map((f) => f.key), cases.layout);
+  const top = 4 + prefixes.length + 2;
+  const blockStart = top + 1;
+  const measure = blocks(blockStart, prefixes, report, () => "$A$1:$A$1");
+  const tableHeader = blockStart + measure.rows.length + 1;
+  const tableFirst = tableHeader + 1;
+  const tableLast = tableFirst + Math.max(entries.length, 1) - 1;
+  const range = (c: TableColumn): string => {
+    const col = columnName(T[c]);
+    return `$${col}$${tableFirst}:$${col}$${tableLast}`;
+  };
+  const built = blocks(blockStart, prefixes, report, range);
+  const blockEnd = blockStart + built.rows.length - 1;
 
-  const app: Cell[][] = [[text("Figure"), text("App value (verdict command, via scripts/math-check.ts --json)")]];
-  for (const f of figures) app.push([text(f.key), appCell(f.app)]);
-
-  const first = 2;
-  const lastFig = Math.max(first, figures.length + 1);
-  const compare: Cell[][] = [[text("Figure"), text("Hand"), text("App"), text("App minus Hand"), text("Tolerance kind"), text("Tolerance"), text("Status"), text("Differing so far")]];
-  for (const [i, f] of figures.entries()) {
-    const r = i + first;
-    const tol = toleranceOf(f);
-    const handRow = hand.rowOf.get(f.key);
-    if (handRow === undefined) throw new WorkbookError(`no Hand row for ${f.key}`);
-    const check = checkFormula(tol.kind, `B${r}`, `C${r}`, `F${r}`);
-    const prev = r === first ? null : `H${r - 1}`;
-    const kind = tol.kind === "abs" ? "absolute" : tol.kind === "rel" ? "relative" : tol.kind === "bound-lower" ? "bound: 0 <= app lower <= hand ratio" : "bound: app upper >= hand ratio";
-    compare.push([
-      text(f.key),
-      formula(`IF(ISBLANK(Hand!$B$${handRow}),"",Hand!$B$${handRow})`),
-      formula(`IF(ISBLANK(App!$B$${r}),"",App!$B$${r})`),
-      formula(`IF(AND(ISNUMBER(B${r}),ISNUMBER(C${r})),C${r}-B${r},"")`),
-      text(kind),
-      num(tol.value),
-      formula(`IF(OR(ISERROR(B${r}),ISERROR(C${r})),"ERROR",IF(AND(ISNUMBER(B${r}),ISNUMBER(C${r})),IF(${check},"OK","MISMATCH"),"ERROR"))`),
-      formula(prev === null ? `IF(G${r}="OK","",A${r})` : `${prev}&IF(G${r}="OK","",IF(${prev}="","","; ")&A${r})`),
-    ]);
+  const rows: Row[] = [];
+  const add = (cells: Cell[]): void => {
+    rows.push({ cells, level: 0, collapsed: false });
+  };
+  add([formula(`"All questions: "&${status(`$D$${blockStart}:$D$${blockEnd}`)}`)]);
+  add([text(`source ${report.source}; N ${report.n}; ${report.selection_rule}; jevnotjev ${input.sha}`)]);
+  add([text("tolerance"), num(ABS_TOLERANCE), text("absolute for counts and rates; relative for spend, cost per accepted and the cost ratio")]);
+  add([text("Hand: live formulas over the case table below. APP-READ: the app's figure, not recomputed (bootstrap seed not printed, #168). Spend is arithmetic only, not tied to a bill.")]);
+  for (const span of built.spans) {
+    const q = `"${span.prefix.replace(/"/g, '""')} "`;
+    add([formula(`${q}&$C$${span.verdict}&": "&${status(`$D$${span.first}:$D$${span.last}`)}`)]);
   }
-  const status = `$G$${first}:$G$${lastFig}`;
-  compare.push([]);
-  const totalCompared = compare.length + 1;
-  compare.push([text("Compared"), formula(`COUNTIF(${status},"OK")+COUNTIF(${status},"MISMATCH")+COUNTIF(${status},"ERROR")`)]);
-  const totalDiffer = compare.length + 1;
-  compare.push([text("Mismatched (MISMATCH or ERROR)"), formula(`COUNTIF(${status},"MISMATCH")+COUNTIF(${status},"ERROR")`)]);
-  compare.push([text("Of which ERROR"), formula(`COUNTIF(${status},"ERROR")`)]);
-  compare.push([text("Tolerance"), text(TOLERANCE_NOTE)]);
+  add([]);
+  add([text("Figure"), text("Hand"), text("App"), text("Status")]);
+  rows.push(...built.rows);
+  add([text("Case table: one row per question and case with a Jev or LLM row")]);
+  add(T_HEADERS.slice(0, width).map(text));
 
-  const total = `Compare!$B$${totalCompared}`;
-  const differ = `Compare!$B$${totalDiffer}`;
-  const differing = figures.length === 0 ? `""` : `Compare!$H$${figures.length + 1}`;
-  const summary: Cell[][] = [
-    [formula(`IF(${total}=0,"No figures compared",IF(${differ}=0,"All "&${total}&" figures match",${differ}&" of "&${total}&" differ"))`)],
-    [text("Differing figures"), formula(`IF(${differing}="","none",${differing})`)],
-    [text("Source file"), text(report.source)],
-    [text("N (cases)"), num(report.n)],
-    [text("Selection rule"), text(report.selection_rule)],
-    [text("jevnotjev git SHA"), text(input.sha)],
-    [text("Spend"), text("arithmetic only, not tied to a bill")],
-    [text("Tolerance"), text(TOLERANCE_NOTE)],
-    [text("How to read"), text("Hand recomputes each figure with formulas over Cases (docs/decision/verdict-rules.md \"Formulas\"); App holds the verdict command's figures; Compare sets them side by side. A blank, error or text value is ERROR.")],
-    [text("scripts/math-check.ts said"), text(`compared ${report.compared}, mismatches ${report.mismatches}`)],
-  ];
+  const tableRow = (e: CaseEntry, r: number): Cell[] => {
+    const cell = (c: TableColumn): string => `$${columnName(T[c])}${r}`;
+    const reason = [e.jev.why, e.llm.why].filter((w) => w !== "").join("; ");
+    const appCost = (leaf: string): Cell => {
+      const v = report.figures.find((f) => f.key === `${e.prefix}:numbers.jevVsLlm.cases[${e.caseId}].${leaf}`)?.app;
+      return typeof v === "number" && Number.isFinite(v) ? num(v) : null;
+    };
+    const costOk = (hand: string, app: string): string => `IF(ISNUMBER(${hand}),IF(ISNUMBER(${app}),IF(ABS(${app}-${hand})<=${TOL}*MAX(ABS(${hand}),ABS(${app})),1,0),0),0)`;
+    checkXmlText(e.caseId, `case_id ${e.caseId}`);
+    const cells: Cell[] = [
+      text(e.caseId),
+      text(e.prefix),
+      e.jev.accept === null ? null : num(e.jev.accept),
+      e.llm.accept === null ? null : num(e.llm.accept),
+      e.jev.cost === null ? null : num(e.jev.cost),
+      e.llm.cost === null ? null : num(e.llm.cost),
+      formula(`IF(AND(ISNUMBER(${cell("jevAccept")}),ISNUMBER(${cell("llmAccept")})),1,0)`),
+      reason === "" ? null : text(reason),
+      appCost("jevCostUsd"),
+      appCost("otherCostUsd"),
+      formula(`IF(${cell("included")}=1,IF(ISNUMBER(${cell("jevCost")}),1,0)+IF(ISNUMBER(${cell("llmCost")}),1,0),0)`),
+      formula(`IF(${cell("included")}=1,${costOk(cell("jevCost"), cell("appJevCost"))}+${costOk(cell("llmCost"), cell("appLlmCost"))},0)`),
+    ];
+    if (hasRule) cells.push(e.rule.accept === null ? null : num(e.rule.accept), formula(`IF(AND(ISNUMBER(${cell("jevAccept")}),ISNUMBER(${cell("ruleAccept")})),1,0)`));
+    return cells;
+  };
+  for (const [i, e] of entries.entries()) add(tableRow(e, tableFirst + i));
+  if (rows.length !== tableFirst - 1 + entries.length) throw new WorkbookError("sheet layout drifted from its plan");
 
-  const coverage: Cell[][] = [[text("Leaf"), text("Status"), text("Reason")]];
-  for (const row of parseCoverage(input.coverage)) coverage.push([text(row.leaf), text(row.status), text(row.reason)]);
-  coverage.push([]);
-  coverage.push([text("Source"), text("examples/d15-sheet-check/coverage.md")]);
-
-  const sheets: ReadonlyArray<readonly [string, string]> = [
-    ["Summary", sheetXml(summary, [28, 90])],
-    ["Cases", sheetXml(cases.rows, [])],
-    ["Hand", sheetXml(hand.rows, [52, 22, 70, 14, 18, 12, 10])],
-    ["App", sheetXml(app, [52, 22])],
-    ["Compare", sheetXml(compare, [52, 22, 22, 16, 30, 10, 10, 60])],
-    ["Coverage", sheetXml(coverage, [52, 10, 100])],
-  ];
   const enc = new TextEncoder();
-  const workbook = `${XML_HEAD}<workbook xmlns="${MAIN_NS}" xmlns:r="${REL_NS}"><sheets>${sheets.map(([name], i) => `<sheet name="${name}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets><calcPr fullCalcOnLoad="1"/></workbook>`;
+  const workbook = `${XML_HEAD}<workbook xmlns="${MAIN_NS}" xmlns:r="${REL_NS}"><sheets><sheet name="${SHEET_NAME}" sheetId="1" r:id="rId1"/></sheets><calcPr fullCalcOnLoad="1"/></workbook>`;
   const pkgRel = "http://schemas.openxmlformats.org/package/2006/relationships";
-  const wbRels = `${XML_HEAD}<Relationships xmlns="${pkgRel}">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${REL_NS}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="${REL_NS}/styles" Target="styles.xml"/></Relationships>`;
+  const wbRels = `${XML_HEAD}<Relationships xmlns="${pkgRel}"><Relationship Id="rId1" Type="${REL_NS}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${REL_NS}/styles" Target="styles.xml"/></Relationships>`;
   const rootRels = `${XML_HEAD}<Relationships xmlns="${pkgRel}"><Relationship Id="rId1" Type="${REL_NS}/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
   const ct = "application/vnd.openxmlformats-officedocument.spreadsheetml";
-  const types = `${XML_HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="${ct}.sheet.main+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${ct}.worksheet+xml"/>`).join("")}<Override PartName="/xl/styles.xml" ContentType="${ct}.styles+xml"/></Types>`;
+  const types = `${XML_HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="${ct}.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="${ct}.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="${ct}.styles+xml"/></Types>`;
   const styles = `${XML_HEAD}<styleSheet xmlns="${MAIN_NS}"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
-  return zip([
+  const bytes = zip([
     { name: "[Content_Types].xml", data: enc.encode(types) },
     { name: "_rels/.rels", data: enc.encode(rootRels) },
     { name: "xl/workbook.xml", data: enc.encode(workbook) },
     { name: "xl/_rels/workbook.xml.rels", data: enc.encode(wbRels) },
     { name: "xl/styles.xml", data: enc.encode(styles) },
-    ...sheets.map(([, xml], i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: enc.encode(xml) })),
+    { name: "xl/worksheets/sheet1.xml", data: enc.encode(sheetXml(rows)) },
   ]);
+  return { bytes, places: built.places, rows: rows.length };
+}
+
+/** The workbook bytes. */
+export function buildWorkbook(input: WorkbookInput): Uint8Array {
+  return layoutWorkbook(input).bytes;
 }

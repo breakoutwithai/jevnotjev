@@ -22,7 +22,7 @@ export type Host = {
 export type Request = { readonly n: number; readonly csv: string | null };
 export type Outcome = {
   readonly ok: boolean;
-  /** The toast and the command's output: the Summary sentence, the workbook, the source and N; or the error. */
+  /** The toast and the command's output: the result sentence, the workbook, the source and N; or the error. */
   readonly text: string;
   readonly argv: readonly string[] | null;
   readonly workbook: string | null;

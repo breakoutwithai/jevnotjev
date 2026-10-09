@@ -1,6 +1,6 @@
 // D15 (PR B, M7): the engine-recalculated record. Exports the D15 fixture's workbook with export.ts, has
-// LibreOffice recalculate it headless (the workbook carries no cached values: fullCalcOnLoad), writes the Compare
-// sheet as examples/d15-sheet-check/compare.csv, then checks it against scripts/math-check.ts --json.
+// LibreOffice recalculate it headless (the workbook carries no cached values: fullCalcOnLoad), writes its one sheet
+// ("Check") as examples/d15-sheet-check/compare.csv, then checks it against scripts/math-check.ts --json.
 //
 // Run: bun mods/math-check/compare-csv.ts [--soffice <path>] [--out <compare.csv>]
 //   --soffice  LibreOffice's soffice; default $SOFFICE, else soffice on PATH, else /opt/homebrew/bin/soffice
@@ -15,17 +15,17 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseCsv } from "../../scripts/math-check.ts";
 import { main as exportMain, runMathCheck } from "./export.ts";
-import type { MathCheckReport } from "./xlsx.ts";
+import { layoutWorkbook, SHEET_NAME, type KeyPlace, type MathCheckReport } from "./xlsx.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const D15 = join(ROOT, "examples", "d15-sheet-check", "records.csv");
 const DEFAULT_OUT = join(ROOT, "examples", "d15-sheet-check", "compare.csv");
-const HEADER = ["Figure", "Hand", "App", "App minus Hand", "Tolerance kind", "Tolerance", "Status", "Differing so far"];
-const COMPARE_SHEET = 5;
 // LibreOffice's CSV filter: comma, double quote, UTF-8, from row 1, standard cells, default language, quoted text not
 // forced to text, special numbers detected, cell values at full precision (not as shown), values not formulas,
-// spaces kept, then the sheet to write (1-based).
-const CSV_FILTER = `csv:Text - txt - csv (StarCalc):44,34,76,1,,0,false,true,false,false,false,${COMPARE_SHEET}`;
+// spaces kept, then the sheet to write (1-based: the only sheet).
+const CSV_FILTER = "csv:Text - txt - csv (StarCalc):44,34,76,1,,0,false,true,false,false,false,1";
+/** The hidden column a row's second app value sits in (xlsx.ts ECHO_INDEX). */
+const ECHO_COLUMN = 15;
 
 type Kind = "abs" | "rel" | "bound-lower" | "bound-upper";
 
@@ -49,44 +49,51 @@ function agrees(kind: Kind, hand: number, app: number, tol: number): boolean {
 
 const number = (cell: string | undefined): number | null => (cell === undefined || cell.trim() === "" || !Number.isFinite(Number(cell)) ? null : Number(cell));
 
+/** Where each math-check figure sits on the fixture's sheet, from the writer's own layout. */
+export function fixturePlaces(report: MathCheckReport): ReadonlyMap<string, KeyPlace> {
+  return layoutWorkbook({ report, records: readFileSync(D15, "utf8"), last: null, sha: "" }).places;
+}
+
 export type CompareCheck = { readonly checked: number; readonly problems: readonly string[] };
 
 /**
- * compare.csv against math-check's report: one row per figure, its engine Hand value equal to the app value within
- * the stated tolerance, status OK, no extra rows, and the Compared and Mismatched totals equal to the counts.
+ * compare.csv against math-check's report: every compared figure on a row whose engine status is CHECKED (APP-READ
+ * for a bootstrap bound), its engine Hand value within tolerance of the app value (the echo column for a second
+ * figure on a row, the per-case line for per-case costs), and every result line at 0 differ.
  */
-export function checkCompare(csv: string, report: MathCheckReport): CompareCheck {
+export function checkCompare(csv: string, report: MathCheckReport, places: ReadonlyMap<string, KeyPlace>): CompareCheck {
   const problems: string[] = [];
   const rows = parseCsv(csv);
-  const header = rows[0] ?? [];
-  if (HEADER.some((h, i) => header[i] !== h)) problems.push(`header: ${header.join(",")}`);
-  const blank = rows.findIndex((r, i) => i > 0 && r.every((c) => c.trim() === ""));
-  const body = rows.slice(1, blank < 0 ? rows.length : blank);
-  const byKey = new Map(body.map((r) => [r[0] ?? "", r]));
-  const totals = new Map(rows.slice(blank < 0 ? rows.length : blank + 1).map((r) => [r[0] ?? "", r[1] ?? ""]));
-  const figures = report.figures.filter((f) => f.group === "figure");
+  const lines = rows.map((r) => r[0] ?? "").filter((a) => a.endsWith(" app-read"));
+  if (lines.length === 0) problems.push("result line: none in compare.csv");
+  for (const line of lines) if (!line.includes(" 0 differ, ")) problems.push(`result line: ${line}`);
+  const perCaseRows = new Map<number, number>();
+  for (const p of places.values()) if (p.via === "per-case") perCaseRows.set(p.row, (perCaseRows.get(p.row) ?? 0) + 1);
   let checked = 0;
-  for (const f of figures) {
-    const row = byKey.get(f.key);
-    byKey.delete(f.key);
-    if (row === undefined) {
+  for (const f of report.figures.filter((x) => x.group === "figure")) {
+    const place = places.get(f.key);
+    const row = place === undefined ? undefined : rows[place.row - 1];
+    if (place === undefined || row === undefined) {
       problems.push(`${f.key}: no row in compare.csv`);
       continue;
     }
     checked += 1;
+    const status = row[3] ?? "";
+    const want = place.via === "bound" ? "APP-READ" : "CHECKED";
+    if (status !== want) problems.push(`${f.key}: status ${status === "" ? "(blank)" : status}, expected ${want}`);
+    if (place.via === "per-case") {
+      const m = /^per-case costs: (\d+)\/(\d+) match$/.exec(row[0] ?? "");
+      const total = perCaseRows.get(place.row) ?? 0;
+      if (m === null || Number(m[1]) !== total || Number(m[2]) !== total) problems.push(`${f.key}: per-case line "${row[0] ?? ""}", expected ${total}/${total} match`);
+      continue;
+    }
     const tol = toleranceOf(f.key, f.tolerance);
-    const hand = number(row[1]);
+    const engine = place.via === "echo" ? number(row[ECHO_COLUMN]) : number(row[1]);
     if (tol === null) problems.push(`${f.key}: no tolerance in "${f.tolerance}"`);
     else if (typeof f.app !== "number") problems.push(`${f.key}: app value ${JSON.stringify(f.app)} is not a number`);
-    else if (hand === null) problems.push(`${f.key}: Hand "${row[1] ?? ""}" is not a number`);
-    else if (!agrees(tol.kind, hand, f.app, tol.value)) problems.push(`${f.key}: Hand ${hand} vs app ${f.app} outside ${f.tolerance}`);
-    if (row[6] !== "OK") problems.push(`${f.key}: status ${row[6] ?? "(blank)"}`);
+    else if (engine === null) problems.push(`${f.key}: engine value "${(place.via === "echo" ? row[ECHO_COLUMN] : row[1]) ?? ""}" is not a number`);
+    else if (place.via === "echo" ? engine !== f.app : !agrees(tol.kind, engine, f.app, tol.value)) problems.push(`${f.key}: engine ${engine} vs app ${f.app} outside ${f.tolerance}`);
   }
-  for (const key of byKey.keys()) problems.push(`${key}: in compare.csv, not in math-check's figures`);
-  const compared = number(totals.get("Compared"));
-  if (compared !== report.compared) problems.push(`Compared: ${String(compared)} in compare.csv, ${report.compared} from math-check`);
-  const mismatched = number(totals.get("Mismatched (MISMATCH or ERROR)"));
-  if (mismatched !== report.mismatches) problems.push(`Mismatched: ${String(mismatched)} in compare.csv, ${report.mismatches} from math-check`);
   return { checked, problems };
 }
 
@@ -118,12 +125,12 @@ export function run(argv: readonly string[]): { readonly code: number; readonly 
     const bin = sofficePath(soffice);
     const res = spawnSync(bin, [`-env:UserInstallation=${pathToFileURL(join(dir, "profile")).href}`, "--headless", "--convert-to", CSV_FILTER, "--outdir", dir, workbook], { encoding: "utf8", timeout: 180_000 });
     if (res.status !== 0) return { code: 2, out: `ERROR ${bin} exited ${String(res.status)}: ${res.stderr}` };
-    const written = join(dir, "d15-Compare.csv");
-    if (!existsSync(written)) return { code: 2, out: `ERROR soffice wrote no d15-Compare.csv; files: ${readdirSync(dir).join(", ")}\n` };
+    const written = [join(dir, `d15-${SHEET_NAME}.csv`), join(dir, "d15.csv")].find((p) => existsSync(p));
+    if (written === undefined) return { code: 2, out: `ERROR soffice wrote no CSV of the ${SHEET_NAME} sheet; files: ${readdirSync(dir).join(", ")}\n` };
     const csv = readFileSync(written, "utf8");
     writeFileSync(out, csv);
     const { report } = runMathCheck(D15, null);
-    const result = checkCompare(csv, report);
+    const result = checkCompare(csv, report, fixturePlaces(report));
     const lines = [`soffice: ${bin}`, `wrote: ${out}`, `checked: ${result.checked} figures, problems ${result.problems.length}`, ...result.problems];
     return { code: result.problems.length === 0 ? 0 : 1, out: `${lines.join("\n")}\n` };
   } finally {

@@ -1,6 +1,6 @@
 // D15 (PR B): the math-check mod. A "Check Jev!Jev math by hand" Button in the band above the prompt and
 // /jnj-math-check [N] [records.csv], both only in a jevnotjev checkout (run.ts isRepo), both through run.ts check():
-// one subprocess, `bun mods/math-check/export.ts <csv> --last N`, then a toast with the Summary sentence and the path.
+// one subprocess, `bun mods/math-check/export.ts <csv> --last N`, then a toast with the result sentence and the path.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 

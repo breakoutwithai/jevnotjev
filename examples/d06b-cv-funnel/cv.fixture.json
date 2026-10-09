@@ -1,0 +1,32 @@
+[
+  {
+    "id": "fixture01",
+    "fields": {
+      "name": "IDENTITY_FIXTURE_PERSON",
+      "age": 40,
+      "gender": "IDENTITY_FIXTURE_GENDER",
+      "nationality": "IDENTITY_FIXTURE_NATIONALITY",
+      "address": "IDENTITY_FIXTURE_ADDRESS",
+      "photo": "IDENTITY_FIXTURE_PHOTO",
+      "graduation_year": 2008,
+      "right_to_work": "UK",
+      "notice_weeks": 13,
+      "years_experience": 4,
+      "location": "Remote UK",
+      "salary_band": "GBP 70000-80000",
+      "headline": "Fictional product engineer",
+      "summary": "Built and ran a pooled AI subscription product with a per-user meter. Owned its shared AI budget. Shipped to 20 users and led four engineers.",
+      "role_1": { "title": "Team lead", "scope": "Shared AI product", "achievements": "Implemented pooling and usage attribution; operated the service." },
+      "role_2": { "title": "Engineer", "scope": "Scheduling product", "achievements": "Maintained a scheduling service." },
+      "role_3": { "title": "", "scope": "", "achievements": "" },
+      "role_4": { "title": "", "scope": "", "achievements": "" },
+      "skills": ["service delivery"],
+      "projects": ["Shared AI product"],
+      "side_projects": [],
+      "budget_owned": "GBP 2000/month shared AI spending authority",
+      "team_size_led": 4,
+      "users_shipped_to": 20,
+      "links": ["https://example.invalid/fixture01"]
+    }
+  }
+]

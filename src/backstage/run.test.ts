@@ -536,6 +536,39 @@ test("[unit] B2 import generations ignore stale files and edits", async () => {
   expect(state.pending).toBe(false);
 });
 
+test("[unit] D16-BACKSTAGE-UTF8 case import refuses undecodable bytes and names the physical CSV line", async () => {
+  const state = new CaseImportState();
+  const bytes = Uint8Array.from([
+    ...new TextEncoder().encode("case_id,case_input\nc1,"), 0xff, 0xfe,
+    ...new TextEncoder().encode("\nc2,good\nc3,"), 0xff,
+    ...new TextEncoder().encode("\n"),
+  ]);
+  await expect(state.readImport(Promise.resolve(bytes.buffer))).rejects.toThrow("Case CSV has undecodable UTF-8 bytes on lines 2, 4. Save it as UTF-8 and import again.");
+  expect(state.pending).toBe(false);
+});
+
+for (const newline of ["\n", "\r\n", "\r"]) {
+  test(`[unit] D16-BACKSTAGE-LINES names bad UTF-8 on lines 2 and 4 with ${JSON.stringify(newline)} endings`, async () => {
+    const state = new CaseImportState();
+    const bytes = Uint8Array.from([
+      ...new TextEncoder().encode(`case_id,case_input${newline}c1,`), 0xff,
+      ...new TextEncoder().encode(`${newline}c2,good${newline}c3,`), 0xfe,
+      ...new TextEncoder().encode(newline),
+    ]);
+    await expect(state.readImport(Promise.resolve(bytes.buffer))).rejects.toThrow(
+      "Case CSV has undecodable UTF-8 bytes on lines 2, 4. Save it as UTF-8 and import again.",
+    );
+  });
+}
+
+test("[unit] D16-BACKSTAGE-LINE names one bad UTF-8 line in the singular", async () => {
+  const state = new CaseImportState();
+  const bytes = Uint8Array.from([...new TextEncoder().encode("case_id,case_input\rc1,"), 0xff]);
+  await expect(state.readImport(Promise.resolve(bytes.buffer))).rejects.toThrow(
+    "Case CSV has undecodable UTF-8 bytes on line 2. Save it as UTF-8 and import again.",
+  );
+});
+
 test("[unit] B2 frozen scene cannot change while handshake is pending", async () => {
   const original = { ...scene(), cases: [{ id: "x", input: "before" }] };
   const run = new BackstageRun(original, "revision");

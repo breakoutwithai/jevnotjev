@@ -65,7 +65,7 @@ export function createDecideMcp(opts: DecideMcpOptions): McpServer {
     "estimate",
     {
       description: "Dry-run price of asking these questions about these cases: provider calls, upper-bound cost in USD, and paired labelled cases a verdict needs. Spends 0.",
-      inputSchema: z.strictObject({ questions: z.array(question).min(1), cases: z.array(caseArg).min(1), arms: arms.optional(), options: options.optional() }),
+      inputSchema: z.strictObject({ questions: z.array(question).min(1), cases: z.array(caseArg).min(1, "no cases"), arms: arms.optional(), options: options.optional() }),
       annotations: { readOnlyHint: true },
     },
     async (a): Promise<ToolResult> => guarded(async () => answer(await spendTool("estimate", requestOf(a.questions, casesOf(a.cases), a.arms, a.options), undefined, deps, env))),
@@ -89,7 +89,7 @@ export function createDecideMcp(opts: DecideMcpOptions): McpServer {
         "Ask the questions about many cases, under an optional budget cap. With `out` (a file path on the server's machine) writes the jnj-record/1.2 CSV " +
         "there and returns a summary; without `out` returns the rows inline. Spends.",
       inputSchema: z.strictObject({
-        questions: z.array(question).min(1), cases: z.array(caseArg).min(1), arms: arms.optional(), options: options.optional(),
+        questions: z.array(question).min(1), cases: z.array(caseArg).min(1, "no cases"), arms: arms.optional(), options: options.optional(),
         out: z.string().min(1).optional().describe("CSV path; relative paths resolve from the server's working directory"),
       }),
       annotations: { openWorldHint: true },

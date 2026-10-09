@@ -1037,7 +1037,7 @@ field("import-cases").addEventListener("change", async () => {
   try {
     if (file.size > 1000000)
       throw new Error("Case CSV must be smaller than 1 MB.");
-    const reading = imports.readImport(file.text());
+    const reading = readImportFile(file);
     void render();
     const loaded = await reading;
     if (!loaded || starting || run) return;
@@ -1054,6 +1054,9 @@ field("import-cases").addEventListener("change", async () => {
     void render();
   }
 });
+function readImportFile(file: Blob): ReturnType<CaseImportState["readImport"]> {
+  return imports.readImport(file.arrayBuffer());
+}
 field("include-rule").addEventListener("change", () => void render());
 field("compare").addEventListener("change", () => void render());
 field("jev-key").addEventListener("input", () => void render());

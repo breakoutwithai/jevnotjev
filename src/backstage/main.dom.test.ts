@@ -437,14 +437,30 @@ test("[integration] D10 sign-out removes the saved scene", async () => {
   expect(page.store.items.size).toBe(0);
 });
 
-async function importCsv(page: Awaited<ReturnType<typeof mount>>, csv: string) {
+async function importCsv(page: Awaited<ReturnType<typeof mount>>, csv: string | Uint8Array) {
   const input = page.get("import-cases");
   if (!(input instanceof FakeInput)) throw new Error("import-cases is not an input");
-  input.files = [new File([csv], "cases.csv", { type: "text/csv" })];
+  input.files = [new File([typeof csv === "string" ? csv : Uint8Array.from(csv).buffer], "cases.csv", { type: "text/csv" })];
   input.dispatchEvent(new Event("change"));
   await tick();
   await tick();
 }
+
+test("[integration] D16-BACKSTAGE-UTF8 the page refuses undecodable bytes without importing", async () => {
+  const page = await mount();
+  const bytes = Uint8Array.from([...new TextEncoder().encode("case_id,case_input\nc1,"), 0xff]);
+  await importCsv(page, bytes);
+  expect(page.get("notice").textContent).toBe("Case CSV has undecodable UTF-8 bytes on line 2. Save it as UTF-8 and import again.");
+  expect(page.get("cases").value).toBe("");
+  expect(page.get("notice").textContent).not.toContain("Imported");
+});
+
+test("[integration] D16-BACKSTAGE-UNICODE the page imports BOM, accented text and emoji intact", async () => {
+  const page = await mount();
+  await importCsv(page, new TextEncoder().encode("\ufeffcase_id,case_input\nc1,café 😀\n"));
+  expect(page.get("cases").value).toBe("café 😀");
+  expect(page.get("notice").textContent).toContain("Imported 1 cases");
+});
 
 test("[integration] D11 a malformed CSV import names the line, the problem and the expected form", async () => {
   const page = await mount();

@@ -1,5 +1,5 @@
 {
-  "minFiles": 98,
+  "minFiles": 99,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -23,6 +23,7 @@
     "scripts/gate.test.ts": 14,
     "scripts/hand-check.test.ts": 24,
     "scripts/little-shop-seating.test.ts": 14,
+    "scripts/math-check.test.ts": 13,
     "scripts/replay-data.test.ts": 8,
     "scripts/replay-paging.test.ts": 7,
     "scripts/result-view.test.ts": 46,

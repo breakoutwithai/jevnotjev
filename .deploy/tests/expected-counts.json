@@ -1,5 +1,5 @@
 {
-  "minFiles": 99,
+  "minFiles": 100,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -12,6 +12,7 @@
     ".deploy/tests/ship.test.sh": 135,
     ".deploy/tests/verify.test.sh": 50,
     "docs/research/2026-09-29-verdict-minimums/sim.test.ts": 6,
+    "mods/math-check/xlsx.test.ts": 9,
     "scripts/api-token-mint.test.ts": 3,
     "scripts/backstage-deps.test.ts": 6,
     "scripts/backstage-journal.test.ts": 5,

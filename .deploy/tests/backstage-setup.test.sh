@@ -20,6 +20,8 @@ ok()   { echo "  ok   - $1"; pass=$((pass+1)); }
 nope() { echo "  FAIL - $1"; fail=$((fail+1)); }
 
 export JEVNOTJEV_SERVER_HOST=192.0.2.1
+# Deploy state from the caller's shell (or an outer ship.sh) never reaches these cases.
+unset BACKSTAGE_GATE BACKSTAGE_SESSION_JAR
 KEYDIR="$(mktemp -d)"; : > "${KEYDIR}/key"
 export JEVNOTJEV_SSH_KEY="${KEYDIR}/key"
 # A private curl config, as the operator creates it. The password must never reach a remote

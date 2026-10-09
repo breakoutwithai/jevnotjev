@@ -17,6 +17,11 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Deploy state from the caller's shell (or an outer ship.sh) never reaches the bash these cases
+// spawn: BACKSTAGE_GATE=session made backstage_curl ignore the curl config (2026-10-09).
+delete process.env.BACKSTAGE_GATE;
+delete process.env.BACKSTAGE_SESSION_JAR;
 test("[unit] B67 release package requires matching SHA and complete paired artifacts", async () => {
   const dir = await mkdtemp(join(tmpdir(), "backstage-package-"));
   try {

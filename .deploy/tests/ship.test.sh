@@ -155,6 +155,8 @@ cat > "${FAKEBIN}/bun" <<EOF
 log() { printf '%s\n' "\$ORIG" >> "\${FAKE_STATE}/bun.log"; }
 # The log keeps the full invocation (e.g. --no-env-file); dispatch ignores that one flag.
 ORIG="\$*"
+# bun-env.log: per invocation, the deploy's own state variables this bun process inherited.
+printf '%s\t%s\n' "\$ORIG" "\$(env | grep -E '^BACKSTAGE_(GATE|SESSION_JAR|CURL_CONFIG)=' | sort | tr '\n' ' ')" >> "\${FAKE_STATE}/bun-env.log"
 [ "\${1:-}" != --no-env-file ] || shift
 case "\${1:-} \${2:-}" in
     "install --frozen-lockfile") log "\$*"; echo "\${FAKE_BUN_INSTALL_OUT:-installed}"; exit "\${FAKE_BUN_INSTALL_RC:-0}" ;;
@@ -1321,6 +1323,27 @@ out="$(FAKE_JEV_ANSWER='yes ````' ship 2>&1)"; rc=$?
     && ! grep -qx '```text' "${FAKE_STATE}/notes.md" \
     && ok "panel #4: the checklist fence is longer than any backtick run in the record" \
     || nope "panel #4 fence: rc=${rc}; notes: $(cat "${FAKE_STATE}/notes.md" 2>/dev/null)"
+drop_fixture
+
+echo
+echo "[T1] the dependency check runs without the deploy's own state variables"
+# 2026-10-09: the lock-free state read exported BACKSTAGE_GATE=session; the real gate inherited it
+# and backstage-setup.test.sh failed 16 cases. The gated fixture sets BACKSTAGE_GATE (state read)
+# and BACKSTAGE_CURL_CONFIG; a stale BACKSTAGE_SESSION_JAR comes from the caller's shell.
+make_fixture
+out="$(BACKSTAGE_SESSION_JAR=/tmp/stale-jar ship 2>&1)"; rc=$?
+envlog="${FAKE_STATE}/bun-env.log"
+step_env() { awk -F '\t' -v s="$1" 'index($1, s) == 1 {print $2}' "$envlog" 2>/dev/null; }
+leaked=""
+for s in "install --frozen-lockfile" "run typecheck" "scripts/gate.ts"; do
+    [[ -z "$(step_env "$s" | tr -d ' ')" ]] || leaked="${leaked} [${s}: $(step_env "$s")]"
+done
+[[ $rc -eq 0 && "$(step_env "--no-env-file scripts/deploy-checklist.ts")" == *"BACKSTAGE_GATE=yes"* ]] \
+    && ok "control: the state read exported BACKSTAGE_GATE=yes (the checklist step after it sees it)" \
+    || nope "control: rc=${rc}, checklist env '$(step_env "--no-env-file scripts/deploy-checklist.ts")'; out: ${out}"
+[[ $rc -eq 0 && -z "$leaked" ]] && grep -q "^scripts/gate.ts	" "$envlog" \
+    && ok "install, typecheck and the gate inherit no BACKSTAGE_GATE, BACKSTAGE_SESSION_JAR or BACKSTAGE_CURL_CONFIG" \
+    || nope "deploy state leaked into the dependency check:${leaked}"
 drop_fixture
 
 echo

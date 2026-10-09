@@ -48,6 +48,33 @@ test("[unit] deploy-checklist: the request is one pinned noul question carrying 
   });
 });
 
+// The checklist ship.sh sends since 2026-10-09: checks plus one neutral contents line, no plan.
+const SHIP_CHECKLIST = [
+  "HEAD == origin/main: yes (HEAD 5917049aaaa, origin/main 5917049aaaa)",
+  "tracked tree clean: yes",
+  "bun install --frozen-lockfile: pass",
+  "bun run typecheck: pass",
+  "bun scripts/gate.ts: pass (gate: PASS files=100 tests=2008)",
+  "setup present: static yes, backstage yes",
+  "backstage curl config: set (private file)",
+  "Release contents: static and backstage will be updated to 5917049",
+].join("\n");
+
+test("[unit] deploy-checklist: the Jev body carries the checks and the contents line, and no STALE/behind/drift wording", async () => {
+  const calls: Call[] = [];
+  await askReady(SHIP_CHECKLIST, key, fakeFetch(200, answer(0.9), calls));
+  const sent = calls[0]?.init.body ?? "";
+  for (const line of SHIP_CHECKLIST.split("\n")) expect(sent).toContain(JSON.stringify(line).slice(1, -1));
+  expect(sent).not.toMatch(/stale|behind|drift/i);
+});
+
+test("[unit] deploy-checklist: the question says the listed modules are expected to change and asks only about the checks", () => {
+  const q = READY_QUESTION.instructions;
+  expect(q).toContain("expected to change");
+  expect(q).toContain("every check");
+  expect(q).not.toMatch(/stale|behind|drift/i);
+});
+
 test("[unit] deploy-checklist: unreachable API, http error, wrong model or malformed answer all exit 1", async () => {
   const throwing: DecideFetch = async () => {
     throw new TypeError("fetch failed");

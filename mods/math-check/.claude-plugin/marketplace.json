@@ -1,0 +1,11 @@
+{
+  "name": "jevnotjev-mods",
+  "owner": { "name": "Jev!Jev" },
+  "plugins": [
+    {
+      "name": "math-check",
+      "source": "./",
+      "description": "Check Jev!Jev math by hand: export the last N cases to an xlsx with a formula hand check"
+    }
+  ]
+}

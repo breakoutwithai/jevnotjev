@@ -71,7 +71,13 @@
 
 States are compared by type and are not counted in `compared`: `verdict`, `condition`, `ruleComparison.kind`, each `spend.kind` and `costPerAccepted.kind` as text; `rule` and `exit_code` as numbers; `unmet` as an ordered list of text; `cases[*].caseId` as a set of distinct text; `numbers.jevVsLlm` as null when nothing pairs (`jevAccepted` and `llmAccepted` are still compared then); `numbers.costRatio` as null on every verdict that stops before the cost ratio (verdict.ts prints its `base` numbers there). `reason` and `limitations` are prose and are not compared.
 
-`math-check.ts` computes Wilson and phi values and lists them under `excluded` with the hand value. They can be checked against `expected.md`; neither value is a verdict JSON leaf.
+## Not printed by the app
+| Figure | Status | Reason |
+|---|---|---|
+| Wilson interval of each rate (`wilson1`, `wilson2`, lower and upper) | excluded | app does not expose it (#168); `lower` and `upper`, which are built from it, are compared |
+| `phi` | excluded | app does not expose it (#168); `lower` and `upper`, which are built from it, are compared |
+
+`math-check.ts` still computes the excluded Wilson and phi values and lists them under `excluded` with the hand value, so a reader can check them against `expected.md`.
 
 ## Record validation
 The input bytes are decoded as strict UTF-8 (a byte order mark is kept) and written to a temporary snapshot. The product validator (`bun src/decide/cli.ts validate <snapshot>`) runs on that snapshot before anything is compared, with or without `--app-json`; a non-zero exit stops the check with exit 2 and the validator's errors. Like `verdict`, it runs as a separate process and only its exit code and stdout are read. The verdict command runs on the same snapshot. math-check's own row reader adds a few checks of its own (labels, label sources, costs, duplicate rows) and does not repeat the full schema.

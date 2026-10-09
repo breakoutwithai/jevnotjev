@@ -12,7 +12,7 @@ Jev!Jev compares one typed decision in a workflow across Jev, an LLM, the Decisi
 Clone the public repository, enter the new `jevnotjev` directory, then install the locked dependencies:
 
 ```sh
-git clone --no-local --quiet https://github.com/breakoutwithai/jevnotjev.git jevnotjev
+git clone https://github.com/breakoutwithai/jevnotjev.git
 cd jevnotjev
 bun install --frozen-lockfile
 ```
@@ -43,7 +43,7 @@ claude mcp add jnj-decide -e JEV_API_KEY="$JEV_API_KEY" -e OPENAI_API_KEY="$OPEN
   -- bun /absolute/path/to/jevnotjev/src/mcp/server.ts
 ```
 
-Or use a project `.mcp.json` configuration snippet. Claude Code expands the variable references from its environment:
+Or use a project `.mcp.json` configuration snippet. Claude Code expands the variable references from its environment. The `:-` empty default keeps an unset variable empty rather than passing a literal variable reference to the server:
 
 ```json
 {
@@ -52,21 +52,22 @@ Or use a project `.mcp.json` configuration snippet. Claude Code expands the vari
       "command": "bun",
       "args": ["/absolute/path/to/jevnotjev/src/mcp/server.ts"],
       "env": {
-        "JEV_API_KEY": "${JEV_API_KEY}",
-        "OPENAI_API_KEY": "${OPENAI_API_KEY}",
-        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
+        "JEV_API_KEY": "${JEV_API_KEY:-}",
+        "OPENAI_API_KEY": "${OPENAI_API_KEY:-}",
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}"
       }
     }
   }
 }
 ```
 
-For Codex, add this configuration snippet to `~/.codex/config.toml`. Start Codex with the provider variables in its environment when using provider tools. The snippet contains no credential values:
+For Codex, add this configuration snippet to `~/.codex/config.toml`. Stdio MCP servers get a filtered environment, so provider tools need these variable names forwarded from Codex's environment. The snippet contains no credential values:
 
 ```toml
 [mcp_servers.jnj-decide]
 command = "bun"
 args = ["/absolute/path/to/jevnotjev/src/mcp/server.ts"]
+env_vars = ["JEV_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
 ```
 
 ## Verify

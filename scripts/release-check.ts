@@ -1,9 +1,10 @@
 // Exercise the decide CLI and stdio MCP server from a clean clone of a commit.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { readDictRows } from "../src/format/csv.ts";
 
 export interface Check {
   readonly name: string;
@@ -40,6 +41,26 @@ function requireValue(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
 }
 
+export function assertReleaseOutput(name: "arms" | "estimate" | "verdict" | "fixture run", body: unknown, expected?: string, records?: string): void {
+  if (name === "arms") {
+    const arms = field(body, "arms");
+    requireValue(Array.isArray(arms) && ["jev", "decisions", "llm", "rule"].every((arm) => arms.some((entry: unknown) => field(entry, "arm") === arm)), "documented arms missing");
+  } else if (name === "estimate") {
+    const calls = field(body, "calls");
+    const cost = field(body, "costUsd");
+    requireValue(typeof calls === "number" && calls > 0 && typeof cost === "number" && cost > 0, "positive calls and cost missing");
+  } else if (name === "verdict") {
+    const verdicts = field(body, "verdicts");
+    requireValue(Array.isArray(verdicts) && verdicts.some((entry: unknown) => field(entry, "verdict") === expected), "expected verdict missing");
+  } else {
+    const rows = field(body, "rows");
+    requireValue(typeof rows === "number" && rows >= 1, "positive row count missing");
+    const parsedRecords = readDictRows(records ?? "");
+    const outcomeIndex = parsedRecords.header?.indexOf("outcome") ?? -1;
+    requireValue(outcomeIndex >= 0 && parsedRecords.rows.some((row) => row.fields[outcomeIndex] === "answered"), "answered record missing");
+  }
+}
+
 function argsOf(argv: readonly string[]): { repo: string; ref: string } {
   let repo = join(import.meta.dir, "..");
   let ref = "HEAD";
@@ -52,7 +73,8 @@ function argsOf(argv: readonly string[]): { repo: string; ref: string } {
     if (flag === "--repo") repo = value;
     else ref = value;
   }
-  return { repo, ref };
+  const localRepo = !repo.includes("://") && !repo.startsWith("git@");
+  return { repo: localRepo ? resolve(repo) : repo, ref };
 }
 
 interface CommandResult {
@@ -61,8 +83,9 @@ interface CommandResult {
   readonly stderr: string;
 }
 
-function command(argv: readonly string[], cwd: string, env: Readonly<Record<string, string>>): CommandResult {
-  const result = Bun.spawnSync([...argv], { cwd, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", ...env }, stdout: "pipe", stderr: "pipe" });
+export function command(argv: readonly string[], cwd: string, env: Readonly<Record<string, string>>, step: string, timeoutMs = 30_000): CommandResult {
+  const result = Bun.spawnSync([...argv], { cwd, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", ...env }, stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
+  if (result.exitedDueToTimeout) throw new Error(`${step} timed out after ${timeoutMs} ms`);
   return { code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
 }
 
@@ -116,7 +139,7 @@ async function mcpChecks(clone: string, add: (name: string, fn: () => Promise<vo
         const body = parsed(first?.type === "text" ? first.text : "");
         requireValue(field(body, "exit_code") === 0, "tool result exit_code is not 0");
         if (name === "validate") requireValue(field(body, "valid") === true, "record was not valid");
-        else requireValue(Array.isArray(field(body, "verdicts")), "verdicts missing");
+        else assertReleaseOutput("verdict", body, "use Jev");
       });
     }
   } finally {
@@ -151,22 +174,22 @@ export async function runReleaseCheck(argv: readonly string[]): Promise<number> 
   const clone = join(work, "clone");
   try {
     await add("fresh clone", () => {
-      const cloned = command(["git", "clone", "--no-local", "--quiet", options.repo, clone], work, {});
+      const cloned = command(["git", "clone", "--no-local", "--quiet", options.repo, clone], work, {}, "fresh clone");
       expectCode(cloned, 0);
       const localRepo = !options.repo.includes("://") && !options.repo.startsWith("git@");
-      const localTarget = localRepo ? command(["git", "rev-parse", "--verify", `${options.ref}^{commit}`], options.repo, {}) : null;
-      const remoteTarget = command(["git", "rev-parse", "--verify", `origin/${options.ref}^{commit}`], clone, {});
-      const cloneTarget = command(["git", "rev-parse", "--verify", `${options.ref}^{commit}`], clone, {});
+      const localTarget = localRepo ? command(["git", "rev-parse", "--verify", `${options.ref}^{commit}`], options.repo, {}, "local ref") : null;
+      const remoteTarget = command(["git", "rev-parse", "--verify", `origin/${options.ref}^{commit}`], clone, {}, "remote ref");
+      const cloneTarget = command(["git", "rev-parse", "--verify", `${options.ref}^{commit}`], clone, {}, "clone ref");
       const target = localTarget?.code === 0 ? localTarget : remoteTarget.code === 0 ? remoteTarget : cloneTarget;
       expectCode(target, 0);
-      const checkedOut = command(["git", "checkout", "--quiet", "--detach", target.stdout.trim()], clone, {});
+      const checkedOut = command(["git", "checkout", "--quiet", "--detach", target.stdout.trim()], clone, {}, "checkout");
       expectCode(checkedOut, 0);
     });
     if (!checks.at(-1)?.ok) return finish();
-    await add("frozen install", () => expectCode(command(["bun", "install", "--frozen-lockfile"], clone, {}), 0));
+    await add("frozen install", () => expectCode(command(["bun", "install", "--frozen-lockfile"], clone, {}, "frozen install", 120_000), 0));
     if (!checks.at(-1)?.ok) return finish();
     const input = prepareInputs(clone, work);
-    const cli = (parts: readonly string[], env: Readonly<Record<string, string>> = {}): CommandResult => command(["bun", "run", "decide", ...parts], clone, env);
+    const cli = (parts: readonly string[], env: Readonly<Record<string, string>> = {}): CommandResult => command(["bun", "run", "decide", ...parts], clone, env, `cli ${parts[0] ?? "unknown"}`);
     await add("cli help", () => {
       const result = cli(["--help"]);
       expectCode(result, 0);
@@ -174,11 +197,11 @@ export async function runReleaseCheck(argv: readonly string[]): Promise<number> 
     });
     await add("cli arms", () => {
       const body = expectBody(cli(["arms"]), 0);
-      requireValue(Array.isArray(field(body, "arms")), "arms missing");
+      assertReleaseOutput("arms", body);
     });
     await add("cli estimate", () => {
       const body = expectBody(cli(["estimate", "--questions", input.questions, "--cases", input.cases, "--arms", "jev"]), 0);
-      requireValue(typeof field(body, "calls") === "number" && typeof field(body, "costUsd") === "number", "estimate numbers missing");
+      assertReleaseOutput("estimate", body);
     });
     await add("cli validate valid", () => {
       const body = expectBody(cli(["validate", "examples/d08-verdicts/r3-use-jev.csv"]), 0);
@@ -188,23 +211,25 @@ export async function runReleaseCheck(argv: readonly string[]): Promise<number> 
       const body = expectBody(cli(["validate", input.invalid]), 1);
       requireValue(field(body, "valid") === false, "invalid result missing");
     });
-    const verdicts: readonly { name: string; file: string; code: number }[] = [
-      { name: "use", file: "r3-use-jev.csv", code: 0 },
-      { name: "insufficient", file: "r1-29-paired.csv", code: 4 },
-      { name: "reject", file: "r2-jev-worse.csv", code: 3 },
+    const verdicts: readonly { name: string; file: string; code: number; verdict: string }[] = [
+      { name: "use", file: "r3-use-jev.csv", code: 0, verdict: "use Jev" },
+      { name: "insufficient", file: "r1-29-paired.csv", code: 4, verdict: "not enough evidence" },
+      { name: "reject", file: "r2-jev-worse.csv", code: 3, verdict: "don't use Jev" },
     ];
-    for (const { name, file, code } of verdicts) {
+    for (const { name, file, code, verdict } of verdicts) {
       await add(`cli verdict ${name}`, () => {
         const body = expectBody(cli(["verdict", `examples/d08-verdicts/${file}`]), code);
         requireValue(field(body, "exit_code") === code, "verdict exit_code differs");
+        assertReleaseOutput("verdict", body, verdict);
       });
     }
     await add("cli fixture run", () => {
       const body = expectBody(cli(["run", "--questions", input.questions, "--cases", input.cases, "--arms", "jev", "--out", input.records], {
         JNJ_DECIDE_FIXTURES: input.fixtures, JEV_API_KEY: "fixture-only",
       }), 0);
-      requireValue(typeof field(body, "rows") === "number" || typeof field(body, "calls") === "number", "run summary missing");
-      requireValue(readFileSync(input.records, "utf8").includes("jnj-record/1.2"), "records missing");
+      const records = readFileSync(input.records, "utf8");
+      requireValue(records.includes("jnj-record/1.2"), "records missing");
+      assertReleaseOutput("fixture run", body, undefined, records);
     });
     await add("cli validate fixture records", () => {
       const body = expectBody(cli(["validate", input.records]), 0);

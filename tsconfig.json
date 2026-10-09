@@ -28,5 +28,10 @@
     "mods",
     "docs/research",
     ".deploy"
+  ],
+  "exclude": [
+    "mods/math-check/hooks/register.tsx",
+    "mods/math-check/types",
+    "mods/math-check/.claude-plugin"
   ]
 }

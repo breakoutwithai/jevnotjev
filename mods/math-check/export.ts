@@ -78,7 +78,13 @@ function defaultOut(records: string, last: number | null, cases: number): string
   return join(process.cwd(), "jnj-math-check", `${runId}-last${cases}-${stamp(new Date())}.xlsx`);
 }
 
-export type ExportResult = { readonly code: number; readonly out: string; readonly err: string };
+/** The Summary sheet's sentence in words, from math-check's own counts: what the mod's toast says. */
+export function summarySentence(report: MathCheckReport): string {
+  if (report.compared === 0) return "No figures compared";
+  return report.mismatches === 0 ? `All ${report.compared} figures match` : `${report.mismatches} of ${report.compared} differ`;
+}
+
+export type ExportResult ={ readonly code: number; readonly out: string; readonly err: string };
 
 /** The whole command: returns the exit code and what to print. */
 export function main(argv: readonly string[]): ExportResult {
@@ -104,6 +110,7 @@ export function main(argv: readonly string[]): ExportResult {
       `n: ${report.n}`,
       `selection: ${report.selection_rule}`,
       `math-check: compared ${report.compared}, mismatches ${report.mismatches} (exit ${code})`,
+      `summary: ${summarySentence(report)}`,
       `workbook: ${out}`,
     ];
     return { code, out: lines.join("\n") + "\n", err: "" };

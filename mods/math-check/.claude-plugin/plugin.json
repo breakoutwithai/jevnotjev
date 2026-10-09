@@ -1,0 +1,6 @@
+{
+  "name": "math-check",
+  "version": "0.1.0",
+  "description": "Check Jev!Jev math by hand: export the last N cases to an xlsx with a formula hand check",
+  "types": "./types/index.d.ts"
+}

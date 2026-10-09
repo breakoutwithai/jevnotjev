@@ -46,3 +46,7 @@ site/backstage/app.js
 # /api/v1 bearer-token state (hashes only, still never committed)
 api-tokens.json
 .jevnotjev/
+
+# Math-check mod: workbooks it exports (run output) and the type declarations the engine lays beside the mod
+jnj-math-check/
+mods/math-check/.claude-plugin/types/

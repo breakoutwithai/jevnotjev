@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -154,6 +154,25 @@ describe("[unit] math-check xlsx writer", () => {
     expect(result.out).toContain("n: 30\n");
     expect(result.out).toContain("selection: last 30 distinct case_id values in order of first appearance (of 42)");
     expect(result.out).toContain(`workbook: ${out}`);
+  });
+
+  test("[unit] export prints the Summary sentence the mod toasts, from math-check's counts", () => {
+    written += 1;
+    const out = join(tmp, `w${written}.xlsx`);
+    const result = main([D15, "--out", out]);
+    const { report } = runMathCheck(D15, null);
+    expect(report.compared).toBeGreaterThan(0);
+    expect(result.out).toContain(`summary: All ${report.compared} figures match\n`);
+  });
+
+  test("[unit] export with no --out names the workbook <cwd>/jnj-math-check/<run_id>-last<N>-<yyyymmdd-hhmm>.xlsx", () => {
+    const cwd = realpathSync(mkdtempSync(join(tmp, "cwd-")));
+    const res = spawnSync(process.execPath, [fileURLToPath(new URL("./export.ts", import.meta.url)), D15, "--last", "30"], { cwd, encoding: "utf8" });
+    expect(res.status).toBe(0);
+    const files = readdirSync(join(cwd, "jnj-math-check"));
+    expect(files.length).toBe(1);
+    expect(files[0] ?? "").toMatch(/^[A-Za-z0-9._-]+-last30-\d{8}-\d{4}\.xlsx$/);
+    expect(res.stdout).toContain(`workbook: ${join(cwd, "jnj-math-check", files[0] ?? "")}`);
   });
 });
 

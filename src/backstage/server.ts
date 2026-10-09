@@ -33,7 +33,34 @@ export function runtimeVersion(
     );
   return compiled;
 }
+const HOUSE_KEY_ORIGINS = ["localhost", "127.0.0.1", "[::1]"];
+const HOUSE_KEY_BINDS = ["localhost", "127.0.0.1", "::1"];
+function assertHouseKeyOrigin(origin: string): void {
+  if (!HOUSE_KEY_ORIGINS.includes(new URL(origin).hostname))
+    throw new Error(
+      "BACKSTAGE_HOUSE_JEV_KEY is local-only: refusing a non-loopback origin.",
+    );
+}
+/** Local UAT only: a server-held Jev key, honoured solely on a loopback origin and a loopback bind. */
+export function houseJevKeyFromEnvironment(
+  env: Readonly<Record<string, string | undefined>>,
+  origin: string,
+  listenHost: string,
+): string | undefined {
+  const key = env.BACKSTAGE_HOUSE_JEV_KEY;
+  if (!key) return undefined;
+  assertHouseKeyOrigin(origin);
+  if (!HOUSE_KEY_BINDS.includes(listenHost))
+    throw new Error(
+      "BACKSTAGE_HOUSE_JEV_KEY is local-only: refusing a non-loopback bind address.",
+    );
+  if (!/^[\x21-\x7e]{8,512}$/.test(key))
+    throw new Error("BACKSTAGE_HOUSE_JEV_KEY is not a validly shaped key.");
+  return key;
+}
 export interface ServerOptions {
+  /** Jev key held by the server for loopback UAT; never sent to the browser. */
+  readonly houseJevKey?: string;
   readonly version: string;
   readonly staticRoot?: string;
   readonly origin?: string;
@@ -97,6 +124,16 @@ const HEADERS = {
   "content-security-policy":
     "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
 };
+function withoutJevKey(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "armId" in value &&
+    value.armId === "jev" &&
+    (!("key" in value) || value.key === undefined || value.key === "")
+  );
+}
 function clientAddress(request: Request, context: RequestContext | undefined, trustProxy: boolean | undefined): string | null {
   const socket = context?.remoteAddress;
   const loopback = socket === "127.0.0.1" || socket === "::1" || socket === "::ffff:127.0.0.1";
@@ -126,6 +163,8 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   const clock = options.auth?.clock ?? Date.now;
   const secret = options.auth?.sessionSecret ?? "";
   const origin = options.origin ?? "http://localhost:3456";
+  const houseJevKey = options.houseJevKey || undefined;
+  if (houseJevKey) assertHouseKeyOrigin(origin);
   const operators = new OperatorStore(options.auth?.operatorsPath);
   const limiter = new LoginLimiter(clock);
   const states = new GoogleStates(clock, secret);
@@ -352,6 +391,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
             catalogVersion: CATALOG_VERSION,
             catalog: MODEL_CATALOG,
             origin: options.origin ?? url.origin,
+            houseKey: houseJevKey !== undefined,
             trial:
               trial.available && !trialHeld
                 ? {
@@ -553,7 +593,12 @@ export function createHandler(options: ServerOptions): BackstageHandler {
           }
           return json(result);
         }
-        const validated = validateAnswerRequest(decoded);
+        // The session gate above already refused unsigned requests when it is on. A pasted key always wins.
+        const validated = validateAnswerRequest(
+          houseJevKey !== undefined && withoutJevKey(decoded)
+            ? { ...decoded, key: houseJevKey }
+            : decoded,
+        );
         if (!validated.ok)
           return json(
             validated.error,
@@ -676,9 +721,12 @@ if (import.meta.main) {
   if (new URL(origin).origin !== origin)
     throw new Error("BACKSTAGE_ORIGIN must be an origin.");
   const trialConfig = trialConfigFromEnvironment(process.env);
+  const listenHost = "127.0.0.1";
+  const houseJevKey = houseJevKeyFromEnvironment(process.env, origin, listenHost);
   const handler = createHandler({
     version,
     origin,
+    ...(houseJevKey ? { houseJevKey } : {}),
     staticRoot: process.env.BACKSTAGE_STATIC_ROOT ?? "site",
     ...(trialConfig ? { trialConfig } : {}),
     trialPricingVersion: process.env.BACKSTAGE_TRIAL_PRICING_VERSION ?? "",
@@ -694,7 +742,7 @@ if (import.meta.main) {
     },
   });
   Bun.serve({
-    hostname: "127.0.0.1",
+    hostname: listenHost,
     port,
     maxRequestBodySize: 65536,
     idleTimeout: 40,

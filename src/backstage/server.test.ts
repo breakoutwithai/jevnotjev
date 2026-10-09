@@ -57,6 +57,7 @@ test("[unit] B8 server health negotiates protocol/version and hardens response h
     catalogVersion: CATALOG_VERSION,
     catalog: MODEL_CATALOG,
     origin: "http://localhost:3456",
+    houseKey: false,
     trial: {
       available: false,
       reason: "Trial funding configuration is incomplete.",

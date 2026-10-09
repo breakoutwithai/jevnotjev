@@ -154,12 +154,13 @@ export function validateSceneKeys(
   scene: Scene,
   keys: Keys,
   _mode: RunMode = "jev-only",
+  houseJev = false,
 ): void {
   if (containsKey(scene, keyValues(keys)))
     throw new Error(
       "A provider key appears in the scene. Remove it before running.",
     );
-  if (!validKey(keys.jev))
+  if (!(houseJev && !keys.jev) && !validKey(keys.jev))
     throw new Error(
       "Supply a valid jev key (8-512 printable characters, no spaces).",
     );
@@ -1134,12 +1135,13 @@ export class BackstageRun {
     keys: KeySource,
     transport: Transport = answerTransport,
     onChange?: () => void,
+    houseJev = false,
   ) {
     if (this.#started)
       throw new Error(
         "This run has already started. Use explicit retry for incomplete calls.",
       );
-    await this.#execute(keys, transport, onChange);
+    await this.#execute(keys, transport, onChange, false, houseJev);
   }
   async startTrial(transport: Transport, onChange?: () => void): Promise<void> {
     if (this.#started) throw new Error("This trial has already started.");
@@ -1162,6 +1164,7 @@ export class BackstageRun {
     keys: KeySource,
     transport: Transport = answerTransport,
     onChange?: () => void,
+    houseJev = false,
   ) {
     if (this.#funded)
       throw new Error(
@@ -1172,13 +1175,14 @@ export class BackstageRun {
         "Retries are locked once blind judging begins. Start a new run.",
       );
     if (!this.#started) throw new Error("Start the run first.");
-    await this.#execute(keys, transport, onChange);
+    await this.#execute(keys, transport, onChange, false, houseJev);
   }
   async #execute(
     source: KeySource,
     transport: Transport,
     onChange?: () => void,
     funded = false,
+    houseJev = false,
   ) {
     if (this.running) throw new Error("A run is already in progress.");
     const scene = this.manifest.scene;
@@ -1201,7 +1205,8 @@ export class BackstageRun {
         "A provider key appears in run data. Start a new scene without the key.",
       );
     }
-    if (!funded) validateSceneKeys(scene, suppliedKeys(source));
+    if (!funded)
+      validateSceneKeys(scene, suppliedKeys(source), "jev-only", houseJev);
     this.#started = true;
     const controller = new AbortController();
     this.#controller = controller;
@@ -1256,7 +1261,11 @@ export class BackstageRun {
           let result: AnswerResult;
           if (controller.signal.aborted)
             result = await failure(request, "not-run");
-          else if (!funded && !validKey(request.key))
+          else if (
+            !funded &&
+            !validKey(request.key) &&
+            !(houseJev && entry.provider === "jev" && request.key === "")
+          )
             result = await failure(
               request,
               request.key ? "invalid-key" : "missing-key",

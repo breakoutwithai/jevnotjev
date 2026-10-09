@@ -290,6 +290,8 @@ function freezeFields(frozen: boolean) {
 let starting = false;
 let signingOut = false;
 let trialAvailable = false;
+// The local server holds a Jev key; a boolean from /api/backstage/health, never the key itself.
+let houseKey = false;
 async function start(firstOnly: boolean, retry = false, funded = false) {
   if (starting || run?.running || signingOut) return;
   if (imports.pending) {
@@ -312,7 +314,7 @@ async function start(firstOnly: boolean, retry = false, funded = false) {
       // Capture and validate before the first asynchronous operation: Run authorizes these exact inputs.
       const candidate = scene(firstOnly);
       const selectedMode = mode();
-      if (!funded) validateSceneKeys(candidate, activeKeys, selectedMode);
+      if (!funded) validateSceneKeys(candidate, activeKeys, selectedMode, houseKey);
       current = new BackstageRun(
         candidate,
         BACKSTAGE_BUILD_VERSION,
@@ -340,8 +342,8 @@ async function start(firstOnly: boolean, retry = false, funded = false) {
       if (run === current) void render();
     };
     if (funded) await current.startTrial(trialTransport(), refresh);
-    else if (retry) await current.retry(() => activeKeys, undefined, refresh);
-    else await current.start(() => activeKeys, undefined, refresh);
+    else if (retry) await current.retry(() => activeKeys, undefined, refresh, houseKey);
+    else await current.start(() => activeKeys, undefined, refresh, houseKey);
     if (run === current)
       notice(
         current.manifest.mode === "compare"
@@ -415,6 +417,7 @@ function runReason(): string {
     caseCount: cases().length,
     armIds: selectedArms(),
     keys: keys(),
+    houseJev: houseKey,
   }).join(" ");
 }
 function revealReason(): string {
@@ -496,6 +499,9 @@ async function render() {
       : "Jev’s answer is scored against your first pick, made blind. ") +
       "Your final pick is recorded beside it, never instead of it. Confidence is the model’s score, not measured accuracy. Labels are optional; unsure leaves a case unlabelled. A case you do not pick keeps its imported human_reviewed label, if it has one, and is scored on it; an imported agent label is never scored.",
   );
+  element("house-key-note").hidden = !houseKey;
+  if (houseKey)
+    text("house-key-note", "Local test key in use. Leave this blank or paste your own.");
   button("run-trial").disabled =
     !trialAvailable || starting || !!current || imports.pending;
   gate(["run-one", "run-all"], "run-reason", runReason());
@@ -1096,6 +1102,10 @@ async function loadTrialAvailability() {
       link.setAttribute("href", "/backstage/sign-in");
       surface.append(link);
       return;
+    }
+    if (typeof health === "object" && health && "houseKey" in health && health.houseKey === true) {
+      houseKey = true;
+      void render();
     }
     if (
       typeof health !== "object" ||

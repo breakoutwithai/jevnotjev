@@ -1004,3 +1004,21 @@ test("[integration] PL8 every pack has a button, and the P6 button loads its sce
   expect(page.get("notice").textContent).toContain("30 cases");
   expect(page.get("notice").textContent).not.toContain("Labels on");
 });
+
+test("[integration] HK8 Casting enables Run with an empty Jev key when the server holds a house key", async () => {
+  const health = new Response(JSON.stringify({ houseKey: true, trial: { available: false, reason: "off" }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } });
+  const sent: AnswerRequest[] = [];
+  const page = await mount(health, redirectedResponse(), new FakeStorage(), async (request) => { sent.push(request); return {}; });
+  await tick();
+  expect(page.get("house-key-note").hidden).toBe(false);
+  expect(page.get("house-key-note").textContent).toBe("Local test key in use. Leave this blank or paste your own.");
+  fillScene(page);
+  typeInto(page, "cases", "Please refund my mug");
+  typeInto(page, "jev-key", "");
+  expect(page.get("run-reason").textContent).toBe("");
+  for (const id of ["run-one", "run-all"]) expect(page.get(id).getAttribute("aria-disabled")).toBe("false");
+  page.get("run-one").click();
+  await until(() => sent.length > 0);
+  expect(sent[0]?.key).toBe("");
+  expect(sent[0]?.armId).toBe("jev");
+});

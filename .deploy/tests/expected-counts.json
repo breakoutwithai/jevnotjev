@@ -9,7 +9,7 @@
     ".deploy/tests/monitor.test.sh": 63,
     ".deploy/tests/nginx-vhost.test.sh": 76,
     ".deploy/tests/release.test.sh": 39,
-    ".deploy/tests/ship.test.sh": 137,
+    ".deploy/tests/ship.test.sh": 138,
     ".deploy/tests/verify.test.sh": 50,
     "docs/research/2026-09-29-verdict-minimums/sim.test.ts": 6,
     "scripts/api-token-mint.test.ts": 3,

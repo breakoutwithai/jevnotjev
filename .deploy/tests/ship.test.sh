@@ -1334,16 +1334,31 @@ make_fixture
 out="$(BACKSTAGE_SESSION_JAR=/tmp/stale-jar ship 2>&1)"; rc=$?
 envlog="${FAKE_STATE}/bun-env.log"
 step_env() { awk -F '\t' -v s="$1" 'index($1, s) == 1 {print $2}' "$envlog" 2>/dev/null; }
-leaked=""
-for s in "install --frozen-lockfile" "run typecheck" "scripts/gate.ts"; do
-    [[ -z "$(step_env "$s" | tr -d ' ')" ]] || leaked="${leaked} [${s}: $(step_env "$s")]"
-done
+# Problems in an env log ($1) for the three dependency commands: each must have EXACTLY one row
+# (a missing row is a failure, never "clean") and that row must carry none of the variables.
+deps_env_problems() {
+    local s n env
+    for s in "install --frozen-lockfile" "run typecheck" "scripts/gate.ts"; do
+        n="$(awk -F '\t' -v s="$s" '$1 == s' "$1" 2>/dev/null | wc -l | tr -d ' ')"
+        if [[ "$n" != 1 ]]; then printf ' [%s: %s rows, want 1]' "$s" "$n"; continue; fi
+        env="$(awk -F '\t' -v s="$s" '$1 == s {print $2}' "$1")"
+        [[ -z "$(printf '%s' "$env" | tr -d ' ')" ]] || printf ' [%s: %s]' "$s" "$env"
+    done
+}
 [[ $rc -eq 0 && "$(step_env "--no-env-file scripts/deploy-checklist.ts")" == *"BACKSTAGE_GATE=yes"* ]] \
     && ok "control: the state read exported BACKSTAGE_GATE=yes (the checklist step after it sees it)" \
     || nope "control: rc=${rc}, checklist env '$(step_env "--no-env-file scripts/deploy-checklist.ts")'; out: ${out}"
-[[ $rc -eq 0 && -z "$leaked" ]] && grep -q "^scripts/gate.ts	" "$envlog" \
-    && ok "install, typecheck and the gate inherit no BACKSTAGE_GATE, BACKSTAGE_SESSION_JAR or BACKSTAGE_CURL_CONFIG" \
-    || nope "deploy state leaked into the dependency check:${leaked}"
+problems="$(deps_env_problems "$envlog")"
+[[ $rc -eq 0 && -z "$problems" ]] \
+    && ok "install, typecheck and the gate each ran once and inherited no BACKSTAGE_GATE, BACKSTAGE_SESSION_JAR or BACKSTAGE_CURL_CONFIG" \
+    || nope "dependency check env:${problems}"
+# Negative controls on copies of the real log: a dropped row, or a duplicated one, must be reported.
+grep -v "^install --frozen-lockfile	" "$envlog" > "${FIX}/env-no-install.log"
+awk '{print} /^run typecheck\t/ {print}' "$envlog" > "${FIX}/env-two-typecheck.log"
+[[ "$(deps_env_problems "${FIX}/env-no-install.log")" == *"install --frozen-lockfile: 0 rows, want 1"* \
+   && "$(deps_env_problems "${FIX}/env-two-typecheck.log")" == *"run typecheck: 2 rows, want 1"* ]] \
+    && ok "the env assertion fails when an install row is missing or a typecheck row is duplicated (never vacuous)" \
+    || nope "env assertion vacuous: no-install '$(deps_env_problems "${FIX}/env-no-install.log")', two-typecheck '$(deps_env_problems "${FIX}/env-two-typecheck.log")'"
 drop_fixture
 
 echo

@@ -9,6 +9,7 @@ const SITE = join(import.meta.dir, "..", "..", "site");
 const POSTERS: { posters: Poster[] } = JSON.parse(readFileSync(join(SITE, "shows", "posters.json"), "utf8"));
 const CAPTURE = process.env.UAT_SCREENSHOT_DIR;
 const VIEWPORTS: [number, number][] = [[390, 844], [1440, 900]];
+const MOTIONS: ("no-preference" | "reduce")[] = ["no-preference", "reduce"];
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
 
@@ -42,28 +43,38 @@ async function pageAt(width: number, height: number, reducedMotion: "reduce" | "
   return page;
 }
 
-test("[integration] #136 a ticket-office link is visible and clickable on the first screen in all four viewport and motion states", async () => {
+test("[integration] #136 overture and reduced-motion ticket-office links are visible and clickable on the first screen", async () => {
   for (const [width, height] of VIEWPORTS) {
-    for (const motion of ["no-preference", "reduce"] as const) {
+    for (const motion of MOTIONS) {
       const page = await pageAt(width, height, motion);
       try {
-        const links = page.locator('a[href="#tickets"]');
-        const visible = await links.evaluateAll((nodes) => nodes.some((node) => {
+        if (motion === "reduce") expect(await page.locator(".first-screen-jump").count()).toBe(0);
+        const jump = page.locator(motion === "reduce" ? '.door-preview[href="#tickets"]' : ".overture-jump");
+        const visible = await jump.evaluate((node) => {
           const box = node.getBoundingClientRect();
           const x = box.left + box.width / 2;
           const y = box.top + box.height / 2;
+          let ancestor: Element | null = node;
+          while (ancestor) {
+            const style = getComputedStyle(ancestor);
+            if (style.visibility !== "visible" || Number(style.opacity) <= 0) return false;
+            ancestor = ancestor.parentElement;
+          }
+          const hit = document.elementFromPoint(x, y);
           return box.width > 0 && box.height > 0 && box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight &&
-            getComputedStyle(node).visibility === "visible" && getComputedStyle(node).opacity !== "0" &&
-            (() => { const hit = document.elementFromPoint(x, y); return hit === node || (hit !== null && node.contains(hit)); })();
-        }));
+            (hit === node || (hit !== null && node.contains(hit)));
+        });
         expect(visible).toBe(true);
         if (CAPTURE && motion === "no-preference") {
           mkdirSync(CAPTURE, { recursive: true });
           await page.screenshot({ path: join(CAPTURE, `first-${width}.png`) });
         }
-        const jump = page.locator(motion === "reduce" ? ".first-screen-jump" : ".overture-jump");
         await jump.click({ timeout: 2000 });
         expect(new URL(page.url()).hash).toBe("#tickets");
+        await page.waitForFunction(() => {
+          const office = document.getElementById("tickets");
+          return office !== null && Math.abs(office.getBoundingClientRect().top) <= 100;
+        });
         if (CAPTURE && motion === "no-preference") {
           await page.evaluate(() => {
             document.documentElement.style.scrollBehavior = "auto";
@@ -78,17 +89,21 @@ test("[integration] #136 a ticket-office link is visible and clickable on the fi
 
 test("[integration] #136 the first screen explains a fixed-answer decision and says Jev does not write text", async () => {
   for (const [width, height] of VIEWPORTS) {
-    for (const motion of ["no-preference", "reduce"] as const) {
+    for (const motion of MOTIONS) {
       const page = await pageAt(width, height, motion);
       try {
-        const text = await page.evaluate(() => {
-          const region = document.documentElement.classList.contains("motion") ? document.querySelector(".playbill") : document.querySelector("#act1");
-          if (!region) return "";
-          return [...region.querySelectorAll("p")].filter((node) => {
-            const box = node.getBoundingClientRect();
-            return box.width > 0 && box.height > 0 && box.top >= 0 && box.bottom <= innerHeight && getComputedStyle(node).visibility === "visible";
-          }).map((node) => node.textContent ?? "").join(" ");
-        });
+        const text = await page.evaluate((selector) => {
+          const node = document.querySelector(selector);
+          if (!node) return "";
+          const box = node.getBoundingClientRect();
+          let ancestor: Element | null = node;
+          while (ancestor) {
+            const style = getComputedStyle(ancestor);
+            if (style.visibility !== "visible" || Number(style.opacity) <= 0) return "";
+            ancestor = ancestor.parentElement;
+          }
+          return box.width > 0 && box.height > 0 && box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight ? node.textContent ?? "" : "";
+        }, motion === "reduce" ? ".first-screen-note" : ".overture .ticket .fine");
         expect(text).toMatch(/fixed (?:answers|list)|pick(?:s)? one answer/i);
         expect(text).toMatch(/does not write text/i);
       } finally { await page.close(); }
@@ -96,35 +111,44 @@ test("[integration] #136 the first screen explains a fixed-answer decision and s
   }
 }, 20000);
 
-test("[integration] #135 the sample badge intersects no office control or text line at top, middle or bottom scroll", async () => {
+test("[integration] #135 the sample badge intersects no office control or text line across the whole office", async () => {
   const page = await pageAt(390, 844);
   try {
-    for (const fraction of [0, 0.5, 1]) {
-      const intersections = await page.evaluate((position) => {
+    await page.waitForFunction(() => document.querySelectorAll("#tkPosters .tk-poster").length > 0);
+    const intersections = await page.evaluate(async () => {
         document.documentElement.style.scrollBehavior = "auto";
         const office = document.getElementById("tickets");
         const badge = document.getElementById("sampleBadge");
         if (!office || !badge) return ["missing office or badge"];
-        const top = office.offsetTop + (office.offsetHeight - innerHeight) * position;
-        scrollTo(0, top);
-        const b = badge.getBoundingClientRect();
-        const crosses = (r: DOMRect) => r.width > 0 && r.height > 0 && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
+        const top = office.getBoundingClientRect().top + scrollY;
+        const bottom = top + office.offsetHeight;
         const hits: string[] = [];
-        for (const element of office.querySelectorAll("a, button, input, select, textarea, label")) {
-          if (getComputedStyle(element).display !== "none" && crosses(element.getBoundingClientRect())) hits.push(element.tagName + ":" + (element.textContent ?? "").trim().slice(0, 25));
-        }
-        const walker = document.createTreeWalker(office, NodeFilter.SHOW_TEXT);
-        while (walker.nextNode()) {
-          const node = walker.currentNode;
-          if (!node.textContent?.trim() || !node.parentElement || getComputedStyle(node.parentElement).display === "none") continue;
-          const range = document.createRange();
-          range.selectNodeContents(node);
-          if ([...range.getClientRects()].some(crosses)) hits.push("text:" + node.textContent.trim().slice(0, 25));
+        for (let target = top; target <= bottom + 150; target = Math.min(target + 150, bottom + 150)) {
+          scrollTo(0, target);
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          const b = badge.getBoundingClientRect();
+          if (b.bottom > 0 && b.top < innerHeight && b.right > 0 && b.left < innerWidth) {
+            const crosses = (r: DOMRect) => r.width > 0 && r.height > 0 && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
+            for (const element of office.querySelectorAll("a, button, input, select, textarea, label")) {
+              if (getComputedStyle(element).visibility === "visible" && crosses(element.getBoundingClientRect())) hits.push(`${Math.round(scrollY)}:${element.tagName}:${(element.textContent ?? "").trim().slice(0, 25)}`);
+            }
+            const walker = document.createTreeWalker(office, NodeFilter.SHOW_TEXT);
+            while (walker.nextNode()) {
+              const node = walker.currentNode;
+              if (!node.textContent?.trim() || !node.parentElement || getComputedStyle(node.parentElement).visibility !== "visible") continue;
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              let lineContainer = node.parentElement;
+              while (lineContainer !== office && getComputedStyle(lineContainer).display === "inline" && lineContainer.parentElement) lineContainer = lineContainer.parentElement;
+              const lineWidth = lineContainer.getBoundingClientRect();
+              if ([...range.getClientRects()].some((line) => crosses(new DOMRect(lineWidth.left, line.top, lineWidth.width, line.height)))) hits.push(`${Math.round(scrollY)}:text:${node.textContent.trim().slice(0, 25)}`);
+            }
+          }
+          if (target === bottom + 150) break;
         }
         return hits;
-      }, fraction);
-      expect(intersections).toEqual([]);
-    }
+      });
+    expect(intersections).toEqual([]);
   } finally { await page.close(); }
 }, 20000);
 
@@ -140,7 +164,7 @@ test("[integration] #135 house lights remain visible and clickable at phone and 
   }
 }, 10000);
 
-test("[unit] #137 picker options equal show posters and other stages have no ticket button", async () => {
+test("[integration] #137 picker options equal show posters and other stages have no ticket button", async () => {
   const page = await pageAt(390, 844, "reduce");
   try {
     await page.waitForFunction(() => document.querySelectorAll("#tkPosters .tk-poster").length > 0);

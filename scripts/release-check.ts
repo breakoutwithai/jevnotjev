@@ -37,27 +37,44 @@ function parsed(text: string): unknown {
   return value;
 }
 
-function requireValue(condition: boolean, message: string): void {
+function requireValue(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-export function assertReleaseOutput(name: "arms" | "estimate" | "verdict" | "fixture run", body: unknown, expected?: string, records?: string): void {
+interface ExpectedRun {
+  readonly caseIds: readonly string[];
+  readonly arms: readonly string[];
+}
+
+export function assertReleaseOutput(name: "arms" | "estimate" | "verdict" | "fixture run", body: unknown, expected?: string | ExpectedRun, records?: string): void {
   if (name === "arms") {
     const arms = field(body, "arms");
-    requireValue(Array.isArray(arms) && ["jev", "decisions", "llm", "rule"].every((arm) => arms.some((entry: unknown) => field(entry, "arm") === arm)), "documented arms missing");
+    requireValue(Array.isArray(arms) && arms.map((entry: unknown) => field(entry, "arm")).sort().join(",") === "decisions,jev,llm,rule", "documented arms missing");
   } else if (name === "estimate") {
-    const calls = field(body, "calls");
-    const cost = field(body, "costUsd");
-    requireValue(typeof calls === "number" && calls > 0 && typeof cost === "number" && cost > 0, "positive calls and cost missing");
+    requireValue(expected !== undefined && typeof expected !== "string", "expected run missing");
+    const cases = expected.caseIds.length;
+    const calls = cases * expected.arms.length;
+    requireValue(field(body, "calls") === calls, `expected ${calls} calls`);
+    requireValue(field(body, "cases") === cases, `expected ${cases} cases`);
   } else if (name === "verdict") {
     const verdicts = field(body, "verdicts");
-    requireValue(Array.isArray(verdicts) && verdicts.some((entry: unknown) => field(entry, "verdict") === expected), "expected verdict missing");
+    requireValue(Array.isArray(verdicts) && verdicts.length === 1, "expected exactly one verdict");
+    requireValue(field(verdicts[0], "verdict") === expected, "expected verdict differs");
   } else {
-    const rows = field(body, "rows");
-    requireValue(typeof rows === "number" && rows >= 1, "positive row count missing");
+    requireValue(expected !== undefined && typeof expected !== "string", "expected run missing");
+    const count = expected.caseIds.length * expected.arms.length;
+    requireValue(field(body, "rows") === count, `expected ${count} rows`);
     const parsedRecords = readDictRows(records ?? "");
+    requireValue(parsedRecords.rows.length === count, `expected ${count} record rows`);
     const outcomeIndex = parsedRecords.header?.indexOf("outcome") ?? -1;
-    requireValue(outcomeIndex >= 0 && parsedRecords.rows.some((row) => row.fields[outcomeIndex] === "answered"), "answered record missing");
+    requireValue(outcomeIndex >= 0 && parsedRecords.rows.every((row) => row.fields[outcomeIndex] === "answered"), "expected every row answered");
+    const caseIndex = parsedRecords.header?.indexOf("case_id") ?? -1;
+    const armIndex = parsedRecords.header?.indexOf("answerer") ?? -1;
+    const versionIndex = parsedRecords.header?.indexOf("format_version") ?? -1;
+    requireValue(versionIndex >= 0 && parsedRecords.rows.every((row) => row.fields[versionIndex] === "jnj-record/1.2"), "record format differs");
+    const actual = parsedRecords.rows.map((row) => JSON.stringify([row.fields[caseIndex], row.fields[armIndex]])).sort();
+    const wanted = expected.caseIds.flatMap((caseId) => expected.arms.map((arm) => JSON.stringify([caseId, arm]))).sort();
+    requireValue(caseIndex >= 0 && armIndex >= 0 && JSON.stringify(actual) === JSON.stringify(wanted), "case-arm set differs");
   }
 }
 
@@ -98,7 +115,7 @@ function expectBody(result: CommandResult, code: number): unknown {
   return parsed(result.stdout);
 }
 
-function prepareInputs(clone: string, work: string): { questions: string; cases: string; fixtures: string; records: string; invalid: string } {
+function prepareInputs(clone: string, work: string): { questions: string; cases: string; fixtures: string; records: string; invalid: string; expectedRun: ExpectedRun } {
   const questions = join(work, "questions.json");
   const cases = join(work, "cases.jsonl");
   const fixtures = join(work, "fixtures.json");
@@ -106,11 +123,13 @@ function prepareInputs(clone: string, work: string): { questions: string; cases:
   const invalid = join(work, "invalid.csv");
   writeFileSync(questions, JSON.stringify([{ name: "needs_human", type: "noul", instructions: "Does this message need a person?" }]));
   const example = readFileSync(join(clone, "examples/uc13-shop-bot/cases.jsonl"), "utf8").trim().split("\n").slice(0, 2);
+  const caseIds: string[] = [];
   const mapped = example.map((line) => {
     const value = parsed(line);
     const id = field(value, "case_id");
     const input = field(value, "case_input");
     requireValue(typeof id === "string" && typeof input === "string", "example case has no id or text");
+    caseIds.push(id);
     return JSON.stringify({ id, input });
   });
   writeFileSync(cases, mapped.join("\n") + "\n");
@@ -118,7 +137,7 @@ function prepareInputs(clone: string, work: string): { questions: string; cases:
   writeFileSync(fixtures, JSON.stringify({ hosts: { "api.typesafe.ai": { http: field(fixture, "http"), response: field(fixture, "response") } } }));
   const valid = readFileSync(join(clone, "examples/d08-verdicts/r3-use-jev.csv"), "utf8");
   writeFileSync(invalid, valid.replace(/^format_version,/, "broken_format_version,"));
-  return { questions, cases, fixtures, records, invalid };
+  return { questions, cases, fixtures, records, invalid, expectedRun: { caseIds, arms: ["jev"] } };
 }
 
 async function mcpChecks(clone: string, add: (name: string, fn: () => Promise<void>) => Promise<void>): Promise<void> {
@@ -200,8 +219,8 @@ export async function runReleaseCheck(argv: readonly string[]): Promise<number> 
       assertReleaseOutput("arms", body);
     });
     await add("cli estimate", () => {
-      const body = expectBody(cli(["estimate", "--questions", input.questions, "--cases", input.cases, "--arms", "jev"]), 0);
-      assertReleaseOutput("estimate", body);
+      const body = expectBody(cli(["estimate", "--questions", input.questions, "--cases", input.cases, "--arms", input.expectedRun.arms.join(",")]), 0);
+      assertReleaseOutput("estimate", body, input.expectedRun);
     });
     await add("cli validate valid", () => {
       const body = expectBody(cli(["validate", "examples/d08-verdicts/r3-use-jev.csv"]), 0);
@@ -224,12 +243,11 @@ export async function runReleaseCheck(argv: readonly string[]): Promise<number> 
       });
     }
     await add("cli fixture run", () => {
-      const body = expectBody(cli(["run", "--questions", input.questions, "--cases", input.cases, "--arms", "jev", "--out", input.records], {
+      const body = expectBody(cli(["run", "--questions", input.questions, "--cases", input.cases, "--arms", input.expectedRun.arms.join(","), "--out", input.records], {
         JNJ_DECIDE_FIXTURES: input.fixtures, JEV_API_KEY: "fixture-only",
       }), 0);
       const records = readFileSync(input.records, "utf8");
-      requireValue(records.includes("jnj-record/1.2"), "records missing");
-      assertReleaseOutput("fixture run", body, undefined, records);
+      assertReleaseOutput("fixture run", body, input.expectedRun, records);
     });
     await add("cli validate fixture records", () => {
       const body = expectBody(cli(["validate", input.records]), 0);

@@ -67,7 +67,7 @@ For Codex, add this configuration snippet to `~/.codex/config.toml`. Stdio MCP s
 [mcp_servers.jnj-decide]
 command = "bun"
 args = ["/absolute/path/to/jevnotjev/src/mcp/server.ts"]
-env_vars = ["JEV_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
+env_vars = ["JEV_API_KEY", "TYPESAFE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"]
 ```
 
 ## Verify

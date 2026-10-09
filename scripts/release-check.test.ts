@@ -9,24 +9,32 @@ test("[unit] RELEASE-CHECK-TIMEOUT names the timed out step", () => {
 test("[unit] RELEASE-CHECK-ARMS requires all four documented arms", () => {
   expect(() => assertReleaseOutput("arms", { arms: [] })).toThrow("documented arms missing");
   expect(() => assertReleaseOutput("arms", { arms: ["jev", "decisions", "llm", "rule"].map((arm) => ({ arm })) })).not.toThrow();
+  expect(() => assertReleaseOutput("arms", { arms: ["jev", "decisions", "llm", "rule", "extra"].map((arm) => ({ arm })) })).toThrow("documented arms missing");
 });
 
-test("[unit] RELEASE-CHECK-ESTIMATE rejects zero calls and cost", () => {
-  expect(() => assertReleaseOutput("estimate", { calls: 0, costUsd: 0 })).toThrow("positive calls and cost missing");
-  expect(() => assertReleaseOutput("estimate", { calls: 2, costUsd: 0.01 })).not.toThrow();
+const expectedRun = { caseIds: ["m01", "m02"], arms: ["jev"] };
+
+test("[unit] RELEASE-CHECK-ESTIMATE rejects one fewer call and wrong case count", () => {
+  expect(() => assertReleaseOutput("estimate", { cases: 2, calls: 1 }, expectedRun)).toThrow("expected 2 calls");
+  expect(() => assertReleaseOutput("estimate", { cases: 1, calls: 2 }, expectedRun)).toThrow("expected 2 cases");
+  expect(() => assertReleaseOutput("estimate", { cases: 2, calls: 2 }, expectedRun)).not.toThrow();
 });
 
 test("[unit] RELEASE-CHECK-VERDICT requires the expected named verdict", () => {
   for (const verdict of ["use Jev", "don't use Jev", "not enough evidence"]) {
-    expect(() => assertReleaseOutput("verdict", { exit_code: 0, verdicts: [] }, verdict)).toThrow("expected verdict missing");
+    expect(() => assertReleaseOutput("verdict", { exit_code: 0, verdicts: [] }, verdict)).toThrow("expected exactly one verdict");
     expect(() => assertReleaseOutput("verdict", { verdicts: [{ verdict }] }, verdict)).not.toThrow();
+    expect(() => assertReleaseOutput("verdict", { verdicts: [{ verdict }, { verdict: "contradictory" }] }, verdict)).toThrow("expected exactly one verdict");
   }
 });
 
-test("[unit] RELEASE-CHECK-FIXTURE requires a positive row count and an answered record", () => {
-  expect(() => assertReleaseOutput("fixture run", { rows: 1 }, undefined, "outcome\nerror\n")).toThrow("answered record missing");
-  expect(() => assertReleaseOutput("fixture run", { rows: 0 }, undefined, "outcome\nanswered\n")).toThrow("positive row count missing");
-  expect(() => assertReleaseOutput("fixture run", { rows: 1 }, undefined, "outcome\nanswered\n")).not.toThrow();
+test("[unit] RELEASE-CHECK-FIXTURE rejects one missing row and the wrong case-arm set", () => {
+  const records = "format_version,case_id,answerer,outcome\njnj-record/1.2,m01,jev,answered\njnj-record/1.2,m02,jev,answered\n";
+  expect(() => assertReleaseOutput("fixture run", { rows: 1 }, expectedRun, records)).toThrow("expected 2 rows");
+  expect(() => assertReleaseOutput("fixture run", { rows: 2 }, expectedRun, records.replace("jnj-record/1.2,m02,jev,answered\n", ""))).toThrow("expected 2 record rows");
+  expect(() => assertReleaseOutput("fixture run", { rows: 2 }, expectedRun, records.replace("m02", "m01"))).toThrow("case-arm set differs");
+  expect(() => assertReleaseOutput("fixture run", { rows: 2 }, expectedRun, records.replace("m02,jev,answered", "m02,jev,error"))).toThrow("expected every row answered");
+  expect(() => assertReleaseOutput("fixture run", { rows: 2 }, expectedRun, records)).not.toThrow();
 });
 
 test("[unit] RELEASE-CHECK-LINES formats one pass and one failure with a reason", () => {

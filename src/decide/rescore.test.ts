@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { formatRows, readDictRows } from "../format/csv.ts";
@@ -29,6 +29,9 @@ function array(value: unknown): readonly unknown[] {
 }
 function firstVerdict(text: string): { readonly [key: string]: unknown } {
   return object(array(object(JSON.parse(text)).verdicts)[0]);
+}
+function expectedSeed(path: string): number {
+  return createHash("sha256").update(readFileSync(path)).digest().readUInt32BE(0);
 }
 function withTemp(run: (dir: string) => void): void {
   const dir = mkdtempSync(join(tmpdir(), "jnj-rescore-"));
@@ -149,6 +152,7 @@ describe("rescore CLI", () => {
     expect(text).not.toContain(ROOT);
     const manifest = object(JSON.parse(text));
     expect(manifest.format).toBe("jnj-manifest/1");
+    expect(manifest.seed).toBe(2092528910);
     expect(manifest.resamples).toBe(2000);
     expect(Object.keys(object(manifest.models))).toEqual(["jev", "llm", "rule"]);
     expect(object(manifest.models).llm).toBe("claude-haiku-4-5-20251001");
@@ -208,6 +212,25 @@ describe("rescore CLI", () => {
     expect(readFileSync(labelsCopy, "utf8")).toBe(before);
   }));
 
+  test("[integration] D17-MANIFEST refuses hard link to each input", () => withTemp((dir) => {
+    const recordsCopy = join(dir, "records.csv");
+    const labelsCopy = join(dir, "labels.csv");
+    const savedManifest = join(dir, "saved.json");
+    writeFileSync(recordsCopy, readFileSync(RECORDS));
+    writeFileSync(labelsCopy, readFileSync(LABELS));
+    expect(cli(["rescore", recordsCopy, "--labels", labelsCopy, "--write-manifest", savedManifest]).code).toBe(4);
+    const inputs: readonly (readonly [string, string])[] = [["records", recordsCopy], ["labels", labelsCopy], ["manifest", savedManifest]];
+    for (const [name, input] of inputs) {
+      const target = join(dir, `${name}-target.json`);
+      linkSync(input, target);
+      const before = readFileSync(input);
+      const result = cli(["rescore", recordsCopy, "--labels", labelsCopy, "--manifest", savedManifest, "--write-manifest", target]);
+      expect(result.code).toBe(2);
+      expect(result.stderr).toContain("input file");
+      expect(readFileSync(input)).toEqual(before);
+    }
+  }));
+
   test("[integration] D17-LABELS missing, unknown and empty truth rows exit 2", () => withTemp((dir) => {
     const { header, rows } = readDictRows(readFileSync(LABELS, "utf8"));
     if (header === null) throw new Error("labels header missing");
@@ -241,24 +264,26 @@ describe("rescore CLI", () => {
   });
 
   test("[integration] D17-168 d06 carries only bootstrap seed and resample count", () => {
-    const done = cli(["verdict", join(ROOT, "examples/d06-tiny/records.csv")]);
+    const input = join(ROOT, "examples/d06-tiny/records.csv");
+    const done = cli(["verdict", input]);
     expect(done.code).toBe(4);
     const pair = object(object(firstVerdict(done.stdout).numbers).jevVsLlm);
     expect(pair).not.toHaveProperty("wilson1");
     expect(pair).not.toHaveProperty("wilson2");
     expect(pair).not.toHaveProperty("phi");
-    expect(object(pair.bootstrap)).toEqual({ seed: expect.any(Number), resamples: 2000 });
+    expect(object(pair.bootstrap)).toEqual({ seed: expectedSeed(input), resamples: 2000 });
   });
 
   test("[integration] D17-168 rule comparison carries only bootstrap metadata", () => {
-    const done = cli(["verdict", join(ROOT, "examples/d08-verdicts/r3-use-jev.csv")]);
+    const input = join(ROOT, "examples/d08-verdicts/r3-use-jev.csv");
+    const done = cli(["verdict", input]);
     expect(done.code).toBe(0);
     const rule = object(firstVerdict(done.stdout).ruleComparison);
     expect(rule.kind).toBe("compared");
     expect(rule).not.toHaveProperty("wilson1");
     expect(rule).not.toHaveProperty("wilson2");
     expect(rule).not.toHaveProperty("phi");
-    expect(object(rule.bootstrap)).toEqual({ seed: expect.any(Number), resamples: 2000 });
+    expect(object(rule.bootstrap)).toEqual({ seed: expectedSeed(input), resamples: 2000 });
   });
 
   test("[integration] D17-168 D08 verdict name, rule, condition and reason remain unchanged", () => {

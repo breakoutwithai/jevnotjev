@@ -84,7 +84,7 @@
     "src/db/tests/roundtrip.test.ts": 10,
     "src/decide/broken-paths.test.ts": 21,
     "src/decide/cli.test.ts": 27,
-    "src/decide/rescore.test.ts": 14,
+    "src/decide/rescore.test.ts": 15,
     "src/decide/decide.test.ts": 34,
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/labelling-card.test.ts": 4,

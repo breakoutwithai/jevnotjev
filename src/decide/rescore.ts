@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { statSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { RESAMPLES, fileSeed } from "../core/calc.ts";
@@ -55,8 +56,12 @@ export async function rescoreInput(command: Extract<Command, { readonly cmd: "re
   const { file, labels, manifest, writeManifest } = command;
   if (writeManifest !== undefined) {
     const target = await canonical(writeManifest);
+    const targetStat = statSync(writeManifest, { throwIfNoEntry: false });
     for (const path of [file, labels, manifest]) {
-      if (path !== undefined && target === await canonical(path)) {
+      if (path === undefined) continue;
+      const inputStat = targetStat === undefined ? undefined : statSync(path, { throwIfNoEntry: false });
+      if (target === await canonical(path) || (targetStat !== undefined && inputStat !== undefined &&
+          targetStat.dev === inputStat.dev && targetStat.ino === inputStat.ino)) {
         throw new RescoreInputError(`--write-manifest ${writeManifest} is an input file`);
       }
     }

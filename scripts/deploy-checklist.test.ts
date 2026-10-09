@@ -96,6 +96,20 @@ test("[unit] deploy-checklist: env file parsing strips export and one pair of qu
   expect(parseEnvFile("# c\nexport A=\"1\"\nB='2'\nC=3=4\nUAT_PASSWORD-01=x\n\n")).toEqual({ A: "1", B: "2", C: "3=4" });
 });
 
+test("[unit] deploy-checklist: an unquoted value drops a trailing ' # comment' and surrounding whitespace", () => {
+  expect(parseEnvFile("JEV_API_KEY=secret # note\n")).toEqual({ JEV_API_KEY: "secret" });
+  expect(parseEnvFile("A=  spaced value  \t# c\n")).toEqual({ A: "spaced value" });
+  expect(parseEnvFile("A=# only a comment\n")).toEqual({ A: "" });
+  expect(parseEnvFile("A=a#b\n")).toEqual({ A: "a#b" });
+});
+
+test("[unit] deploy-checklist: a quoted value keeps '#' inside the quotes and drops a comment after them", () => {
+  expect(parseEnvFile('A="x # y" # note\n')).toEqual({ A: "x # y" });
+  expect(parseEnvFile("B='s3cr#t'   # note\n")).toEqual({ B: "s3cr#t" });
+  expect(parseEnvFile('C="unterminated # c\n')).toEqual({ C: '"unterminated' });
+  expect(parseEnvFile("D=x\r\n")).toEqual({ D: "x" });
+});
+
 test("[unit] deploy-checklist: arguments need --checklist; unknown flags are usage errors", () => {
   expect(parseCliArgs(["--checklist", "c", "--env-file", "e"])).toEqual({ checklist: "c", envFile: "e" });
   expect(parseCliArgs([])).toBe("--checklist <file> is required");
@@ -103,17 +117,40 @@ test("[unit] deploy-checklist: arguments need --checklist; unknown flags are usa
   expect(parseCliArgs(["--checklist", "c", "--live"])).toBe("unknown argument: --live");
 });
 
-test("[integration] deploy-checklist CLI: no key exits 1 naming --no-jev, usage exits 2, and no network is used", () => {
+// The CLI runs in an isolated cwd that holds a sentinel .env.local, exactly the file Bun would load
+// on its own, and every request is sent to a refusing proxy, so no case can reach the live API.
+const SCRIPT = join(import.meta.dir, "deploy-checklist.ts");
+function cliDir(): { dir: string; list: string; env: Record<string, string> } {
   const dir = mkdtempSync(join(tmpdir(), "deploy-checklist-"));
+  const list = join(dir, "checklist.txt");
+  writeFileSync(list, CHECKLIST);
+  writeFileSync(join(dir, ".env.local"), "JEV_API_KEY=sentinel-from-cwd-env-local\n");
+  const env: Record<string, string> = { PATH: process.env.PATH ?? "", HOME: dir, HTTPS_PROXY: "http://127.0.0.1:9", HTTP_PROXY: "http://127.0.0.1:9" };
+  return { dir, list, env };
+}
+
+test("[integration] deploy-checklist CLI: no key exits 1 naming --no-jev even with a .env.local in cwd; usage exits 2", () => {
+  const { dir, list, env } = cliDir();
   try {
-    const list = join(dir, "checklist.txt");
-    writeFileSync(list, CHECKLIST);
-    const env: Record<string, string> = { PATH: process.env.PATH ?? "", HOME: dir };
-    const run = Bun.spawnSync(["bun", join(import.meta.dir, "deploy-checklist.ts"), "--checklist", list, "--env-file", join(dir, "absent")], { env, stdout: "pipe", stderr: "pipe" });
-    expect(run.exitCode).toBe(1);
+    const run = Bun.spawnSync(["bun", "--no-env-file", SCRIPT, "--checklist", list, "--env-file", join(dir, "absent")], { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
     expect(run.stdout.toString()).toContain("--no-jev skips the question");
-    const bad = Bun.spawnSync(["bun", join(import.meta.dir, "deploy-checklist.ts")], { env, stdout: "pipe", stderr: "pipe" });
+    expect(run.exitCode).toBe(1);
+    const bad = Bun.spawnSync(["bun", "--no-env-file", SCRIPT], { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
     expect(bad.exitCode).toBe(2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("[integration] deploy-checklist CLI under --no-env-file: an exported TYPESAFE_API_KEY beats JEV_API_KEY in cwd .env.local and is named as process env", () => {
+  const { dir, list, env } = cliDir();
+  try {
+    const run = Bun.spawnSync(["bun", "--no-env-file", SCRIPT, "--checklist", list], { cwd: dir, env: { ...env, TYPESAFE_API_KEY: "sentinel-exported" }, stdout: "pipe", stderr: "pipe" });
+    const out = run.stdout.toString();
+    expect(out).toContain("key from TYPESAFE_API_KEY (process env)");
+    expect(out).toContain("jev: unreachable");
+    expect(out).not.toContain("sentinel");
+    expect(run.exitCode).toBe(1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

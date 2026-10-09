@@ -28,16 +28,27 @@ const TIMEOUT_MS = 60_000;
 
 export type KeySource = { readonly key: string; readonly source: string };
 
-/** Parses KEY=VALUE lines (optional `export `, one pair of surrounding quotes stripped). */
+/**
+ * Parses KEY=VALUE lines (optional `export `). A value opening with a quote runs to the matching
+ * quote, keeping any `#` inside; anything after it (a ` # comment`) is dropped. An unquoted value
+ * ends at whitespace followed by `#`, and is trimmed. An unterminated quote is kept as written.
+ */
 export function parseEnvFile(text: string): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const raw of text.split("\n")) {
+  for (const raw of text.split(/\r?\n/)) {
     const m = raw.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
     if (m === null) continue;
     const name = m[1];
-    let value = (m[2] ?? "").trim();
-    if (value.length >= 2 && (value[0] === '"' || value[0] === "'") && value.at(-1) === value[0]) value = value.slice(1, -1);
-    if (name !== undefined) out[name] = value;
+    if (name === undefined) continue;
+    const rest = (m[2] ?? "").trimStart();
+    const quote = rest[0];
+    const end = quote === '"' || quote === "'" ? rest.indexOf(quote, 1) : -1;
+    if (end > 0) {
+      out[name] = rest.slice(1, end);
+    } else {
+      const comment = rest.search(/(^|\s)#/);
+      out[name] = (comment === -1 ? rest : rest.slice(0, comment)).trim();
+    }
   }
   return out;
 }

@@ -70,7 +70,8 @@ Jev one noul (yes/no) question: is the release ready to deploy given this checkl
 "yes" continues; "no", an unreachable API, an invalid answer or a missing key exits 1 before any
 module script runs (the ship lock is released). The key is `JEV_API_KEY`, else `TYPESAFE_API_KEY`,
 from the environment, else the same names or `JEV_API_KEY_JAYLO` from the primary checkout's
-`.env.local`; only the variable name is printed. `--no-jev` skips the question and logs it; Jev is
+`.env.local`; only the variable name is printed. ship.sh runs the script with `bun --no-env-file`,
+so a `.env*` in the working directory never changes that order. `--no-jev` skips the question and logs it; Jev is
 not asked when every module is already up to date. The checklist and Jev's answer (or the skip)
 go into the GitHub release notes. `--dry-run` prints the steps and the checklist and runs neither.
 

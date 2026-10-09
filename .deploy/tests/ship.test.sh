@@ -132,6 +132,13 @@ case "\${1:-}" in
         exec "${REAL_GIT}" "\$@" >/dev/null 2>&1 ;;
     diff) [ -z "\${FAKE_GIT_DIFF_FAIL:-}" ] || exit 128 ;;
     log) [ -z "\${FAKE_GIT_LOG_FAIL:-}" ] || exit 128 ;;
+    status)
+        # FAKE_GIT_STATUS_FAIL_FROM=N: the Nth and later \`git status\` calls exit 128 with no output.
+        if [ -n "\${FAKE_GIT_STATUS_FAIL_FROM:-}" ]; then
+            n=\$(( \$(cat "\${FAKE_STATE}/git-status.n" 2>/dev/null || echo 0) + 1 ))
+            echo "\$n" > "\${FAKE_STATE}/git-status.n"
+            [ "\$n" -lt "\${FAKE_GIT_STATUS_FAIL_FROM}" ] || { echo 'fatal: injected git status failure' >&2; exit 128; }
+        fi ;;
     fetch) case "\$*" in *refs/tags/*)
         [ -z "\${FAKE_GIT_TAGFETCH_FAIL:-}" ] || exit 1
         # The race: a remote tag created after this fetch is not seen locally.
@@ -145,7 +152,10 @@ cat > "${FAKEBIN}/bun" <<EOF
 # The dependency check and the Jev checklist question are faked here so a test never runs the real
 # test gate (which runs this file) or calls Jev. Each logs to bun.log; FAKE_BUN_*_RC fail a step.
 # Every other bun command (bun -e, backstage-deps.ts) is the real bun.
-log() { printf '%s\n' "\$*" >> "\${FAKE_STATE}/bun.log"; }
+log() { printf '%s\n' "\$ORIG" >> "\${FAKE_STATE}/bun.log"; }
+# The log keeps the full invocation (e.g. --no-env-file); dispatch ignores that one flag.
+ORIG="\$*"
+[ "\${1:-}" != --no-env-file ] || shift
 case "\${1:-} \${2:-}" in
     "install --frozen-lockfile") log "\$*"; echo "\${FAKE_BUN_INSTALL_OUT:-installed}"; exit "\${FAKE_BUN_INSTALL_RC:-0}" ;;
     "run typecheck") log "\$*"; exit "\${FAKE_BUN_TYPECHECK_RC:-0}" ;;
@@ -622,7 +632,8 @@ STATUS_PW="pw-status-NEVER-LOGGED"
 make_fixture
 serve static "$C2"; serve backstage "$C2"
 out="$(BACKSTAGE_CURL_CONFIG= FAKE_AUTH=1 ship --status 2>&1)"; rc=$?
-[[ $rc -eq 1 && "$out" == *"BACKSTAGE_CURL_CONFIG"* && "$out" != *"401"* ]] \
+# Hex SHAs are removed first: a random fixture SHA containing "401" is not a 401 status.
+[[ $rc -eq 1 && "$out" == *"BACKSTAGE_CURL_CONFIG"* && "$(printf '%s' "$out" | sed -E 's/[0-9a-f]{7,40}//g')" != *"401"* ]] \
     && ok "auth snippet + BACKSTAGE_CURL_CONFIG unset -> status fails naming the variable, not a bare 401" \
     || nope "status auth no config: rc=${rc}; out: ${out}"
 grep -q 'api/backstage' "${FAKE_STATE}/curl.log" 2>/dev/null \
@@ -1056,9 +1067,46 @@ host_touched() { [[ -s "${FAKE_STATE}/ssh.log" ]]; }
 
 make_fixture
 out="$(ship 2>&1)"; rc=$?
-[[ $rc -eq 0 && "$(bunlog)" == "install --frozen-lockfile|run typecheck|scripts/gate.ts|scripts/deploy-checklist.ts --checklist "* ]] \
+[[ $rc -eq 0 && "$(bunlog)" == "install --frozen-lockfile|run typecheck|scripts/gate.ts|--no-env-file scripts/deploy-checklist.ts --checklist "* ]] \
     && ok "a deploy runs bun install --frozen-lockfile, typecheck, the gate, then the Jev checklist, in that order" \
     || nope "deps order: rc=${rc}, bun.log '$(bunlog)'; out: ${out}"
+drop_fixture
+
+# Sweep #2: Bun loads .env.local from cwd on its own; the checklist must run with --no-env-file so
+# resolveKey alone decides precedence and names the source.
+make_fixture
+out="$(ship 2>&1)"; rc=$?
+grep -qx -- "--no-env-file scripts/deploy-checklist.ts --checklist .*" "${FAKE_STATE}/bun.log" \
+    && ok "sweep #2: the Jev checklist runs as bun --no-env-file, so cwd .env.local cannot override the documented key order" \
+    || nope "sweep #2: checklist invocation '$(bunlog)'"
+drop_fixture
+
+# Sweep #4/#5: a failing git status is never 'clean', and a checklist that cannot be built stops
+# the deploy before Jev is asked.
+make_fixture
+out="$(FAKE_GIT_STATUS_FAIL_FROM=1 ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"git status failed"* && -z "$(calls)" && ! -s "${FAKE_STATE}/bun.log" ]] && ! host_touched \
+    && ok "sweep #4: git status failing at the preflight refuses the deploy (exit 1), never reads as a clean tree" \
+    || nope "sweep #4 preflight: rc=${rc}, bun.log '$(bunlog)', calls '$(calls)'; out: ${out}"
+drop_fixture
+
+make_fixture
+out="$(FAKE_GIT_STATUS_FAIL_FROM=2 ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"git status failed"* && "$out" == *"release checklist could not be built"* \
+   && "$out" != *"tracked tree clean: yes"* && "$(bunlog)" != *"deploy-checklist"* && -z "$(calls)" && -z "$(tags)" ]] \
+    && grep -qx 'rmdir /var/lock/jevnotjev-ship' "${FAKE_STATE}/ssh.log" \
+    && ok "sweep #4/#5: git status failing while the checklist is built: exit 1, Jev not asked, no module script, lock released" \
+    || nope "sweep #4/#5 checklist: rc=${rc}, bun.log '$(bunlog)', calls '$(calls)'; out: ${out}"
+ls "${TMPDIR}"/jevnotjev-checklist.* >/dev/null 2>&1 \
+    && nope "sweep #5: the private checklist directory was left behind" \
+    || ok "sweep #5: the private checklist directory is removed when the checklist fails"
+drop_fixture
+
+make_fixture
+out="$(FAKE_GIT_STATUS_FAIL_FROM=2 ship --dry-run 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"release checklist could not be built"* && "$out" != *"tracked tree clean: yes"* && -z "$(calls)" ]] \
+    && ok "sweep #4/#5: --dry-run also refuses a checklist it could not build" \
+    || nope "sweep #4/#5 dry-run: rc=${rc}, calls '$(calls)'; out: ${out}"
 drop_fixture
 
 for step in INSTALL:"bun install --frozen-lockfile" TYPECHECK:"bun run typecheck" GATE:"bun scripts/gate.ts"; do

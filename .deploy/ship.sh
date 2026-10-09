@@ -669,11 +669,17 @@ dependency_check() {
 }
 
 # The mechanical results Jev is asked about, one item per line.
+# Returns 1 (after naming the failure on stderr) when an input cannot be read; the caller aborts.
 checklist_lines() {
-    local m setup_s setup_b cfg plan
+    local m setup_s setup_b cfg plan tree
     printf 'HEAD == origin/main: %s (HEAD %s, origin/main %s)\n' \
         "$([[ -n "$MAIN_SHA" && "$HEAD_SHA" == "$MAIN_SHA" ]] && echo yes || echo NO)" "${HEAD_SHA:-none}" "${MAIN_SHA:-unresolved}"
-    printf 'tracked tree clean: %s\n' "$([[ -z "$(git status --porcelain --untracked-files=no)" ]] && echo yes || echo NO)"
+    # Output and exit code read separately: a failed git status prints nothing, which is not clean.
+    if ! tree="$(git status --porcelain --untracked-files=no)"; then
+        log_error "git status failed while building the release checklist; the tree state is unknown."
+        return 1
+    fi
+    printf 'tracked tree clean: %s\n' "$([[ -z "$tree" ]] && echo yes || echo NO)"
     if $DRY_RUN; then
         printf '%s: not run (dry-run)\n' "${DEPS_STEPS[@]}"
     else
@@ -700,7 +706,11 @@ jev_checklist() {
     local dir list out rc common env_file
     dir="$(mktemp -d "${TMPDIR:-/tmp}/jevnotjev-checklist.XXXXXX")" || { log_error "Cannot create a private checklist directory; refusing to deploy."; return 1; }
     list="${dir}/checklist.txt"
-    checklist_lines > "$list"
+    if ! checklist_lines > "$list"; then
+        rm -rf "$dir"
+        log_error "The release checklist could not be built; Jev not asked, nothing deployed."
+        return 1
+    fi
     echo
     if $NO_JEV || $DRY_RUN || [[ "$PLAN" == " " ]]; then
         out="Release checklist:
@@ -725,7 +735,9 @@ jev: not asked (every module is up to date)"
     common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
     env_file="${common%/.git}/.env.local"
     [[ -n "$common" ]] || env_file="${dir}/no-env-file"
-    out="$(bun scripts/deploy-checklist.ts --checklist "$list" --env-file "$env_file" 2>&1)"; rc=$?
+    # --no-env-file: Bun would otherwise load .env* from the cwd into process.env, so a file key
+    # could beat an exported one and be named "process env". deploy-checklist.ts owns the order.
+    out="$(bun --no-env-file scripts/deploy-checklist.ts --checklist "$list" --env-file "$env_file" 2>&1)"; rc=$?
     rm -rf "$dir"
     printf '%s\n' "$out"
     CHECKLIST_RECORD="$out"
@@ -749,7 +761,11 @@ if [[ "$ACTION" == deploy ]]; then
         if $DRY_RUN; then log_warn "${msg} (dry-run, not blocking)"; else log_error "$msg"; exit 1; fi
     fi
     # Checked here, not only in the module scripts: skipped modules never run their own guard.
-    if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+    # A failed git status prints nothing; that is an unknown tree, never a clean one.
+    if ! tree_status="$(git status --porcelain --untracked-files=no)"; then
+        msg="git status failed; the tracked tree state is unknown. Refusing to deploy."
+        if $DRY_RUN; then log_warn "${msg} (dry-run, not blocking)"; else log_error "$msg"; exit 1; fi
+    elif [[ -n "$tree_status" ]]; then
         msg="Uncommitted tracked changes present. The release records origin/main; deploy from a clean worktree."
         if $DRY_RUN; then log_warn "${msg} (dry-run, not blocking)"; else log_error "$msg"; exit 1; fi
     fi

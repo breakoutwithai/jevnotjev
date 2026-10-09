@@ -81,7 +81,7 @@
     "src/db/tests/review-r2.test.ts": 19,
     "src/db/tests/review-r3.test.ts": 8,
     "src/db/tests/roundtrip.test.ts": 10,
-    "src/decide/cli.test.ts": 26,
+    "src/decide/cli.test.ts": 27,
     "src/decide/decide.test.ts": 34,
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/labelling-card.test.ts": 4,

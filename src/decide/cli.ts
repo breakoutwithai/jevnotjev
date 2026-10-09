@@ -340,5 +340,6 @@ if (import.meta.main) {
     out: (text) => process.stdout.write(text),
     err: (line) => process.stderr.write(line + "\n"),
   }, process.env);
-  process.exit(code);
+  // Not process.exit(): it would drop stdout still queued on a pipe. Setting exitCode lets the write drain, then the process ends.
+  process.exitCode = code;
 }

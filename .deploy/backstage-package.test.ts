@@ -402,7 +402,7 @@ async function activationFixture(
       "tmp",
     ])
       await mkdir(join(dir, name), { recursive: true });
-    for (const name of ["backstage-deploy.sh", "backstage-lib.sh", "lib.sh"])
+    for (const name of ["backstage-deploy.sh", "backstage-lib.sh", "lib.sh", "backstage-merged-pr.ts"])
       await Bun.write(
         join(dir, ".deploy", name),
         await Bun.file(`.deploy/${name}`).text(),
@@ -478,7 +478,8 @@ async function activationFixture(
     );
     const commands: Record<string, string> = {
       git: `#!/usr/bin/env bash\ncase "$1" in rev-parse) echo ${newSha};; status|fetch) exit 0;; *) exit 1;; esac\n`,
-      gh: `#!/usr/bin/env bun\nconsole.info(JSON.stringify([{merged_at:"yes",base:{ref:"main"},body:"Closes #67"}]));`,
+      // #91: a merged main PR with no issue reference in its body is enough.
+      gh: `#!/usr/bin/env bun\nconsole.info(JSON.stringify([{merged_at:"yes",base:{ref:"main"},body:"feat: no issue reference"}]));`,
       sleep: "#!/usr/bin/env bash\nexit 0\n",
       mv: `#!/usr/bin/env bun\nimport {renameSync} from 'node:fs';const args=process.argv.slice(2).filter(a=>a!=='-T');renameSync(args[0]??'',args[1]??'');`,
       sha256sum: `#!/usr/bin/env bash\nshasum -a 256 "$@"\n`,
@@ -498,6 +499,8 @@ async function activationFixture(
     }
     const env: Record<string, string | undefined> = {
       ...process.env,
+      // No documented default curl config from the operator's real home leaks into the fixture.
+      HOME: dir,
       FIXTURE: dir,
       PATH: `${dir}/bin:${process.env.PATH}`,
       TMPDIR: join(dir, "tmp"),
@@ -810,7 +813,7 @@ test("[integration] sweep #8 the documented curl-config command never exposes th
 });
 test("[unit] A3 the curl config is required exactly when the snippet has auth", () => {
   const require = (auth: string, config?: string) => {
-    const env: Record<string, string | undefined> = { ...process.env };
+    const env: Record<string, string | undefined> = { ...process.env, HOME: "/nonexistent-jevnotjev-home" };
     delete env.BACKSTAGE_CURL_CONFIG;
     if (config !== undefined) env.BACKSTAGE_CURL_CONFIG = config;
     return Bun.spawnSync(

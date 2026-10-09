@@ -2,6 +2,17 @@
 # Backstage-specific preconditions; sourced by deploy and tested with command doubles.
 # A new shell must mint its own jar; never accept or delete a path inherited from the environment.
 BACKSTAGE_SESSION_JAR=""
+
+# The private curl config defaults to the path docs/DEPLOY.md documents, only when the variable is
+# UNSET and that file exists. A set value, even empty, wins. The private-file check
+# (backstage_check_curl_config) still applies to the default.
+backstage_default_curl_config() {
+    local path="${HOME:-}/.config/jevnotjev/backstage-curl"
+    [[ -z "${BACKSTAGE_CURL_CONFIG+x}" && -n "${HOME:-}" && -f "$path" ]] || return 0
+    BACKSTAGE_CURL_CONFIG="$path"
+    export BACKSTAGE_CURL_CONFIG
+}
+backstage_default_curl_config
 backstage_clean_sources() {
     local status
     status="$(git status --porcelain --untracked-files=all -- src site scripts .deploy package.json bun.lock tsconfig.json)" || return 1

@@ -56,7 +56,7 @@ Sign-out clears the in-page session and tester keys, POSTs to `/api/auth/sign-ou
 
 ## Build and promote
 
-Run the local test/typecheck/build gate before promotion. A production release requires a merged PR linked to #67, a clean checkout at freshly fetched `origin/main`, and separate deploy authorization.
+Run the local test/typecheck/build gate before promotion. A production release requires a pull request merged into main for HEAD (`.deploy/backstage-merged-pr.ts`; no issue number in its body, #91), a clean checkout at freshly fetched `origin/main`, and separate deploy authorization.
 
 The standard deploy is the whole stack, `.deploy/ship.sh` with no flags:
 

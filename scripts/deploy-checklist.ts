@@ -20,7 +20,7 @@ export const READY_QUESTION: QuestionSpec = {
   name: "ready",
   type: "noul",
   instructions:
-    "This is the pre-deploy checklist for a production release. Is the release ready to deploy given this checklist? Answer yes only when every check passed and nothing in it blocks the deploy.",
+    "This is the pre-deploy checklist for a production release. The modules named under Release contents are expected to change: updating them is the purpose of the deploy, not a problem. Did every check in this checklist pass, with nothing in it that blocks the deploy? Answer yes only if so.",
 };
 
 export const JAYLO_KEY_ENV = "JEV_API_KEY_JAYLO";

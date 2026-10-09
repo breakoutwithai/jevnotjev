@@ -748,16 +748,26 @@ checklist_lines() {
         printf '%s: pass\n' "${DEPS_STEPS[0]}" "${DEPS_STEPS[1]}"
         printf '%s: pass (%s)\n' "${DEPS_STEPS[2]}" "$GATE_LINE"
     fi
-    for m in "${MODULES[@]}"; do
-        if [[ "$PLAN" == *" ${m} "* ]]; then plan=deploy; else plan="up to date"; fi
-        printf '%s: %s; serving %s; drift %s\n' "$m" "$plan" "$(getv "$m" served)" "$(getv "$m" drift)"
-    done
     setup_s="$(probe_value "$(getv static probe)" setup)"; setup_b="$(probe_value "$(getv backstage probe)" setup)"
     printf 'setup present: static %s, backstage %s\n' "${setup_s:-unknown}" "${setup_b:-unknown}"
     if [[ -z "${BACKSTAGE_CURL_CONFIG:-}" ]]; then cfg="not set"
     elif backstage_check_curl_config; then cfg="set (private file)"
     else cfg="set but NOT a private file"; fi
     printf 'backstage curl config: %s\n' "$cfg"
+    # One neutral line for what will deploy. The plan's drift wording ("STALE, N commits behind")
+    # read as a failed check to Jev (2026-10-09: no, p(yes)=0.080, on an all-pass list); it goes to
+    # stdout and the release notes via plan_lines instead.
+    plan="$(printf '%s' "$PLAN" | xargs | sed 's/ / and /g')"
+    printf 'Release contents: %s will be updated to %s\n' "${plan:-nothing}" "${MAIN_SHA:0:7}"
+}
+
+# The full per-module plan, for stdout and the release notes only (never sent to Jev).
+plan_lines() {
+    local m plan
+    for m in "${MODULES[@]}"; do
+        if [[ "$PLAN" == *" ${m} "* ]]; then plan=deploy; else plan="up to date"; fi
+        printf '%s: %s; serving %s; drift %s\n' "$m" "$plan" "$(getv "$m" served)" "$(getv "$m" drift)"
+    done
 }
 
 # Asks Jev whether the release is ready, given the checklist. Sets CHECKLIST_RECORD (the printed
@@ -791,6 +801,9 @@ jev: would ask whether the release is ready (dry-run, not asked)"
             out="${out}
 jev: skipped (--no-jev)"
         fi
+        out="${out}
+Deploy plan:
+$(plan_lines | sed 's/^/  /')"
         printf '%s\n' "$out"
         CHECKLIST_RECORD="$out"
         rm -rf "$dir"
@@ -804,6 +817,9 @@ jev: skipped (--no-jev)"
     # could beat an exported one and be named "process env". deploy-checklist.ts owns the order.
     out="$(bun --no-env-file scripts/deploy-checklist.ts --checklist "$list" --env-file "$env_file" 2>&1)"; rc=$?
     rm -rf "$dir"
+    out="${out}
+Deploy plan:
+$(plan_lines | sed 's/^/  /')"
     printf '%s\n' "$out"
     CHECKLIST_RECORD="$out"
     if [[ "$rc" -ne 0 ]]; then

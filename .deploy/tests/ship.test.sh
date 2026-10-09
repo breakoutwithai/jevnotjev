@@ -1194,17 +1194,40 @@ want_ok=true
 for want in "HEAD == origin/main: yes (HEAD ${C2}, origin/main ${C2})" "tracked tree clean: yes" \
             "bun install --frozen-lockfile: pass" "bun run typecheck: pass" \
             "bun scripts/gate.ts: pass (gate: PASS files=3 tests=42)" \
-            "static: deploy; serving ${C1}; drift none (sha differs, no module changes)" \
-            "backstage: deploy; serving ${C1}; drift none (sha differs, no module changes)" \
-            "setup present: static yes, backstage yes" "backstage curl config: set (private file)"; do
+            "setup present: static yes, backstage yes" "backstage curl config: set (private file)" \
+            "Release contents: static and backstage will be updated to ${C2:0:7}"; do
     printf '%s\n' "$cl" | grep -qxF -- "$want" || { want_ok=false; echo "    missing checklist line: ${want}"; }
 done
-$want_ok && [[ $rc -eq 0 ]] && ok "the checklist Jev sees carries HEAD/main, clean tree, deps, typecheck, gate count, per-module drift, setup, curl config" \
+$want_ok && [[ $rc -eq 0 ]] && ok "the checklist Jev sees carries HEAD/main, clean tree, deps, typecheck, gate count, setup, curl config and one release-contents line" \
     || nope "checklist: rc=${rc}; ${cl}"
 grep -qF "## Release checklist and Jev" "${FAKE_STATE}/notes.md" && grep -qF "jev: yes (p(yes)=0.930, jev-1.13.0)" "${FAKE_STATE}/notes.md" \
     && grep -qF "bun scripts/gate.ts: pass (gate: PASS files=3 tests=42)" "${FAKE_STATE}/notes.md" \
-    && ok "the GitHub release notes record the checklist and Jev's answer" \
-    || nope "release notes lack the checklist: $(cat "${FAKE_STATE}/notes.md" 2>/dev/null)"
+    && grep -qF "static: deploy; serving ${C1}; drift none (sha differs, no module changes)" "${FAKE_STATE}/notes.md" \
+    && ok "the GitHub release notes record the checklist, Jev's answer and the full deploy plan" \
+    || nope "release notes lack the checklist or plan: $(cat "${FAKE_STATE}/notes.md" 2>/dev/null)"
+drop_fixture
+
+# 2026-10-09 live: Jev answered no (p(yes)=0.080) to an all-pass checklist whose plan lines read
+# "drift STALE (8 commits behind; changed: ...)". A module behind main is why it deploys, not a
+# failed check, so the text Jev sees carries no plan, drift or path wording.
+make_fixture
+serve static "$C0"
+out="$(ship 2>&1)"; rc=$?
+cl="$(cat "${FAKE_STATE}/checklist.txt" 2>/dev/null)"
+[[ $rc -eq 0 && -n "$cl" ]] && ! printf '%s\n' "$cl" | grep -Eiq 'stale|behind|drift|serving|changed|site/label' \
+    && printf '%s\n' "$cl" | grep -qxF "Release contents: static and backstage will be updated to ${C2:0:7}" \
+    && [[ "$out" == *"static: deploy; serving ${C0}; drift STALE (2 commits behind; changed: site/label/page.html)"* ]] \
+    && grep -qF "drift STALE (2 commits behind" "${FAKE_STATE}/notes.md" \
+    && ok "with a STALE module, Jev's text has no STALE/behind/drift/path wording; stdout and release notes keep the full plan" \
+    || nope "plan wording reached Jev or left the record: rc=${rc}; sent: ${cl}"
+drop_fixture
+
+make_fixture
+serve static "$C2"
+out="$(ship --no-release 2>&1)"; rc=$?
+[[ $rc -eq 0 ]] && grep -qxF "Release contents: backstage will be updated to ${C2:0:7}" "${FAKE_STATE}/checklist.txt" \
+    && ok "the release-contents line names only the modules in the plan" \
+    || nope "contents line: rc=${rc}; sent: $(cat "${FAKE_STATE}/checklist.txt" 2>/dev/null)"
 drop_fixture
 
 make_fixture

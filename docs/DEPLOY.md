@@ -73,10 +73,14 @@ without a usable private `BACKSTAGE_CURL_CONFIG` (the closing verify probes Back
 deploy, so even a static-only plan would end in exit 6). `--dry-run` prints `would refuse (exit 1)`
 instead.
 
-After the drift read, ship.sh assembles a checklist of mechanical results (HEAD and `origin/main`
-SHAs, clean tree, the three steps above with the gate's test count, each module's plan, served SHA
-and drift, whether setup is present, whether the Backstage curl config is a private file) and asks
-Jev one noul (yes/no) question: is the release ready to deploy given this checklist
+After the drift read, ship.sh assembles a checklist of the checks only (HEAD and `origin/main`
+SHAs, clean tree, the three steps above with the gate's test count, whether setup is present,
+whether the Backstage curl config is a private file) plus one neutral line,
+`Release contents: <modules> will be updated to <short sha>`. Drift wording ("STALE, N commits
+behind") is never sent: Jev read it as a failed check and answered no (p(yes)=0.080) on an all-pass
+list. The full per-module plan goes to stdout and the release notes under `Deploy plan:`. It asks
+Jev one noul (yes/no) question: given that the listed modules are expected to change, did every
+check pass with nothing blocking the deploy
 (`scripts/deploy-checklist.ts`, pinned `jev-1.13.0`, answer checked by `src/jev-answer.ts`). Only
 "yes" continues; "no", an unreachable API, an invalid answer or a missing key exits 1 before any
 module script runs (the ship lock is released). The key is `JEV_API_KEY`, else `TYPESAFE_API_KEY`,

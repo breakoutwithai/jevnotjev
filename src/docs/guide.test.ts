@@ -69,10 +69,10 @@ function runGuide(dir: string, id: string, fixture: string): { code: number; out
   return { code: done.exitCode, output: done.stdout.toString(), error: done.stderr.toString() };
 }
 
-function writeLabels(dir: string, ids: readonly string[]): void {
+function writeLabels(dir: string, ids: readonly string[], truth = "hand_off"): void {
   writeFileSync(join(dir, "guide-work", "labels.csv"), formatRows([
     ["case_id", "truth", "final", "suggestion_shown", "labelled_at"],
-    ...ids.map((id) => [id, "hand_off", "", "", "2026-10-09T00:00:00Z"]),
+    ...ids.map((id) => [id, truth, "", "", "2026-10-09T00:00:00Z"]),
   ]));
 }
 
@@ -309,6 +309,44 @@ describe("first-use guide", () => {
           expect(fields[at("label_blind")]).toBe("true");
         }
       }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("[integration] D18-GUIDE-INVALID-TRUTH rejects a truth outside the question choices", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jnj-guide-invalid-truth-"));
+    try {
+      testCopy(dir);
+      const fixture = fixtureFile(dir);
+      for (const id of ["prepare", "question", "rule", "cases", "without-jev"]) {
+        expect(runGuide(dir, id, fixture).code, id).toBe(0);
+      }
+      const ids = caseIds();
+      writeLabels(dir, ids, "not_a_choice");
+      const result = runGuide(dir, "merge-labels", fixture);
+      expect(result.code).not.toBe(0);
+      expect(result.error).toContain(`Invalid truth for ${ids[0]}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("[integration] D18-GUIDE-DUPLICATE-ID rejects a repeated label case_id", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jnj-guide-duplicate-id-"));
+    try {
+      testCopy(dir);
+      const fixture = fixtureFile(dir);
+      for (const id of ["prepare", "question", "rule", "cases", "without-jev"]) {
+        expect(runGuide(dir, id, fixture).code, id).toBe(0);
+      }
+      const ids = caseIds();
+      const first = ids[0];
+      if (first === undefined) throw new Error("Missing case fixture");
+      writeLabels(dir, [...ids, first]);
+      const result = runGuide(dir, "merge-labels", fixture);
+      expect(result.code).not.toBe(0);
+      expect(result.error).toContain(`Duplicate label ${first}`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

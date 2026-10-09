@@ -518,24 +518,29 @@ export function handCohort(cohort: Cohort, bootstrap: (cohort: Cohort) => Bootst
     put("unmet", unmet, "list", "state");
     return { figures, excluded, verdict };
   };
+  // A verdict that stops before the cost ratio: the app prints numbers.costRatio as null (verdict.ts `base`).
+  const early = (verdict: string, rule: number, condition: string): HandCohort => {
+    put("numbers.costRatio", null, "null", "state");
+    return decide(verdict, rule, condition);
+  };
   const nee = "not enough evidence";
   const dont = "don't use Jev";
-  if (!hasJev) return decide(nee, 1, "no-jev-rows");
-  if (!hasLlm) return decide(nee, 1, "no-llm-rows");
+  if (!hasJev) return early(nee, 1, "no-jev-rows");
+  if (!hasLlm) return early(nee, 1, "no-llm-rows");
   if (pair === null || nc === null || n < MIN_PAIRED) {
     fig("addN", MIN_PAIRED - n, "abs");
-    return decide(nee, 1, "too-few-paired");
+    return early(nee, 1, "too-few-paired");
   }
-  if (pair.jev.accepted === 0 && pair.other.accepted === 0) return decide(nee, 1, "both-zero-accepted");
-  if (pair.jev.missing > 0 || pair.other.missing > 0) return decide(nee, 1, "cost-missing");
-  if (ruleLower !== null && ruleLower > -MARGIN) return decide(dont, 2, "rule-within-margin");
-  if (nc.upper < -MARGIN) return decide(dont, 2, "jev-clearly-worse");
-  if (pair.jev.accepted === 0) return decide(dont, 2, "jev-zero-accepted");
+  if (pair.jev.accepted === 0 && pair.other.accepted === 0) return early(nee, 1, "both-zero-accepted");
+  if (pair.jev.missing > 0 || pair.other.missing > 0) return early(nee, 1, "cost-missing");
+  if (ruleLower !== null && ruleLower > -MARGIN) return early(dont, 2, "rule-within-margin");
+  if (nc.upper < -MARGIN) return early(dont, 2, "jev-clearly-worse");
+  if (pair.jev.accepted === 0) return early(dont, 2, "jev-zero-accepted");
   const jevSpend = pair.jev.spend;
   const llmSpend = pair.other.spend;
   let largest = 0;
   for (const [jc, oc] of pair.costs.values()) largest = Math.max(largest, jc ?? 0, oc ?? 0);
-  if (!Number.isFinite(jevSpend) || !Number.isFinite(llmSpend) || !Number.isFinite(largest * n)) return decide(nee, 1, "cost-not-finite");
+  if (!Number.isFinite(jevSpend) || !Number.isFinite(llmSpend) || !Number.isFinite(largest * n)) return early(nee, 1, "cost-not-finite");
   // cost_ratio: 0 when the LLM has 0 accepted; infinity when the LLM costs $0 per accepted and Jev more.
   const jevPer = jevSpend / pair.jev.accepted;
   const llmPer = pair.other.accepted === 0 ? Number.NaN : llmSpend / pair.other.accepted;
@@ -544,7 +549,7 @@ export function handCohort(cohort: Cohort, bootstrap: (cohort: Cohort) => Bootst
   else if (jevPer === 0 && llmPer === 0) ratio = null;
   else if (llmPer === 0) ratio = Number.POSITIVE_INFINITY;
   else ratio = Number.isFinite(jevPer / llmPer) ? jevPer / llmPer : null;
-  if (ratio === null) return decide(nee, 1, jevSpend === 0 && llmSpend === 0 ? "no-cost-ratio" : "cost-not-finite");
+  if (ratio === null) return early(nee, 1, jevSpend === 0 && llmSpend === 0 ? "no-cost-ratio" : "cost-not-finite");
   fig("numbers.costRatio.ratio", ratio, "rel");
   fig("numbers.costRatio.resamples", RESAMPLES, "abs");
   exclude("numbers.costRatio.redrawn", "seeded resampling; the seed is not in verdict output until #168", null);
@@ -699,13 +704,13 @@ function numberCheck(hand: number, app: unknown, t: "abs" | "rel"): Outcome {
 }
 
 function boundCheck(ratio: number, verdict: Record<string, unknown>, which: "lower" | "upper"): Outcome {
-  const raw = resolvePath(verdict, `numbers.costRatio.${which}`);
+  // A null bound is infinity (JSON prints it so): a resample with Jev at 0 accepted keeps an infinite ratio
+  // (verdict-rules.md "Cost ratio interval"), so an infinite upper bound is legitimate beside a finite point ratio.
+  // An infinite lower bound with a finite ratio still fails below, because the ratio must lie inside the interval.
   const lower = boundValue(resolvePath(verdict, "numbers.costRatio.lower"));
   const upper = boundValue(resolvePath(verdict, "numbers.costRatio.upper"));
   const mine = which === "lower" ? lower : upper;
   if (mine === null) return { ok: false, note: "app bound blank or not a number" };
-  // A null bound reads as infinity only where the hand ratio is infinite too.
-  if (raw === null && Number.isFinite(ratio)) return { ok: false, note: "app bound is null (infinite) but the hand ratio is finite" };
   if (lower === null || upper === null) return { ok: false, note: "the other bound is blank or not a number" };
   if (which === "lower" && !(lower >= 0)) return { ok: false, note: `lower bound ${lower} is below 0` };
   if (!(lower <= upper)) return { ok: false, note: `lower bound ${lower} is above upper bound ${upper}` };
@@ -783,46 +788,88 @@ export function exitCodeOf(report: Report): number {
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-/** The app's verdict JSON for a records file (an absolute path), from the verdict command's stdout (exit 0, 3 or 4). */
-export function runApp(file: string): unknown {
+type CliRun = { readonly status: number | null; readonly stdout: string; readonly stderr: string };
+
+/**
+ * One app subcommand (`verdict` or `validate`) on a records file (an absolute path), as a separate process.
+ * stdout goes to a file, not a pipe: the command calls process.exit() straight after writing, and a piped stdout
+ * loses everything past the first buffer (131,072 of 1,242,979 bytes on a 6,000-case file). A file write is
+ * synchronous, so the whole output lands.
+ */
+function runCli(subcommand: "verdict" | "validate", file: string): CliRun {
   const cli = join(ROOT, "src", "decide", "cli.ts");
-  // stdout goes to a file, not a pipe: the verdict command calls process.exit() straight after writing, and a piped
-  // stdout loses everything past the first buffer (131,072 of 1,242,979 bytes on a 6,000-case file). A file write is
-  // synchronous, so the whole JSON lands.
   const dir = mkdtempSync(join(tmpdir(), "math-check-app-"));
-  const outPath = join(dir, "verdict.json");
+  const outPath = join(dir, "stdout.txt");
   const fd = openSync(outPath, "w");
   try {
-    // Only PATH and HOME are passed on: the verdict command needs no key and must not see one.
-    const res = spawnSync(process.execPath, [cli, "verdict", file], {
+    // Only PATH and HOME are passed on: neither command needs a key, and neither must see one.
+    const res = spawnSync(process.execPath, [cli, subcommand, file], {
       cwd: ROOT, encoding: "utf8", maxBuffer: MAX_APP_OUTPUT, stdio: ["ignore", fd, "pipe"], env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
     });
-    const stdout = readFileSync(outPath, "utf8");
-    if (res.error !== undefined) throw new BadInput(`verdict command failed: ${res.error.message}`);
-    if (res.status === null || ![0, 3, 4].includes(res.status)) {
-      throw new BadInput(`verdict command exited ${String(res.status)}: ${(res.stderr || stdout).trim().split("\n").slice(0, 5).join(" | ")}`);
-    }
-    try {
-      const parsed: unknown = JSON.parse(stdout);
-      return parsed;
-    } catch {
-      throw new BadInput(`verdict command printed no complete JSON (${stdout.length} characters)`);
-    }
+    if (res.error !== undefined) throw new BadInput(`${subcommand} command failed: ${res.error.message}`);
+    return { status: res.status, stdout: readFileSync(outPath, "utf8"), stderr: res.stderr };
   } finally {
     closeSync(fd);
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
-/** Run the app on a temporary copy of exactly `text`, so both sides read the same bytes whatever the caller's directory. */
-export function runAppOnText(text: string): unknown {
+function firstLines(text: string): string {
+  return text.trim().split("\n").slice(0, 5).join(" | ");
+}
+
+/** The app's verdict JSON for a records file (an absolute path), from the verdict command's stdout (exit 0, 3 or 4). */
+export function runApp(file: string): unknown {
+  const res = runCli("verdict", file);
+  if (res.status === null || ![0, 3, 4].includes(res.status)) throw new BadInput(`verdict command exited ${String(res.status)}: ${firstLines(res.stderr || res.stdout)}`);
+  try {
+    const parsed: unknown = JSON.parse(res.stdout);
+    return parsed;
+  } catch {
+    throw new BadInput(`verdict command printed no complete JSON (${res.stdout.length} characters)`);
+  }
+}
+
+/**
+ * The product record validator on a records file: exit 0 valid, anything else is bad input with the validator's own
+ * errors. Read from its exit code and output only, like verdict; nothing is imported from the product code.
+ */
+export function runValidate(file: string): void {
+  const res = runCli("validate", file);
+  if (res.status === 0) return;
+  let errors: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(res.stdout);
+    if (isRecord(parsed)) errors = stringList(parsed.errors) ?? [];
+  } catch {
+    errors = [];
+  }
+  const message = errors.length > 0 ? errors.slice(0, 5).join(" | ") : firstLines(res.stderr || res.stdout);
+  throw new BadInput(`records file is invalid (validate exited ${String(res.status)}): ${message}`);
+}
+
+/**
+ * Write exactly `text` to a temporary snapshot, run the product validator on it, then (unless the app's verdict is
+ * supplied) the verdict command on the same snapshot: both app commands and the hand side read the same bytes.
+ */
+export function checkSnapshot(text: string, appJson: unknown): unknown {
   const dir = mkdtempSync(join(tmpdir(), "math-check-"));
   try {
     const file = join(dir, "records.csv");
     writeFileSync(file, text);
-    return runApp(file);
+    runValidate(file);
+    return appJson === undefined ? runApp(file) : appJson;
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Strict UTF-8: a byte sequence that is not UTF-8 is bad input, never replaced; a byte order mark is kept. */
+export function decodeStrict(bytes: Uint8Array, name: string): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    throw new BadInput(`cannot read ${name} as UTF-8`);
   }
 }
 
@@ -873,23 +920,24 @@ export function render(report: Report): string {
 export function main(argv: readonly string[]): { readonly code: number; readonly out: string; readonly err: string } {
   try {
     const args = parseArgs(argv);
-    let text: string;
+    let bytes: Uint8Array;
     try {
-      text = readFileSync(args.file, "utf8");
+      bytes = readFileSync(args.file);
     } catch {
       throw new BadInput(`cannot read ${args.file}`);
     }
-    const selection = selectLast(text, args.last);
-    loadRows(selection.text);
-    let appJson: unknown;
+    const selection = selectLast(decodeStrict(bytes, args.file), args.last);
+    let supplied: unknown = undefined;
     if (args.appJson !== null) {
       try {
         const parsed: unknown = JSON.parse(readFileSync(args.appJson, "utf8"));
-        appJson = parsed;
+        supplied = parsed;
       } catch {
         throw new BadInput(`cannot read ${args.appJson} as JSON`);
       }
-    } else appJson = runAppOnText(selection.text);
+    }
+    // The product validator always runs, --app-json or not; the verdict runs only when no app JSON is supplied.
+    const appJson = checkSnapshot(selection.text, supplied);
     const report = compareWithApp(selection.text, appJson, args.file, selection);
     const code = exitCodeOf(report);
     const head = `source=${report.source} n=${report.n} selection="${report.selection_rule}"\n`;

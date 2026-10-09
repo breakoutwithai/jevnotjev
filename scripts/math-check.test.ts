@@ -69,7 +69,10 @@ describe("D15 math check", () => {
     expect(/\brequire\s*\(/.test(source)).toBe(false);
     expect(source.includes("src/")).toBe(false);
     expect(source.includes("JEV_API_KEY")).toBe(false);
-    expect(source.includes('[cli, "verdict", file]')).toBe(true);
+    // The only subprocesses: the verdict and validate subcommands, both spend 0.
+    expect(source.includes("[cli, subcommand, file]")).toBe(true);
+    expect(source.includes('function runCli(subcommand: "verdict" | "validate"')).toBe(true);
+    expect(source.match(/spawnSync\(/g)?.length).toBe(1);
     for (const spend of ['"ask"', '"run"', '"estimate"']) expect(source.includes(spend)).toBe(false);
   });
 
@@ -363,6 +366,54 @@ describe("D15 review sweep regressions (2a83d38)", () => {
     } finally {
       process.chdir(before);
     }
+  });
+});
+
+describe("D15 review sweep round 2 regressions (e3128fa)", () => {
+  test("[unit] D15.g an infinite bootstrap bound with a finite ratio is accepted", () => {
+    // Jev accepts only t1, the LLM only t2: a resample can give Jev 0 accepted, so the upper bound is infinite (null).
+    const file = tempFile(synthetic(30, (i) => [i === 1 ? "accept" : "reject", "0.00002"], (i) => [i === 2 ? "accept" : "reject", "0.002"]));
+    const { code, report } = check([file]);
+    expect(mismatchKeys(report)).toEqual([]);
+    expect(report.figures.find((f) => f.key === "q1:numbers.costRatio.upper")?.app).toBeNull();
+    expect(code).toBe(0);
+  });
+
+  test("[unit] D15.g a cost ratio on a question that stops before it fails", () => {
+    const r = check([FIXTURE, "--app-json", doctoredJson((v) => {
+      const q2 = v[1];
+      if (isObject(q2) && isObject(q2.numbers)) q2.numbers.costRatio = { ratio: 100, lower: 99, upper: 101, resamples: 999, redrawn: 0 };
+    })]);
+    expect(r.code).toBe(1);
+    expect(mismatchKeys(r.report)).toEqual(["q2:numbers.costRatio"]);
+  });
+
+  const app = (): string => tempFile(JSON.stringify(runApp(FIXTURE)), "json");
+
+  test("[unit] D15.g a file that is not UTF-8 exits 2", () => {
+    const parts = fixtureText.split("kettle");
+    const bytes = Buffer.concat(parts.flatMap((part, i) => (i === 0 ? [Buffer.from(part)] : [Buffer.from([0x6b, 0x65, 0x74, 0x74, 0x6c, 0x65, 0xff]), Buffer.from(part)])));
+    const file = join(tmp, "not-utf8.csv");
+    writeFileSync(file, bytes);
+    const r = main([file]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("UTF-8");
+  });
+
+  test("[unit] D15.g the product validator runs even with --app-json: confidence 1.5 exits 2", () => {
+    const bad = fixtureText.replace(",0.9,accept,", ",1.5,accept,");
+    expect(bad).not.toBe(fixtureText);
+    const r = main([tempFile(bad), "--app-json", app()]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("confidence");
+  });
+
+  test("[unit] D15.g a question reworded on one row exits 2 with --app-json", () => {
+    const bad = fixtureText.replace("Is this message asking for a refund or exchange?", "Is this message asking for money back?");
+    expect(bad).not.toBe(fixtureText);
+    const r = main([tempFile(bad), "--app-json", app()]);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("question q1 changed");
   });
 });
 

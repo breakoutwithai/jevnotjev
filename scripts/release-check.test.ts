@@ -15,9 +15,17 @@ test("[unit] RELEASE-CHECK-ARMS requires all four documented arms", () => {
 const expectedRun = { caseIds: ["m01", "m02"], arms: ["jev"] };
 
 test("[unit] RELEASE-CHECK-ESTIMATE rejects one fewer call and wrong case count", () => {
-  expect(() => assertReleaseOutput("estimate", { cases: 2, calls: 1 }, expectedRun)).toThrow("expected 2 calls");
-  expect(() => assertReleaseOutput("estimate", { cases: 1, calls: 2 }, expectedRun)).toThrow("expected 2 cases");
-  expect(() => assertReleaseOutput("estimate", { cases: 2, calls: 2 }, expectedRun)).not.toThrow();
+  expect(() => assertReleaseOutput("estimate", { cases: 2, calls: 1, costUsd: 0.000035658 }, expectedRun)).toThrow("expected 2 calls");
+  expect(() => assertReleaseOutput("estimate", { cases: 1, calls: 2, costUsd: 0.000035658 }, expectedRun)).toThrow("expected 2 cases");
+  expect(() => assertReleaseOutput("estimate", { cases: 2, calls: 2, costUsd: 0.000035658 }, expectedRun)).not.toThrow();
+});
+
+test("[unit] RELEASE-CHECK-ESTIMATE requires a positive finite cost", () => {
+  const valid = { cases: 2, calls: 2, costUsd: 0.000035658 };
+  expect(() => assertReleaseOutput("estimate", valid, expectedRun)).not.toThrow();
+  for (const costUsd of [undefined, 0, -1, null, "broken"]) {
+    expect(() => assertReleaseOutput("estimate", { ...valid, costUsd }, expectedRun)).toThrow("expected positive finite costUsd");
+  }
 });
 
 test("[unit] RELEASE-CHECK-VERDICT requires the expected named verdict", () => {

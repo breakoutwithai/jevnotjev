@@ -56,6 +56,8 @@ export function assertReleaseOutput(name: "arms" | "estimate" | "verdict" | "fix
     const calls = cases * expected.arms.length;
     requireValue(field(body, "calls") === calls, `expected ${calls} calls`);
     requireValue(field(body, "cases") === cases, `expected ${cases} cases`);
+    const costUsd = field(body, "costUsd");
+    requireValue(typeof costUsd === "number" && Number.isFinite(costUsd) && costUsd > 0, "expected positive finite costUsd");
   } else if (name === "verdict") {
     const verdicts = field(body, "verdicts");
     requireValue(Array.isArray(verdicts) && verdicts.length === 1, "expected exactly one verdict");

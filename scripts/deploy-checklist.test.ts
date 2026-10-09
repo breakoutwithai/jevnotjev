@@ -103,6 +103,12 @@ test("[unit] deploy-checklist: an unquoted value drops a trailing ' # comment' a
   expect(parseEnvFile("A=a#b\n")).toEqual({ A: "a#b" });
 });
 
+test("[unit] deploy-checklist: whitespace around '=' is accepted, as Bun's own loader does", () => {
+  expect(parseEnvFile('JEV_API_KEY = "sentinel"\n')).toEqual({ JEV_API_KEY: "sentinel" });
+  expect(parseEnvFile("export A\t=\tb # c\nB= c\n")).toEqual({ A: "b", B: "c" });
+  expect(resolveKey({}, "TYPESAFE_API_KEY = t\n")).toEqual({ key: "t", source: "TYPESAFE_API_KEY (env file)" });
+});
+
 test("[unit] deploy-checklist: a quoted value keeps '#' inside the quotes and drops a comment after them", () => {
   expect(parseEnvFile('A="x # y" # note\n')).toEqual({ A: "x # y" });
   expect(parseEnvFile("B='s3cr#t'   # note\n")).toEqual({ B: "s3cr#t" });

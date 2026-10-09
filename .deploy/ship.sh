@@ -808,6 +808,19 @@ if [[ "$ACTION" == deploy ]]; then
     done
     # Read-only so far (state probes under the lock). A "no" exits 1 here; the trap releases the lock.
     jev_checklist || exit 1
+    # The checks above ran on HEAD_SHA. The module scripts ship the checkout's HEAD, so it must be
+    # that same commit with a still-clean tracked tree, or nothing deploys.
+    if ! $DRY_RUN; then
+        now_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+        if [[ "$now_sha" != "$HEAD_SHA" ]]; then
+            log_error "HEAD moved during the checks: checked ${HEAD_SHA}, now ${now_sha:-unreadable}. Nothing deployed; rerun from a clean worktree at origin/main."
+            exit 1
+        fi
+        if ! tree_status="$(git status --porcelain --untracked-files=no)" || [[ -n "$tree_status" ]]; then
+            log_error "The tracked tree changed during the checks (or git status failed) at ${HEAD_SHA}. Nothing deployed."
+            exit 1
+        fi
+    fi
 fi
 
 # ------------------------------------------------------------------ dispatch

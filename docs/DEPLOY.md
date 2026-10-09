@@ -75,6 +75,10 @@ so a `.env*` in the working directory never changes that order. `--no-jev` skips
 not asked when every module is already up to date. The checklist and Jev's answer (or the skip)
 go into the GitHub release notes. `--dry-run` prints the steps and the checklist and runs neither.
 
+The checks are bound to the commit they ran on: immediately before the first module script,
+ship.sh re-reads HEAD and the tracked tree. If HEAD is no longer the commit checked at the
+preflight, or the tree is no longer clean, it exits 1 naming both SHAs and deploys nothing.
+
 ### Drift and `--status`
 
 Module paths are defined once in `ship.sh`. Static is `site/` minus `site/backstage/`. Backstage

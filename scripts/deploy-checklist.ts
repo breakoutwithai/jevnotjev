@@ -36,7 +36,7 @@ export type KeySource = { readonly key: string; readonly source: string };
 export function parseEnvFile(text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const raw of text.split(/\r?\n/)) {
-    const m = raw.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    const m = raw.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/);
     if (m === null) continue;
     const name = m[1];
     if (name === undefined) continue;

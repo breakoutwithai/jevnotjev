@@ -163,6 +163,11 @@ case "\${1:-} \${2:-}" in
         log "\$*"
         echo "   7 /    7  .deploy/tests/ship.test.sh"
         echo "\${FAKE_GATE_LINE:-gate: PASS files=3 tests=42}"
+        # The checkout changing while the gate runs: a new commit, or a tracked edit.
+        if [ -n "\${FAKE_GATE_ADVANCES_HEAD:-}" ]; then
+            echo moved >> README && "${REAL_GIT}" commit -qam "moved during the gate" >/dev/null 2>&1
+        fi
+        [ -z "\${FAKE_GATE_DIRTIES_TREE:-}" ] || echo dirty >> README
         exit "\${FAKE_BUN_GATE_RC:-0}" ;;
     "scripts/deploy-checklist.ts --checklist")
         log "\$*"
@@ -1107,6 +1112,25 @@ out="$(FAKE_GIT_STATUS_FAIL_FROM=2 ship --dry-run 2>&1)"; rc=$?
 [[ $rc -eq 1 && "$out" == *"release checklist could not be built"* && "$out" != *"tracked tree clean: yes"* && -z "$(calls)" ]] \
     && ok "sweep #4/#5: --dry-run also refuses a checklist it could not build" \
     || nope "sweep #4/#5 dry-run: rc=${rc}, calls '$(calls)'; out: ${out}"
+drop_fixture
+
+# Re-sweep #1: the checks are bound to the revision they ran on. HEAD moving (or the tree changing)
+# while the gate runs must stop the deploy before any module script, naming both SHAs.
+make_fixture
+out="$(FAKE_GATE_ADVANCES_HEAD=1 ship 2>&1)"; rc=$?
+moved="$("$REAL_GIT" -C "$WORK" rev-parse HEAD)"
+[[ $rc -eq 1 && "$moved" != "$C2" && "$out" == *"checked ${C2}"* && "$out" == *"now ${moved}"* \
+   && -z "$(calls)" && -z "$(tags)" && -z "$(pushes)" ]] \
+    && grep -qx 'rmdir /var/lock/jevnotjev-ship' "${FAKE_STATE}/ssh.log" \
+    && ok "re-sweep #1: HEAD advancing during the gate exits 1 naming both SHAs; no module script, no tag, lock released" \
+    || nope "re-sweep #1 HEAD moved: rc=${rc}, calls '$(calls)', moved ${moved}; out: ${out}"
+drop_fixture
+
+make_fixture
+out="$(FAKE_GATE_DIRTIES_TREE=1 ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && "$out" == *"tracked tree changed during the checks"* && -z "$(calls)" && -z "$(tags)" ]] \
+    && ok "re-sweep #1: a tracked edit during the gate exits 1 before any module script" \
+    || nope "re-sweep #1 tree dirtied: rc=${rc}, calls '$(calls)'; out: ${out}"
 drop_fixture
 
 for step in INSTALL:"bun install --frozen-lockfile" TYPECHECK:"bun run typecheck" GATE:"bun scripts/gate.ts"; do

@@ -8,7 +8,8 @@
   if (!D || !D.runs || !D.runs.length) { $("msg").textContent = "The replay data did not load."; return; }
 
   var BADGE = { missing: "&#8709; Missing row", cost: "$? Cost missing", unlabelled: "? Unlabelled", "below-minimum": "&#9660; Too few to decide" };
-  var KIND = { llm: "an LLM prompt", rule: "a keyword rule", jev: "Jev" };
+  var KIND = { llm: "an LLM prompt", rule: "a keyword rule", jev: "Jev", decisions: "the OpenAI Decisions API" };
+  var P = window.JNJ_PAGING;
   var wanted = new URLSearchParams(location.search).get("run");
   var cur = D.runs.some(function (r) { return r.key === wanted; }) ? wanted : D.runs[0].key;
   var pos = 0, timer = null;
@@ -20,8 +21,9 @@
   function mark(row) {
     if (!row) return { k: "missing", t: "&#8709; No row recorded" };
     if (!row.answered) return { k: "missing", t: "&#8856; " + esc(row.outcome) };
-    if (row.truth === "accept") return { k: "accept", t: "&#10003; Accepted" };
-    if (row.truth === "reject") return { k: "reject", t: "&#10005; Rejected" };
+    var by = row.generated ? " &middot; generator label" : "";
+    if (row.truth === "accept") return { k: "accept", t: "&#10003; Accepted" + by };
+    if (row.truth === "reject") return { k: "reject", t: "&#10005; Rejected" + by };
     if (row.labelNote) return { k: "unlabelled", t: "? " + esc(row.labelNote) };
     return { k: "unlabelled", t: "? Unlabelled" };
   }
@@ -103,14 +105,16 @@
   function sourceNotes(r) {
     var labelled = r.rows.filter(function (x) { return x.truth !== ""; }).length;
     var dropped = r.rows.filter(function (x) { return x.labelNote !== ""; }).length;
+    var generated = r.rows.filter(function (x) { return x.generated; }).length;
     return [
       'Records: <a href="' + esc(r.sourceUrl) + '">' + esc(r.file) + "</a>, run " + esc(r.runId) + ", " + r.rows.length + " rows over " + r.cases.length + " cases.",
       "Labels: " + labelled + " of " + r.rows.length + " rows labelled (" + esc(r.labelSource) + "). Accepted means a person marked that answer as right." +
         (dropped ? " " + plural(dropped, "row has an AI label", "rows have an AI label") + " no person reviewed: not counted." : ""),
       "Cost: the sum of each method's cost_usd cells. A method with any blank cost shows incomplete with the known part, never a guessed total.",
       "A verdict needs " + D.min_paired + " paired labelled cases per question: the same case answered by Jev and by the other method, both labelled.",
+      generated ? plural(generated, "row carries", "rows carry") + " a synthetic generator label: the case was written to be a yes or a no, so the label is known by construction and no person reviewed it. The tally counts these labels; a verdict does not." : "",
       r.synthetic ? "Synthetic: this file's outputs and costs were typed by hand to show the flags; no model was called." : "Recorded: every answer and cost came from a real call during the run.",
-    ].map(function (t) { return "<li>" + t + "</li>"; }).join("");
+    ].filter(function (t) { return t !== ""; }).map(function (t) { return "<li>" + t + "</li>"; }).join("");
   }
 
   function renderStatic() {
@@ -119,7 +123,13 @@
     document.querySelectorAll("[data-run]").forEach(function (b) { b.addEventListener("click", function () { switchTo(b.getAttribute("data-run")); }); });
     renderFlags();
     $("headline").innerHTML = headline(r);
-    $("strip").innerHTML = r.cases.map(function (c, i) { return '<button type="button" data-step="' + i + '" aria-label="Go to case ' + (i + 1) + " of " + r.cases.length + ": " + esc(c.key) + '"></button>'; }).join("");
+    /* One square per case in a short run. A paged run shows its head cases as squares and then one chip per page, so
+     * 300 cases are 39 buttons that wrap inside the width instead of 300 slivers. */
+    $("strip").classList.toggle("paged", !!r.pageBy);
+    $("strip").innerHTML = P.groups(r.pageBy, r.cases.length).map(function (g) {
+      var label = g.single ? "Go to case " + (g.end + 1) + " of " + r.cases.length + ": " + r.cases[g.end].key : "Go to cases " + (g.from + 1) + " to " + (g.to + 1) + " of " + r.cases.length;
+      return '<button type="button" data-step="' + g.end + '" data-from="' + g.from + '" data-to="' + g.to + '" aria-label="' + esc(label) + '">' + (g.single || !r.pageBy ? "" : (g.from + 1) + "-" + (g.to + 1)) + "</button>";
+    }).join("");
     document.querySelectorAll("[data-step]").forEach(function (b) { b.addEventListener("click", function () { stop(); go(Number(b.getAttribute("data-step"))); }); });
     $("totals").innerHTML = r.methods.map(function (m) { return totalRow(r, m); }).join("");
     document.querySelectorAll("[data-metric]").forEach(function (b) { b.addEventListener("click", function () { showMetric(b, b.getAttribute("data-m"), b.getAttribute("data-s")); }); });
@@ -141,15 +151,49 @@
   }
 
   function renderDeck() {
-    var r = run(), c = r.cases[pos];
-    $("counter").innerHTML = "Case " + String(pos + 1).padStart(2, "0") + " <small>of " + r.cases.length + "</small>";
-    document.querySelectorAll("[data-step]").forEach(function (b, i) {
-      b.className = i === pos ? "now" : i < pos ? "seen" : "";
-      if (i === pos) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
+    var r = run(), c = r.cases[pos], rg = P.range(pos, r.pageBy, r.cases.length), page = rg.to > rg.from;
+    $("counter").innerHTML = "Case " + String(pos + 1).padStart(2, "0") + " <small>of " + r.cases.length + (page ? ", cases " + (rg.from + 1) + "-" + (rg.to + 1) + " played" : "") + "</small>";
+    document.querySelectorAll("[data-step]").forEach(function (b) {
+      var to = Number(b.getAttribute("data-to")), from = Number(b.getAttribute("data-from"));
+      var here = pos >= from && pos <= to;
+      b.className = here ? "now" : to < pos ? "seen" : "";
+      if (here) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
     });
-    $("msg").innerHTML = '<p class="q">Case ' + esc(c.key) + " &middot; " + esc(c.question) + '</p><p class="said">&ldquo;' + esc(c.input) + "&rdquo;</p>";
+    var spot = r.spotlight && r.spotlight.caseKey === c.key ? r.spotlight : null;
+    $("msg").innerHTML = '<p class="q">Case ' + esc(c.key) + " &middot; " + esc(c.question) + '</p><p class="said">&ldquo;' + esc(c.input) + "&rdquo;</p>" +
+      (spot ? '<button type="button" class="spot" id="spot">' + esc(spot.heading) + ": open the CV</button>" : "");
+    if (spot) $("spot").addEventListener("click", function () { stop(); openCv(r, spot); });
+    $("arms").style.gridTemplateColumns = window.innerWidth > 820 ? "repeat(" + r.methods.length + ", minmax(0, 1fr))" : "";
     $("arms").innerHTML = r.methods.map(function (m) { return armCell(r, c, m); }).join("");
+    $("pageList").hidden = !page;
+    $("pageList").innerHTML = page ? pageList(r, rg) : "";
     $("tally").innerHTML = r.steps[pos].map(function (t) { return tallyRow(r, t); }).join("");
+  }
+
+  /* The cases of the page just played, one line each: which method got each right. */
+  function pageList(r, rg) {
+    var rows = "";
+    for (var i = rg.from; i <= rg.to; i++) {
+      var c = r.cases[i];
+      var cells = r.methods.map(function (m) {
+        var row = r.rows.filter(function (x) { return x.caseKey === c.key && x.answerer === m; })[0], k = mark(row);
+        return '<td class="pm"><span class="v ' + k.k + '" title="' + esc(nameOf(r, m)) + '">' + (k.k === "accept" ? "&#10003;" : k.k === "reject" ? "&#10005;" : "&#8709;") + "</span></td>";
+      }).join("");
+      rows += '<tr><td class="pn">' + (i + 1) + '</td><td class="pi">' + esc(c.input) + "</td>" + cells + "</tr>";
+    }
+    var heads = r.methods.map(function (m) { return '<th scope="col" class="pm">' + esc(nameOf(r, m)) + "</th>"; }).join("");
+    return '<table><caption class="tag">This step: cases ' + (rg.from + 1) + " to " + (rg.to + 1) + '</caption><thead><tr><th scope="col" class="pn">#</th><th scope="col" class="pi">CV</th>' + heads + "</tr></thead><tbody>" + rows + "</tbody></table>";
+  }
+
+  /* The spotlight CV as a document card in a dialog. The text is the case input from the records, split at line breaks. */
+  function openCv(r, spot) {
+    var c = r.cases[caseIndex(r, spot.caseKey)], lines = String(c.input).split("\n");
+    var dlg = $("cv");
+    var head = lines[0] || "";
+    $("cvBody").innerHTML = '<p class="cv-kicker">' + esc(spot.heading) + '</p><div class="cv-sheet" id="cvSheet"><h3 class="cv-name">' + esc(head) + "</h3>" +
+      lines.slice(1).map(function (l) { return '<p class="cv-line">' + esc(l) + "</p>"; }).join("") + "</div>" +
+      '<p class="cv-foot">' + r.methods.map(function (m) { var row = r.rows.filter(function (x) { return x.caseKey === c.key && x.answerer === m; })[0]; return esc(nameOf(r, m)) + ": " + (row ? esc(word(row.output || row.outcome)) : "no row"); }).join(" &middot; ") + "</p>";
+    if (typeof dlg.showModal === "function") { if (!dlg.open) dlg.showModal(); } else dlg.setAttribute("open", "");
   }
 
   function logRow(r, x, gapLine) {
@@ -207,7 +251,7 @@
   }
 
   function stop() { if (timer) { clearInterval(timer); timer = null; } $("play").textContent = "Play"; }
-  function go(i) { var r = run(); pos = Math.max(0, Math.min(r.cases.length - 1, i)); renderDeck(); }
+  function go(i) { var r = run(); pos = P.blockEnd(Math.max(0, Math.min(r.cases.length - 1, i)), r.pageBy, r.cases.length); renderDeck(); }
   function switchTo(key) {
     stop(); cur = key; pos = 0; $("log").hidden = true;
     var u = new URL(location.href); u.searchParams.set("run", key); history.replaceState(null, "", u);
@@ -215,15 +259,27 @@
   }
 
   $("first").addEventListener("click", function () { stop(); go(0); });
-  $("prev").addEventListener("click", function () { stop(); go(pos - 1); });
-  $("next").addEventListener("click", function () { stop(); go(pos + 1); });
-  $("last").addEventListener("click", function () { stop(); go(run().cases.length - 1); });
+  function step(dir) { var r = run(); go(dir > 0 ? P.next(pos, r.pageBy, r.cases.length) : P.prev(pos, r.pageBy, r.cases.length)); }
+  $("prev").addEventListener("click", function () { stop(); step(-1); });
+  $("next").addEventListener("click", function () { stop(); step(1); });
+  $("last").addEventListener("click", function () { stop(); go(run().cases.length - 1); atSpotlight(false); });
+  /* Playing into the spotlight case opens its popup, once, and stops there. */
+  function atSpotlight(auto) {
+    var r = run(), s = r.spotlight;
+    if (s && r.cases[pos].key === s.caseKey && auto) openCv(r, s);
+  }
+  $("cvClose").addEventListener("click", function () { var d = $("cv"); if (typeof d.close === "function") d.close(); else d.removeAttribute("open"); });
   $("play").addEventListener("click", function () {
     if (timer) { stop(); return; }
     if (pos >= run().cases.length - 1) go(0);
     $("play").textContent = "Pause";
-    timer = setInterval(function () { if (pos >= run().cases.length - 1) { stop(); return; } go(pos + 1); },
-      matchMedia("(prefers-reduced-motion: reduce)").matches ? 1400 : 600);
+    var tick = Number(new URLSearchParams(location.search).get("tick"));
+    var ms = tick >= 100 && tick <= 5000 ? tick : matchMedia("(prefers-reduced-motion: reduce)").matches ? 1400 : 600;
+    timer = setInterval(function () {
+      if (pos >= run().cases.length - 1) { stop(); return; }
+      step(1);
+      if (pos >= run().cases.length - 1) { stop(); atSpotlight(true); }
+    }, ms);
   });
   renderStatic();
   document.body.setAttribute("data-ready", "1");

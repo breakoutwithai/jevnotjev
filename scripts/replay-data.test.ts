@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readDictRows } from "../src/format/csv.ts";
 import { RUN_SOURCES } from "../src/evidence/replay.ts";
-import { REPLAY_OUT, REPO_URL, buildReplay, readReplayScript, replayScript } from "./replay-data.ts";
+import { REPLAY_OUT, REPO_URL, buildCustom, buildReplay, parseCustomArgs, readReplayScript, replayScript } from "./replay-data.ts";
 
 const ROOT = join(import.meta.dir, "..");
 const SITE = join(ROOT, "site", "replay");
@@ -59,14 +59,14 @@ describe("replay page data (scripts/replay-data.ts)", () => {
     const el = (id: string) => {
       const found = els.get(id);
       if (found !== undefined) return found;
-      const made = { innerHTML: "", textContent: "", hidden: false, classList: { toggle: () => {} }, addEventListener: () => {}, focus: () => {} };
+      const made = { innerHTML: "", textContent: "", hidden: false, classList: { toggle: () => {} }, style: {}, addEventListener: () => {}, focus: () => {} };
       els.set(id, made);
       return made;
     };
     const document = { getElementById: el, querySelectorAll: () => [], body: { setAttribute: () => {} } };
     const location = { search: "?run=d12", href: "https://example.test/replay/?run=d12" };
     const page = new Function("window", "document", "location", "history", "matchMedia", "CSS", await readFile(join(SITE, "replay.js"), "utf8"));
-    page({ JNJ_REPLAY: data }, document, location, { replaceState: () => {} }, () => ({ matches: false }), { escape: (s: string) => s });
+    page(await pageWindow(data), document, location, { replaceState: () => {} }, () => ({ matches: false }), { escape: (s: string) => s });
     const html = el("limits").innerHTML;
     expect(html).toContain("<li>Limitation: Uneven cases across methods: llm 4, rule 3, jev 4.</li>");
     expect(html).toContain("<li>Limitation: Missing costs: llm 1 row with no cost, so spend is incomplete.</li>");
@@ -87,16 +87,70 @@ describe("replay page data (scripts/replay-data.ts)", () => {
     const el = (id: string) => {
       const found = els.get(id);
       if (found !== undefined) return found;
-      const made = { innerHTML: "", textContent: "", hidden: false, classList: { toggle: () => {} }, addEventListener: () => {}, focus: () => {} };
+      const made = { innerHTML: "", textContent: "", hidden: false, classList: { toggle: () => {} }, style: {}, addEventListener: () => {}, focus: () => {} };
       els.set(id, made);
       return made;
     };
     const document = { getElementById: el, querySelectorAll: () => [], body: { setAttribute: () => {} } };
     const location = { search: "?run=d12", href: "https://example.test/replay/?run=d12" };
     const page = new Function("window", "document", "location", "history", "matchMedia", "CSS", await readFile(join(SITE, "replay.js"), "utf8"));
-    page({ JNJ_REPLAY: data }, document, location, { replaceState: () => {} }, () => ({ matches: false }), { escape: (s: string) => s });
+    page(await pageWindow(data), document, location, { replaceState: () => {} }, () => ({ matches: false }), { escape: (s: string) => s });
     const html = el("limits").innerHTML;
     expect(html).toContain(`Question ${q.runId} p.v1 ${q.questionId}: `);
     expect(html).toContain(`Question ${q.runId} p.v2 ${q.questionId}: `);
   });
+
+  test("[unit] RD-6 one-run mode parses its flags and refuses an unknown flag, a bad page size and a missing file", () => {
+    const a = parseCustomArgs(["--records", "/x/records.csv", "--out", "/y/data.js", "--key", "k", "--page-by", "10", "--extra", "decisions", "--spotlight", "tim-q2=Heading here"]);
+    expect(a.source.pageBy).toBe(10);
+    expect(a.source.extraMethods).toEqual(["decisions"]);
+    expect(a.source.spotlight).toEqual({ caseKey: "tim-q2", heading: "Heading here" });
+    expect(a.source.file).toBe("records.csv");
+    expect(() => parseCustomArgs(["--records", "a.csv", "--out", "b.js", "--page-by", "0"])).toThrow("positive");
+    expect(() => parseCustomArgs(["--records", "a.csv", "--out", "b.js", "--bogus", "1"])).toThrow("bad argument");
+    expect(() => parseCustomArgs(["--records", "a.csv"])).toThrow("required");
+  });
+
+  test("[integration] RD-7 a paged run with a spotlight case, an unreviewed extra method and generator labels reaches the page data", async () => {
+    const header = "format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output,confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms,labelled_by,labelled_at,label_blind";
+    const rows: string[] = [];
+    for (let i = 1; i <= 25; i++) {
+      for (const [who, out] of [["llm", "yes"], ["rule", "no"], ["jev", "yes"]] as const) {
+        const label = out === "yes" ? "accept" : "reject";
+        rows.push(`jnj-record/1.1,r1,p1,c${i},"CV ${i}\nline two",q1,Q?,yes|no,${who},m-${who},${out},,${label},agent,1,1,0.001,1,synthetic-generator,2026-10-08,false`);
+      }
+    }
+    const path = join(import.meta.dir, `.tmp-rd7-${process.pid}.csv`);
+    await Bun.write(path, `${header}\n${rows.join("\n")}\n`);
+    try {
+      const a = parseCustomArgs(["--records", path, "--out", "unused.js", "--page-by", "10", "--extra", "decisions", "--spotlight", "c25=Recruit"]);
+      const run = (await buildCustom(a)).runs[0];
+      if (run === undefined) throw new Error("no run");
+      expect(run.pageBy).toBe(10);
+      expect(run.spotlight?.caseKey).toBe("c25");
+      expect(run.methods).toEqual(["llm", "rule", "jev", "decisions"]);
+      expect(run.rows.every((r) => r.generated === true && r.truth !== "")).toBe(true);
+      expect(run.stats.find((s) => s.method === "jev")?.accept).toBe(25);
+      expect(run.stats.find((s) => s.method === "rule")?.accept).toBe(0);
+      expect(run.flags.map((f) => f.id)).toContain("custom-decisions-no-rows");
+      expect(run.flags.some((f) => f.kind === "unlabelled" && f.method === "jev")).toBe(true);
+    } finally {
+      await Bun.file(path).delete();
+    }
+  });
+
+  test("[unit] RD-8 the committed runs carry no paging and no generator-label marks", async () => {
+    const built = await buildReplay();
+    for (const r of built.runs) {
+      expect(r.pageBy).toBeUndefined();
+      expect(r.rows.some((x) => x.generated === true)).toBe(false);
+    }
+  });
 });
+
+/** The page's window: the data, plus the paging helpers the page script loads before itself. */
+async function pageWindow(data: unknown): Promise<Record<string, unknown>> {
+  const win: Record<string, unknown> = { JNJ_REPLAY: data };
+  new Function("window", await readFile(join(SITE, "paging.js"), "utf8"))(win);
+  return win;
+}

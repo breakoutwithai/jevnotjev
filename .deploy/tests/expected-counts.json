@@ -1,5 +1,5 @@
 {
-  "minFiles": 95,
+  "minFiles": 96,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -21,7 +21,8 @@
     "scripts/gate.test.ts": 14,
     "scripts/hand-check.test.ts": 24,
     "scripts/little-shop-seating.test.ts": 14,
-    "scripts/replay-data.test.ts": 5,
+    "scripts/replay-data.test.ts": 8,
+    "scripts/replay-paging.test.ts": 7,
     "scripts/result-view.test.ts": 46,
     "scripts/shows/build-posters.test.ts": 12,
     "scripts/site-content.test.ts": 9,
@@ -81,7 +82,7 @@
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/labelling-card.test.ts": 4,
     "src/docs/stack.test.ts": 18,
-    "src/evidence/replay.test.ts": 17,
+    "src/evidence/replay.test.ts": 18,
     "src/format/cli.test.ts": 3,
     "src/format/provenance.test.ts": 45,
     "src/format/quote.test.ts": 4,

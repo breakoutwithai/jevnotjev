@@ -46,6 +46,8 @@
 .tk-story { color: var(--ink-soft); }
 .tk-methods { margin: 0; padding-left: 18px; }
 .tk-verdict { font-weight: 700; }
+.tk-headline { margin: 0; font: 700 18px/1.2 var(--serif); }
+.tk-why { color: var(--ink-soft); }
 .tk-date, .tk-count { color: var(--muted); font-size: 13px !important; }
 .tk-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: auto !important; padding-top: 6px; }
 .tk-pick { font-weight: 700; }

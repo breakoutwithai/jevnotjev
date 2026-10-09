@@ -1,11 +1,14 @@
-// Builds the Little Shop of Horrors page's data (site/little-shop/shop-data.js) and its verdict bundle
+// Builds the Little Shop of Horrors page, its data (site/little-shop/shop-data.js), and its verdict bundle
 // (site/little-shop/verdict.js) from the recorded UC13 run. Nothing is typed by hand: every message, answer, name,
 // model and spend comes from records.csv, and the verdict is src/core bundled for the browser.
 //
-//   bun scripts/uc13/little-shop.ts           write both files
-//   bun scripts/uc13/little-shop.ts --check   exit 1 if either committed file differs from a fresh build
+//   bun scripts/uc13/little-shop.ts           write the three files
+//   bun scripts/uc13/little-shop.ts --check   exit 1 if a committed file differs from a fresh build
 
-import { join } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
+import { escapeHtml } from "../../src/browser/results-loader.ts";
+import { summariseRun } from "../shows/build-posters.ts";
+import type { RunSummary } from "../../src/shows/posters.ts";
 import { CASE_IDS, loadExample, parseRecords } from "./arms.ts";
 import { ARMS, EXAMPLE_DIR, RECORDS_REL, RUN_DIR, buildDemo, checkInputs, recordedInputs } from "./stage-demo.ts";
 
@@ -87,13 +90,40 @@ export async function bundleVerdict(entry = VERDICT_ENTRY): Promise<string> {
   return `${VERDICT_HEADER}${await out.text()}`;
 }
 
-export interface Built { readonly data: string; readonly verdict: string }
+export interface Built { readonly data: string; readonly verdict: string; readonly page: string }
 
-export async function build(runDir = RUN_DIR, exampleDir = EXAMPLE_DIR): Promise<Built> {
-  const csv = await Bun.file(join(runDir, "records.csv")).text();
-  const recorded = recordedInputs(await Bun.file(join(runDir, "label.html")).text());
+const RESULT_START = "<!-- BEGIN RECORDED RUN RESULT -->";
+const RESULT_END = "<!-- END RECORDED RUN RESULT -->";
+
+/** Replace the generated official-run summary; the visitor's own verdict below still comes from their calls. */
+function resultPage(page: string, run: RunSummary): string {
+  const line = (className: string, value: string | null): string => value === null ? "" : `<p class="${className}">${escapeHtml(value)}</p>`;
+  const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${run.folder.slice(0, 10)}T00:00:00Z`));
+  const block = [RESULT_START,
+    '<div class="recorded-run" aria-label="Recorded run result">',
+    line("recorded-caption", `Recorded run, ${date}: ${run.labelledPaired} paired cases`),
+    run.headline === null ? "" : `<h3 class="recorded-headline">${escapeHtml(run.headline)}</h3>`,
+    line("recorded-verdict", run.verdict === null ? null : `Verdict: ${run.verdict}`),
+    line("recorded-why", run.whyNotYet),
+    "</div>", RESULT_END].filter(Boolean).join("\n        ");
+  const start = page.indexOf(RESULT_START);
+  const end = page.indexOf(RESULT_END);
+  if ((start < 0) !== (end < 0)) throw new Error("little-shop page has one recorded-result marker but not the other");
+  if (start >= 0) return page.slice(0, start) + block + page.slice(end + RESULT_END.length);
+  const anchor = '<ul class="arms" id="arms"></ul>';
+  if (!page.includes(anchor)) throw new Error("little-shop page has no programme arms anchor");
+  return page.replace(anchor, `${block}\n        ${anchor}`);
+}
+
+export async function build(runDir = RUN_DIR, exampleDir = EXAMPLE_DIR, sourcePage?: string): Promise<Built> {
+  const dir = resolve(runDir);
+  const csv = await Bun.file(join(dir, "records.csv")).text();
+  const recorded = recordedInputs(await Bun.file(join(dir, "label.html")).text());
   checkInputs(recorded, await loadExample(exampleDir), parseRecords(csv));
-  return { data: shopScript(buildData(csv, recorded.factSheet)), verdict: await bundleVerdict() };
+  const summary = await summariseRun(ROOT, relative(join(ROOT, "docs", "product", "runs"), dir));
+  if (summary === null) throw new Error(`no run summary for ${dir}`);
+  const run = { ...summary, folder: basename(dir) };
+  return { data: shopScript(buildData(csv, recorded.factSheet)), verdict: await bundleVerdict(), page: resultPage(sourcePage ?? await Bun.file(PAGE).text(), run) };
 }
 
 export const USAGE = "usage: bun scripts/uc13/little-shop.ts [--check]";
@@ -109,10 +139,12 @@ if (import.meta.main) {
     const stale: string[] = [];
     if ((await Bun.file(DATA_OUT).text().catch(() => "")) !== built.data) stale.push("site/little-shop/shop-data.js");
     if ((await Bun.file(VERDICT_OUT).text().catch(() => "")) !== built.verdict) stale.push("site/little-shop/verdict.js");
+    if ((await Bun.file(PAGE).text().catch(() => "")) !== built.page) stale.push("site/little-shop/index.html");
     console.log(stale.length === 0 ? "little shop up to date" : `stale: ${stale.join(", ")}; run bun scripts/uc13/little-shop.ts`);
     process.exit(stale.length === 0 ? 0 : 1);
   }
   await Bun.write(DATA_OUT, built.data);
   await Bun.write(VERDICT_OUT, built.verdict);
-  console.log(`wrote site/little-shop/shop-data.js (${built.data.length} bytes) and site/little-shop/verdict.js (${built.verdict.length} bytes)`);
+  await Bun.write(PAGE, built.page);
+  console.log(`wrote site/little-shop/shop-data.js (${built.data.length} bytes), site/little-shop/verdict.js (${built.verdict.length} bytes), and site/little-shop/index.html`);
 }

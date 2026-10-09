@@ -13,6 +13,54 @@ const office = page.slice(page.indexOf('<section class="office" id="tickets"'), 
 const script = readFileSync(join(ROOT, "site", "shows", "office.js"), "utf8");
 const committed: { posters: Poster[] } = JSON.parse(readFileSync(POSTERS_OUT, "utf8"));
 
+class FakeElement {
+  children: FakeElement[] = [];
+  className = "";
+  textContent = "";
+  value = "";
+  href = "";
+  hidden = false;
+  disabled = false;
+  checked = false;
+  id = "";
+  private attributes = new Map<string, string>();
+  constructor(readonly tag: string) {}
+  appendChild(child: FakeElement): FakeElement { this.children.push(child); return child; }
+  setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
+  getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
+  set innerHTML(_value: string) { this.children = []; }
+  get options(): FakeElement[] { return this.children.filter((child) => child.tag === "option"); }
+  addEventListener(_name: string, _handler: () => void): void {}
+  querySelector(selector: string): FakeElement | null {
+    if (selector === ".tk-submit") return submit;
+    if (selector === "input[name=kind]:checked") return showKind;
+    return null;
+  }
+  querySelectorAll(_selector: string): FakeElement[] { return []; }
+}
+const submit = new FakeElement("button");
+const showKind = new FakeElement("input");
+showKind.value = "show";
+
+async function renderedOffice(): Promise<FakeElement> {
+  const wrap = new FakeElement("div");
+  const form = new FakeElement("form");
+  const select = new FakeElement("select");
+  const ids = new Map<string, FakeElement>([["tkForm", form], ["tkShow", select], ["tkPosters", wrap]]);
+  for (const id of ["tkShowField", "tkWebsiteField", "tkIdeaField", "tkChosen"]) ids.set(id, new FakeElement("div"));
+  const document = {
+    getElementById: (id: string) => ids.get(id) ?? null,
+    createElement: (tag: string) => new FakeElement(tag),
+    querySelectorAll: (_selector: string) => [],
+  };
+  const fetch = async (url: string) => url === "shows/posters.json"
+    ? { ok: true, json: async () => committed }
+    : { ok: false, json: async () => ({}) };
+  new Function("document", "fetch", "crypto", script)(document, fetch, crypto);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  return wrap;
+}
+
 describe("ticket office form", () => {
   test("[unit] T1 form has exactly one required field, email", () => {
     expect(office.length).toBeGreaterThan(0);
@@ -25,6 +73,26 @@ describe("ticket office form", () => {
 });
 
 describe("posters", () => {
+  test("[integration] S6 UC13 poster derives headline and projection while retaining the verdict", async () => {
+    const run = await summariseRun(ROOT, "2026-10-01-uc13-shop-bot");
+    expect(run?.headline).toBe("Same accuracy as the LLM (38/40 each) at 1/79th of the cost");
+    expect(run?.verdict).toBe("not enough evidence");
+    expect(run?.whyNotYet).toBe("Not proven yet: the lower bound of Jev minus the LLM is -0.11, below the -0.10 margin, on 40 paired cases. If the next cases split the same way, about 6 more paired cases would bring it inside the margin.");
+  });
+
+  test("[integration] S6 office renders real poster headline, verdict and projection in order", async () => {
+    const wrap = await renderedOffice();
+    const card = wrap.children.find((child) => child.getAttribute("data-id") === "uc13");
+    expect(card).toBeDefined();
+    const measured = card?.children.filter((child) => ["tk-headline", "tk-verdict", "tk-why"].includes(child.className));
+    expect(measured?.map((child) => child.className)).toEqual(["tk-headline", "tk-verdict", "tk-why"]);
+    expect(measured?.map((child) => child.textContent)).toEqual([
+      "Same accuracy as the LLM (38/40 each) at 1/79th of the cost",
+      "Verdict: not enough proof yet: test more cases",
+      "Not proven yet: the lower bound of Jev minus the LLM is -0.11, below the -0.10 margin, on 40 paired cases. If the next cases split the same way, about 6 more paired cases would bring it inside the margin.",
+    ]);
+  });
+
   test("[unit] T2 posters generated, at most 10, none typed", async () => {
     const built = await buildPosters(ROOT);
     expect(readFileSync(POSTERS_OUT, "utf8")).toBe(render(built));
@@ -72,6 +140,27 @@ function fixture(edit: (cell: (name: string) => string, set: (name: string, valu
 }
 
 describe("summariseRun on fixtures", () => {
+  test("[integration] S6 an extra unlabelled dear LLM row cannot inflate a paired headline", async () => {
+    const root = fixture(() => {});
+    const file = join(root, "docs/product/runs/2026-01-01-fixture/records.csv");
+    const { header, rows } = readDictRows(readFileSync(file, "utf8"));
+    const head = header ?? [];
+    const extra = [...(rows.find((r) => r.fields[head.indexOf("answerer")] === "llm")?.fields ?? [])];
+    extra[head.indexOf("case_id")] = "m41";
+    extra[head.indexOf("label")] = "";
+    extra[head.indexOf("label_source")] = "";
+    extra[head.indexOf("label_blind")] = "";
+    extra[head.indexOf("labelled_by")] = "";
+    extra[head.indexOf("labelled_at")] = "";
+    extra[head.indexOf("cost_usd")] = "10";
+    writeFileSync(file, formatRows([head, ...rows.map((r) => r.fields), extra]));
+    expect((await summariseRun(root, "2026-01-01-fixture"))?.headline).toBe("Same accuracy as the LLM (38/40 each) at 1/79th of the cost");
+    const dear = fixture((cell, set) => { if (cell("answerer") === "jev") set("cost_usd", "0.01"); });
+    const dearFile = join(dear, "docs/product/runs/2026-01-01-fixture/records.csv");
+    const dearRows = readDictRows(readFileSync(dearFile, "utf8"));
+    writeFileSync(dearFile, formatRows([dearRows.header ?? [], ...dearRows.rows.map((r) => r.fields), extra]));
+    expect((await summariseRun(dear, "2026-01-01-fixture"))?.headline).toBeNull();
+  });
   test("[unit] an unreviewed agent label is not counted as checked or paired", async () => {
     const root = fixture((_cell, set) => { set("label_source", "agent"); set("label_blind", "true"); });
     const run = await summariseRun(root, "2026-01-01-fixture");

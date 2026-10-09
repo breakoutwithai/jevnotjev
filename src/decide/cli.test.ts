@@ -466,3 +466,41 @@ describe("canary key", () => {
     }
   });
 });
+
+describe("verdict stdout is flushed before exit", () => {
+  test("[integration] CLI-PIPE-1 piped verdict output on a file over 1 MB equals the redirected output and parses", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jnj-cli-pipe-"));
+    try {
+      const lines = readFileSync(join(ROOT, "examples", "d15-sheet-check", "records.csv"), "utf8").split("\n");
+      const header = lines[0] ?? "";
+      const q1 = lines.slice(1).filter((line) => line.includes(",q1,"));
+      expect(q1.length).toBeGreaterThan(100);
+      const rows: string[] = [header];
+      for (let copy = 0; copy < 150; copy++) {
+        for (const line of q1) rows.push(line.replace(/^([^,]*,[^,]*,[^,]*,)(c\d+)(,)/, `$1$2x${copy}$3`));
+      }
+      const big = join(dir, "big.csv");
+      writeFileSync(big, rows.join("\n") + "\n");
+      const env = { PATH: process.env.PATH ?? "" };
+
+      // A real OS pipe, as in `bun cli.ts verdict big.csv | wc -c`: Bun.spawn's own stdout pipe drains fast enough to hide the bug.
+      const through = join(dir, "through-pipe.json");
+      const piped = Bun.spawn(["bash", "-c", 'set -o pipefail; "$0" "$1" verdict "$2" | cat > "$3"', process.execPath, CLI, big, through], { cwd: ROOT, env, stdout: "pipe", stderr: "pipe" });
+      const pipedCode = await piped.exited;
+      const pipedBytes = readFileSync(through);
+
+      const target = join(dir, "out.json");
+      const redirected = Bun.spawn([process.execPath, CLI, "verdict", big], { cwd: ROOT, env, stdout: Bun.file(target), stderr: "pipe" });
+      const redirectedCode = await redirected.exited;
+      const fileBytes = readFileSync(target);
+
+      expect(fileBytes.length).toBeGreaterThan(1_000_000);
+      expect(pipedBytes.length).toBe(fileBytes.length);
+      expect(pipedCode).toBe(redirectedCode);
+      expect([0, 3, 4]).toContain(pipedCode);
+      expect(field(json(pipedBytes.toString("utf8")), "exit_code")).toBe(pipedCode);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

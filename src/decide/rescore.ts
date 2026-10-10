@@ -67,6 +67,7 @@ export async function rescoreInput(command: Extract<Command, { readonly cmd: "re
     }
   }
   const records = await input(file);
+  if (records.text.length === 0) throw new RescoreInputError(`${file}: the file is empty: expected a header row and data rows`);
   const truthFile = await input(labels);
   if (truthFile.text.trim() === "") throw new RescoreInputError("labels.csv is empty: no case_id truth rows");
   try {

@@ -39,6 +39,23 @@ function withTemp(run: (dir: string) => void): void {
 }
 
 describe("rescore CLI", () => {
+  test("[integration] D17-EMPTY rejects zero-byte records before manifest parsing", () => withTemp((dir) => {
+    const records = join(dir, "empty-records.csv");
+    const manifest = join(dir, "invalid-manifest.json");
+    writeFileSync(records, "");
+    writeFileSync(manifest, "not json");
+    const expected = `ERROR ${records}: the file is empty: expected a header row and data rows\n`;
+    for (const args of [
+      ["rescore", records, "--labels", LABELS],
+      ["rescore", records, "--labels", LABELS, "--manifest", manifest],
+    ]) {
+      const result = cli(args);
+      expect(result.code).toBe(2);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe(expected);
+    }
+  }));
+
   test("[integration] D17-UC13 two runs are byte identical and match published figures", () => {
     const first = cli(["rescore", RECORDS, "--labels", LABELS]);
     const second = cli(["rescore", RECORDS, "--labels", LABELS]);

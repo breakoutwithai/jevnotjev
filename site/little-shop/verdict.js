@@ -902,6 +902,8 @@
     return countsAsTruth(row) ? row.get("label") ?? null : null;
   }
   function validate(csvText) {
+    if (csvText.trim() === "")
+      return { errors: [`file is empty; its first row must be the header ${COLUMNS.join(",")}`], gaps: [], rows: [] };
     const { errors, rows } = readRows(csvText);
     const gaps = [];
     if (errors.length > 0)
@@ -1255,8 +1257,10 @@
       const add = MIN_PAIRED - n;
       return notEnough("too-few-paired", `${n} paired Jev and LLM cases, fewer than ${MIN_PAIRED}; add ${plural(add)}`, add);
     }
-    if (pair.jev.accepted === 0 && pair.otherArm.accepted === 0) {
-      return notEnough("both-zero-accepted", "Jev and the LLM both have 0 accepted; neither answer is being accepted");
+    const jevAccepted = pair.jev.accepted;
+    const llmAccepted = pair.otherArm.accepted;
+    if (jevAccepted === 0 && llmAccepted === 0) {
+      return notEnough("zero-accepted", `Jev and the LLM both accepted 0 of ${pair.n} paired cases, so neither has a cost per accepted answer; check both arms' labels`);
     }
     const cases = pairedCostCases(pair);
     if (cases === null || pair.jev.spend.kind !== "complete" || pair.otherArm.spend.kind !== "complete") {
@@ -1269,8 +1273,9 @@
     if (jevVsLlm.upper < -MARGIN) {
       return dont("jev-clearly-worse", `Jev is clearly worse than the LLM (upper bound of Jev minus LLM ${fixed(jevVsLlm.upper)}, below -0.10)`);
     }
-    if (pair.jev.accepted === 0) {
-      return dont("jev-zero-accepted", `Jev has 0 accepted and the LLM has ${pair.otherArm.accepted}`);
+    if (jevAccepted === 0 || llmAccepted === 0) {
+      const n = pair.n;
+      return jevAccepted === 0 ? notEnough("zero-accepted", `Jev accepted 0 of ${n} paired cases and the LLM ${llmAccepted}, so Jev has no cost per accepted answer; check the Jev labels`) : notEnough("zero-accepted", `the LLM accepted 0 of ${n} paired cases and Jev ${jevAccepted}, so the LLM has no cost per accepted answer; check the LLM labels`);
     }
     const finiteSpend = Number.isFinite(pair.jev.spend.usd) && Number.isFinite(pair.otherArm.spend.usd);
     if (!finiteSpend || !Number.isFinite(largestCaseCost(cases) * cases.length)) {

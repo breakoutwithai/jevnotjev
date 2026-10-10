@@ -25,15 +25,15 @@ export type Condition =
   | "no-jev-rows"
   | "no-llm-rows"
   | "too-few-paired"
-  | "both-zero-accepted"
   | "cost-missing"
-  // Rule 1 cost guards (verdict-rules.md "Cost guards and tolerance"), checked after the cost-free rule-2 conditions
+  // Rule 1 guards checked after the cost-free rule-2 conditions: 0 accepted on either side, then the cost guards
+  // (verdict-rules.md "Zero accepted" and "Cost guards and tolerance")
+  | "zero-accepted"
   | "no-cost-ratio"
   | "cost-not-finite"
   // Rule 2
   | "rule-within-margin"
   | "jev-clearly-worse"
-  | "jev-zero-accepted"
   | "jev-clearly-dearer"
   // Rule 3
   | "use-jev"
@@ -195,14 +195,18 @@ export function verdict(metrics: CohortMetrics, seed: number, fileArms: readonly
     const add = MIN_PAIRED - n;
     return notEnough("too-few-paired", `${n} paired Jev and LLM cases, fewer than ${MIN_PAIRED}; add ${plural(add)}`, add);
   }
-  if (pair.jev.accepted === 0 && pair.otherArm.accepted === 0) {
-    return notEnough("both-zero-accepted", "Jev and the LLM both have 0 accepted; neither answer is being accepted");
+  // Both at 0 accepted: nothing either answered was accepted, so no rule-2 condition (not even "a free rule does the
+  // job") applies. Checked here, before cost-missing; one side at 0 is checked after the accept-rate conditions below.
+  const jevAccepted = pair.jev.accepted;
+  const llmAccepted = pair.otherArm.accepted;
+  if (jevAccepted === 0 && llmAccepted === 0) {
+    return notEnough("zero-accepted", `Jev and the LLM both accepted 0 of ${pair.n} paired cases, so neither has a cost per accepted answer; check both arms' labels`);
   }
   const cases = pairedCostCases(pair);
   if (cases === null || pair.jev.spend.kind !== "complete" || pair.otherArm.spend.kind !== "complete") {
     return notEnough("cost-missing", "cost missing on a paired Jev or LLM row, so the cost ratio would look complete on partial spend");
   }
-  // Rule 2: don't use Jev, conditions in the order verdict-rules.md lists them. The first three do not read cost.
+  // Rule 2: don't use Jev, conditions in the order verdict-rules.md lists them. The first two do not read cost.
   const dont = (condition: Condition, reason: string, numbers?: VerdictNumbers): Verdict =>
     result("don't use Jev", 2, condition, reason, numbers === undefined ? {} : { numbers });
   if (rule.kind === "compared" && rule.lower > -MARGIN) {
@@ -211,8 +215,13 @@ export function verdict(metrics: CohortMetrics, seed: number, fileArms: readonly
   if (jevVsLlm.upper < -MARGIN) {
     return dont("jev-clearly-worse", `Jev is clearly worse than the LLM (upper bound of Jev minus LLM ${fixed(jevVsLlm.upper)}, below -0.10)`);
   }
-  if (pair.jev.accepted === 0) {
-    return dont("jev-zero-accepted", `Jev has 0 accepted and the LLM has ${pair.otherArm.accepted}`);
+  // One side at 0 accepted: no cost per accepted answer, so no cost ratio. Checked after the two accept-rate
+  // conditions so a file where Jev is clearly worse keeps that verdict; reported as rule 1 (verdict-rules.md "Zero accepted").
+  if (jevAccepted === 0 || llmAccepted === 0) {
+    const n = pair.n;
+    return jevAccepted === 0
+      ? notEnough("zero-accepted", `Jev accepted 0 of ${n} paired cases and the LLM ${llmAccepted}, so Jev has no cost per accepted answer; check the Jev labels`)
+      : notEnough("zero-accepted", `the LLM accepted 0 of ${n} paired cases and Jev ${jevAccepted}, so the LLM has no cost per accepted answer; check the LLM labels`);
   }
 
   // Cost guards (verdict-rules.md "Cost guards and tolerance"). Only the conditions below read a cost ratio, so the guards come after

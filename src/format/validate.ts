@@ -166,6 +166,8 @@ export function truthLabel(row: Row): Value {
 
 /** Errors, gaps and rows for one file's text. Errors make the file invalid; gaps are missing costs or labels. */
 export function validate(csvText: string): Validation {
+  // A 0-byte or whitespace-only file has no header to check: say so, not "missing columns".
+  if (csvText.trim() === "") return { errors: [`file is empty; its first row must be the header ${COLUMNS.join(",")}`], gaps: [], rows: [] };
   const { errors, rows } = readRows(csvText);
   const gaps: string[] = [];
   if (errors.length > 0) return { errors, gaps, rows };

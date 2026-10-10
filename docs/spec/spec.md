@@ -57,8 +57,8 @@ Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test
 
 ### R6 Verdict (must)
 - R6.a The four rules of `verdict-rules.md:53-69` are applied in order, first match wins.
-- R6.b Each rule-1 condition on its own gives "not enough evidence": no `jev` or no `llm` rows; fewer than 30 paired Jev and LLM cases; both 0 accepted; a paired Jev or LLM row with no cost.
-- R6.c Each rule-2 condition on its own gives "don't use Jev": rule within 10 points of Jev on 30 or more paired rule cases; Jev clearly worse than the LLM; Jev 0 accepted and the LLM some; cost ratio lower bound above 1.
+- R6.b Each rule-1 condition on its own gives "not enough evidence": no `jev` or no `llm` rows; fewer than 30 paired Jev and LLM cases; both 0 accepted; a paired Jev or LLM row with no cost; Jev or the LLM alone at 0 accepted (checked after the rule-within-margin and Jev-clearly-worse conditions, D16).
+- R6.c Each rule-2 condition on its own gives "don't use Jev": rule within 10 points of Jev on 30 or more paired rule cases; Jev clearly worse than the LLM; cost ratio lower bound above 1.
 - R6.d "Use Jev" only when the lower bound of (Jev minus LLM) is above -0.10 and the cost ratio is 0.8 or less with its upper bound below 1.
 - R6.e Otherwise "not enough evidence", naming the unmet condition and, for a short file, "add N more labelled cases".
 - R6.f A file with no Jev rows reads "not enough evidence: no Jev results", never "don't use Jev".

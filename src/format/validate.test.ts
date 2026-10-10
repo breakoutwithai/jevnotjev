@@ -125,8 +125,16 @@ describe("format validator", () => {
     expect(validate(write(readExample(), columns)).errors).toEqual(["header: missing columns ['label']"]);
   });
 
-  test("[unit] empty file is an error", () => {
+  test("[unit] header-only file is an error", () => {
     expect(validate(write([])).errors).toEqual(["file has no data rows"]);
+  });
+
+  test.each([["zero bytes", ""], ["whitespace only", " \n\t\r\n"]])("[unit] D16 %s file says it is empty and names the header", (_, text) => {
+    expect(validate(text)).toEqual({
+      errors: [`file is empty; its first row must be the header ${COLUMNS.join(",")}`],
+      gaps: [],
+      rows: [],
+    });
   });
 
   test.each([

@@ -58,7 +58,7 @@ describe("#134 Opening Night", () => {
   test("[unit] #134 row 8 refuses an unknown reason", () => expect(hasError(readOpeningNight("x — not enough evidence\nPer-pair, uncorrected comparison. not enough evidence: invented reason"))).toBe(true));
   test("[unit] #134 row 9 refuses two pairs", () => expect(hasError(readOpeningNight(`${pairedText}\n${pairedText}`))).toBe(true));
   test("[unit] #134 row 10 reason pattern record covers every Condition", () => {
-    expect(Object.keys(REASON_PATTERNS)).toHaveLength(16);
+    expect(Object.keys(REASON_PATTERNS)).toHaveLength(15);
     expect(Object.keys(CONDITION_VERDICTS)).toEqual(Object.keys(REASON_PATTERNS));
     expect(pairedVerdict.reason).toMatch(REASON_PATTERNS[pairedVerdict.condition]);
     const v = realVerdict(rows.filter((r) => r.answerer === "jev"));

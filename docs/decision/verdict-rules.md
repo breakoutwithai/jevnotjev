@@ -29,7 +29,7 @@ cost_ratio       = cost_per_accepted(jev) / cost_per_accepted(llm)
                    = infinity when Jev has 0 accepted and the LLM has 1 or more
 ```
 
-Both at 0 accepted has no ratio; rule 1 stops before it is needed.
+The verdict never reads a ratio when either side has 0 accepted: it stops at [Zero accepted](#zero-accepted) first. The two special values are used only inside the resample below.
 
 Accept-rate difference, Jev minus the other answerer, on paired cases:
 
@@ -53,7 +53,7 @@ Cost ratio interval: resample the paired cases with replacement 2,000 times, rec
 ## Verdict, in order, first match wins
 Jev is compared with the LLM on accept rate and cost, and with the rule on accept rate only (a rule costs 0, so Jev can never be cheaper than it).
 
-1. **Not enough evidence** when any of these holds (two cost guards also give this verdict, checked after the first three rule-2 conditions: see [Cost guards and tolerance](#cost-guards-and-tolerance)):
+1. **Not enough evidence** when any of these holds (one side at 0 accepted and two cost guards also give this verdict, checked after the first two rule-2 conditions: see [Zero accepted](#zero-accepted) and [Cost guards and tolerance](#cost-guards-and-tolerance)):
    - no `jev` rows, or no `llm` rows;
    - fewer than 30 paired labelled cases between Jev and the LLM;
    - Jev and the LLM both have 0 accepted;
@@ -61,7 +61,6 @@ Jev is compared with the LLM on accept rate and cost, and with the rule on accep
 2. **Don't use Jev** when any of these holds:
    - the rule is within the margin of Jev: lower bound of (rule minus Jev) above -0.10, on at least 30 paired Jev and rule cases. A free rule that does the job wins. Skipped when there are fewer than 30 paired rule cases or no rule rows.
    - Jev is clearly worse than the LLM: upper bound of (Jev minus LLM) below -0.10.
-   - Jev has 0 accepted and the LLM has 1 or more.
    - Jev is clearly dearer: the cost ratio's lower bound is above 1.
 3. **Use Jev** when all of these hold:
    - lower bound of (Jev minus LLM) above -0.10;
@@ -73,7 +72,7 @@ The screen shows the rule that fired and every number behind it.
 ## Edge cases
 | Case | What happens |
 |---|---|
-| An answerer has 0 accepted | `cost_per_accepted` shows "undefined (0 accepted)" with total spend. Its accept rate is shown with an upper bound of 3/n (rule of three: 0 of 30 means at most 10% at 95%). Jev at 0 with the LLM above 0: don't use Jev. Both at 0: not enough evidence, and the screen says neither answer is being accepted. |
+| An answerer has 0 accepted | `cost_per_accepted` shows "undefined (0 accepted)" with total spend. Its accept rate is shown with an upper bound of 3/n (rule of three: 0 of 30 means at most 10% at 95%). Both at 0: not enough evidence (`zero-accepted`), whatever the rule does. Jev at 0 or the LLM at 0: not enough evidence (`zero-accepted`), naming the arm, its count and the labels to check, unless the rule is within the margin or Jev is clearly worse (see [Zero accepted](#zero-accepted)). |
 | Fewer than 30 paired cases | Not enough evidence. The screen shows the paired count and "add N more labelled cases". Rates and costs are still shown, marked "below minimum". |
 | A cost is missing | The file stays valid (format rule). A missing cost on a paired Jev or LLM row makes that answerer's cost `incomplete` and the verdict not enough evidence, because a cost ratio built on partial spend would look complete. A missing cost on an unlabelled or unpaired row is not used and does not block the verdict. |
 | No rule rows, or fewer than 30 paired rule cases | The rule comparison is skipped and the screen says so; the verdict comes from Jev against the LLM. |
@@ -100,13 +99,22 @@ Cost side, list prices read from the vendors' pages on 2026-09-29, for a 400-tok
 - The 0.5 outcome correlation is assumed; it is re-measured on the first real labelled file.
 - How long a person takes to label one answer is unmeasured, so whether 30 cases fits one sitting is open.
 
+## Zero accepted
+Added for D16. When Jev, the LLM, or both have 0 accepted on the paired cases, that side has no cost per accepted answer, so there is no cost ratio to judge on. The verdict is "not enough evidence", reported as rule 1 with the one condition `zero-accepted`, and the reason names the arm, both counts and the labels to check:
+
+- Jev 0: "Jev accepted 0 of 30 paired cases and the LLM 1, so Jev has no cost per accepted answer; check the Jev labels".
+- The LLM 0: "the LLM accepted 0 of 30 paired cases and Jev 1, so the LLM has no cost per accepted answer; check the LLM labels".
+- Both 0: "Jev and the LLM both accepted 0 of 30 paired cases, so neither has a cost per accepted answer; check both arms' labels".
+
+**Order.** Both at 0 is checked in rule 1, after too few paired cases and before a missing cost: with nothing accepted, no rule-2 condition applies, not even "a free rule does the job". One side at 0 runs after the two rule-2 conditions that do not read cost (rule within the margin, Jev clearly worse), and before the cost guards. So Jev at 0 of 30 against the LLM at 30 of 30 still gets "don't use Jev" (Jev clearly worse), while the LLM at 0 with Jev at some can no longer reach "use Jev" on a ratio of 0.
+
 ## Cost guards and tolerance
 Added with the verdict code (#48). These cover files whose costs give no usable ratio; they never change a verdict on real per-call prices.
 
 - **Two more ways to reach "not enough evidence"**, reported as rule 1:
   - `no-cost-ratio`: Jev and the LLM both cost $0 per accepted answer on the paired cases, so there is no ratio.
   - `cost-not-finite`: either paired spend is not a finite number, or n times the largest single paired cost is not (a resample can repeat that case n times), or the ratio of the two costs per accepted overflows.
-- **Order.** Both guards run after the four rule-1 conditions above and after the first three rule-2 conditions (rule within the margin, Jev clearly worse, Jev 0 accepted), which do not read cost. They run before "Jev clearly dearer" and rule 3, the first conditions that need the ratio. So a file where Jev is clearly worse still gets "don't use Jev" even when every cost is $0.
+- **Order.** Both guards run after the four rule-1 conditions above, the first two rule-2 conditions (rule within the margin, Jev clearly worse), which do not read cost, and the one-side zero-accepted check. They run before "Jev clearly dearer" and rule 3, the first conditions that need the ratio. So a file where Jev is clearly worse still gets "don't use Jev" even when every cost is $0.
 - **Tolerance.** Spend is a sum of floating-point numbers, so a ratio that is exactly 0.8 in decimal can come out as 0.8000000000000002. Every comparison with 0.8 or 1 uses a tolerance of 1e-9 (`COST_TOLERANCE` in `src/core/verdict.ts`): ratio 0.8 or less means at most 0.8 + 1e-9; the upper bound is below 1 when under 1 - 1e-9; the lower bound is above 1 when over 1 + 1e-9; "cheaper, but by less than 20%" applies when the ratio is under 1 - 1e-9.
 - **Extra resample redraws**, as in "Cost ratio interval": a resample where both cost $0 per accepted, or whose ratio overflows, is drawn again.
 

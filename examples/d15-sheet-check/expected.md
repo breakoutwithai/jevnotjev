@@ -10,7 +10,7 @@ One run (`run-d15`), one prompt version (`sheet-check.v1`), 42 fictional order n
 | Question | Cases | Answerers | What it reaches |
 |---|---|---|---|
 | q1: Is this message asking for a refund or exchange? | c01 to c42 | jev, rule, llm | rule 3, use Jev; phi 0.505 after the n/2 reduction; rule comparison on 42 cases |
-| q2: Does the message say when the order arrived? | c01 to c30 | jev, llm | rule 2, Jev clearly worse; Jev has 0 accepted |
+| q2: Does the message say when the order arrived? | c01 to c30 | jev, llm | rule 2, Jev clearly worse |
 | q3: Is the customer unhappy? | c01 to c30 | jev, llm | rule 1, cost missing; the n/2 reduction stops at 0, so phi is 0 |
 
 ## What is real and what is invented
@@ -96,7 +96,7 @@ a = 0, b = 0, c = 24, d = 6. p1 = 0, p2 = 0.8, diff = **-0.8**.
 - phi: the root is sqrt(0 x 30 x 24 x 6) = 0, so **phi = 0**.
 - lower = -0.8 - sqrt(0^2 + 0.104948928227^2) = **-0.904948928227**; upper = -0.8 + sqrt(0.113513393174^2 + 0.173056964131^2) = **-0.593036227169**.
 
-**Verdict: don't use Jev (rule 2, Jev clearly worse).** Rule 1 passes (30 paired, the LLM has 24 accepted, costs complete). The rule comparison is skipped (no rule rows). The upper bound -0.593 is below -0.10, which comes before "Jev has 0 accepted" in the rule 2 order. No cost ratio is computed.
+**Verdict: don't use Jev (rule 2, Jev clearly worse).** Rule 1 passes (30 paired, the LLM has 24 accepted, costs complete). The rule comparison is skipped (no rule rows). The upper bound -0.593 is below -0.10, which comes before the one-side 0 accepted check (rule 1, verdict-rules.md "Zero accepted"). No cost ratio is computed.
 
 ## q3: unhappy customer
 30 paired cases (c01 to c30). Jev accepts c01 to c25; the LLM accepts c01 to c22 and c26 to c29. The Jev row for c30 has no cost.

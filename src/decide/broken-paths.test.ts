@@ -14,7 +14,9 @@ const KEY = "private-test-key";
 const RECORD_COMMANDS: readonly (readonly [string, number])[] = [["verdict", 2], ["validate", 1]];
 const EMPTY_CASE_FILES: readonly (readonly [string, string])[] = [["empty.jsonl", ""], ["empty.json", "[]"]];
 const VERDICT_CASES: readonly (readonly [string, string, string])[] = [
-  ["r1-both-zero.csv", "both-zero-accepted", "not enough evidence: Jev and the LLM both have 0 accepted; neither answer is being accepted"],
+  ["r1-both-zero.csv", "zero-accepted", "not enough evidence: Jev and the LLM both accepted 0 of 30 paired cases, so neither has a cost per accepted answer; check both arms' labels"],
+  ["r1-jev-zero.csv", "zero-accepted", "not enough evidence: Jev accepted 0 of 30 paired cases and the LLM 1, so Jev has no cost per accepted answer; check the Jev labels"],
+  ["r1-llm-zero.csv", "zero-accepted", "not enough evidence: the LLM accepted 0 of 30 paired cases and Jev 1, so the LLM has no cost per accepted answer; check the LLM labels"],
   ["r1-no-jev.csv", "no-jev-rows", "not enough evidence: no Jev results"],
   ["r1-no-llm.csv", "no-llm-rows", "not enough evidence: no LLM results"],
 ];
@@ -53,6 +55,20 @@ test("[integration] D16-CLI-EMPTY empty records name the empty file and use verd
       const got = await cli([command, file]);
       expect(got.code).toBe(code);
       expect(got.err).toBe(`ERROR ${command === "verdict" ? `${file}: ` : ""}the file is empty: expected a header row and data rows\n`);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("[integration] D16-CLI-BLANK whitespace-only records say the file is empty and name the header", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jnj-broken-cli-"));
+  try {
+    const file = join(dir, "blank.csv");
+    writeFileSync(file, " \n\n");
+    const header = readFileSync(join(EXAMPLES, "r1-both-zero.csv"), "utf8").split("\n")[0];
+    for (const [command, code] of RECORD_COMMANDS) {
+      const got = await cli([command, file]);
+      expect(got.code).toBe(code);
+      expect(got.err).toBe(`ERROR file is empty; its first row must be the header ${header}\n`);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

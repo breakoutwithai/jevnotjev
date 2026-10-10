@@ -85,11 +85,12 @@ export const FIXTURES: readonly Fixture[] = [
   build({ name: "r1-no-llm", pairs: only("jev", firstAccept(27, 30)), rule: firstAccept(10, 30) }),
   build({ name: "r1-29-paired", pairs: quad(26, 2, 1, 0) }),
   build({ name: "r1-both-zero", pairs: quad(0, 0, 0, 30) }),
+  build({ name: "r1-jev-zero", pairs: quad(0, 0, 1, 29) }),
+  build({ name: "r1-llm-zero", pairs: quad(0, 1, 0, 29) }),
   build({ name: "r1-cost-missing", pairs: quad(27, 3, 0, 0), jevCostMissing: [0] }),
   // Rule 2: don't use Jev, one file per condition.
   build({ name: "r2-rule-within-margin", pairs: quad(27, 0, 0, 3), rule: firstAccept(30, 30) }),
   build({ name: "r2-jev-worse", pairs: quad(15, 0, 15, 0) }),
-  build({ name: "r2-jev-zero", pairs: quad(0, 0, 1, 29) }),
   build({ name: "r2-jev-dearer", pairs: quad(27, 3, 0, 0), jevCost: 0.004 }),
   // Rule 3: use Jev. The rule is compared and is far behind.
   build({ name: "r3-use-jev", pairs: quad(27, 3, 0, 0), rule: firstAccept(10, 30) }),

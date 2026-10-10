@@ -12,7 +12,9 @@ const QUESTIONS = [{ name: "q", type: "noul", instructions: "Is this useful?" }]
 const CASE = { id: "c1", input: "A shop question" };
 const KEY = "private-test-key";
 const VERDICT_CASES: readonly (readonly [string, string, string])[] = [
-  ["r1-both-zero.csv", "both-zero-accepted", "not enough evidence: Jev and the LLM both have 0 accepted; neither answer is being accepted"],
+  ["r1-both-zero.csv", "zero-accepted", "not enough evidence: Jev and the LLM both accepted 0 of 30 paired cases, so neither has a cost per accepted answer; check both arms' labels"],
+  ["r1-jev-zero.csv", "zero-accepted", "not enough evidence: Jev accepted 0 of 30 paired cases and the LLM 1, so Jev has no cost per accepted answer; check the Jev labels"],
+  ["r1-llm-zero.csv", "zero-accepted", "not enough evidence: the LLM accepted 0 of 30 paired cases and Jev 1, so the LLM has no cost per accepted answer; check the LLM labels"],
   ["r1-no-jev.csv", "no-jev-rows", "not enough evidence: no Jev results"],
   ["r1-no-llm.csv", "no-llm-rows", "not enough evidence: no LLM results"],
 ];

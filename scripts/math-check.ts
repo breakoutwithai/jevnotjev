@@ -531,22 +531,21 @@ export function handCohort(cohort: Cohort, bootstrap: (cohort: Cohort) => Bootst
     fig("addN", MIN_PAIRED - n, "abs");
     return early(nee, 1, "too-few-paired");
   }
-  if (pair.jev.accepted === 0 && pair.other.accepted === 0) return early(nee, 1, "both-zero-accepted");
   if (pair.jev.missing > 0 || pair.other.missing > 0) return early(nee, 1, "cost-missing");
   if (ruleLower !== null && ruleLower > -MARGIN) return early(dont, 2, "rule-within-margin");
   if (nc.upper < -MARGIN) return early(dont, 2, "jev-clearly-worse");
-  if (pair.jev.accepted === 0) return early(dont, 2, "jev-zero-accepted");
+  // Either side at 0 accepted has no cost per accepted answer: rule 1, after the two accept-rate conditions.
+  if (pair.jev.accepted === 0 || pair.other.accepted === 0) return early(nee, 1, "zero-accepted");
   const jevSpend = pair.jev.spend;
   const llmSpend = pair.other.spend;
   let largest = 0;
   for (const [jc, oc] of pair.costs.values()) largest = Math.max(largest, jc ?? 0, oc ?? 0);
   if (!Number.isFinite(jevSpend) || !Number.isFinite(llmSpend) || !Number.isFinite(largest * n)) return early(nee, 1, "cost-not-finite");
-  // cost_ratio: 0 when the LLM has 0 accepted; infinity when the LLM costs $0 per accepted and Jev more.
+  // cost_ratio (both sides have 1 or more accepted here): infinity when the LLM costs $0 per accepted and Jev more.
   const jevPer = jevSpend / pair.jev.accepted;
-  const llmPer = pair.other.accepted === 0 ? Number.NaN : llmSpend / pair.other.accepted;
+  const llmPer = llmSpend / pair.other.accepted;
   let ratio: number | null;
-  if (pair.other.accepted === 0) ratio = 0;
-  else if (jevPer === 0 && llmPer === 0) ratio = null;
+  if (jevPer === 0 && llmPer === 0) ratio = null;
   else if (llmPer === 0) ratio = Number.POSITIVE_INFINITY;
   else ratio = Number.isFinite(jevPer / llmPer) ? jevPer / llmPer : null;
   if (ratio === null) return early(nee, 1, jevSpend === 0 && llmSpend === 0 ? "no-cost-ratio" : "cost-not-finite");

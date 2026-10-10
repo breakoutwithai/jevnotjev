@@ -17,10 +17,11 @@ Cost per accepted = spend / accepted; ratio = Jev cost per accepted / LLM cost p
 | r1-no-llm | 30 | no LLM rows | 27 | | 30 x 0.00002 = $0.0006 | | 0.0006 / 27 = $0.0000222 | | | | 10 | 10/30 - 27/30 = -0.5667 |
 | r1-29-paired | 29 | 26 2 1 0 | 28 | 27 | 29 x 0.00002 = $0.00058 | 29 x 0.002 = $0.058 | $0.0000207 | $0.0021481 | 0.00058/28 / (0.058/27) = 0.0096 | 28/29 - 27/29 = 0.0345 | | |
 | r1-both-zero | 30 | 0 0 0 30 | 0 | 0 | $0.0006 | $0.06 | undefined (0 accepted) | undefined (0 accepted) | none | 0 | | |
+| r1-jev-zero | 30 | 0 0 1 29 | 0 | 1 | $0.0006 | $0.06 | undefined (0 accepted) | $0.06 | none (Jev 0 accepted) | 0/30 - 1/30 = -0.0333 | | |
+| r1-llm-zero | 30 | 0 1 0 29 | 1 | 0 | $0.0006 | $0.06 | $0.0006 | undefined (0 accepted) | none (LLM 0 accepted) | 1/30 - 0/30 = 0.0333 | | |
 | r1-cost-missing | 30 | 27 3 0 0 | 30 | 27 | incomplete (c01 Jev cost missing; $0.00058 known) | $0.06 | incomplete | $0.0022222 | none | 0.1 | | |
 | r2-rule-within-margin | 30 | 27 0 0 3 | 27 | 27 | $0.0006 | $0.06 | $0.0000222 | $0.0022222 | 0.01 | 0 | 30 | 30/30 - 27/30 = 0.1 (rule-first a=27 b=3 c=0 d=0) |
 | r2-jev-worse | 30 | 15 0 15 0 | 15 | 30 | $0.0006 | $0.06 | $0.00004 | $0.002 | 0.02 | 15/30 - 30/30 = -0.5 | | |
-| r2-jev-zero | 30 | 0 0 1 29 | 0 | 1 | $0.0006 | $0.06 | undefined (0 accepted) | $0.06 | infinity | 0/30 - 1/30 = -0.0333 | | |
 | r2-jev-dearer | 30 | 27 3 0 0 | 30 | 27 | 30 x 0.004 = $0.12 | $0.06 | $0.004 | $0.0022222 | 0.004 / 0.0022222 = 1.8 | 0.1 | | |
 | r3-use-jev | 30 | 27 3 0 0 | 30 | 27 | $0.0006 | $0.06 | $0.00002 | $0.0022222 | 0.00002 / 0.0022222 = 0.009 | 0.1 | 10 | 10/30 - 30/30 = -0.6667 (rule-first a=10 b=0 c=20 d=0) |
 | r4-accept-rate | 30 | 27 0 0 3 | 27 | 27 | $0.0006 | $0.06 | $0.0000222 | $0.0022222 | 0.01 | 0 | | |
@@ -36,7 +37,8 @@ Newcombe method 10 bounds, to 4 places, as `newcombePaired()` in `src/core/calc.
 | 27 3 0 0 | Jev minus LLM in r1-cost-missing, r2-jev-dearer, r3-use-jev, r4-cheaper-under-20; rule minus Jev in r2-rule-within-margin | -0.0310 | 0.2562 |
 | 27 0 0 3 | Jev minus LLM in r2-rule-within-margin, r4-accept-rate | -0.1097 | 0.1097 |
 | 15 0 15 0 | r2-jev-worse | -0.6685 | -0.2969 |
-| 0 0 1 29 | r2-jev-zero | -0.1667 | 0.0834 |
+| 0 0 1 29 | r1-jev-zero | -0.1667 | 0.0834 |
+| 0 1 0 29 | r1-llm-zero | -0.0834 | 0.1667 |
 | 10 0 20 0 | rule minus Jev in r3-use-jev | -0.8077 | -0.4548 |
 
 Cost ratio intervals need no simulation to check, because in these files only the LLM's accepted count k varies between resamples (Jev accepts every case, or accepts exactly the cases the LLM does), so each resample's ratio is a fixed number times k:
@@ -58,11 +60,12 @@ First match wins, in the order of `verdict-rules.md:53-69`.
 | r1-no-jev | not enough evidence | 1 | no `jev` rows: "no Jev results", never don't use Jev (R6.f) |
 | r1-no-llm | not enough evidence | 1 | no `llm` rows |
 | r1-29-paired | not enough evidence | 1 | 29 paired Jev and LLM cases, fewer than 30: add 1 more labelled case |
-| r1-both-zero | not enough evidence | 1 | Jev and the LLM both have 0 accepted |
+| r1-both-zero | not enough evidence | 1 | `zero-accepted`: Jev and the LLM both accepted 0 of 30 |
+| r1-jev-zero | not enough evidence | 1 | `zero-accepted`: Jev 0, LLM 1. The upper bound 0.0834 is not below -0.10 and there are no rule rows, so no rule-2 condition fires first |
+| r1-llm-zero | not enough evidence | 1 | `zero-accepted`: LLM 0, Jev 1. Before D16 this reached use Jev on a cost ratio of 0 |
 | r1-cost-missing | not enough evidence | 1 | the c01 Jev row is paired and has no cost |
 | r2-rule-within-margin | don't use Jev | 2 | 30 paired rule cases; lower bound of rule minus Jev -0.0310, above -0.10 |
 | r2-jev-worse | don't use Jev | 2 | upper bound of Jev minus LLM -0.2969, below -0.10 |
-| r2-jev-zero | don't use Jev | 2 | Jev 0 accepted, LLM 1. On its own: the upper bound 0.0834 is not below -0.10 and there are no rule rows |
 | r2-jev-dearer | don't use Jev | 2 | cost ratio 1.8, lower bound 1.6, above 1 |
 | r3-use-jev | use Jev | 3 | lower bound -0.0310 above -0.10; ratio 0.009, 0.8 or less, upper bound 0.0100 below 1. The rule is compared (30 cases) and its lower bound -0.8077 is not above -0.10 |
 | r4-accept-rate | not enough evidence | 4 | lower bound of Jev minus LLM -0.1097, not above -0.10 (identical answers on 30 cases at 90% are not enough to show the 10-point margin) |

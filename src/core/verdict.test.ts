@@ -53,7 +53,9 @@ describe("verdict: rule 1, not enough evidence", () => {
       ["r1-no-jev", "no-jev-rows", "no Jev results"],
       ["r1-no-llm", "no-llm-rows", "no LLM results"],
       ["r1-29-paired", "too-few-paired", "add 1 more labelled case"],
-      ["r1-both-zero", "both-zero-accepted", "neither answer is being accepted"],
+      ["r1-both-zero", "zero-accepted", "Jev and the LLM both accepted 0 of 30 paired cases"],
+      ["r1-jev-zero", "zero-accepted", "Jev accepted 0 of 30 paired cases and the LLM 1"],
+      ["r1-llm-zero", "zero-accepted", "the LLM accepted 0 of 30 paired cases and Jev 1"],
       ["r1-cost-missing", "cost-missing", "cost missing"],
     ];
     for (const [name, condition, phrase] of expected) {
@@ -112,11 +114,32 @@ describe("verdict: rule 2, don't use Jev", () => {
     expect(got.numbers.jevVsLlm?.upper).toBeLessThan(-0.1);
   });
 
-  test("[unit] R6.c Jev 0 accepted and the LLM some", async () => {
-    const got = await d08("r2-jev-zero");
-    expect(got).toMatchObject({ verdict: "don't use Jev", rule: 2, condition: "jev-zero-accepted" });
-    // On its own: the accept-rate upper bound is not below -0.10, so the earlier condition does not fire.
+  test("[unit] D16 Jev 0 accepted and the LLM some is not enough evidence, not don't use Jev", async () => {
+    const got = await d08("r1-jev-zero");
+    expect(got).toMatchObject({ verdict: "not enough evidence", rule: 1, condition: "zero-accepted", addN: null });
+    // The accept-rate upper bound is not below -0.10, so jev-clearly-worse does not fire first.
     expect(got.numbers.jevVsLlm?.upper).toBeGreaterThan(-0.1);
+    expect(got.numbers.costRatio).toBeNull();
+  });
+
+  test("[unit] D16 the LLM 0 accepted and Jev some is not enough evidence, never use Jev on a ratio of 0", async () => {
+    const got = await d08("r1-llm-zero");
+    expect(got).toMatchObject({ verdict: "not enough evidence", rule: 1, condition: "zero-accepted", addN: null });
+    expect(got.numbers.jevVsLlm?.lower).toBeGreaterThan(-0.1);
+    expect(got.numbers.costRatio).toBeNull();
+  });
+
+  test("[unit] D16 order: Jev 0 of 30 with the LLM 30 of 30 is still don't use Jev, Jev clearly worse", async () => {
+    // The zero guard runs after rule-within-margin and jev-clearly-worse, so an accept-rate verdict is kept.
+    const [got] = await verdictsOf(render(build({ name: "jev-zero-llm-all", pairs: quad(0, 0, 30, 0) })));
+    expect(got).toMatchObject({ verdict: "don't use Jev", rule: 2, condition: "jev-clearly-worse" });
+    expect(got?.numbers.jevAccepted).toBe(0);
+    expect(got?.numbers.llmAccepted).toBe(30);
+  });
+
+  test("[unit] D16 order: the LLM 0 accepted with all costs $0 is zero-accepted, before the cost guards", async () => {
+    const [got] = await verdictsOf(render(build({ name: "llm-zero-free", pairs: quad(0, 20, 0, 10), jevCost: 0, llmCost: 0 })));
+    expect(got).toMatchObject({ verdict: "not enough evidence", rule: 1, condition: "zero-accepted" });
   });
 
   test("[unit] R6.c cost ratio lower bound above 1", async () => {
@@ -142,7 +165,7 @@ describe("verdict: rules 3 and 4", () => {
     const others = readdirSync(D08)
       .filter((name) => name.endsWith(".csv") && name !== "r3-use-jev.csv")
       .map((name) => name.slice(0, -4));
-    expect(others).toHaveLength(11);
+    expect(others).toHaveLength(12);
     for (const name of others) expect({ name, verdict: (await d08(name)).verdict }).not.toEqual({ name, verdict: "use Jev" });
   });
 
@@ -170,7 +193,7 @@ describe("verdict: order", () => {
     expect(got?.numbers.jevVsLlm?.upper).toBeLessThan(-0.1);
   });
 
-  test("[unit] R6.a rule 2 conditions in order: the rule within margin fires before Jev 0 accepted", async () => {
+  test("[unit] R6.a rule within margin fires before the zero-accepted guard", async () => {
     // Rule 3 of 30, Jev 0 of 30: rule minus Jev is 0.1 and its lower bound is above -0.10.
     const rule = Array.from({ length: 30 }, (_, i): Label => (i < 3 ? "A" : "R"));
     const [got] = await verdictsOf(render(build({ name: "order2", pairs: quad(0, 0, 1, 29), rule })));
@@ -239,7 +262,7 @@ describe("verdict: cost guards come after the cost-free rules", () => {
         checked += 1;
       }
     }
-    expect(checked).toBe(18);
+    expect(checked).toBe(19);
   });
 });
 
@@ -264,9 +287,16 @@ describe("verdict: the reason of each of the five branches names the verdict and
     expect(got.reason).toContain("upper bound of Jev minus LLM -0.30");
   });
 
-  test("[unit] D08 don't use Jev, Jev 0 accepted: reason starts with the verdict and holds both accepted counts", async () => {
-    const got = await d08("r2-jev-zero");
-    expect(got.reason).toBe("don't use Jev: Jev has 0 accepted and the LLM has 1");
+  test("[unit] D16 0 accepted: the reason names the arm, both counts and the labels to check", async () => {
+    expect((await d08("r1-jev-zero")).reason).toBe(
+      "not enough evidence: Jev accepted 0 of 30 paired cases and the LLM 1, so Jev has no cost per accepted answer; check the Jev labels",
+    );
+    expect((await d08("r1-llm-zero")).reason).toBe(
+      "not enough evidence: the LLM accepted 0 of 30 paired cases and Jev 1, so the LLM has no cost per accepted answer; check the LLM labels",
+    );
+    expect((await d08("r1-both-zero")).reason).toBe(
+      "not enough evidence: Jev and the LLM both accepted 0 of 30 paired cases, so neither has a cost per accepted answer; check both arms' labels",
+    );
   });
 
   test("[unit] D08 don't use Jev, Jev clearly dearer: reason starts with the verdict and holds the ratio and its lower bound", async () => {
@@ -325,7 +355,7 @@ describe("verdict: limitations (D08)", () => {
 
   test("[unit] D08 every verdict, whatever its rule, lists the test-set limitation first", async () => {
     const names = readdirSync(D08).filter((name) => name.endsWith(".csv")).map((name) => name.slice(0, -4));
-    expect(names).toHaveLength(12);
+    expect(names).toHaveLength(13);
     for (const name of names) expect({ name, first: (await d08(name)).limitations[0] }).toEqual({ name, first: TEST_SET_ONLY });
   });
 

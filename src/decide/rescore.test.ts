@@ -306,13 +306,14 @@ describe("rescore CLI", () => {
   test("[integration] D17-168 D08 verdict name, rule, condition and reason remain unchanged", () => {
     const expected: Readonly<Record<string, readonly [string, number, string, string]>> = {
       "r1-29-paired": ["not enough evidence", 1, "too-few-paired", "not enough evidence: 29 paired Jev and LLM cases, fewer than 30; add 1 more labelled case"],
-      "r1-both-zero": ["not enough evidence", 1, "both-zero-accepted", "not enough evidence: Jev and the LLM both have 0 accepted; neither answer is being accepted"],
+      "r1-both-zero": ["not enough evidence", 1, "zero-accepted", "not enough evidence: Jev and the LLM both accepted 0 of 30 paired cases, so neither has a cost per accepted answer; check both arms' labels"],
+      "r1-jev-zero": ["not enough evidence", 1, "zero-accepted", "not enough evidence: Jev accepted 0 of 30 paired cases and the LLM 1, so Jev has no cost per accepted answer; check the Jev labels"],
+      "r1-llm-zero": ["not enough evidence", 1, "zero-accepted", "not enough evidence: the LLM accepted 0 of 30 paired cases and Jev 1, so the LLM has no cost per accepted answer; check the LLM labels"],
       "r1-cost-missing": ["not enough evidence", 1, "cost-missing", "not enough evidence: cost missing on a paired Jev or LLM row, so the cost ratio would look complete on partial spend"],
       "r1-no-jev": ["not enough evidence", 1, "no-jev-rows", "not enough evidence: no Jev results"],
       "r1-no-llm": ["not enough evidence", 1, "no-llm-rows", "not enough evidence: no LLM results"],
       "r2-jev-dearer": ["don't use Jev", 2, "jev-clearly-dearer", "don't use Jev: Jev is clearly dearer (cost ratio 1.800, lower bound 1.600, above 1)"],
       "r2-jev-worse": ["don't use Jev", 2, "jev-clearly-worse", "don't use Jev: Jev is clearly worse than the LLM (upper bound of Jev minus LLM -0.30, below -0.10)"],
-      "r2-jev-zero": ["don't use Jev", 2, "jev-zero-accepted", "don't use Jev: Jev has 0 accepted and the LLM has 1"],
       "r2-rule-within-margin": ["don't use Jev", 2, "rule-within-margin", "don't use Jev: the rule is within 10 points of Jev (lower bound of rule minus Jev -0.03, above -0.10, on 30 paired cases); a free rule does the job"],
       "r3-use-jev": ["use Jev", 3, "use-jev", "use Jev: Jev is within 10 points of the LLM (lower bound -0.03) and costs 0.009 of it per accepted answer (upper bound 0.010)"],
       "r4-accept-rate": ["not enough evidence", 4, "accept-rate-not-shown", "not enough evidence: Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM -0.11, not above -0.10)"],

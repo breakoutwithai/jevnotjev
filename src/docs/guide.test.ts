@@ -52,7 +52,7 @@ function fixtureFile(dir: string): string {
 }
 
 function testCopy(dir: string): void {
-  for (const path of ["src", "format", "site", "examples/uc13-shop-bot/cases.jsonl", "examples/uc13-shop-bot/fact-sheet.md", "package.json"]) {
+  for (const path of ["src", "format", "site", "scripts/uc13/arms.ts", "examples/uc13-shop-bot/cases.jsonl", "examples/uc13-shop-bot/fact-sheet.md", "package.json"]) {
     const target = join(dir, path);
     mkdirSync(dirname(target), { recursive: true });
     cpSync(join(ROOT, path), target, { recursive: true });

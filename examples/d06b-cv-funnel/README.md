@@ -1,0 +1,25 @@
+# D06b offline fictional CV funnel
+
+Refs #177. This is a proposed experiment, not a completed benchmark. Every fixture and provider-shaped object in tests is fictional. No provider run output, human label, approval or recruitment claim is supplied here. The existing D06 tiny example stays unchanged.
+
+The public fixture is a functional input-isolation oracle: seven identity fields are removed, eligibility stays in canonical record input, and model stage state excludes eligibility recursively. Retained keys and values are checked against recursive identity descendants, including short names and numeric references; ambiguous identity/evidence value collisions are conservatively rejected. It produces three typed batches (four Noul, two Choice, four Score), six logical model requests and 24 planned row slots. The empty fixture is an empty attempt/label list, not completed evidence.
+
+```
+bun scripts/d06b/offline.ts plan examples/d06b-cv-funnel/cv.fixture.json
+bun scripts/d06b/offline.ts report examples/d06b-cv-funnel/cv.fixture.json examples/d06b-cv-funnel/empty.fixture.json examples/d06b-cv-funnel/empty.fixture.json
+bun test scripts/d06b
+```
+
+The command never dispatches a provider request or reads a credential. Keep its output in a private evidence destination. Report mode exits 4 for the empty fixture because all ten questions lack paired labels; core verdict exits 0, 3 and 4 are valid outcomes. Invalid input or a descriptive arithmetic mismatch exits 2.
+
+For a full proposed corpus, 36 CVs produce 864 slots: 720 model rows and 144 S2-only rule rows. There are 216 logical model requests. Every CV is planned through every stage before replay cuts. Canonical case input is identical across question IDs; the attempt state hash identifies narrower stage state.
+
+Response capture contract: an attempt has id, caseId, stage (S2/S3/S4), arm (jev/llm), actual observed http, raw response stateHash and questionHash (SHA-256 of the exact serialized stage questions). Each attempt ID is unique. All attempts remain in the ledger; the last attempt per case/stage/arm supplies final rows, with earlier attempts marked superseded. This import behavior does not authorize retries. Missing attempts are explicitly not dispatched. Response parsing, pinned models and cost allocation use the existing typed adapters and dated price table. Known costs are list-price usage estimates, not invoices. Cache usage or a wrong/missing response model leaves cost unknown. Descriptive spend/CPA uses final selected-row allocations; attemptSpend separately reports total known/unknown incurred spend, superseded spend and allocation reconciliation, with an independent check. Unknown earlier attempts keep total incurred spend unknown. The keyword baseline parses the same allowed JSON state and matches evidence values, excluding schema field names. The ledger preserves usage once; repeated row tokens must not be summed.
+
+Truth contract: caseId, questionId, truth (a named answer/level), source (human/human_reviewed/agent), by (handle), at (date/UTC time), blind and approvalRef. Blind human labels are required by default. Human-reviewed primary labels require an explicitly supplied matching method-deviation approval reference through the library; the CLI does not accept that deviation. Agent labels are rejected. Second labels require a different person and blind authorship. Mechanical provenance validation cannot prove real authorship or operator authorization: retain that external evidence separately.
+
+The proposed rubric uses 25 top-level fields (33 named leaf slots); a 13-week notice cutoff; inclusive Noul yes cutoff 0.5 and uncertainty [0.15,0.85]; and Score acceptance within one ordinal level. Jev evaluation and ranking use its raw weighted Score, while the LLM uses its named level ordinal. Raw probabilities/scores and modal CSV output remain distinct. Replay uses all four S2 yes answers, S3 built-and-ran/contributed plus team lead/head-of/exec, then equal S4 weights with case ID ties. It can return fewer than three candidates; rule replay stops after S2. A person chooses the final candidate.
+
+There are ten authoritative question verdicts. Stage totals are descriptive answer counts, not pooled statistical verdicts or independent candidate counts. Seven stage-arm combinations give 21 accepted/spend/CPA figures; 24 question-arm combinations give 72. The independent checker uses a separate CSV parser and a literal inventory, with a planted-fault test. The generic independent core checker remains `bun scripts/math-check.ts PRIVATE_RECORDS --json`; no core rules are changed.
+
+Before live work, separately approve and freeze schema, rubric, field allowlists, labels/method, weights, models, price identity and prompt version. Paid pilot/full runs need explicit scope/cap/reserve approval and a bounded transport whose parser and cost safety were exercised. Provider dispatch, helper transport, budget enforcement, screenshots, human choice, publication, merge, deployment and submission are not implemented or authorized by this offline command.

@@ -1,6 +1,7 @@
 node_modules/
 /labelled.csv
 /run-*.csv
+/guide-work/
 
 # Local working material, never published
 _reference/

@@ -1,5 +1,5 @@
 {
-  "minFiles": 104,
+  "minFiles": 105,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -87,6 +87,7 @@
     "src/decide/rescore.test.ts": 16,
     "src/decide/decide.test.ts": 34,
     "src/docs/flow-metrics.test.ts": 26,
+    "src/docs/guide.test.ts": 8,
     "src/docs/labelling-card.test.ts": 4,
     "src/docs/stack.test.ts": 18,
     "src/evidence/replay.test.ts": 18,

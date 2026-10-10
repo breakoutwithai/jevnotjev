@@ -137,6 +137,21 @@ describe("verdict: rule 2, don't use Jev", () => {
     expect(got?.numbers.llmAccepted).toBe(30);
   });
 
+  test("[unit] D16 order: both 0 accepted with the rule within the margin is zero-accepted, never a free rule does the job", async () => {
+    // Rule 3 of 30, Jev 0 of 30: rule minus Jev lower bound is above -0.10, but nothing Jev or the LLM said was accepted.
+    const rule = Array.from({ length: 30 }, (_, i): Label => (i < 3 ? "A" : "R"));
+    const [got] = await verdictsOf(render(build({ name: "both-zero-rule", pairs: quad(0, 0, 0, 30), rule })));
+    expect(got).toMatchObject({ verdict: "not enough evidence", rule: 1, condition: "zero-accepted" });
+    expect(got?.reason).toContain("both accepted 0 of 30 paired cases");
+    if (got?.ruleComparison.kind !== "compared") throw new Error("rule comparison skipped");
+    expect(got.ruleComparison.lower).toBeGreaterThan(-0.1);
+  });
+
+  test("[unit] D16 order: both 0 accepted with a missing cost is zero-accepted, before cost-missing", async () => {
+    const [got] = await verdictsOf(render(build({ name: "both-zero-cost", pairs: quad(0, 0, 0, 30), jevCostMissing: [0] })));
+    expect(got).toMatchObject({ verdict: "not enough evidence", rule: 1, condition: "zero-accepted" });
+  });
+
   test("[unit] D16 order: the LLM 0 accepted with all costs $0 is zero-accepted, before the cost guards", async () => {
     const [got] = await verdictsOf(render(build({ name: "llm-zero-free", pairs: quad(0, 20, 0, 10), jevCost: 0, llmCost: 0 })));
     expect(got).toMatchObject({ verdict: "not enough evidence", rule: 1, condition: "zero-accepted" });

@@ -83,7 +83,7 @@
     "src/core/calc.test.ts": 22,
     "src/core/case-table.test.ts": 5,
     "src/core/metrics.test.ts": 23,
-    "src/core/verdict.test.ts": 47,
+    "src/core/verdict.test.ts": 49,
     "src/db/connect.test.ts": 12,
     "src/db/tests/blockers.test.ts": 19,
     "src/db/tests/constraints.test.ts": 16,

@@ -531,10 +531,11 @@ export function handCohort(cohort: Cohort, bootstrap: (cohort: Cohort) => Bootst
     fig("addN", MIN_PAIRED - n, "abs");
     return early(nee, 1, "too-few-paired");
   }
+  // Both at 0 accepted: rule 1 before anything else reads the pair; one side at 0 waits for the accept-rate conditions.
+  if (pair.jev.accepted === 0 && pair.other.accepted === 0) return early(nee, 1, "zero-accepted");
   if (pair.jev.missing > 0 || pair.other.missing > 0) return early(nee, 1, "cost-missing");
   if (ruleLower !== null && ruleLower > -MARGIN) return early(dont, 2, "rule-within-margin");
   if (nc.upper < -MARGIN) return early(dont, 2, "jev-clearly-worse");
-  // Either side at 0 accepted has no cost per accepted answer: rule 1, after the two accept-rate conditions.
   if (pair.jev.accepted === 0 || pair.other.accepted === 0) return early(nee, 1, "zero-accepted");
   const jevSpend = pair.jev.spend;
   const llmSpend = pair.other.spend;

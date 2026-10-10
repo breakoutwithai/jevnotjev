@@ -6,8 +6,8 @@
   var REPO = "https://github.com/breakoutwithai/jevnotjev";
   var STAGE = {
     "show": { name: "Show", sub: "results are in", pick: "Ticket for this show" },
-    "rehearsal": { name: "Rehearsal", sub: "recorded, answers not yet checked", pick: "Ticket for this rehearsal" },
-    "script-reading": { name: "Script reading", sub: "idea only, not run yet", pick: "Ticket for this reading" }
+    "rehearsal": { name: "Rehearsal", sub: "recorded, answers not yet checked" },
+    "script-reading": { name: "Script reading", sub: "idea only, not run yet" }
   };
   /* Same rule as src/backstage/tickets.ts: RFC 5322 dot-atom local part, dot-separated domain labels. */
   var ATOM = "[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+";
@@ -108,16 +108,18 @@
     ev.setAttribute("aria-label", (p.run ? "Open the evidence: " : "Read the idea: ") + p.title);
     links.appendChild(ev);
     if (p.watch) {
-      var w = el("a", "", "Watch now");
+      var w = el("a", "", p.stage === "show" ? "Watch now" : "Follow this");
       w.href = p.watch;
-      w.setAttribute("aria-label", "Watch now: " + p.title);
+      w.setAttribute("aria-label", (p.stage === "show" ? "Watch now: " : "Follow this: ") + p.title);
       links.appendChild(w);
     }
-    var pick = el("a", "tk-pick", st.pick);
-    pick.href = "#tkForm";
-    pick.setAttribute("aria-label", st.pick + ": " + p.title);
-    pick.addEventListener("click", function (e) { e.preventDefault(); choose("show", p.id); });
-    links.appendChild(pick);
+    if (p.stage === "show") {
+      var pick = el("a", "tk-pick", st.pick);
+      pick.href = "#tkForm";
+      pick.setAttribute("aria-label", st.pick + ": " + p.title);
+      pick.addEventListener("click", function (e) { e.preventDefault(); choose("show", p.id); });
+      links.appendChild(pick);
+    }
     card.appendChild(links);
     return card;
   }
@@ -126,7 +128,7 @@
     wrap.innerHTML = "";
     var seen = {};
     var counts = { "show": 0, "rehearsal": 0, "script-reading": 0 };
-    order.slice(0, MAX).forEach(function (p) {
+    order.slice().sort(function (a, b) { return (b.stage === "show") - (a.stage === "show"); }).slice(0, MAX).forEach(function (p) {
       var card = poster(p);
       counts[p.stage]++;
       if (!seen[p.stage]) { card.id = "stage-" + p.stage; seen[p.stage] = true; }
@@ -138,7 +140,7 @@
   function fill() {
     var keep = select.value;
     while (select.options.length > 1) select.remove(1);
-    posters.forEach(function (p) {
+    posters.filter(function (p) { return p.stage === "show"; }).forEach(function (p) {
       var o = el("option", "", p.title + " (" + STAGE[p.stage].name.toLowerCase() + ")");
       o.value = p.id; select.appendChild(o);
     });

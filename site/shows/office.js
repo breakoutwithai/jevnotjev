@@ -6,7 +6,7 @@
   var REPO = "https://github.com/breakoutwithai/jevnotjev";
   var STAGE = {
     "show": { name: "Show", sub: "results are in", pick: "Ticket for this show" },
-    "rehearsal": { name: "Rehearsal", sub: "recorded, answers not yet checked" },
+    "rehearsal": { name: "Rehearsal", sub: "recorded, fewer than 30 checked cases" },
     "script-reading": { name: "Script reading", sub: "idea only, not run yet" }
   };
   /* Same rule as src/backstage/tickets.ts: RFC 5322 dot-atom local part, dot-separated domain labels. */

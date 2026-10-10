@@ -19,8 +19,10 @@ export const KEY_ENV: Readonly<Record<keyof ProviderKeys, string>> = {
 /** Read when JEV_API_KEY is empty: the name the Backstage copy tells users to set (src/backstage/main.ts). */
 export const JEV_KEY_FALLBACK_ENV = "TYPESAFE_API_KEY";
 
-export type CommandName = "arms" | "estimate" | "ask" | "run" | "verdict" | "validate";
-export const COMMANDS: readonly CommandName[] = ["arms", "estimate", "ask", "run", "verdict", "validate"];
+export type CommandName = "arms" | "estimate" | "ask" | "run" | "verdict" | "rescore" | "validate";
+/** Tools exposed by MCP and HTTP; rescore is a CLI-only command. */
+export const COMMANDS: readonly Exclude<CommandName, "rescore">[] = ["arms", "estimate", "ask", "run", "verdict", "validate"];
+const CLI_COMMANDS: readonly CommandName[] = [...COMMANDS, "rescore"];
 const ARM_NAMES: readonly ArmName[] = ["jev", "decisions", "llm", "rule"];
 
 export interface SpendCommand {
@@ -46,11 +48,12 @@ export type Command =
   | { readonly cmd: "arms" }
   | SpendCommand
   | { readonly cmd: "verdict"; readonly file: string; readonly question?: string }
+  | { readonly cmd: "rescore"; readonly file: string; readonly labels: string; readonly manifest?: string; readonly writeManifest?: string }
   | { readonly cmd: "validate"; readonly file: string };
 
 const VALUE_FLAGS = new Set([
   "--questions", "--cases", "--case", "--input", "--case-id", "--arms", "--llm-model", "--rule", "--budget", "--run-id",
-  "--prompt-version", "--out", "--question",
+  "--prompt-version", "--out", "--question", "--labels", "--manifest", "--write-manifest",
 ]);
 const BOOL_FLAGS = new Set(["--dry-run"]);
 const ALLOWED: Readonly<Record<CommandName, ReadonlySet<string>>> = {
@@ -59,6 +62,7 @@ const ALLOWED: Readonly<Record<CommandName, ReadonlySet<string>>> = {
   ask: new Set(["--questions", "--case", "--input", "--case-id", "--arms", "--llm-model", "--rule", "--budget", "--dry-run", "--run-id", "--prompt-version"]),
   run: new Set(["--questions", "--cases", "--arms", "--llm-model", "--rule", "--budget", "--dry-run", "--run-id", "--prompt-version", "--out"]),
   verdict: new Set(["--question"]),
+  rescore: new Set(["--labels", "--manifest", "--write-manifest"]),
   validate: new Set(),
 };
 
@@ -67,7 +71,7 @@ function fail<T>(error: string): Parsed<T> {
 }
 
 function isCommand(value: string): value is CommandName {
-  return COMMANDS.some((c) => c === value);
+  return CLI_COMMANDS.some((c) => c === value);
 }
 
 function isArmName(value: string): value is ArmName {
@@ -94,9 +98,9 @@ function parseBudget(raw: string): Parsed<number> {
 /** argv (without the runtime and script) to one command, or an error naming the bad part. */
 export function parseArgs(argv: readonly string[]): Parsed<Command> {
   const [first, ...rest] = argv;
-  if (first === undefined) return fail("no command; expected one of " + COMMANDS.join(", "));
+  if (first === undefined) return fail("no command; expected one of " + CLI_COMMANDS.join(", "));
   if (first === "--help" || first === "-h" || first === "help") return { ok: true, value: { cmd: "help" } };
-  if (!isCommand(first)) return fail(`unknown command ${JSON.stringify(first)}; expected one of ${COMMANDS.join(", ")}`);
+  if (!isCommand(first)) return fail(`unknown command ${JSON.stringify(first)}; expected one of ${CLI_COMMANDS.join(", ")}`);
   const allowed = ALLOWED[first];
   const values = new Map<string, string>();
   const bools = new Set<string>();
@@ -129,6 +133,15 @@ export function parseArgs(argv: readonly string[]): Parsed<Command> {
     if (first === "validate") return { ok: true, value: { cmd: "validate", file } };
     const question = values.get("--question");
     return { ok: true, value: { cmd: "verdict", file, ...(question !== undefined ? { question } : {}) } };
+  }
+  if (first === "rescore") {
+    const [file, ...extra] = positional;
+    if (file === undefined || extra.length > 0) return fail("rescore takes exactly one records file");
+    const labels = values.get("--labels");
+    if (labels === undefined) return fail("rescore needs --labels <file>");
+    const manifest = values.get("--manifest");
+    const writeManifest = values.get("--write-manifest");
+    return { ok: true, value: { cmd: "rescore", file, labels, ...(manifest === undefined ? {} : { manifest }), ...(writeManifest === undefined ? {} : { writeManifest }) } };
   }
 
   if (positional.length > 0) return fail(`${first}: unexpected argument ${JSON.stringify(positional[0])}`);

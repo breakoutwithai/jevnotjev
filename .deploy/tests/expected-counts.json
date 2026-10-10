@@ -1,5 +1,5 @@
 {
-  "minFiles": 103,
+  "minFiles": 104,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -84,6 +84,7 @@
     "src/db/tests/roundtrip.test.ts": 10,
     "src/decide/broken-paths.test.ts": 21,
     "src/decide/cli.test.ts": 27,
+    "src/decide/rescore.test.ts": 16,
     "src/decide/decide.test.ts": 34,
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/labelling-card.test.ts": 4,

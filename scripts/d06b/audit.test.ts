@@ -48,3 +48,21 @@ test('[unit] D06b replay marks contradictory raw Noul evidence incomplete', () =
   const rows = collect([c], [], 'test-probability').rows.filter(r => r.answerer === 'jev').map((r): DecideRow => ({ ...r, outcome: 'answered', output: 'yes', evidence: { shared_by: 4, probability: 0.1 } }));
   expect(replay([c], rows, 'jev').complete).toBe(false);
 });
+test('[unit] D06b label provenance rejects blind/method mismatches and mismatched approvals', () => {
+  const hr = (t: Truth): Truth => ({ ...t, source: 'human_reviewed', blind: false, approvalRef: 'fixture-method' });
+  expect(() => labelAudit(cvs, primary.map(t => ({ ...t, blind: false })), second, ids, null)).toThrow('blind');
+  expect(() => labelAudit(cvs, primary.map(t => ({ ...hr(t), blind: true })), second, ids, 'fixture-method')).toThrow('approval');
+  expect(() => labelAudit(cvs, primary.map(hr), second, ids, 'other-method')).toThrow('approval');
+  expect(() => labelAudit(cvs, primary.map(hr), second.map(hr), ids, 'fixture-method')).toThrow('approval');
+});
+test('[integration] D06b labelledCsv records human_reviewed source and non-blind columns', () => {
+  const rows = collect([cvs[0] ?? { id: 'bad', fields: {} }], [], 'test-reviewed').rows;
+  const reviewed: readonly Truth[] = primary.filter(t => t.caseId === 'cv0').map(t => ({ ...t, source: 'human_reviewed', blind: false, approvalRef: 'fixture-method' }));
+  const result = validate(labelledCsv(rows, reviewed, 'fixture-method'));
+  expect(result.errors).toEqual([]);
+  const labelled = result.rows.filter(r => r.values.get('label') !== null && r.values.get('label') !== undefined && r.values.get('label') !== '');
+  expect(labelled.length).toBe(4);
+  expect(labelled.every(r => r.values.get('label_source') === 'human_reviewed' && r.values.get('label_blind') === 'false')).toBe(true);
+  const blind = validate(labelledCsv(rows, primary.filter(t => t.caseId === 'cv0')));
+  expect(blind.rows.filter(r => r.values.get('label_source') === 'human').every(r => r.values.get('label_blind') === 'true')).toBe(true);
+});

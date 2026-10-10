@@ -45,3 +45,11 @@ test('[unit] D06b model state excludes eligibility keys at every depth', () => {
   const b = plan([{ id: 'nested', fields: { projects: [{ right_to_work: 'UK', notice_weeks: 1, summary: 'Relevant implementation' }] } }])[0];
   expect(b?.state).not.toContain('right_to_work'); expect(b?.state).not.toContain('notice_weeks'); expect(b?.state).toContain('Relevant implementation');
 });
+test('[unit] D06b stage allowlists: S2 excludes team_size_led, S3 and S4 include it', () => {
+  const b = plan([{ id: 'allow', fields: { summary: 'Relevant implementation', team_size_led: 4 } }]);
+  const state = (stage: string): string => b.find(x => x.stage === stage)?.state ?? '';
+  expect(state('S2')).not.toContain('team_size_led');
+  expect(state('S2')).toContain('Relevant implementation');
+  expect(state('S3')).toContain('team_size_led');
+  expect(state('S4')).toContain('team_size_led');
+});

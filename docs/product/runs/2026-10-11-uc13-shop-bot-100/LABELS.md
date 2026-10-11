@@ -29,6 +29,6 @@ Until then `bun src/decide/cli.ts verdict` on this `records.csv` reports not eno
 
 ## Approved 2026-10-11
 
-The operator approved the majority drafts on 2026-10-11 and decided the one dispute, `m67`, as `hand_off`. `labels.csv` holds the 100 approved labels (64 hand_off, 36 answer), merged into `records.csv` with `--source human_reviewed --by operator --at 2026-10-11 --blind false`: 300 of 300 rows labelled.
+The operator approved the labels on 2026-10-11 after stepping through every low-certainty case. Changes from the majority drafts: `m67` answer to hand_off (the one dispute), `m41` answer to hand_off, `m44` answer to hand_off. The other 20 low-certainty cases, including the 6 from m01 to m40 approved on 2026-10-03, stay as drafted. `labels.csv` holds the 100 approved labels (66 hand_off, 34 answer), merged into `records.csv` with `--source human_reviewed --by operator --at 2026-10-11 --blind false`: 300 of 300 rows labelled.
 
-`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 89 of 100, the LLM 87 of 100; lower bound of Jev minus LLM -0.043; Jev costs 0.198 of the LLM per accepted answer (upper bound 0.216).
+`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 87 of 100, the LLM 85 of 100 (paired a 82, b 5, c 3, d 10); Jev minus LLM +0.02, lower bound -0.042; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.216).

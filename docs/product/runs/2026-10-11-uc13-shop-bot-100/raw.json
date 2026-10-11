@@ -1,0 +1,1707 @@
+{
+ "run_id": "run-shopbot-2026-10-11",
+ "llm_model_requested": "haiku",
+ "inputs_sha256": "7cfb80faffaff4f5aabf5df801678d3257576377fc15df477f744cac4b62fb73",
+ "calls": [
+  {
+   "case_id": "m01",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m02",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.46,
+    "hand_off": 0.54
+   }
+  },
+  {
+   "case_id": "m03",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.97,
+    "hand_off": 0.03
+   }
+  },
+  {
+   "case_id": "m04",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m05",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 1,
+    "hand_off": 0
+   }
+  },
+  {
+   "case_id": "m06",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.99,
+    "hand_off": 0.01
+   }
+  },
+  {
+   "case_id": "m07",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.04,
+    "hand_off": 0.96
+   }
+  },
+  {
+   "case_id": "m08",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 1,
+    "hand_off": 0
+   }
+  },
+  {
+   "case_id": "m09",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.02,
+    "hand_off": 0.98
+   }
+  },
+  {
+   "case_id": "m10",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m11",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m12",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.97,
+    "hand_off": 0.03
+   }
+  },
+  {
+   "case_id": "m13",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m14",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 1,
+    "hand_off": 0
+   }
+  },
+  {
+   "case_id": "m15",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.99,
+    "hand_off": 0.01
+   }
+  },
+  {
+   "case_id": "m16",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 1,
+    "hand_off": 0
+   }
+  },
+  {
+   "case_id": "m17",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.05,
+    "hand_off": 0.95
+   }
+  },
+  {
+   "case_id": "m18",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m19",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m20",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.01,
+    "hand_off": 0.99
+   }
+  },
+  {
+   "case_id": "m21",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.97,
+    "hand_off": 0.03
+   }
+  },
+  {
+   "case_id": "m22",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.92,
+    "hand_off": 0.08
+   }
+  },
+  {
+   "case_id": "m23",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m24",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 1,
+    "hand_off": 0
+   }
+  },
+  {
+   "case_id": "m25",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 1,
+    "hand_off": 0
+   }
+  },
+  {
+   "case_id": "m26",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.32,
+    "hand_off": 0.68
+   }
+  },
+  {
+   "case_id": "m27",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 1,
+    "hand_off": 0
+   }
+  },
+  {
+   "case_id": "m28",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.39,
+    "hand_off": 0.61
+   }
+  },
+  {
+   "case_id": "m29",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 1,
+    "hand_off": 0
+   }
+  },
+  {
+   "case_id": "m30",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.01,
+    "hand_off": 0.99
+   }
+  },
+  {
+   "case_id": "m31",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m32",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 1,
+    "hand_off": 0
+   }
+  },
+  {
+   "case_id": "m33",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.11,
+    "hand_off": 0.89
+   }
+  },
+  {
+   "case_id": "m34",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 1,
+    "hand_off": 0
+   }
+  },
+  {
+   "case_id": "m35",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.91,
+    "hand_off": 0.09
+   }
+  },
+  {
+   "case_id": "m36",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m37",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m38",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m39",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m40",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 1,
+    "hand_off": 0
+   }
+  },
+  {
+   "case_id": "m41",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.66,
+    "hand_off": 0.34
+   }
+  },
+  {
+   "case_id": "m42",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.91,
+    "hand_off": 0.09
+   }
+  },
+  {
+   "case_id": "m43",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.13,
+    "hand_off": 0.87
+   }
+  },
+  {
+   "case_id": "m44",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.94,
+    "hand_off": 0.06
+   }
+  },
+  {
+   "case_id": "m45",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m46",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.01,
+    "hand_off": 0.99
+   }
+  },
+  {
+   "case_id": "m47",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m48",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.36,
+    "hand_off": 0.64
+   }
+  },
+  {
+   "case_id": "m49",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.91,
+    "hand_off": 0.09
+   }
+  },
+  {
+   "case_id": "m50",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m51",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m52",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.93,
+    "hand_off": 0.07
+   }
+  },
+  {
+   "case_id": "m53",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.05,
+    "hand_off": 0.95
+   }
+  },
+  {
+   "case_id": "m54",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.06,
+    "hand_off": 0.94
+   }
+  },
+  {
+   "case_id": "m55",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.01,
+    "hand_off": 0.99
+   }
+  },
+  {
+   "case_id": "m56",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.15,
+    "hand_off": 0.85
+   }
+  },
+  {
+   "case_id": "m57",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.21,
+    "hand_off": 0.79
+   }
+  },
+  {
+   "case_id": "m58",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.97,
+    "hand_off": 0.03
+   }
+  },
+  {
+   "case_id": "m59",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.65,
+    "hand_off": 0.35
+   }
+  },
+  {
+   "case_id": "m60",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.4,
+    "hand_off": 0.6
+   }
+  },
+  {
+   "case_id": "m61",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.03,
+    "hand_off": 0.97
+   }
+  },
+  {
+   "case_id": "m62",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.68,
+    "hand_off": 0.32
+   }
+  },
+  {
+   "case_id": "m63",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.97,
+    "hand_off": 0.03
+   }
+  },
+  {
+   "case_id": "m64",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m65",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.75,
+    "hand_off": 0.25
+   }
+  },
+  {
+   "case_id": "m66",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.05,
+    "hand_off": 0.95
+   }
+  },
+  {
+   "case_id": "m67",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.76,
+    "hand_off": 0.24
+   }
+  },
+  {
+   "case_id": "m68",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m69",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.97,
+    "hand_off": 0.03
+   }
+  },
+  {
+   "case_id": "m70",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.01,
+    "hand_off": 0.99
+   }
+  },
+  {
+   "case_id": "m71",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.12,
+    "hand_off": 0.88
+   }
+  },
+  {
+   "case_id": "m72",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m73",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.08,
+    "hand_off": 0.92
+   }
+  },
+  {
+   "case_id": "m74",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.01,
+    "hand_off": 0.99
+   }
+  },
+  {
+   "case_id": "m75",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m76",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m77",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.09,
+    "hand_off": 0.91
+   }
+  },
+  {
+   "case_id": "m78",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.04,
+    "hand_off": 0.96
+   }
+  },
+  {
+   "case_id": "m79",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.14,
+    "hand_off": 0.86
+   }
+  },
+  {
+   "case_id": "m80",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.67,
+    "hand_off": 0.33
+   }
+  },
+  {
+   "case_id": "m81",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.05,
+    "hand_off": 0.95
+   }
+  },
+  {
+   "case_id": "m82",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m83",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.64,
+    "hand_off": 0.36
+   }
+  },
+  {
+   "case_id": "m84",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.41,
+    "hand_off": 0.59
+   }
+  },
+  {
+   "case_id": "m85",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m86",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.58,
+    "hand_off": 0.42
+   }
+  },
+  {
+   "case_id": "m87",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.13,
+    "hand_off": 0.87
+   }
+  },
+  {
+   "case_id": "m88",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.6,
+    "hand_off": 0.4
+   }
+  },
+  {
+   "case_id": "m89",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.64,
+    "hand_off": 0.36
+   }
+  },
+  {
+   "case_id": "m90",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.99,
+    "hand_off": 0.01
+   }
+  },
+  {
+   "case_id": "m91",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "answer",
+   "probabilities": {
+    "answer": 0.99,
+    "hand_off": 0.01
+   }
+  },
+  {
+   "case_id": "m92",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.24,
+    "hand_off": 0.76
+   }
+  },
+  {
+   "case_id": "m93",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.16,
+    "hand_off": 0.84
+   }
+  },
+  {
+   "case_id": "m94",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.47,
+    "hand_off": 0.53
+   }
+  },
+  {
+   "case_id": "m95",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.01,
+    "hand_off": 0.99
+   }
+  },
+  {
+   "case_id": "m96",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m97",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.01,
+    "hand_off": 0.99
+   }
+  },
+  {
+   "case_id": "m98",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0.5,
+    "hand_off": 0.5
+   }
+  },
+  {
+   "case_id": "m99",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m100",
+   "arm": "jev",
+   "model": "jev-1.13.0",
+   "choice": "hand_off",
+   "probabilities": {
+    "answer": 0,
+    "hand_off": 1
+   }
+  },
+  {
+   "case_id": "m01",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m02",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m03",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m04",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m05",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m06",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m07",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m08",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m09",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m10",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m11",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m12",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m13",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m14",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m15",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m16",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m17",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m18",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m19",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m20",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m21",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m22",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m23",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m24",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m25",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m26",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m27",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m28",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m29",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m30",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m31",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m32",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m33",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m34",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m35",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m36",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m37",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m38",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m39",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m40",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m41",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m42",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m43",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m44",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m45",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m46",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m47",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m48",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m49",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m50",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m51",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m52",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m53",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m54",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m55",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m56",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m57",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m58",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m59",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m60",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m61",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m62",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m63",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m64",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m65",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m66",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m67",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m68",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m69",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m70",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m71",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m72",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m73",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m74",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m75",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m76",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m77",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m78",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m79",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m80",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m81",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m82",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m83",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m84",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m85",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m86",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m87",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m88",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m89",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m90",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m91",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "answer",
+   "probabilities": null
+  },
+  {
+   "case_id": "m92",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m93",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m94",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m95",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m96",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m97",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m98",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m99",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  },
+  {
+   "case_id": "m100",
+   "arm": "llm",
+   "model": "claude-haiku-5-5",
+   "choice": "hand_off",
+   "probabilities": null
+  }
+ ]
+}

@@ -21,7 +21,9 @@
 //
 // A deliverable token is a path only with a directory part: a trailing `/`, a `~/` or `./` prefix, or
 // a file extension on the last segment. A bare filename (`records.csv`) or a path escaping the repo is
-// UNRESOLVED and counted with the unchecked deliverables; it is never matched by basename.
+// UNRESOLVED, and any deliverable holding an UNRESOLVED or IGNORED candidate is unchecked; a bare
+// filename is never matched by basename, and an IGNORED path never counts toward delivery.
+// The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER).
 // The verdict says what the repo evidence supports; it never claims the Definition of done is met.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -35,6 +37,7 @@ export type Flag = "STALE-STATUS" | "INVALID-STATUS" | "INVALID-HEADER";
 export type ParsedPrompt = {
   promptId: string | null;
   created: string | null;
+  createdInvalid: boolean;
   status: string | null;
   governingIssue: number | null;
   deliverables: string[];
@@ -49,160 +52,126 @@ export function isIsoDate(s: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(s);
 }
 
-// A YAML comment starts at ` #` outside quotes. A value that starts with a quote ends at its closing
-// quote. `atStart` (scalars only) also treats a leading `#` as a comment; a list item may start with `#36:`.
-function stripComment(raw: string, atStart: boolean): string {
-  const v = raw.trim();
-  const q = v[0];
-  if (q === '"' || q === "'") {
-    for (let i = 1; i < v.length; i++) {
-      if (q === '"' && v[i] === "\\") {
-        i += 1;
-        continue;
-      }
-      if (v[i] === q) {
-        if (q === "'" && v[i + 1] === "'") {
-          i += 1;
-          continue;
-        }
-        return v.slice(0, i + 1);
-      }
-    }
-    return v;
-  }
-  if (atStart && v.startsWith("#")) return "";
-  const at = v.search(/\s#/);
-  return (at === -1 ? v : v.slice(0, at)).trim();
+// YAML parses an unquoted date as a string or a Date depending on the form; both normalize to YYYY-MM-DD (UTC).
+export function normalizeCreated(v: unknown): string | null {
+  if (typeof v === "string") return isIsoDate(v) ? v : null;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  return null;
 }
 
-function unquote(raw: string): string {
-  const v = raw.trim();
-  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) return v.slice(1, -1).replaceAll('\\"', '"');
-  if (v.length >= 2 && v.startsWith("'") && v.endsWith("'")) return v.slice(1, -1).replaceAll("''", "'");
-  return v;
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Date);
 }
 
-// Comma split that keeps commas inside quotes.
-function splitFlow(inner: string): string[] {
-  const items: string[] = [];
-  let cur = "";
-  let quote: string | null = null;
-  for (let i = 0; i < inner.length; i++) {
-    const c = inner[i] ?? "";
-    if (quote !== null) {
-      cur += c;
-      if (c === "\\" && quote === '"') {
-        cur += inner[i + 1] ?? "";
-        i += 1;
-      } else if (c === quote) quote = null;
-      continue;
-    }
-    if ((c === '"' || c === "'") && cur.trim() === "") {
-      quote = c;
-      cur += c;
-      continue;
-    }
-    if (c === ",") {
-      items.push(cur);
-      cur = "";
-      continue;
-    }
-    cur += c;
-  }
-  items.push(cur);
-  return items.map((s) => s.trim()).filter((s) => s !== "");
-}
-
-function frontMatterLines(text: string): string[] {
+function frontMatter(text: string): string | null {
   const lines = text.split("\n");
-  if (lines[0]?.trim() !== "---") return [];
+  if (lines[0]?.trim() !== "---") return null;
   const end = lines.findIndex((l, i) => i > 0 && l.trim() === "---");
-  return end === -1 ? [] : lines.slice(1, end);
+  return end === -1 ? null : lines.slice(1, end).join("\n");
 }
 
-// Only the keys the audit needs: top-level scalars and the deliverables list (block, indentless or
-// flow). No YAML dependency.
+function stringField(data: Record<string, unknown>, key: string, errors: string[]): string | null {
+  const v = data[key];
+  if (v === undefined || v === null) return null;
+  if (typeof v === "string") return v;
+  errors.push(`${key} is not a string`);
+  return null;
+}
+
+// The front matter goes through Bun's built-in YAML parser, then each field is type-checked.
 export function parsePrompt(text: string): ParsedPrompt {
-  const scalars = new Map<string, string>();
-  const deliverables: string[] = [];
-  const errors: string[] = [];
-  let mode: "none" | "block" | "flow" = "none";
-  let flowBuf = "";
-  const finishFlow = (): void => {
-    const inner = flowBuf.slice(flowBuf.indexOf("[") + 1, flowBuf.lastIndexOf("]"));
-    for (const item of splitFlow(inner)) deliverables.push(unquote(stripComment(item, false)));
-    flowBuf = "";
-    mode = "none";
-  };
-  for (const line of frontMatterLines(text)) {
-    if (mode === "flow") {
-      flowBuf += ` ${line}`;
-      if (line.includes("]")) finishFlow();
-      continue;
-    }
-    const top = line.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
-    if (top !== null) {
-      const key = top[1] ?? "";
-      const value = top[2] ?? "";
-      mode = "none";
-      if (key === "deliverables") {
-        const v = value.trim();
-        if (v.startsWith("[")) {
-          flowBuf = v;
-          if (v.includes("]")) finishFlow();
-          else mode = "flow";
-        } else mode = "block";
-        continue;
-      }
-      const stripped = stripComment(value, true);
-      if (stripped !== "") scalars.set(key, unquote(stripped));
-      continue;
-    }
-    if (mode !== "block") continue;
-    const item = line.match(/^\s*-\s+(.*)$/);
-    if (item?.[1] !== undefined) deliverables.push(unquote(stripComment(item[1], false)));
+  const out: ParsedPrompt = { promptId: null, created: null, createdInvalid: false, status: null, governingIssue: null, deliverables: [], errors: [] };
+  const source = frontMatter(text);
+  if (source === null) {
+    out.errors.push("no front matter block");
+    return out;
   }
-  const created = scalars.get("created") ?? null;
-  if (created !== null && !isIsoDate(created)) errors.push(`created "${created}" is not a YYYY-MM-DD date`);
-  const rawIssue = scalars.get("governing_issue");
-  let governingIssue: number | null = null;
-  if (rawIssue !== undefined && rawIssue !== "null" && rawIssue !== "~") {
-    if (/^[1-9]\d*$/.test(rawIssue)) governingIssue = Number(rawIssue);
-    else errors.push(`governing_issue "${rawIssue}" is not a positive integer`);
+  let data: unknown;
+  try {
+    data = Bun.YAML.parse(source);
+  } catch (e) {
+    out.errors.push(`front matter is not valid YAML: ${e instanceof Error ? e.message : String(e)}`);
+    return out;
   }
-  return { promptId: scalars.get("prompt_id") ?? null, created, status: scalars.get("status") ?? null, governingIssue, deliverables, errors };
+  if (!isRecord(data)) {
+    out.errors.push("front matter is not a mapping");
+    return out;
+  }
+  out.promptId = stringField(data, "prompt_id", out.errors);
+  out.status = stringField(data, "status", out.errors);
+  const created = data["created"];
+  if (created !== undefined && created !== null) {
+    out.created = normalizeCreated(created);
+    if (out.created === null) {
+      out.createdInvalid = true;
+      out.errors.push(`created "${String(created)}" is not a YYYY-MM-DD date`);
+    }
+  }
+  const issue = data["governing_issue"];
+  if (issue !== undefined && issue !== null) {
+    const n = typeof issue === "string" && /^[1-9]\d*$/.test(issue) ? Number(issue) : issue;
+    if (typeof n === "number" && Number.isSafeInteger(n) && n > 0) out.governingIssue = n;
+    else out.errors.push(`governing_issue "${String(issue)}" is not a positive integer`);
+  }
+  const list = data["deliverables"];
+  if (list !== undefined && list !== null) {
+    if (Array.isArray(list) && list.every((x): x is string => typeof x === "string")) out.deliverables = list;
+    else out.errors.push("deliverables is not a list of strings");
+  }
+  return out;
 }
 
-// Checklist items under "## Definition of done", up to the next "## " heading; fenced code is skipped.
+// Checklist items under a "Definition of done" heading, until a heading of the same or higher level.
+// Fenced code is skipped: a fence closes only on the same character with at least the opening length.
 export function countChecklist(text: string): { checked: number; unchecked: number } {
-  let inSection = false;
-  let fenced = false;
+  let level = 0;
+  let fence: { ch: string; len: number } | null = null;
   let checked = 0;
   let unchecked = 0;
   for (const line of text.split("\n")) {
-    if (/^\s*(```|~~~)/.test(line)) {
-      fenced = !fenced;
+    if (fence !== null) {
+      const close = line.match(/^\s*(`+|~+)\s*$/)?.[1];
+      if (close !== undefined && close[0] === fence.ch && close.length >= fence.len) fence = null;
       continue;
     }
-    if (fenced) continue;
-    if (/^##\s/.test(line)) inSection = /^##\s+definition of done\b/i.test(line);
-    else if (inSection) {
-      const m = line.match(/^\s*[-*]\s+\[([ xX])\]/);
-      if (m?.[1] === " ") unchecked += 1;
-      else if (m !== null) checked += 1;
+    const open = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
+    if (open !== undefined) {
+      fence = { ch: open[0] ?? "`", len: open.length };
+      continue;
     }
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading !== null) {
+      const lv = heading[1]?.length ?? 0;
+      if (/^definition of done\b/i.test(heading[2] ?? "")) level = lv;
+      else if (level > 0 && lv <= level) level = 0;
+      continue;
+    }
+    if (level === 0) continue;
+    const m = line.match(/^\s*[-*]\s+\[([ xX])\]/);
+    if (m?.[1] === " ") unchecked += 1;
+    else if (m !== null) checked += 1;
   }
   return { checked, unchecked };
 }
 
-const EXTENSION = /\.[a-z][a-z0-9]{1,4}$/;
+// A bare filename needs 2+ letters/digits after the dot (so `e.g.` is prose); inside a path 1+ is enough (.c .h .R).
+const EXTENSION = /\.(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{1,10}$/;
+const BARE_EXTENSION = /\.(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{2,10}$/;
 
 type Token = { kind: "path"; path: string } | { kind: "unresolved"; token: string } | { kind: "reject" };
 
-function classifyToken(raw: string): Token {
-  const candidate = raw.replace(/^[`"'([]+/, "").replace(/[`"')\],;:]+$/, "").replace(/\.+$/, "").trim();
+// Prose punctuation is stripped from a token, never from a backtick span. Trailing dots go too,
+// except the dots of a `.` or `..` segment, which must reach the traversal check.
+function cleanToken(raw: string, span: boolean): string {
+  if (span) return raw.trim();
+  const base = raw.replace(/^[`"'([]+/, "").replace(/[`"')\],;:]+$/, "");
+  return (/(^|\/)\.{1,2}$/.test(base) ? base : base.replace(/\.+$/, "")).trim();
+}
+
+function classifyToken(raw: string, span: boolean): Token {
+  const candidate = cleanToken(raw, span);
   if (candidate === "" || /[<>*{}$=|,]/.test(candidate) || candidate.startsWith("#") || candidate.startsWith("--") || candidate.includes("://")) return { kind: "reject" };
-  if (!candidate.includes("/")) return EXTENSION.test(candidate) ? { kind: "unresolved", token: candidate } : { kind: "reject" };
+  if (!candidate.includes("/")) return BARE_EXTENSION.test(candidate) ? { kind: "unresolved", token: candidate } : { kind: "reject" };
   const home = candidate.startsWith("~/");
   const abs = candidate.startsWith("/");
   const dotLead = candidate.startsWith("./");
@@ -212,11 +181,11 @@ function classifyToken(raw: string): Token {
   const segments = trimmed.split("/");
   if (trimmed === "" || segments[0] === "" || segments.at(-1) === "") return { kind: "reject" };
   if (!segments.some((s) => /[A-Za-z0-9]/.test(s))) return { kind: "reject" };
+  const normalized = posix.normalize(candidate);
+  // Traversal is judged first: `src/..` has no extension but still names (and escapes) a directory.
+  if (!home && !abs && (normalized === "." || normalized === ".." || normalized.startsWith("../"))) return { kind: "unresolved", token: candidate };
   if (!(dir || home || dotLead || EXTENSION.test(segments.at(-1) ?? ""))) return { kind: "reject" };
   if (home) return { kind: "path", path: posix.join(homedir(), body) };
-  const normalized = posix.normalize(candidate);
-  if (abs) return { kind: "path", path: normalized };
-  if (normalized === "." || normalized === ".." || normalized.startsWith("../")) return { kind: "unresolved", token: candidate };
   return { kind: "path", path: normalized };
 }
 
@@ -234,13 +203,13 @@ export function extractCandidates(deliverable: string): Candidates {
   for (const part of deliverable.split(/(`[^`]*`)/)) {
     if (part.length >= 2 && part.startsWith("`") && part.endsWith("`")) {
       const inner = part.slice(1, -1).trim();
-      const whole = classifyToken(inner);
+      const whole = classifyToken(inner, true);
       if (whole.kind !== "reject" || !/[\s,]/.test(inner)) {
         record(whole);
         continue;
       }
     }
-    for (const token of part.replaceAll("`", " ").split(/[\s,]+/)) record(classifyToken(token));
+    for (const token of part.replaceAll("`", " ").split(/[\s,]+/)) record(classifyToken(token, false));
   }
   return { paths, unresolved };
 }
@@ -322,7 +291,8 @@ export function buildTree(lsTreeZ: string): Tree {
 export function classifyPath(path: string, tree: Tree, git: Git, fsExists: (p: string) => boolean, ref: string, created: string | null): PathState {
   if (path.startsWith("/")) return fsExists(path) ? "TOUCHED" : "MISSING";
   const bare = path.replace(/\/+$/, "");
-  const inTree = tree.files.has(bare) || [...tree.files].some((f) => f.startsWith(`${bare}/`));
+  // A trailing slash names a directory: it needs a tracked descendant, a file of that name is not one.
+  const inTree = (!path.endsWith("/") && tree.files.has(bare)) || [...tree.files].some((f) => f.startsWith(`${bare}/`));
   if (!inTree) {
     // check-ignore treats names literally (and rejects pathspec magic); exit 1 means "not ignored".
     const r = git(["check-ignore", "-q", "--", path]);
@@ -338,14 +308,16 @@ export function classifyPath(path: string, tree: Tree, git: Git, fsExists: (p: s
 export function auditPrompt(file: string, text: string, tree: Tree, git: Git, ref: string, lookup: IssueLookup | null, fsExists: (p: string) => boolean): PromptResult {
   const stem = basename(file).replace(/\.prompt\.md$/, "").replace(/\.md$/, "");
   const parsed = parsePrompt(text);
-  const createdBad = parsed.created !== null && !isIsoDate(parsed.created);
-  const created = parsed.created !== null && !createdBad ? parsed.created : null;
+  const createdBad = parsed.createdInvalid;
+  const created = parsed.created;
   const deliverables: DeliverableResult[] = parsed.deliverables.map((d) => {
     const c = extractCandidates(d);
     // An invalid created date means "touched since" cannot be computed: nothing is classified.
     if (createdBad) return { text: d, paths: [], unresolved: [...c.paths, ...c.unresolved], unchecked: true };
     const paths = c.paths.map((path) => ({ path, state: classifyPath(path, tree, git, fsExists, ref, created) }));
-    return { text: d, paths, unresolved: c.unresolved, unchecked: paths.length === 0 };
+    // Checked only if every candidate was classified and none was ignored: an IGNORED or UNRESOLVED
+    // path can never satisfy delivery.
+    return { text: d, paths, unresolved: c.unresolved, unchecked: paths.length === 0 || c.unresolved.length > 0 || paths.some((p) => p.state === "IGNORED") };
   });
   const all = deliverables.flatMap((d) => d.paths);
   const pathsTouched = all.filter((p) => p.state === "TOUCHED").length;
@@ -359,7 +331,8 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
     for (const h of must(git, ["log", ref, ...since, "--format=%h", "--", ...repoPaths]).split("\n")) if (h !== "") commits.add(h);
   }
   const needles = [parsed.promptId, stem].filter((n): n is string => n !== null && n !== "");
-  for (const h of must(git, ["log", ref, "--fixed-strings", ...needles.map((n) => `--grep=${n}`), "--format=%h"]).split("\n")) if (h !== "") commits.add(h);
+  // With no needle the query would be an unfiltered `git log`: skip it.
+  if (needles.length > 0) for (const h of must(git, ["log", ref, "--fixed-strings", ...needles.map((n) => `--grep=${n}`), "--format=%h"]).split("\n")) if (h !== "") commits.add(h);
   let issue: IssueState = "none";
   if (parsed.governingIssue !== null) issue = lookup === null ? "unknown" : lookup(parsed.governingIssue);
   const verdict = verdictFor({ exists: pathsTouched, missing: pathsMissing + pathsUntouched, evidence: commits.size, issue });
@@ -436,9 +409,12 @@ export function parseArgs(args: string[]): ParsedArgs {
   return { ok: true, options };
 }
 
-function realGit(args: string[]): GitResult {
-  const run = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
-  return { code: run.exitCode ?? -1, out: run.stdout.toString(), err: run.stderr.toString() };
+// Every git call is bound to the repository root, whatever directory the script runs from.
+function gitAt(root: string | null): Git {
+  return (args) => {
+    const run = Bun.spawnSync(["git", ...(root === null ? [] : ["-C", root]), ...args], { stdout: "pipe", stderr: "pipe" });
+    return { code: run.exitCode ?? -1, out: run.stdout.toString(), err: run.stderr.toString() };
+  };
 }
 
 // A failed or unparseable lookup is `unknown`, never closed.
@@ -465,10 +441,11 @@ function run(o: Options): number {
     console.error(`no prompts in ${o.dir}`);
     return 2;
   }
-  const sha = must(realGit, ["rev-parse", "--verify", `${o.ref}^{commit}`]).trim();
-  const tree = buildTree(must(realGit, ["ls-tree", "-r", "-z", "--name-only", sha]));
+  const git = gitAt(gitAt(null)(["rev-parse", "--show-toplevel"]).out.trim() || null);
+  const sha = must(git, ["rev-parse", "--verify", `${o.ref}^{commit}`]).trim();
+  const tree = buildTree(must(git, ["ls-tree", "-r", "-z", "--name-only", sha]));
   const lookup = o.noGh ? null : realIssueLookup;
-  const results = files.map((f) => auditPrompt(join(o.dir, f), readFileSync(join(o.dir, f), "utf8"), tree, realGit, sha, lookup, existsSync));
+  const results = files.map((f) => auditPrompt(join(o.dir, f), readFileSync(join(o.dir, f), "utf8"), tree, git, sha, lookup, existsSync));
   console.log(o.json ? JSON.stringify(results, null, 2) : renderReport(results, `ref: ${o.ref} @ ${sha.slice(0, 12)}`));
   return o.strict && results.some((r) => r.flags.length > 0) ? 1 : 0;
 }

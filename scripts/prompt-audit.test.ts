@@ -11,6 +11,7 @@ import {
   extractPaths,
   flagsFor,
   isIsoDate,
+  normalizeCreated,
   parseArgs,
   parsePrompt,
   renderTable,
@@ -71,10 +72,52 @@ describe("parsePrompt", () => {
     expect(p.deliverables).toEqual([]);
     expect(p.errors).toEqual([]);
   });
-  test("[unit] text without front matter yields empty header fields", () => {
+  test("[unit] text without front matter yields empty header fields and an error", () => {
     const p = parsePrompt("no front matter here\n");
     expect(p.promptId).toBeNull();
     expect(p.status).toBeNull();
+    expect(p.errors.length).toBe(1);
+  });
+  test("[unit] Y1 YAML escapes, doubled apostrophes and folded scalars are decoded", () => {
+    const p = parsePrompt(front('deliverables:\n  - "scripts/caf\\u00e9.ts: x"\n  - \'it\'\'s/a.ts\'\n  - >-\n    scripts/long.ts: first\n    second'));
+    expect(p.errors).toEqual([]);
+    expect(p.deliverables).toEqual(["scripts/café.ts: x", "it's/a.ts", "scripts/long.ts: first second"]);
+  });
+  test("[unit] Y2 quoted brackets in a flow list survive", () => {
+    expect(parsePrompt(front("deliverables: [\"scripts/a[1].ts\", 'b[2].ts']")).deliverables).toEqual(["scripts/a[1].ts", "b[2].ts"]);
+  });
+  test("[unit] Y3 invalid YAML is a header error, not a silent empty parse", () => {
+    const p = parsePrompt(front("deliverables: [a/b.ts\nstatus: draft"));
+    expect(p.errors.length).toBe(1);
+    expect(p.errors[0]).toContain("front matter");
+    expect(p.deliverables).toEqual([]);
+  });
+  test("[unit] Y4 front matter that is not a mapping is a header error", () => {
+    expect(parsePrompt(front("- a\n- b")).errors[0]).toContain("mapping");
+    expect(parsePrompt(front("")).errors[0]).toContain("mapping");
+  });
+  test("[unit] Y5 deliverables present but not a list of strings is a header error", () => {
+    for (const body of ["deliverables: 5", "deliverables: [1, a]", "deliverables:\n- #36: x\n- ok.ts", "deliverables: {a: b}"]) {
+      const p = parsePrompt(front(body));
+      expect(p.errors.some((e) => e.includes("deliverables"))).toBe(true);
+      expect(p.deliverables).toEqual([]);
+    }
+  });
+  test("[unit] Y6 governing_issue beyond the safe integer range is an error", () => {
+    const p = parsePrompt(front("governing_issue: 99999999999999999999"));
+    expect(p.governingIssue).toBeNull();
+    expect(p.errors[0]).toContain("governing_issue");
+  });
+  test("[unit] Y7 created accepts a string or a Date and normalizes to YYYY-MM-DD UTC", () => {
+    expect(normalizeCreated("2026-10-01")).toBe("2026-10-01");
+    expect(normalizeCreated(new Date("2026-10-01T00:00:00Z"))).toBe("2026-10-01");
+    expect(normalizeCreated(new Date("2026-10-01T23:59:59Z"))).toBe("2026-10-01");
+    expect(normalizeCreated(new Date("nope"))).toBeNull();
+    expect(normalizeCreated(20261001)).toBeNull();
+    expect(normalizeCreated("2026-02-30")).toBeNull();
+  });
+  test("[unit] Y8 a numeric created value is a header error", () => {
+    expect(parsePrompt(front("created: 20261001")).errors[0]).toContain("created");
   });
   test("[unit] F4 inline comments are stripped outside quotes", () => {
     const p = parsePrompt(front('status: ready-not-run  # self-reported\ncreated: 2026-10-01 # the day\ngoverning_issue: 39 # the issue\ntitle: "a # b"'));
@@ -103,8 +146,14 @@ describe("parsePrompt", () => {
     expect(isIsoDate("2026-1-1")).toBe(false);
   });
   test("[unit] F5 indentless block sequence is read", () => {
-    const p = parsePrompt(front('deliverables:\n- a/b.ts: one\n- "c/d.ts: two"\nscope:\n- not.me'));
-    expect(p.deliverables).toEqual(["a/b.ts: one", "c/d.ts: two"]);
+    const p = parsePrompt(front('deliverables:\n- a/b.ts\n- "c/d.ts: two"\nscope:\n- not.me'));
+    expect(p.deliverables).toEqual(["a/b.ts", "c/d.ts: two"]);
+    expect(p.errors).toEqual([]);
+  });
+  test("[unit] Y9 an unquoted `path: description` item is a YAML mapping and is reported, not guessed at", () => {
+    const p = parsePrompt(front("deliverables:\n- a/b.ts: one"));
+    expect(p.deliverables).toEqual([]);
+    expect(p.errors[0]).toContain("deliverables");
   });
   test("[unit] F5 flow sequence is read, quote-aware, single and multi line", () => {
     expect(parsePrompt(front('deliverables: [a/b.ts, "c/d.ts: x, y", \'e/f.ts\']')).deliverables).toEqual(["a/b.ts", "c/d.ts: x, y", "e/f.ts"]);
@@ -130,7 +179,33 @@ describe("countChecklist", () => {
   });
 });
 
+describe("countChecklist sections and fences", () => {
+  test("[unit] S2-14 a fence closes only on the same character with at least the opening length", () => {
+    const text = "## Definition of done\n````md\n```\n- [ ] inside\n```\n~~~\n- [ ] still inside\n````\n- [x] after\n";
+    expect(countChecklist(text)).toEqual({ checked: 1, unchecked: 0 });
+  });
+  test("[unit] S2-15 the section ends at any heading of the same or higher level", () => {
+    expect(countChecklist("## Definition of done\n- [x] a\n### Sub\n- [ ] b\n# Top\n- [ ] c\n")).toEqual({ checked: 1, unchecked: 1 });
+    expect(countChecklist("### Definition of done\n- [x] a\n## Next\n- [ ] b\n")).toEqual({ checked: 1, unchecked: 0 });
+  });
+  test("[unit] S2-15 a level-1 Definition of done heading is recognized and runs through deeper headings", () => {
+    expect(countChecklist("# Definition of done\n- [x] a\n## Sub\n- [ ] b\n# Next\n- [ ] c\n")).toEqual({ checked: 1, unchecked: 1 });
+  });
+});
+
 describe("extractPaths", () => {
+  test("[unit] S2-10 any short alphanumeric extension counts", () => {
+    expect(extractPaths("src/a.c, src/b.h, scripts/x.R, schema/q.graphql, dist/p.mp4")).toEqual(["src/a.c", "src/b.h", "scripts/x.R", "schema/q.graphql", "dist/p.mp4"]);
+  });
+  test("[unit] S2-11 a traversal is judged before trailing punctuation is stripped", () => {
+    expect(extractCandidates("src/../..")).toEqual({ paths: [], unresolved: ["src/../.."] });
+    expect(extractCandidates("src/..")).toEqual({ paths: [], unresolved: ["src/.."] });
+    expect(extractCandidates("`src/..`")).toEqual({ paths: [], unresolved: ["src/.."] });
+  });
+  test("[unit] S2-11 trailing sentence dots are stripped from prose tokens but never from a backtick span", () => {
+    expect(extractPaths("see docs/notes.md.")).toEqual(["docs/notes.md"]);
+    expect(extractPaths("see `docs/notes.md.`")).toEqual([]);
+  });
   test("[unit] path-first shape with a description after the colon", () => {
     expect(extractPaths("scripts/shows/build-posters.ts: generates the poster list")).toEqual(["scripts/shows/build-posters.ts"]);
   });
@@ -308,6 +383,12 @@ describe("classifyPath", () => {
     const broken: Git = () => ({ code: 128, out: "", err: "fatal: not a git repository" });
     expect(() => classifyPath("nope/x.ts", tree, broken, none, "origin/main", "2026-10-01")).toThrow("not a git repository");
   });
+  test("[unit] S2-13 a trailing-slash path needs a tracked descendant, not a file of that name", () => {
+    const t = buildTree("docs/notes\0docs/real/a.md\0");
+    expect(classifyPath("docs/notes/", t, git, none, "origin/main", null)).toBe("MISSING");
+    expect(classifyPath("docs/real/", t, git, none, "origin/main", null)).toBe("TOUCHED");
+    expect(classifyPath("docs/notes", t, git, none, "origin/main", null)).toBe("TOUCHED");
+  });
   test("[unit] F7 log pathspecs are literal", () => {
     const { calls, git: g } = recorder("abc1234\n");
     classifyPath("scripts/new.ts", tree, g, none, "origin/main", "2026-10-01");
@@ -357,6 +438,29 @@ describe("auditPrompt", () => {
     const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x"], "created: 2026-10-01\nstatus: ready-not-run\ngoverning_issue: soon"), tree, git, "sha", null, none);
     expect(r.flags).toContain("INVALID-HEADER");
     expect(r.errors[0]).toContain("governing_issue");
+  });
+  test("[unit] S2-1 an ignored path never counts toward delivery", () => {
+    const ignoring: Git = () => ({ code: 0, out: "", err: "" });
+    const r = auditPrompt("x.prompt.md", prompt([".persona-swarm/report.md: x"]), tree, ignoring, "sha", null, none);
+    expect(r.pathsIgnored).toBe(1);
+    expect(r.pathsTouched).toBe(0);
+    expect(r.deliverables[0]?.unchecked).toBe(true);
+    expect(r.verdict).not.toBe("DELIVERED");
+  });
+  test("[unit] S2-12 a deliverable with any unresolved or ignored candidate is unchecked", () => {
+    const { git } = recorder("");
+    const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts and records.csv: x"]), tree, git, "sha", null, none);
+    expect(r.deliverables[0]?.paths.length).toBe(1);
+    expect(r.deliverables[0]?.unresolved).toEqual(["records.csv"]);
+    expect(r.deliverables[0]?.unchecked).toBe(true);
+    const ok = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x"]), tree, git, "sha", null, none);
+    expect(ok.deliverables[0]?.unchecked).toBe(false);
+  });
+  test("[unit] S2-3 with no prompt id and no stem the message query is skipped, never an unfiltered log", () => {
+    const { calls, git } = recorder("abc1234\n");
+    const r = auditPrompt(".prompt.md", "---\nstatus: draft\n---\n", tree, git, "sha", null, none);
+    expect(calls.some((c) => c[0] === "log")).toBe(false);
+    expect(r.evidenceCommits).toEqual([]);
   });
   test("[unit] F6 a failing evidence grep throws", () => {
     const failing: Git = (args) => (args.some((a) => a.startsWith("--grep=")) ? { code: 128, out: "", err: "fatal: grep boom" } : { code: 1, out: "", err: "" });
@@ -502,6 +606,17 @@ describe("prompt-audit CLI", () => {
       const rows = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out);
       expect(dig(rows[0], "deliverables", 0, "paths", 0, "state")).toBe("UNTOUCHED");
       expect(dig(rows[0], "deliverables", 1, "paths", 0, "state")).toBe("TOUCHED");
+    });
+  });
+
+  test("[integration] S2-2 git is bound to the repo root when run from a subdirectory", () => {
+    withRepo((repo) => {
+      writeFileSync(join(repo, "scripts/thing.ts"), "export const thing = 1;\n");
+      writeFileSync(join(repo, "docs/prompts/20200101-sub.prompt.md"), promptFile("fx-sub", "ready-not-run", ["scripts/thing.ts: x"]));
+      commitAt(repo, null, "files");
+      const run = cli(join(repo, "scripts"), "--json", "--no-gh", "--ref", "HEAD", "--dir", "../docs/prompts");
+      expect(run.code).toBe(0);
+      expect(dig(rowsOf(run.out)[0], "deliverables", 0, "paths", 0, "state")).toBe("TOUCHED");
     });
   });
 

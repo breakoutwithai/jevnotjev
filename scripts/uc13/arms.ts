@@ -100,39 +100,67 @@ function requireUsage(response: { readonly [key: string]: unknown }, who: string
 /** The case ids of the example, in order: m01 to m40. */
 export const CASE_IDS: readonly string[] = Array.from({ length: CASES_COUNT }, (_, i) => `m${String(i + 1).padStart(2, "0")}`);
 
-/** Throws unless the cases are exactly m01 to m40, in order, each with a non-blank message. */
-export function assertCases(cases: readonly Case[]): void {
+export interface RunSpec {
+  readonly id: string;
+  readonly runId: string;
+  readonly caseFiles: readonly string[];
+  readonly caseIds: readonly string[];
+  readonly outDir: string;
+  readonly fixturePath: string;
+}
+
+export const RUN_2026_10_01: RunSpec = {
+    id: "2026-10-01", runId: RUN_ID, caseFiles: ["cases.jsonl"], caseIds: CASE_IDS,
+    outDir: "2026-10-01-uc13-shop-bot", fixturePath: "fixtures/uc13.jev.json",
+};
+export const RUN_2026_10_11: RunSpec = {
+    id: "2026-10-11", runId: "run-shopbot-2026-10-11", caseFiles: ["cases.jsonl", "cases-m41-m100.jsonl"],
+    caseIds: Array.from({ length: 100 }, (_, i) => `m${String(i + 1).padStart(2, "0")}`),
+    outDir: "2026-10-11-uc13-shop-bot-100", fixturePath: "fixtures/uc13-2026-10-11.jev.json",
+};
+export const RUN_SPECS: Readonly<Record<string, RunSpec>> = {
+  [RUN_2026_10_01.id]: RUN_2026_10_01,
+  [RUN_2026_10_11.id]: RUN_2026_10_11,
+};
+export const DEFAULT_RUN = RUN_2026_10_01;
+
+/** Throws unless the cases have the run's case ids, in order, each with a non-blank message. */
+export function assertCases(cases: readonly Case[], spec: RunSpec = DEFAULT_RUN): void {
   const seen = new Set<string>();
   cases.forEach((c, i) => {
     if (seen.has(c.case_id)) throw new Error(`cases.jsonl: duplicate case_id ${JSON.stringify(c.case_id)}`);
     seen.add(c.case_id);
-    if (c.case_id !== CASE_IDS[i]) throw new Error(`cases.jsonl line ${i + 1}: case_id ${JSON.stringify(c.case_id)}, expected ${CASE_IDS[i] ?? "no more cases"}`);
+    if (c.case_id !== spec.caseIds[i]) throw new Error(`cases.jsonl line ${i + 1}: case_id ${JSON.stringify(c.case_id)}, expected ${spec.caseIds[i] ?? "no more cases"}`);
     if (c.case_input.trim() === "") throw new Error(`cases.jsonl: ${c.case_id} has a blank case_input`);
   });
-  const missing = CASE_IDS.slice(cases.length);
+  const missing = spec.caseIds.slice(cases.length);
   if (missing.length > 0) throw new Error(`cases.jsonl: missing ${missing.join(", ")}`);
 }
 
-export async function loadExample(dir: string): Promise<Example> {
+export async function loadExample(dir: string, spec: RunSpec = DEFAULT_RUN): Promise<Example> {
   const factSheet = (await Bun.file(join(dir, "fact-sheet.md")).text()).trim();
   if (factSheet === "") throw new Error(`fact-sheet.md in ${dir} is empty`);
-  const cases = (await Bun.file(join(dir, "cases.jsonl")).text())
+  const cases = (await Promise.all(spec.caseFiles.map((name) => Bun.file(join(dir, name)).text())))
+    .flatMap((content, fileIndex) => content
     .split("\n")
     .filter((line) => line.trim() !== "")
     .map((line, i): Case => {
-      const parsed: unknown = JSON.parse(line);
+      const name = spec.caseFiles[fileIndex] ?? "cases.jsonl";
+      let parsed: unknown;
+      try { parsed = JSON.parse(line); }
+      catch { throw new Error(`${name} line ${i + 1}: invalid JSON`); }
       if (!isObject(parsed) || typeof parsed.case_id !== "string" || typeof parsed.case_input !== "string") {
-        throw new Error(`cases.jsonl line ${i + 1}: needs string case_id and case_input`);
+        throw new Error(`${name} line ${i + 1}: needs string case_id and case_input`);
       }
       return { case_id: parsed.case_id, case_input: parsed.case_input };
-    });
-  assertCases(cases);
+    }));
+  assertCases(cases, spec);
   return { factSheet, cases };
 }
 
-export function record(c: Case, answerer: string, model: string, output: Answer, extra: Partial<RecordRow> = {}): RecordRow {
+export function record(c: Case, answerer: string, model: string, output: Answer, extra: Partial<RecordRow> = {}, spec: RunSpec = DEFAULT_RUN): RecordRow {
   return {
-    format_version: "jnj-record/1.1", run_id: RUN_ID, prompt_version: PROMPT_VERSION, case_id: c.case_id,
+    format_version: "jnj-record/1.1", run_id: spec.runId, prompt_version: PROMPT_VERSION, case_id: c.case_id,
     case_input: c.case_input, question_id: QUESTION_ID, question: QUESTION, answer_set: ANSWERS.join("|"),
     answerer, answerer_model: model, output, confidence: "",
     tokens_in: "", tokens_out: "", cost_usd: "", latency_ms: "", ...UNLABELLED, ...extra,
@@ -144,8 +172,8 @@ export function ruleOutput(message: string): Answer {
   return RULE_RE.test(message) ? "hand_off" : "answer";
 }
 
-export function ruleRecord(c: Case): RecordRow {
-  return record(c, "rule", RULE_MODEL, ruleOutput(c.case_input), { cost_usd: "0", latency_ms: "0" });
+export function ruleRecord(c: Case, spec: RunSpec = DEFAULT_RUN): RecordRow {
+  return record(c, "rule", RULE_MODEL, ruleOutput(c.case_input), { cost_usd: "0", latency_ms: "0" }, spec);
 }
 
 export interface JevBody {
@@ -218,12 +246,12 @@ export function parseLlmResponse(response: unknown, caseId: string): ArmReply {
   };
 }
 
-export function armRecord(c: Case, answerer: "jev" | "llm", reply: ArmReply, latencyMs: number): RecordRow {
+export function armRecord(c: Case, answerer: "jev" | "llm", reply: ArmReply, latencyMs: number, spec: RunSpec = DEFAULT_RUN): RecordRow {
   return record(c, answerer, reply.model, reply.choice, {
     confidence: reply.confidence === null ? "" : reply.confidence.toFixed(4),
     tokens_in: String(reply.tokensIn), tokens_out: String(reply.tokensOut),
     cost_usd: reply.costUsd.toFixed(8), latency_ms: String(latencyMs),
-  });
+  }, spec);
 }
 
 /** The jnj-record/1.1 header when any row is 1.1, else the /1 header, so a /1 run (TokenMax) round-trips byte for byte. */
@@ -269,8 +297,8 @@ export function parseV1Records(text: string): RecordRow[] {
   return rows;
 }
 
-/** labels.csv from the labelling page: case_id,truth. Each id once, m01 to m40 only. */
-export function parseTruth(text: string): Map<string, Answer> {
+/** labels.csv from the labelling page: case_id,truth. Each of the run's case ids at most once. */
+export function parseTruth(text: string, spec: RunSpec = DEFAULT_RUN): Map<string, Answer> {
   const { header, rows } = readDictRows(text);
   const idAt = (header ?? []).indexOf("case_id");
   const truthAt = (header ?? []).indexOf("truth");
@@ -279,7 +307,7 @@ export function parseTruth(text: string): Map<string, Answer> {
   for (const { fields, line } of rows) {
     const id = fields[idAt] ?? "";
     const t = fields[truthAt];
-    if (!CASE_IDS.includes(id)) throw new Error(`labels.csv line ${line}: case_id ${JSON.stringify(id)} is not m01 to m${CASES_COUNT}`);
+    if (!spec.caseIds.includes(id)) throw new Error(`labels.csv line ${line}: case_id ${JSON.stringify(id)} is not m01 to m${spec.caseIds.length}`);
     if (truth.has(id)) throw new Error(`labels.csv line ${line}: duplicate truth for ${id}`);
     if (!isAnswer(t)) throw new Error(`labels.csv line ${line}: ${id} truth ${JSON.stringify(t)} is not one of ${ANSWERS.join(", ")}`);
     truth.set(id, t);

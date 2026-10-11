@@ -6,12 +6,59 @@ import { fileURLToPath } from "node:url";
 import { validate } from "../../src/format/validate.ts";
 import {
   APPROVED_DRAFT_2026_10_03, CASES_COUNT, applyLabels, formatRecords, jevBody, loadExample, parseJevResponse,
-  parseLlmResponse, parseRecords, parseTruth, provenanceByCase, ruleOutput, ruleRecord, truthFromRows, type LabelProvenance,
+  parseLlmResponse, parseRecords, parseTruth, provenanceByCase, record, ruleOutput, ruleRecord, truthFromRows, RUN_2026_10_11, type LabelProvenance,
 } from "./arms.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
 
 describe("UC13 example", () => {
+  test("[unit] UC13 run 100 loads both case files in order with source messages unchanged", async () => {
+    const spec = RUN_2026_10_11;
+    const ex = await loadExample(EXAMPLE, spec);
+    const source: unknown[] = (await Promise.all(spec.caseFiles.map((name) => Bun.file(join(EXAMPLE, name)).text())))
+      .flatMap((text) => text.trimEnd().split("\n").map((line): unknown => JSON.parse(line)));
+    const messages = source.map((row) => {
+      if (typeof row !== "object" || row === null || !("case_input" in row) || typeof row.case_input !== "string") {
+        throw new Error("source case needs a string case_input");
+      }
+      return row.case_input;
+    });
+    expect(ex.cases).toHaveLength(100);
+    expect(ex.cases.map((c) => c.case_id)).toEqual([...spec.caseIds]);
+    expect(ex.cases.map((c) => c.case_input)).toEqual(messages);
+    expect(messages[40]).toBeDefined();
+    expect(ex.cases[40]?.case_input).toBe(messages[40]);
+    expect(ex.cases[40]?.case_id).toBe("m41");
+  });
+
+  test("[unit] UC13 run 100 refuses gaps duplicates and out-of-order ids in either file", async () => {
+    const spec = RUN_2026_10_11;
+    const dir = await mkdtemp(join(tmpdir(), "uc13-cases-"));
+    try {
+      await writeFile(join(dir, "fact-sheet.md"), "sheet");
+      const files = await Promise.all(spec.caseFiles.map((name) => Bun.file(join(EXAMPLE, name)).text()));
+      for (const fileIndex of [0, 1]) {
+        for (const mutation of ["gap", "duplicate", "out-of-order"]) {
+          await Promise.all(spec.caseFiles.map((name, i) => writeFile(join(dir, name), files[i] ?? "")));
+          const lines = (files[fileIndex] ?? "").trimEnd().split("\n");
+          if (mutation === "gap") lines.shift();
+          else if (mutation === "duplicate") {
+            const row: unknown = JSON.parse(lines[0] ?? "{}");
+            if (typeof row !== "object" || row === null || Array.isArray(row)) throw new Error("source case is not an object");
+            lines[0] = JSON.stringify({ ...row, case_id: fileIndex === 0 ? "m02" : "m42" });
+          } else {
+            const first = lines[0] ?? "";
+            lines[0] = lines[1] ?? "";
+            lines[1] = first;
+          }
+          await writeFile(join(dir, spec.caseFiles[fileIndex] ?? ""), lines.join("\n") + "\n");
+          await expect(loadExample(dir, spec)).rejects.toThrow(/case_id|duplicate/);
+        }
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
   test("[unit] UC13-1 the example holds 40 messages m01 to m40 and a synthetic fact sheet", async () => {
     const ex = await loadExample(EXAMPLE);
     expect(ex.cases.length).toBe(CASES_COUNT);
@@ -45,7 +92,7 @@ describe("rule arm", () => {
 
   test("[unit] UC13-3 rule records validate as jnj-record/1 with label gaps only", async () => {
     const ex = await loadExample(EXAMPLE);
-    const result = validate(formatRecords(ex.cases.map(ruleRecord)));
+    const result = validate(formatRecords(ex.cases.map((c) => ruleRecord(c))));
     expect(result.errors).toEqual([]);
     expect(result.rows.length).toBe(40);
   });
@@ -109,6 +156,12 @@ describe("LLM arm", () => {
 });
 
 describe("labels", () => {
+  test("[unit] UC13 run 100 stamps its run id and accepts its extra truth ids", () => {
+    const spec = RUN_2026_10_11;
+    expect(record({ case_id: "m41", case_input: "hi" }, "rule", "keywords.v1", "answer", {}, spec).run_id).toBe(spec.runId);
+    expect([...parseTruth("case_id,truth\nm41,answer\nm100,hand_off\n", spec)]).toEqual([["m41", "answer"], ["m100", "hand_off"]]);
+    expect(() => parseTruth("case_id,truth\nm41,answer\n")).toThrow(/m01 to m40/);
+  });
   test("[unit] UC13-6 M1 accept when the output equals the truth, reject otherwise, stamped human_reviewed; unlabelled stays empty", () => {
     const truth = parseTruth("case_id,truth\nm01,hand_off\nm02,answer\n");
     const rows = [
@@ -243,6 +296,20 @@ describe("example loading", () => {
     return dir;
   }
   const forty = Array.from({ length: 40 }, (_, i) => JSON.stringify({ case_id: `m${String(i + 1).padStart(2, "0")}`, case_input: "hi" }));
+
+  test("[unit] UC13 run 100 reports the actual second case file for malformed lines", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "uc13-bad-second-"));
+    try {
+      await writeFile(join(dir, "fact-sheet.md"), "sheet");
+      await writeFile(join(dir, "cases.jsonl"), forty.join("\n") + "\n");
+      await writeFile(join(dir, "cases-m41-m100.jsonl"), '{"case_id":"m41"}\n');
+      await expect(loadExample(dir, RUN_2026_10_11)).rejects.toThrow(/cases-m41-m100\.jsonl line 1: needs string case_id and case_input/);
+      await writeFile(join(dir, "cases-m41-m100.jsonl"), "{bad json\n");
+      await expect(loadExample(dir, RUN_2026_10_11)).rejects.toThrow(/cases-m41-m100\.jsonl line 1: invalid JSON/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
   test("[unit] UC13-F7 an empty sheet, blank message, duplicate, missing or extra case is refused", async () => {
     const dirs = [

@@ -1,0 +1,60 @@
+{"case_id":"m41","case_input":"hi, planning 4 days skiing in feb with my 2 kids (7 and 11) and my partner whos never skied before. what do you rent and roughly how much for a family like that","persona":"parent"}
+{"case_id":"m42","case_input":"do kids skis cost less than adult? we're on a tight budget so trying to work out if its cheaper to rent for the whole 4 days or day by day","persona":"parent"}
+{"case_id":"m43","case_input":"my partner has never been on snow in their life, do you do any kind of beginner package or lessons or is it just the gear","persona":"parent"}
+{"case_id":"m44","case_input":"what time do you open in the morning? the kids will want to get on the slopes early and im not sure which counter to go to, village or lift base","persona":"parent"}
+{"case_id":"m45","case_input":"Can I book online before we arrive or do we just turn up? we land on the thursday evening and want to start friday","persona":"parent"}
+{"case_id":"m46","case_input":"my 7 year old is quite small for his age, do you have helmets and skis that small, and do I need to know his boot size or do you fit him there","persona":"parent"}
+{"case_id":"m47","case_input":"is a helmet included or extra?? and do the kids need one, our 11 yr old says she doesnt want to wear one lol","persona":"parent"}
+{"case_id":"m48","case_input":"we got there and the lift base counter has a massive queue, is it quicker at the village one? also how late are you open today","persona":"parent"}
+{"case_id":"m49","case_input":"my daughters boot is really rubbing on her heel after a couple hours, can we swap them or is there a charge","persona":"parent"}
+{"case_id":"m50","case_input":"one of the ski poles got bent when my son fell, are we going to be charged for it? sorry","persona":"parent"}
+{"case_id":"m51","case_input":"if we return the skis a day early do we get any money back, my partner has decided skiing is not for them","persona":"parent"}
+{"case_id":"m52","case_input":"do you sharpen and wax skis? my brother is lending me his own skis for the trip and they havent been touched in years, how long would it take and how much","persona":"parent"}
+{"case_id":"m53","case_input":"what demo skis do you have for touring, anything under 100mm underfoot","persona":"expert"}
+{"case_id":"m54","case_input":"do you rent splitboards? need a 158-162 with pucks and skins for sat","persona":"expert"}
+{"case_id":"m55","case_input":"are your touring bindings tech/pin or just frame? dynafit style ideally","persona":"expert"}
+{"case_id":"m56","case_input":"avy kit rental - beacon, probe, shovel. do you have all 3 and what's the cost per day","persona":"expert"}
+{"case_id":"m57","case_input":"Do you rent airbag packs?","persona":"expert"}
+{"case_id":"m58","case_input":"what time do you open at the lift base tomorrow, im trying to be on the first chair","persona":"expert"}
+{"case_id":"m59","case_input":"can i demo a pair for a few hours and swap if I dont like them","persona":"expert"}
+{"case_id":"m60","case_input":"whats your tune like, hand wax or machine? and do you do edge bevel to spec, 1 base 3 side","persona":"expert"}
+{"case_id":"m61","case_input":"can you mount/adjust bindings to my boot sole length, i have my own boots (touring, 305mm)","persona":"expert"}
+{"case_id":"m62","case_input":"how much for a 3 day rental of a touring setup, mon-wed","persona":"expert"}
+{"case_id":"m63","case_input":"do you tune skis while i wait or is it drop off overnight","persona":"expert"}
+{"case_id":"m64","case_input":"is there a deposit or do you just take a card? also do I need to sign anything before 8am","persona":"expert"}
+{"case_id":"m65","case_input":"hi, i want to rent ski for first time. i never skied before, what do i need to rent? i dont know","persona":"tourist"}
+{"case_id":"m66","case_input":"how much cost for one day rental of skis and boots? and helmet is it include?","persona":"tourist"}
+{"case_id":"m67","case_input":"Hello, we are 2 people, arriving saturday afternoon. can we pick the equipment at the lift base or only in the village?","persona":"tourist"}
+{"case_id":"m68","case_input":"I am little bit nervous. what happens if I break the ski or lose something? do I pay a lot?","persona":"tourist"}
+{"case_id":"m69","case_input":"what time you open in the morning? I want to be on the slope before 9 if possible","persona":"tourist"}
+{"case_id":"m70","case_input":"How I know my boot size and the ski length? I am 172 cm and 68 kg","persona":"tourist"}
+{"case_id":"m71","case_input":"do you have lessons for beginner or only rental? maybe you can recomend someone","persona":"tourist"}
+{"case_id":"m72","case_input":"Can I reserve online before I arrive, or I just come to the shop? I will stay 5 days from 14 december","persona":"tourist"}
+{"case_id":"m73","case_input":"my friend want snowboard, not ski. is the price same?","persona":"tourist"}
+{"case_id":"m74","case_input":"how do I get to your shop from the train station? is far to walk with the boots?","persona":"tourist"}
+{"case_id":"m75","case_input":"if the weather is bad one day and I cannot ski, can I return the equipment and get money back?","persona":"tourist"}
+{"case_id":"m76","case_input":"What I need to bring with me? do I need to bring my passport or a deposit for the rental?","persona":"tourist"}
+{"case_id":"m77","case_input":"hi, planning a week trip for 9 of us, arriving Saturday 17 Jan. do you do group rates for skis and boards?","persona":"group"}
+{"case_id":"m78","case_input":"so 9 people, 6 skiing and 3 snowboarding, mixed levels (couple of total beginners). what do we actually need to book ahead and what can we sort when we turn up","persona":"group"}
+{"case_id":"m79","case_input":"can we pick everything up the evening before our first day or do we have to come at 8 in the morning with everyone queueing","persona":"group"}
+{"case_id":"m80","case_input":"which counter should we use, village or lift base? our chalet is in the village but we'll be skiing from the base mostly","persona":"group"}
+{"case_id":"m81","case_input":"is there one price for the whole week or is it per day? roughly how much for 9 sets incl helmets","persona":"group"}
+{"case_id":"m82","case_input":"can one person collect all 9 sets or does everyone have to turn up in person. also do they need to bring ID or anything","persona":"group"}
+{"case_id":"m83","case_input":"what time do you close on the last day, we fly out sunday and I need everyone's stuff back before the bus at 10.30","persona":"group"}
+{"case_id":"m84","case_input":"hey its day 3 and my mate's boots are killing him, heel is rubbing raw. can he swap them today? he's at the lift base now","persona":"group"}
+{"case_id":"m85","case_input":"one of our group lost a pole on the mountain, probably somewhere on the red run down to the village. are we going to get charged for that??","persona":"group"}
+{"case_id":"m86","case_input":"we're running late, probably 40 mins past closing tomorrow, can we still drop the skis back or will we get a fine","persona":"group"}
+{"case_id":"m87","case_input":"ok so can i return some of the gear at the village counter even though we picked it up at the lift base","persona":"group"}
+{"case_id":"m88","case_input":"sorry another one, my friend wants his skis tuned/waxed midweek, is that possible and does it cost extra or can he get them back same day","persona":"group"}
+{"case_id":"m89","case_input":"hey, do you guys do wax and edge tune while you wait? thinking of dropping my skis in saturday morning","persona":"local"}
+{"case_id":"m90","case_input":"what time do you open at the lift base on sundays?","persona":"local"}
+{"case_id":"m91","case_input":"how much for a full tune on a pair of skis i own? the edges are pretty shot after last weekend","persona":"local"}
+{"case_id":"m92","case_input":"do i need to book a tune or can i just rock up","persona":"local"}
+{"case_id":"m93","case_input":"Can I demo skis before buying? looking at something around 98 under foot for powder days","persona":"local"}
+{"case_id":"m94","case_input":"how long does a tune usually take, i'd like them back by friday evening if i drop off thursday","persona":"local"}
+{"case_id":"m95","case_input":"i left a glove at the village counter last sunday, black with orange cuffs, has anyone handed it in?","persona":"local"}
+{"case_id":"m96","case_input":"is there somewhere to park near the lift base shop or is it a nightmare on weekends","persona":"local"}
+{"case_id":"m97","case_input":"do you sell gift vouchers? my sisters birthday is coming up and she wants to start snowboarding","persona":"local"}
+{"case_id":"m98","case_input":"do you stock ski wax and goggles or just rentals","persona":"local"}
+{"case_id":"m99","case_input":"whats the snow like up top today, is the village side open for skiing?","persona":"local"}
+{"case_id":"m100","case_input":"if i demo a pair and love them can the rental fee come off if i buy them from you","persona":"local"}

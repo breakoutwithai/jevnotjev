@@ -19,9 +19,9 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  CASE_IDS, CRITERIA, PROMPT_VERSION, QUESTION, RUN_ID, applyLabels, armRecord, formatRecords, jevBody, loadExample, isLabelSource,
+  CRITERIA, DEFAULT_RUN, PROMPT_VERSION, QUESTION, RUN_SPECS, RUN_2026_10_11, applyLabels, armRecord, formatRecords, jevBody, loadExample, isLabelSource,
   parseJevResponse, parseLlmResponse, parseRecords, parseTruth, provenanceByCase, ruleRecord, truthFromRows, type Answer,
-  type ArmReply, type Case, type LabelProvenance, type RecordRow,
+  type ArmReply, type Case, type LabelProvenance, type RecordRow, type RunSpec,
 } from "./arms.ts";
 import { jevEntry, readFixture, replayJev, sha256Hex, writeFixture, type JevEntry } from "./calls.ts";
 import { isCalendarDate, LABELLED_AT, LABELLER_HANDLE } from "../../src/format/validate.ts";
@@ -31,8 +31,8 @@ const CONCURRENCY = 4;
 /** A call that has not answered by now is killed; the slowest recorded LLM call took under 10 s. */
 const CALL_DEADLINE_MS = 120_000;
 const USAGE =
-  "usage: bun scripts/uc13/run-arms.ts run [--dry | --arm jev] | replay | page | " +
-  "label --source <human|human_reviewed|agent> --by <handle> --at <YYYY-MM-DD or UTC time> --blind <true|false>";
+  `usage: bun scripts/uc13/run-arms.ts <run|replay|page|label> [--run <id> (${Object.keys(RUN_SPECS).join(", ")})] ` +
+  "(run: [--dry | --arm jev]; label: --source <human|human_reviewed|agent> --by <handle> --at <YYYY-MM-DD or UTC time> --blind <true|false>)";
 
 export interface Paths {
   readonly example: string;
@@ -41,12 +41,12 @@ export interface Paths {
   readonly jevCall: string;
 }
 
-export function defaultPaths(): Paths {
+export function defaultPaths(spec: RunSpec = DEFAULT_RUN): Paths {
   const example = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
   return {
     example,
-    out: fileURLToPath(new URL("../../docs/product/runs/2026-10-01-uc13-shop-bot/", import.meta.url)),
-    fixture: join(example, "fixtures/uc13.jev.json"),
+    out: fileURLToPath(new URL(`../../docs/product/runs/${spec.outDir}/`, import.meta.url)),
+    fixture: join(example, spec.fixturePath),
     jevCall: process.env.JEV_CALL ?? join(homedir(), ".claude/scripts/jaylo-jev.sh"),
   };
 }
@@ -55,6 +55,7 @@ type Arm = "jev" | "llm";
 type Command = "run" | "replay" | "label" | "page";
 export interface Args {
   readonly command: Command;
+  readonly spec: RunSpec;
   readonly dry: boolean;
   readonly arm: "jev" | null;
   /** label only: how labels.csv was made. Required, so no label is ever stamped human by default. */
@@ -66,6 +67,7 @@ function isCommand(value: string | undefined): value is Command {
 }
 
 const LABEL_FLAGS = ["--source", "--by", "--at", "--blind"];
+export const RECORDED_RUNS: readonly RunSpec[] = [DEFAULT_RUN, RUN_2026_10_11];
 
 /** label --source <human|human_reviewed|agent> --by <handle> --at <time> --blind <true|false>, each exactly once. */
 function labelProvenance(flags: readonly string[]): LabelProvenance {
@@ -95,21 +97,35 @@ function labelProvenance(flags: readonly string[]): LabelProvenance {
 export function parseArgs(argv: readonly string[]): Args {
   const [command, ...flags] = argv;
   if (!isCommand(command)) throw new Error(USAGE);
-  if (command === "label") return { command, dry: false, arm: null, provenance: labelProvenance(flags) };
+  let spec = DEFAULT_RUN;
+  let seenRun = false;
+  const rest: string[] = [];
+  for (let i = 0; i < flags.length; i++) {
+    if (flags[i] !== "--run") { rest.push(flags[i] ?? ""); continue; }
+    if (seenRun) throw new Error("repeated --run");
+    if (rest.at(-1) === "--arm" || LABEL_FLAGS.includes(rest.at(-1) ?? "")) throw new Error("--run cannot be a flag value");
+    const id = flags[++i];
+    const selected = id !== undefined && Object.hasOwn(RUN_SPECS, id) ? RUN_SPECS[id] : undefined;
+    if (selected === undefined) throw new Error(`--run takes ${Object.keys(RUN_SPECS).join(" or ")}, got ${id ?? "nothing"}`);
+    spec = selected;
+    seenRun = true;
+  }
+  const commandFlags = rest;
+  if (command === "label") return { command, spec, dry: false, arm: null, provenance: labelProvenance(commandFlags) };
   let dry = false;
   let arm: "jev" | null = null;
-  for (let i = 0; i < flags.length; i++) {
-    const flag = flags[i];
+  for (let i = 0; i < commandFlags.length; i++) {
+    const flag = commandFlags[i];
     if (command !== "run") throw new Error(`${command} takes no flags, got ${flag ?? ""}; ${USAGE}`);
     if (flag === "--dry" && !dry) dry = true;
     else if (flag === "--arm" && arm === null) {
-      if (flags[i + 1] !== "jev") throw new Error(`--arm takes jev, got ${flags[i + 1] ?? "nothing"}`);
+      if (commandFlags[i + 1] !== "jev") throw new Error(`--arm takes jev, got ${commandFlags[i + 1] ?? "nothing"}`);
       arm = "jev";
       i++;
     } else throw new Error(`unknown or repeated flag ${flag ?? ""}; ${USAGE}`);
   }
   if (dry && arm !== null) throw new Error("--dry and --arm jev conflict: a dry run calls no arm");
-  return { command, dry, arm, provenance: null };
+  return { command, spec, dry, arm, provenance: null };
 }
 
 function llmSystem(factSheet: string): string {
@@ -182,9 +198,9 @@ function isObject(value: unknown): value is { readonly [key: string]: unknown } 
 }
 
 /** raw.json, strictly: this run's id, an optional inputs fingerprint, and well-formed calls. */
-async function readRaw(out: string): Promise<Raw> {
+async function readRaw(out: string, spec: RunSpec): Promise<Raw> {
   const raw: unknown = JSON.parse(await Bun.file(join(out, "raw.json")).text());
-  if (!isObject(raw) || raw.run_id !== RUN_ID || !Array.isArray(raw.calls)) throw new Error(`raw.json is not the ${RUN_ID} call list`);
+  if (!isObject(raw) || raw.run_id !== spec.runId || !Array.isArray(raw.calls)) throw new Error(`raw.json is not the ${spec.runId} call list`);
   const fp = raw.inputs_sha256;
   if (fp !== undefined && typeof fp !== "string") throw new Error("raw.json inputs_sha256 is not a string");
   const calls = raw.calls.map((x: unknown, i: number): RawCall => {
@@ -197,8 +213,8 @@ async function readRaw(out: string): Promise<Raw> {
 }
 
 /** One row and one raw call per case for the arm, agreeing on model and output; anything else fails. */
-function assertArmComplete(arm: Arm, rows: readonly RecordRow[], calls: readonly RawCall[]): void {
-  for (const id of CASE_IDS) {
+function assertArmComplete(arm: Arm, rows: readonly RecordRow[], calls: readonly RawCall[], spec: RunSpec): void {
+  for (const id of spec.caseIds) {
     const r = rows.filter((x) => x.case_id === id);
     const c = calls.filter((x) => x.case_id === id);
     const row = r[0];
@@ -208,8 +224,8 @@ function assertArmComplete(arm: Arm, rows: readonly RecordRow[], calls: readonly
     }
     if (row.output !== call.choice || row.answerer_model !== call.model) throw new Error(`records.csv/raw.json: ${arm} ${id} row and raw call disagree`);
   }
-  if (rows.length !== CASE_IDS.length || calls.length !== CASE_IDS.length) {
-    throw new Error(`records.csv/raw.json: ${arm} arm holds cases outside m01 to m${CASE_IDS.length}`);
+  if (rows.length !== spec.caseIds.length || calls.length !== spec.caseIds.length) {
+    throw new Error(`records.csv/raw.json: ${arm} arm holds cases outside m01 to m${spec.caseIds.length}`);
   }
 }
 
@@ -223,34 +239,34 @@ interface Kept {
 }
 
 /** The recorded llm arm, complete and consistent, plus the truth its labels encode. */
-async function keptLlm(out: string): Promise<Kept> {
+async function keptLlm(out: string, spec: RunSpec): Promise<Kept> {
   const all = parseRecords(await Bun.file(join(out, "records.csv")).text());
-  const raw = await readRaw(out);
+  const raw = await readRaw(out, spec);
   const rows = all.filter((r) => r.answerer === "llm");
   const calls = raw.calls.filter((x) => x.arm === "llm");
-  assertArmComplete("llm", rows, calls);
+  assertArmComplete("llm", rows, calls, spec);
   return { rows, calls, truth: truthFromRows(all), provenance: provenanceByCase(all), inputsSha256: raw.inputsSha256 };
 }
 
-async function write(out: string, rows: readonly RecordRow[], calls: readonly RawCall[], inputs: string | null): Promise<void> {
+async function write(out: string, rows: readonly RecordRow[], calls: readonly RawCall[], inputs: string | null, spec: RunSpec): Promise<void> {
   await Bun.write(join(out, "records.csv"), formatRecords(rows));
-  const raw = { run_id: RUN_ID, llm_model_requested: LLM_MODEL, ...(inputs === null ? {} : { inputs_sha256: inputs }), calls };
+  const raw = { run_id: spec.runId, llm_model_requested: LLM_MODEL, ...(inputs === null ? {} : { inputs_sha256: inputs }), calls };
   await Bun.write(join(out, "raw.json"), JSON.stringify(raw, null, 1) + "\n");
   const arms = [...new Set(rows.map((r) => r.answerer))].sort().join(",");
-  console.log(`wrote records.csv rows=${rows.length} cases=${CASE_IDS.length} arms=${arms}`);
+  console.log(`wrote records.csv rows=${rows.length} cases=${spec.caseIds.length} arms=${arms}`);
 }
 
-async function run(paths: Paths, dry: boolean, only: Arm | null): Promise<void> {
-  const { factSheet, cases } = await loadExample(paths.example);
+async function run(paths: Paths, dry: boolean, only: Arm | null, spec: RunSpec): Promise<void> {
+  const { factSheet, cases } = await loadExample(paths.example, spec);
   if (dry) {
-    const rows = cases.map(ruleRecord);
+    const rows = cases.map((c) => ruleRecord(c, spec));
     for (const r of rows) console.log(`${r.case_id} ${r.output}`);
     const handOff = rows.filter((r) => r.output === "hand_off").length;
     console.log(`dry run: rule arm hand_off=${handOff} answer=${rows.length - handOff}; nothing written`);
     return;
   }
   const inputs = inputsSha256(factSheet, cases);
-  const kept = only === "jev" ? await keptLlm(paths.out) : null;
+  const kept = only === "jev" ? await keptLlm(paths.out, spec) : null;
   if (kept !== null && kept.inputsSha256 !== inputs) {
     throw new Error(
       "run --arm jev: raw.json has no inputs_sha256 matching the current fact sheet, cases and prompt; " +
@@ -275,7 +291,7 @@ async function run(paths: Paths, dry: boolean, only: Arm | null): Promise<void> 
     );
     return { reply: parseLlmResponse(json, c.case_id), ms };
   };
-  const rows: RecordRow[] = cases.map(ruleRecord);
+  const rows: RecordRow[] = cases.map((c) => ruleRecord(c, spec));
   const calls: RawCall[] = [];
   const dir = await mkdtemp(join(tmpdir(), "uc13-"));
   try {
@@ -286,7 +302,7 @@ async function run(paths: Paths, dry: boolean, only: Arm | null): Promise<void> 
       results.forEach(({ reply, ms }, i) => {
         const c = cases[i];
         if (c === undefined) return;
-        rows.push(armRecord(c, arm, reply, ms));
+        rows.push(armRecord(c, arm, reply, ms, spec));
         calls.push(rawCall(c, arm, reply));
       });
     }
@@ -299,25 +315,25 @@ async function run(paths: Paths, dry: boolean, only: Arm | null): Promise<void> 
     await writeFixture(paths.fixture, captured, new Date().toISOString());
   }
   const all = kept === null ? rows : applyLabels([...rows, ...kept.rows], kept.truth, kept.provenance);
-  await write(paths.out, all, [...calls, ...(kept?.calls ?? [])], inputs);
+  await write(paths.out, all, [...calls, ...(kept?.calls ?? [])], inputs, spec);
 }
 
 /** Rebuild the Jev rows and raw calls from the fixture alone; rule rows are recomputed, llm rows and all labels kept. */
-async function replay(paths: Paths): Promise<void> {
-  const { factSheet, cases } = await loadExample(paths.example);
-  const kept = await keptLlm(paths.out);
+async function replay(paths: Paths, spec: RunSpec): Promise<void> {
+  const { factSheet, cases } = await loadExample(paths.example, spec);
+  const kept = await keptLlm(paths.out, spec);
   if (kept.inputsSha256 !== null && kept.inputsSha256 !== inputsSha256(factSheet, cases)) {
     throw new Error("replay: raw.json inputs_sha256 does not match the current fact sheet, cases and prompt; the kept LLM arm is stale");
   }
   const replayed = replayJev(await readFixture(paths.fixture), cases, (c) => jevBody(factSheet, c));
-  const rows = [...cases.map(ruleRecord), ...replayed.map(({ case_, reply, ms }) => armRecord(case_, "jev", reply, ms)), ...kept.rows];
+  const rows = [...cases.map((c) => ruleRecord(c, spec)), ...replayed.map(({ case_, reply, ms }) => armRecord(case_, "jev", reply, ms, spec)), ...kept.rows];
   const calls = [...replayed.map(({ case_, reply }) => rawCall(case_, "jev", reply)), ...kept.calls];
-  await write(paths.out, applyLabels(rows, kept.truth, kept.provenance), calls, kept.inputsSha256);
+  await write(paths.out, applyLabels(rows, kept.truth, kept.provenance), calls, kept.inputsSha256, spec);
 }
 
 /** Merge labels.csv, stamped with the provenance the command line states (there is no default). */
-async function label(paths: Paths, provenance: LabelProvenance): Promise<void> {
-  const truth = parseTruth(await Bun.file(join(paths.out, "labels.csv")).text());
+async function label(paths: Paths, provenance: LabelProvenance, spec: RunSpec): Promise<void> {
+  const truth = parseTruth(await Bun.file(join(paths.out, "labels.csv")).text(), spec);
   const rows = applyLabels(parseRecords(await Bun.file(join(paths.out, "records.csv")).text()), truth, provenance);
   await Bun.write(join(paths.out, "records.csv"), formatRecords(rows));
   console.log(`labelled ${rows.filter((r) => r.label !== "").length} of ${rows.length} rows from ${truth.size} truth labels`);
@@ -330,12 +346,12 @@ function scriptJson(value: unknown): string {
 
 /** Fill the template's markers in one pass with a callback, so `$&` in the data and marker text in it stay literal. */
 export function renderPage(template: string, factSheet: string, cases: readonly Case[]): string {
-  const values: Readonly<Record<string, string>> = { __SHEET__: scriptJson(factSheet), __CASES__: scriptJson(cases) };
-  return template.replace(/__SHEET__|__CASES__/g, (marker) => values[marker] ?? marker);
+  const values: Readonly<Record<string, string>> = { __SHEET__: scriptJson(factSheet), __CASES__: scriptJson(cases), __CASE_COUNT__: String(cases.length) };
+  return template.replace(/__SHEET__|__CASES__|__CASE_COUNT__/g, (marker) => values[marker] ?? marker);
 }
 
-async function page(paths: Paths): Promise<void> {
-  const { factSheet, cases } = await loadExample(paths.example);
+async function page(paths: Paths, spec: RunSpec): Promise<void> {
+  const { factSheet, cases } = await loadExample(paths.example, spec);
   const template = await Bun.file(join(paths.example, "label.template.html")).text();
   await Bun.write(join(paths.out, "label.html"), renderPage(template, factSheet, cases));
   console.log(`wrote label.html with ${cases.length} messages`);
@@ -343,13 +359,13 @@ async function page(paths: Paths): Promise<void> {
 
 export async function main(argv: readonly string[], paths: Paths): Promise<void> {
   const args = parseArgs(argv);
-  if (args.command === "run") await run(paths, args.dry, args.arm);
-  else if (args.command === "replay") await replay(paths);
+  if (args.command === "run") await run(paths, args.dry, args.arm, args.spec);
+  else if (args.command === "replay") await replay(paths, args.spec);
   else if (args.command === "label") {
     if (args.provenance === null) throw new Error(USAGE);
-    await label(paths, args.provenance);
+    await label(paths, args.provenance, args.spec);
   }
-  else await page(paths);
+  else await page(paths, args.spec);
 }
 
 if (import.meta.main) {
@@ -360,5 +376,5 @@ if (import.meta.main) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(2);
   }
-  await main(argv, defaultPaths());
+  await main(argv, defaultPaths(parseArgs(argv).spec));
 }

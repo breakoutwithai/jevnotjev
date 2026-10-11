@@ -1,0 +1,101 @@
+case_id,truth,certainty,reason
+m01,hand_off,high,snow forecast not on sheet
+m02,hand_off,high,retail helmets not on sheet
+m03,answer,high,$52/day with 15% off 3+ days
+m04,hand_off,high,live stock of boots
+m05,answer,high,phone 555-0142
+m06,answer,high,15% off 3 or more days
+m07,hand_off,high,age 3 outside 4-12 and junior size ranges not on sheet
+m08,answer,high,15-minute counter wax $25
+m09,hand_off,high,beacon instruction not on sheet
+m10,hand_off,high,booking status
+m11,hand_off,high,injury and binding complaint
+m12,answer,low,Early Lift promise in and out under 5 minutes
+m13,hand_off,high,price matching not on sheet
+m14,answer,high,skins poles bindings
+m15,answer,high,Northpeak Stellar Halden Corvo
+m16,answer,high,opens 7:30 AM daily
+m17,hand_off,high,group rate not on sheet
+m18,hand_off,high,deposits not on sheet
+m19,hand_off,high,billing problem
+m20,hand_off,high,complaint
+m21,answer,high,ages 4 to 12
+m22,answer,high,free size swaps
+m23,hand_off,high,cancellations and refunds not on sheet
+m24,answer,high,two locations stated
+m25,answer,high,avalanche kit $35
+m26,hand_off,high,snowshoes not on sheet
+m27,answer,high,$75
+m28,answer,low,drop by 5 PM for 8 AM pickup; first chair time not stated
+m29,answer,high,$52
+m30,hand_off,high,binding mounting not on sheet
+m31,hand_off,high,reservation
+m32,answer,high,full overhaul $65 incl base weld
+m33,answer,low,free condition swaps on demo; wider ski availability not stated
+m34,answer,high,24/7 drop locker
+m35,answer,high,boot comfort guarantee immediate swap
+m36,hand_off,high,safety judgement
+m37,hand_off,high,live availability
+m38,hand_off,high,damage charges not on sheet
+m39,hand_off,high,live availability
+m40,answer,high,bindings release-tested before every rental
+m41,answer,low,junior $32 recreational $52 15% off 3+ days; boots/helmets not stated
+m42,answer,high,junior $32 vs $52 and 15% off 3+ days
+m43,hand_off,high,lessons not on sheet
+m44,answer,low,hours stated; counter choice only described not recommended
+m45,hand_off,high,booking not on sheet
+m46,hand_off,high,junior sizes and helmets not on sheet
+m47,hand_off,high,helmets not on sheet
+m48,hand_off,high,live queue times
+m49,answer,low,boot comfort guarantee immediate swap; charge implied none
+m50,hand_off,high,damage charges not on sheet
+m51,hand_off,high,refunds not on sheet
+m52,answer,high,standard $45 or overhaul $65 drop by 5 PM for 8 AM
+m53,hand_off,high,ski widths and touring skis not on sheet
+m54,hand_off,high,sizes pucks and availability not on sheet
+m55,hand_off,high,binding type not on sheet
+m56,answer,high,beacon probe shovel $35
+m57,hand_off,high,airbag packs not on sheet
+m58,answer,high,opens 7:30 daily
+m59,hand_off,low,hourly demo not on sheet; only per-day rentals
+m60,hand_off,high,wax method and bevel specs not on sheet
+m61,hand_off,high,boot-fit binding adjustment not on sheet
+m62,hand_off,high,touring setup not priced on sheet
+m63,answer,high,15-minute counter wax or overnight drop-off
+m64,hand_off,high,deposit and paperwork not on sheet
+m65,hand_off,low,boots and sizing advice not on sheet
+m66,hand_off,high,boots and helmet inclusion not on sheet
+m67,answer,low,lift-base counter exists; pickup at it not explicitly stated
+m68,hand_off,high,damage and loss charges not on sheet
+m69,answer,high,opens 7:30
+m70,hand_off,high,sizing advice not on sheet
+m71,hand_off,high,lessons not on sheet
+m72,hand_off,high,booking not on sheet
+m73,hand_off,high,snowboard rental not on sheet
+m74,hand_off,high,directions not on sheet
+m75,hand_off,high,refunds not on sheet
+m76,hand_off,high,ID and deposit not on sheet
+m77,hand_off,high,group rates not on sheet
+m78,hand_off,high,booking requirements not on sheet
+m79,hand_off,low,evening-before pickup not on sheet
+m80,hand_off,low,counter recommendation not on sheet
+m81,hand_off,high,helmets and snowboards not priced
+m82,hand_off,high,collection and ID rules not on sheet
+m83,answer,high,closes 7 PM; drop locker 24/7
+m84,answer,low,boot comfort guarantee immediate swap
+m85,hand_off,high,lost-item charges not on sheet
+m86,hand_off,low,late fines not on sheet though locker is 24/7
+m87,hand_off,high,cross-counter returns not on sheet
+m88,answer,low,counter wax same day or overnight tune prices
+m89,answer,low,15-minute counter wax; edge tune is overnight
+m90,answer,high,daily 7:30
+m91,answer,high,full overhaul $65
+m92,hand_off,high,tune booking not on sheet
+m93,hand_off,high,ski width and buy-demo not on sheet
+m94,answer,high,Thursday drop by 5 PM ready 8 AM next day
+m95,hand_off,high,lost property
+m96,hand_off,high,parking not on sheet
+m97,hand_off,high,vouchers not on sheet
+m98,hand_off,high,retail not on sheet
+m99,hand_off,high,live snow and lift conditions
+m100,hand_off,high,purchase credit not on sheet

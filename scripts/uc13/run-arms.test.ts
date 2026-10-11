@@ -3,8 +3,8 @@ import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applyLabels, formatRecords, parseRecords, parseTruth } from "./arms.ts";
-import { main, parseArgs, pool, renderPage, spawnJson, type Paths } from "./run-arms.ts";
+import { DEFAULT_RUN, RUN_SPECS, applyLabels, formatRecords, parseRecords, parseTruth } from "./arms.ts";
+import { defaultPaths, main, parseArgs, pool, RECORDED_RUNS, renderPage, spawnJson, type Paths } from "./run-arms.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
 const RUN = fileURLToPath(new URL("../../docs/product/runs/2026-10-01-uc13-shop-bot/", import.meta.url));
@@ -27,6 +27,29 @@ async function read(path: string): Promise<string> {
 }
 
 describe("run-arms commands", () => {
+  test("[unit] UC13 run 100 dry prints 100 rule rows and writes nothing", async () => {
+    const out = await mkdtemp(join(tmpdir(), "uc13-dry-"));
+    const lines: string[] = [];
+    const original = console.log;
+    console.log = (...args: unknown[]) => { lines.push(args.map(String).join(" ")); };
+    try {
+      await main(["run", "--dry", "--run", "2026-10-11"], { ...defaultPaths(), out });
+      expect(lines.filter((line) => /^m\d+ (answer|hand_off)$/.test(line))).toHaveLength(100);
+      expect(lines[0]).toMatch(/^m01 /);
+      expect(lines[99]).toMatch(/^m100 /);
+      expect(lines[100]).toMatch(/^dry run: rule arm hand_off=\d+ answer=\d+; nothing written$/);
+      expect((await (await import("node:fs/promises")).readdir(out))).toEqual([]);
+    } finally {
+      console.log = original;
+      await rm(out, { recursive: true, force: true });
+    }
+  });
+
+  test("[unit] UC13 run 100 refuses raw data stamped for the other run", async () => {
+    await withRun(async (paths) => {
+      await expect(main(["replay", "--run", "2026-10-11"], paths)).rejects.toThrow(/raw.json.*run-shopbot-2026-10-11/);
+    });
+  });
   test("[unit] UC13-F1 run --dry leaves records.csv and raw.json untouched", async () => {
     await withRun(async (paths) => {
       const before = [await read(join(paths.out, "records.csv")), await read(join(paths.out, "raw.json"))];
@@ -76,11 +99,13 @@ describe("run-arms commands", () => {
   });
 
   test("[unit] UC13-F2 replay of the recorded run reproduces records.csv and raw.json", async () => {
-    await withRun(async (paths) => {
-      await main(["replay"], paths);
-      expect(await read(join(paths.out, "records.csv"))).toBe(await read(join(RUN, "records.csv")));
-      expect(await read(join(paths.out, "raw.json"))).toBe(await read(join(RUN, "raw.json")));
-    });
+    for (const spec of RECORDED_RUNS) {
+      await withRun(async (paths) => {
+        await main(["replay", "--run", spec.id], paths);
+        expect(await read(join(paths.out, "records.csv"))).toBe(await read(join(RUN, "records.csv")));
+        expect(await read(join(paths.out, "raw.json"))).toBe(await read(join(RUN, "raw.json")));
+      });
+    }
   });
 
   test("[unit] UC13-F8 run --arm jev refuses kept LLM results without a matching inputs fingerprint", async () => {
@@ -107,6 +132,24 @@ describe("run-arms commands", () => {
 });
 
 describe("argument parsing", () => {
+  test("[unit] UC13 run paths select the matching output folder and fixture", () => {
+    const oldPaths = defaultPaths();
+    const newPaths = defaultPaths(RUN_SPECS["2026-10-11"]);
+    expect(oldPaths.out).toEndWith("/docs/product/runs/2026-10-01-uc13-shop-bot/");
+    expect(oldPaths.fixture).toEndWith("/examples/uc13-shop-bot/fixtures/uc13.jev.json");
+    expect(newPaths.out).toEndWith("/docs/product/runs/2026-10-11-uc13-shop-bot-100/");
+    expect(newPaths.fixture).toEndWith("/examples/uc13-shop-bot/fixtures/uc13-2026-10-11.jev.json");
+  });
+
+  test("[unit] UC13 run selector accepts both runs on every command and rejects bad or repeated ids", () => {
+    for (const command of ["run", "replay", "page", "label"]) {
+      const flags = command === "label" ? ["--source", "human", "--by", "operator", "--at", "2026-10-11", "--blind", "true"] : [];
+      expect(parseArgs([command, ...flags, "--run", "2026-10-11"]).spec.id).toBe("2026-10-11");
+      expect(() => parseArgs([command, ...flags, "--run", "unknown"])).toThrow(/--run/);
+      expect(() => parseArgs([command, ...flags, "--run", "2026-10-01", "--run", "2026-10-11"])).toThrow(/--run/);
+    }
+    expect(parseArgs(["run"]).spec.id).toBe("2026-10-01");
+  });
   test("[unit] UC13-F22 unknown or conflicting flags are refused before any side effect", () => {
     expect(() => parseArgs(["run", "--dry-run"])).toThrow(/--dry-run/);
     expect(() => parseArgs(["run", "--dry", "--arm", "jev"])).toThrow(/--dry/);
@@ -122,14 +165,15 @@ describe("argument parsing", () => {
     expect(() => parseArgs(["label", "--source", "human_reviewed", "--by", "op-1", "--at", "2026-10-07", "--blind", "true"])).toThrow(/human_reviewed/);
     expect(parseArgs(["label", "--source", "human_reviewed", "--by", "operator", "--at", "2026-10-03", "--blind", "false"])).toEqual({
       command: "label",
+      spec: DEFAULT_RUN,
       dry: false,
       arm: null,
       provenance: { source: "human_reviewed", by: "operator", at: "2026-10-03", blind: false },
     });
     expect(() => parseArgs(["deploy"])).toThrow(/usage/);
-    expect(parseArgs(["run", "--dry"])).toEqual({ command: "run", dry: true, arm: null, provenance: null });
-    expect(parseArgs(["run", "--arm", "jev"])).toEqual({ command: "run", dry: false, arm: "jev", provenance: null });
-    expect(parseArgs(["replay"])).toEqual({ command: "replay", dry: false, arm: null, provenance: null });
+    expect(parseArgs(["run", "--dry"])).toEqual({ command: "run", spec: DEFAULT_RUN, dry: true, arm: null, provenance: null });
+    expect(parseArgs(["run", "--arm", "jev"])).toEqual({ command: "run", spec: DEFAULT_RUN, dry: false, arm: "jev", provenance: null });
+    expect(parseArgs(["replay"])).toEqual({ command: "replay", spec: DEFAULT_RUN, dry: false, arm: null, provenance: null });
   });
 });
 

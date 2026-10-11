@@ -1,0 +1,38 @@
+{
+  "name": "09-squash-shaped-body",
+  "why": "a squash commit keeps the trailer lines in its body among other lines",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat(scripts): a (#12)\n\n* feat: first\n* fix: second\n\nPrompt-Id: p1\nClaude-Session: https://claude.ai/code/session_x\n",
+        "files": {
+          "scripts/a.ts": "a\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/a.ts": "DELIVERED"
+  }
+}

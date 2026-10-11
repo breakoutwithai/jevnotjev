@@ -1,0 +1,75 @@
+{
+  "name": "11-merged-branch-no-ff",
+  "why": "the trailer commit lives on a branch merged with --no-ff",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "git": [
+        "checkout",
+        "-q",
+        "-b",
+        "feat"
+      ],
+      "date": null
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a\n\nPrompt-Id: p1",
+        "files": {
+          "scripts/a.ts": "a\n"
+        }
+      }
+    },
+    {
+      "git": [
+        "checkout",
+        "-q",
+        "main"
+      ],
+      "date": null
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "docs: unrelated on main",
+        "files": {
+          "README.md": "y\n"
+        }
+      }
+    },
+    {
+      "git": [
+        "merge",
+        "-q",
+        "--no-ff",
+        "feat",
+        "-m",
+        "Merge branch feat"
+      ],
+      "date": "2026-10-07T12:00:00Z"
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/a.ts": "DELIVERED"
+  }
+}

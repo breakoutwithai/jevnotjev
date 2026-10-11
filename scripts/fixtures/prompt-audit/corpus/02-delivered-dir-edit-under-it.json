@@ -1,0 +1,38 @@
+{
+  "name": "02-delivered-dir-edit-under-it",
+  "why": "kind dir: an edit to a file under the directory counts",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "src/mod/",
+        "kind": "dir"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "src/mod/x.ts": "export const x = 1;\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "fix: x\n\nPrompt-Id: p1",
+        "files": {
+          "src/mod/x.ts": "export const x = 2;\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus src/mod/": "DELIVERED"
+  }
+}

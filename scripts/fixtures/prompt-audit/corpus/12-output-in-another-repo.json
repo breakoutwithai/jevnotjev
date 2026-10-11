@@ -1,0 +1,45 @@
+{
+  "name": "12-output-in-another-repo",
+  "why": "a repo other than the audited one is listed, never checked here, even if the same path was touched with the trailer",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/elsewhere",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/b.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a and b\n\nPrompt-Id: p1",
+        "files": {
+          "scripts/a.ts": "a\n",
+          "scripts/b.ts": "b\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/elsewhere scripts/a.ts": "OTHER-REPO",
+    "acme/corpus scripts/b.ts": "DELIVERED"
+  }
+}

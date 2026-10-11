@@ -14,9 +14,7 @@ import {
   parseArgs,
   parsePrompt,
   renderTable,
-  verdictFor,
   type Git,
-  type Verdict,
 } from "./prompt-audit";
 
 const extractPaths = (s: string): string[] => extractCandidates(s).paths;
@@ -368,111 +366,39 @@ describe("extractPaths", () => {
   });
 });
 
-describe("verdictFor", () => {
-  const base = { exists: 0, missing: 0, unchecked: 0, evidence: 0, issue: "none" as const };
-  test("[unit] S1 no input produces a verdict other than NOT-RUN, PARTIAL or NO-EVIDENCE-POSSIBLE", () => {
-    const allowed = ["NOT-RUN", "PARTIAL", "NO-EVIDENCE-POSSIBLE"];
-    const issues = ["none", "OPEN", "CLOSED", "unknown"] as const;
-    let n = 0;
-    for (const exists of [0, 1, 2]) for (const missing of [0, 1, 2]) for (const unchecked of [0, 1, 2]) for (const evidence of [0, 1, 2]) for (const issue of issues) {
-      const v = verdictFor({ exists, missing, unchecked, evidence, issue });
-      expect(allowed, JSON.stringify({ exists, missing, unchecked, evidence, issue })).toContain(v);
-      n += 1;
-    }
-    expect(n).toBe(324);
-  });
-  test("[unit] S1 every path touched, nothing missing and nothing unchecked is PARTIAL, never a done claim", () => {
-    expect(verdictFor({ ...base, exists: 3 })).toBe("PARTIAL");
-    expect(verdictFor({ ...base, exists: 2, issue: "CLOSED" })).toBe("PARTIAL");
-    expect(verdictFor({ ...base, exists: 2, unchecked: 1 })).toBe("PARTIAL");
-  });
-  test("[unit] NOT-RUN when nothing exists and no evidence", () => {
-    expect(verdictFor({ ...base, missing: 3 })).toBe("NOT-RUN");
-  });
-  test("[unit] PARTIAL when some exist", () => {
-    expect(verdictFor({ ...base, exists: 1, missing: 1 })).toBe("PARTIAL");
-  });
-  test("[unit] PARTIAL when all exist but the issue is OPEN", () => {
-    expect(verdictFor({ ...base, exists: 2, issue: "OPEN" })).toBe("PARTIAL");
-  });
-  test("[unit] an unknown issue is never treated as closed", () => {
-    expect(verdictFor({ ...base, exists: 2, issue: "unknown" })).toBe("PARTIAL");
-  });
-  test("[unit] PARTIAL when evidence commits exist but no deliverable does", () => {
-    expect(verdictFor({ ...base, missing: 2, evidence: 4 })).toBe("PARTIAL");
-  });
-  test("[unit] NO-EVIDENCE-POSSIBLE with zero checkable paths and no issue", () => {
-    expect(verdictFor(base)).toBe("NO-EVIDENCE-POSSIBLE");
-  });
-  test("[unit] G6 NOT-RUN needs at least one checkable path", () => {
-    expect(verdictFor({ ...base, issue: "OPEN" })).toBe("NO-EVIDENCE-POSSIBLE");
-    expect(verdictFor({ ...base, issue: "unknown" })).toBe("NO-EVIDENCE-POSSIBLE");
-    expect(verdictFor({ ...base, unchecked: 2 })).toBe("NO-EVIDENCE-POSSIBLE");
-    expect(verdictFor({ ...base, missing: 1 })).toBe("NOT-RUN");
-  });
-  test("[unit] G8 NOT-RUN also needs every deliverable checked: unresolved ones leave it unknown", () => {
-    expect(verdictFor({ ...base, missing: 1, unchecked: 1 })).toBe("NO-EVIDENCE-POSSIBLE");
-    expect(verdictFor({ ...base, missing: 1, unchecked: 1, issue: "OPEN" })).toBe("NO-EVIDENCE-POSSIBLE");
-    expect(verdictFor({ ...base, missing: 1, unchecked: 1, issue: "CLOSED" })).toBe("PARTIAL");
-    expect(verdictFor({ ...base, missing: 1, unchecked: 1, evidence: 1 })).toBe("PARTIAL");
-    expect(verdictFor({ ...base, missing: 1, unchecked: 0 })).toBe("NOT-RUN");
-  });
-  test("[unit] G6 zero checkable paths with a CLOSED issue or any evidence is PARTIAL", () => {
-    expect(verdictFor({ ...base, issue: "CLOSED" })).toBe("PARTIAL");
-    expect(verdictFor({ ...base, issue: "OPEN", evidence: 1 })).toBe("PARTIAL");
-  });
-  test("[unit] F12 zero checkable paths, no issue, but evidence commits is PARTIAL", () => {
-    expect(verdictFor({ ...base, evidence: 2 })).toBe("PARTIAL");
-  });
-});
-
+// Changed by V1: the verdict concept is gone. STALE-STATUS is one rule: a draft or ready-not-run
+// prompt with evidence commits or a TOUCHED path. `done` and `running` are never flagged.
 describe("flagsFor", () => {
-  // `missing` is accepted only so the S4 test can show it no longer matters.
-  const f = (status: string | null, verdict: Verdict, _missing = 0) => flagsFor(status, verdict);
-  test("[unit] ready-not-run or draft with a PARTIAL verdict is STALE-STATUS", () => {
-    expect(f("ready-not-run", "PARTIAL")).toEqual(["STALE-STATUS"]);
-    expect(f("draft", "PARTIAL")).toEqual(["STALE-STATUS"]);
+  test("[unit] V1 draft or ready-not-run with an evidence commit or a TOUCHED path is STALE-STATUS", () => {
+    for (const status of ["draft", "ready-not-run"]) {
+      expect(flagsFor(status, 1, 0), status).toEqual(["STALE-STATUS"]);
+      expect(flagsFor(status, 0, 1), status).toEqual(["STALE-STATUS"]);
+      expect(flagsFor(status, 5, 3), status).toEqual(["STALE-STATUS"]);
+    }
   });
-  test("[unit] ready-not-run with NOT-RUN is consistent", () => {
-    expect(f("ready-not-run", "NOT-RUN")).toEqual([]);
+  test("[unit] V1 draft or ready-not-run with no evidence and no TOUCHED path is not flagged, whatever is MISSING", () => {
+    for (const status of ["draft", "ready-not-run"]) expect(flagsFor(status, 0, 0), status).toEqual([]);
   });
-  // Changed by S4: S1 also flagged `done` when any path was MISSING. That misfires on gitignored or
-  // wrong-root deliverables, so only a NOT-RUN verdict contradicts `done`.
-  test("[unit] S4 done is contradicted only by NOT-RUN, never by MISSING paths, and never confirmed", () => {
-    expect(f("done", "NOT-RUN")).toEqual(["STALE-STATUS"]);
-    expect(f("done", "PARTIAL", 1)).toEqual([]);
-    expect(f("done", "NO-EVIDENCE-POSSIBLE", 2)).toEqual([]);
-    expect(f("done", "PARTIAL", 0)).toEqual([]);
-    expect(f("done", "NO-EVIDENCE-POSSIBLE", 0)).toEqual([]);
-  });
-  test("[unit] S1 running is never flagged either way", () => {
-    for (const v of ["NOT-RUN", "PARTIAL", "NO-EVIDENCE-POSSIBLE"] as const) expect(f("running", v, 3)).toEqual([]);
+  test("[unit] V1 done and running are never flagged, with or without evidence", () => {
+    for (const status of ["done", "running", "superseded"]) for (const [e, t] of [[0, 0], [3, 0], [0, 2], [4, 4]] as const) expect(flagsFor(status, e, t), `${status} ${e} ${t}`).toEqual([]);
   });
   test("[unit] a status outside the allowed set is INVALID-STATUS", () => {
-    expect(f("in-progress", "PARTIAL")).toEqual(["INVALID-STATUS"]);
-    expect(f(null, "NOT-RUN")).toEqual(["INVALID-STATUS"]);
-  });
-  test("[unit] running and superseded carry no stale flag", () => {
-    expect(f("running", "PARTIAL")).toEqual([]);
-    expect(f("superseded", "NOT-RUN")).toEqual([]);
-  });
-  test("[unit] F13 NO-EVIDENCE-POSSIBLE does not make ready-not-run or draft stale", () => {
-    expect(f("ready-not-run", "NO-EVIDENCE-POSSIBLE")).toEqual([]);
-    expect(f("draft", "NO-EVIDENCE-POSSIBLE")).toEqual([]);
+    expect(flagsFor("in-progress", 3, 3)).toEqual(["INVALID-STATUS"]);
+    expect(flagsFor(null, 0, 0)).toEqual(["INVALID-STATUS"]);
   });
 });
 
 describe("renderTable", () => {
-  test("[unit] truncates a long stem and shows flags", () => {
-    const out = renderTable([{ stem: "x".repeat(80), status: "ready-not-run", verdict: "PARTIAL", touched: 1, checkable: 2, evidence: 3, flags: ["STALE-STATUS"] }]);
-    expect(out).toContain("PARTIAL");
-    expect(out).toContain("1/2");
-    expect(out).toContain("STALE-STATUS");
-    expect(out.split("\n").every((l) => l.length < 120)).toBe(true);
+  const row = { stem: "x".repeat(80), status: "ready-not-run", touched: 1, checkable: 2, missing: 1, evidence: 3, flags: ["STALE-STATUS" as const] };
+  test("[unit] V1 columns are prompt, status, touched, missing, evid, flags and there is no verdict column", () => {
+    const [head = "", line = ""] = renderTable([row]).split("\n");
+    expect(head.split(/\s+/)).toEqual(["prompt", "status", "touched", "missing", "evid", "flags"]);
+    expect(line).toContain("1/2");
+    expect(line).toContain("STALE-STATUS");
   });
-  test("[unit] two flags still fit the row width", () => {
-    const out = renderTable([{ stem: "x".repeat(80), status: "in-progress", verdict: "PARTIAL", touched: 11, checkable: 13, evidence: 120, flags: ["INVALID-STATUS", "INVALID-HEADER"] }]);
-    expect(out.split("\n").every((l) => l.length < 120)).toBe(true);
+  test("[unit] truncates a long stem and every row stays under 100 characters", () => {
+    const out = renderTable([row, { ...row, status: "in-progress", touched: 11, checkable: 13, missing: 12, evidence: 120, flags: ["INVALID-STATUS", "INVALID-HEADER"] }]);
+    expect(out.split("\n").every((l) => l.length < 100)).toBe(true);
   });
 });
 
@@ -538,7 +464,7 @@ describe("classifyPath", () => {
     expect(classifyPath("docs/notes", t, always, "origin/main", "2026-10-01")).toBe("TOUCHED");
   });
   // Changed by S3: G4 made a directory TOUCHED only by an ADDED file (--diff-filter=A). That reported
-  // NOT-RUN for a run that only edited existing files under it, so any change under it counts now.
+  // a false absence for a run that only edited existing files under it, so any change under it counts now.
   test("[unit] S3 any change under a directory since created makes it TOUCHED, not only an added file", () => {
     const t = buildTree("docs/real/a.md\0scripts/new.ts\0");
     const calls: string[][] = [];
@@ -617,7 +543,6 @@ describe("auditPrompt", () => {
       expect(r.pathsTouched).toBe(1);
       expect(r.deliverables[0]?.unresolved).toEqual([extra]);
       expect(r.deliverables[0]?.unchecked).toBe(true);
-      expect(r.verdict).toBe("PARTIAL");
     }
   });
   test("[unit] G11 a glob-only backtick token next to a touched path is reported unchecked", () => {
@@ -626,40 +551,35 @@ describe("auditPrompt", () => {
       const r = auditPrompt("x.prompt.md", prompt([item]), tree, git, "sha", null);
       expect(r.pathsTouched, item).toBe(1);
       expect(r.deliverables[0]?.unchecked, item).toBe(true);
-      expect(r.verdict, item).toBe("PARTIAL");
     }
   });
   // Changed by S6: this S2-1/R3-4 test expected a git-excluded path to be plain MISSING with no
-  // check-ignore call. check-ignore now runs, and exit 0 gives IGNORED (unchecked, NOT-RUN withheld).
-  test("[unit] S6 an ignored path is IGNORED and unchecked, so NOT-RUN is withheld", () => {
+  // check-ignore call. check-ignore now runs, and exit 0 gives IGNORED (unchecked).
+  test("[unit] S6 an ignored path is IGNORED and unchecked", () => {
     const git: Git = (args) => ({ code: 0, out: "", err: args[0] === "check-ignore" ? "" : "" });
     const r = auditPrompt("x.prompt.md", prompt([".persona-swarm/report.md: x"]), tree, git, "sha", null);
     expect(r.deliverables[0]?.paths).toEqual([{ path: ".persona-swarm/report.md", state: "IGNORED" }]);
     expect(r.pathsTouched).toBe(0);
     expect(r.pathsMissing).toBe(0);
     expect(r.deliverables[0]?.unchecked).toBe(true);
-    expect(r.verdict).toBe("NO-EVIDENCE-POSSIBLE");
   });
   test("[unit] S6 a check-ignore failure lists the path as UNRESOLVED and does not abort", () => {
     const git: Git = (args) => (args[0] === "check-ignore" ? { code: 128, out: "", err: "fatal: beyond a symbolic link" } : { code: 0, out: "", err: "" });
     const r = auditPrompt("x.prompt.md", prompt(["link/x.ts: x"]), tree, git, "sha", null);
     expect(r.deliverables[0]?.paths).toEqual([]);
     expect(r.deliverables[0]?.unresolved).toEqual(["link/x.ts"]);
-    expect(r.verdict).toBe("NO-EVIDENCE-POSSIBLE");
   });
   test("[unit] S2-1 a path in neither the tree nor an ignore rule is plain MISSING", () => {
     const { git } = recorder("");
     const r = auditPrompt("x.prompt.md", prompt([".persona-swarm/report.md: x"]), tree, git, "sha", null);
     expect(r.deliverables[0]?.paths).toEqual([{ path: ".persona-swarm/report.md", state: "MISSING" }]);
     expect(r.pathsTouched).toBe(0);
-    expect(r.verdict).toBe("NOT-RUN");
   });
   test("[unit] R3-1 a prose deliverable with no path is reported unchecked even when every path is touched", () => {
     const { git } = recorder("abc1234\n");
     const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x", "one PR with the gate evidence"]), tree, git, "sha", null);
     expect(r.pathsTouched).toBe(1);
     expect(r.deliverables[1]?.unchecked).toBe(true);
-    expect(r.verdict).toBe("PARTIAL");
   });
   test("[unit] R3-8 a backtick filename containing a comma is split and stays conservative", () => {
     const commaTree = buildTree("docs/a, b.md\0");
@@ -701,7 +621,6 @@ describe("auditPrompt", () => {
       const r = auditPrompt("x.prompt.md", prompt([item]), tree, git, "sha", null);
       expect(r.pathsTouched).toBe(1);
       expect(r.deliverables[0]?.unchecked).toBe(true);
-      expect(r.verdict).toBe("PARTIAL");
     }
   });
   test("[unit] G2 absolute and home paths are never classified or read from the filesystem", () => {
@@ -718,7 +637,6 @@ describe("auditPrompt", () => {
       expect(r.pathsTouched).toBe(1);
       expect(r.deliverables[0]?.unresolved).toEqual([extra]);
       expect(r.deliverables[0]?.unchecked).toBe(true);
-      expect(r.verdict).toBe("PARTIAL");
     }
   });
   test("[unit] G3 a missing created date leaves every path unresolved and raises INVALID-HEADER", () => {
@@ -859,37 +777,69 @@ describe("prompt-audit CLI", () => {
     );
   });
 
-  test("[integration] --no-gh derives verdicts from a temp git repo", () => {
+  function evidenceRepo(repo: string): void {
+    writeFileSync(join(repo, "scripts/old.ts"), "export const old = 1;\n");
+    commitAt(repo, "2019-01-01T00:00:00Z", "old file");
+    writeFileSync(join(repo, "scripts/thing.ts"), "export const thing = 1;\n");
+    const put = (stem: string, status: string, items: string[]) => writeFileSync(join(repo, `docs/prompts/${stem}.prompt.md`), promptFile(`fx-${stem}`, status, items));
+    put("20200101-worked", "ready-not-run", ["scripts/thing.ts: the thing"]);
+    put("20200101-absent", "ready-not-run", ["scripts/absent.ts: never built"]);
+    put("20200101-donemixed", "done", ["scripts/thing.ts: x", "scripts/absent.ts: y"]);
+    put("20200101-donemissing", "done", ["scripts/absent.ts: only a missing path"]);
+    put("20200101-untouched", "ready-not-run", ["scripts/old.ts: pre-existing"]);
+    put("20200101-donetouched", "done", ["scripts/thing.ts: the thing"]);
+    commitAt(repo, null, "add fixtures");
+  }
+
+  test("[integration] V1 --no-gh reports evidence per prompt and flags only a stale draft or ready-not-run", () => {
     withRepo((repo) => {
-      writeFileSync(join(repo, "scripts/old.ts"), "export const old = 1;\n");
-      commitAt(repo, "2019-01-01T00:00:00Z", "old file");
-      writeFileSync(join(repo, "scripts/thing.ts"), "export const thing = 1;\n");
-      writeFileSync(join(repo, "docs/prompts/20200101-delivered.prompt.md"), promptFile("fx-delivered", "ready-not-run", ["scripts/thing.ts: the thing"]));
-      writeFileSync(join(repo, "docs/prompts/20200101-notrun.prompt.md"), promptFile("fx-notrun", "ready-not-run", ["scripts/absent.ts: never built"]));
-      writeFileSync(join(repo, "docs/prompts/20200101-partial.prompt.md"), promptFile("fx-partial", "done", ["scripts/thing.ts: x", "scripts/absent.ts: y"]));
-      writeFileSync(join(repo, "docs/prompts/20200101-untouched.prompt.md"), promptFile("fx-untouched", "ready-not-run", ["scripts/old.ts: pre-existing"]));
-      writeFileSync(join(repo, "docs/prompts/20200101-donetouched.prompt.md"), promptFile("fx-donetouched", "done", ["scripts/thing.ts: the thing"]));
-      commitAt(repo, null, "add fixtures");
+      evidenceRepo(repo);
       const run = cli(repo, "--json", "--no-gh", "--ref", "HEAD");
       expect(run.code).toBe(0);
       const rows = rowsOf(run.out);
-      expect(rows.length).toBe(5);
-      // S1: a `done` prompt with every path touched is PARTIAL and not contradicted, but never confirmed.
-      expect(dig(rows.find((r) => dig(r, "stem") === "20200101-donetouched"), "verdict")).toBe("PARTIAL");
-      expect(dig(rows.find((r) => dig(r, "stem") === "20200101-donetouched"), "flags")).toEqual([]);
-      const verdictOf = (stem: string): unknown =>
-        dig(
-          rows.find((r) => dig(r, "stem") === stem),
-          "verdict",
-        );
-      expect(verdictOf("20200101-delivered")).toBe("PARTIAL");
-      expect(verdictOf("20200101-notrun")).toBe("NOT-RUN");
-      expect(verdictOf("20200101-partial")).toBe("PARTIAL");
-      expect(verdictOf("20200101-untouched")).toBe("NOT-RUN");
-      expect(run.out).toContain("UNTOUCHED");
+      expect(rows.length).toBe(6);
+      const by = (stem: string): unknown => rows.find((r) => dig(r, "stem") === stem);
+      const evidenceOf = (stem: string): number => {
+        const e = dig(by(stem), "evidenceCommits");
+        return Array.isArray(e) ? e.length : -1;
+      };
+      expect(dig(by("20200101-worked"), "pathsTouched")).toBe(1);
+      expect(evidenceOf("20200101-worked")).toBeGreaterThanOrEqual(1);
+      expect(dig(by("20200101-worked"), "flags")).toEqual(["STALE-STATUS"]);
+      // (c) ready-not-run, zero evidence, a MISSING path: no flag.
+      expect(dig(by("20200101-absent"), "pathsMissing")).toBe(1);
+      expect(evidenceOf("20200101-absent")).toBe(0);
+      expect(dig(by("20200101-absent"), "flags")).toEqual([]);
+      // (b) done is never flagged: with a MISSING path and zero evidence, or with touched paths.
+      expect(dig(by("20200101-donemissing"), "pathsMissing")).toBe(1);
+      expect(evidenceOf("20200101-donemissing")).toBe(0);
+      for (const stem of ["20200101-donemissing", "20200101-donemixed", "20200101-donetouched"]) expect(dig(by(stem), "flags"), stem).toEqual([]);
+      expect(dig(by("20200101-untouched"), "pathsUntouched")).toBe(1);
+      expect(dig(by("20200101-untouched"), "flags")).toEqual([]);
       const strict = cli(repo, "--no-gh", "--ref", "HEAD", "--strict");
       expect(strict.code).toBe(1);
       expect(strict.out).toContain("STALE-STATUS");
+    });
+  });
+
+  test("[integration] V1 a MISSING path is listed for a human, not turned into a flag", () => {
+    withRepo((repo) => {
+      evidenceRepo(repo);
+      const text = cli(repo, "--no-gh", "--ref", "HEAD").out;
+      const line = text.split("\n").find((l) => l.startsWith("- 20200101-absent:")) ?? "";
+      expect(line).toContain("MISSING: scripts/absent.ts");
+      expect(text).toContain("UNTOUCHED: scripts/old.ts");
+    });
+  });
+
+  test("[integration] V1 no output, table or JSON, contains a verdict word", () => {
+    withRepo((repo) => {
+      evidenceRepo(repo);
+      for (const args of [[], ["--json"]]) {
+        const out = cli(repo, "--no-gh", "--ref", "HEAD", ...args).out;
+        for (const word of ["NOT-RUN", "PARTIAL", "PATHS-DONE", "DELIVERED", "NO-EVIDENCE-POSSIBLE"]) expect(out, `${word} ${args.join("")}`).not.toContain(word);
+        expect(out).not.toContain("verdict");
+      }
     });
   });
 
@@ -936,13 +886,12 @@ describe("prompt-audit CLI", () => {
       commitAt(repo, null, "prompt");
       const row = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out)[0];
       expect(dig(row, "deliverables", 0, "paths", 0, "state")).toBe("MISSING");
-      expect(dig(row, "verdict")).toBe("PARTIAL");
       const evidence = dig(row, "evidenceCommits");
       expect(Array.isArray(evidence) ? evidence.length : 0).toBeGreaterThanOrEqual(2);
     });
   });
 
-  test("[integration] S5 a file added after created and later deleted or renamed is MISSING but not NOT-RUN", () => {
+  test("[integration] S5 a file added after created and later deleted or renamed is MISSING but its history counts as evidence", () => {
     withRepo((repo) => {
       writeFileSync(join(repo, "scripts/gone.ts"), "export const gone = 1;\n");
       writeFileSync(join(repo, "scripts/old-name.ts"), "export const moved = 1;\n");
@@ -957,19 +906,16 @@ describe("prompt-audit CLI", () => {
       const row = (stem: string): unknown => rows.find((r) => dig(r, "stem") === stem);
       for (const stem of ["20200101-deleted", "20200101-renamed"]) {
         expect(dig(row(stem), "deliverables", 0, "paths", 0, "state"), stem).toBe("MISSING");
-        expect(dig(row(stem), "verdict"), stem).toBe("PARTIAL");
         const evidence = dig(row(stem), "evidenceCommits");
         expect(Array.isArray(evidence) ? evidence.length : 0, stem).toBeGreaterThanOrEqual(2);
       }
       // `done` on a deleted deliverable is not contradicted: the work happened.
       expect(dig(row("20200101-deleted"), "flags")).toEqual([]);
-      // A path that never existed is still the NOT-RUN case.
-      expect(dig(row("20200101-never"), "verdict")).toBe("NOT-RUN");
       expect(dig(row("20200101-never"), "evidenceCommits")).toEqual([]);
     });
   });
 
-  test("[integration] S6 a deliverable in a gitignored folder is IGNORED and not NOT-RUN", () => {
+  test("[integration] S6 a deliverable in a gitignored folder is IGNORED and unchecked", () => {
     withRepo((repo) => {
       writeFileSync(join(repo, ".gitignore"), "_reference/\n");
       mkdirSync(join(repo, "_reference/run"), { recursive: true });
@@ -982,7 +928,6 @@ describe("prompt-audit CLI", () => {
       expect(dig(row, "deliverables", 0, "paths", 0, "state")).toBe("IGNORED");
       expect(dig(row, "deliverables", 0, "unchecked")).toBe(true);
       expect(dig(row, "deliverables", 1, "paths", 0, "state")).toBe("MISSING");
-      expect(dig(row, "verdict")).not.toBe("NOT-RUN");
       expect(cli(repo, "--no-gh", "--ref", "HEAD").out).toContain("IGNORED: _reference/run/");
     });
   });
@@ -998,18 +943,16 @@ describe("prompt-audit CLI", () => {
       expect(run.code).toBe(0);
       const row = rowsOf(run.out)[0];
       expect(dig(row, "deliverables", 0, "unresolved")).toEqual(["link/x.ts"]);
-      expect(dig(row, "verdict")).not.toBe("NOT-RUN");
     });
   });
 
-  test("[integration] S2 one backtick span naming two committed files is unchecked and not NOT-RUN", () => {
+  test("[integration] S2 one backtick span naming two committed files is unchecked", () => {
     withRepo((repo) => {
       writeFileSync(join(repo, "scripts/a.ts"), "export const a = 1;\n");
       writeFileSync(join(repo, "scripts/b.ts"), "export const b = 1;\n");
       writeFileSync(join(repo, "docs/prompts/20200101-span.prompt.md"), promptFile("fx-span", "ready-not-run", ["`scripts/a.ts + scripts/b.ts`: both"]));
       commitAt(repo, null, "both files after created");
       const row = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out)[0];
-      expect(dig(row, "verdict")).not.toBe("NOT-RUN");
       expect(dig(row, "deliverables", 0, "unchecked")).toBe(true);
       expect(dig(row, "deliverables", 0, "paths")).toEqual([]);
       expect(dig(row, "deliverables", 0, "unresolved")).toEqual(["scripts/a.ts + scripts/b.ts"]);

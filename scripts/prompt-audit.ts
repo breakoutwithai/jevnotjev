@@ -1,14 +1,14 @@
-// Prompt audit: which prompts in docs/prompts/*.prompt.md show no sign of having been run?
+// Prompt audit: what does the repo show for each prompt in docs/prompts/*.prompt.md?
 //
-// This is evidence of ABSENCE only. It reports what is MISSING, UNTOUCHED or not started, and it
-// never confirms that a prompt is done: no verdict means "delivered". A positive verdict needs
-// structured deliverables (#191), a verified Definition of done (#192) and a status lifecycle
-// (#193); those issues are where it is decided, not this script.
+// This reports EVIDENCE only. It never decides whether a prompt ran or is done: there is
+// no verdict. A MISSING path is a pointer for a human to check, not a finding. Verdicts, if there are
+// to be any, are decided in #191 (structured deliverables), #192 (Definition of done verification)
+// and #193 (status lifecycle), not in this script.
 //
-// The `status:` header is self-reported and goes stale, so this derives evidence instead: it checks
-// each deliverable path against the tracked tree of a git ref (TOUCHED = changed since the prompt
-// was created, UNTOUCHED = predates it and is not evidence), counts the commits on that ref that
-// touch a TOUCHED deliverable or mention the prompt, and (optionally) reads the governing issue.
+// The `status:` header is self-reported and goes stale, so this lists the evidence next to it: it
+// checks each deliverable path against the tracked tree of a git ref (TOUCHED = changed since the
+// prompt was created, UNTOUCHED = predates it), counts the commits on that ref that touch a TOUCHED
+// or MISSING deliverable or mention the prompt, and (optionally) reads the governing issue.
 //
 //   bun scripts/prompt-audit.ts                  table + per-prompt detail; exit 0
 //   bun scripts/prompt-audit.ts --json           full structured result (a JSON array)
@@ -16,6 +16,15 @@
 //   bun scripts/prompt-audit.ts --no-gh          skip the `gh issue view` lookup (issue: unknown)
 //   bun scripts/prompt-audit.ts --dir <path>     prompt directory (default docs/prompts)
 //   bun scripts/prompt-audit.ts --ref <ref>      git ref the evidence is read from (default origin/main)
+//
+// Table columns: prompt, status, touched (touched/checkable), missing (count), evid (evidence
+// commits), flags. The detail lines add the issue state, the Definition of done counts (counted, not
+// verified), the unchecked deliverable count and the MISSING / UNTOUCHED / IGNORED / UNRESOLVED lists.
+//
+// Flags: INVALID-STATUS and INVALID-HEADER (a bad `created`, `governing_issue`, `prompt_id`,
+// `deliverables` or front matter), and STALE-STATUS, one rule only: `draft` or `ready-not-run` with
+// evidence commits or a TOUCHED path. `done` and `running` are never flagged, because no claim of
+// absence is made.
 //
 // Exit 2: bad arguments, no prompts in the directory (docs/prompts/* is gitignored, so worktrees have
 // none), an unresolvable ref, or any failing git command. A git failure is never read as "no commits".
@@ -31,35 +40,22 @@
 // (`records.csv`), a path escaping the repo, globs, `<placeholders>`, and absolute or `~/` paths
 // (outside the pinned repo there is no history to pin). Only a bare word, or a token made of
 // `/`, `~` and `.` alone (`/`, `//`, `~/`, `./`), is dropped as prose; `**/*`, `-/-` and `*` are kept.
-// A deliverable with no path or any UNRESOLVED candidate is unchecked: the audit cannot say it was
-// not run, so NOT-RUN is withheld. A path absent from the pinned tree is MISSING, unless
-// `git check-ignore --no-index` says an ignore rule covers it: then it is IGNORED (run outputs are
-// gitignored, so absence proves nothing) and counts as unchecked. That lookup reads the WORKING
-// TREE's ignore files, not the pinned commit's, so it can only withhold NOT-RUN, never grant
-// anything; a check-ignore failure (e.g. a path beyond a symlink) is listed as UNRESOLVED and does
-// not abort. A file or directory is TOUCHED when any commit changed it (or anything under it)
-// since `created`, whether by adding or editing. MISSING paths also get the evidence query, so a
-// file added after `created` and since deleted or renamed counts as work.
+// A deliverable with no path or any UNRESOLVED candidate is counted as unchecked. A path absent from
+// the pinned tree is MISSING, unless `git check-ignore --no-index` says an ignore rule covers it:
+// then it is IGNORED (run outputs are gitignored, so absence proves nothing) and counts as unchecked.
+// That lookup reads the WORKING TREE's ignore files, not the pinned commit's; a check-ignore failure
+// (e.g. a path beyond a symlink) is listed as UNRESOLVED and does not abort. A file or directory is
+// TOUCHED when any commit changed it (or anything under it) since `created`, whether by adding or
+// editing. MISSING paths also get the evidence query, so a file added after `created` and since
+// deleted or renamed counts as evidence.
 // The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER);
 // `created` is required. The Definition of done is counted (not verified) from Bun.markdown's
 // rendering of the body.
 // Limitation: a backtick span containing whitespace is one UNRESOLVED candidate, never a path, so a
 // file name with a space (or a comma and space) is always UNRESOLVED.
-//
-// Verdicts (there is deliberately no "done" verdict):
-//   NOT-RUN     at least one checkable path, none TOUCHED, no evidence commit, no unchecked
-//               deliverable, and the issue not CLOSED.
-//   PARTIAL     some sign of work (a TOUCHED path, an evidence commit or a CLOSED issue). It says
-//               nothing about whether the work is complete.
-//   NO-EVIDENCE-POSSIBLE  nothing touched and no evidence commit or CLOSED issue, but the audit
-//               cannot say "not run": no checkable path, or an unchecked deliverable may hold the work.
-// STALE-STATUS: ready-not-run/draft with a PARTIAL verdict, or `done` with a NOT-RUN verdict. MISSING
-// paths are listed but do not contradict `done` (they may be gitignored or live in another repo).
-// A `done` or `running` status is never confirmed.
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join, posix } from "node:path";
 
-export type Verdict = "NOT-RUN" | "PARTIAL" | "NO-EVIDENCE-POSSIBLE";
 export type IssueState = "OPEN" | "CLOSED" | "unknown" | "none";
 export type PathState = "TOUCHED" | "UNTOUCHED" | "MISSING" | "IGNORED";
 export type Flag = "STALE-STATUS" | "INVALID-STATUS" | "INVALID-HEADER";
@@ -192,7 +188,7 @@ function cleanToken(raw: string, span: boolean): string {
 }
 
 // The default is inverted: a token with a `/` in it, or inside a backtick span, is never dropped. It
-// is either a checkable repo path or an UNRESOLVED candidate that withholds NOT-RUN, so a shape the
+// is either a checkable repo path or an UNRESOLVED candidate that is listed for a human, so a shape the
 // rules did not anticipate fails conservative instead of vanishing. Only a bare word, or a token made
 // of `/`, `~` and `.` alone (`/`, `//`, `~/`, `./`), is dropped as prose; `**/*`, `-/-` and `*` are not.
 function classifyToken(raw: string, span: boolean): Token {
@@ -254,32 +250,20 @@ export function extractCandidates(deliverable: string): Candidates {
   return { paths, unresolved };
 }
 
-// `unchecked` counts deliverables with no path or with an UNRESOLVED candidate: any of them could
-// hide the work, so every extraction miss withholds NOT-RUN.
-export function verdictFor(input: { exists: number; missing: number; unchecked: number; evidence: number; issue: IssueState }): Verdict {
-  const checkable = input.exists + input.missing;
-  // NOT-RUN is the only claim made ("every deliverable was looked for and nothing happened"), so it
-  // needs a checkable path and no unchecked deliverable that could hide the work.
-  if (checkable === 0) return input.issue === "CLOSED" || input.evidence > 0 ? "PARTIAL" : "NO-EVIDENCE-POSSIBLE";
-  if (input.exists === 0 && input.evidence === 0 && input.issue !== "CLOSED") return input.unchecked === 0 ? "NOT-RUN" : "NO-EVIDENCE-POSSIBLE";
-  return "PARTIAL";
-}
-
-// Only contradictions are flagged: `done` or `running` is never confirmed.
-export function flagsFor(status: string | null, verdict: Verdict): Flag[] {
+// One status rule: a prompt still marked draft or ready-not-run while the repo shows evidence commits
+// or a TOUCHED path. `done` and `running` are never flagged: no claim of absence is made.
+export function flagsFor(status: string | null, evidence: number, touched: number): Flag[] {
   if (status === null || !VALID_STATUS.includes(status)) return ["INVALID-STATUS"];
-  if ((status === "ready-not-run" || status === "draft") && verdict === "PARTIAL") return ["STALE-STATUS"];
-  if (status === "done" && verdict === "NOT-RUN") return ["STALE-STATUS"];
+  if ((status === "ready-not-run" || status === "draft") && (evidence > 0 || touched > 0)) return ["STALE-STATUS"];
   return [];
 }
 
-export type TableRow = { stem: string; status: string | null; verdict: Verdict; touched: number; checkable: number; evidence: number; flags: Flag[] };
+export type TableRow = { stem: string; status: string | null; touched: number; checkable: number; missing: number; evidence: number; flags: Flag[] };
 
 export function renderTable(rows: TableRow[]): string {
   const cell = (s: string, w: number) => (s.length > w ? `${s.slice(0, w - 3)}...` : s.padEnd(w));
-  const head = `${cell("prompt", 34)} ${cell("status", 13)} ${cell("verdict", 20)} ${cell("touched", 7)} ${cell("evid", 4)} flags`;
-  const lines = rows.map((r) => `${cell(r.stem, 34)} ${cell(r.status ?? "(none)", 13)} ${cell(r.verdict, 20)} ${cell(`${r.touched}/${r.checkable}`, 7)} ${cell(String(r.evidence), 4)} ${r.flags.join(",")}`.trimEnd());
-  return [head, ...lines].join("\n");
+  const line = (stem: string, status: string, touched: string, missing: string, evid: string, flags: string) => `${cell(stem, 32)} ${cell(status, 13)} ${cell(touched, 7)} ${cell(missing, 7)} ${cell(evid, 4)} ${flags}`.trimEnd();
+  return [line("prompt", "status", "touched", "missing", "evid", "flags"), ...rows.map((r) => line(r.stem, r.status ?? "(none)", `${r.touched}/${r.checkable}`, String(r.missing), String(r.evidence), r.flags.join(",")))].join("\n");
 }
 
 export type PathResult = { path: string; state: PathState };
@@ -299,7 +283,7 @@ export type PromptResult = {
   pathsMissing: number;
   evidenceCommits: string[];
   dod: { checked: number; unchecked: number };
-  verdict: Verdict;
+  uncheckedDeliverables: number;
   flags: Flag[];
 };
 
@@ -382,8 +366,7 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   }
   let issue: IssueState = "none";
   if (parsed.governingIssue !== null) issue = lookup === null ? "unknown" : lookup(parsed.governingIssue);
-  const verdict = verdictFor({ exists: pathsTouched, missing: pathsMissing + pathsUntouched, unchecked: deliverables.filter((d) => d.unchecked).length, evidence: commits.size, issue });
-  const flags = flagsFor(parsed.status, verdict);
+  const flags = flagsFor(parsed.status, commits.size, pathsTouched);
   if (parsed.errors.length > 0) flags.push("INVALID-HEADER");
   return {
     stem,
@@ -400,14 +383,14 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
     pathsMissing,
     evidenceCommits: [...commits],
     dod: countChecklist(text),
-    verdict,
+    uncheckedDeliverables: deliverables.filter((d) => d.unchecked).length,
     flags,
   };
 }
 
 export function renderReport(results: PromptResult[], refLine: string | null = null): string {
   const table = renderTable(
-    results.map((r) => ({ stem: r.stem, status: r.status, verdict: r.verdict, touched: r.pathsTouched, checkable: r.pathsTouched + r.pathsUntouched + r.pathsMissing, evidence: r.evidenceCommits.length, flags: r.flags })),
+    results.map((r) => ({ stem: r.stem, status: r.status, touched: r.pathsTouched, checkable: r.pathsTouched + r.pathsUntouched + r.pathsMissing, missing: r.pathsMissing, evidence: r.evidenceCommits.length, flags: r.flags })),
   );
   const bullets = results.map((r) => {
     const paths = r.deliverables.flatMap((d) => d.paths);
@@ -419,7 +402,8 @@ export function renderReport(results: PromptResult[], refLine: string | null = n
     const parts = [
       `issue: ${r.governingIssue === null ? "none" : `#${r.governingIssue} ${r.issue}`}`,
       `DoD: ${r.dod.checked} checked, ${r.dod.unchecked} unchecked (unverified)`,
-      `unchecked deliverables: ${r.deliverables.filter((d) => d.unchecked).length}`,
+      `unchecked deliverables: ${r.uncheckedDeliverables}`,
+      `TOUCHED: ${r.pathsTouched}`,
       `MISSING: ${list("MISSING")}`,
       `UNTOUCHED: ${list("UNTOUCHED")}`,
     ];

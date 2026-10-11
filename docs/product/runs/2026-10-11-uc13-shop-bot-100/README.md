@@ -22,7 +22,7 @@ The UC13 question (answer from the fact sheet, or hand off to staff) on 100 cust
 
 - `records.csv`: 300 rows, jnj-record/1.1, unlabelled.
 - `raw.json`: every Jev and LLM call's choice and model, plus the inputs fingerprint.
-- `examples/uc13-shop-bot/fixtures/uc13-2026-10-11.jev.json`: the Jev requests and responses. `bun scripts/uc13/run-arms.ts replay --run 2026-10-11` rebuilds `records.csv` and `raw.json` from it with no network.
+- `examples/uc13-shop-bot/fixtures/uc13-2026-10-11.jev.json`: the Jev requests and responses. `bun scripts/uc13/run-arms.ts replay --run 2026-10-11` rebuilds the Jev rows and calls from it with no network, keeping the LLM rows and calls already in `records.csv` and `raw.json` and recomputing the rule rows; the result is byte-identical to the committed files.
 - `LABELS.md`, `labels-draft.csv`, `label-drafts/`: AI label drafts, not approved.
 
 ## Reproduce

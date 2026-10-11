@@ -297,6 +297,20 @@ describe("example loading", () => {
   }
   const forty = Array.from({ length: 40 }, (_, i) => JSON.stringify({ case_id: `m${String(i + 1).padStart(2, "0")}`, case_input: "hi" }));
 
+  test("[unit] UC13 run 100 reports the actual second case file for malformed lines", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "uc13-bad-second-"));
+    try {
+      await writeFile(join(dir, "fact-sheet.md"), "sheet");
+      await writeFile(join(dir, "cases.jsonl"), forty.join("\n") + "\n");
+      await writeFile(join(dir, "cases-m41-m100.jsonl"), '{"case_id":"m41"}\n');
+      await expect(loadExample(dir, RUN_2026_10_11)).rejects.toThrow(/cases-m41-m100\.jsonl line 1: needs string case_id and case_input/);
+      await writeFile(join(dir, "cases-m41-m100.jsonl"), "{bad json\n");
+      await expect(loadExample(dir, RUN_2026_10_11)).rejects.toThrow(/cases-m41-m100\.jsonl line 1: invalid JSON/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("[unit] UC13-F7 an empty sheet, blank message, duplicate, missing or extra case is refused", async () => {
     const dirs = [
       await exampleWith("   \n", forty),

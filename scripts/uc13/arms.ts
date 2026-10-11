@@ -124,7 +124,7 @@ export const RUN_SPECS: Readonly<Record<string, RunSpec>> = {
 };
 export const DEFAULT_RUN = RUN_2026_10_01;
 
-/** Throws unless the cases are exactly m01 to m40, in order, each with a non-blank message. */
+/** Throws unless the cases have the run's case ids, in order, each with a non-blank message. */
 export function assertCases(cases: readonly Case[], spec: RunSpec = DEFAULT_RUN): void {
   const seen = new Set<string>();
   cases.forEach((c, i) => {
@@ -141,13 +141,16 @@ export async function loadExample(dir: string, spec: RunSpec = DEFAULT_RUN): Pro
   const factSheet = (await Bun.file(join(dir, "fact-sheet.md")).text()).trim();
   if (factSheet === "") throw new Error(`fact-sheet.md in ${dir} is empty`);
   const cases = (await Promise.all(spec.caseFiles.map((name) => Bun.file(join(dir, name)).text())))
-    .flatMap((content) => content
+    .flatMap((content, fileIndex) => content
     .split("\n")
     .filter((line) => line.trim() !== "")
     .map((line, i): Case => {
-      const parsed: unknown = JSON.parse(line);
+      const name = spec.caseFiles[fileIndex] ?? "cases.jsonl";
+      let parsed: unknown;
+      try { parsed = JSON.parse(line); }
+      catch { throw new Error(`${name} line ${i + 1}: invalid JSON`); }
       if (!isObject(parsed) || typeof parsed.case_id !== "string" || typeof parsed.case_input !== "string") {
-        throw new Error(`cases.jsonl line ${i + 1}: needs string case_id and case_input`);
+        throw new Error(`${name} line ${i + 1}: needs string case_id and case_input`);
       }
       return { case_id: parsed.case_id, case_input: parsed.case_input };
     }));
@@ -294,7 +297,7 @@ export function parseV1Records(text: string): RecordRow[] {
   return rows;
 }
 
-/** labels.csv from the labelling page: case_id,truth. Each id once, m01 to m40 only. */
+/** labels.csv from the labelling page: case_id,truth. Each of the run's case ids at most once. */
 export function parseTruth(text: string, spec: RunSpec = DEFAULT_RUN): Map<string, Answer> {
   const { header, rows } = readDictRows(text);
   const idAt = (header ?? []).indexOf("case_id");

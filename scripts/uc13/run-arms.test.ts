@@ -99,9 +99,22 @@ describe("run-arms commands", () => {
   test("[unit] UC13-F2 replay of the recorded run reproduces records.csv and raw.json", async () => {
     for (const spec of RECORDED_RUNS) {
       await withRun(async (paths) => {
+        const recordsPath = join(paths.out, "records.csv");
+        const rawPath = join(paths.out, "raw.json");
+        const recordedRecords = await read(recordsPath);
+        const recordedRaw = await read(rawPath);
+        await writeFile(recordsPath, formatRecords(parseRecords(recordedRecords).filter((row) => row.answerer !== "jev")));
+        const raw: unknown = JSON.parse(recordedRaw);
+        if (typeof raw !== "object" || raw === null || !("calls" in raw) || !Array.isArray(raw.calls)) {
+          throw new Error("recorded raw.json has no calls");
+        }
+        const calls = raw.calls.filter((call: unknown) => typeof call === "object" && call !== null && "arm" in call && call.arm !== "jev");
+        await writeFile(rawPath, JSON.stringify({ ...raw, calls }, null, 1) + "\n");
+        expect(await read(recordsPath)).not.toBe(recordedRecords);
+        expect(await read(rawPath)).not.toBe(recordedRaw);
         await main(["replay", "--run", spec.id], paths);
-        expect(await read(join(paths.out, "records.csv"))).toBe(await read(join(defaultPaths(spec).out, "records.csv")));
-        expect(await read(join(paths.out, "raw.json"))).toBe(await read(join(defaultPaths(spec).out, "raw.json")));
+        expect(await read(recordsPath)).toBe(recordedRecords);
+        expect(await read(rawPath)).toBe(recordedRaw);
       }, spec);
     }
   });
@@ -183,6 +196,18 @@ describe("argument parsing", () => {
       expect(() => parseArgs([command, ...flags, "--run", "2026-10-01", "--run", "2026-10-11"])).toThrow(/--run/);
     }
     expect(parseArgs(["run"]).spec.id).toBe("2026-10-01");
+  });
+  test("[unit] UC13 run selector refuses inherited ids before any side effect", async () => {
+    const out = await mkdtemp(join(tmpdir(), "uc13-bad-run-"));
+    try {
+      for (const id of ["toString", "constructor", "__proto__"]) {
+        expect(() => parseArgs(["run", "--run", id])).toThrow(/--run takes 2026-10-01 or 2026-10-11/);
+        await expect(main(["run", "--run", id], { ...defaultPaths(), out })).rejects.toThrow(/--run takes 2026-10-01 or 2026-10-11/);
+        expect((await (await import("node:fs/promises")).readdir(out))).toEqual([]);
+      }
+    } finally {
+      await rm(out, { recursive: true, force: true });
+    }
   });
   test("[unit] UC13-F22 unknown or conflicting flags are refused before any side effect", () => {
     expect(() => parseArgs(["run", "--dry-run"])).toThrow(/--dry-run/);

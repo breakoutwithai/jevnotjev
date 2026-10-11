@@ -31,8 +31,8 @@ const CONCURRENCY = 4;
 /** A call that has not answered by now is killed; the slowest recorded LLM call took under 10 s. */
 const CALL_DEADLINE_MS = 120_000;
 const USAGE =
-  `usage: bun scripts/uc13/run-arms.ts [--run <id> (${Object.keys(RUN_SPECS).join(", ")})] run [--dry | --arm jev] | replay | page | ` +
-  "label --source <human|human_reviewed|agent> --by <handle> --at <YYYY-MM-DD or UTC time> --blind <true|false>";
+  `usage: bun scripts/uc13/run-arms.ts <run|replay|page|label> [--run <id> (${Object.keys(RUN_SPECS).join(", ")})] ` +
+  "(run: [--dry | --arm jev]; label: --source <human|human_reviewed|agent> --by <handle> --at <YYYY-MM-DD or UTC time> --blind <true|false>)";
 
 export interface Paths {
   readonly example: string;
@@ -105,7 +105,7 @@ export function parseArgs(argv: readonly string[]): Args {
     if (seenRun) throw new Error("repeated --run");
     if (rest.at(-1) === "--arm" || LABEL_FLAGS.includes(rest.at(-1) ?? "")) throw new Error("--run cannot be a flag value");
     const id = flags[++i];
-    const selected = id === undefined ? undefined : RUN_SPECS[id];
+    const selected = id !== undefined && Object.hasOwn(RUN_SPECS, id) ? RUN_SPECS[id] : undefined;
     if (selected === undefined) throw new Error(`--run takes ${Object.keys(RUN_SPECS).join(" or ")}, got ${id ?? "nothing"}`);
     spec = selected;
     seenRun = true;

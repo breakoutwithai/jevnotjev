@@ -19,10 +19,13 @@
 // scans every commit instead of stopping at the first old one). An invalid date or governing_issue
 // raises INVALID-HEADER, and an invalid date leaves that prompt's paths unresolved.
 //
-// A deliverable token is a path only with a directory part: a trailing `/`, a `~/` or `./` prefix, or
-// a file extension on the last segment. A bare filename (`records.csv`) or a path escaping the repo is
-// UNRESOLVED, as are globs, `<placeholders>`, absolute and `~/` paths (outside the pinned repo there
-// is no history to pin). A deliverable with no path or any UNRESOLVED candidate is unchecked, and one
+// Path extraction never drops silently. A token containing a `/`, or inside a backtick span, is
+// either a checkable repo path (a trailing `/`, a `./` prefix, or a file extension on the last
+// segment) or an UNRESOLVED candidate: extensionless `scripts/bin`, `and/or`, a bare filename
+// (`records.csv`), a path escaping the repo, globs, `<placeholders>`, and absolute or `~/` paths
+// (outside the pinned repo there is no history to pin). Only a bare word, or a token made of
+// separators and dots alone (`/`, `//`, `-/-`), is dropped as prose.
+// A deliverable with no path or any UNRESOLVED candidate is unchecked, and one
 // unchecked deliverable blocks PATHS-DONE. A path absent from the pinned tree is MISSING (no
 // .gitignore lookup). A file is TOUCHED when any commit changed it since `created`; a directory only
 // when a file under it was ADDED since then.
@@ -175,34 +178,38 @@ function cleanToken(raw: string, span: boolean): string {
   return (/(^|\/)\.{1,2}$/.test(base) ? base : base.replace(/\.+$/, "")).trim();
 }
 
+// The default is inverted: a token with a `/` in it, or inside a backtick span, is never dropped. It
+// is either a checkable repo path or an UNRESOLVED candidate that blocks PATHS-DONE, so a shape the
+// rules did not anticipate fails conservative instead of vanishing. Only a bare word, or a token made
+// of nothing but separators and dots, is dropped as prose.
 function classifyToken(raw: string, span: boolean): Token {
   const candidate = cleanToken(raw, span);
-  if (candidate === "" || /[=|,]/.test(candidate) || candidate.startsWith("#") || candidate.startsWith("--") || candidate.includes("://")) return { kind: "reject" };
-  // A glob or placeholder in something that looks like a path or file can never be verified, but it
-  // must not vanish either: it stays an UNRESOLVED candidate and blocks PATHS-DONE.
-  if (/[*?[\]<>{}$]/.test(candidate)) return candidate.includes("/") || BARE_EXTENSION.test(candidate) ? { kind: "unresolved", token: candidate } : { kind: "reject" };
-  // An absolute or ~/ path is outside the pinned repo whatever its shape (`/etc/hosts` has no
-  // extension): decided here, before any extension or shape filter can drop it.
-  if (/^(~\/+|\/+)[^/]/.test(candidate)) return { kind: "unresolved", token: candidate };
-  if (!candidate.includes("/")) return BARE_EXTENSION.test(candidate) ? { kind: "unresolved", token: candidate } : { kind: "reject" };
+  if (candidate === "") return { kind: "reject" };
+  const keep: Token = { kind: "unresolved", token: candidate };
+  if (!span && !candidate.includes("/")) {
+    if (/[=|,]/.test(candidate) || candidate.startsWith("#") || candidate.startsWith("--")) return { kind: "reject" };
+    return BARE_EXTENSION.test(candidate) ? keep : { kind: "reject" };
+  }
   const home = candidate.startsWith("~/");
   const abs = candidate.startsWith("/");
+  const flat = posix.normalize(candidate).replace(/\/+$/, "");
+  const alnum = /[\p{L}\p{N}]/u.test(candidate);
+  // Traversal first: `src/..` and `../..` name (and escape) a directory whatever their letters.
+  if (!home && !abs && (flat === ".." || flat.startsWith("../") || (flat === "." && alnum))) return keep;
+  if (!alnum) return { kind: "reject" };
+  if (!candidate.includes("/")) return keep;
+  // Globs, placeholders, odd characters, URLs, and absolute or ~/ paths (outside the pinned repo, so
+  // no history to pin, whatever their extension) can never be verified.
+  if (/[*?[\]<>{}$=|,]/.test(candidate) || candidate.startsWith("#") || candidate.startsWith("--") || candidate.includes("://")) return keep;
+  if (/^(~\/+|\/+)[^/]/.test(candidate)) return keep;
   const dotLead = candidate.startsWith("./");
   const dir = candidate.endsWith("/");
-  const body = home || dotLead ? candidate.slice(2) : abs ? candidate.slice(1) : candidate;
+  const body = dotLead ? candidate.slice(2) : candidate;
   const trimmed = dir ? body.slice(0, -1) : body;
   const segments = trimmed.split("/");
-  if (trimmed === "" || segments[0] === "" || segments.at(-1) === "") return { kind: "reject" };
-  const normalized = posix.normalize(candidate);
-  const flat = normalized.replace(/\/+$/, "");
-  // Traversal is judged first, before any other filter: `src/..` and `../..` have no extension or
-  // no letters, yet still name (and escape) a directory.
-  if (!home && !abs && (flat === "." || flat === ".." || flat.startsWith("../"))) return { kind: "unresolved", token: candidate };
-  if (!segments.some((s) => /[\p{L}\p{N}]/u.test(s))) return { kind: "reject" };
-  if (!(dir || home || dotLead || EXTENSION.test(segments.at(-1) ?? ""))) return { kind: "reject" };
-  // Outside the pinned repo there is no history to check: absolute and ~/ paths are never verified.
-  if (home || abs) return { kind: "unresolved", token: candidate };
-  return { kind: "path", path: normalized };
+  const wellFormed = trimmed !== "" && segments[0] !== "" && segments.at(-1) !== "";
+  if (wellFormed && (dir || dotLead || EXTENSION.test(segments.at(-1) ?? ""))) return { kind: "path", path: posix.normalize(candidate) };
+  return keep;
 }
 
 export type Candidates = { paths: string[]; unresolved: string[] };
@@ -220,10 +227,14 @@ export function extractCandidates(deliverable: string): Candidates {
     if (part.length >= 2 && part.startsWith("`") && part.endsWith("`")) {
       const inner = part.slice(1, -1).trim();
       const whole = classifyToken(inner, true);
-      if (whole.kind !== "reject" || !/[\s,]/.test(inner)) {
+      // A span that is one path (spaces allowed) or has no separator stays one candidate; otherwise
+      // it is split into pieces, each of which is still a span token and never dropped.
+      if (whole.kind === "path" || !/[\s,]/.test(inner)) {
         record(whole);
         continue;
       }
+      for (const token of inner.split(/[\s,]+/)) record(classifyToken(token, true));
+      continue;
     }
     for (const token of part.replaceAll("`", " ").split(/[\s,]+/)) record(classifyToken(token, false));
   }

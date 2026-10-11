@@ -290,8 +290,31 @@ describe("extractPaths", () => {
     expect(extractCandidates("/etc/hosts and ~/bin and ~/.config/x")).toEqual({ paths: [], unresolved: ["/etc/hosts", "~/bin", "~/.config/x"] });
     expect(extractCandidates("see / and ~/ and //")).toEqual({ paths: [], unresolved: [] });
   });
-  test("[unit] prose, org/repo names and abbreviations are not paths", () => {
-    expect(extractPaths("one PR on breakoutwithai/jevnotjev, e.g. with the rule 10 gate evidence")).toEqual([]);
+  // Changed by G10: a slash word used to be dropped as prose; it is now an UNRESOLVED candidate.
+  test("[unit] G10 org/repo names and abbreviations are never paths, and no longer vanish", () => {
+    expect(extractCandidates("one PR on breakoutwithai/jevnotjev, e.g. with the rule 10 gate evidence")).toEqual({ paths: [], unresolved: ["breakoutwithai/jevnotjev"] });
+  });
+  test("[unit] G10 and/or is UNRESOLVED, not dropped", () => {
+    expect(extractCandidates("and/or")).toEqual({ paths: [], unresolved: ["and/or"] });
+  });
+  test("[unit] G10 an extensionless backtick path next to a touched path is UNRESOLVED", () => {
+    expect(extractCandidates("scripts/new.ts + `scripts/run`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["scripts/run"] });
+    expect(extractCandidates("scripts/new.ts and `bun test` and `x`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["bun", "test", "x"] });
+  });
+  test("[unit] G10 property: no token containing a slash is ever dropped", () => {
+    const tokens = [
+      "and/or", "yes/no", "Python/branches", "scripts/bin", "docs/README", "src/core", "a/b", "(see/this)", "docs/notes;", "v1.2/x",
+      "a.b/c.d", "документы/план", "文档/说明", "café/menu", "x/y!", "x/y?", "TODO/FIXME:", "foo/bar,",
+      "[a/b]", "'quoted/path'", '"dq/path"', ".hidden/dir", "..hidden/x", "a/b/c/d/e", "node_modules/foo", "bin/run.sh", "Makefile/x",
+      "a-b/c_d", "r&d/budget", "50/50", "w/o", "I/O", "24/7", "a//b", "a/", "/usr", "~/x",
+    ];
+    for (const t of tokens) {
+      const c = extractCandidates(`scripts/new.ts ${t}`);
+      expect(c.paths.length + c.unresolved.length, t).toBe(2);
+    }
+  });
+  test("[unit] G10 a token of only separators and dots is still dropped", () => {
+    for (const t of ["/", "//", "-/-", "./", "~/", "/.", "///"]) expect(extractCandidates(`see ${t}`), t).toEqual({ paths: [], unresolved: [] });
   });
   test("[unit] duplicates collapse", () => {
     expect(extractPaths("a/b.ts and a/b.ts")).toEqual(["a/b.ts"]);
@@ -302,8 +325,9 @@ describe("extractPaths", () => {
   test("[unit] F2 a placeholder directory prefix leaves the bare filename unresolved", () => {
     expect(extractCandidates("docs/runs/<date>-target/: records.csv")).toEqual({ paths: [], unresolved: ["docs/runs/<date>-target/", "records.csv"] });
   });
-  test("[unit] F3 separators and slash prose are not paths", () => {
-    expect(extractPaths("see / and/or yes/no Python/branches // ~/ ./ a//")).toEqual([]);
+  // Changed by G10: slash prose is UNRESOLVED (blocks PATHS-DONE); bare separators are still dropped.
+  test("[unit] F3 separators are dropped and slash prose is unresolved, never a path", () => {
+    expect(extractCandidates("see / and/or yes/no Python/branches // ~/ ./ a//")).toEqual({ paths: [], unresolved: ["and/or", "yes/no", "Python/branches", "a//"] });
   });
   test("[unit] F3 a plain directory token is still a path", () => {
     expect(extractPaths("src/core/ and a/")).toEqual(["src/core/", "a/"]);
@@ -528,6 +552,16 @@ describe("auditPrompt", () => {
     const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x"], "created: 2026-10-01\nstatus: ready-not-run\ngoverning_issue: soon"), tree, git, "sha", null);
     expect(r.flags).toContain("INVALID-HEADER");
     expect(r.errors[0]).toContain("governing_issue");
+  });
+  test("[unit] G10 an extensionless path, backticked or not, next to a touched path blocks PATHS-DONE", () => {
+    const { git } = recorder("abc1234\n");
+    for (const [item, extra] of [["scripts/new.ts + `scripts/run`", "scripts/run"], ["scripts/new.ts and scripts/bin", "scripts/bin"]] as const) {
+      const r = auditPrompt("x.prompt.md", prompt([item]), tree, git, "sha", null);
+      expect(r.pathsTouched).toBe(1);
+      expect(r.deliverables[0]?.unresolved).toEqual([extra]);
+      expect(r.deliverables[0]?.unchecked).toBe(true);
+      expect(r.verdict).toBe("PARTIAL");
+    }
   });
   test("[unit] S2-1 R3-4 a git-excluded path is plain MISSING and never counts toward delivery", () => {
     const { calls, git } = recorder("");

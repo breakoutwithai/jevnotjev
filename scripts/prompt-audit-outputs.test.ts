@@ -43,7 +43,7 @@ function commitFiles(repo: string, date: string, message: string, files: Record<
     }
   }
   sh(repo, { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }, "add", "-A");
-  sh(repo, { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }, "commit", "-q", "-m", message);
+  sh(repo, { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }, "commit", "-q", "--cleanup=verbatim", "-m", message);
 }
 
 function withTemp(fn: (repo: string) => void): void {
@@ -263,16 +263,51 @@ describe("corpus", () => {
 });
 
 describe("deliveringCommits", () => {
-  test("[integration] M1 returns full SHAs, newest first, only for commits with the trailer that touch the path", () => {
+  test("[integration] M1-G3 M1-G4 returns the exact full ids, newest first, only for trailer commits that touch the path", () => {
     withTemp((repo) => {
       commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
       commitFiles(repo, "2026-10-06T12:00:00Z", "one\n\nPrompt-Id: p1", { "scripts/a.ts": "1\n" });
+      const older = sh(repo, {}, "rev-parse", "HEAD").trim();
       commitFiles(repo, "2026-10-07T12:00:00Z", "two\n\nPrompt-Id: p1", { "scripts/a.ts": "2\n" });
+      const newer = sh(repo, {}, "rev-parse", "HEAD").trim();
       commitFiles(repo, "2026-10-08T12:00:00Z", "three", { "scripts/a.ts": "3\n" });
-      const got = deliveringCommits(gitFor(repo), "HEAD", "2026-10-05", "p1", "scripts/a.ts");
-      expect(got.length).toBe(2);
-      expect(got.every((h) => /^[0-9a-f]{40}$/.test(h))).toBe(true);
-      expect(deliveringCommits(gitFor(repo), "HEAD", "2026-10-05", "p1", "scripts/")).toEqual(got);
+      expect(deliveringCommits(gitFor(repo), "HEAD", "2026-10-05", "p1", "scripts/a.ts")).toEqual([newer, older]);
+      expect(deliveringCommits(gitFor(repo), "HEAD", "2026-10-05", "p1", "scripts/")).toEqual([newer, older]);
+    });
+  });
+
+  test("[unit] M1-G1 every git log that is parsed passes --no-show-signature", () => {
+    const seen: string[][] = [];
+    const recording: Git = (args) => {
+      seen.push(args);
+      return { code: 0, out: "", err: "" };
+    };
+    deliveringCommits(recording, "HEAD", "2026-10-05", "p1", "a.ts");
+    const parsed = parsePrompt("---\ncreated: 2026-10-01\nprompt_id: p1\ndeliverables:\n  - scripts/a.ts\n---\n");
+    expect(parsed.errors).toEqual([]);
+    const tree = buildTree("scripts/a.ts\0");
+    auditPrompt("x.prompt.md", "---\ncreated: 2026-10-01\nprompt_id: p1\ndeliverables:\n  - scripts/a.ts\n---\n", tree, recording, "HEAD", null);
+    const logs = seen.filter((a) => a[0] === "log");
+    expect(logs.length).toBeGreaterThanOrEqual(3);
+    for (const a of logs) expect(a, a.join(" ")).toContain("--no-show-signature");
+  });
+
+  test("[integration] M1-G1 log.showSignature=true with a signed commit does not abort or pollute the ids", () => {
+    withTemp((repo) => {
+      const key = join(repo, ".git", "signing-key");
+      sh(repo, {}, "config", "gpg.format", "ssh");
+      const gen = Bun.spawnSync(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key], { stdout: "pipe", stderr: "pipe" });
+      expect(gen.exitCode).toBe(0);
+      sh(repo, {}, "config", "user.signingkey", `${key}.pub`);
+      sh(repo, {}, "config", "log.showSignature", "true");
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      writeFileSync(join(repo, "scripts-a.ts"), "1\n");
+      sh(repo, { GIT_AUTHOR_DATE: "2026-10-06T12:00:00Z", GIT_COMMITTER_DATE: "2026-10-06T12:00:00Z" }, "add", "-A");
+      sh(repo, { GIT_AUTHOR_DATE: "2026-10-06T12:00:00Z", GIT_COMMITTER_DATE: "2026-10-06T12:00:00Z" }, "-c", "commit.gpgsign=true", "commit", "-q", "-S", "-m", "signed\n\nPrompt-Id: p1");
+      const head = sh(repo, {}, "rev-parse", "HEAD").trim();
+      // The precondition: plain `git log` really is polluted in this setup.
+      expect(sh(repo, {}, "log", "-1", "--format=%H")).not.toBe(`${head}\n`);
+      expect(deliveringCommits(gitFor(repo), "HEAD", "2026-10-05", "p1", "scripts-a.ts")).toEqual([head]);
     });
   });
 });

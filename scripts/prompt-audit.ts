@@ -431,7 +431,7 @@ export function classifyPath(path: string, tree: Tree, git: Git, ref: string, cr
     return r.code === 0 ? "IGNORED" : r.code === 1 ? "MISSING" : "UNKNOWN";
   }
   // --full-history: without it a path added and deleted on a merged branch is simplified away.
-  const out = must(git, ["log", ref, sinceFilter(created), "--full-history", "--format=%h", "--", literal(bare)]);
+  const out = must(git, ["log", ref, "--no-show-signature", sinceFilter(created), "--full-history", "--format=%h", "--", literal(bare)]);
   return out.trim() === "" ? "UNTOUCHED" : "TOUCHED";
 }
 
@@ -440,7 +440,7 @@ export function classifyPath(path: string, tree: Tree, git: Git, ref: string, cr
 // parent; a deletion counts) must then match the kind: file = exactly the path, dir = anything under it.
 export function deliveringCommits(git: Git, ref: string, created: string, promptId: string, path: string, kind: OutputKind = path.endsWith("/") ? "dir" : "file"): string[] {
   const bare = path.replace(/\/+$/, "");
-  const out = must(git, ["log", ref, sinceFilter(created), "--full-history", "-E", `--grep=^Prompt-Id: ${escapeRegex(promptId)}$`, "--format=%H", "--", literal(bare)]);
+  const out = must(git, ["log", ref, "--no-show-signature", sinceFilter(created), "--full-history", "-E", `--grep=^Prompt-Id: ${escapeRegex(promptId)}\r?$`, "--format=%H", "--", literal(bare)]);
   const dirPrefix = `${bare}/`;
   return out
     .split("\n")
@@ -493,10 +493,10 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
     // MISSING paths are queried too: a file added after `created` and since deleted or renamed has
     // history on the ref even though it is gone from the tree. The path keeps its MISSING state.
     const repoPaths = all.filter((p) => p.state === "TOUCHED" || p.state === "MISSING").map((p) => literal(p.path.replace(/\/+$/, "")));
-    if (repoPaths.length > 0) for (const h of must(git, ["log", ref, since, "--full-history", "--format=%h", "--", ...repoPaths]).split("\n")) if (h !== "") commits.add(h);
+    if (repoPaths.length > 0) for (const h of must(git, ["log", ref, "--no-show-signature", since, "--full-history", "--format=%h", "--", ...repoPaths]).split("\n")) if (h !== "") commits.add(h);
     const needles = [parsed.promptId, stem].filter((n): n is string => n !== null && n !== "" && !/[\r\n]/.test(n));
     // With no needle the query would be an unfiltered `git log`: skip it.
-    if (needles.length > 0) for (const h of must(git, ["log", ref, since, "--fixed-strings", ...needles.map((n) => `--grep=${n}`), "--format=%h"]).split("\n")) if (h !== "") commits.add(h);
+    if (needles.length > 0) for (const h of must(git, ["log", ref, "--no-show-signature", since, "--fixed-strings", ...needles.map((n) => `--grep=${n}`), "--format=%h"]).split("\n")) if (h !== "") commits.add(h);
   }
   let issue: IssueState = "none";
   if (parsed.governingIssue !== null) issue = lookup === null ? "unknown" : lookup(parsed.governingIssue);

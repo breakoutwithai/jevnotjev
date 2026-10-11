@@ -354,6 +354,13 @@ describe("verdictFor", () => {
     expect(verdictFor({ ...base, unchecked: 2 })).toBe("NO-EVIDENCE-POSSIBLE");
     expect(verdictFor({ ...base, missing: 1 })).toBe("NOT-RUN");
   });
+  test("[unit] G8 NOT-RUN also needs every deliverable checked: unresolved ones leave it unknown", () => {
+    expect(verdictFor({ ...base, missing: 1, unchecked: 1 })).toBe("NO-EVIDENCE-POSSIBLE");
+    expect(verdictFor({ ...base, missing: 1, unchecked: 1, issue: "OPEN" })).toBe("NO-EVIDENCE-POSSIBLE");
+    expect(verdictFor({ ...base, missing: 1, unchecked: 1, issue: "CLOSED" })).toBe("PARTIAL");
+    expect(verdictFor({ ...base, missing: 1, unchecked: 1, evidence: 1 })).toBe("PARTIAL");
+    expect(verdictFor({ ...base, missing: 1, unchecked: 0 })).toBe("NOT-RUN");
+  });
   test("[unit] G6 zero checkable paths with a CLOSED issue or any evidence is PARTIAL", () => {
     expect(verdictFor({ ...base, issue: "CLOSED" })).toBe("PARTIAL");
     expect(verdictFor({ ...base, issue: "OPEN", evidence: 1 })).toBe("PARTIAL");

@@ -34,9 +34,11 @@
 //   PATHS-DONE  every extracted path is TOUCHED since `created`, no candidate is UNRESOLVED, and the
 //               governing issue is CLOSED or absent. Prose deliverables and the Definition of done
 //               are NOT verified: it is a floor on what the repo shows, not a claim the work is done.
-//   NOT-RUN     at least one checkable path, none TOUCHED, and no evidence commit.
-//   PARTIAL     some evidence, but not PATHS-DONE.
-//   NO-EVIDENCE-POSSIBLE  no checkable path, no evidence commit and no CLOSED issue.
+//   NOT-RUN     at least one checkable path, none TOUCHED, no evidence commit, no unchecked
+//               deliverable, and the issue not CLOSED.
+//   PARTIAL     some evidence (a TOUCHED path, an evidence commit or a CLOSED issue), not PATHS-DONE.
+//   NO-EVIDENCE-POSSIBLE  nothing touched and no evidence commit or CLOSED issue, but the audit
+//               cannot say "not run": no checkable path, or an unchecked deliverable may hold the work.
 // STALE-STATUS: ready-not-run/draft with evidence of work, or `done` without PATHS-DONE.
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join, posix } from "node:path";
@@ -229,10 +231,11 @@ export function extractCandidates(deliverable: string): Candidates {
 // PATHS-DONE, so every extraction miss fails conservative.
 export function verdictFor(input: { exists: number; missing: number; unchecked: number; evidence: number; issue: IssueState }): Verdict {
   const checkable = input.exists + input.missing;
-  // NOT-RUN is a positive claim ("a path was looked for and nothing happened"), so it needs a path.
+  // NOT-RUN is a positive claim ("every deliverable was looked for and nothing happened"), so it
+  // needs a checkable path and no unchecked deliverable that could hide the work.
   if (checkable === 0) return input.issue === "CLOSED" || input.evidence > 0 ? "PARTIAL" : "NO-EVIDENCE-POSSIBLE";
   if (input.missing === 0 && input.unchecked === 0 && (input.issue === "none" || input.issue === "CLOSED")) return "PATHS-DONE";
-  if (input.exists === 0 && input.evidence === 0) return "NOT-RUN";
+  if (input.exists === 0 && input.evidence === 0 && input.issue !== "CLOSED") return input.unchecked === 0 ? "NOT-RUN" : "NO-EVIDENCE-POSSIBLE";
   return "PARTIAL";
 }
 

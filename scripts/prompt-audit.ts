@@ -181,6 +181,9 @@ function classifyToken(raw: string, span: boolean): Token {
   // A glob or placeholder in something that looks like a path or file can never be verified, but it
   // must not vanish either: it stays an UNRESOLVED candidate and blocks PATHS-DONE.
   if (/[*?[\]<>{}$]/.test(candidate)) return candidate.includes("/") || BARE_EXTENSION.test(candidate) ? { kind: "unresolved", token: candidate } : { kind: "reject" };
+  // An absolute or ~/ path is outside the pinned repo whatever its shape (`/etc/hosts` has no
+  // extension): decided here, before any extension or shape filter can drop it.
+  if (/^(~\/+|\/+)[^/]/.test(candidate)) return { kind: "unresolved", token: candidate };
   if (!candidate.includes("/")) return BARE_EXTENSION.test(candidate) ? { kind: "unresolved", token: candidate } : { kind: "reject" };
   const home = candidate.startsWith("~/");
   const abs = candidate.startsWith("/");

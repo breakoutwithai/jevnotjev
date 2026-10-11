@@ -286,6 +286,10 @@ describe("extractPaths", () => {
       unresolved: ["/etc/hosts.conf", "~/.agents/skills/pr-status/scripts/*.test.ts"],
     });
   });
+  test("[unit] G9 extensionless absolute and ~ paths are unresolved, decided before the extension filter", () => {
+    expect(extractCandidates("/etc/hosts and ~/bin and ~/.config/x")).toEqual({ paths: [], unresolved: ["/etc/hosts", "~/bin", "~/.config/x"] });
+    expect(extractCandidates("see / and ~/ and //")).toEqual({ paths: [], unresolved: [] });
+  });
   test("[unit] prose, org/repo names and abbreviations are not paths", () => {
     expect(extractPaths("one PR on breakoutwithai/jevnotjev, e.g. with the rule 10 gate evidence")).toEqual([]);
   });
@@ -591,6 +595,16 @@ describe("auditPrompt", () => {
     expect(r.deliverables.map((d) => d.unresolved)).toEqual([["~/.agents/skills/x/SKILL.md"], ["/etc/hosts.conf"]]);
     expect(r.verdict).not.toBe("PATHS-DONE");
     expect(calls.some((c) => c.includes("--") && c.some((a) => a.includes("SKILL.md") || a.includes("hosts.conf")))).toBe(false);
+  });
+  test("[unit] G9 an extensionless absolute or ~ path next to a touched repo path blocks PATHS-DONE", () => {
+    const { git } = recorder("abc1234\n");
+    for (const extra of ["/etc/hosts", "~/bin", "~/.config/x"]) {
+      const r = auditPrompt("x.prompt.md", prompt([`scripts/new.ts + ${extra}`]), tree, git, "sha", null);
+      expect(r.pathsTouched).toBe(1);
+      expect(r.deliverables[0]?.unresolved).toEqual([extra]);
+      expect(r.deliverables[0]?.unchecked).toBe(true);
+      expect(r.verdict).toBe("PARTIAL");
+    }
   });
   test("[unit] G3 a missing created date leaves every path unresolved and raises INVALID-HEADER", () => {
     const { calls, git } = recorder("abc1234\n");

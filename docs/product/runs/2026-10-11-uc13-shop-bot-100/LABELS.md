@@ -1,6 +1,6 @@
 # Labels for run-shopbot-2026-10-11: approved 2026-10-11
 
-`records.csv` in this folder carries NO labels. The files below are AI drafts waiting for the operator's review. Nothing here is a label until a person approves it.
+`labels.csv` holds the 100 labels the operator approved on 2026-10-11, merged into `records.csv`. The files under "How the drafts were made" are the AI drafts they started from; see "Approved 2026-10-11" for what changed.
 
 ## How the drafts were made
 
@@ -29,6 +29,14 @@ Until then `bun src/decide/cli.ts verdict` on this `records.csv` reports not eno
 
 ## Approved 2026-10-11
 
-The operator approved the labels on 2026-10-11 after stepping through every low-certainty case. Changes from the majority drafts: `m67` answer to hand_off (the one dispute), `m41` answer to hand_off, `m44` answer to hand_off, `m80` hand_off to answer. The other 19 low-certainty cases, including the 6 from m01 to m40 approved on 2026-10-03, stay as drafted. `labels.csv` holds the 100 approved labels (65 hand_off, 35 answer), merged into `records.csv` with `--source human_reviewed --by operator --at 2026-10-11 --blind false`: 300 of 300 rows labelled.
+The operator approved the labels on 2026-10-11 after stepping through every low-certainty case. The one dispute, `m67`, is decided as answer (the majority draft). Changes from the majority drafts, against `examples/uc13-shop-bot/fact-sheet.md` and the acceptance rule ("everything asked is covered by the fact sheet"):
 
-`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.215).
+- `m41`, `m44`: answer to hand_off.
+- `m80`: hand_off to answer. The sheet names both counters.
+- `m49`: answer to hand_off. The boot comfort guarantee promises a swap; no line says whether it is free (free size swaps are the junior package only).
+- `m84`: answer to hand_off. A heel "rubbing raw" reports an injury; swaps at the lift-base counter are not stated.
+- `m88`: answer to hand_off. Whether a tune costs extra on a rental is not stated.
+
+The other 15 low-certainty cases, including the 6 from m01 to m40 approved on 2026-10-03, stay as drafted. `labels.csv` holds the 100 approved labels (67 hand_off, 33 answer), merged into `records.csv` with `--source human_reviewed --by operator --at 2026-10-11 --blind false`: 300 of 300 rows labelled.
+
+`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218).

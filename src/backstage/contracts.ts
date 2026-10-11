@@ -1,4 +1,10 @@
 export const PROTOCOL_VERSION = "backstage/2";
+/**
+ * Version of the verdict calculation (src/core/metrics.ts cohortMetrics, src/core/verdict.ts, src/core/calc.ts)
+ * that evidence() exports as `calcVersion`. It MUST change whenever the verdict or stats calculation changes,
+ * so an exported run says which calculation produced its verdict and a reload can tell whether it still matches.
+ */
+export const CALC_VERSION = "verdict/1";
 export type Provider = "jev" | "anthropic" | "openai" | "google" | "xai";
 export type RunMode = "jev-only" | "compare";
 export type Arm = string;

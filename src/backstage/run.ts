@@ -1,4 +1,5 @@
 import {
+  CALC_VERSION,
   PROTOCOL_VERSION,
   type AnswerRequest,
   type AnswerResult,
@@ -27,7 +28,7 @@ const EXPORT_COLUMNS: readonly string[] = [...COLUMNS_V1_1, ...SUGGESTION_COLUMN
 import { formatRows, readDictRows } from "../format/csv.ts";
 import { cohortMetrics } from "../core/metrics.ts";
 import { fileSeed } from "../core/calc.ts";
-import { verdict } from "../core/verdict.ts";
+import { verdict, type Verdict } from "../core/verdict.ts";
 export type Keys = ProviderKeys;
 export type KeySource = Keys | (() => Keys);
 export type Transport = (
@@ -761,6 +762,11 @@ export class BackstageRun {
   #revealed = false;
   #labeling = false;
   #unsafe = false;
+  /** Verdicts from the last report(), keyed by the records they were computed from; evidence() exports them only while the records match. */
+  #reported: {
+    readonly records: string;
+    readonly verdicts: readonly { readonly armId: string; readonly runId: string; readonly verdict: Verdict | null }[];
+  } | null = null;
   /** Labels that came with the case import, by case (labelling loop M3). A person's pick for the case replaces them. */
   #imported = new Map<string, ImportedLabel>();
   constructor(
@@ -1580,6 +1586,7 @@ export class BackstageRun {
         return {
           ...output,
           metrics,
+          // The verdict calculation is versioned: change CALC_VERSION (contracts.ts) whenever it changes.
           verdict:
             this.manifest.mode === "compare" && parsed.rows.length
               ? verdict(metrics, await fileSeed(output.csv))
@@ -1589,6 +1596,10 @@ export class BackstageRun {
     );
     const first = pairs[0];
     if (!first) throw new Error("Missing export cohort.");
+    this.#reported = {
+      records: csv,
+      verdicts: pairs.map((p) => ({ armId: p.armId, runId: p.runId, verdict: p.verdict })),
+    };
     return {
       csv,
       metrics: first.metrics,
@@ -1604,8 +1615,10 @@ export class BackstageRun {
       throw new Error("Reveal results (finish judging) before downloading evidence.");
     if (this.#unsafe)
       throw new Error("Export blocked: this run contains a provider key.");
+    const records = this.csv();
     return {
       version: PROTOCOL_VERSION,
+      calcVersion: CALC_VERSION,
       manifest: this.manifest,
       funding: this.#funded ? "trial" : "byok",
       attempts: this.attempts,
@@ -1631,7 +1644,9 @@ export class BackstageRun {
       comparisons: this.exports(),
       comparisonNote:
         "Jev observations are reused across comparison cohorts. Do not sum their costs; totalSpend counts each actual attempt once. Verdicts are per-pair, uncorrected for multiple comparisons.",
-      records: this.csv(),
+      // Per-pair verdicts from report(), only when computed from exactly these records; null otherwise.
+      verdicts: this.#reported?.records === records ? this.#reported.verdicts : null,
+      records,
     };
   }
 }

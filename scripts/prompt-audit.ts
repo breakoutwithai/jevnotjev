@@ -38,7 +38,8 @@
 // The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER);
 // `created` is required. The Definition of done is counted (not verified) from Bun.markdown's
 // rendering of the body.
-// Limitation: a backtick span naming a file with a comma in its name is split, so it stays UNRESOLVED.
+// Limitation: a backtick span containing whitespace is one UNRESOLVED candidate, never a path, so a
+// file name with a space (or a comma and space) is always UNRESOLVED.
 //
 // Verdicts (there is deliberately no "done" verdict):
 //   NOT-RUN     at least one checkable path, none TOUCHED, no evidence commit, no unchecked
@@ -222,8 +223,8 @@ function classifyToken(raw: string, span: boolean): Token {
 
 export type Candidates = { paths: string[]; unresolved: string[] };
 
-// Candidate paths in one deliverable string. A backtick span is one candidate (it may hold spaces);
-// everything else splits on whitespace and commas. Placeholders (<x>) and globs (*) are skipped.
+// Candidate paths in one deliverable string. A backtick span is exactly one candidate; everything
+// else splits on whitespace and commas.
 export function extractCandidates(deliverable: string): Candidates {
   const paths: string[] = [];
   const unresolved: string[] = [];
@@ -234,14 +235,12 @@ export function extractCandidates(deliverable: string): Candidates {
   for (const part of deliverable.split(/(`[^`]*`)/)) {
     if (part.length >= 2 && part.startsWith("`") && part.endsWith("`")) {
       const inner = part.slice(1, -1).trim();
-      const whole = classifyToken(inner, true);
-      // A span that is one path (spaces allowed) or has no separator stays one candidate; otherwise
-      // it is split into pieces, each of which is still a span token and never dropped.
-      if (whole.kind === "path" || !/[\s,]/.test(inner)) {
-        record(whole);
-        continue;
-      }
-      for (const token of inner.split(/[\s,]+/)) record(classifyToken(token, true));
+      // A span is always exactly one candidate. With whitespace in it (`a.ts + b.ts`, `bun test`,
+      // `My Notes/x.md`) it cannot be told apart from several things, so it is never a path and is
+      // never split into checkable ones: one UNRESOLVED candidate.
+      if (/\s/.test(inner)) {
+        if (inner !== "" && !unresolved.includes(inner)) unresolved.push(inner);
+      } else record(classifyToken(inner, true));
       continue;
     }
     for (const token of part.replaceAll("`", " ").split(/[\s,]+/)) record(classifyToken(token, false));

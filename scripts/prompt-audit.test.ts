@@ -299,7 +299,8 @@ describe("extractPaths", () => {
   });
   test("[unit] G10 an extensionless backtick path next to a touched path is UNRESOLVED", () => {
     expect(extractCandidates("scripts/new.ts + `scripts/run`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["scripts/run"] });
-    expect(extractCandidates("scripts/new.ts and `bun test` and `x`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["bun", "test", "x"] });
+    // Changed by S2: `bun test` was split into "bun" and "test"; a span with whitespace is one candidate now.
+    expect(extractCandidates("scripts/new.ts and `bun test` and `x`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["bun test", "x"] });
   });
   test("[unit] G10 property: no token containing a slash is ever dropped", () => {
     const tokens = [
@@ -326,7 +327,8 @@ describe("extractPaths", () => {
     expect(extractCandidates("scripts/new.ts -/-")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["-/-"] });
     expect(extractCandidates("scripts/new.ts `*`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["*"] });
     for (const t of ["?", "[]", "<>", "{}", "$x", "#", "@/"]) expect(extractCandidates(`scripts/new.ts \`${t}\``), t).toEqual({ paths: ["scripts/new.ts"], unresolved: [t] });
-    expect(extractCandidates("scripts/new.ts `{a,b}/`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["{a", "b}/"] });
+    // Changed by S2: a span without whitespace is never split, so `{a,b}/` stays whole.
+    expect(extractCandidates("scripts/new.ts `{a,b}/`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["{a,b}/"] });
     expect(extractCandidates("scripts/new.ts {a,b}/").unresolved.length).toBeGreaterThan(0);
   });
   test("[unit] duplicates collapse", () => {
@@ -345,11 +347,18 @@ describe("extractPaths", () => {
   test("[unit] F3 a plain directory token is still a path", () => {
     expect(extractPaths("src/core/ and a/")).toEqual(["src/core/", "a/"]);
   });
-  test("[unit] F9 a backtick span is one candidate even with spaces", () => {
-    expect(extractPaths("`docs/My Notes/plan v2.md` and site/")).toEqual(["docs/My Notes/plan v2.md", "site/"]);
+  // Changed by S2: a span with whitespace used to be one path (F9); it is now one UNRESOLVED candidate.
+  test("[unit] F9 S2 a backtick span with spaces is one UNRESOLVED candidate, never a path", () => {
+    expect(extractCandidates("`docs/My Notes/plan v2.md` and site/")).toEqual({ paths: ["site/"], unresolved: ["docs/My Notes/plan v2.md"] });
   });
-  test("[unit] F9 a backtick span listing several paths still splits", () => {
-    expect(extractPaths("`a/b.ts, c/d.ts`")).toEqual(["a/b.ts", "c/d.ts"]);
+  // Changed by S2: this span used to be split into two paths; it is now one UNRESOLVED candidate.
+  test("[unit] F9 S2 a backtick span listing several paths is not split into checkable paths", () => {
+    expect(extractCandidates("`a/b.ts, c/d.ts`")).toEqual({ paths: [], unresolved: ["a/b.ts, c/d.ts"] });
+  });
+  test("[unit] S2 a backtick span joining two paths is one UNRESOLVED candidate", () => {
+    expect(extractCandidates("`scripts/a.ts + scripts/b.ts`")).toEqual({ paths: [], unresolved: ["scripts/a.ts + scripts/b.ts"] });
+    expect(extractCandidates("`scripts/a.ts scripts/b.ts`")).toEqual({ paths: [], unresolved: ["scripts/a.ts scripts/b.ts"] });
+    expect(extractCandidates("`scripts/a.ts,scripts/b.ts`").paths).toEqual([]);
   });
   test("[unit] F10 ./ and // are normalized", () => {
     expect(extractPaths("./src/x.ts and a//b.ts and ./docs/ and a/./b.ts")).toEqual(["src/x.ts", "a/b.ts", "docs/"]);
@@ -864,6 +873,20 @@ describe("prompt-audit CLI", () => {
       const rows = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out);
       expect(dig(rows[0], "deliverables", 0, "paths", 0, "state")).toBe("UNTOUCHED");
       expect(dig(rows[0], "deliverables", 1, "paths", 0, "state")).toBe("TOUCHED");
+    });
+  });
+
+  test("[integration] S2 one backtick span naming two committed files is unchecked and not NOT-RUN", () => {
+    withRepo((repo) => {
+      writeFileSync(join(repo, "scripts/a.ts"), "export const a = 1;\n");
+      writeFileSync(join(repo, "scripts/b.ts"), "export const b = 1;\n");
+      writeFileSync(join(repo, "docs/prompts/20200101-span.prompt.md"), promptFile("fx-span", "ready-not-run", ["`scripts/a.ts + scripts/b.ts`: both"]));
+      commitAt(repo, null, "both files after created");
+      const row = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out)[0];
+      expect(dig(row, "verdict")).not.toBe("NOT-RUN");
+      expect(dig(row, "deliverables", 0, "unchecked")).toBe(true);
+      expect(dig(row, "deliverables", 0, "paths")).toEqual([]);
+      expect(dig(row, "deliverables", 0, "unresolved")).toEqual(["scripts/a.ts + scripts/b.ts"]);
     });
   });
 

@@ -24,7 +24,7 @@
 // segment) or an UNRESOLVED candidate: extensionless `scripts/bin`, `and/or`, a bare filename
 // (`records.csv`), a path escaping the repo, globs, `<placeholders>`, and absolute or `~/` paths
 // (outside the pinned repo there is no history to pin). Only a bare word, or a token made of
-// separators and dots alone (`/`, `//`, `-/-`), is dropped as prose.
+// `/`, `~` and `.` alone (`/`, `//`, `~/`, `./`), is dropped as prose; `**/*`, `-/-` and `*` are kept.
 // A deliverable with no path or any UNRESOLVED candidate is unchecked, and one
 // unchecked deliverable blocks PATHS-DONE. A path absent from the pinned tree is MISSING (no
 // .gitignore lookup). A file is TOUCHED when any commit changed it since `created`; a directory only
@@ -181,7 +181,7 @@ function cleanToken(raw: string, span: boolean): string {
 // The default is inverted: a token with a `/` in it, or inside a backtick span, is never dropped. It
 // is either a checkable repo path or an UNRESOLVED candidate that blocks PATHS-DONE, so a shape the
 // rules did not anticipate fails conservative instead of vanishing. Only a bare word, or a token made
-// of nothing but separators and dots, is dropped as prose.
+// of `/`, `~` and `.` alone (`/`, `//`, `~/`, `./`), is dropped as prose; `**/*`, `-/-` and `*` are not.
 function classifyToken(raw: string, span: boolean): Token {
   const candidate = cleanToken(raw, span);
   if (candidate === "") return { kind: "reject" };
@@ -196,7 +196,9 @@ function classifyToken(raw: string, span: boolean): Token {
   const alnum = /[\p{L}\p{N}]/u.test(candidate);
   // Traversal first: `src/..` and `../..` name (and escape) a directory whatever their letters.
   if (!home && !abs && (flat === ".." || flat.startsWith("../") || (flat === "." && alnum))) return keep;
-  if (!alnum) return { kind: "reject" };
+  // The only tokens dropped here are made of `/`, `~` and `.` alone (`/`, `//`, `~/`, `./`): they
+  // name nothing. `**/*`, `-/-`, `*` or `{}` are punctuation too, but they might be globs or paths.
+  if (/^[/~.]+$/.test(candidate)) return { kind: "reject" };
   if (!candidate.includes("/")) return keep;
   // Globs, placeholders, odd characters, URLs, and absolute or ~/ paths (outside the pinned repo, so
   // no history to pin, whatever their extension) can never be verified.
@@ -208,7 +210,7 @@ function classifyToken(raw: string, span: boolean): Token {
   const trimmed = dir ? body.slice(0, -1) : body;
   const segments = trimmed.split("/");
   const wellFormed = trimmed !== "" && segments[0] !== "" && segments.at(-1) !== "";
-  if (wellFormed && (dir || dotLead || EXTENSION.test(segments.at(-1) ?? ""))) return { kind: "path", path: posix.normalize(candidate) };
+  if (wellFormed && alnum && (dir || dotLead || EXTENSION.test(segments.at(-1) ?? ""))) return { kind: "path", path: posix.normalize(candidate) };
   return keep;
 }
 

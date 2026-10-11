@@ -307,14 +307,27 @@ describe("extractPaths", () => {
       "a.b/c.d", "документы/план", "文档/说明", "café/menu", "x/y!", "x/y?", "TODO/FIXME:", "foo/bar,",
       "[a/b]", "'quoted/path'", '"dq/path"', ".hidden/dir", "..hidden/x", "a/b/c/d/e", "node_modules/foo", "bin/run.sh", "Makefile/x",
       "a-b/c_d", "r&d/budget", "50/50", "w/o", "I/O", "24/7", "a//b", "a/", "/usr", "~/x",
+      // G11: punctuation-only tokens are not separators, so they are UNRESOLVED too.
+      "**/*", "-/-", "@/", "*/", "?/", "[]/", "<>/", "{}/", "$/", "+/+", "#/",
     ];
     for (const t of tokens) {
       const c = extractCandidates(`scripts/new.ts ${t}`);
       expect(c.paths.length + c.unresolved.length, t).toBe(2);
     }
   });
-  test("[unit] G10 a token of only separators and dots is still dropped", () => {
-    for (const t of ["/", "//", "-/-", "./", "~/", "/.", "///"]) expect(extractCandidates(`see ${t}`), t).toEqual({ paths: [], unresolved: [] });
+  // Changed by G11: `-/-` was in this list; only tokens made of `/`, `~` and `.` are dropped now.
+  test("[unit] G10 a token of only slashes, tildes and dots is still dropped", () => {
+    for (const t of ["/", "//", "~/", "./", "/.", "///"]) expect(extractCandidates(`see ${t}`), t).toEqual({ paths: [], unresolved: [] });
+  });
+  test("[unit] G11 glob and punctuation-only tokens are UNRESOLVED, backticked or not", () => {
+    expect(extractCandidates("scripts/new.ts + `**/*`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["**/*"] });
+    expect(extractCandidates("scripts/new.ts + **/*")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["**/*"] });
+    expect(extractCandidates("scripts/new.ts `-/-`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["-/-"] });
+    expect(extractCandidates("scripts/new.ts -/-")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["-/-"] });
+    expect(extractCandidates("scripts/new.ts `*`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["*"] });
+    for (const t of ["?", "[]", "<>", "{}", "$x", "#", "@/"]) expect(extractCandidates(`scripts/new.ts \`${t}\``), t).toEqual({ paths: ["scripts/new.ts"], unresolved: [t] });
+    expect(extractCandidates("scripts/new.ts `{a,b}/`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["{a", "b}/"] });
+    expect(extractCandidates("scripts/new.ts {a,b}/").unresolved.length).toBeGreaterThan(0);
   });
   test("[unit] duplicates collapse", () => {
     expect(extractPaths("a/b.ts and a/b.ts")).toEqual(["a/b.ts"]);
@@ -561,6 +574,15 @@ describe("auditPrompt", () => {
       expect(r.deliverables[0]?.unresolved).toEqual([extra]);
       expect(r.deliverables[0]?.unchecked).toBe(true);
       expect(r.verdict).toBe("PARTIAL");
+    }
+  });
+  test("[unit] G11 a glob-only backtick token next to a touched path blocks PATHS-DONE", () => {
+    const { git } = recorder("abc1234\n");
+    for (const item of ["scripts/new.ts + `**/*`", "scripts/new.ts + `*`", "scripts/new.ts and -/-"]) {
+      const r = auditPrompt("x.prompt.md", prompt([item]), tree, git, "sha", null);
+      expect(r.pathsTouched, item).toBe(1);
+      expect(r.deliverables[0]?.unchecked, item).toBe(true);
+      expect(r.verdict, item).toBe("PARTIAL");
     }
   });
   test("[unit] S2-1 R3-4 a git-excluded path is plain MISSING and never counts toward delivery", () => {

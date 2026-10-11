@@ -1,4 +1,5 @@
 import {
+  CALC_VERSION,
   PROTOCOL_VERSION,
   type AnswerRequest,
   type AnswerResult,
@@ -18,16 +19,16 @@ import {
 } from "./catalog.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { requestFingerprint } from "./fingerprint.ts";
-import { COLUMNS_V1_1, LABELLED_AT, LABELLER_HANDLE, SUGGESTION_COLUMNS, isCalendarDate, validate } from "../format/validate.ts";
+import { LABELLED_AT, LABELLER_HANDLE, isCalendarDate, validate } from "../format/validate.ts";
 import type { JevSuggestion } from "../labels/rank.ts";
 import { ARGMAX_TOLERANCE, MASS_TOLERANCE } from "../jev-answer.ts";
 import { SuggestionBook, callsForPick, type Call, type Suggestion } from "../labels/suggest.ts";
-/** Backstage writes jnj-record/1.1 with the blind loop's columns (format/README.md "Blind and final picks"). */
-const EXPORT_COLUMNS: readonly string[] = [...COLUMNS_V1_1, ...SUGGESTION_COLUMNS];
+/** Rows, comparisons and spend are pure functions shared with the export checker (records.ts). */
+import { EXPORT_COLUMNS, comparisonPairs, extraSpend, inComparison, recordRow, ruleOutput, RULE_VALUES, totalSpend, type RecordLabel } from "./records.ts";
 import { formatRows, readDictRows } from "../format/csv.ts";
-import { cohortMetrics } from "../core/metrics.ts";
+import { cohortMetrics, type CohortKey, type CohortMetrics } from "../core/metrics.ts";
 import { fileSeed } from "../core/calc.ts";
-import { verdict } from "../core/verdict.ts";
+import { verdict, type Verdict } from "../core/verdict.ts";
 export type Keys = ProviderKeys;
 export type KeySource = Keys | (() => Keys);
 export type Transport = (
@@ -761,6 +762,11 @@ export class BackstageRun {
   #revealed = false;
   #labeling = false;
   #unsafe = false;
+  /** Verdicts from the last report(), keyed by the records they were computed from; evidence() exports them only while the records match. */
+  #reported: {
+    readonly records: string;
+    readonly verdicts: readonly { readonly armId: string; readonly runId: string; readonly verdict: Verdict | null }[];
+  } | null = null;
   /** Labels that came with the case import, by case (labelling loop M3). A person's pick for the case replaces them. */
   #imported = new Map<string, ImportedLabel>();
   constructor(
@@ -794,19 +800,7 @@ export class BackstageRun {
           MAX_RUN_REQUESTS +
           " provider requests per run.",
       );
-    const rule = arms.includes("rule");
-    if (rule && scene.keywords.filter((k) => k.trim()).length === 0)
-      throw new Error("Add at least one keyword for the selected rule.");
-    const frozen = freezeScene(
-      rule
-        ? scene
-        : {
-            ...scene,
-            keywords: [],
-            matchChoice: scene.choices[0].name,
-            otherwiseChoice: scene.choices[1].name,
-          },
-    );
+    const frozen = runScene(scene, arms);
     this.manifest = Object.freeze({
       mode: arms.length === 1 ? "jev-only" : "compare",
       arms: Object.freeze(arms),
@@ -1222,18 +1216,9 @@ export class BackstageRun {
           caseId: c.id,
           armId: "rule",
           provider: "rule",
-          output: scene.keywords.some((k) =>
-            c.input.toLowerCase().includes(k.toLowerCase()),
-          )
-            ? scene.matchChoice
-            : scene.otherwiseChoice,
-          model: "keywords-v1",
-          confidence: null,
+          output: ruleOutput(scene, c.input),
           probabilities: null,
-          tokensIn: 0,
-          tokensOut: 0,
-          costUsd: 0,
-          latencyMs: 0,
+          ...RULE_VALUES,
         });
     try {
       onChange?.();
@@ -1363,74 +1348,38 @@ export class BackstageRun {
   #labelFor(a: RowAnswer): StoredLabel | undefined {
     return this.#labels.get(this.#labelKey(a)) ?? this.#importedCall(a);
   }
+  /** An answer's labels entry: its stored or imported label and provenance, all null when unlabelled. */
+  #exportLabel(a: RowAnswer): RecordLabel {
+    const stored = this.#labelFor(a);
+    return {
+      label: stored?.label ?? null,
+      labelSource: stored?.source ?? null,
+      labelledBy: stored?.by ?? null,
+      labelledAt: stored?.at ?? null,
+      labelBlind: stored?.blind ?? null,
+      labelFinal: stored?.final ?? null,
+      suggestionShown: stored?.suggestionShown ?? null,
+    };
+  }
   #csv(answers: readonly RowAnswer[], runId: string): string {
     if (this.#unsafe)
       throw new Error("Export blocked: this run contains a provider key.");
     const s = this.manifest.scene;
-    return formatRows([
-      EXPORT_COLUMNS,
-      ...answers.map((a) => {
-        const stored = this.#labelFor(a);
-        const data: Record<string, string | number | null> = {
-          format_version: "jnj-record/1.1",
-          run_id: runId,
-          prompt_version: this.manifest.promptVersion,
-          case_id: a.caseId,
-          case_input: s.cases.find((c) => c.id === a.caseId)?.input ?? "",
-          question_id: this.manifest.questionId,
-          question: s.question,
-          answer_set: s.choices.map((c) => c.name).join("|"),
-          answerer:
-            a.provider === "jev"
-              ? "jev"
-              : a.provider === "rule"
-                ? "rule"
-                : "llm",
-          answerer_model: a.model,
-          output: a.output,
-          confidence: a.confidence,
-          label: stored?.label ?? null,
-          label_source: stored?.source ?? null,
-          tokens_in: a.tokensIn,
-          tokens_out: a.tokensOut,
-          cost_usd: a.costUsd,
-          latency_ms: a.latencyMs,
-          labelled_by: stored?.by ?? null,
-          labelled_at: stored?.at ?? null,
-          label_blind: stored === undefined ? null : String(stored.blind),
-          label_final: stored?.final ?? null,
-          suggestion_shown:
-            stored?.suggestionShown === undefined || stored.suggestionShown === null
-              ? null
-              : String(stored.suggestionShown),
-        };
-        return EXPORT_COLUMNS.map((k) =>
-          data[k] === null || data[k] === undefined ? "" : String(data[k]),
-        );
-      }),
-    ]);
+    const scene = {
+      promptVersion: this.manifest.promptVersion,
+      questionId: this.manifest.questionId,
+      question: s.question,
+      choices: s.choices.map((c) => c.name),
+      cases: new Map(s.cases.map((c) => [c.id, c.input])),
+    };
+    return formatRows([EXPORT_COLUMNS, ...answers.map((a) => recordRow(scene, a, this.#exportLabel(a), runId))]);
   }
   exports(): readonly ComparisonExport[] {
-    const comparators = this.manifest.arms.filter(
-      (id) => id !== JEV_ARM_ID && id !== "rule",
-    );
-    const ids = comparators.length
-      ? comparators
-      : [this.manifest.arms.includes("rule") ? "rule" : JEV_ARM_ID];
-    return ids.map((armId, index) => {
-      const runId =
-        ids.length === 1
-          ? this.manifest.runId
-          : this.manifest.runId + "-pair-" + (index + 1);
-      const answers = this.#answers.filter(
-        (a) =>
-          a.armId === JEV_ARM_ID || a.armId === armId || a.armId === "rule",
-      );
+    return comparisonPairs(this.manifest.arms, this.manifest.runId).map((pair) => {
+      const answers = this.#answers.filter((a) => inComparison(a.armId, pair.armId));
       return {
-        armId,
-        runId,
-        filename: "records-" + (index + 1) + ".csv",
-        csv: this.#csv(answers, runId),
+        ...pair,
+        csv: this.#csv(answers, pair.runId),
         attemptIds: answers.flatMap((a) => (a.attemptId ? [a.attemptId] : [])),
       };
     });
@@ -1520,75 +1469,36 @@ export class BackstageRun {
   }
   /** Failed attempts, including failed suggestion calls on the labeller's key. */
   extraSpend() {
-    let knownUsd = 0,
-      unknown = 0;
-    for (const a of [...this.#attempts, ...this.#suggestionAttempts])
-      if (!a.ok) {
-        if (a.costUsd !== null) knownUsd += a.costUsd;
-        else if (a.charge !== "none") unknown++;
-      }
-    return { knownUsd, unknown };
+    return extraSpend([...this.#attempts, ...this.#suggestionAttempts]);
   }
   /** Every attempt once, including suggestion calls on the labeller's key (labelling loop M2). */
   totalSpend() {
-    let knownUsd = 0,
-      unknown = 0;
-    for (const a of [...this.#attempts, ...this.#suggestionAttempts]) {
-      if (a.costUsd !== null) knownUsd += a.costUsd;
-      else if (a.ok || a.charge !== "none") unknown++;
-    }
-    return { knownUsd, unknown };
+    return totalSpend([...this.#attempts, ...this.#suggestionAttempts]);
   }
   async report() {
     const csv = this.csv();
     const pairs = await Promise.all(
       this.exports().map(async (output) => {
-        const parsed = validate(output.csv);
-        if (
-          parsed.errors.length &&
-          !(
-            output.csv === formatRows([EXPORT_COLUMNS]) &&
-            !this.#answers.some(
-              (a) =>
-                a.armId === JEV_ARM_ID ||
-                a.armId === output.armId ||
-                a.armId === "rule",
-            )
-          )
-        )
-          throw new Error("Run records failed validation.");
-        const metrics = parsed.rows.length
-          ? cohortMetrics(parsed.rows, {
-              ...this.manifest,
-              runId: output.runId,
-            })
-          : {
-              key: {
-                runId: output.runId,
-                promptVersion: this.manifest.promptVersion,
-                questionId: this.manifest.questionId,
-              },
-              question: this.manifest.scene.question,
-              answerSet: this.manifest.scene.choices
-                .map((c) => c.name)
-                .join("|"),
-              cases: 0,
-              arms: [],
-              jevVsLlm: null,
-              jevVsRule: null,
-            };
-        return {
-          ...output,
-          metrics,
-          verdict:
-            this.manifest.mode === "compare" && parsed.rows.length
-              ? verdict(metrics, await fileSeed(output.csv))
-              : null,
-        };
+        const outcome = await cohortVerdict(
+          output.csv,
+          {
+            mode: this.manifest.mode,
+            key: { ...this.manifest, runId: output.runId },
+            question: this.manifest.scene.question,
+            answerSet: this.manifest.scene.choices.map((c) => c.name).join("|"),
+          },
+          !this.#answers.some((a) => inComparison(a.armId, output.armId)),
+        );
+        if (!outcome.ok) throw new Error("Run records failed validation.");
+        return { ...output, metrics: outcome.metrics, verdict: outcome.verdict };
       }),
     );
     const first = pairs[0];
     if (!first) throw new Error("Missing export cohort.");
+    this.#reported = {
+      records: csv,
+      verdicts: structuredClone(pairs.map((p) => ({ armId: p.armId, runId: p.runId, verdict: p.verdict }))),
+    };
     return {
       csv,
       metrics: first.metrics,
@@ -1604,34 +1514,29 @@ export class BackstageRun {
       throw new Error("Reveal results (finish judging) before downloading evidence.");
     if (this.#unsafe)
       throw new Error("Export blocked: this run contains a provider key.");
+    const records = this.csv();
     return {
       version: PROTOCOL_VERSION,
+      calcVersion: CALC_VERSION,
       manifest: this.manifest,
       funding: this.#funded ? "trial" : "byok",
       attempts: this.attempts,
-      labels: this.#answers.map((a) => {
-        const stored = this.#labelFor(a);
-        return {
-          caseId: a.caseId,
-          armId: a.armId,
-          provider: a.provider,
-          output: a.output,
-          label: stored?.label ?? null,
-          labelSource: stored?.source ?? null,
-          labelledBy: stored?.by ?? null,
-          labelledAt: stored?.at ?? null,
-          labelBlind: stored?.blind ?? null,
-          labelFinal: stored?.final ?? null,
-          suggestionShown: stored?.suggestionShown ?? null,
-        };
-      }),
+      labels: this.#answers.map((a) => ({
+        caseId: a.caseId,
+        armId: a.armId,
+        provider: a.provider,
+        output: a.output,
+        ...this.#exportLabel(a),
+      })),
       suggestionAttempts: structuredClone(this.#suggestionAttempts),
       extraSpend: this.extraSpend(),
       totalSpend: this.totalSpend(),
       comparisons: this.exports(),
       comparisonNote:
         "Jev observations are reused across comparison cohorts. Do not sum their costs; totalSpend counts each actual attempt once. Verdicts are per-pair, uncorrected for multiple comparisons.",
-      records: this.csv(),
+      // Per-pair verdicts from report(), only when computed from exactly these records; null otherwise.
+      verdicts: this.#reported?.records === records ? structuredClone(this.#reported.verdicts) : null,
+      records,
     };
   }
 }
@@ -1750,4 +1655,43 @@ export class CaseImportState {
       if (generation === this.#generation) this.#pending = false;
     }
   }
+}
+
+/**
+ * The scene a run with these arms is built on, validated and frozen: the rule needs a keyword, and without the rule its
+ * keywords are dropped and its choices default. The BackstageRun constructor and the export checker both call it.
+ */
+export function runScene(scene: Scene, arms: readonly string[]): Scene {
+  const rule = arms.includes("rule");
+  if (rule && scene.keywords.filter((k) => k.trim()).length === 0)
+    throw new Error("Add at least one keyword for the selected rule.");
+  return freezeScene(
+    rule ? scene : { ...scene, keywords: [], matchChoice: scene.choices[0].name, otherwiseChoice: scene.choices[1].name },
+  );
+}
+
+/** What one comparison's verdict is computed against. `key` becomes the metrics' cohort key as given. */
+export interface CohortContext {
+  readonly mode: string;
+  readonly key: CohortKey;
+  readonly question: string;
+  readonly answerSet: string;
+}
+export type CohortOutcome =
+  | { readonly ok: true; readonly metrics: CohortMetrics; readonly verdict: Verdict | null }
+  | { readonly ok: false; readonly errors: readonly string[] };
+/**
+ * One comparison's verdict chain: validate -> cohortMetrics -> verdict(metrics, fileSeed(csv)). BackstageRun.report()
+ * and the export checker (export-check.ts) both call it, so the verdict they compute cannot drift apart. Header-only
+ * records with no answers in the pair (`empty`) are an empty cohort; only a compare run with rows has a verdict.
+ * The verdict calculation is versioned: change CALC_VERSION (contracts.ts) whenever it changes.
+ */
+export async function cohortVerdict(csv: string, context: CohortContext, empty: boolean): Promise<CohortOutcome> {
+  const parsed = validate(csv);
+  if (parsed.errors.length && !(empty && csv === formatRows([EXPORT_COLUMNS]))) return { ok: false, errors: parsed.errors };
+  const { runId, promptVersion, questionId } = context.key;
+  const metrics: CohortMetrics = parsed.rows.length
+    ? cohortMetrics(parsed.rows, context.key)
+    : { key: { runId, promptVersion, questionId }, question: context.question, answerSet: context.answerSet, cases: 0, arms: [], jevVsLlm: null, jevVsRule: null };
+  return { ok: true, metrics, verdict: context.mode === "compare" && parsed.rows.length ? verdict(metrics, await fileSeed(csv)) : null };
 }

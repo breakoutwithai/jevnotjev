@@ -291,7 +291,7 @@ describe("#134 UC13 inputs", () => {
     const terms = ruleKeywords(await Bun.file(join(EXAMPLE, "rule.md")).text());
     const fit = fitKeywords(terms, 20);
     expect(fit.kept).toHaveLength(20);
-    // Backstage matches by case-insensitive substring (src/backstage/run.ts:1220), so a term containing a kept term adds nothing.
+    // Backstage matches by case-insensitive substring (src/backstage/records.ts:81, ruleOutput), so a term containing a kept term adds nothing.
     expect(fit.redundant).toEqual(["in stock", "booked", "booking", "confirmed", "broken"]);
     expect(fit.dropped).toEqual(["this weekend", "saturday", "sunday", "tomorrow"]);
     expect([...fit.kept, ...fit.redundant, ...fit.dropped].sort()).toEqual([...terms].sort());

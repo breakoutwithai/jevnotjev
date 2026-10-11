@@ -14,6 +14,7 @@ import {
   type AnswerRequest,
   type AnswerSuccess,
   type Scene,
+  CALC_VERSION,
 } from "./contracts.ts";
 import { getModelEntry, CATALOG_VERSION } from "./catalog.ts";
 import { validate } from "../format/validate.ts";
@@ -1380,5 +1381,79 @@ describe("blind-then-suggest picks", () => {
     const card = run.cards().find((c) => c.caseId === "c1");
     if (!card) throw new Error("missing card");
     expect(() => run.label(card.id, "reject", BACKSTAGE_PICK)).toThrow("picked");
+  });
+});
+
+describe("D17 reproducible export", () => {
+  async function labelledComparison() {
+    const run = new BackstageRun(scene(), "test", compareSelection);
+    await run.start(keys, success);
+    run.beginLabeling();
+    for (const card of run.cards())
+      run.label(card.id, "accept", BACKSTAGE_PICK, new Date("2026-10-11T09:00:00.000Z"));
+    run.reveal();
+    return run;
+  }
+  test("[unit] D17 mutating a returned verdict does not change later evidence", async () => {
+    const run = await labelledComparison();
+    const report = await run.report();
+    const before = JSON.stringify(run.evidence().verdicts);
+    expect(before).not.toBe("null");
+    for (const pair of report.pairs) if (pair.verdict) Reflect.set(pair.verdict, "reason", "mutated via report");
+    for (const entry of run.evidence().verdicts ?? [])
+      if (entry.verdict) Reflect.set(entry.verdict, "reason", "mutated via evidence");
+    expect(JSON.stringify(run.evidence().verdicts)).toBe(before);
+  });
+  test("[unit] D17 sampleRun refuses to overlap and leaves the globals restored", async () => {
+    const { sampleRun } = await import("../../scripts/d17-sample-export.ts");
+    const original = crypto.randomUUID;
+    const first = sampleRun();
+    await expect(sampleRun()).rejects.toThrow("cannot overlap");
+    await first;
+    expect(crypto.randomUUID).toBe(original);
+    await sampleRun();
+    expect(crypto.randomUUID).toBe(original);
+  });
+  test("[unit] D17 export carries the calculation version the verdict was computed under", async () => {
+    const run = await labelledComparison();
+    expect(CALC_VERSION.length).toBeGreaterThan(0);
+    expect(run.evidence().calcVersion).toBe(CALC_VERSION);
+  });
+  test("[unit] D17 export carries inputs, labels, costs, calculation version and verdict", async () => {
+    const run = await labelledComparison();
+    const report = await run.report();
+    const exported = run.evidence();
+    // Inputs: the scene (question, choices, cases), arms, catalog and prompt versions.
+    expect(exported.manifest.scene.cases.map((c) => [c.id, c.input])).toEqual([
+      ["c1", "TypeScript builder"],
+      ["c2", "other"],
+    ]);
+    expect(exported.manifest.scene.question).toBe("Qualified?");
+    expect(exported.manifest.arms).toEqual(compareSelection.arms);
+    expect(exported.manifest.promptVersion.length).toBeGreaterThan(0);
+    expect(exported.manifest.catalogVersion).toBe(CATALOG_VERSION);
+    // Labels.
+    expect(exported.labels.length).toBeGreaterThan(0);
+    expect(exported.labels.every((l) => l.label === "accept")).toBe(true);
+    // Costs: per attempt and the once-each total.
+    expect(exported.attempts.length).toBeGreaterThan(0);
+    expect(exported.attempts.every((a) => a.costUsd === 0.001)).toBe(true);
+    expect(exported.totalSpend.knownUsd).toBeCloseTo(0.001 * exported.attempts.length);
+    // Calculation version and verdict.
+    expect(exported.calcVersion).toBe(CALC_VERSION);
+    expect(exported.verdicts).toEqual(
+      report.pairs.map((p) => ({ armId: p.armId, runId: p.runId, verdict: p.verdict })),
+    );
+    expect(exported.verdicts?.[0]?.verdict?.verdict.length).toBeGreaterThan(0);
+    expect(JSON.stringify(exported)).not.toContain("test-secret");
+  });
+  test("[unit] D17 export never carries a verdict computed from different records", async () => {
+    const run = await labelledComparison();
+    expect(run.evidence().verdicts).toBeNull();
+    await run.report();
+    expect(run.evidence().verdicts).not.toBeNull();
+    const original = run.csv.bind(run);
+    run.csv = () => original() + "\n";
+    expect(run.evidence().verdicts).toBeNull();
   });
 });

@@ -284,8 +284,8 @@ export function ruleKeywords(ruleMd: string): readonly string[] {
 }
 
 /**
- * Fit a keyword list into Backstage's cap (src/backstage/run.ts:448, 20 literals). Backstage matches by
- * case-insensitive substring (run.ts:1220), so a term that contains another term never changes the answer and is
+ * Fit a keyword list into Backstage's cap (src/backstage/run.ts:450, 20 literals). Backstage matches by
+ * case-insensitive substring (src/backstage/records.ts:81, ruleOutput), so a term that contains another term never changes the answer and is
  * removed first; terms still over the cap are dropped from the end and reported, never silently. A term is redundant
  * only when a KEPT term covers it; one covered only by a dropped term is dropped too.
  */

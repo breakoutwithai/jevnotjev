@@ -1,0 +1,38 @@
+{
+  "name": "04-touching-commit-without-trailer",
+  "why": "the file changed after created but no commit carries the trailer",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a (no trailer)",
+        "files": {
+          "scripts/a.ts": "a\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/a.ts": "NOT-DELIVERED"
+  }
+}

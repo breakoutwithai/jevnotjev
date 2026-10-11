@@ -1,0 +1,53 @@
+{
+  "name": "19-crlf-message",
+  "why": "M1-G2: a commit message with CRLF line endings still carries the trailer line; the id inside CRLF prose still does not",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/b.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a\r\n\r\nPrompt-Id: p1\r\nClaude-Session: x\r\n",
+        "files": {
+          "scripts/a.ts": "a\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: b\r\n\r\nPrompt-Id: p1-2\r\n",
+        "files": {
+          "scripts/b.ts": "b\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/a.ts": "DELIVERED",
+    "acme/corpus scripts/b.ts": "NOT-DELIVERED"
+  }
+}

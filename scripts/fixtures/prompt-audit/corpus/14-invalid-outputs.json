@@ -1,0 +1,68 @@
+{
+  "name": "14-invalid-outputs",
+  "why": "each output breaks one schema rule: .., glob, absolute, placeholder, kind, dir without slash",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "../outside.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/*.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "/abs/x.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/<name>.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "pr"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/d",
+        "kind": "dir"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a\n\nPrompt-Id: p1",
+        "files": {
+          "scripts/a.ts": "a\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus ../outside.ts": "INVALID-HEADER",
+    "acme/corpus scripts/*.ts": "INVALID-HEADER",
+    "acme/corpus /abs/x.ts": "INVALID-HEADER",
+    "acme/corpus scripts/<name>.ts": "INVALID-HEADER",
+    "acme/corpus scripts/a.ts": "INVALID-HEADER",
+    "acme/corpus scripts/d": "INVALID-HEADER"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "name": "13-regex-metacharacters-in-id",
+  "why": "id a.b+(c) is escaped: the decoy trailer axbc, which an unescaped pattern matches, does not deliver",
+  "prompt": {
+    "id": "a.b+(c)",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/decoy.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/real.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: decoy\n\nPrompt-Id: axbc",
+        "files": {
+          "scripts/decoy.ts": "d\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: real\n\nPrompt-Id: a.b+(c)",
+        "files": {
+          "scripts/real.ts": "r\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/decoy.ts": "NOT-DELIVERED",
+    "acme/corpus scripts/real.ts": "DELIVERED"
+  }
+}

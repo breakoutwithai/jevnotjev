@@ -1,0 +1,68 @@
+{
+  "name": "15-trailer-not-a-whole-line",
+  "why": "the id inside prose, preceded or followed by other text, is not a trailer line",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/b.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/c.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: c\n\nnote: Prompt-Id: p1",
+        "files": {
+          "scripts/c.ts": "c\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a\n\nsee Prompt-Id: p1 for context",
+        "files": {
+          "scripts/a.ts": "a\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: b\n\nPrompt-Id: p1 and more",
+        "files": {
+          "scripts/b.ts": "b\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/a.ts": "NOT-DELIVERED",
+    "acme/corpus scripts/b.ts": "NOT-DELIVERED",
+    "acme/corpus scripts/c.ts": "NOT-DELIVERED"
+  }
+}

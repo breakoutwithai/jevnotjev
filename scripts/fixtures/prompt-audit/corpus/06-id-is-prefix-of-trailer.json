@@ -1,0 +1,38 @@
+{
+  "name": "06-id-is-prefix-of-trailer",
+  "why": "prompt id abc must not match a trailer for abc-2",
+  "prompt": {
+    "id": "abc",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a\n\nPrompt-Id: abc-2",
+        "files": {
+          "scripts/a.ts": "a\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/a.ts": "NOT-DELIVERED"
+  }
+}

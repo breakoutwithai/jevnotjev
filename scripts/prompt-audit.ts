@@ -16,6 +16,7 @@
 //   bun scripts/prompt-audit.ts --no-gh          skip the `gh issue view` lookup (issue: unknown)
 //   bun scripts/prompt-audit.ts --dir <path>     prompt directory (default docs/prompts)
 //   bun scripts/prompt-audit.ts --ref <ref>      git ref the evidence is read from (default origin/main)
+//   bun scripts/prompt-audit.ts --repo <o/n>     the audited repo for declared outputs (default: from origin)
 //
 // Table columns: prompt, status, touched (touched/checkable), missing (count), evid (evidence
 // commits), flags. The detail lines add the issue state, the Definition of done counts (counted, not
@@ -52,6 +53,23 @@
 // The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER);
 // `created` is required. The Definition of done is counted (not verified) from Bun.markdown's
 // rendering of the body.
+// Declared outputs (#191, M1): the deterministic path. A prompt whose front matter has `outputs:` is
+// audited from those declared fields only; the prose extraction above is NOT run for it.
+//   outputs:
+//     - repo: breakoutwithai/jevnotjev
+//       path: scripts/prompt-audit.ts
+//       kind: file            # file | dir (a dir path ends with /)
+// An output is DELIVERED when at least one commit on the pinned ref, after `created`, touches the path
+// (a dir: anything under it, history included, so a file later deleted still counts) AND carries the
+// line `Prompt-Id: <prompt_id>` anywhere in its message (a squash merge keeps the branch commits'
+// trailer lines in its body). The id is matched whole-line and regex-escaped, so `abc` never matches
+// `abc-2`. Merge commits never deliver and a deletion or rename-away is not delivery of the old path.
+// Other `Prompt-Id:` values on the delivering commits are listed as `sharedWith`. Otherwise NOT-DELIVERED. An output naming another repo than the audited one (derived from
+// `git remote get-url origin`, or --repo owner/name) is OTHER-REPO: listed, not counted. An invalid
+// output (bad repo, a non-relative path, `..`, a glob or placeholder, a kind other than file|dir, a dir
+// without a trailing slash) is INVALID-HEADER, on the output and on the prompt. The table column `out`
+// is delivered/declared (`-` for a legacy prompt). Still no done/not-done verdict: that is #193.
+// A prompt with no `outputs:` is legacy: evidence only, exactly as described above.
 // Limitation: a backtick span containing whitespace is one UNRESOLVED candidate, never a path, so a
 // file name with a space (or a comma and space) is always UNRESOLVED.
 import { readdirSync, readFileSync } from "node:fs";
@@ -67,8 +85,13 @@ export type ParsedPrompt = {
   status: string | null;
   governingIssue: number | null;
   deliverables: string[];
+  outputs: DeclaredOutput[] | null;
   errors: string[];
 };
+
+export type OutputKind = "file" | "dir";
+// A declared output as written; `error` is set when it breaks a schema rule (the fields are then best effort).
+export type DeclaredOutput = { repo: string; path: string; kind: OutputKind | null; error: string | null };
 
 const VALID_STATUS = ["draft", "ready-not-run", "running", "done", "superseded"];
 
@@ -106,7 +129,7 @@ function stringField(data: Record<string, unknown>, key: string, errors: string[
 
 // The front matter goes through Bun's built-in YAML parser, then each field is type-checked.
 export function parsePrompt(text: string): ParsedPrompt {
-  const out: ParsedPrompt = { promptId: null, created: null, status: null, governingIssue: null, deliverables: [], errors: [] };
+  const out: ParsedPrompt = { promptId: null, created: null, status: null, governingIssue: null, deliverables: [], outputs: null, errors: [] };
   const { source } = splitFrontMatter(text);
   if (source === null) {
     out.errors.push("no front matter block");
@@ -136,7 +159,10 @@ export function parsePrompt(text: string): ParsedPrompt {
     if (out.created === null) out.errors.push(`created "${String(created)}" is not a YYYY-MM-DD date`);
   }
   const issue = data["governing_issue"];
-  if (issue !== undefined && issue !== null) {
+  if (issue === "none") {
+    const reason = data["governing_issue_reason"];
+    if (typeof reason !== "string" || reason.trim() === "") out.errors.push("governing_issue none needs a governing_issue_reason");
+  } else if (issue !== undefined && issue !== null) {
     const n = typeof issue === "string" && /^[1-9]\d*$/.test(issue) ? Number(issue) : issue;
     if (typeof n === "number" && Number.isSafeInteger(n) && n > 0) out.governingIssue = n;
     else out.errors.push(`governing_issue "${String(issue)}" is not a positive integer`);
@@ -146,7 +172,69 @@ export function parsePrompt(text: string): ParsedPrompt {
     if (Array.isArray(list) && list.every((x): x is string => typeof x === "string")) out.deliverables = list;
     else out.errors.push("deliverables is not a list of strings");
   }
+  if (Object.hasOwn(data, "outputs")) {
+    const raw = data["outputs"];
+    if (!Array.isArray(raw) || raw.length === 0) {
+      out.errors.push("outputs must be a non-empty list");
+      out.outputs = [];
+    } else {
+      if (out.promptId === null && !out.errors.some((e) => e.startsWith("prompt_id"))) out.errors.push("prompt_id is required when outputs are declared");
+      out.outputs = raw.map((entry, i) => validateOutput(entry, i));
+      for (const [i, o] of out.outputs.entries()) if (o.error !== null) out.errors.push(`outputs[${i}]: ${o.error}`);
+    }
+  }
   return out;
+}
+
+const REPO_NAME = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+
+function pathProblem(path: string, kind: OutputKind | null): string | null {
+  if (path === "") return "path is missing";
+  if (/[\u0000-\u001f]/.test(path) || path !== path.trim()) return "path has control or edge whitespace";
+  if (path.startsWith("/") || path.startsWith("~") || /^[A-Za-z]:/.test(path) || path.includes("\\") || path.includes("://")) return "path is not repo-relative";
+  if (/[*?[\]{}<>$]/.test(path)) return "path has a glob or placeholder character";
+  const segments = path.endsWith("/") ? path.slice(0, -1).split("/") : path.split("/");
+  if (segments.includes("..")) return "path contains ..";
+  if (segments.includes(".")) return "path contains a . segment";
+  if (segments.includes("")) return "path has an empty segment";
+  if (kind === "dir" && !path.endsWith("/")) return "a dir path must end with /";
+  if (kind === "file" && path.endsWith("/")) return "a file path must not end with /";
+  return null;
+}
+
+// One `outputs` entry against the schema rules shared with the create-prompt linter.
+export function validateOutput(entry: unknown, index: number): DeclaredOutput {
+  if (!isRecord(entry)) return { repo: "", path: "", kind: null, error: `entry ${index} is not a mapping` };
+  const str = (k: string): string => {
+    const v = entry[k];
+    return typeof v === "string" ? v : "";
+  };
+  const repo = str("repo");
+  const path = str("path");
+  const rawKind = str("kind");
+  const kind: OutputKind | null = rawKind === "file" || rawKind === "dir" ? rawKind : null;
+  const problems: string[] = [];
+  if (!REPO_NAME.test(repo)) problems.push("repo must be owner/name");
+  if (kind === null) problems.push("kind must be file or dir");
+  const p = pathProblem(path, kind);
+  if (p !== null) problems.push(p);
+  return { repo, path, kind, error: problems.length === 0 ? null : problems.join("; ") };
+}
+
+// owner/name from a git remote URL, or null. Only three anchored forms are understood:
+// https://<host>/<owner>/<name>(.git), git@<host>:<owner>/<name>(.git), ssh://git@<host>/<owner>/<name>(.git).
+// A local path, a file:// URL or a short URL derives nothing, so declared outputs then need --repo.
+const REMOTE_FORMS = [
+  /^https:\/\/[A-Za-z0-9.-]+\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/,
+  /^git@[A-Za-z0-9.-]+:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/,
+  /^ssh:\/\/git@[A-Za-z0-9.-]+\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/,
+];
+export function parseRemoteRepo(url: string): string | null {
+  for (const form of REMOTE_FORMS) {
+    const m = form.exec(url.trim());
+    if (m !== null) return `${m[1]}/${m[2]}`;
+  }
+  return null;
 }
 
 // Task-list checkboxes under the first "Definition of done" heading, until the next heading of the
@@ -262,13 +350,24 @@ export function flagsFor(status: string | null, evidence: number, touched: numbe
   return [];
 }
 
-export type TableRow = { stem: string; status: string | null; touched: number; checkable: number; missing: number; evidence: number; flags: Flag[] };
+export type TableRow = { stem: string; status: string | null; touched: number; checkable: number; missing: number; evidence: number; out: string; flags: Flag[] };
 
 export function renderTable(rows: TableRow[]): string {
   const cell = (s: string, w: number) => (s.length > w ? `${s.slice(0, w - 3)}...` : s.padEnd(w));
-  const line = (stem: string, status: string, touched: string, missing: string, evid: string, flags: string) => `${cell(stem, 32)} ${cell(status, 13)} ${cell(touched, 7)} ${cell(missing, 7)} ${cell(evid, 4)} ${flags}`.trimEnd();
-  return [line("prompt", "status", "touched", "missing", "evid", "flags"), ...rows.map((r) => line(r.stem, r.status ?? "(none)", `${r.touched}/${r.checkable}`, String(r.missing), String(r.evidence), r.flags.join(",")))].join("\n");
+  // The out column fits its widest cell (min 3); the stem column gives up the difference beyond 5
+  // so the longest row (both INVALID flags, 29 characters) stays under 100 characters.
+  const outWidth = Math.max(3, ...rows.map((r) => r.out.length));
+  const stemWidth = Math.min(28, 33 - outWidth);
+  const line = (stem: string, status: string, touched: string, missing: string, evid: string, out: string, flags: string) => `${cell(stem, stemWidth)} ${cell(status, 13)} ${cell(touched, 7)} ${cell(missing, 7)} ${cell(evid, 4)} ${cell(out, outWidth)} ${flags}`.trimEnd();
+  // A prompt with declared outputs has no touched/missing figures: those columns are legacy-only.
+  return [
+    line("prompt", "status", "touched", "missing", "evid", "out", "flags"),
+    ...rows.map((r) => (r.out === "-" ? line(r.stem, r.status ?? "(none)", `${r.touched}/${r.checkable}`, String(r.missing), String(r.evidence), r.out, r.flags.join(",")) : line(r.stem, r.status ?? "(none)", "-", "-", String(r.evidence), r.out, r.flags.join(",")))),
+  ].join("\n");
 }
+
+export type OutputOutcome = "DELIVERED" | "NOT-DELIVERED" | "OTHER-REPO" | "INVALID-HEADER";
+export type OutputResult = { repo: string; path: string; kind: string; result: OutputOutcome; commits: string[]; sharedWith: string[] };
 
 export type PathResult = { path: string; state: PathState };
 export type DeliverableResult = { text: string; paths: PathResult[]; unresolved: string[]; unchecked: boolean };
@@ -282,6 +381,7 @@ export type PromptResult = {
   issue: IssueState;
   errors: string[];
   deliverables: DeliverableResult[];
+  outputs: OutputResult[] | null;
   pathsTouched: number;
   pathsUntouched: number;
   pathsMissing: number;
@@ -303,6 +403,7 @@ function must(git: Git, args: string[]): string {
 }
 
 const literal = (p: string): string => `:(literal)${p}`;
+const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const sinceFilter = (created: string): string => `--since-as-filter=${created}T00:00:00Z`;
 
 export type Tree = { files: Set<string> };
@@ -331,16 +432,61 @@ export function classifyPath(path: string, tree: Tree, git: Git, ref: string, cr
     return r.code === 0 ? "IGNORED" : r.code === 1 ? "MISSING" : "UNKNOWN";
   }
   // --full-history: without it a path added and deleted on a merged branch is simplified away.
-  const out = must(git, ["log", ref, sinceFilter(created), "--full-history", "--format=%h", "--", literal(bare)]);
+  const out = must(git, ["log", ref, "--no-show-signature", sinceFilter(created), "--full-history", "--format=%h", "--", literal(bare)]);
   return out.trim() === "" ? "UNTOUCHED" : "TOUCHED";
 }
 
-export function auditPrompt(file: string, text: string, tree: Tree, git: Git, ref: string, lookup: IssueLookup | null): PromptResult {
+// Full SHAs of commits on `ref`, after `created`, that carry the line `Prompt-Id: <id>` (key case and
+// spacing are flexible, the id is exact) and touch the output. Merge commits never deliver: their diff
+// credits whatever the other side brought in, and the branch's own commits still count (--full-history).
+// The pathspec query is a prefilter; each candidate's own changed paths, deletions excluded and renames
+// not detected (a rename is a delete of the old path plus an add of the new), must then match the kind:
+// file = exactly the path, dir = anything under it. A deletion is therefore not delivery of what it removes.
+export function deliveringCommits(git: Git, ref: string, created: string, promptId: string, path: string, kind: OutputKind = path.endsWith("/") ? "dir" : "file"): string[] {
+  const bare = path.replace(/\/+$/, "");
+  const out = must(git, ["log", ref, "--no-show-signature", sinceFilter(created), "--full-history", "--no-merges", "-E", `--grep=^[Pp][Rr][Oo][Mm][Pp][Tt]-[Ii][Dd]:[ \t]*${escapeRegex(promptId)}[ \t]*\r?$`, "--format=%H", "--", literal(bare)]);
+  const dirPrefix = `${bare}/`;
+  return out
+    .split("\n")
+    .filter((h) => h !== "")
+    .filter((sha) => {
+      const changed = must(git, ["diff-tree", "--root", "--no-commit-id", "--name-only", "--no-renames", "--diff-filter=d", "-r", "-z", sha]).split("\0");
+      return changed.some((p) => (kind === "file" ? p === bare : p.startsWith(dirPrefix)));
+    });
+}
+
+// Other prompt ids named by `Prompt-Id:` lines on the given commits (one squash can deliver several prompts).
+export function sharedPromptIds(git: Git, shas: string[], promptId: string): string[] {
+  const ids: string[] = [];
+  for (const sha of shas) {
+    for (const line of must(git, ["log", "-1", "--no-show-signature", "--format=%B", sha]).split("\n")) {
+      const m = /^prompt-id:[ \t]*(.*?)[ \t]*\r?$/i.exec(line);
+      const id = m?.[1];
+      if (id !== undefined && id !== "" && id !== promptId && !ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function auditOutputs(declared: DeclaredOutput[], parsed: ParsedPrompt, git: Git, ref: string, repo: string | null): OutputResult[] {
+  return declared.map((o): OutputResult => {
+    const base = { repo: o.repo, path: o.path, kind: o.kind ?? "" };
+    if (o.error !== null || parsed.created === null || parsed.promptId === null) return { ...base, result: "INVALID-HEADER", commits: [], sharedWith: [] };
+    if (repo === null) throw new Error("cannot derive owner/name from `git remote get-url origin`; pass --repo owner/name");
+    if (o.repo.toLowerCase() !== repo.toLowerCase()) return { ...base, result: "OTHER-REPO", commits: [], sharedWith: [] };
+    const commits = deliveringCommits(git, ref, parsed.created, parsed.promptId, o.path, o.kind ?? "file");
+    return { ...base, result: commits.length > 0 ? "DELIVERED" : "NOT-DELIVERED", commits, sharedWith: sharedPromptIds(git, commits, parsed.promptId) };
+  });
+}
+
+export function auditPrompt(file: string, text: string, tree: Tree, git: Git, ref: string, lookup: IssueLookup | null, repo: string | null = null): PromptResult {
   const stem = basename(file).replace(/\.prompt\.md$/, "").replace(/\.md$/, "");
   const parsed = parsePrompt(text);
   // null when absent or invalid: nothing can be dated, so nothing is classified or queried.
   const created = parsed.created;
-  const deliverables: DeliverableResult[] = parsed.deliverables.map((d) => {
+  const outputs = parsed.outputs === null ? null : auditOutputs(parsed.outputs, parsed, git, ref, repo);
+  // Declared outputs replace the prose extraction: a prompt with `outputs:` never reaches the path heuristics.
+  const deliverables: DeliverableResult[] = (outputs === null ? parsed.deliverables : []).map((d) => {
     const c = extractCandidates(d);
     if (created === null) return { text: d, paths: [], unresolved: [...c.paths, ...c.unresolved], unchecked: true };
     const paths: PathResult[] = [];
@@ -358,15 +504,16 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   const pathsUntouched = all.filter((p) => p.state === "UNTOUCHED").length;
   const pathsMissing = all.filter((p) => p.state === "MISSING").length;
   const commits = new Set<string>();
-  if (created !== null) {
+  if (outputs !== null) for (const o of outputs) for (const h of o.commits) commits.add(h);
+  if (created !== null && outputs === null) {
     const since = sinceFilter(created);
     // MISSING paths are queried too: a file added after `created` and since deleted or renamed has
     // history on the ref even though it is gone from the tree. The path keeps its MISSING state.
     const repoPaths = all.filter((p) => p.state === "TOUCHED" || p.state === "MISSING").map((p) => literal(p.path.replace(/\/+$/, "")));
-    if (repoPaths.length > 0) for (const h of must(git, ["log", ref, since, "--full-history", "--format=%h", "--", ...repoPaths]).split("\n")) if (h !== "") commits.add(h);
+    if (repoPaths.length > 0) for (const h of must(git, ["log", ref, "--no-show-signature", since, "--full-history", "--format=%h", "--", ...repoPaths]).split("\n")) if (h !== "") commits.add(h);
     const needles = [parsed.promptId, stem].filter((n): n is string => n !== null && n !== "" && !/[\r\n]/.test(n));
     // With no needle the query would be an unfiltered `git log`: skip it.
-    if (needles.length > 0) for (const h of must(git, ["log", ref, since, "--fixed-strings", ...needles.map((n) => `--grep=${n}`), "--format=%h"]).split("\n")) if (h !== "") commits.add(h);
+    if (needles.length > 0) for (const h of must(git, ["log", ref, "--no-show-signature", since, "--fixed-strings", ...needles.map((n) => `--grep=${n}`), "--format=%h"]).split("\n")) if (h !== "") commits.add(h);
   }
   let issue: IssueState = "none";
   if (parsed.governingIssue !== null) issue = lookup === null ? "unknown" : lookup(parsed.governingIssue);
@@ -382,6 +529,7 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
     issue,
     errors: parsed.errors,
     deliverables,
+    outputs,
     pathsTouched,
     pathsUntouched,
     pathsMissing,
@@ -392,11 +540,37 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   };
 }
 
+// delivered/declared, OTHER-REPO outputs not counted; `-` for a legacy prompt.
+function outCell(r: PromptResult): string {
+  if (r.outputs === null) return "-";
+  const counted = r.outputs.filter((o) => o.result !== "OTHER-REPO");
+  return `${counted.filter((o) => o.result === "DELIVERED").length}/${counted.length}`;
+}
+
 export function renderReport(results: PromptResult[], refLine: string | null = null): string {
   const table = renderTable(
-    results.map((r) => ({ stem: r.stem, status: r.status, touched: r.pathsTouched, checkable: r.pathsTouched + r.pathsUntouched + r.pathsMissing, missing: r.pathsMissing, evidence: r.evidenceCommits.length, flags: r.flags })),
+    results.map((r) => ({ stem: r.stem, status: r.status, touched: r.pathsTouched, checkable: r.pathsTouched + r.pathsUntouched + r.pathsMissing, missing: r.pathsMissing, evidence: r.evidenceCommits.length, out: outCell(r), flags: r.flags })),
   );
   const bullets = results.map((r) => {
+    if (r.outputs !== null) {
+      const declaredOutputs = r.outputs;
+      const names = (result: OutputOutcome): string => {
+        const found = declaredOutputs.filter((o) => o.result === result).map((o) => (o.path === "" ? "(no path)" : o.path));
+        return found.length === 0 ? "none" : found.join(", ");
+      };
+      const declared = [
+        `issue: ${r.governingIssue === null ? "none" : `#${r.governingIssue} ${r.issue}`}`,
+        `DoD: ${r.dod.checked} checked, ${r.dod.unchecked} unchecked (unverified)`,
+        `NOT-DELIVERED: ${names("NOT-DELIVERED")}`,
+      ];
+      const other = declaredOutputs.filter((o) => o.result === "OTHER-REPO");
+      if (other.length > 0) declared.push(`OTHER-REPO: ${other.map((o) => `${o.repo}:${o.path}`).join(", ")}`);
+      const shared = declaredOutputs.filter((o) => o.sharedWith.length > 0);
+      if (shared.length > 0) declared.push(`shared: ${shared.map((o) => `${o.path} with ${o.sharedWith.join(", ")}`).join("; ")}`);
+      if (declaredOutputs.some((o) => o.result === "INVALID-HEADER")) declared.push(`INVALID: ${names("INVALID-HEADER")}`);
+      if (r.errors.length > 0) declared.push(`ERRORS: ${r.errors.join("; ")}`);
+      return `- ${r.stem}: ${declared.join(" | ")}`;
+    }
     const paths = r.deliverables.flatMap((d) => d.paths);
     const list = (state: PathState): string => {
       const found = paths.filter((p) => p.state === state).map((p) => p.path);
@@ -419,24 +593,26 @@ export function renderReport(results: PromptResult[], refLine: string | null = n
   return `${refLine === null ? "" : `${refLine}\n`}${table}\n\n${bullets.join("\n")}`;
 }
 
-export type Options = { dir: string; ref: string; json: boolean; strict: boolean; noGh: boolean; help: boolean };
+export type Options = { dir: string; ref: string; repo: string | null; json: boolean; strict: boolean; noGh: boolean; help: boolean };
 export type ParsedArgs = { ok: true; options: Options } | { ok: false; error: string };
 
-export const USAGE = "Usage: bun scripts/prompt-audit.ts [--dir <path>] [--ref <ref>] [--json] [--strict] [--no-gh] [--help]";
+export const USAGE = "Usage: bun scripts/prompt-audit.ts [--dir <path>] [--ref <ref>] [--repo <owner/name>] [--json] [--strict] [--no-gh] [--help]";
 
 export function parseArgs(args: string[]): ParsedArgs {
-  const options: Options = { dir: "docs/prompts", ref: "origin/main", json: false, strict: false, noGh: false, help: false };
+  const options: Options = { dir: "docs/prompts", ref: "origin/main", repo: null, json: false, strict: false, noGh: false, help: false };
   for (let i = 0; i < args.length; i++) {
     const a = args[i] ?? "";
     if (a === "--json") options.json = true;
     else if (a === "--strict") options.strict = true;
     else if (a === "--no-gh") options.noGh = true;
     else if (a === "--help" || a === "-h") options.help = true;
-    else if (a === "--dir" || a === "--ref") {
+    else if (a === "--dir" || a === "--ref" || a === "--repo") {
       const v = args[i + 1];
       if (v === undefined || v.startsWith("--")) return { ok: false, error: `missing value for ${a}` };
       if (a === "--dir") options.dir = v;
-      else options.ref = v;
+      else if (a === "--ref") options.ref = v;
+      else if (REPO_NAME.test(v)) options.repo = v;
+      else return { ok: false, error: `--repo must be owner/name, got ${v}` };
       i += 1;
     } else return { ok: false, error: a.startsWith("-") ? `unknown option ${a}` : `unexpected argument ${a}` };
   }
@@ -482,7 +658,9 @@ function run(o: Options): number {
   const sha = must(git, ["rev-parse", "--verify", `${o.ref}^{commit}`]).trim();
   const tree = buildTree(must(git, ["ls-tree", "-r", "-z", "--name-only", sha]));
   const lookup = o.noGh ? null : realIssueLookup;
-  const results = files.map((f) => auditPrompt(join(o.dir, f), readFileSync(join(o.dir, f), "utf8"), tree, git, sha, lookup));
+  const remote = git(["remote", "get-url", "origin"]);
+  const repo = o.repo ?? (remote.code === 0 ? parseRemoteRepo(remote.out) : null);
+  const results = files.map((f) => auditPrompt(join(o.dir, f), readFileSync(join(o.dir, f), "utf8"), tree, git, sha, lookup, repo));
   console.log(o.json ? JSON.stringify(results, null, 2) : renderReport(results, `ref: ${o.ref} @ ${sha.slice(0, 12)}`));
   return o.strict && results.some((r) => r.flags.length > 0) ? 1 : 0;
 }

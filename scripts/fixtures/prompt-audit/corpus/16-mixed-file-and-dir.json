@@ -1,0 +1,51 @@
+{
+  "name": "16-mixed-file-and-dir",
+  "why": "one prompt, a delivered file, an untouched dir with a trailer elsewhere, and a delivered dir",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "docs/untouched/",
+        "kind": "dir"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "docs/new/",
+        "kind": "dir"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "docs/untouched/readme.md": "u\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a and new doc\n\nPrompt-Id: p1",
+        "files": {
+          "scripts/a.ts": "a\n",
+          "docs/new/n.md": "n\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/a.ts": "DELIVERED",
+    "acme/corpus docs/untouched/": "NOT-DELIVERED",
+    "acme/corpus docs/new/": "DELIVERED"
+  }
+}

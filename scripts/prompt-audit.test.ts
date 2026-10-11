@@ -400,10 +400,10 @@ describe("flagsFor", () => {
 });
 
 describe("renderTable", () => {
-  const row = { stem: "x".repeat(80), status: "ready-not-run", touched: 1, checkable: 2, missing: 1, evidence: 3, flags: ["STALE-STATUS" as const] };
-  test("[unit] V1 columns are prompt, status, touched, missing, evid, flags and there is no verdict column", () => {
+  const row = { stem: "x".repeat(80), status: "ready-not-run", touched: 1, checkable: 2, missing: 1, evidence: 3, out: "-", flags: ["STALE-STATUS" as const] };
+  test("[unit] V1 columns are prompt, status, touched, missing, evid, out, flags and there is no verdict column", () => {
     const [head = "", line = ""] = renderTable([row]).split("\n");
-    expect(head.split(/\s+/)).toEqual(["prompt", "status", "touched", "missing", "evid", "flags"]);
+    expect(head.split(/\s+/)).toEqual(["prompt", "status", "touched", "missing", "evid", "out", "flags"]);
     expect(line).toContain("1/2");
     expect(line).toContain("STALE-STATUS");
   });
@@ -686,11 +686,11 @@ describe("auditPrompt", () => {
 describe("parseArgs", () => {
   test("[unit] defaults", () => {
     const r = parseArgs([]);
-    expect(r).toEqual({ ok: true, options: { dir: "docs/prompts", ref: "origin/main", json: false, strict: false, noGh: false, help: false } });
+    expect(r).toEqual({ ok: true, options: { dir: "docs/prompts", ref: "origin/main", repo: null, json: false, strict: false, noGh: false, help: false } });
   });
   test("[unit] F16 accepts every documented option", () => {
     const r = parseArgs(["--dir", "d", "--ref", "r", "--json", "--strict", "--no-gh"]);
-    expect(r).toEqual({ ok: true, options: { dir: "d", ref: "r", json: true, strict: true, noGh: true, help: false } });
+    expect(r).toEqual({ ok: true, options: { dir: "d", ref: "r", repo: null, json: true, strict: true, noGh: true, help: false } });
   });
   test("[unit] F16 an unknown option is an error", () => {
     const r = parseArgs(["--bogus"]);

@@ -1,0 +1,47 @@
+{
+  "name": "10-file-later-deleted",
+  "why": "history, not the tree: the delivering commit still counts after the file is deleted",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a\n\nPrompt-Id: p1",
+        "files": {
+          "scripts/a.ts": "a\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-07T12:00:00Z",
+        "message": "chore: drop a",
+        "files": {
+          "scripts/a.ts": null
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/a.ts": "DELIVERED"
+  }
+}

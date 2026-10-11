@@ -1,0 +1,43 @@
+{
+  "name": "23-two-prompts-one-commit",
+  "why": "M1-H3: one squash commit carrying two prompts' trailers delivers for both; sharedWith names the other",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a (#9)\n\nPrompt-Id: p1\nPrompt-Id: p2\nClaude-Session: s\n",
+        "files": {
+          "scripts/a.ts": "a\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/a.ts": "DELIVERED"
+  },
+  "expectedShared": {
+    "acme/corpus scripts/a.ts": [
+      "p2"
+    ]
+  }
+}

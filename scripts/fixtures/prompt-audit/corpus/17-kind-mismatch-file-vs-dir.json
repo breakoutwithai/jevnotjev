@@ -1,0 +1,65 @@
+{
+  "name": "17-kind-mismatch-file-vs-dir",
+  "why": "M1-F1: a tagged change to the file `plain` does not deliver dir `plain/`, and a change to `folder/child` does not deliver file `folder`",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "plain/",
+        "kind": "dir"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "folder",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "plain",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "folder/",
+        "kind": "dir"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: plain file\n\nPrompt-Id: p1",
+        "files": {
+          "plain": "p\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: folder child\n\nPrompt-Id: p1",
+        "files": {
+          "folder/child": "c\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus plain/": "NOT-DELIVERED",
+    "acme/corpus folder": "NOT-DELIVERED",
+    "acme/corpus plain": "DELIVERED",
+    "acme/corpus folder/": "DELIVERED"
+  }
+}

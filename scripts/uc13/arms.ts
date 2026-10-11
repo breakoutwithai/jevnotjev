@@ -109,18 +109,20 @@ export interface RunSpec {
   readonly fixturePath: string;
 }
 
-export const RUN_SPECS: Readonly<Record<string, RunSpec>> = {
-  "2026-10-01": {
+export const RUN_2026_10_01: RunSpec = {
     id: "2026-10-01", runId: RUN_ID, caseFiles: ["cases.jsonl"], caseIds: CASE_IDS,
     outDir: "2026-10-01-uc13-shop-bot", fixturePath: "fixtures/uc13.jev.json",
-  },
-  "2026-10-11": {
+};
+export const RUN_2026_10_11: RunSpec = {
     id: "2026-10-11", runId: "run-shopbot-2026-10-11", caseFiles: ["cases.jsonl", "cases-m41-m100.jsonl"],
     caseIds: Array.from({ length: 100 }, (_, i) => `m${String(i + 1).padStart(2, "0")}`),
     outDir: "2026-10-11-uc13-shop-bot-100", fixturePath: "fixtures/uc13-2026-10-11.jev.json",
-  },
 };
-export const DEFAULT_RUN = RUN_SPECS["2026-10-01"]!;
+export const RUN_SPECS: Readonly<Record<string, RunSpec>> = {
+  [RUN_2026_10_01.id]: RUN_2026_10_01,
+  [RUN_2026_10_11.id]: RUN_2026_10_11,
+};
+export const DEFAULT_RUN = RUN_2026_10_01;
 
 /** Throws unless the cases are exactly m01 to m40, in order, each with a non-blank message. */
 export function assertCases(cases: readonly Case[], spec: RunSpec = DEFAULT_RUN): void {

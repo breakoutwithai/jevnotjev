@@ -3,20 +3,18 @@ import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_RUN, RUN_SPECS, applyLabels, formatRecords, parseRecords, parseTruth } from "./arms.ts";
+import { DEFAULT_RUN, RUN_2026_10_11, RUN_SPECS, applyLabels, formatRecords, loadExample, parseRecords, parseTruth, type RunSpec } from "./arms.ts";
 import { defaultPaths, main, parseArgs, pool, RECORDED_RUNS, renderPage, spawnJson, type Paths } from "./run-arms.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
-const RUN = fileURLToPath(new URL("../../docs/product/runs/2026-10-01-uc13-shop-bot/", import.meta.url));
-const FIXTURE = join(EXAMPLE, "fixtures/uc13.jev.json");
-
 /** A copy of the recorded run in a temp dir; the example and fixture are read in place, never written. */
-async function withRun(fn: (paths: Paths) => Promise<void>): Promise<void> {
+async function withRun(fn: (paths: Paths) => Promise<void>, spec: RunSpec = DEFAULT_RUN): Promise<void> {
   const out = await mkdtemp(join(tmpdir(), "uc13-run-"));
   try {
-    await copyFile(join(RUN, "records.csv"), join(out, "records.csv"));
-    await copyFile(join(RUN, "raw.json"), join(out, "raw.json"));
-    await fn({ example: EXAMPLE, out, fixture: FIXTURE, jevCall: join(out, "no-such-jev-call") });
+    const recorded = defaultPaths(spec);
+    await copyFile(join(recorded.out, "records.csv"), join(out, "records.csv"));
+    await copyFile(join(recorded.out, "raw.json"), join(out, "raw.json"));
+    await fn({ ...recorded, out, jevCall: join(out, "no-such-jev-call") });
   } finally {
     await rm(out, { recursive: true, force: true });
   }
@@ -102,10 +100,38 @@ describe("run-arms commands", () => {
     for (const spec of RECORDED_RUNS) {
       await withRun(async (paths) => {
         await main(["replay", "--run", spec.id], paths);
-        expect(await read(join(paths.out, "records.csv"))).toBe(await read(join(RUN, "records.csv")));
-        expect(await read(join(paths.out, "raw.json"))).toBe(await read(join(RUN, "raw.json")));
-      });
+        expect(await read(join(paths.out, "records.csv"))).toBe(await read(join(defaultPaths(spec).out, "records.csv")));
+        expect(await read(join(paths.out, "raw.json"))).toBe(await read(join(defaultPaths(spec).out, "raw.json")));
+      }, spec);
     }
+  });
+
+  test("[unit] UC13-F2 flipping one 2026-10-11 Jev choice breaks the recorded replay comparison", async () => {
+    await withRun(async (paths) => {
+      const fixture: unknown = JSON.parse(await read(paths.fixture));
+      if (typeof fixture !== "object" || fixture === null || !("entries" in fixture) || !Array.isArray(fixture.entries)) {
+        throw new Error("fixture has no entries");
+      }
+      const first: unknown = fixture.entries[0];
+      if (typeof first !== "object" || first === null || !("response" in first)) throw new Error("fixture has no first response");
+      const response = first.response;
+      if (typeof response !== "object" || response === null || !("answers" in response)) throw new Error("fixture has no first answers");
+      const answers = response.answers;
+      if (typeof answers !== "object" || answers === null || !("q1" in answers)) throw new Error("fixture has no first q1");
+      const q1 = answers.q1;
+      if (typeof q1 !== "object" || q1 === null || !("choice" in q1)) throw new Error("fixture has no first Jev choice");
+      const choice = q1.choice;
+      if (choice !== "answer" && choice !== "hand_off") throw new Error("fixture has invalid first Jev choice");
+      const changed = { ...fixture, entries: fixture.entries.map((entry: unknown, i: number) => i === 0 ? {
+        ...first, response: { ...response, answers: { ...answers,
+          q1: { ...q1, choice: choice === "answer" ? "hand_off" : "answer",
+            probabilities: { answer: choice === "answer" ? 0 : 1, hand_off: choice === "answer" ? 1 : 0 } } } },
+      } : entry) };
+      const fixturePath = join(paths.out, "flipped.jev.json");
+      await writeFile(fixturePath, JSON.stringify(changed));
+      await main(["replay", "--run", RUN_2026_10_11.id], { ...paths, fixture: fixturePath });
+      expect(await read(join(paths.out, "records.csv"))).not.toBe(await read(join(defaultPaths(RUN_2026_10_11).out, "records.csv")));
+    }, RUN_2026_10_11);
   });
 
   test("[unit] UC13-F8 run --arm jev refuses kept LLM results without a matching inputs fingerprint", async () => {
@@ -132,9 +158,17 @@ describe("run-arms commands", () => {
 });
 
 describe("argument parsing", () => {
+  test("[unit] UC13 named run specs are the registry entries and both ids appear in usage", () => {
+    expect(Object.keys(RUN_SPECS)).toEqual([DEFAULT_RUN.id, RUN_2026_10_11.id]);
+    expect(RUN_SPECS[DEFAULT_RUN.id]).toBe(DEFAULT_RUN);
+    expect(RUN_SPECS[RUN_2026_10_11.id]).toBe(RUN_2026_10_11);
+    expect(() => parseArgs(["run", "--run", "unknown"])).toThrow(/2026-10-01 or 2026-10-11/);
+    expect(() => parseArgs([])).toThrow(/--run <id> \(2026-10-01, 2026-10-11\)/);
+  });
+
   test("[unit] UC13 run paths select the matching output folder and fixture", () => {
     const oldPaths = defaultPaths();
-    const newPaths = defaultPaths(RUN_SPECS["2026-10-11"]);
+    const newPaths = defaultPaths(RUN_2026_10_11);
     expect(oldPaths.out).toEndWith("/docs/product/runs/2026-10-01-uc13-shop-bot/");
     expect(oldPaths.fixture).toEndWith("/examples/uc13-shop-bot/fixtures/uc13.jev.json");
     expect(newPaths.out).toEndWith("/docs/product/runs/2026-10-11-uc13-shop-bot-100/");
@@ -222,11 +256,31 @@ describe("labelling page", () => {
   });
 
   test("[unit] UC13-F23 the generated page holds the answer vocabulary but no arm output or model", async () => {
-    const html = await read(join(RUN, "label.html"));
+    const html = await read(join(defaultPaths(DEFAULT_RUN).out, "label.html"));
     expect(html).toContain("hand_off");
     for (const leak of ["jev-1.13.0", "claude-haiku", "keywords.v1", "probabilities", "confidence", "answerer"]) {
       expect(html).not.toContain(leak);
     }
+  });
+
+  test("[unit] UC13 page rendering reproduces the committed 40-case label.html from its historical template byte for byte", async () => {
+    const committed = await read(join(defaultPaths(DEFAULT_RUN).out, "label.html"));
+    const { factSheet, cases } = await loadExample(EXAMPLE, DEFAULT_RUN);
+    const historicalTemplate = committed
+      .replace("40 customer messages.", "__CASE_COUNT__ customer messages.")
+      .replace(`const SHEET = ${JSON.stringify(factSheet)};`, "const SHEET = __SHEET__;")
+      .replace(`const CASES = ${JSON.stringify(cases)};`, "const CASES = __CASES__;");
+    expect(historicalTemplate).toContain("const SHEET = __SHEET__;");
+    expect(historicalTemplate).toContain("const CASES = __CASES__;");
+    expect(renderPage(historicalTemplate, factSheet, cases)).toBe(committed);
+  });
+
+  test("[unit] UC13 page rendering says 100 customer messages for the 2026-10-11 run", async () => {
+    const template = await read(join(EXAMPLE, "label.template.html"));
+    const { factSheet, cases } = await loadExample(EXAMPLE, RUN_2026_10_11);
+    const html = renderPage(template, factSheet, cases);
+    expect(html).toContain("100 customer messages.");
+    expect(html).not.toContain("40 customer messages.");
   });
 
   test("[unit] UC13-F18 shortcuts ignore modifiers, key repeat, composition and editable targets", async () => {

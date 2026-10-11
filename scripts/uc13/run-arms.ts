@@ -19,7 +19,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  CRITERIA, DEFAULT_RUN, PROMPT_VERSION, QUESTION, RUN_SPECS, applyLabels, armRecord, formatRecords, jevBody, loadExample, isLabelSource,
+  CRITERIA, DEFAULT_RUN, PROMPT_VERSION, QUESTION, RUN_SPECS, RUN_2026_10_11, applyLabels, armRecord, formatRecords, jevBody, loadExample, isLabelSource,
   parseJevResponse, parseLlmResponse, parseRecords, parseTruth, provenanceByCase, ruleRecord, truthFromRows, type Answer,
   type ArmReply, type Case, type LabelProvenance, type RecordRow, type RunSpec,
 } from "./arms.ts";
@@ -31,7 +31,7 @@ const CONCURRENCY = 4;
 /** A call that has not answered by now is killed; the slowest recorded LLM call took under 10 s. */
 const CALL_DEADLINE_MS = 120_000;
 const USAGE =
-  "usage: bun scripts/uc13/run-arms.ts run [--dry | --arm jev] | replay | page | " +
+  `usage: bun scripts/uc13/run-arms.ts [--run <id> (${Object.keys(RUN_SPECS).join(", ")})] run [--dry | --arm jev] | replay | page | ` +
   "label --source <human|human_reviewed|agent> --by <handle> --at <YYYY-MM-DD or UTC time> --blind <true|false>";
 
 export interface Paths {
@@ -67,7 +67,7 @@ function isCommand(value: string | undefined): value is Command {
 }
 
 const LABEL_FLAGS = ["--source", "--by", "--at", "--blind"];
-export const RECORDED_RUNS: readonly RunSpec[] = [DEFAULT_RUN];
+export const RECORDED_RUNS: readonly RunSpec[] = [DEFAULT_RUN, RUN_2026_10_11];
 
 /** label --source <human|human_reviewed|agent> --by <handle> --at <time> --blind <true|false>, each exactly once. */
 function labelProvenance(flags: readonly string[]): LabelProvenance {
@@ -105,8 +105,9 @@ export function parseArgs(argv: readonly string[]): Args {
     if (seenRun) throw new Error("repeated --run");
     if (rest.at(-1) === "--arm" || LABEL_FLAGS.includes(rest.at(-1) ?? "")) throw new Error("--run cannot be a flag value");
     const id = flags[++i];
-    if (id !== "2026-10-01" && id !== "2026-10-11") throw new Error(`--run takes 2026-10-01 or 2026-10-11, got ${id ?? "nothing"}`);
-    spec = RUN_SPECS[id] ?? DEFAULT_RUN;
+    const selected = id === undefined ? undefined : RUN_SPECS[id];
+    if (selected === undefined) throw new Error(`--run takes ${Object.keys(RUN_SPECS).join(" or ")}, got ${id ?? "nothing"}`);
+    spec = selected;
     seenRun = true;
   }
   const commandFlags = rest;
@@ -345,8 +346,8 @@ function scriptJson(value: unknown): string {
 
 /** Fill the template's markers in one pass with a callback, so `$&` in the data and marker text in it stay literal. */
 export function renderPage(template: string, factSheet: string, cases: readonly Case[]): string {
-  const values: Readonly<Record<string, string>> = { __SHEET__: scriptJson(factSheet), __CASES__: scriptJson(cases) };
-  return template.replace(/__SHEET__|__CASES__/g, (marker) => values[marker] ?? marker);
+  const values: Readonly<Record<string, string>> = { __SHEET__: scriptJson(factSheet), __CASES__: scriptJson(cases), __CASE_COUNT__: String(cases.length) };
+  return template.replace(/__SHEET__|__CASES__|__CASE_COUNT__/g, (marker) => values[marker] ?? marker);
 }
 
 async function page(paths: Paths, spec: RunSpec): Promise<void> {

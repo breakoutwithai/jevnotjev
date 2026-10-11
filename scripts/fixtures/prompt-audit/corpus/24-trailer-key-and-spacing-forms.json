@@ -1,0 +1,83 @@
+{
+  "name": "24-trailer-key-and-spacing-forms",
+  "why": "M1-H4: lowercase key, no space after the colon and trailing spaces all count; a longer id (p1x) does not",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/b.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/c.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/d.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a\n\nprompt-id: p1",
+        "files": {
+          "scripts/a.ts": "a\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: b\n\nPrompt-Id:p1",
+        "files": {
+          "scripts/b.ts": "b\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: c\n\nPrompt-Id: p1   \n",
+        "files": {
+          "scripts/c.ts": "c\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: d\n\nPrompt-Id: p1x",
+        "files": {
+          "scripts/d.ts": "d\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/a.ts": "DELIVERED",
+    "acme/corpus scripts/b.ts": "DELIVERED",
+    "acme/corpus scripts/c.ts": "DELIVERED",
+    "acme/corpus scripts/d.ts": "NOT-DELIVERED"
+  }
+}

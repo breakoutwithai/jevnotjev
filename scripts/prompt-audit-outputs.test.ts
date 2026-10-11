@@ -2,7 +2,27 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { auditPrompt, buildTree, deliveringCommits, parseArgs, parsePrompt, parseRemoteRepo, renderReport, renderTable, validateOutput, type Git, type OutputResult } from "./prompt-audit";
+import { auditPrompt, buildTree, deliveringCommits, parseArgs, parsePrompt, parseRemoteRepo, renderReport, renderTable, validateOutput, type Git, type OutputResult, type PromptResult } from "./prompt-audit";
+
+const emptyResult: PromptResult = {
+  stem: "x",
+  file: "x",
+  promptId: "p1",
+  created: "2026-10-05",
+  status: "ready-not-run",
+  governingIssue: null,
+  issue: "none",
+  errors: [],
+  deliverables: [],
+  outputs: null,
+  pathsTouched: 0,
+  pathsUntouched: 0,
+  pathsMissing: 0,
+  evidenceCommits: [],
+  dod: { checked: 0, unchecked: 0 },
+  uncheckedDeliverables: 0,
+  flags: [],
+};
 
 const SCRIPT = join(import.meta.dir, "prompt-audit.ts");
 const CORPUS = join(import.meta.dir, "fixtures/prompt-audit/corpus");
@@ -70,7 +90,7 @@ function promptWith(id: string | null, created: string, outputs: unknown, status
 }
 
 type Step = { kind: "commit"; date: string; message: string; files: Record<string, string | null> } | { kind: "git"; args: string[]; date: string | null };
-type CorpusCase = { name: string; id: string | null; created: string; outputs: { key: string }[]; rawOutputs: unknown[]; steps: Step[]; expected: Record<string, string> };
+type CorpusCase = { name: string; id: string | null; created: string; outputs: { key: string }[]; rawOutputs: unknown[]; steps: Step[]; expected: Record<string, string>; shared: Record<string, string[]> };
 
 function loadCase(file: string): CorpusCase {
   const raw: unknown = JSON.parse(readFileSync(join(CORPUS, file), "utf8"));
@@ -87,6 +107,8 @@ function loadCase(file: string): CorpusCase {
   });
   const expected: Record<string, string> = {};
   for (const [k, v] of Object.entries(dig(raw, "expected") ?? {})) expected[k] = str(v, `${file} expected ${k}`);
+  const shared: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(dig(raw, "expectedShared") ?? {})) shared[k] = list(v, `${file} expectedShared ${k}`).map((x) => str(x, "shared id"));
   return {
     name: str(dig(raw, "name"), "name"),
     id: dig(raw, "prompt", "id") === null ? null : str(dig(raw, "prompt", "id"), "id"),
@@ -95,8 +117,15 @@ function loadCase(file: string): CorpusCase {
     rawOutputs,
     steps,
     expected,
+    shared,
   };
 }
+
+const caseResults = (prefix: string): OutputResult[] => {
+  const file = readdirSync(CORPUS).find((f) => f.startsWith(prefix));
+  if (file === undefined) throw new Error(`no corpus case ${prefix}`);
+  return runCase(loadCase(file));
+};
 
 function runCase(c: CorpusCase): OutputResult[] {
   let results: OutputResult[] = [];
@@ -250,6 +279,9 @@ describe("corpus", () => {
           seen.add(want);
           // Commits are listed exactly for DELIVERED outputs.
           if ((got.commits.length > 0) !== (want === "DELIVERED")) mismatches.push(`${c.name}: ${o.key} commits ${got.commits.length} for ${want}`);
+          // sharedWith lists the other prompt ids on the delivering commits: only where a case plants one.
+          const wantShared = c.shared[o.key] ?? [];
+          if (JSON.stringify(got.sharedWith) !== JSON.stringify(wantShared)) mismatches.push(`${c.name}: ${o.key} sharedWith ${JSON.stringify(got.sharedWith)} expected ${JSON.stringify(wantShared)}`);
         }
       });
       expect(Object.keys(c.expected).length, `${c.name} expected map covers every output`).toBe(c.outputs.length);
@@ -263,6 +295,42 @@ describe("corpus", () => {
 });
 
 describe("deliveringCommits", () => {
+  test("[integration] M1-H1 a trailer merge commit does not credit what the other side of the merge brought in", () => {
+    const merged = caseResults("20-").map((r) => [r.path, r.result]);
+    expect(merged).toEqual([["scripts/a.ts", "DELIVERED"], ["scripts/other.ts", "NOT-DELIVERED"]]);
+    const back = caseResults("21-").map((r) => [r.path, r.result]);
+    expect(back).toEqual([["scripts/a.ts", "DELIVERED"], ["scripts/other.ts", "NOT-DELIVERED"]]);
+  });
+  test("[unit] M1-H1 the delivering-commit log excludes merges and the changed-path read neither follows merges nor lists deletions", () => {
+    const seen: string[][] = [];
+    const recording: Git = (args) => {
+      seen.push(args);
+      return { code: 0, out: args[0] === "log" ? "deadbeef\n" : "", err: "" };
+    };
+    deliveringCommits(recording, "HEAD", "2026-10-05", "p1", "a.ts");
+    const log = seen.find((a) => a[0] === "log") ?? [];
+    const tree = seen.find((a) => a[0] === "diff-tree") ?? [];
+    expect(log).toContain("--no-merges");
+    expect(tree).not.toContain("-m");
+    expect(tree).toContain("--diff-filter=d");
+    expect(tree).toContain("--no-renames");
+  });
+  test("[integration] M1-H2 a trailer commit that only deletes or renames away is not delivery of the old path", () => {
+    expect(caseResults("22-").map((r) => [r.path, r.result])).toEqual([["scripts/d.ts", "NOT-DELIVERED"], ["scripts/r.ts", "NOT-DELIVERED"], ["scripts/r2.ts", "DELIVERED"], ["old/", "NOT-DELIVERED"]]);
+    expect(caseResults("10-").map((r) => r.result)).toEqual(["DELIVERED"]);
+  });
+  test("[integration] M1-H3 two prompts on one commit both deliver and each lists the other as shared", () => {
+    const r = caseResults("23-");
+    expect(r.map((o) => [o.result, o.sharedWith])).toEqual([["DELIVERED", ["p2"]]]);
+  });
+  test("[integration] M1-H4 key case and spacing are flexible, the id is exact", () => {
+    expect(caseResults("24-").map((r) => [r.path, r.result])).toEqual([["scripts/a.ts", "DELIVERED"], ["scripts/b.ts", "DELIVERED"], ["scripts/c.ts", "DELIVERED"], ["scripts/d.ts", "NOT-DELIVERED"]]);
+  });
+  test("[unit] M1-H3 the detail line shows shared ids", () => {
+    const text = renderReport([{ ...emptyResult, outputs: [{ repo: REPO, path: "a.ts", kind: "file", result: "DELIVERED", commits: ["abc"], sharedWith: ["p2", "p3"] }] }]);
+    expect(text).toContain("shared: a.ts with p2, p3");
+  });
+
   test("[integration] M1-G3 M1-G4 returns the exact full ids, newest first, only for trailer commits that touch the path", () => {
     withTemp((repo) => {
       commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });

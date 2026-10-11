@@ -1,0 +1,69 @@
+{
+  "name": "22-delete-and-rename-away",
+  "why": "M1-H2: a trailer commit that only deletes d.ts, renames r.ts away, or empties old/ is not delivery of those paths; the rename target is",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/d.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/r.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/r2.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "old/",
+        "kind": "dir"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "scripts/d.ts": "d\n",
+          "scripts/r.ts": "r\n",
+          "old/x.ts": "x\n"
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "chore: drop\n\nPrompt-Id: p1",
+        "files": {
+          "scripts/d.ts": null,
+          "old/x.ts": null
+        }
+      }
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "refactor: rename\n\nPrompt-Id: p1",
+        "files": {
+          "scripts/r.ts": null,
+          "scripts/r2.ts": "r\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/d.ts": "NOT-DELIVERED",
+    "acme/corpus scripts/r.ts": "NOT-DELIVERED",
+    "acme/corpus scripts/r2.ts": "DELIVERED",
+    "acme/corpus old/": "NOT-DELIVERED"
+  }
+}

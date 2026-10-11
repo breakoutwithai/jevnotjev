@@ -1,0 +1,81 @@
+{
+  "name": "20-trailer-merge-brings-main-changes",
+  "why": "M1-H1: a --no-ff merge carrying the trailer must not credit other.ts, which p2 changed on main",
+  "prompt": {
+    "id": "p1",
+    "created": "2026-10-05",
+    "outputs": [
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/a.ts",
+        "kind": "file"
+      },
+      {
+        "repo": "acme/corpus",
+        "path": "scripts/other.ts",
+        "kind": "file"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "commit": {
+        "date": "2026-10-04T12:00:00Z",
+        "message": "init",
+        "files": {
+          "README.md": "x\n"
+        }
+      }
+    },
+    {
+      "git": [
+        "checkout",
+        "-q",
+        "-b",
+        "feat"
+      ],
+      "date": null
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: a\n\nPrompt-Id: p1",
+        "files": {
+          "scripts/a.ts": "a\n"
+        }
+      }
+    },
+    {
+      "git": [
+        "checkout",
+        "-q",
+        "main"
+      ],
+      "date": null
+    },
+    {
+      "commit": {
+        "date": "2026-10-06T12:00:00Z",
+        "message": "feat: other\n\nPrompt-Id: p2",
+        "files": {
+          "scripts/other.ts": "o\n"
+        }
+      }
+    },
+    {
+      "git": [
+        "merge",
+        "-q",
+        "--no-ff",
+        "feat",
+        "-m",
+        "Merge feat\n\nPrompt-Id: p1"
+      ],
+      "date": "2026-10-07T12:00:00Z"
+    }
+  ],
+  "expected": {
+    "acme/corpus scripts/a.ts": "DELIVERED",
+    "acme/corpus scripts/other.ts": "NOT-DELIVERED"
+  }
+}

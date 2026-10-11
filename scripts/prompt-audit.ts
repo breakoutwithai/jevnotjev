@@ -63,7 +63,8 @@
 // (a dir: anything under it, history included, so a file later deleted still counts) AND carries the
 // line `Prompt-Id: <prompt_id>` anywhere in its message (a squash merge keeps the branch commits'
 // trailer lines in its body). The id is matched whole-line and regex-escaped, so `abc` never matches
-// `abc-2`. Otherwise NOT-DELIVERED. An output naming another repo than the audited one (derived from
+// `abc-2`. Merge commits never deliver and a deletion or rename-away is not delivery of the old path.
+// Other `Prompt-Id:` values on the delivering commits are listed as `sharedWith`. Otherwise NOT-DELIVERED. An output naming another repo than the audited one (derived from
 // `git remote get-url origin`, or --repo owner/name) is OTHER-REPO: listed, not counted. An invalid
 // output (bad repo, a non-relative path, `..`, a glob or placeholder, a kind other than file|dir, a dir
 // without a trailing slash) is INVALID-HEADER, on the output and on the prompt. The table column `out`
@@ -366,7 +367,7 @@ export function renderTable(rows: TableRow[]): string {
 }
 
 export type OutputOutcome = "DELIVERED" | "NOT-DELIVERED" | "OTHER-REPO" | "INVALID-HEADER";
-export type OutputResult = { repo: string; path: string; kind: string; result: OutputOutcome; commits: string[] };
+export type OutputResult = { repo: string; path: string; kind: string; result: OutputOutcome; commits: string[]; sharedWith: string[] };
 
 export type PathResult = { path: string; state: PathState };
 export type DeliverableResult = { text: string; paths: PathResult[]; unresolved: string[]; unchecked: boolean };
@@ -435,30 +436,46 @@ export function classifyPath(path: string, tree: Tree, git: Git, ref: string, cr
   return out.trim() === "" ? "UNTOUCHED" : "TOUCHED";
 }
 
-// Full SHAs of commits on `ref`, after `created`, that carry the line `Prompt-Id: <id>` and touch the
-// output. The pathspec query is a prefilter; each candidate's own changed paths (a merge: against every
-// parent; a deletion counts) must then match the kind: file = exactly the path, dir = anything under it.
+// Full SHAs of commits on `ref`, after `created`, that carry the line `Prompt-Id: <id>` (key case and
+// spacing are flexible, the id is exact) and touch the output. Merge commits never deliver: their diff
+// credits whatever the other side brought in, and the branch's own commits still count (--full-history).
+// The pathspec query is a prefilter; each candidate's own changed paths, deletions excluded and renames
+// not detected (a rename is a delete of the old path plus an add of the new), must then match the kind:
+// file = exactly the path, dir = anything under it. A deletion is therefore not delivery of what it removes.
 export function deliveringCommits(git: Git, ref: string, created: string, promptId: string, path: string, kind: OutputKind = path.endsWith("/") ? "dir" : "file"): string[] {
   const bare = path.replace(/\/+$/, "");
-  const out = must(git, ["log", ref, "--no-show-signature", sinceFilter(created), "--full-history", "-E", `--grep=^Prompt-Id: ${escapeRegex(promptId)}\r?$`, "--format=%H", "--", literal(bare)]);
+  const out = must(git, ["log", ref, "--no-show-signature", sinceFilter(created), "--full-history", "--no-merges", "-E", `--grep=^[Pp][Rr][Oo][Mm][Pp][Tt]-[Ii][Dd]:[ \t]*${escapeRegex(promptId)}[ \t]*\r?$`, "--format=%H", "--", literal(bare)]);
   const dirPrefix = `${bare}/`;
   return out
     .split("\n")
     .filter((h) => h !== "")
     .filter((sha) => {
-      const changed = must(git, ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-m", "-z", sha]).split("\0");
+      const changed = must(git, ["diff-tree", "--root", "--no-commit-id", "--name-only", "--no-renames", "--diff-filter=d", "-r", "-z", sha]).split("\0");
       return changed.some((p) => (kind === "file" ? p === bare : p.startsWith(dirPrefix)));
     });
+}
+
+// Other prompt ids named by `Prompt-Id:` lines on the given commits (one squash can deliver several prompts).
+export function sharedPromptIds(git: Git, shas: string[], promptId: string): string[] {
+  const ids: string[] = [];
+  for (const sha of shas) {
+    for (const line of must(git, ["log", "-1", "--no-show-signature", "--format=%B", sha]).split("\n")) {
+      const m = /^prompt-id:[ \t]*(.*?)[ \t]*\r?$/i.exec(line);
+      const id = m?.[1];
+      if (id !== undefined && id !== "" && id !== promptId && !ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids;
 }
 
 function auditOutputs(declared: DeclaredOutput[], parsed: ParsedPrompt, git: Git, ref: string, repo: string | null): OutputResult[] {
   return declared.map((o): OutputResult => {
     const base = { repo: o.repo, path: o.path, kind: o.kind ?? "" };
-    if (o.error !== null || parsed.created === null || parsed.promptId === null) return { ...base, result: "INVALID-HEADER", commits: [] };
+    if (o.error !== null || parsed.created === null || parsed.promptId === null) return { ...base, result: "INVALID-HEADER", commits: [], sharedWith: [] };
     if (repo === null) throw new Error("cannot derive owner/name from `git remote get-url origin`; pass --repo owner/name");
-    if (o.repo.toLowerCase() !== repo.toLowerCase()) return { ...base, result: "OTHER-REPO", commits: [] };
+    if (o.repo.toLowerCase() !== repo.toLowerCase()) return { ...base, result: "OTHER-REPO", commits: [], sharedWith: [] };
     const commits = deliveringCommits(git, ref, parsed.created, parsed.promptId, o.path, o.kind ?? "file");
-    return { ...base, result: commits.length > 0 ? "DELIVERED" : "NOT-DELIVERED", commits };
+    return { ...base, result: commits.length > 0 ? "DELIVERED" : "NOT-DELIVERED", commits, sharedWith: sharedPromptIds(git, commits, parsed.promptId) };
   });
 }
 
@@ -548,6 +565,8 @@ export function renderReport(results: PromptResult[], refLine: string | null = n
       ];
       const other = declaredOutputs.filter((o) => o.result === "OTHER-REPO");
       if (other.length > 0) declared.push(`OTHER-REPO: ${other.map((o) => `${o.repo}:${o.path}`).join(", ")}`);
+      const shared = declaredOutputs.filter((o) => o.sharedWith.length > 0);
+      if (shared.length > 0) declared.push(`shared: ${shared.map((o) => `${o.path} with ${o.sharedWith.join(", ")}`).join("; ")}`);
       if (declaredOutputs.some((o) => o.result === "INVALID-HEADER")) declared.push(`INVALID: ${names("INVALID-HEADER")}`);
       if (r.errors.length > 0) declared.push(`ERRORS: ${r.errors.join("; ")}`);
       return `- ${r.stem}: ${declared.join(" | ")}`;

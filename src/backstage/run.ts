@@ -19,12 +19,12 @@ import {
 } from "./catalog.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { requestFingerprint } from "./fingerprint.ts";
-import { COLUMNS_V1_1, LABELLED_AT, LABELLER_HANDLE, SUGGESTION_COLUMNS, isCalendarDate, validate } from "../format/validate.ts";
+import { LABELLED_AT, LABELLER_HANDLE, isCalendarDate, validate } from "../format/validate.ts";
 import type { JevSuggestion } from "../labels/rank.ts";
 import { ARGMAX_TOLERANCE, MASS_TOLERANCE } from "../jev-answer.ts";
 import { SuggestionBook, callsForPick, type Call, type Suggestion } from "../labels/suggest.ts";
-/** Backstage writes jnj-record/1.1 with the blind loop's columns (format/README.md "Blind and final picks"). */
-const EXPORT_COLUMNS: readonly string[] = [...COLUMNS_V1_1, ...SUGGESTION_COLUMNS];
+/** Rows, comparisons and spend are pure functions shared with the export checker (records.ts). */
+import { EXPORT_COLUMNS, comparisonPairs, extraSpend, inComparison, recordRow, ruleOutput, RULE_VALUES, totalSpend, type RecordLabel } from "./records.ts";
 import { formatRows, readDictRows } from "../format/csv.ts";
 import { cohortMetrics } from "../core/metrics.ts";
 import { fileSeed } from "../core/calc.ts";
@@ -1228,18 +1228,9 @@ export class BackstageRun {
           caseId: c.id,
           armId: "rule",
           provider: "rule",
-          output: scene.keywords.some((k) =>
-            c.input.toLowerCase().includes(k.toLowerCase()),
-          )
-            ? scene.matchChoice
-            : scene.otherwiseChoice,
-          model: "keywords-v1",
-          confidence: null,
+          output: ruleOutput(scene, c.input),
           probabilities: null,
-          tokensIn: 0,
-          tokensOut: 0,
-          costUsd: 0,
-          latencyMs: 0,
+          ...RULE_VALUES,
         });
     try {
       onChange?.();
@@ -1369,74 +1360,38 @@ export class BackstageRun {
   #labelFor(a: RowAnswer): StoredLabel | undefined {
     return this.#labels.get(this.#labelKey(a)) ?? this.#importedCall(a);
   }
+  /** An answer's labels entry: its stored or imported label and provenance, all null when unlabelled. */
+  #exportLabel(a: RowAnswer): RecordLabel {
+    const stored = this.#labelFor(a);
+    return {
+      label: stored?.label ?? null,
+      labelSource: stored?.source ?? null,
+      labelledBy: stored?.by ?? null,
+      labelledAt: stored?.at ?? null,
+      labelBlind: stored?.blind ?? null,
+      labelFinal: stored?.final ?? null,
+      suggestionShown: stored?.suggestionShown ?? null,
+    };
+  }
   #csv(answers: readonly RowAnswer[], runId: string): string {
     if (this.#unsafe)
       throw new Error("Export blocked: this run contains a provider key.");
     const s = this.manifest.scene;
-    return formatRows([
-      EXPORT_COLUMNS,
-      ...answers.map((a) => {
-        const stored = this.#labelFor(a);
-        const data: Record<string, string | number | null> = {
-          format_version: "jnj-record/1.1",
-          run_id: runId,
-          prompt_version: this.manifest.promptVersion,
-          case_id: a.caseId,
-          case_input: s.cases.find((c) => c.id === a.caseId)?.input ?? "",
-          question_id: this.manifest.questionId,
-          question: s.question,
-          answer_set: s.choices.map((c) => c.name).join("|"),
-          answerer:
-            a.provider === "jev"
-              ? "jev"
-              : a.provider === "rule"
-                ? "rule"
-                : "llm",
-          answerer_model: a.model,
-          output: a.output,
-          confidence: a.confidence,
-          label: stored?.label ?? null,
-          label_source: stored?.source ?? null,
-          tokens_in: a.tokensIn,
-          tokens_out: a.tokensOut,
-          cost_usd: a.costUsd,
-          latency_ms: a.latencyMs,
-          labelled_by: stored?.by ?? null,
-          labelled_at: stored?.at ?? null,
-          label_blind: stored === undefined ? null : String(stored.blind),
-          label_final: stored?.final ?? null,
-          suggestion_shown:
-            stored?.suggestionShown === undefined || stored.suggestionShown === null
-              ? null
-              : String(stored.suggestionShown),
-        };
-        return EXPORT_COLUMNS.map((k) =>
-          data[k] === null || data[k] === undefined ? "" : String(data[k]),
-        );
-      }),
-    ]);
+    const scene = {
+      promptVersion: this.manifest.promptVersion,
+      questionId: this.manifest.questionId,
+      question: s.question,
+      choices: s.choices.map((c) => c.name),
+      cases: new Map(s.cases.map((c) => [c.id, c.input])),
+    };
+    return formatRows([EXPORT_COLUMNS, ...answers.map((a) => recordRow(scene, a, this.#exportLabel(a), runId))]);
   }
   exports(): readonly ComparisonExport[] {
-    const comparators = this.manifest.arms.filter(
-      (id) => id !== JEV_ARM_ID && id !== "rule",
-    );
-    const ids = comparators.length
-      ? comparators
-      : [this.manifest.arms.includes("rule") ? "rule" : JEV_ARM_ID];
-    return ids.map((armId, index) => {
-      const runId =
-        ids.length === 1
-          ? this.manifest.runId
-          : this.manifest.runId + "-pair-" + (index + 1);
-      const answers = this.#answers.filter(
-        (a) =>
-          a.armId === JEV_ARM_ID || a.armId === armId || a.armId === "rule",
-      );
+    return comparisonPairs(this.manifest.arms, this.manifest.runId).map((pair) => {
+      const answers = this.#answers.filter((a) => inComparison(a.armId, pair.armId));
       return {
-        armId,
-        runId,
-        filename: "records-" + (index + 1) + ".csv",
-        csv: this.#csv(answers, runId),
+        ...pair,
+        csv: this.#csv(answers, pair.runId),
         attemptIds: answers.flatMap((a) => (a.attemptId ? [a.attemptId] : [])),
       };
     });
@@ -1526,24 +1481,11 @@ export class BackstageRun {
   }
   /** Failed attempts, including failed suggestion calls on the labeller's key. */
   extraSpend() {
-    let knownUsd = 0,
-      unknown = 0;
-    for (const a of [...this.#attempts, ...this.#suggestionAttempts])
-      if (!a.ok) {
-        if (a.costUsd !== null) knownUsd += a.costUsd;
-        else if (a.charge !== "none") unknown++;
-      }
-    return { knownUsd, unknown };
+    return extraSpend([...this.#attempts, ...this.#suggestionAttempts]);
   }
   /** Every attempt once, including suggestion calls on the labeller's key (labelling loop M2). */
   totalSpend() {
-    let knownUsd = 0,
-      unknown = 0;
-    for (const a of [...this.#attempts, ...this.#suggestionAttempts]) {
-      if (a.costUsd !== null) knownUsd += a.costUsd;
-      else if (a.ok || a.charge !== "none") unknown++;
-    }
-    return { knownUsd, unknown };
+    return totalSpend([...this.#attempts, ...this.#suggestionAttempts]);
   }
   async report() {
     const csv = this.csv();
@@ -1598,7 +1540,7 @@ export class BackstageRun {
     if (!first) throw new Error("Missing export cohort.");
     this.#reported = {
       records: csv,
-      verdicts: pairs.map((p) => ({ armId: p.armId, runId: p.runId, verdict: p.verdict })),
+      verdicts: structuredClone(pairs.map((p) => ({ armId: p.armId, runId: p.runId, verdict: p.verdict }))),
     };
     return {
       csv,
@@ -1622,22 +1564,13 @@ export class BackstageRun {
       manifest: this.manifest,
       funding: this.#funded ? "trial" : "byok",
       attempts: this.attempts,
-      labels: this.#answers.map((a) => {
-        const stored = this.#labelFor(a);
-        return {
-          caseId: a.caseId,
-          armId: a.armId,
-          provider: a.provider,
-          output: a.output,
-          label: stored?.label ?? null,
-          labelSource: stored?.source ?? null,
-          labelledBy: stored?.by ?? null,
-          labelledAt: stored?.at ?? null,
-          labelBlind: stored?.blind ?? null,
-          labelFinal: stored?.final ?? null,
-          suggestionShown: stored?.suggestionShown ?? null,
-        };
-      }),
+      labels: this.#answers.map((a) => ({
+        caseId: a.caseId,
+        armId: a.armId,
+        provider: a.provider,
+        output: a.output,
+        ...this.#exportLabel(a),
+      })),
       suggestionAttempts: structuredClone(this.#suggestionAttempts),
       extraSpend: this.extraSpend(),
       totalSpend: this.totalSpend(),
@@ -1645,7 +1578,7 @@ export class BackstageRun {
       comparisonNote:
         "Jev observations are reused across comparison cohorts. Do not sum their costs; totalSpend counts each actual attempt once. Verdicts are per-pair, uncorrected for multiple comparisons.",
       // Per-pair verdicts from report(), only when computed from exactly these records; null otherwise.
-      verdicts: this.#reported?.records === records ? this.#reported.verdicts : null,
+      verdicts: this.#reported?.records === records ? structuredClone(this.#reported.verdicts) : null,
       records,
     };
   }

@@ -7,11 +7,12 @@
  */
 import { setSystemTime } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { BACKSTAGE_PICK, BackstageRun, inputFingerprint } from "../src/backstage/run.ts";
 import { getModelEntry } from "../src/backstage/catalog.ts";
 import type { AnswerRequest, AnswerSuccess, Scene } from "../src/backstage/contracts.ts";
 
-export const SAMPLE_EXPORT_PATH = new URL("../examples/d17-sample-export/export.json", import.meta.url).pathname;
+export const SAMPLE_EXPORT_PATH = fileURLToPath(new URL("../examples/d17-sample-export/export.json", import.meta.url));
 const CLOCK = "2026-10-11T09:00:00.000Z";
 const LLM_ARM = "claude-haiku-4-5-20251001";
 /** Fictional keys: the run needs one per provider to start; neither reaches the export. */
@@ -85,8 +86,14 @@ async function transport(r: AnswerRequest): Promise<AnswerSuccess> {
   };
 }
 
-/** Swaps crypto.randomUUID for a counter while `work` runs, so the run id is the same on every generation. */
+let patching = false;
+/**
+ * Swaps crypto.randomUUID for a counter while `work` runs, so the run id is the same on every generation.
+ * The swap is global, so a second overlapping call would restore the wrong originals: it throws instead.
+ */
 async function withFixedIds<T>(work: () => Promise<T>): Promise<T> {
+  if (patching) throw new Error("sampleRun() cannot overlap: it patches crypto.randomUUID and the clock globally.");
+  patching = true;
   const original = crypto.randomUUID;
   let n = 0;
   crypto.randomUUID = () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
@@ -96,6 +103,7 @@ async function withFixedIds<T>(work: () => Promise<T>): Promise<T> {
   } finally {
     crypto.randomUUID = original;
     setSystemTime();
+    patching = false;
   }
 }
 

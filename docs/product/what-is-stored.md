@@ -4,35 +4,35 @@ Every statement cites the code it comes from, as `file:line` under `src/backstag
 
 ## 1. The evidence export
 
-`Run.evidence()` (`run.ts:1612`) builds the JSON the page downloads as `backstage-evidence.json` (`main.ts:1010-1018`). The browser builds it from the run held in page memory; no server call is made to produce it.
+`Run.evidence()` (`run.ts:1554`) builds the JSON the page downloads as `backstage-evidence.json` (`main.ts:1010-1018`). The browser builds it from the run held in page memory; no server call is made to produce it.
 
 | Field | What it holds | Source |
 |---|---|---|
-| `version` | The protocol version, `backstage/2` | `run.ts:1620`, `contracts.ts:1` |
-| `calcVersion` | The version of the verdict calculation, constant `CALC_VERSION` (`"verdict/1"`); it must change whenever the verdict or stats calculation changes | `run.ts:1621`, `contracts.ts:7` |
+| `version` | The protocol version, `backstage/2` | `run.ts:1562`, `contracts.ts:1` |
+| `calcVersion` | The version of the verdict calculation, constant `CALC_VERSION` (`"verdict/1"`); it must change whenever the verdict or stats calculation changes | `run.ts:1563`, `contracts.ts:7` |
 | `manifest` | Mode, arms, models, catalog version, revision, run id, prompt version, question id, creation time, and the scene (question, choices, definitions, cases) | `run.ts:96-107` |
-| `funding` | `"trial"` or `"byok"`; never a key | `run.ts:1623` |
-| `attempts` | One record per provider call: ids, requested and returned model, generation parameters, fingerprint, start and finish time, latency, tokens in and out, cost in USD, price version; on success the output and confidence, on failure the error code, message and charge state | `run.ts:1624`, `contracts.ts:60-98` |
-| `labels` | Per answer: case id, arm, provider, output, label, label source, who set it and when, whether it was blind and final, whether a suggestion was shown | `run.ts:1625-1640` |
-| `suggestionAttempts` | The attempts made for label suggestions | `run.ts:1641` |
-| `extraSpend`, `totalSpend` | Cost totals; failed attempts and suggestion calls are counted | `run.ts:1528`, `run.ts:1539` |
-| `comparisons` | Per comparison: arm id, run id, file name, the CSV text, attempt ids | `run.ts:1419-1441`, `run.ts:130-136` |
-| `comparisonNote` | A fixed sentence: Jev observations are reused across cohorts, so do not sum their costs; verdicts are per pair and uncorrected for multiple comparisons | `run.ts:1645` |
-| `verdicts` | Per-pair verdicts from `report()`, only when computed from exactly these records; otherwise `null` | `run.ts:1648` |
-| `records` | The full records CSV, one row per answer, columns `EXPORT_COLUMNS` | `run.ts:1649`, `run.ts:27` |
+| `funding` | `"trial"` or `"byok"`; never a key | `run.ts:1565` |
+| `attempts` | One record per provider call: ids, requested and returned model, generation parameters, fingerprint, start and finish time, latency, tokens in and out, cost in USD, price version; on success the output and confidence, on failure the error code, message and charge state | `run.ts:1566`, `contracts.ts:60-98` |
+| `labels` | Per answer: case id, arm, provider, output, label, label source, who set it and when, whether it was blind and final, whether a suggestion was shown | `run.ts:1567-1573`, `run.ts:1364-1375` |
+| `suggestionAttempts` | The attempts made for label suggestions | `run.ts:1574` |
+| `extraSpend`, `totalSpend` | Cost totals; failed attempts and suggestion calls are counted | `run.ts:1483`, `run.ts:1487`, `records.ts:117`, `records.ts:128` |
+| `comparisons` | Per comparison: arm id, run id, file name, the CSV text, attempt ids | `run.ts:1389-1396`, `records.ts:91-104`, `run.ts:130-136` |
+| `comparisonNote` | A fixed sentence: Jev observations are reused across cohorts, so do not sum their costs; verdicts are per pair and uncorrected for multiple comparisons | `run.ts:1578` |
+| `verdicts` | Per-pair verdicts from `report()`, only when computed from exactly these records; otherwise `null` | `run.ts:1581` |
+| `records` | The full records CSV, one row per answer, columns `EXPORT_COLUMNS` | `run.ts:1582`, `run.ts:27`, `records.ts:10` |
 
 Guards on the export:
 
-- It throws before reveal if any answer exists: "Reveal results (finish judging) before downloading evidence." (`run.ts:1614-1615`).
-- It throws if the run is marked unsafe: "Export blocked: this run contains a provider key." (`run.ts:1616-1617`).
+- It throws before reveal if any answer exists: "Reveal results (finish judging) before downloading evidence." (`run.ts:1556-1557`).
+- It throws if the run is marked unsafe: "Export blocked: this run contains a provider key." (`run.ts:1558-1559`).
 - A run becomes unsafe when any key the user supplied appears as a substring anywhere in the scene, attempts, suggestion attempts or answers (`run.ts:1199-1210`, matcher at `run.ts:145-153`). An unsafe run cannot start or continue (`run.ts:1195-1198`).
-- A provider response that contains the request's key is rejected as "Unsafe response evidence." (`run.ts:609-610`, `run.ts:1130`, `run.ts:1302-1303`).
+- A provider response that contains the request's key is rejected as "Unsafe response evidence." (`run.ts:609-610`, `run.ts:1130`, `run.ts:1293-1294`).
 
 Limit of the key check: it matches the key values the user supplied in this session. It does not scan for credential patterns the user never entered.
 
 ### Verdicts and the calculation version
 
-- `verdicts` is cached by `report()` (`run.ts:1599-1602`, field at `run.ts:766-769`) and exported only while the cached records equal the current records (`run.ts:1648`). It is `null` when `report()` was not run or the records changed since.
+- `verdicts` is cached by `report()` (`run.ts:1541-1544`, field at `run.ts:766-769`) and exported only while the cached records equal the current records (`run.ts:1581`). It is `null` when `report()` was not run or the records changed since.
 - `CALC_VERSION` is a hand-edited constant (`contracts.ts:2-7`). Nothing bumps it automatically. The only guard is the test that the committed sample equals a fresh export (`export-check.test.ts:43-44`): it fails when a calculation change alters the sample's output, and not when a change leaves that output the same. A change that does not show in the sample still needs a manual bump.
 
 ### Reload and inspect
@@ -87,7 +87,7 @@ The case text, question and choice definitions go to each provider you select. G
 ## 4. Keys
 
 - **Your keys:** typed into the page, held in field values and in an in-page object, sent in the body of each answer request, used for that call. They are not written to `sessionStorage`, `localStorage`, a file or the ledger by any code listed above. They last until you clear them, reload, or close the tab.
-- **Never in the export:** the export throws when a supplied key appears in the run (`run.ts:1616-1617`, set at `run.ts:1199-1210`).
+- **Never in the export:** the export throws when a supplied key appears in the run (`run.ts:1558-1559`, set at `run.ts:1199-1210`).
 - **Server-held keys (operator configuration, never shown to the browser):**
   - Trial funding key `BACKSTAGE_TRIAL_KEY`, from the environment (`server.ts:105-108`); the server inserts it into the request itself (`server.ts:529`).
   - Optional house Jev key for local testing, honoured only on a loopback origin and bind (`server.ts:44-45`, `server.ts:725`).
@@ -95,7 +95,8 @@ The case text, question and choice definitions go to each provider you select. G
 
 ## 5. What is NOT stored
 
-- No provider key in the export, the scene draft, the ledger, the logs or the token file (sections 1, 2 and 4).
+- No provider key from the dedicated key fields in the export, the ledger, the logs or the token file (sections 1, 2 and 4). The export refuses a run whose text contains a supplied key (`run.ts:1558-1559`).
+- The scene draft is the exception: the dedicated key fields are never stored, but scene text is stored verbatim per tab. `saveSceneDraft()` writes whatever the nine text fields hold to `sessionStorage` (`scene-draft.ts:57-70`), on each edit (`main.ts:1151-1156`), before any run starts and so before the key guard at `run.ts:1199-1210` can see it. A key pasted into a scene text field by mistake is therefore kept in that tab's `sessionStorage` until the tab closes or the draft is cleared.
 - No database or account for your runs: the run exists in page memory until you download it.
 - The trial ledger has no column for questions, inputs, or answers (`trial.ts:121-124`).
 - API tokens are stored only as hashes (`api-tokens.ts:47-49`).

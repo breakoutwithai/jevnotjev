@@ -1394,6 +1394,26 @@ describe("D17 reproducible export", () => {
     run.reveal();
     return run;
   }
+  test("[unit] D17 mutating a returned verdict does not change later evidence", async () => {
+    const run = await labelledComparison();
+    const report = await run.report();
+    const before = JSON.stringify(run.evidence().verdicts);
+    expect(before).not.toBe("null");
+    for (const pair of report.pairs) if (pair.verdict) Reflect.set(pair.verdict, "reason", "mutated via report");
+    for (const entry of run.evidence().verdicts ?? [])
+      if (entry.verdict) Reflect.set(entry.verdict, "reason", "mutated via evidence");
+    expect(JSON.stringify(run.evidence().verdicts)).toBe(before);
+  });
+  test("[unit] D17 sampleRun refuses to overlap and leaves the globals restored", async () => {
+    const { sampleRun } = await import("../../scripts/d17-sample-export.ts");
+    const original = crypto.randomUUID;
+    const first = sampleRun();
+    await expect(sampleRun()).rejects.toThrow("cannot overlap");
+    await first;
+    expect(crypto.randomUUID).toBe(original);
+    await sampleRun();
+    expect(crypto.randomUUID).toBe(original);
+  });
   test("[unit] D17 export carries the calculation version the verdict was computed under", async () => {
     const run = await labelledComparison();
     expect(CALC_VERSION.length).toBeGreaterThan(0);

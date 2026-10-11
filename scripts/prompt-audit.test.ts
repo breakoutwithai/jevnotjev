@@ -78,6 +78,20 @@ describe("parsePrompt", () => {
     expect(p.status).toBeNull();
     expect(p.errors.length).toBe(1);
   });
+  test("[unit] R3-2 only a column-0 `---` line closes the front matter", () => {
+    const p = parsePrompt("---\nprompt_id: a\ndeliverables:\n  - >-\n    text\n    ---\n    more\nstatus: draft\n---\nbody\n");
+    expect(p.errors).toEqual([]);
+    expect(p.status).toBe("draft");
+    expect(p.deliverables).toEqual(["text --- more"]);
+  });
+  test("[unit] R3-3 prompt_id must be a non-empty single-line string, trimmed", () => {
+    expect(parsePrompt(front('prompt_id: "  x  "')).promptId).toBe("x");
+    for (const bad of ['prompt_id: "a\\nb"', 'prompt_id: ""', 'prompt_id: "  "']) {
+      const p = parsePrompt(front(bad));
+      expect(p.promptId).toBeNull();
+      expect(p.errors[0]).toContain("prompt_id");
+    }
+  });
   test("[unit] Y1 YAML escapes, doubled apostrophes and folded scalars are decoded", () => {
     const p = parsePrompt(front('deliverables:\n  - "scripts/caf\\u00e9.ts: x"\n  - \'it\'\'s/a.ts\'\n  - >-\n    scripts/long.ts: first\n    second'));
     expect(p.errors).toEqual([]);
@@ -179,6 +193,30 @@ describe("countChecklist", () => {
   });
 });
 
+describe("countChecklist rendered markdown", () => {
+  test("[unit] R3-9 plus bullets and ordered lists carry tasks", () => {
+    expect(countChecklist("## Definition of done\n+ [x] plus\n1. [ ] ordered\n")).toEqual({ checked: 1, unchecked: 1 });
+  });
+  test("[unit] R3-10 `[x]word` with no space is not a task", () => {
+    expect(countChecklist("## Definition of done\n- [x]word\n- [ ] real\n")).toEqual({ checked: 0, unchecked: 1 });
+  });
+  test("[unit] R3-11 an indented code block is not a task list", () => {
+    expect(countChecklist("## Definition of done\n\nText.\n\n    - [ ] code\n\n- [x] real\n")).toEqual({ checked: 1, unchecked: 0 });
+  });
+  test("[unit] R3-12 inline code mentioning a checkbox is not a task", () => {
+    expect(countChecklist("## Definition of done\nWrite `- [ ] x` in the file.\n\n- [x] real\n")).toEqual({ checked: 1, unchecked: 0 });
+  });
+  test("[unit] R3-13 a heading with inline markup is still the Definition of done heading", () => {
+    expect(countChecklist("## Definition *of* **done**\n- [x] a\n## Next\n- [ ] b\n")).toEqual({ checked: 1, unchecked: 0 });
+  });
+  test("[unit] R3-13 setext headings end and open sections too", () => {
+    expect(countChecklist("Definition of done\n------------------\n- [x] a\n\nNext\n----\n- [ ] b\n")).toEqual({ checked: 1, unchecked: 0 });
+  });
+  test("[unit] R3-13 front matter is not rendered as markdown", () => {
+    expect(countChecklist("---\ntitle: x\nstatus: draft\n---\n## Definition of done\n- [ ] a\n")).toEqual({ checked: 0, unchecked: 1 });
+  });
+});
+
 describe("countChecklist sections and fences", () => {
   test("[unit] S2-14 a fence closes only on the same character with at least the opening length", () => {
     const text = "## Definition of done\n````md\n```\n- [ ] inside\n```\n~~~\n- [ ] still inside\n````\n- [x] after\n";
@@ -201,6 +239,12 @@ describe("extractPaths", () => {
     expect(extractCandidates("src/../..")).toEqual({ paths: [], unresolved: ["src/../.."] });
     expect(extractCandidates("src/..")).toEqual({ paths: [], unresolved: ["src/.."] });
     expect(extractCandidates("`src/..`")).toEqual({ paths: [], unresolved: ["src/.."] });
+  });
+  test("[unit] R3-6 segments made only of non-ASCII letters are valid", () => {
+    expect(extractPaths("документы/план.md and 文档/")).toEqual(["документы/план.md", "文档/"]);
+  });
+  test("[unit] R3-7 a traversal with no alphanumeric segment is still unresolved, trailing slash or not", () => {
+    expect(extractCandidates("src/../ and ../.. and ./..")).toEqual({ paths: [], unresolved: ["src/../", "../..", "./.."] });
   });
   test("[unit] S2-11 trailing sentence dots are stripped from prose tokens but never from a backtick span", () => {
     expect(extractPaths("see docs/notes.md.")).toEqual(["docs/notes.md"]);
@@ -258,7 +302,11 @@ describe("extractPaths", () => {
 });
 
 describe("verdictFor", () => {
-  const base = { exists: 0, missing: 0, evidence: 0, issue: "none" as const };
+  const base = { exists: 0, missing: 0, unchecked: 0, evidence: 0, issue: "none" as const };
+  test("[unit] R3-1 any unchecked deliverable blocks DELIVERED", () => {
+    expect(verdictFor({ ...base, exists: 2, unchecked: 1 })).toBe("PARTIAL");
+    expect(verdictFor({ ...base, exists: 2, unchecked: 0 })).toBe("DELIVERED");
+  });
   test("[unit] NOT-RUN when nothing exists and no evidence", () => {
     expect(verdictFor({ ...base, missing: 3 })).toBe("NOT-RUN");
   });
@@ -360,9 +408,11 @@ describe("classifyPath", () => {
   test("[unit] no created date falls back to plain existence", () => {
     expect(classifyPath("src/core/calc.ts", tree, git, none, "origin/main", null)).toBe("TOUCHED");
   });
-  test("[unit] absent is MISSING, git-excluded absent is IGNORED", () => {
-    expect(classifyPath("nope/x.ts", tree, git, none, "origin/main", "2026-10-01")).toBe("MISSING");
-    expect(classifyPath(".persona-swarm/", tree, git, none, "origin/main", "2026-10-01")).toBe("IGNORED");
+  test("[unit] R3-4 absent from the pinned tree is MISSING and git check-ignore is never consulted", () => {
+    const { calls, git: g } = recorder("");
+    expect(classifyPath("nope/x.ts", tree, g, none, "origin/main", "2026-10-01")).toBe("MISSING");
+    expect(classifyPath(".persona-swarm/", tree, g, none, "origin/main", "2026-10-01")).toBe("MISSING");
+    expect(calls.some((c) => c[0] === "check-ignore")).toBe(false);
   });
   test("[unit] absolute paths are checked on the filesystem", () => {
     expect(classifyPath("/abs/there.ts", tree, git, (p) => p === "/abs/there.ts", "origin/main", "2026-10-01")).toBe("TOUCHED");
@@ -378,10 +428,6 @@ describe("classifyPath", () => {
   test("[unit] F6 a failing git log throws with its stderr instead of reading as empty", () => {
     const failing: Git = (args) => (args[0] === "log" ? { code: 128, out: "", err: "fatal: bad object" } : { code: 1, out: "", err: "" });
     expect(() => classifyPath("scripts/new.ts", tree, failing, none, "origin/main", "2026-10-01")).toThrow("fatal: bad object");
-  });
-  test("[unit] F6 check-ignore exit 128 throws, exit 1 is plain not-ignored", () => {
-    const broken: Git = () => ({ code: 128, out: "", err: "fatal: not a git repository" });
-    expect(() => classifyPath("nope/x.ts", tree, broken, none, "origin/main", "2026-10-01")).toThrow("not a git repository");
   });
   test("[unit] S2-13 a trailing-slash path needs a tracked descendant, not a file of that name", () => {
     const t = buildTree("docs/notes\0docs/real/a.md\0");
@@ -439,13 +485,40 @@ describe("auditPrompt", () => {
     expect(r.flags).toContain("INVALID-HEADER");
     expect(r.errors[0]).toContain("governing_issue");
   });
-  test("[unit] S2-1 an ignored path never counts toward delivery", () => {
-    const ignoring: Git = () => ({ code: 0, out: "", err: "" });
-    const r = auditPrompt("x.prompt.md", prompt([".persona-swarm/report.md: x"]), tree, ignoring, "sha", null, none);
-    expect(r.pathsIgnored).toBe(1);
+  test("[unit] S2-1 R3-4 a git-excluded path is plain MISSING and never counts toward delivery", () => {
+    const { calls, git } = recorder("");
+    const r = auditPrompt("x.prompt.md", prompt([".persona-swarm/report.md: x"]), tree, git, "sha", null, none);
+    expect(r.deliverables[0]?.paths).toEqual([{ path: ".persona-swarm/report.md", state: "MISSING" }]);
     expect(r.pathsTouched).toBe(0);
+    expect(r.verdict).not.toBe("DELIVERED");
+    expect(calls.some((c) => c[0] === "check-ignore")).toBe(false);
+  });
+  test("[unit] R3-1 a prose deliverable with no path blocks DELIVERED even when every path is touched", () => {
+    const { git } = recorder("abc1234\n");
+    const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x", "one PR with the gate evidence"]), tree, git, "sha", null, none);
+    expect(r.pathsTouched).toBe(1);
+    expect(r.deliverables[1]?.unchecked).toBe(true);
+    expect(r.verdict).toBe("PARTIAL");
+  });
+  test("[unit] R3-8 a backtick filename containing a comma is split and stays conservative", () => {
+    const commaTree = buildTree("docs/a, b.md\0");
+    const { git } = recorder("abc1234\n");
+    const r = auditPrompt("x.prompt.md", prompt(["`docs/a, b.md`: x"]), commaTree, git, "sha", null, none);
     expect(r.deliverables[0]?.unchecked).toBe(true);
     expect(r.verdict).not.toBe("DELIVERED");
+  });
+  test("[unit] R3-3 a prompt_id with a newline or no content never reaches a --grep argument", () => {
+    for (const id of ['"a\\nb"', '""', '"   "']) {
+      const { calls, git } = recorder("");
+      const r = auditPrompt("x.prompt.md", `---\nprompt_id: ${id}\nstatus: draft\n---\n`, tree, git, "sha", null, none);
+      expect(r.flags).toContain("INVALID-HEADER");
+      expect(calls.flatMap((c) => c).some((a) => a.startsWith("--grep=") && (a.includes("\n") || a === "--grep="))).toBe(false);
+    }
+  });
+  test("[unit] R3-3 a file stem with a newline is not used as a --grep needle", () => {
+    const { calls, git } = recorder("");
+    auditPrompt("a\nb.prompt.md", "---\nstatus: draft\n---\n", tree, git, "sha", null, none);
+    expect(calls.some((c) => c[0] === "log")).toBe(false);
   });
   test("[unit] S2-12 a deliverable with any unresolved or ignored candidate is unchecked", () => {
     const { git } = recorder("");
@@ -507,15 +580,17 @@ function commitAt(repo: string, date: string | null, message: string): void {
   gitAt(repo, date === null ? {} : { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }, "commit", "-q", "-m", message);
 }
 
-function withRepo(fn: (repo: string) => void): void {
-  const repo = mkdtempSync(join(tmpdir(), "jnj-prompt-audit-"));
+function withRepo(fn: (repo: string) => void, sub = ""): void {
+  const base = mkdtempSync(join(tmpdir(), "jnj-prompt-audit-"));
+  const repo = sub === "" ? base : join(base, sub);
   try {
+    mkdirSync(repo, { recursive: true });
     git(repo, "init", "-q", "-b", "main");
     mkdirSync(join(repo, "docs/prompts"), { recursive: true });
     mkdirSync(join(repo, "scripts"), { recursive: true });
     fn(repo);
   } finally {
-    rmSync(repo, { recursive: true, force: true });
+    rmSync(base, { recursive: true, force: true });
   }
 }
 
@@ -550,8 +625,34 @@ describe("prompt-audit CLI", () => {
       expect(run.code).toBe(2);
       expect(run.err).toContain("no prompts in docs/prompts");
       expect(run.out).toBe("");
-      expect(cli(repo, "--no-gh", "--ref", "HEAD", "--dir", "nowhere").code).toBe(2);
     });
+  });
+
+  test("[integration] R3-14 an unreadable directory reports the real error, not 'no prompts'", () => {
+    withRepo((repo) => {
+      writeFileSync(join(repo, "afile"), "x\n");
+      commitAt(repo, null, "init");
+      for (const dir of ["nowhere", "afile"]) {
+        const run = cli(repo, "--no-gh", "--ref", "HEAD", "--dir", dir);
+        expect(run.code).toBe(2);
+        expect(run.err).toContain(`cannot read ${dir}`);
+        expect(run.err).not.toContain("no prompts in");
+      }
+    });
+  });
+
+  test("[integration] R3-15 only the trailing newline is stripped from the repo root path", () => {
+    withRepo(
+      (repo) => {
+        writeFileSync(join(repo, "scripts/thing.ts"), "export const thing = 1;\n");
+        writeFileSync(join(repo, "docs/prompts/20200101-sp.prompt.md"), promptFile("fx-sp", "ready-not-run", ["scripts/thing.ts: x"]));
+        commitAt(repo, null, "files");
+        const run = cli(repo, "--json", "--no-gh", "--ref", "HEAD");
+        expect(run.code).toBe(0);
+        expect(dig(rowsOf(run.out)[0], "deliverables", 0, "paths", 0, "state")).toBe("TOUCHED");
+      },
+      "trailing-space ",
+    );
   });
 
   test("[integration] --no-gh derives verdicts from a temp git repo", () => {

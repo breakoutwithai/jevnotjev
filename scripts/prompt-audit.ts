@@ -21,9 +21,11 @@
 //
 // A deliverable token is a path only with a directory part: a trailing `/`, a `~/` or `./` prefix, or
 // a file extension on the last segment. A bare filename (`records.csv`) or a path escaping the repo is
-// UNRESOLVED, and any deliverable holding an UNRESOLVED or IGNORED candidate is unchecked; a bare
-// filename is never matched by basename, and an IGNORED path never counts toward delivery.
-// The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER).
+// UNRESOLVED. A deliverable with no path or any UNRESOLVED candidate is unchecked, and one unchecked
+// deliverable blocks DELIVERED. A path absent from the pinned tree is MISSING (no .gitignore lookup).
+// The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER); the
+// Definition of done is counted from Bun.markdown's rendering of the body.
+// Limitation: a backtick span naming a file with a comma in its name is split, so it stays UNRESOLVED.
 // The verdict says what the repo evidence supports; it never claims the Definition of done is met.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -31,7 +33,7 @@ import { basename, join, posix } from "node:path";
 
 export type Verdict = "NOT-RUN" | "PARTIAL" | "DELIVERED" | "NO-EVIDENCE-POSSIBLE";
 export type IssueState = "OPEN" | "CLOSED" | "unknown" | "none";
-export type PathState = "TOUCHED" | "UNTOUCHED" | "MISSING" | "IGNORED";
+export type PathState = "TOUCHED" | "UNTOUCHED" | "MISSING";
 export type Flag = "STALE-STATUS" | "INVALID-STATUS" | "INVALID-HEADER";
 
 export type ParsedPrompt = {
@@ -63,11 +65,11 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Date);
 }
 
-function frontMatter(text: string): string | null {
-  const lines = text.split("\n");
-  if (lines[0]?.trim() !== "---") return null;
-  const end = lines.findIndex((l, i) => i > 0 && l.trim() === "---");
-  return end === -1 ? null : lines.slice(1, end).join("\n");
+// The block opens and closes only on a line that is exactly `---` at column 0.
+function splitFrontMatter(text: string): { source: string | null; body: string } {
+  const lines = text.split(/\r?\n/);
+  const end = lines[0] === "---" ? lines.indexOf("---", 1) : -1;
+  return end === -1 ? { source: null, body: text } : { source: lines.slice(1, end).join("\n"), body: lines.slice(end + 1).join("\n") };
 }
 
 function stringField(data: Record<string, unknown>, key: string, errors: string[]): string | null {
@@ -81,7 +83,7 @@ function stringField(data: Record<string, unknown>, key: string, errors: string[
 // The front matter goes through Bun's built-in YAML parser, then each field is type-checked.
 export function parsePrompt(text: string): ParsedPrompt {
   const out: ParsedPrompt = { promptId: null, created: null, createdInvalid: false, status: null, governingIssue: null, deliverables: [], errors: [] };
-  const source = frontMatter(text);
+  const { source } = splitFrontMatter(text);
   if (source === null) {
     out.errors.push("no front matter block");
     return out;
@@ -97,7 +99,11 @@ export function parsePrompt(text: string): ParsedPrompt {
     out.errors.push("front matter is not a mapping");
     return out;
   }
-  out.promptId = stringField(data, "prompt_id", out.errors);
+  const id = stringField(data, "prompt_id", out.errors)?.trim();
+  if (id !== undefined) {
+    if (id === "" || /[\r\n]/.test(id)) out.errors.push("prompt_id must be a non-empty single-line string");
+    else out.promptId = id;
+  }
   out.status = stringField(data, "status", out.errors);
   const created = data["created"];
   if (created !== undefined && created !== null) {
@@ -121,35 +127,27 @@ export function parsePrompt(text: string): ParsedPrompt {
   return out;
 }
 
-// Checklist items under a "Definition of done" heading, until a heading of the same or higher level.
-// Fenced code is skipped: a fence closes only on the same character with at least the opening length.
+// Task-list checkboxes under the first "Definition of done" heading, until the next heading of the
+// same or higher level. The body is rendered by Bun's markdown renderer, so fences, indented code,
+// inline code, setext headings and list markers follow the GFM spec instead of a line scanner.
 export function countChecklist(text: string): { checked: number; unchecked: number } {
+  const html = Bun.markdown.html(splitFrontMatter(text).body);
   let level = 0;
-  let fence: { ch: string; len: number } | null = null;
+  let finished = false;
   let checked = 0;
   let unchecked = 0;
-  for (const line of text.split("\n")) {
-    if (fence !== null) {
-      const close = line.match(/^\s*(`+|~+)\s*$/)?.[1];
-      if (close !== undefined && close[0] === fence.ch && close.length >= fence.len) fence = null;
-      continue;
+  for (const m of html.matchAll(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>|<input type="checkbox" class="task-list-item-checkbox" disabled( checked)?>/g)) {
+    if (m[1] !== undefined) {
+      const lv = Number(m[1]);
+      if (level === 0 && !finished && /definition of done/i.test((m[2] ?? "").replace(/<[^>]*>/g, ""))) level = lv;
+      else if (level > 0 && lv <= level) {
+        level = 0;
+        finished = true;
+      }
+    } else if (level > 0) {
+      if (m[3] === undefined) unchecked += 1;
+      else checked += 1;
     }
-    const open = line.match(/^\s*(`{3,}|~{3,})/)?.[1];
-    if (open !== undefined) {
-      fence = { ch: open[0] ?? "`", len: open.length };
-      continue;
-    }
-    const heading = line.match(/^(#{1,6})\s+(.*)$/);
-    if (heading !== null) {
-      const lv = heading[1]?.length ?? 0;
-      if (/^definition of done\b/i.test(heading[2] ?? "")) level = lv;
-      else if (level > 0 && lv <= level) level = 0;
-      continue;
-    }
-    if (level === 0) continue;
-    const m = line.match(/^\s*[-*]\s+\[([ xX])\]/);
-    if (m?.[1] === " ") unchecked += 1;
-    else if (m !== null) checked += 1;
   }
   return { checked, unchecked };
 }
@@ -180,10 +178,12 @@ function classifyToken(raw: string, span: boolean): Token {
   const trimmed = dir ? body.slice(0, -1) : body;
   const segments = trimmed.split("/");
   if (trimmed === "" || segments[0] === "" || segments.at(-1) === "") return { kind: "reject" };
-  if (!segments.some((s) => /[A-Za-z0-9]/.test(s))) return { kind: "reject" };
   const normalized = posix.normalize(candidate);
-  // Traversal is judged first: `src/..` has no extension but still names (and escapes) a directory.
-  if (!home && !abs && (normalized === "." || normalized === ".." || normalized.startsWith("../"))) return { kind: "unresolved", token: candidate };
+  const flat = normalized.replace(/\/+$/, "");
+  // Traversal is judged first, before any other filter: `src/..` and `../..` have no extension or
+  // no letters, yet still name (and escape) a directory.
+  if (!home && !abs && (flat === "." || flat === ".." || flat.startsWith("../"))) return { kind: "unresolved", token: candidate };
+  if (!segments.some((s) => /[\p{L}\p{N}]/u.test(s))) return { kind: "reject" };
   if (!(dir || home || dotLead || EXTENSION.test(segments.at(-1) ?? ""))) return { kind: "reject" };
   if (home) return { kind: "path", path: posix.join(homedir(), body) };
   return { kind: "path", path: normalized };
@@ -218,10 +218,12 @@ export function extractPaths(deliverable: string): string[] {
   return extractCandidates(deliverable).paths;
 }
 
-export function verdictFor(input: { exists: number; missing: number; evidence: number; issue: IssueState }): Verdict {
+// `unchecked` counts deliverables with no path or with an UNRESOLVED candidate: any of them blocks
+// DELIVERED, so every extraction miss fails conservative.
+export function verdictFor(input: { exists: number; missing: number; unchecked: number; evidence: number; issue: IssueState }): Verdict {
   const checkable = input.exists + input.missing;
   if (checkable === 0 && input.issue === "none") return input.evidence > 0 ? "PARTIAL" : "NO-EVIDENCE-POSSIBLE";
-  if (checkable > 0 && input.missing === 0 && (input.issue === "none" || input.issue === "CLOSED")) return "DELIVERED";
+  if (checkable > 0 && input.missing === 0 && input.unchecked === 0 && (input.issue === "none" || input.issue === "CLOSED")) return "DELIVERED";
   if (input.exists === 0 && input.evidence === 0) return "NOT-RUN";
   return "PARTIAL";
 }
@@ -257,7 +259,6 @@ export type PromptResult = {
   pathsTouched: number;
   pathsUntouched: number;
   pathsMissing: number;
-  pathsIgnored: number;
   evidenceCommits: string[];
   dod: { checked: number; unchecked: number };
   verdict: Verdict;
@@ -293,13 +294,7 @@ export function classifyPath(path: string, tree: Tree, git: Git, fsExists: (p: s
   const bare = path.replace(/\/+$/, "");
   // A trailing slash names a directory: it needs a tracked descendant, a file of that name is not one.
   const inTree = (!path.endsWith("/") && tree.files.has(bare)) || [...tree.files].some((f) => f.startsWith(`${bare}/`));
-  if (!inTree) {
-    // check-ignore treats names literally (and rejects pathspec magic); exit 1 means "not ignored".
-    const r = git(["check-ignore", "-q", "--", path]);
-    if (r.code === 0) return "IGNORED";
-    if (r.code === 1) return "MISSING";
-    throw new Error(`git check-ignore ${path} failed (exit ${r.code}): ${r.err.trim()}`);
-  }
+  if (!inTree) return "MISSING";
   if (created === null) return "TOUCHED";
   const out = must(git, ["log", ref, sinceFilter(created), "--format=%h", "--", literal(bare)]);
   return out.trim() === "" ? "UNTOUCHED" : "TOUCHED";
@@ -315,27 +310,25 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
     // An invalid created date means "touched since" cannot be computed: nothing is classified.
     if (createdBad) return { text: d, paths: [], unresolved: [...c.paths, ...c.unresolved], unchecked: true };
     const paths = c.paths.map((path) => ({ path, state: classifyPath(path, tree, git, fsExists, ref, created) }));
-    // Checked only if every candidate was classified and none was ignored: an IGNORED or UNRESOLVED
-    // path can never satisfy delivery.
-    return { text: d, paths, unresolved: c.unresolved, unchecked: paths.length === 0 || c.unresolved.length > 0 || paths.some((p) => p.state === "IGNORED") };
+    // Checked only if there is a path and every candidate was classified.
+    return { text: d, paths, unresolved: c.unresolved, unchecked: paths.length === 0 || c.unresolved.length > 0 };
   });
   const all = deliverables.flatMap((d) => d.paths);
   const pathsTouched = all.filter((p) => p.state === "TOUCHED").length;
   const pathsUntouched = all.filter((p) => p.state === "UNTOUCHED").length;
   const pathsMissing = all.filter((p) => p.state === "MISSING").length;
-  const pathsIgnored = all.filter((p) => p.state === "IGNORED").length;
   const commits = new Set<string>();
   const repoPaths = all.filter((p) => p.state === "TOUCHED" && !p.path.startsWith("/")).map((p) => literal(p.path.replace(/\/+$/, "")));
   if (repoPaths.length > 0) {
     const since = created === null ? [] : [sinceFilter(created)];
     for (const h of must(git, ["log", ref, ...since, "--format=%h", "--", ...repoPaths]).split("\n")) if (h !== "") commits.add(h);
   }
-  const needles = [parsed.promptId, stem].filter((n): n is string => n !== null && n !== "");
+  const needles = [parsed.promptId, stem].filter((n): n is string => n !== null && n !== "" && !/[\r\n]/.test(n));
   // With no needle the query would be an unfiltered `git log`: skip it.
   if (needles.length > 0) for (const h of must(git, ["log", ref, "--fixed-strings", ...needles.map((n) => `--grep=${n}`), "--format=%h"]).split("\n")) if (h !== "") commits.add(h);
   let issue: IssueState = "none";
   if (parsed.governingIssue !== null) issue = lookup === null ? "unknown" : lookup(parsed.governingIssue);
-  const verdict = verdictFor({ exists: pathsTouched, missing: pathsMissing + pathsUntouched, evidence: commits.size, issue });
+  const verdict = verdictFor({ exists: pathsTouched, missing: pathsMissing + pathsUntouched, unchecked: deliverables.filter((d) => d.unchecked).length, evidence: commits.size, issue });
   const flags = flagsFor(parsed.status, verdict);
   if (parsed.errors.length > 0) flags.push("INVALID-HEADER");
   return {
@@ -351,7 +344,6 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
     pathsTouched,
     pathsUntouched,
     pathsMissing,
-    pathsIgnored,
     evidenceCommits: [...commits],
     dod: countChecklist(text),
     verdict,
@@ -378,7 +370,6 @@ export function renderReport(results: PromptResult[], refLine: string | null = n
       `UNTOUCHED: ${list("UNTOUCHED")}`,
     ];
     if (unresolved.length > 0) parts.push(`UNRESOLVED: ${unresolved.join(", ")}`);
-    if (r.pathsIgnored > 0) parts.push(`IGNORED: ${list("IGNORED")}`);
     if (r.errors.length > 0) parts.push(`ERRORS: ${r.errors.join("; ")}`);
     return `- ${r.stem}: ${parts.join(" | ")}`;
   });
@@ -431,17 +422,20 @@ function realIssueLookup(n: number): "OPEN" | "CLOSED" | "unknown" {
 }
 
 function run(o: Options): number {
-  let files: string[] = [];
+  let files: string[];
   try {
     files = readdirSync(o.dir).filter((f) => f.endsWith(".prompt.md")).sort();
-  } catch {
-    files = [];
+  } catch (e) {
+    console.error(`prompt-audit: cannot read ${o.dir}: ${e instanceof Error ? e.message : String(e)}`);
+    return 2;
   }
   if (files.length === 0) {
     console.error(`no prompts in ${o.dir}`);
     return 2;
   }
-  const git = gitAt(gitAt(null)(["rev-parse", "--show-toplevel"]).out.trim() || null);
+  // Only the newline git appends is removed: a repository path may itself end in whitespace.
+  const top = gitAt(null)(["rev-parse", "--show-toplevel"]);
+  const git = gitAt(top.code === 0 ? top.out.replace(/\n$/, "") : null);
   const sha = must(git, ["rev-parse", "--verify", `${o.ref}^{commit}`]).trim();
   const tree = buildTree(must(git, ["ls-tree", "-r", "-z", "--name-only", sha]));
   const lookup = o.noGh ? null : realIssueLookup;

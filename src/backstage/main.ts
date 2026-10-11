@@ -1001,21 +1001,18 @@ button("download-csv").onclick = () => {
   else if (run?.exportable && (run.revealed || run.cards().length === 0))
     download("records.csv", run.csv(), "text/csv;charset=utf-8");
 };
-button("download-evidence").onclick = () => {
+button("download-evidence").onclick = async () => {
   const reason = downloadReasons().evidence;
   if (reason) {
     notice(reason);
     return;
   }
-  if (
-    run?.exportable &&
-    (run.revealed || run.cards().length === 0)
-  )
-    download(
-      "backstage-evidence.json",
-      JSON.stringify(run.evidence(), null, 2),
-      "application/json",
-    );
+  const current = run;
+  if (current?.exportable && (current.revealed || current.cards().length === 0)) {
+    // evidence() exports the verdicts report() cached; a click right after reveal must not race the render's report().
+    await current.report().catch(() => undefined);
+    download("backstage-evidence.json", JSON.stringify(current.evidence(), null, 2), "application/json");
+  }
 };
 field("cases").addEventListener("input", () => {
   imports.invalidate();

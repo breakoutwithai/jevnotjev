@@ -1,15 +1,23 @@
 /**
- * Reload and inspect a run export (BackstageRun.evidence() as JSON). Refuses an export that holds anything shaped like
- * a credential or that was made with a different verdict calculation. Then it rebuilds every comparison's records from
- * the export's own manifest, attempts and labels with the functions BackstageRun exports with (src/backstage/records.ts),
- * requires the exported records, comparisons, verdicts and spend to equal what those rebuild to, and recomputes each verdict
- * from the rebuilt records with the same chain report() runs (validate -> cohortMetrics -> verdict(fileSeed)).
- * Never throws: every defect, however malformed the input, is a problem in the result.
+ * Reload and inspect a run export (BackstageRun.evidence() as JSON).
+ *
+ * Contract: a REPRODUCIBILITY and NO-CREDENTIALS check, not an authenticity check. The export is unsigned, so anyone can
+ * rewrite it consistently. `ok` means all of:
+ *   (a) nothing shaped like a credential anywhere, key or value (CREDENTIAL_PATTERNS, plus any supplied knownKeys);
+ *   (b) calcVersion equals this build's CALC_VERSION;
+ *   (c) the manifest and scene are valid (the scene through runScene, the run constructor's own validation);
+ *   (d) records, comparisons and spend equal a rebuild from the export's own attempts and labels (records.ts);
+ *   (e) each verdict recomputes equal through cohortVerdict, the chain report() runs.
+ * It does NOT verify provider response metadata (returnedModel, request fingerprints, Jev probabilities, attempt-id
+ * uniqueness, suggestion-attempt relationships), nor that the file came from a real run.
+ *
+ * Never throws: every defect, however malformed the input, is a problem in the result. Problems never quote a string
+ * read from the export; they name fields and positions.
  */
 import { isDeepStrictEqual } from "node:util";
-import { CALC_VERSION, PROTOCOL_VERSION } from "./contracts.ts";
+import { CALC_VERSION, PROTOCOL_VERSION, type Scene } from "./contracts.ts";
 import { JEV_ARM_ID } from "./catalog.ts";
-import { validate } from "../format/validate.ts";
+import { cohortVerdict, runScene } from "./run.ts";
 import {
   EXPORT_COLUMNS,
   RULE_VALUES,
@@ -24,21 +32,32 @@ import {
   type Spend,
 } from "./records.ts";
 import { formatRows, readDictRows } from "../format/csv.ts";
-import { cohortMetrics } from "../core/metrics.ts";
-import { fileSeed } from "../core/calc.ts";
-import { verdict, type Verdict, type VerdictName } from "../core/verdict.ts";
+import type { Verdict, VerdictName } from "../core/verdict.ts";
 
+export interface CredentialPattern {
+  readonly name: string;
+  /** Global, single quantified run per alternative, so a scan is linear in the text. */
+  readonly pattern: RegExp;
+  /** The match must hold a digit too: words like "api-gateway" or "token: pending" are ordinary text, not a token. */
+  readonly needsDigit?: boolean;
+}
 /** Common provider-key and auth-header shapes. A match anywhere in the export, key or value, refuses it. */
-export const CREDENTIAL_PATTERNS: readonly { readonly name: string; readonly pattern: RegExp }[] = [
-  { name: "Anthropic key (sk-ant-)", pattern: /sk-ant-[A-Za-z0-9_-]{8,}/ },
-  { name: "OpenAI-style key (sk-)", pattern: /(?:^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}/ },
-  { name: "xAI key (xai-)", pattern: /(?:^|[^A-Za-z0-9])xai-[A-Za-z0-9_-]{16,}/ },
-  { name: "Google key (AIza)", pattern: /AIza[0-9A-Za-z_-]{30,}/ },
-  { name: "Bearer token", pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/i },
-  { name: "GitHub token", pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/ },
-  { name: "api_ key (as scripts/uc13/calls.ts KEY_PATTERN)", pattern: /(?:^|[^A-Za-z0-9])api[_-][A-Za-z0-9_-]{6,}/ },
-  { name: "key assignment", pattern: /\b(?:api[_-]?key|secret|password|token)\s*[:=]\s*\S{8,}/i },
+export const CREDENTIAL_PATTERNS: readonly CredentialPattern[] = [
+  { name: "Anthropic key (sk-ant-)", pattern: /sk-ant-[A-Za-z0-9_-]{8,}/g },
+  { name: "OpenAI-style key (sk-)", pattern: /(?:^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}/g },
+  { name: "xAI key (xai-)", pattern: /(?:^|[^A-Za-z0-9])xai-[A-Za-z0-9_-]{16,}/g },
+  { name: "Google key (AIza)", pattern: /AIza[0-9A-Za-z_-]{30,}/g },
+  // Case-sensitive, and a token-length value: "Bearer authentication" and "bearer bonds" are prose.
+  { name: "Bearer token", pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/g },
+  { name: "GitHub token", pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g },
+  { name: "api_ key", pattern: /(?:^|[^A-Za-z0-9])api[_-][A-Za-z0-9_-]{16,}/g, needsDigit: true },
+  { name: "key assignment", pattern: /\b(?:api[_-]?key|secret|password|token)\s*[:=]\s*\S{16,}/gi, needsDigit: true },
 ];
+function matchesCredential({ pattern, needsDigit }: CredentialPattern, s: string): boolean {
+  // matchAll copies the pattern, so its lastIndex never leaks between calls; each match consumes its run, so this is linear.
+  for (const match of s.matchAll(pattern)) if (!needsDigit || /[0-9]/.test(match[0])) return true;
+  return false;
+}
 /** Nesting beyond this is refused before anything else reads the export; a real export nests under ten deep. */
 export const MAX_EXPORT_DEPTH = 64;
 /** Values (strings, numbers, keys, containers) beyond this are refused; a 400-request run holds well under it. */
@@ -101,7 +120,7 @@ function nullOr<T>(value: unknown, guard: (v: unknown) => v is T): value is T | 
 }
 
 function credentialNames(s: string, knownKeys: readonly string[]): string[] {
-  const names = CREDENTIAL_PATTERNS.filter(({ pattern }) => pattern.test(s)).map(({ name }) => `looks like a ${name}`);
+  const names = CREDENTIAL_PATTERNS.filter((p) => matchesCredential(p, s)).map(({ name }) => `looks like a ${name}`);
   if (knownKeys.some((key) => key.length > 0 && s.includes(key))) names.push("contains a supplied key");
   return names;
 }
@@ -166,24 +185,29 @@ interface Manifest {
   readonly otherwiseChoice: string;
   readonly cases: ReadonlyMap<string, string>;
 }
-function parseScene(scene: unknown, problems: string[]) {
+function parseScene(scene: unknown, arms: readonly string[] | null, problems: string[]) {
   if (!isRecord(scene)) {
     problems.push("manifest.scene must be an object.");
     return null;
   }
   const question = text(scene, "question");
+  const acceptance = text(scene, "acceptance");
+  const exclusions = text(scene, "exclusions");
   const matchChoice = text(scene, "matchChoice");
   const otherwiseChoice = text(scene, "otherwiseChoice");
   const keywords = scene.keywords;
   const rawChoices = scene.choices;
-  const choices = Array.isArray(rawChoices) ? rawChoices.flatMap((c) => (isRecord(c) && typeof c.name === "string" ? [c.name] : [])) : [];
+  const named = Array.isArray(rawChoices)
+    ? rawChoices.flatMap((c) => (isRecord(c) && typeof c.name === "string" && typeof c.definition === "string" ? [{ name: c.name, definition: c.definition }] : []))
+    : [];
+  const choices = named.map((c) => c.name);
   let ok = true;
-  if (question === null || matchChoice === null || otherwiseChoice === null || !isStringArray(keywords)) {
-    problems.push("manifest.scene needs question, keywords, matchChoice and otherwiseChoice.");
+  if (question === null || acceptance === null || exclusions === null || matchChoice === null || otherwiseChoice === null || !isStringArray(keywords)) {
+    problems.push("manifest.scene needs question, acceptance, exclusions, keywords, matchChoice and otherwiseChoice.");
     ok = false;
   }
-  if (!Array.isArray(rawChoices) || rawChoices.length !== 2 || choices.length !== 2) {
-    problems.push("manifest.scene needs exactly two named choices.");
+  if (!Array.isArray(rawChoices) || rawChoices.length !== 2 || named.length !== 2) {
+    problems.push("manifest.scene needs exactly two choices, each with a name and a definition.");
     ok = false;
   }
   const cases = new Map<string, string>();
@@ -203,7 +227,38 @@ function parseScene(scene: unknown, problems: string[]) {
         ok = false;
       } else cases.set(id, input);
     });
-  if (!ok || question === null || matchChoice === null || otherwiseChoice === null || !isStringArray(keywords)) return null;
+  const [first, second] = named;
+  if (
+    !ok ||
+    first === undefined ||
+    second === undefined ||
+    question === null ||
+    acceptance === null ||
+    exclusions === null ||
+    matchChoice === null ||
+    otherwiseChoice === null ||
+    !isStringArray(keywords)
+  )
+    return null;
+  // The run constructor's own scene validation, for every export, populated or empty. Its messages quote no input.
+  if (arms !== null) {
+    const full: Scene = {
+      question,
+      choices: [first, second],
+      acceptance,
+      exclusions,
+      keywords,
+      matchChoice,
+      otherwiseChoice,
+      cases: [...cases].map(([id, input]) => ({ id, input })),
+    };
+    try {
+      runScene(full, arms);
+    } catch (error) {
+      problems.push(`manifest.scene: ${error instanceof Error ? error.message : "invalid scene"}`);
+      return null;
+    }
+  }
   return { question, choices, keywords, matchChoice, otherwiseChoice, cases };
 }
 function parseManifest(value: unknown, problems: string[]): Manifest | null {
@@ -238,10 +293,9 @@ function parseManifest(value: unknown, problems: string[]): Manifest | null {
   // The run.ts constructor: one arm (Jev) is jev-only, more is compare.
   if (isStringArray(arms) && mode !== null) {
     const expectedMode = arms.length === 1 ? "jev-only" : "compare";
-    if (mode !== expectedMode)
-      problems.push(`manifest.mode must be ${JSON.stringify(expectedMode)} for ${arms.length} selected arm(s); it is ${JSON.stringify(mode)}.`);
+    if (mode !== expectedMode) problems.push(`manifest.mode must be ${JSON.stringify(expectedMode)} for ${arms.length} selected arm(s).`);
   }
-  const scene = parseScene(value.scene, problems);
+  const scene = parseScene(value.scene, isStringArray(arms) ? arms : null, problems);
   if (problems.length > before || scene === null || mode === null || runId === null || promptVersion === null || questionId === null || !isStringArray(arms))
     return null;
   return { mode, arms, providers, runId, promptVersion, questionId, ...scene };
@@ -471,21 +525,25 @@ interface Answer extends RecordAnswer {
  */
 function reconcileAnswers(m: Manifest, labels: readonly ExportLabel[], attempts: readonly Attempt[], problems: string[]): Answer[] {
   const successes = new Map<string, Attempt>();
+  const successAt = new Map<string, number>();
   attempts.forEach((a, i) => {
     if (a.runId !== m.runId) problems.push(`attempts[${i}]: runId is not the manifest's.`);
     if (!m.cases.has(a.caseId)) problems.push(`attempts[${i}]: its case is not in the scene.`);
     if (!m.providers.has(a.armId)) problems.push(`attempts[${i}]: its arm is not a selected model.`);
     if (!a.ok) return;
     const key = JSON.stringify([a.caseId, a.armId]);
-    if (successes.has(key)) problems.push(`attempts[${i}]: a second successful attempt for case ${a.caseId}, arm ${a.armId}.`);
-    else successes.set(key, a);
+    if (successes.has(key)) problems.push(`attempts[${i}]: a second successful attempt for its case and arm.`);
+    else {
+      successes.set(key, a);
+      successAt.set(key, i);
+    }
   });
   const seen = new Set<string>();
   const answers: Answer[] = [];
   labels.forEach((l, i) => {
     const key = JSON.stringify([l.caseId, l.armId]);
     if (seen.has(key)) {
-      problems.push(`labels[${i}]: duplicate label for case ${l.caseId}, arm ${l.armId}.`);
+      problems.push(`labels[${i}]: duplicate label for its case and arm.`);
       return;
     }
     seen.add(key);
@@ -497,21 +555,21 @@ function reconcileAnswers(m: Manifest, labels: readonly ExportLabel[], attempts:
     const provider = l.armId === "rule" ? "rule" : m.providers.get(l.armId);
     if (l.provider !== provider) problems.push(`labels[${i}]: provider is not the arm's.`);
     if (l.armId === "rule") {
-      if (l.output !== ruleOutput(m, input)) problems.push(`labels[${i}]: output is not the keyword rule's answer for case ${l.caseId}.`);
+      if (l.output !== ruleOutput(m, input)) problems.push(`labels[${i}]: output is not the keyword rule's answer for its case.`);
       answers.push({ label: l, attemptId: null, caseId: l.caseId, provider: l.provider, output: l.output, ...RULE_VALUES });
       return;
     }
     const attempt = successes.get(key);
     if (attempt === undefined) {
-      problems.push(`labels[${i}]: no answer for case ${l.caseId}, arm ${l.armId}: no successful attempt.`);
+      problems.push(`labels[${i}]: no answer for its case and arm: no successful attempt.`);
       return;
     }
-    if (attempt.output !== l.output) problems.push(`labels[${i}]: output differs from the attempt's output for case ${l.caseId}, arm ${l.armId}.`);
+    if (attempt.output !== l.output) problems.push(`labels[${i}]: output differs from its successful attempt's output.`);
     const { attemptId, model, confidence, tokensIn, tokensOut, costUsd, latencyMs } = attempt;
     answers.push({ label: l, attemptId, caseId: l.caseId, provider: l.provider, output: l.output, model, confidence, tokensIn, tokensOut, costUsd, latencyMs });
   });
-  for (const [key, a] of successes)
-    if (!seen.has(key)) problems.push(`attempt ${a.attemptId}: a successful attempt with no labels entry (case ${a.caseId}, arm ${a.armId}).`);
+  for (const key of successes.keys())
+    if (!seen.has(key)) problems.push(`attempts[${successAt.get(key) ?? "?"}]: a successful attempt with no labels entry.`);
   if (m.arms.includes("rule") && (attempts.length > 0 || labels.length > 0)) {
     const ruleRows = labels.filter((l) => l.armId === "rule").length;
     if (ruleRows !== m.cases.size)
@@ -550,23 +608,25 @@ export async function checkExport(data: unknown, options: ExportCheckOptions = {
   }
 }
 
-async function recomputePair(m: Manifest, pair: ComparisonPair,csv: string, rows: number, problems: string[]): Promise<Verdict | null> {
-  // An empty pair has no verdict: report() allows header-only records when the pair has no answers.
-  if (rows === 0) return null;
+async function recomputePair(m: Manifest, pair: ComparisonPair, index: number, csv: string, rows: number, problems: string[]): Promise<Verdict | null> {
   try {
-    const parsed = validate(csv);
-    if (parsed.errors.length) {
-      problems.push(`comparison ${pair.armId}: rebuilt records fail validation: ${parsed.errors[0]}`);
-      return null;
-    }
-    if (m.mode !== "compare") return null;
-    // The same chain BackstageRun.report() runs for each pair.
-    const metrics = cohortMetrics(parsed.rows, { runId: pair.runId, promptVersion: m.promptVersion, questionId: m.questionId });
-    return verdict(metrics, await fileSeed(csv));
+    // The chain BackstageRun.report() runs for each pair; a pair with no answers is an empty cohort with no verdict.
+    const outcome = await cohortVerdict(
+      csv,
+      {
+        mode: m.mode,
+        key: { runId: pair.runId, promptVersion: m.promptVersion, questionId: m.questionId },
+        question: m.question,
+        answerSet: m.choices.join("|"),
+      },
+      rows === 0,
+    );
+    if (outcome.ok) return outcome.verdict;
+    problems.push(`comparisons[${index}]: rebuilt records fail validation (${outcome.errors.length} error(s)).`);
   } catch (error) {
-    problems.push(`comparison ${pair.armId}: the verdict could not be recomputed (${error instanceof Error ? error.message : "unknown error"}).`);
-    return null;
+    problems.push(`comparisons[${index}]: the verdict could not be recomputed (${error instanceof Error ? error.name : "unknown error"}).`);
   }
+  return null;
 }
 
 async function checkParsed(data: unknown, options: ExportCheckOptions): Promise<ExportCheck> {
@@ -582,10 +642,8 @@ async function checkParsed(data: unknown, options: ExportCheckOptions): Promise<
   const calcVersion = text(data, "calcVersion");
   if (calcVersion === null)
     problems.push(`No calcVersion: the export does not say which calculation made its verdicts (this build runs ${CALC_VERSION}).`);
-  else if (calcVersion !== CALC_VERSION)
-    problems.push(
-      `This export was made with a different calculation (${calcVersion}); this build runs ${CALC_VERSION}, so its verdicts cannot be reproduced here.`,
-    );
+  // Never echo the value: it is untrusted text.
+  else if (calcVersion !== CALC_VERSION) problems.push(`calcVersion differs from ${CALC_VERSION}: this build cannot reproduce its verdicts.`);
 
   const manifest = parseManifest(data.manifest, problems);
   const attempts = parseAttempts(data.attempts, "attempts", problems);
@@ -613,12 +671,12 @@ async function checkParsed(data: unknown, options: ExportCheckOptions): Promise<
     comparisons.length === pairs.length &&
     pairs.every((p, i) => comparisons[i]?.armId === p.armId && comparisons[i]?.runId === p.runId && comparisons[i]?.filename === p.filename);
   if (!sameComparisons)
-    problems.push(`comparisons must be exactly one per pair the manifest selects, in order: ${pairs.map((p) => `${p.armId} (${p.filename})`).join(", ")}.`);
+    problems.push(`comparisons must be exactly one per pair the manifest selects (${pairs.length}), in order, with each pair's armId, runId and filename.`);
   if (
     exportedVerdicts !== null &&
     !(exportedVerdicts.length === pairs.length && pairs.every((p, i) => exportedVerdicts[i]?.armId === p.armId && exportedVerdicts[i]?.runId === p.runId))
   )
-    problems.push(`verdicts must be exactly one per comparison, in order: ${pairs.map((p) => p.armId).join(", ")}.`);
+    problems.push(`verdicts must be exactly one per comparison (${pairs.length}), in order, with each pair's armId and runId.`);
 
   const rebuilt: string[][][] = [];
   for (const [index, pair] of pairs.entries()) {
@@ -629,17 +687,17 @@ async function checkParsed(data: unknown, options: ExportCheckOptions): Promise<
     const exported = comparisons[index];
     if (exported !== undefined && exported.armId === pair.armId && exported.runId === pair.runId) {
       if (exported.csv !== csv)
-        problems.push(`comparison ${pair.armId}: records differ from what the labels, attempts and manifest rebuild to (first at ${firstDifference(exported.csv, csv)}).`);
+        problems.push(`comparisons[${index}]: records differ from what the labels, attempts and manifest rebuild to (first at ${firstDifference(exported.csv, csv)}).`);
       const attemptIds = mine.flatMap((a) => (a.attemptId ? [a.attemptId] : []));
-      if (!isDeepStrictEqual(exported.attemptIds, attemptIds)) problems.push(`comparison ${pair.armId}: attemptIds are not its answers' attempts.`);
+      if (!isDeepStrictEqual(exported.attemptIds, attemptIds)) problems.push(`comparisons[${index}]: attemptIds are not its answers' attempts.`);
     }
-    const recomputed = await recomputePair(manifest, pair, csv, rows.length, problems);
+    const recomputed = await recomputePair(manifest, pair, index, csv, rows.length, problems);
     const recorded = exportedVerdicts?.[index];
     const samePair = recorded !== undefined && recorded.armId === pair.armId && recorded.runId === pair.runId;
     const matches = samePair && isDeepStrictEqual(JSON.parse(JSON.stringify(recomputed)), recorded.verdict);
     if (samePair && !matches)
       problems.push(
-        `verdict mismatch for ${pair.armId}: exported ${JSON.stringify(verdictName(recorded.verdict))}, recomputed ${JSON.stringify(recomputed?.verdict ?? null)}.`,
+        `verdict mismatch for verdicts[${index}]: exported ${JSON.stringify(verdictName(recorded.verdict))}, recomputed ${JSON.stringify(recomputed?.verdict ?? null)}.`,
       );
     verdicts.push({
       armId: pair.armId,

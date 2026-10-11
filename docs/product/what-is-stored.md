@@ -4,51 +4,59 @@ Every statement cites the code it comes from, as `file:line` under `src/backstag
 
 ## 1. The evidence export
 
-`Run.evidence()` (`run.ts:1554`) builds the JSON the page downloads as `backstage-evidence.json` (`main.ts:1010-1018`). The browser builds it from the run held in page memory; no server call is made to produce it.
+`Run.evidence()` (`run.ts:1511`) builds the JSON the page downloads as `backstage-evidence.json` (`main.ts:1004-1016`). The browser builds it from the run held in page memory; no server call is made to produce it.
 
 | Field | What it holds | Source |
 |---|---|---|
-| `version` | The protocol version, `backstage/2` | `run.ts:1562`, `contracts.ts:1` |
-| `calcVersion` | The version of the verdict calculation, constant `CALC_VERSION` (`"verdict/1"`); it must change whenever the verdict or stats calculation changes | `run.ts:1563`, `contracts.ts:7` |
+| `version` | The protocol version, `backstage/2` | `run.ts:1519`, `contracts.ts:1` |
+| `calcVersion` | The version of the verdict calculation, constant `CALC_VERSION` (`"verdict/1"`); it must change whenever the verdict or stats calculation changes | `run.ts:1520`, `contracts.ts:7` |
 | `manifest` | Mode, arms, models, catalog version, revision, run id, prompt version, question id, creation time, and the scene (question, choices, definitions, cases) | `run.ts:96-107` |
-| `funding` | `"trial"` or `"byok"`; never a key | `run.ts:1565` |
-| `attempts` | One record per provider call: ids, requested and returned model, generation parameters, fingerprint, start and finish time, latency, tokens in and out, cost in USD, price version; on success the output and confidence, on failure the error code, message and charge state | `run.ts:1566`, `contracts.ts:60-98` |
-| `labels` | Per answer: case id, arm, provider, output, label, label source, who set it and when, whether it was blind and final, whether a suggestion was shown | `run.ts:1567-1573`, `run.ts:1364-1375` |
-| `suggestionAttempts` | The attempts made for label suggestions | `run.ts:1574` |
-| `extraSpend`, `totalSpend` | Cost totals; failed attempts and suggestion calls are counted | `run.ts:1483`, `run.ts:1487`, `records.ts:117`, `records.ts:128` |
-| `comparisons` | Per comparison: arm id, run id, file name, the CSV text, attempt ids | `run.ts:1389-1396`, `records.ts:91-104`, `run.ts:130-136` |
-| `comparisonNote` | A fixed sentence: Jev observations are reused across cohorts, so do not sum their costs; verdicts are per pair and uncorrected for multiple comparisons | `run.ts:1578` |
-| `verdicts` | Per-pair verdicts from `report()`, only when computed from exactly these records; otherwise `null` | `run.ts:1581` |
-| `records` | The full records CSV, one row per answer, columns `EXPORT_COLUMNS` | `run.ts:1582`, `run.ts:27`, `records.ts:10` |
+| `funding` | `"trial"` or `"byok"`; never a key | `run.ts:1522` |
+| `attempts` | One record per provider call: ids, requested and returned model, generation parameters, fingerprint, start and finish time, latency, tokens in and out, cost in USD, price version; on success the output and confidence, on failure the error code, message and charge state | `run.ts:1523`, `contracts.ts:60-98` |
+| `labels` | Per answer: case id, arm, provider, output, label, label source, who set it and when, whether it was blind and final, whether a suggestion was shown | `run.ts:1524-1530`, `run.ts:1352-1363` |
+| `suggestionAttempts` | The attempts made for label suggestions | `run.ts:1531` |
+| `extraSpend`, `totalSpend` | Cost totals; failed attempts and suggestion calls are counted | `run.ts:1471`, `run.ts:1475`, `records.ts:117`, `records.ts:128` |
+| `comparisons` | Per comparison: arm id, run id, file name, the CSV text, attempt ids | `run.ts:1377-1384`, `records.ts:91-104`, `run.ts:130-136` |
+| `comparisonNote` | A fixed sentence: Jev observations are reused across cohorts, so do not sum their costs; verdicts are per pair and uncorrected for multiple comparisons | `run.ts:1535` |
+| `verdicts` | Per-pair verdicts from `report()`, only when computed from exactly these records; otherwise `null` | `run.ts:1538` |
+| `records` | The full records CSV, one row per answer, columns `EXPORT_COLUMNS` | `run.ts:1539`, `run.ts:27`, `records.ts:10` |
 
 Guards on the export:
 
-- It throws before reveal if any answer exists: "Reveal results (finish judging) before downloading evidence." (`run.ts:1556-1557`).
-- It throws if the run is marked unsafe: "Export blocked: this run contains a provider key." (`run.ts:1558-1559`).
-- A run becomes unsafe when any key the user supplied appears as a substring anywhere in the scene, attempts, suggestion attempts or answers (`run.ts:1199-1210`, matcher at `run.ts:145-153`). An unsafe run cannot start or continue (`run.ts:1195-1198`).
-- A provider response that contains the request's key is rejected as "Unsafe response evidence." (`run.ts:609-610`, `run.ts:1130`, `run.ts:1293-1294`).
+- It throws before reveal if any answer exists: "Reveal results (finish judging) before downloading evidence." (`run.ts:1513-1514`).
+- It throws if the run is marked unsafe: "Export blocked: this run contains a provider key." (`run.ts:1515-1516`).
+- A run becomes unsafe when any key the user supplied appears as a substring anywhere in the scene, attempts, suggestion attempts or answers (`run.ts:1187-1198`, matcher at `run.ts:145-153`). An unsafe run cannot start or continue (`run.ts:1183-1186`).
+- A provider response that contains the request's key is rejected as "Unsafe response evidence." (`run.ts:609-610`, `run.ts:1118`, `run.ts:1281-1282`).
 
 Limit of the key check: it matches the key values the user supplied in this session. It does not scan for credential patterns the user never entered.
 
 ### Verdicts and the calculation version
 
-- `verdicts` is cached by `report()` (`run.ts:1541-1544`, field at `run.ts:766-769`) and exported only while the cached records equal the current records (`run.ts:1581`). It is `null` when `report()` was not run or the records changed since.
-- `CALC_VERSION` is a hand-edited constant (`contracts.ts:2-7`). Nothing bumps it automatically. The only guard is the test that the committed sample equals a fresh export (`export-check.test.ts:43-44`): it fails when a calculation change alters the sample's output, and not when a change leaves that output the same. A change that does not show in the sample still needs a manual bump.
+- `verdicts` is cached by `report()` (`run.ts:1498-1501`, field at `run.ts:766-769`) and exported only while the cached records equal the current records (`run.ts:1538`). It is `null` when `report()` was not run or the records changed since.
+- The page's evidence download awaits `report()` before it calls `evidence()` (`main.ts:1013-1014`), so a download made right after reveal carries the verdicts. A `report()` that fails leaves `verdicts` `null`, and the export then does not check ok.
+- Every verdict is computed by one function, `cohortVerdict` in `run.ts` (validate, then `cohortMetrics`, then `verdict` with `fileSeed`; a pair with no answers is an empty cohort with no verdict). `report()` and the export checker both call it.
+- `CALC_VERSION` is a hand-edited constant (`contracts.ts:2-7`). Nothing bumps it automatically. The only guard is the test "D17 committed sample equals a freshly generated export" in `export-check.test.ts`: it fails when a calculation change alters the sample's output, and not when a change leaves that output the same. A change that does not show in the sample still needs a manual bump.
 
 ### Reload and inspect
 
-`checkExport(data)` and `checkExportText(json)` (`export-check.ts:198`, `export-check.ts:269`) take a parsed or raw export and return `ok`, counts and a list of problems. `ok` is true only when there are no problems (`export-check.ts:265`).
+`checkExport(data)` and `checkExportText(json)` in `src/backstage/export-check.ts` take a parsed or raw export and return `ok`, counts, per-pair verdict checks and a list of problems. `ok` is true only when there are no problems. Neither throws.
 
-- **Credentials:** `findCredentials` (`export-check.ts:72-81`) tests every string value and every object key against `CREDENTIAL_PATTERNS` (`export-check.ts:16-25`): `sk-ant-`, `sk-`, `xai-`, `AIza`, `Bearer` tokens, GitHub tokens, `api_`/`api-` keys and `key/secret/password/token = value` assignments. It reports the JSON path and pattern name, never the matched text. Optional `knownKeys` are also searched for exact values (`export-check.ts:78`). Any hit refuses the export before anything else is checked (`export-check.ts:204-211`). This is a pattern list: a credential in a shape it does not list is not caught.
-- **Calculation version:** an export with no `calcVersion`, or one different from this build's `CALC_VERSION`, fails (`export-check.ts:213-219`).
-- **Structure:** needs `manifest` (mode, promptVersion, questionId, scene), `labels`, a non-empty `comparisons`, `verdicts` and `totalSpend`; a missing piece is a problem (`export-check.ts:221-234`). `verdicts: null` is a problem: there is nothing to reproduce (`export-check.ts:232`).
-- **Labels:** each comparison's records are re-labelled from the `labels` list; a label that differs from the records row is a problem (`export-check.ts:167-195`).
-- **Verdicts:** for a compare run, each pair's verdict is recomputed with the chain `report()` uses (validate, `cohortMetrics`, `verdict` with `fileSeed`) and compared in full with the exported one; a missing or different verdict is a problem (`export-check.ts:236-263`).
+What the check means. It is a reproducibility and no-credentials check, not an authenticity check. The export is unsigned, so anyone can rewrite it consistently, and the check cannot tell. `ok` means all of:
+
+1. **No credentials.** `findCredentials` tests every string value and every object key against `CREDENTIAL_PATTERNS`: `sk-ant-`, `sk-`, `xai-` and `AIza` keys, `Bearer` followed by a token of 20 or more characters (case-sensitive), GitHub tokens, and `api_`/`api-` keys or `key/secret/password/token = value` assignments whose value is 16 or more characters and holds a digit. Ordinary prose such as "Bearer authentication broke" or "API keys are rotated monthly" is not refused. It reports the JSON path and pattern name, never the matched text, and redacts any object key that matched. Optional `knownKeys` are also searched for exact values. Any hit refuses the export before anything else is read. This is a pattern list: a credential in a shape it does not list is not caught.
+2. **Same calculation.** `calcVersion` equals this build's `CALC_VERSION`. A missing or different value fails; the problem never quotes the value.
+3. **Valid manifest and scene.** The manifest has mode, arms, models, run id, prompt version and question id, and the mode agrees with the arm count. The scene goes through `runScene`, the same validation the `BackstageRun` constructor runs (choice names, case ids and inputs, the rule's choices and keywords), for every export, with answers or without.
+4. **Rebuilt, not trusted.** The checker rebuilds every comparison's records from the export's own manifest, attempts and labels with the functions `BackstageRun` exports with (`recordRow`, `comparisonPairs`, `inComparison`, `ruleOutput` in `records.ts`). Each label must belong to a scene case and a selected arm, carry the arm's provider and its successful attempt's output (or the keyword rule's answer), and every successful attempt must be labelled exactly once. The exported comparisons, combined `records` and attempt ids must equal the rebuild, and `totalSpend` and `extraSpend` must equal `totalSpend` and `extraSpend` over the attempts.
+5. **Verdicts reproduce.** Each pair's verdict is recomputed from the rebuilt records with `cohortVerdict` and compared in full with the exported one. `verdicts: null` is a problem: there is nothing to reproduce.
+
+Not checked: provider response metadata (returned model, request fingerprints, Jev probabilities, attempt-id uniqueness, which suggestion attempt belongs to which case), and whether the file came from a real run.
+
+Problems name fields and positions (`labels[3]`, `comparisons[0]`), never a string read from the export.
 
 Tools:
 
-- `bun scripts/inspect-export.ts <file>` prints calcVersion, case and label counts, spend, each verdict (recomputed, exported, match or MISMATCH) and the problems; exit 0 when OK, 1 otherwise (`scripts/inspect-export.ts:13-26`).
-- `bun scripts/d17-sample-export.ts` drives a real run with a fictional deterministic transport and sample keys, labels every answer, and writes `examples/d17-sample-export/export.json` (`scripts/d17-sample-export.ts:1-7`, `:14-18`, `:118-131`). No provider is called. `--check` exits 1 when the committed file differs from a fresh export (`scripts/d17-sample-export.ts:125-129`).
+- `bun scripts/inspect-export.ts <file>` prints the line "Checks reproducibility and credentials; not proof the file came from a real run.", then calcVersion (the value only when it is this build's), case and label counts, spend, each verdict (recomputed, exported, match or MISMATCH) and the problems; exit 0 when OK, 1 otherwise.
+- `bun scripts/d17-sample-export.ts` runs `sampleRun()`: a real `BackstageRun` with a fictional deterministic transport and sample keys, every answer labelled. `sampleExportText()` then awaits `report()` and returns `evidence()`; the script writes it to `examples/d17-sample-export/export.json`. No provider is called. `--check` exits 1 when the committed file differs from a fresh export.
 - `examples/d17-sample-export/export.json` is that sample: `version` `backstage/2`, `calcVersion` `verdict/1` (`examples/d17-sample-export/export.json:2-3`).
 
 ## 2. Where data lives while you use Backstage
@@ -56,9 +64,9 @@ Tools:
 ### In the browser
 
 - **Page memory (the run).** The run object holds the manifest, attempts, answers, labels and costs (`run.ts:745-766`). It is gone when the tab closes. Nothing writes it to `localStorage`; a grep for `localStorage` over `src` and `scripts` (non-test `.ts`) finds no use.
-- **`sessionStorage` (the scene draft).** Key `backstage-scene-draft` (`scene-draft.ts:15`) holds only these text fields: question, choice names and definitions, acceptance, exclusions, keywords, cases (`scene-draft.ts:2-12`). The file states no key field is ever listed (`scene-draft.ts:1`). The page reads and writes it through `sessionStorage` only (`main.ts:1161-1166`). It is cleared by the clear action (`main.ts:930`, `main.ts:1158-1160`). Per-tab: it lasts until the tab closes. If storage fails, the page says a reload will lose the scene (`scene-draft.ts:42-43`).
+- **`sessionStorage` (the scene draft).** Key `backstage-scene-draft` (`scene-draft.ts:15`) holds only these text fields: question, choice names and definitions, acceptance, exclusions, keywords, cases (`scene-draft.ts:2-12`). The file states no key field is ever listed (`scene-draft.ts:1`). The page reads and writes it through `sessionStorage` only (`main.ts:1158-1163`). It is cleared by the clear action (`main.ts:930`, `main.ts:1155-1157`). Per-tab: it lasts until the tab closes. If storage fails, the page says a reload will lose the scene (`scene-draft.ts:42-43`).
 - **Provider key fields.** Password-type inputs with autocomplete off (`main.ts:259-260`), read on demand into a plain object (`main.ts:205-210`). The key is not written to any storage. "Clear keys" blanks every field, drops the active keys and stops the run (`main.ts:902-907`).
-- **Downloads.** `records.csv` and `backstage-evidence.json` are created as in-memory Blobs and saved by the browser (`main.ts:824-828`, `main.ts:998-1017`). Backstage keeps no copy.
+- **Downloads.** `records.csv` and `backstage-evidence.json` are created as in-memory Blobs and saved by the browser (`main.ts:824-828`, `main.ts:998-1016`). Backstage keeps no copy.
 
 ### On the server (Backstage process)
 
@@ -87,7 +95,7 @@ The case text, question and choice definitions go to each provider you select. G
 ## 4. Keys
 
 - **Your keys:** typed into the page, held in field values and in an in-page object, sent in the body of each answer request, used for that call. They are not written to `sessionStorage`, `localStorage`, a file or the ledger by any code listed above. They last until you clear them, reload, or close the tab.
-- **Never in the export:** the export throws when a supplied key appears in the run (`run.ts:1558-1559`, set at `run.ts:1199-1210`).
+- **Never in the export:** the export throws when a supplied key appears in the run (`run.ts:1515-1516`, set at `run.ts:1187-1198`).
 - **Server-held keys (operator configuration, never shown to the browser):**
   - Trial funding key `BACKSTAGE_TRIAL_KEY`, from the environment (`server.ts:105-108`); the server inserts it into the request itself (`server.ts:529`).
   - Optional house Jev key for local testing, honoured only on a loopback origin and bind (`server.ts:44-45`, `server.ts:725`).
@@ -95,8 +103,8 @@ The case text, question and choice definitions go to each provider you select. G
 
 ## 5. What is NOT stored
 
-- No provider key from the dedicated key fields in the export, the ledger, the logs or the token file (sections 1, 2 and 4). The export refuses a run whose text contains a supplied key (`run.ts:1558-1559`).
-- The scene draft is the exception: the dedicated key fields are never stored, but scene text is stored verbatim per tab. `saveSceneDraft()` writes whatever the nine text fields hold to `sessionStorage` (`scene-draft.ts:57-70`), on each edit (`main.ts:1151-1156`), before any run starts and so before the key guard at `run.ts:1199-1210` can see it. A key pasted into a scene text field by mistake is therefore kept in that tab's `sessionStorage` until the tab closes or the draft is cleared.
+- No provider key from the dedicated key fields in the export, the ledger, the logs or the token file (sections 1, 2 and 4). The export refuses a run whose text contains a supplied key (`run.ts:1515-1516`).
+- The scene draft is the exception: the dedicated key fields are never stored, but scene text is stored verbatim per tab. `saveSceneDraft()` writes whatever the nine text fields hold to `sessionStorage` (`scene-draft.ts:57-70`), on each edit (`main.ts:1148-1153`), before any run starts and so before the key guard at `run.ts:1187-1198` can see it. A key pasted into a scene text field by mistake is therefore kept in that tab's `sessionStorage` until the tab closes or the draft is cleared.
 - No database or account for your runs: the run exists in page memory until you download it.
 - The trial ledger has no column for questions, inputs, or answers (`trial.ts:121-124`).
 - API tokens are stored only as hashes (`api-tokens.ts:47-49`).

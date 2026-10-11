@@ -951,6 +951,43 @@ test("[integration] M3 a starter pack's human_reviewed labels reach the export w
   }
 });
 
+test("[integration] D17 evidence downloaded right after reveal carries the report's verdicts and checks ok", async () => {
+  const { spyOn } = await import("bun:test");
+  const { checkExportText } = await import("./export-check.ts");
+  const blobs: Blob[] = [];
+  const created = spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+    if (blob instanceof Blob) blobs.push(blob);
+    return "blob:test";
+  });
+  const revoked = spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  try {
+    const page = await mount(undefined, undefined, undefined, async (request) => ({
+      ...(await answerYes(request)),
+      output: request.choices[0].name,
+    }));
+    page.get("starter-p1").click();
+    page.get("jev-key").value = "jev-secret-value";
+    page.get("run-all").click();
+    await until(() => page.document.getElementById("open-judging") !== null);
+    await openJudging(page);
+    page.get("reveal").click();
+    page.get("confirm-reveal-yes").click();
+    // No tick: the click lands before the render's report() has finished.
+    page.get("download-evidence").click();
+    await until(() => blobs.length > 0);
+    const text = await blobs.at(-1)?.text();
+    if (text === undefined) throw new Error("no evidence downloaded");
+    const parsed: unknown = JSON.parse(text);
+    expect(typeof parsed === "object" && parsed !== null && "verdicts" in parsed ? parsed.verdicts : undefined).not.toBeNull();
+    const result = await checkExportText(text);
+    expect(result.problems).toEqual([]);
+    expect(result.ok).toBe(true);
+  } finally {
+    created.mockRestore();
+    revoked.mockRestore();
+  }
+});
+
 test("[integration] M3 a CSV label column reaches the export: imported labels stay agent, a pick in the UI is human", async () => {
   const { spyOn } = await import("bun:test");
   const { validate } = await import("../format/validate.ts");

@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkExport, checkExportText, findCredentials } from "./export-check.ts";
 import { CALC_VERSION, type Scene } from "./contracts.ts";
-import { BackstageRun } from "./run.ts";
+import { BackstageRun, cohortVerdict } from "./run.ts";
+import { EXPORT_COLUMNS } from "./records.ts";
+import { formatRows } from "../format/csv.ts";
 import { SAMPLE_EXPORT_PATH, sampleExportText } from "../../scripts/d17-sample-export.ts";
 
 const fixtureText = readFileSync(SAMPLE_EXPORT_PATH, "utf8");
@@ -112,9 +114,7 @@ describe("D17 export check", () => {
     expect(noVersion.problems.some((p) => p.startsWith("No calcVersion"))).toBe(true);
     const other = await checkExport({ ...fixture(), calcVersion: "verdict/0" });
     expect(other.ok).toBe(false);
-    expect(other.problems).toContain(
-      `This export was made with a different calculation (verdict/0); this build runs ${CALC_VERSION}, so its verdicts cannot be reproduced here.`,
-    );
+    expect(other.problems).toContain(`calcVersion differs from ${CALC_VERSION}: this build cannot reproduce its verdicts.`);
   });
 
   test("[integration] D17 inspect-export CLI exits 0 on the sample and 1 on a copy holding a key", async () => {
@@ -188,7 +188,7 @@ describe("D17 export check: reviewed defects (#187)", () => {
     const key = "sk-" + "ant-" + "z".repeat(30);
     for (const data of [
       // The descendant value matches too, so its path would carry the parent key unless the segment is redacted.
-      { ...fixture(), extra: { [key]: { child: "plain", deeper: [{ more: "token: " + "y".repeat(12) }] } } },
+      { ...fixture(), extra: { [key]: { child: "plain", deeper: [{ more: "token: " + "y1".repeat(10) }] } } },
       { ...fixture(), calcVersion: key },
       { ...fixture(), calcVersion: "verdict/1 " + key },
     ]) {
@@ -392,6 +392,132 @@ describe("D17 export check: reviewed defects (#187)", () => {
       expect(out).not.toContain("qqqqqqqq");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("D17 export check: round-2 fixes (#187)", () => {
+  const SCENE: Scene = {
+    question: "Is this person a qualified TypeScript builder?",
+    choices: [
+      { name: "yes", definition: "Builds software in TypeScript" },
+      { name: "no", definition: "Does not build software in TypeScript" },
+    ],
+    acceptance: "The answer matches the person described",
+    exclusions: "None",
+    keywords: ["typescript"],
+    matchChoice: "yes",
+    otherwiseChoice: "no",
+    cases: [{ id: "c01", input: "Case 1: TypeScript builder" }],
+  };
+  async function emptyExport(): Promise<Obj> {
+    const run = new BackstageRun(SCENE, "d17-empty", { arms: ["jev", "claude-haiku-4-5-20251001", "rule"] });
+    await run.report();
+    return obj(JSON.parse(JSON.stringify(run.evidence())));
+  }
+
+  test("[unit] D17 ordinary text about keys, bearers and passwords is not read as a credential", async () => {
+    const phrases = [
+      "Our api-gateway latency doubled; Bearer authentication broke",
+      "bearer bonds",
+      "API keys are rotated monthly",
+      "password reset flow",
+    ];
+    for (const phrase of phrases) {
+      expect(findCredentials({ note: phrase })).toEqual([]);
+      // In a genuine export's free text the phrase changes nothing: the export still checks ok.
+      expect((await checkExport({ ...fixture(), comparisonNote: phrase })).problems).toEqual([]);
+    }
+  });
+
+  test("[unit] D17 every real key shape is still refused, api_ and assignments with a long token holding a digit", async () => {
+    const shapes = [
+      ...FAKE_KEYS,
+      "api_" + "a1".repeat(10),
+      "api-" + "Zz9".repeat(6),
+      "password=" + "Xy9".repeat(6),
+      "token: " + "y1".repeat(10),
+      "Bearer " + "abc123DEF456ghi789JKL0",
+    ];
+    for (const key of shapes) {
+      const result = await checkExport({ ...fixture(), comparisonNote: "see " + key });
+      expect(result.ok).toBe(false);
+      expect(result.problems[0]).toContain("looks like a credential");
+      expect(JSON.stringify(result)).not.toContain(key);
+    }
+  });
+
+  test("[unit] D17 problems never echo an untrusted string: calcVersion, mode, case or arm ids", async () => {
+    const calc = await checkExport({ ...fixture(), calcVersion: "calc-marker-v9" });
+    expect(calc.problems).toContain(`calcVersion differs from ${CALC_VERSION}: this build cannot reproduce its verdicts.`);
+    expect(JSON.stringify(calc.problems)).not.toContain("calc-marker");
+    const mode = await problemsOf(tampered((d) => void (manifestOf(d).mode = "mode-marker")));
+    expect(has(mode, "manifest.mode must be")).toBe(true);
+    expect(JSON.stringify(mode)).not.toContain("mode-marker");
+    const orphan = await problemsOf(
+      tampered((d) => {
+        const labels = list(d.labels);
+        labels.push({ ...obj(labels[0]), caseId: "case-marker" });
+        labels.push({ ...obj(labels[0]) });
+        obj(list(d.attempts)[0]).caseId = "attempt-case-marker";
+      }),
+    );
+    expect(orphan.length).toBeGreaterThan(2);
+    for (const marker of ["case-marker", "attempt-case-marker", "c01"]) expect(JSON.stringify(orphan)).not.toContain(marker);
+  });
+
+  test("[integration] D17 inspect-export states the contract and never prints an untrusted calcVersion", async () => {
+    const cli = fileURLToPath(new URL("../../scripts/inspect-export.ts", import.meta.url));
+    const dir = mkdtempSync(join(tmpdir(), "d17-inspect-"));
+    try {
+      const file = join(dir, "export.json");
+      writeFileSync(file, JSON.stringify({ ...fixture(), calcVersion: "calc-marker-v9" }));
+      const proc = Bun.spawn(["bun", cli, file], { stdout: "pipe", stderr: "pipe" });
+      const out = await new Response(proc.stdout).text();
+      expect(await proc.exited).toBe(1);
+      expect(out).toContain("Checks reproducibility and credentials; not proof the file came from a real run.");
+      expect(out).toContain(`calcVersion: (differs from ${CALC_VERSION})`);
+      expect(out).not.toContain("calc-marker");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("[unit] D17 cohortVerdict is the one chain: equals the exported verdict, empty cohorts have none", async () => {
+    const data = fixture();
+    const manifest = manifestOf(data);
+    const comparison = firstComparison(data);
+    const context = {
+      mode: "compare",
+      key: { runId: String(comparison.runId), promptVersion: String(manifest.promptVersion), questionId: String(manifest.questionId) },
+      question: String(obj(manifest.scene).question),
+      answerSet: "yes|no",
+    };
+    const full = await cohortVerdict(String(comparison.csv), context, false);
+    if (!full.ok) throw new Error("the sample's records failed validation");
+    expect(JSON.parse(JSON.stringify(full.verdict))).toEqual(firstVerdict(data).verdict);
+    const header = formatRows([EXPORT_COLUMNS]);
+    const empty = await cohortVerdict(header, context, true);
+    if (!empty.ok) throw new Error("an empty cohort failed");
+    expect(empty.verdict).toBeNull();
+    expect(empty.metrics.cases).toBe(0);
+    expect((await cohortVerdict(header, context, false)).ok).toBe(false);
+    const jevOnly = await cohortVerdict(String(comparison.csv), { ...context, mode: "jev-only" }, false);
+    expect(jevOnly.ok && jevOnly.verdict).toBeNull();
+  });
+
+  test("[unit] D17 an empty export's scene gets the run constructor's validation", async () => {
+    expect((await checkExport(await emptyExport())).problems).toEqual([]);
+    const changes: ((scene: Obj) => void)[] = [
+      (s) => void (obj(list(s.choices)[1]).name = obj(list(s.choices)[0]).name),
+      (s) => void (obj(list(s.cases)[0]).input = ""),
+      (s) => void (obj(list(s.cases)[0]).id = ""),
+      (s) => void (s.matchChoice = "maybe"),
+    ];
+    for (const change of changes) {
+      const data = await emptyExport();
+      change(obj(manifestOf(data).scene));
+      expect(has(await problemsOf(data), "manifest.scene")).toBe(true);
     }
   });
 });

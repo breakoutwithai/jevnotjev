@@ -1,8 +1,10 @@
 /**
  * Inspect a run export: bun scripts/inspect-export.ts <file>
  * Prints what the export holds and every problem found; exits 0 when it checks ok, 1 otherwise.
+ * The check's contract is the header of src/backstage/export-check.ts.
  */
 import { readFileSync } from "node:fs";
+import { CALC_VERSION } from "../src/backstage/contracts.ts";
 import { checkExportText } from "../src/backstage/export-check.ts";
 
 const file = process.argv[2];
@@ -12,7 +14,10 @@ if (!file) {
 }
 const result = await checkExportText(readFileSync(file, "utf8"));
 const spend = result.totalSpend;
-console.log(`calcVersion: ${result.calcVersion ?? "(missing)"}`);
+console.log("Checks reproducibility and credentials; not proof the file came from a real run.");
+// The export's calcVersion is untrusted text: print it only when it is this build's.
+const calc = result.calcVersion === null ? "(missing)" : result.calcVersion === CALC_VERSION ? CALC_VERSION : `(differs from ${CALC_VERSION})`;
+console.log(`calcVersion: ${calc}`);
 console.log(`cases: ${result.cases}`);
 console.log(`labels: ${result.labels}`);
 console.log(`totalSpend: ${spend ? `$${spend.knownUsd.toFixed(4)} known, ${spend.unknown} unknown` : "(missing)"}`);

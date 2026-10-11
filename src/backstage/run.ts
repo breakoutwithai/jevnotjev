@@ -26,7 +26,7 @@ import { SuggestionBook, callsForPick, type Call, type Suggestion } from "../lab
 /** Rows, comparisons and spend are pure functions shared with the export checker (records.ts). */
 import { EXPORT_COLUMNS, comparisonPairs, extraSpend, inComparison, recordRow, ruleOutput, RULE_VALUES, totalSpend, type RecordLabel } from "./records.ts";
 import { formatRows, readDictRows } from "../format/csv.ts";
-import { cohortMetrics } from "../core/metrics.ts";
+import { cohortMetrics, type CohortKey, type CohortMetrics } from "../core/metrics.ts";
 import { fileSeed } from "../core/calc.ts";
 import { verdict, type Verdict } from "../core/verdict.ts";
 export type Keys = ProviderKeys;
@@ -800,19 +800,7 @@ export class BackstageRun {
           MAX_RUN_REQUESTS +
           " provider requests per run.",
       );
-    const rule = arms.includes("rule");
-    if (rule && scene.keywords.filter((k) => k.trim()).length === 0)
-      throw new Error("Add at least one keyword for the selected rule.");
-    const frozen = freezeScene(
-      rule
-        ? scene
-        : {
-            ...scene,
-            keywords: [],
-            matchChoice: scene.choices[0].name,
-            otherwiseChoice: scene.choices[1].name,
-          },
-    );
+    const frozen = runScene(scene, arms);
     this.manifest = Object.freeze({
       mode: arms.length === 1 ? "jev-only" : "compare",
       arms: Object.freeze(arms),
@@ -1491,49 +1479,18 @@ export class BackstageRun {
     const csv = this.csv();
     const pairs = await Promise.all(
       this.exports().map(async (output) => {
-        const parsed = validate(output.csv);
-        if (
-          parsed.errors.length &&
-          !(
-            output.csv === formatRows([EXPORT_COLUMNS]) &&
-            !this.#answers.some(
-              (a) =>
-                a.armId === JEV_ARM_ID ||
-                a.armId === output.armId ||
-                a.armId === "rule",
-            )
-          )
-        )
-          throw new Error("Run records failed validation.");
-        const metrics = parsed.rows.length
-          ? cohortMetrics(parsed.rows, {
-              ...this.manifest,
-              runId: output.runId,
-            })
-          : {
-              key: {
-                runId: output.runId,
-                promptVersion: this.manifest.promptVersion,
-                questionId: this.manifest.questionId,
-              },
-              question: this.manifest.scene.question,
-              answerSet: this.manifest.scene.choices
-                .map((c) => c.name)
-                .join("|"),
-              cases: 0,
-              arms: [],
-              jevVsLlm: null,
-              jevVsRule: null,
-            };
-        return {
-          ...output,
-          metrics,
-          // The verdict calculation is versioned: change CALC_VERSION (contracts.ts) whenever it changes.
-          verdict:
-            this.manifest.mode === "compare" && parsed.rows.length
-              ? verdict(metrics, await fileSeed(output.csv))
-              : null,
-        };
+        const outcome = await cohortVerdict(
+          output.csv,
+          {
+            mode: this.manifest.mode,
+            key: { ...this.manifest, runId: output.runId },
+            question: this.manifest.scene.question,
+            answerSet: this.manifest.scene.choices.map((c) => c.name).join("|"),
+          },
+          !this.#answers.some((a) => inComparison(a.armId, output.armId)),
+        );
+        if (!outcome.ok) throw new Error("Run records failed validation.");
+        return { ...output, metrics: outcome.metrics, verdict: outcome.verdict };
       }),
     );
     const first = pairs[0];
@@ -1698,4 +1655,43 @@ export class CaseImportState {
       if (generation === this.#generation) this.#pending = false;
     }
   }
+}
+
+/**
+ * The scene a run with these arms is built on, validated and frozen: the rule needs a keyword, and without the rule its
+ * keywords are dropped and its choices default. The BackstageRun constructor and the export checker both call it.
+ */
+export function runScene(scene: Scene, arms: readonly string[]): Scene {
+  const rule = arms.includes("rule");
+  if (rule && scene.keywords.filter((k) => k.trim()).length === 0)
+    throw new Error("Add at least one keyword for the selected rule.");
+  return freezeScene(
+    rule ? scene : { ...scene, keywords: [], matchChoice: scene.choices[0].name, otherwiseChoice: scene.choices[1].name },
+  );
+}
+
+/** What one comparison's verdict is computed against. `key` becomes the metrics' cohort key as given. */
+export interface CohortContext {
+  readonly mode: string;
+  readonly key: CohortKey;
+  readonly question: string;
+  readonly answerSet: string;
+}
+export type CohortOutcome =
+  | { readonly ok: true; readonly metrics: CohortMetrics; readonly verdict: Verdict | null }
+  | { readonly ok: false; readonly errors: readonly string[] };
+/**
+ * One comparison's verdict chain: validate -> cohortMetrics -> verdict(metrics, fileSeed(csv)). BackstageRun.report()
+ * and the export checker (export-check.ts) both call it, so the verdict they compute cannot drift apart. Header-only
+ * records with no answers in the pair (`empty`) are an empty cohort; only a compare run with rows has a verdict.
+ * The verdict calculation is versioned: change CALC_VERSION (contracts.ts) whenever it changes.
+ */
+export async function cohortVerdict(csv: string, context: CohortContext, empty: boolean): Promise<CohortOutcome> {
+  const parsed = validate(csv);
+  if (parsed.errors.length && !(empty && csv === formatRows([EXPORT_COLUMNS]))) return { ok: false, errors: parsed.errors };
+  const { runId, promptVersion, questionId } = context.key;
+  const metrics: CohortMetrics = parsed.rows.length
+    ? cohortMetrics(parsed.rows, context.key)
+    : { key: { runId, promptVersion, questionId }, question: context.question, answerSet: context.answerSet, cases: 0, arms: [], jevVsLlm: null, jevVsRule: null };
+  return { ok: true, metrics, verdict: context.mode === "compare" && parsed.rows.length ? verdict(metrics, await fileSeed(csv)) : null };
 }

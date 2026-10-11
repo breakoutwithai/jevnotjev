@@ -33,8 +33,8 @@
 // `/`, `~` and `.` alone (`/`, `//`, `~/`, `./`), is dropped as prose; `**/*`, `-/-` and `*` are kept.
 // A deliverable with no path or any UNRESOLVED candidate is unchecked: the audit cannot say it was
 // not run, so NOT-RUN is withheld. A path absent from the pinned tree is MISSING (no
-// .gitignore lookup). A file is TOUCHED when any commit changed it since `created`; a directory only
-// when a file under it was ADDED since then.
+// .gitignore lookup). A file or directory is TOUCHED when any commit changed it (or anything under
+// it) since `created`, whether by adding or editing.
 // The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER);
 // `created` is required. The Definition of done is counted (not verified) from Bun.markdown's
 // rendering of the body.
@@ -48,8 +48,9 @@
 //               nothing about whether the work is complete.
 //   NO-EVIDENCE-POSSIBLE  nothing touched and no evidence commit or CLOSED issue, but the audit
 //               cannot say "not run": no checkable path, or an unchecked deliverable may hold the work.
-// STALE-STATUS: ready-not-run/draft with a PARTIAL verdict, or `done` with a NOT-RUN verdict or any
-// MISSING path. A `done` or `running` status is never confirmed.
+// STALE-STATUS: ready-not-run/draft with a PARTIAL verdict, or `done` with a NOT-RUN verdict. MISSING
+// paths are listed but do not contradict `done` (they may be gitignored or live in another repo).
+// A `done` or `running` status is never confirmed.
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join, posix } from "node:path";
 
@@ -260,10 +261,10 @@ export function verdictFor(input: { exists: number; missing: number; unchecked: 
 }
 
 // Only contradictions are flagged: `done` or `running` is never confirmed.
-export function flagsFor(status: string | null, verdict: Verdict, missing: number): Flag[] {
+export function flagsFor(status: string | null, verdict: Verdict): Flag[] {
   if (status === null || !VALID_STATUS.includes(status)) return ["INVALID-STATUS"];
   if ((status === "ready-not-run" || status === "draft") && verdict === "PARTIAL") return ["STALE-STATUS"];
-  if (status === "done" && (verdict === "NOT-RUN" || missing > 0)) return ["STALE-STATUS"];
+  if (status === "done" && verdict === "NOT-RUN") return ["STALE-STATUS"];
   return [];
 }
 
@@ -318,16 +319,16 @@ export function buildTree(lsTreeZ: string): Tree {
   return { files: new Set(lsTreeZ.split("\0").filter((l) => l !== "")) };
 }
 
-// TOUCHED: on the ref and changed since `created` (a directory: a file under it was ADDED since then;
-// edits to old files do not count). UNTOUCHED: on the ref, but not changed that way (it predates the
-// prompt, so it is no evidence the prompt ran). MISSING: not in the pinned tree.
+// TOUCHED: on the ref and changed since `created` (a directory: anything under it, added or edited).
+// UNTOUCHED: on the ref, but not changed since (it predates the prompt, so it is no evidence the
+// prompt ran). MISSING: not in the pinned tree.
 export function classifyPath(path: string, tree: Tree, git: Git, ref: string, created: string): PathState {
   const bare = path.replace(/\/+$/, "");
   // A trailing slash names a directory: it needs a tracked descendant, a file of that name is not one.
   const isFile = !path.endsWith("/") && tree.files.has(bare);
   const isDir = [...tree.files].some((f) => f.startsWith(`${bare}/`));
   if (!isFile && !isDir) return "MISSING";
-  const out = must(git, ["log", ref, sinceFilter(created), ...(isFile ? [] : ["--diff-filter=A"]), "--format=%h", "--", literal(bare)]);
+  const out = must(git, ["log", ref, sinceFilter(created), "--format=%h", "--", literal(bare)]);
   return out.trim() === "" ? "UNTOUCHED" : "TOUCHED";
 }
 
@@ -359,7 +360,7 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   let issue: IssueState = "none";
   if (parsed.governingIssue !== null) issue = lookup === null ? "unknown" : lookup(parsed.governingIssue);
   const verdict = verdictFor({ exists: pathsTouched, missing: pathsMissing + pathsUntouched, unchecked: deliverables.filter((d) => d.unchecked).length, evidence: commits.size, issue });
-  const flags = flagsFor(parsed.status, verdict, pathsMissing);
+  const flags = flagsFor(parsed.status, verdict);
   if (parsed.errors.length > 0) flags.push("INVALID-HEADER");
   return {
     stem,

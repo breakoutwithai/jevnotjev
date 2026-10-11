@@ -427,7 +427,8 @@ describe("verdictFor", () => {
 });
 
 describe("flagsFor", () => {
-  const f = (status: string | null, verdict: Verdict, missing = 0) => flagsFor(status, verdict, missing);
+  // `missing` is accepted only so the S4 test can show it no longer matters.
+  const f = (status: string | null, verdict: Verdict, _missing = 0) => flagsFor(status, verdict);
   test("[unit] ready-not-run or draft with a PARTIAL verdict is STALE-STATUS", () => {
     expect(f("ready-not-run", "PARTIAL")).toEqual(["STALE-STATUS"]);
     expect(f("draft", "PARTIAL")).toEqual(["STALE-STATUS"]);
@@ -435,10 +436,12 @@ describe("flagsFor", () => {
   test("[unit] ready-not-run with NOT-RUN is consistent", () => {
     expect(f("ready-not-run", "NOT-RUN")).toEqual([]);
   });
-  test("[unit] S1 done is contradicted by NOT-RUN or by any MISSING path, never confirmed", () => {
+  // Changed by S4: S1 also flagged `done` when any path was MISSING. That misfires on gitignored or
+  // wrong-root deliverables, so only a NOT-RUN verdict contradicts `done`.
+  test("[unit] S4 done is contradicted only by NOT-RUN, never by MISSING paths, and never confirmed", () => {
     expect(f("done", "NOT-RUN")).toEqual(["STALE-STATUS"]);
-    expect(f("done", "PARTIAL", 1)).toEqual(["STALE-STATUS"]);
-    expect(f("done", "NO-EVIDENCE-POSSIBLE", 2)).toEqual(["STALE-STATUS"]);
+    expect(f("done", "PARTIAL", 1)).toEqual([]);
+    expect(f("done", "NO-EVIDENCE-POSSIBLE", 2)).toEqual([]);
     expect(f("done", "PARTIAL", 0)).toEqual([]);
     expect(f("done", "NO-EVIDENCE-POSSIBLE", 0)).toEqual([]);
   });
@@ -521,22 +524,21 @@ describe("classifyPath", () => {
     expect(classifyPath("docs/real/", t, always, "origin/main", "2026-10-01")).toBe("TOUCHED");
     expect(classifyPath("docs/notes", t, always, "origin/main", "2026-10-01")).toBe("TOUCHED");
   });
-  test("[unit] G4 a directory is TOUCHED only when a file under it was added since created", () => {
+  // Changed by S3: G4 made a directory TOUCHED only by an ADDED file (--diff-filter=A). That reported
+  // NOT-RUN for a run that only edited existing files under it, so any change under it counts now.
+  test("[unit] S3 any change under a directory since created makes it TOUCHED, not only an added file", () => {
     const t = buildTree("docs/real/a.md\0scripts/new.ts\0");
     const calls: string[][] = [];
-    // Modifications show up in a plain log; only the --diff-filter=A query answers for additions.
-    const modifiedOnly: Git = (args) => {
+    const changed: Git = (args) => {
       calls.push(args);
-      return { code: 0, out: args.includes("--diff-filter=A") ? "" : "abc1234\n", err: "" };
+      return { code: 0, out: "abc1234\n", err: "" };
     };
-    expect(classifyPath("docs/real/", t, modifiedOnly, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
-    const added: Git = (args) => ({ code: 0, out: args.includes("--diff-filter=A") ? "abc1234\n" : "", err: "" });
-    expect(classifyPath("docs/real/", t, added, "origin/main", "2026-10-01")).toBe("TOUCHED");
-    expect(calls[0]).toContain("--diff-filter=A");
+    expect(classifyPath("docs/real/", t, changed, "origin/main", "2026-10-01")).toBe("TOUCHED");
     expect(calls[0]).toContain("--since-as-filter=2026-10-01T00:00:00Z");
-    // A file keeps the plain rule: any change counts.
-    expect(classifyPath("scripts/new.ts", t, modifiedOnly, "origin/main", "2026-10-01")).toBe("TOUCHED");
-    expect(calls.at(-1)?.includes("--diff-filter=A")).toBe(false);
+    expect(calls.flat().some((a) => a.startsWith("--diff-filter"))).toBe(false);
+    const unchanged: Git = () => ({ code: 0, out: "", err: "" });
+    expect(classifyPath("docs/real/", t, unchanged, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
+    expect(classifyPath("scripts/new.ts", t, changed, "origin/main", "2026-10-01")).toBe("TOUCHED");
   });
   test("[unit] F7 log pathspecs are literal", () => {
     const { calls, git: g } = recorder("abc1234\n");
@@ -890,19 +892,24 @@ describe("prompt-audit CLI", () => {
     });
   });
 
-  test("[integration] G4 a directory is TOUCHED by an added file, not by an edit to an old one", () => {
+  // Changed by S3: the G4 integration test expected an edit to an old file to leave the directory
+  // UNTOUCHED; an edit now counts, and only a directory nobody changed stays UNTOUCHED.
+  test("[integration] S3 a directory is TOUCHED by an edit or an addition, UNTOUCHED only when unchanged", () => {
     withRepo((repo) => {
       mkdirSync(join(repo, "area1"), { recursive: true });
+      mkdirSync(join(repo, "area3"), { recursive: true });
       writeFileSync(join(repo, "area1/old.md"), "old\n");
-      commitAt(repo, "2019-01-01T00:00:00Z", "old dir");
+      writeFileSync(join(repo, "area3/old.md"), "old\n");
+      commitAt(repo, "2019-01-01T00:00:00Z", "old dirs");
       writeFileSync(join(repo, "area1/old.md"), "edited\n");
       mkdirSync(join(repo, "area2"), { recursive: true });
       writeFileSync(join(repo, "area2/new.md"), "new\n");
-      writeFileSync(join(repo, "docs/prompts/20200101-dirs.prompt.md"), promptFile("fx-dirs", "ready-not-run", ["area1/: x", "area2/: y"]));
-      commitAt(repo, null, "edit one dir, add to another");
+      writeFileSync(join(repo, "docs/prompts/20200101-dirs.prompt.md"), promptFile("fx-dirs", "ready-not-run", ["area1/: x", "area2/: y", "area3/: z"]));
+      commitAt(repo, null, "edit one dir, add to another, leave a third");
       const rows = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out);
-      expect(dig(rows[0], "deliverables", 0, "paths", 0, "state")).toBe("UNTOUCHED");
+      expect(dig(rows[0], "deliverables", 0, "paths", 0, "state")).toBe("TOUCHED");
       expect(dig(rows[0], "deliverables", 1, "paths", 0, "state")).toBe("TOUCHED");
+      expect(dig(rows[0], "deliverables", 2, "paths", 0, "state")).toBe("UNTOUCHED");
     });
   });
 

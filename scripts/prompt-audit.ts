@@ -177,6 +177,7 @@ export function parsePrompt(text: string): ParsedPrompt {
       out.errors.push("outputs must be a non-empty list");
       out.outputs = [];
     } else {
+      if (out.promptId === null && !out.errors.some((e) => e.startsWith("prompt_id"))) out.errors.push("prompt_id is required when outputs are declared");
       out.outputs = raw.map((entry, i) => validateOutput(entry, i));
       for (const [i, o] of out.outputs.entries()) if (o.error !== null) out.errors.push(`outputs[${i}]: ${o.error}`);
     }
@@ -219,10 +220,20 @@ export function validateOutput(entry: unknown, index: number): DeclaredOutput {
   return { repo, path, kind, error: problems.length === 0 ? null : problems.join("; ") };
 }
 
-// owner/name from a git remote URL (https or ssh form), or null.
+// owner/name from a git remote URL, or null. Only three anchored forms are understood:
+// https://<host>/<owner>/<name>(.git), git@<host>:<owner>/<name>(.git), ssh://git@<host>/<owner>/<name>(.git).
+// A local path, a file:// URL or a short URL derives nothing, so declared outputs then need --repo.
+const REMOTE_FORMS = [
+  /^https:\/\/[A-Za-z0-9.-]+\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/,
+  /^git@[A-Za-z0-9.-]+:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/,
+  /^ssh:\/\/git@[A-Za-z0-9.-]+\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/,
+];
 export function parseRemoteRepo(url: string): string | null {
-  const m = /[:/]([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(url.trim());
-  return m === null ? null : `${m[1]}/${m[2]}`;
+  for (const form of REMOTE_FORMS) {
+    const m = form.exec(url.trim());
+    if (m !== null) return `${m[1]}/${m[2]}`;
+  }
+  return null;
 }
 
 // Task-list checkboxes under the first "Definition of done" heading, until the next heading of the
@@ -342,7 +353,11 @@ export type TableRow = { stem: string; status: string | null; touched: number; c
 
 export function renderTable(rows: TableRow[]): string {
   const cell = (s: string, w: number) => (s.length > w ? `${s.slice(0, w - 3)}...` : s.padEnd(w));
-  const line = (stem: string, status: string, touched: string, missing: string, evid: string, out: string, flags: string) => `${cell(stem, 28)} ${cell(status, 13)} ${cell(touched, 7)} ${cell(missing, 7)} ${cell(evid, 4)} ${cell(out, 5)} ${flags}`.trimEnd();
+  // The out column fits its widest cell (min 3); the stem column gives up the difference beyond 5
+  // so the longest row (both INVALID flags, 29 characters) stays under 100 characters.
+  const outWidth = Math.max(3, ...rows.map((r) => r.out.length));
+  const stemWidth = Math.min(28, 33 - outWidth);
+  const line = (stem: string, status: string, touched: string, missing: string, evid: string, out: string, flags: string) => `${cell(stem, stemWidth)} ${cell(status, 13)} ${cell(touched, 7)} ${cell(missing, 7)} ${cell(evid, 4)} ${cell(out, outWidth)} ${flags}`.trimEnd();
   // A prompt with declared outputs has no touched/missing figures: those columns are legacy-only.
   return [
     line("prompt", "status", "touched", "missing", "evid", "out", "flags"),
@@ -420,11 +435,20 @@ export function classifyPath(path: string, tree: Tree, git: Git, ref: string, cr
   return out.trim() === "" ? "UNTOUCHED" : "TOUCHED";
 }
 
-// Full SHAs of commits on `ref`, after `created`, that carry the line `Prompt-Id: <id>` and touch the path.
-export function deliveringCommits(git: Git, ref: string, created: string, promptId: string, path: string): string[] {
+// Full SHAs of commits on `ref`, after `created`, that carry the line `Prompt-Id: <id>` and touch the
+// output. The pathspec query is a prefilter; each candidate's own changed paths (a merge: against every
+// parent; a deletion counts) must then match the kind: file = exactly the path, dir = anything under it.
+export function deliveringCommits(git: Git, ref: string, created: string, promptId: string, path: string, kind: OutputKind = path.endsWith("/") ? "dir" : "file"): string[] {
   const bare = path.replace(/\/+$/, "");
   const out = must(git, ["log", ref, sinceFilter(created), "--full-history", "-E", `--grep=^Prompt-Id: ${escapeRegex(promptId)}$`, "--format=%H", "--", literal(bare)]);
-  return out.split("\n").filter((h) => h !== "");
+  const dirPrefix = `${bare}/`;
+  return out
+    .split("\n")
+    .filter((h) => h !== "")
+    .filter((sha) => {
+      const changed = must(git, ["diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-m", "-z", sha]).split("\0");
+      return changed.some((p) => (kind === "file" ? p === bare : p.startsWith(dirPrefix)));
+    });
 }
 
 function auditOutputs(declared: DeclaredOutput[], parsed: ParsedPrompt, git: Git, ref: string, repo: string | null): OutputResult[] {
@@ -433,7 +457,7 @@ function auditOutputs(declared: DeclaredOutput[], parsed: ParsedPrompt, git: Git
     if (o.error !== null || parsed.created === null || parsed.promptId === null) return { ...base, result: "INVALID-HEADER", commits: [] };
     if (repo === null) throw new Error("cannot derive owner/name from `git remote get-url origin`; pass --repo owner/name");
     if (o.repo.toLowerCase() !== repo.toLowerCase()) return { ...base, result: "OTHER-REPO", commits: [] };
-    const commits = deliveringCommits(git, ref, parsed.created, parsed.promptId, o.path);
+    const commits = deliveringCommits(git, ref, parsed.created, parsed.promptId, o.path, o.kind ?? "file");
     return { ...base, result: commits.length > 0 ? "DELIVERED" : "NOT-DELIVERED", commits };
   });
 }

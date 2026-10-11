@@ -65,12 +65,12 @@ const gitFor =
 
 const treeOf = (repo: string) => buildTree(sh(repo, {}, "ls-tree", "-r", "-z", "--name-only", "HEAD"));
 
-function promptWith(id: string, created: string, outputs: unknown, status = "ready-not-run"): string {
-  return `---\nprompt_id: ${JSON.stringify(id)}\ncreated: ${created}\nstatus: ${status}\ngoverning_issue: 191\noutputs: ${JSON.stringify(outputs)}\n---\n\n## Definition of done\n- [ ] one\n`;
+function promptWith(id: string | null, created: string, outputs: unknown, status = "ready-not-run"): string {
+  return `---\n${id === null ? "" : `prompt_id: ${JSON.stringify(id)}\n`}created: ${created}\nstatus: ${status}\ngoverning_issue: 191\noutputs: ${JSON.stringify(outputs)}\n---\n\n## Definition of done\n- [ ] one\n`;
 }
 
 type Step = { kind: "commit"; date: string; message: string; files: Record<string, string | null> } | { kind: "git"; args: string[]; date: string | null };
-type CorpusCase = { name: string; id: string; created: string; outputs: { key: string }[]; rawOutputs: unknown[]; steps: Step[]; expected: Record<string, string> };
+type CorpusCase = { name: string; id: string | null; created: string; outputs: { key: string }[]; rawOutputs: unknown[]; steps: Step[]; expected: Record<string, string> };
 
 function loadCase(file: string): CorpusCase {
   const raw: unknown = JSON.parse(readFileSync(join(CORPUS, file), "utf8"));
@@ -89,7 +89,7 @@ function loadCase(file: string): CorpusCase {
   for (const [k, v] of Object.entries(dig(raw, "expected") ?? {})) expected[k] = str(v, `${file} expected ${k}`);
   return {
     name: str(dig(raw, "name"), "name"),
-    id: str(dig(raw, "prompt", "id"), "id"),
+    id: dig(raw, "prompt", "id") === null ? null : str(dig(raw, "prompt", "id"), "id"),
     created: str(dig(raw, "prompt", "created"), "created"),
     outputs: rawOutputs.map((o) => ({ key: `${str(dig(o, "repo"), "repo")} ${str(dig(o, "path"), "path")}` })),
     rawOutputs,
@@ -172,8 +172,36 @@ describe("validateOutput", () => {
 
 describe("parseRemoteRepo and --repo", () => {
   test("[unit] M1 owner/name from https, ssh and ssh:// remotes", () => {
-    for (const url of ["https://github.com/acme/corpus", "https://github.com/acme/corpus.git\n", "git@github.com:acme/corpus.git", "ssh://git@github.com/acme/corpus.git", "https://github.com/acme/corpus/"]) expect(parseRemoteRepo(url), url).toBe("acme/corpus");
+    for (const url of ["https://github.com/acme/corpus", "https://github.com/acme/corpus.git\n", "git@github.com:acme/corpus.git", "ssh://git@github.com/acme/corpus.git"]) expect(parseRemoteRepo(url), url).toBe("acme/corpus");
     expect(parseRemoteRepo("not a url")).toBeNull();
+  });
+  test("[unit] M1-F3 anything but the three anchored remote forms derives no repo", () => {
+    for (const url of ["/Users/me/projects/corpus.git", "https://github.com/acme", "https://github.com/acme/corpus/extra", "file:///srv/acme/corpus.git", "git@github.com:corpus.git", "git@github.com:a/b/c.git", "ftp://github.com/acme/corpus", "../acme/corpus", "https://github.com/acme/corpus/"]) expect(parseRemoteRepo(url), url).toBeNull();
+  });
+  test("[unit] M1-F2 declared outputs without a prompt_id is an error, legacy without one is not", () => {
+    const head = "---\ncreated: 2026-10-01\n";
+    expect(parsePrompt(`${head}outputs:\n  - repo: acme/x\n    path: a.ts\n    kind: file\n---\n`).errors.join("|")).toContain("prompt_id is required when outputs are declared");
+    expect(parsePrompt(`${head}status: draft\n---\n`).errors).toEqual([]);
+  });
+  test("[unit] M1-F4 the out column widens to its widest cell and rows stay under 100 characters", () => {
+    const row = { stem: "y".repeat(80), status: "ready-not-run", touched: 1, checkable: 2, missing: 1, evidence: 3, flags: ["INVALID-STATUS" as const, "INVALID-HEADER" as const] };
+    const out = renderTable([{ ...row, out: "100/100" }, { ...row, out: "-" }]);
+    const lines = out.split("\n");
+    expect(lines.every((l) => l.length < 100)).toBe(true);
+    expect(lines[1]?.split(/\s+/)).toContain("100/100");
+    expect(lines[0]?.split(/\s+/)).toContain("out");
+  });
+  test("[integration] M1-F1 deliveringCommits honours kind: file is an exact path, dir is a prefix", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "a\n\nPrompt-Id: p1", { plain: "1\n" });
+      commitFiles(repo, "2026-10-06T13:00:00Z", "b\n\nPrompt-Id: p1", { "folder/child": "1\n" });
+      const g = gitFor(repo);
+      expect(deliveringCommits(g, "HEAD", "2026-10-05", "p1", "plain/", "dir")).toEqual([]);
+      expect(deliveringCommits(g, "HEAD", "2026-10-05", "p1", "folder", "file")).toEqual([]);
+      expect(deliveringCommits(g, "HEAD", "2026-10-05", "p1", "plain", "file").length).toBe(1);
+      expect(deliveringCommits(g, "HEAD", "2026-10-05", "p1", "folder/", "dir").length).toBe(1);
+    });
   });
   test("[unit] M1 --repo takes owner/name and rejects anything else", () => {
     const ok = parseArgs(["--repo", "acme/corpus"]);

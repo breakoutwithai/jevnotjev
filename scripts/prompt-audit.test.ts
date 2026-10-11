@@ -553,6 +553,14 @@ describe("classifyPath", () => {
     expect(classifyPath("docs/real/", t, unchanged, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
     expect(classifyPath("scripts/new.ts", t, changed, "origin/main", "2026-10-01")).toBe("TOUCHED");
   });
+  test("[unit] S7 every path-history query is run with --full-history", () => {
+    const { calls, git: g } = recorder("abc1234\n");
+    classifyPath("scripts/new.ts", tree, g, "origin/main", "2026-10-01");
+    auditPrompt("x.prompt.md", `---\nprompt_id: p\ncreated: 2026-10-01\nstatus: draft\ndeliverables:\n  - "scripts/new.ts: x"\n---\n`, buildTree("scripts/new.ts\0"), g, "sha", null);
+    const pathLogs = calls.filter((c) => c[0] === "log" && c.includes("--"));
+    expect(pathLogs.length).toBeGreaterThanOrEqual(2);
+    for (const c of pathLogs) expect(c).toContain("--full-history");
+  });
   test("[unit] F7 log pathspecs are literal", () => {
     const { calls, git: g } = recorder("abc1234\n");
     classifyPath("scripts/new.ts", tree, g, "origin/main", "2026-10-01");
@@ -908,6 +916,29 @@ describe("prompt-audit CLI", () => {
       const rows = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out);
       expect(dig(rows[0], "deliverables", 0, "paths", 0, "state")).toBe("UNTOUCHED");
       expect(dig(rows[0], "deliverables", 1, "paths", 0, "state")).toBe("TOUCHED");
+    });
+  });
+
+  test("[integration] S7 a deliverable added and deleted on a merged branch is not hidden by history simplification", () => {
+    withRepo((repo) => {
+      writeFileSync(join(repo, "README.md"), "base\n");
+      commitAt(repo, null, "base");
+      git(repo, "checkout", "-q", "-b", "feat");
+      writeFileSync(join(repo, "scripts/ghost.ts"), "export const ghost = 1;\n");
+      commitAt(repo, null, "branch adds the deliverable");
+      git(repo, "rm", "-q", "scripts/ghost.ts");
+      commitAt(repo, null, "branch deletes it again");
+      git(repo, "checkout", "-q", "main");
+      writeFileSync(join(repo, "other.txt"), "unrelated\n");
+      commitAt(repo, null, "unrelated main commit");
+      git(repo, "merge", "-q", "--no-ff", "-m", "merge feat", "feat");
+      writeFileSync(join(repo, "docs/prompts/20200101-ghost.prompt.md"), promptFile("fx-ghost", "ready-not-run", ["scripts/ghost.ts: x"]));
+      commitAt(repo, null, "prompt");
+      const row = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out)[0];
+      expect(dig(row, "deliverables", 0, "paths", 0, "state")).toBe("MISSING");
+      expect(dig(row, "verdict")).toBe("PARTIAL");
+      const evidence = dig(row, "evidenceCommits");
+      expect(Array.isArray(evidence) ? evidence.length : 0).toBeGreaterThanOrEqual(2);
     });
   });
 

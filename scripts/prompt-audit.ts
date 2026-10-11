@@ -47,7 +47,8 @@
 // (e.g. a path beyond a symlink) is listed as UNRESOLVED and does not abort. A file or directory is
 // TOUCHED when any commit changed it (or anything under it) since `created`, whether by adding or
 // editing. MISSING paths also get the evidence query, so a file added after `created` and since
-// deleted or renamed counts as evidence.
+// deleted or renamed counts as evidence. A folder deliverable is TOUCHED by any change under it,
+// including unrelated work, so a STALE-STATUS on a broad folder needs a human check.
 // The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER);
 // `created` is required. The Definition of done is counted (not verified) from Bun.markdown's
 // rendering of the body.
@@ -195,6 +196,9 @@ function classifyToken(raw: string, span: boolean): Token {
   const candidate = cleanToken(raw, span);
   if (candidate === "") return { kind: "reject" };
   const keep: Token = { kind: "unresolved", token: candidate };
+  // A glob character anywhere (a trailing `?` was already stripped as prose) keeps the token, with or
+  // without a slash or backticks: `*`, `*.ts` and `{a,b}` can name files the audit cannot check.
+  if (/[*?[{]/.test(candidate)) return keep;
   if (!span && !candidate.includes("/")) {
     if (/[=|,]/.test(candidate) || candidate.startsWith("#") || candidate.startsWith("--")) return { kind: "reject" };
     return BARE_EXTENSION.test(candidate) ? keep : { kind: "reject" };

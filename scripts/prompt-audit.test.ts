@@ -318,6 +318,17 @@ describe("extractPaths", () => {
   test("[unit] G10 a token of only slashes, tildes and dots is still dropped", () => {
     for (const t of ["/", "//", "~/", "./", "/.", "///"]) expect(extractCandidates(`see ${t}`), t).toEqual({ paths: [], unresolved: [] });
   });
+  test("[unit] S8 a bare glob token, with no slash and no backticks, is UNRESOLVED", () => {
+    expect(extractCandidates("scripts/new.ts + *")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["*"] });
+    expect(extractCandidates("scripts/new.ts + **")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["**"] });
+    expect(extractCandidates("scripts/new.ts + *.ts")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["*.ts"] });
+    expect(extractCandidates("scripts/new.ts + {a,b}").unresolved).toEqual(["{a"]);
+    expect(extractCandidates("scripts/new.ts + a?b")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["a?b"] });
+    expect(extractCandidates("scripts/new.ts + a[1]")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["a[1"] });
+  });
+  test("[unit] S8 a question mark ending a word is still prose, not a glob", () => {
+    expect(extractCandidates("is it done? why?!")).toEqual({ paths: [], unresolved: [] });
+  });
   test("[unit] G11 glob and punctuation-only tokens are UNRESOLVED, backticked or not", () => {
     expect(extractCandidates("scripts/new.ts + `**/*`")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["**/*"] });
     expect(extractCandidates("scripts/new.ts + **/*")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["**/*"] });
@@ -543,6 +554,15 @@ describe("auditPrompt", () => {
       expect(r.pathsTouched).toBe(1);
       expect(r.deliverables[0]?.unresolved).toEqual([extra]);
       expect(r.deliverables[0]?.unchecked).toBe(true);
+    }
+  });
+  test("[unit] S8 a bare glob next to a touched path makes the deliverable unchecked", () => {
+    const { git } = recorder("abc1234\n");
+    for (const item of ["scripts/new.ts + *", "scripts/new.ts + **", "scripts/new.ts + *.ts", "scripts/new.ts + {a,b}"]) {
+      const r = auditPrompt("x.prompt.md", prompt([item]), tree, git, "sha", null);
+      expect(r.pathsTouched, item).toBe(1);
+      expect(r.deliverables[0]?.unchecked, item).toBe(true);
+      expect(r.uncheckedDeliverables, item).toBe(1);
     }
   });
   test("[unit] G11 a glob-only backtick token next to a touched path is reported unchecked", () => {

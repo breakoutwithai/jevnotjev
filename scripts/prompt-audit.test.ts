@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { countChecklist, extractPaths, flagsFor, parsePrompt, renderTable, verdictFor, type Verdict } from "./prompt-audit";
+import { buildTree, classifyPath, countChecklist, extractPaths, flagsFor, parsePrompt, renderTable, verdictFor, type Verdict } from "./prompt-audit";
 
 const FIXTURE = `---
 prompt_id: jnj-fixture
@@ -152,7 +152,7 @@ describe("flagsFor", () => {
 
 describe("renderTable", () => {
   test("[unit] truncates a long stem and shows flags", () => {
-    const out = renderTable([{ stem: "x".repeat(80), status: "ready-not-run", verdict: "PARTIAL", exists: 1, checkable: 2, evidence: 3, flags: ["STALE-STATUS"] }]);
+    const out = renderTable([{ stem: "x".repeat(80), status: "ready-not-run", verdict: "PARTIAL", touched: 1, checkable: 2, evidence: 3, flags: ["STALE-STATUS"] }]);
     expect(out).toContain("PARTIAL");
     expect(out).toContain("1/2");
     expect(out).toContain("STALE-STATUS");
@@ -160,18 +160,74 @@ describe("renderTable", () => {
   });
 });
 
+describe("classifyPath", () => {
+  const tree = buildTree("site/index.html\nsrc/core/calc.ts\nscripts/new.ts\n");
+  // log answers only for the pathspec that has commits since created
+  const git = (args: string[]) => {
+    if (args[0] === "check-ignore") return { ok: args.includes(".persona-swarm/"), out: "" };
+    return { ok: true, out: args.includes("scripts/new.ts") ? "abc1234\n" : "" };
+  };
+  const none = () => false;
+  test("[unit] exists with commits since created is TOUCHED", () => {
+    expect(classifyPath("scripts/new.ts", tree, git, none, "origin/main", "2026-10-01")).toBe("TOUCHED");
+  });
+  test("[unit] exists with no commits since created is UNTOUCHED", () => {
+    expect(classifyPath("src/core/calc.ts", tree, git, none, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
+    expect(classifyPath("site/", tree, git, none, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
+  });
+  test("[unit] no created date falls back to plain existence", () => {
+    expect(classifyPath("src/core/calc.ts", tree, git, none, "origin/main", null)).toBe("TOUCHED");
+  });
+  test("[unit] absent is MISSING, git-excluded absent is IGNORED", () => {
+    expect(classifyPath("nope/x.ts", tree, git, none, "origin/main", "2026-10-01")).toBe("MISSING");
+    expect(classifyPath(".persona-swarm/", tree, git, none, "origin/main", "2026-10-01")).toBe("IGNORED");
+  });
+  test("[unit] absolute paths are checked on the filesystem", () => {
+    expect(classifyPath("/abs/there.ts", tree, git, (p) => p === "/abs/there.ts", "origin/main", "2026-10-01")).toBe("TOUCHED");
+    expect(classifyPath("/abs/gone.ts", tree, git, none, "origin/main", "2026-10-01")).toBe("MISSING");
+  });
+});
+
 const SCRIPT = join(import.meta.dir, "prompt-audit.ts");
 
 function git(cwd: string, ...args: string[]): void {
-  const run = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  gitAt(cwd, {}, ...args);
+}
+
+function gitAt(cwd: string, env: Record<string, string>, ...args: string[]): void {
+  const run = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], { cwd, env: { ...process.env, ...env }, stdout: "pipe", stderr: "pipe" });
   if (run.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${run.stderr.toString()}`);
 }
 
 describe("prompt-audit CLI", () => {
+  test("[integration] a directory with no prompts exits 2 and says so on stderr", () => {
+    const repo = mkdtempSync(join(tmpdir(), "jnj-prompt-audit-empty-"));
+    try {
+      git(repo, "init", "-q", "-b", "main");
+      mkdirSync(join(repo, "docs/prompts"), { recursive: true });
+      writeFileSync(join(repo, "README.md"), "x\n");
+      git(repo, "add", "-A");
+      git(repo, "commit", "-q", "-m", "init");
+      const run = Bun.spawnSync(["bun", SCRIPT, "--no-gh", "--ref", "HEAD"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+      expect(run.exitCode).toBe(2);
+      expect(run.stderr.toString()).toContain("no prompts in docs/prompts");
+      expect(run.stdout.toString()).toBe("");
+      const missing = Bun.spawnSync(["bun", SCRIPT, "--no-gh", "--ref", "HEAD", "--dir", "nowhere"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+      expect(missing.exitCode).toBe(2);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   test("[integration] --no-gh derives verdicts from a temp git repo", () => {
     const repo = mkdtempSync(join(tmpdir(), "jnj-prompt-audit-"));
     try {
       git(repo, "init", "-q", "-b", "main");
+      mkdirSync(join(repo, "scripts"), { recursive: true });
+      writeFileSync(join(repo, "scripts/old.ts"), "export const old = 1;\n");
+      git(repo, "add", "-A");
+      const OLD = "2019-01-01T00:00:00Z";
+      gitAt(repo, { GIT_AUTHOR_DATE: OLD, GIT_COMMITTER_DATE: OLD }, "commit", "-q", "-m", "old file");
       mkdirSync(join(repo, "docs/prompts"), { recursive: true });
       mkdirSync(join(repo, "scripts"), { recursive: true });
       writeFileSync(join(repo, "scripts/thing.ts"), "export const thing = 1;\n");
@@ -180,13 +236,14 @@ describe("prompt-audit CLI", () => {
       writeFileSync(join(repo, "docs/prompts/20200101-delivered.prompt.md"), prompt("fx-delivered", "ready-not-run", ["scripts/thing.ts: the thing"]));
       writeFileSync(join(repo, "docs/prompts/20200101-notrun.prompt.md"), prompt("fx-notrun", "ready-not-run", ["scripts/absent.ts: never built"]));
       writeFileSync(join(repo, "docs/prompts/20200101-partial.prompt.md"), prompt("fx-partial", "done", ["scripts/thing.ts: x", "scripts/absent.ts: y"]));
+      writeFileSync(join(repo, "docs/prompts/20200101-untouched.prompt.md"), prompt("fx-untouched", "ready-not-run", ["scripts/old.ts: pre-existing"]));
       git(repo, "add", "-A");
       git(repo, "commit", "-q", "-m", "add fixtures");
       const run = Bun.spawnSync(["bun", SCRIPT, "--json", "--no-gh", "--ref", "HEAD"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
       expect(run.exitCode).toBe(0);
       const parsed: unknown = JSON.parse(run.stdout.toString());
       const rows: unknown[] = Array.isArray(parsed) ? parsed : [];
-      expect(rows.length).toBe(3);
+      expect(rows.length).toBe(4);
       const verdictOf = (stem: string): unknown => {
         const row = rows.find((r) => typeof r === "object" && r !== null && Reflect.get(r, "stem") === stem);
         return typeof row === "object" && row !== null ? Reflect.get(row, "verdict") : undefined;
@@ -194,6 +251,8 @@ describe("prompt-audit CLI", () => {
       expect(verdictOf("20200101-delivered")).toBe("DELIVERED");
       expect(verdictOf("20200101-notrun")).toBe("NOT-RUN");
       expect(verdictOf("20200101-partial")).toBe("PARTIAL");
+      expect(verdictOf("20200101-untouched")).toBe("NOT-RUN");
+      expect(run.stdout.toString()).toContain("UNTOUCHED");
       const strict = Bun.spawnSync(["bun", SCRIPT, "--no-gh", "--ref", "HEAD", "--strict"], { cwd: repo, stdout: "pipe", stderr: "pipe" });
       expect(strict.exitCode).toBe(1);
       expect(strict.stdout.toString()).toContain("STALE-STATUS");

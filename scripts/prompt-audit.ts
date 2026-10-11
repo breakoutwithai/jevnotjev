@@ -1,6 +1,7 @@
 // Prompt audit: which prompts in docs/prompts/*.prompt.md have been run, and did they deliver?
 // The `status:` header is self-reported and goes stale, so this derives evidence instead: it checks
-// each deliverable path against the tracked tree of a git ref, counts the commits on that ref that
+// each deliverable path against the tracked tree of a git ref (TOUCHED = changed since the prompt
+// was created, UNTOUCHED = predates it and is not evidence), counts the commits on that ref that
 // touch an existing deliverable or mention the prompt, and (optionally) reads the governing issue.
 //
 //   bun scripts/prompt-audit.ts                  table + MISSING paths per prompt; exit 0
@@ -10,6 +11,7 @@
 //   bun scripts/prompt-audit.ts --dir <path>     prompt directory (default docs/prompts)
 //   bun scripts/prompt-audit.ts --ref <ref>      git ref the evidence is read from (default origin/main)
 //
+// An empty or missing prompt dir (docs/prompts/* is gitignored, so worktrees have none) exits 2.
 // Git commands run in the current directory. The verdict says what the repo evidence supports; it
 // never claims the Definition of done is met, only how many checklist items still need verifying.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -18,7 +20,7 @@ import { basename, join } from "node:path";
 
 export type Verdict = "NOT-RUN" | "PARTIAL" | "DELIVERED" | "NO-EVIDENCE-POSSIBLE";
 export type IssueState = "OPEN" | "CLOSED" | "unknown" | "none";
-export type PathState = "EXISTS" | "MISSING" | "IGNORED";
+export type PathState = "TOUCHED" | "UNTOUCHED" | "MISSING" | "IGNORED";
 export type Flag = "STALE-STATUS" | "INVALID-STATUS";
 
 export type ParsedPrompt = {
@@ -120,12 +122,12 @@ export function flagsFor(status: string | null, verdict: Verdict): Flag[] {
   return [];
 }
 
-export type TableRow = { stem: string; status: string | null; verdict: Verdict; exists: number; checkable: number; evidence: number; flags: Flag[] };
+export type TableRow = { stem: string; status: string | null; verdict: Verdict; touched: number; checkable: number; evidence: number; flags: Flag[] };
 
 export function renderTable(rows: TableRow[]): string {
   const cell = (s: string, w: number) => (s.length > w ? `${s.slice(0, w - 3)}...` : s.padEnd(w));
-  const head = `${cell("prompt", 34)} ${cell("status", 13)} ${cell("verdict", 20)} ${cell("paths", 5)} ${cell("evid", 4)} flags`;
-  const lines = rows.map((r) => `${cell(r.stem, 34)} ${cell(r.status ?? "(none)", 13)} ${cell(r.verdict, 20)} ${cell(`${r.exists}/${r.checkable}`, 5)} ${cell(String(r.evidence), 4)} ${r.flags.join(",")}`.trimEnd());
+  const head = `${cell("prompt", 34)} ${cell("status", 13)} ${cell("verdict", 20)} ${cell("touched", 7)} ${cell("evid", 4)} flags`;
+  const lines = rows.map((r) => `${cell(r.stem, 34)} ${cell(r.status ?? "(none)", 13)} ${cell(r.verdict, 20)} ${cell(`${r.touched}/${r.checkable}`, 7)} ${cell(String(r.evidence), 4)} ${r.flags.join(",")}`.trimEnd());
   return [head, ...lines].join("\n");
 }
 
@@ -140,7 +142,8 @@ export type PromptResult = {
   governingIssue: number | null;
   issue: IssueState;
   deliverables: DeliverableResult[];
-  pathsExist: number;
+  pathsTouched: number;
+  pathsUntouched: number;
   pathsMissing: number;
   pathsIgnored: number;
   evidenceCommits: string[];
@@ -159,34 +162,42 @@ export function buildTree(lsTreeOutput: string): Tree {
   return { files, basenames: new Set([...files].map((f) => basename(f))) };
 }
 
-export function classifyPath(path: string, tree: Tree, git: Git, fsExists: (p: string) => boolean): PathState {
-  if (path.startsWith("/")) return fsExists(path) ? "EXISTS" : "MISSING";
+// TOUCHED: on the ref and changed since `created`. UNTOUCHED: on the ref, no commit since `created`
+// (it predates the prompt, so it is no evidence the prompt ran). No `created` falls back to
+// existence. Absolute paths are outside git: existence on the filesystem is all that can be known.
+export function classifyPath(path: string, tree: Tree, git: Git, fsExists: (p: string) => boolean, ref: string, created: string | null): PathState {
+  if (path.startsWith("/")) return fsExists(path) ? "TOUCHED" : "MISSING";
   const bare = path.replace(/\/+$/, "");
-  const found = tree.files.has(bare) || [...tree.files].some((f) => f.startsWith(`${bare}/`)) || (!bare.includes("/") && tree.basenames.has(bare));
-  if (found) return "EXISTS";
-  return git(["check-ignore", "-q", "--", path]).ok ? "IGNORED" : "MISSING";
+  const inTree = tree.files.has(bare) || [...tree.files].some((f) => f.startsWith(`${bare}/`));
+  const byName = !inTree && !bare.includes("/") && tree.basenames.has(bare);
+  if (!inTree && !byName) return git(["check-ignore", "-q", "--", path]).ok ? "IGNORED" : "MISSING";
+  if (created === null) return "TOUCHED";
+  const spec = byName ? [...tree.files].filter((f) => basename(f) === bare) : [bare];
+  const log = git(["log", ref, `--since=${created}`, "--format=%h", "--", ...spec]);
+  return log.out.trim() === "" ? "UNTOUCHED" : "TOUCHED";
 }
 
 export function auditPrompt(file: string, text: string, tree: Tree, git: Git, ref: string, lookup: IssueLookup | null, fsExists: (p: string) => boolean): PromptResult {
   const stem = basename(file).replace(/\.prompt\.md$/, "").replace(/\.md$/, "");
   const parsed = parsePrompt(text);
   const deliverables: DeliverableResult[] = parsed.deliverables.map((d) => {
-    const paths = extractPaths(d).map((path) => ({ path, state: classifyPath(path, tree, git, fsExists) }));
+    const paths = extractPaths(d).map((path) => ({ path, state: classifyPath(path, tree, git, fsExists, ref, parsed.created) }));
     return { text: d, paths, unchecked: paths.length === 0 };
   });
   const all = deliverables.flatMap((d) => d.paths);
-  const pathsExist = all.filter((p) => p.state === "EXISTS").length;
+  const pathsTouched = all.filter((p) => p.state === "TOUCHED").length;
+  const pathsUntouched = all.filter((p) => p.state === "UNTOUCHED").length;
   const pathsMissing = all.filter((p) => p.state === "MISSING").length;
   const pathsIgnored = all.filter((p) => p.state === "IGNORED").length;
   const commits = new Set<string>();
   const since = parsed.created === null ? [] : [`--since=${parsed.created}`];
-  const repoPaths = all.filter((p) => p.state === "EXISTS" && !p.path.startsWith("/")).map((p) => p.path);
+  const repoPaths = all.filter((p) => p.state === "TOUCHED" && !p.path.startsWith("/")).map((p) => p.path);
   if (repoPaths.length > 0) for (const h of git(["log", ref, ...since, "--format=%h", "--", ...repoPaths]).out.split("\n")) if (h !== "") commits.add(h);
   const needles = [parsed.promptId, stem].filter((n): n is string => n !== null && n !== "");
   if (needles.length > 0) for (const h of git(["log", ref, "--fixed-strings", ...needles.map((n) => `--grep=${n}`), "--format=%h"]).out.split("\n")) if (h !== "") commits.add(h);
   let issue: IssueState = "none";
   if (parsed.governingIssue !== null) issue = lookup === null ? "unknown" : lookup(parsed.governingIssue);
-  const verdict = verdictFor({ exists: pathsExist, missing: pathsMissing, evidence: commits.size, issue });
+  const verdict = verdictFor({ exists: pathsTouched, missing: pathsMissing + pathsUntouched, evidence: commits.size, issue });
   return {
     stem,
     file,
@@ -196,7 +207,8 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
     governingIssue: parsed.governingIssue,
     issue,
     deliverables,
-    pathsExist,
+    pathsTouched,
+    pathsUntouched,
     pathsMissing,
     pathsIgnored,
     evidenceCommits: [...commits],
@@ -208,10 +220,11 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
 
 export function renderReport(results: PromptResult[]): string {
   const table = renderTable(
-    results.map((r) => ({ stem: r.stem, status: r.status, verdict: r.verdict, exists: r.pathsExist, checkable: r.pathsExist + r.pathsMissing, evidence: r.evidenceCommits.length, flags: r.flags })),
+    results.map((r) => ({ stem: r.stem, status: r.status, verdict: r.verdict, touched: r.pathsTouched, checkable: r.pathsTouched + r.pathsUntouched + r.pathsMissing, evidence: r.evidenceCommits.length, flags: r.flags })),
   );
   const bullets = results.map((r) => {
     const missing = r.deliverables.flatMap((d) => d.paths).filter((p) => p.state === "MISSING").map((p) => p.path);
+    const untouched = r.deliverables.flatMap((d) => d.paths).filter((p) => p.state === "UNTOUCHED").map((p) => p.path);
     const ignored = r.deliverables.flatMap((d) => d.paths).filter((p) => p.state === "IGNORED").map((p) => p.path);
     const unchecked = r.deliverables.filter((d) => d.unchecked).length;
     const parts = [
@@ -220,6 +233,7 @@ export function renderReport(results: PromptResult[]): string {
       `unchecked deliverables: ${unchecked}`,
       `MISSING: ${missing.length === 0 ? "none" : missing.join(", ")}`,
     ];
+    parts.push(`UNTOUCHED: ${untouched.length === 0 ? "none" : untouched.join(", ")}`);
     if (ignored.length > 0) parts.push(`IGNORED: ${ignored.join(", ")}`);
     return `- ${r.stem}: ${parts.join(" | ")}`;
   });
@@ -260,7 +274,16 @@ function main(args: string[]): number {
   }
   const tree = buildTree(lsTree.out);
   const lookup = args.includes("--no-gh") ? null : realIssueLookup;
-  const files = readdirSync(dir).filter((f) => f.endsWith(".prompt.md")).sort();
+  let files: string[] = [];
+  try {
+    files = readdirSync(dir).filter((f) => f.endsWith(".prompt.md")).sort();
+  } catch {
+    files = [];
+  }
+  if (files.length === 0) {
+    console.error(`no prompts in ${dir}`);
+    return 2;
+  }
   const results = files.map((f) => auditPrompt(join(dir, f), readFileSync(join(dir, f), "utf8"), tree, realGit, ref, lookup, existsSync));
   console.log(args.includes("--json") ? JSON.stringify(results, null, 2) : renderReport(results));
   return args.includes("--strict") && results.some((r) => r.flags.length > 0) ? 1 : 0;

@@ -1,4 +1,4 @@
-# Labels for run-shopbot-2026-10-11: DRAFT, not approved
+# Labels for run-shopbot-2026-10-11: approved 2026-10-11
 
 `records.csv` in this folder carries NO labels. The files below are AI drafts waiting for the operator's review. Nothing here is a label until a person approves it.
 
@@ -26,3 +26,9 @@ bun scripts/uc13/run-arms.ts label --run 2026-10-11 --source human_reviewed --by
 ```
 
 Until then `bun src/decide/cli.ts verdict` on this `records.csv` reports not enough evidence, by design: unlabelled rows count for nothing.
+
+## Approved 2026-10-11
+
+The operator approved the majority drafts on 2026-10-11 and decided the one dispute, `m67`, as `hand_off`. `labels.csv` holds the 100 approved labels (64 hand_off, 36 answer), merged into `records.csv` with `--source human_reviewed --by operator --at 2026-10-11 --blind false`: 300 of 300 rows labelled.
+
+`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 89 of 100, the LLM 87 of 100; lower bound of Jev minus LLM -0.043; Jev costs 0.198 of the LLM per accepted answer (upper bound 0.216).

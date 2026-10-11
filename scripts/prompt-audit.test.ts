@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   auditPrompt,
@@ -8,7 +8,6 @@ import {
   classifyPath,
   countChecklist,
   extractCandidates,
-  extractPaths,
   flagsFor,
   isIsoDate,
   normalizeCreated,
@@ -19,6 +18,8 @@ import {
   type Git,
   type Verdict,
 } from "./prompt-audit";
+
+const extractPaths = (s: string): string[] => extractCandidates(s).paths;
 
 const FIXTURE = `---
 prompt_id: jnj-fixture
@@ -49,6 +50,8 @@ scope:
 `;
 
 const front = (body: string) => `---\n${body}\n---\nbody\n`;
+// `created` is required, so tests about other fields start from a valid one.
+const ok = (body: string) => front(`created: 2026-10-01\n${body}`);
 
 describe("parsePrompt", () => {
   test("[unit] reads scalar keys and strips quotes", () => {
@@ -79,7 +82,7 @@ describe("parsePrompt", () => {
     expect(p.errors.length).toBe(1);
   });
   test("[unit] R3-2 only a column-0 `---` line closes the front matter", () => {
-    const p = parsePrompt("---\nprompt_id: a\ndeliverables:\n  - >-\n    text\n    ---\n    more\nstatus: draft\n---\nbody\n");
+    const p = parsePrompt("---\nprompt_id: a\ncreated: 2026-10-01\ndeliverables:\n  - >-\n    text\n    ---\n    more\nstatus: draft\n---\nbody\n");
     expect(p.errors).toEqual([]);
     expect(p.status).toBe("draft");
     expect(p.deliverables).toEqual(["text --- more"]);
@@ -93,7 +96,7 @@ describe("parsePrompt", () => {
     }
   });
   test("[unit] Y1 YAML escapes, doubled apostrophes and folded scalars are decoded", () => {
-    const p = parsePrompt(front('deliverables:\n  - "scripts/caf\\u00e9.ts: x"\n  - \'it\'\'s/a.ts\'\n  - >-\n    scripts/long.ts: first\n    second'));
+    const p = parsePrompt(ok('deliverables:\n  - "scripts/caf\\u00e9.ts: x"\n  - \'it\'\'s/a.ts\'\n  - >-\n    scripts/long.ts: first\n    second'));
     expect(p.errors).toEqual([]);
     expect(p.deliverables).toEqual(["scripts/café.ts: x", "it's/a.ts", "scripts/long.ts: first second"]);
   });
@@ -118,7 +121,7 @@ describe("parsePrompt", () => {
     }
   });
   test("[unit] Y6 governing_issue beyond the safe integer range is an error", () => {
-    const p = parsePrompt(front("governing_issue: 99999999999999999999"));
+    const p = parsePrompt(ok("governing_issue: 99999999999999999999"));
     expect(p.governingIssue).toBeNull();
     expect(p.errors[0]).toContain("governing_issue");
   });
@@ -142,15 +145,20 @@ describe("parsePrompt", () => {
   });
   test("[unit] F4 a present governing_issue that is not a positive integer is an error, not null-and-silent", () => {
     for (const bad of ["abc", "0", "-3", "3.5", "39x"]) {
-      const p = parsePrompt(front(`governing_issue: ${bad}`));
+      const p = parsePrompt(ok(`governing_issue: ${bad}`));
       expect(p.governingIssue).toBeNull();
       expect(p.errors.length).toBe(1);
       expect(p.errors[0]).toContain("governing_issue");
     }
   });
   test("[unit] F4 an empty or null governing_issue is simply absent", () => {
-    expect(parsePrompt(front("governing_issue:")).errors).toEqual([]);
-    expect(parsePrompt(front("governing_issue: null # none")).errors).toEqual([]);
+    expect(parsePrompt(ok("governing_issue:")).errors).toEqual([]);
+    expect(parsePrompt(ok("governing_issue: null # none")).errors).toEqual([]);
+  });
+  test("[unit] G3 created is required: absent or null is an error", () => {
+    expect(parsePrompt(front("status: draft")).errors[0]).toContain("created");
+    expect(parsePrompt(front("created:\nstatus: draft")).errors[0]).toContain("created");
+    expect(parsePrompt(front("status: draft")).created).toBeNull();
   });
   test("[unit] F1 created must be a real YYYY-MM-DD date", () => {
     expect(parsePrompt(front("created: 2026-13-45")).errors[0]).toContain("created");
@@ -160,12 +168,12 @@ describe("parsePrompt", () => {
     expect(isIsoDate("2026-1-1")).toBe(false);
   });
   test("[unit] F5 indentless block sequence is read", () => {
-    const p = parsePrompt(front('deliverables:\n- a/b.ts\n- "c/d.ts: two"\nscope:\n- not.me'));
+    const p = parsePrompt(ok('deliverables:\n- a/b.ts\n- "c/d.ts: two"\nscope:\n- not.me'));
     expect(p.deliverables).toEqual(["a/b.ts", "c/d.ts: two"]);
     expect(p.errors).toEqual([]);
   });
   test("[unit] Y9 an unquoted `path: description` item is a YAML mapping and is reported, not guessed at", () => {
-    const p = parsePrompt(front("deliverables:\n- a/b.ts: one"));
+    const p = parsePrompt(ok("deliverables:\n- a/b.ts: one"));
     expect(p.deliverables).toEqual([]);
     expect(p.errors[0]).toContain("deliverables");
   });
@@ -262,12 +270,21 @@ describe("extractPaths", () => {
   test("[unit] backticks and trailing commas are stripped", () => {
     expect(extractPaths("`site/theatre.js`, site/theatre.css, and more")).toEqual(["site/theatre.js", "site/theatre.css"]);
   });
-  test("[unit] placeholders and globs are ignored", () => {
-    expect(extractPaths("docs/product/runs/<date>-uc14/: docs/records.csv")).toEqual(["docs/records.csv"]);
-    expect(extractPaths("~/.agents/skills/pr-status/scripts/*.test.ts (one per script)")).toEqual([]);
+  test("[unit] G1 globs and placeholders stay as unresolved candidates instead of vanishing", () => {
+    expect(extractCandidates("scripts/new.ts + scripts/missing/*.ts")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["scripts/missing/*.ts"] });
+    expect(extractCandidates("scripts/new.ts docs/runs/<date>/report.md")).toEqual({ paths: ["scripts/new.ts"], unresolved: ["docs/runs/<date>/report.md"] });
+    expect(extractCandidates("scripts/a?.ts and docs/[id]/page.tsx")).toEqual({ paths: [], unresolved: ["scripts/a?.ts", "docs/[id]/page.tsx"] });
+    expect(extractCandidates("docs/product/runs/<date>-uc14/: docs/records.csv")).toEqual({ paths: ["docs/records.csv"], unresolved: ["docs/product/runs/<date>-uc14/"] });
   });
-  test("[unit] ~/ expands to the home directory", () => {
-    expect(extractPaths("~/.agents/skills/pr-status/SKILL.md (revised)")).toEqual([join(homedir(), ".agents/skills/pr-status/SKILL.md")]);
+  test("[unit] G1 a trailing question mark is prose, not a glob", () => {
+    expect(extractCandidates("is it in scripts/new.ts?")).toEqual({ paths: ["scripts/new.ts"], unresolved: [] });
+  });
+  test("[unit] G2 absolute and ~/ paths are unresolved, never expanded or checked", () => {
+    expect(extractCandidates("~/.agents/skills/pr-status/SKILL.md (revised)")).toEqual({ paths: [], unresolved: ["~/.agents/skills/pr-status/SKILL.md"] });
+    expect(extractCandidates("/etc/hosts.conf and ~/.agents/skills/pr-status/scripts/*.test.ts")).toEqual({
+      paths: [],
+      unresolved: ["/etc/hosts.conf", "~/.agents/skills/pr-status/scripts/*.test.ts"],
+    });
   });
   test("[unit] prose, org/repo names and abbreviations are not paths", () => {
     expect(extractPaths("one PR on breakoutwithai/jevnotjev, e.g. with the rule 10 gate evidence")).toEqual([]);
@@ -279,7 +296,7 @@ describe("extractPaths", () => {
     expect(extractCandidates("records.csv: the table")).toEqual({ paths: [], unresolved: ["records.csv"] });
   });
   test("[unit] F2 a placeholder directory prefix leaves the bare filename unresolved", () => {
-    expect(extractCandidates("docs/runs/<date>-target/: records.csv")).toEqual({ paths: [], unresolved: ["records.csv"] });
+    expect(extractCandidates("docs/runs/<date>-target/: records.csv")).toEqual({ paths: [], unresolved: ["docs/runs/<date>-target/", "records.csv"] });
   });
   test("[unit] F3 separators and slash prose are not paths", () => {
     expect(extractPaths("see / and/or yes/no Python/branches // ~/ ./ a//")).toEqual([]);
@@ -303,18 +320,18 @@ describe("extractPaths", () => {
 
 describe("verdictFor", () => {
   const base = { exists: 0, missing: 0, unchecked: 0, evidence: 0, issue: "none" as const };
-  test("[unit] R3-1 any unchecked deliverable blocks DELIVERED", () => {
+  test("[unit] R3-1 any unchecked deliverable blocks PATHS-DONE", () => {
     expect(verdictFor({ ...base, exists: 2, unchecked: 1 })).toBe("PARTIAL");
-    expect(verdictFor({ ...base, exists: 2, unchecked: 0 })).toBe("DELIVERED");
+    expect(verdictFor({ ...base, exists: 2, unchecked: 0 })).toBe("PATHS-DONE");
   });
   test("[unit] NOT-RUN when nothing exists and no evidence", () => {
     expect(verdictFor({ ...base, missing: 3 })).toBe("NOT-RUN");
   });
-  test("[unit] DELIVERED when all exist and no issue", () => {
-    expect(verdictFor({ ...base, exists: 3 })).toBe("DELIVERED");
+  test("[unit] PATHS-DONE when all exist and no issue", () => {
+    expect(verdictFor({ ...base, exists: 3 })).toBe("PATHS-DONE");
   });
-  test("[unit] DELIVERED when all exist and the issue is CLOSED", () => {
-    expect(verdictFor({ ...base, exists: 2, issue: "CLOSED" })).toBe("DELIVERED");
+  test("[unit] PATHS-DONE when all exist and the issue is CLOSED", () => {
+    expect(verdictFor({ ...base, exists: 2, issue: "CLOSED" })).toBe("PATHS-DONE");
   });
   test("[unit] PARTIAL when some exist", () => {
     expect(verdictFor({ ...base, exists: 1, missing: 1 })).toBe("PARTIAL");
@@ -331,8 +348,15 @@ describe("verdictFor", () => {
   test("[unit] NO-EVIDENCE-POSSIBLE with zero checkable paths and no issue", () => {
     expect(verdictFor(base)).toBe("NO-EVIDENCE-POSSIBLE");
   });
-  test("[unit] zero checkable paths with an issue and no evidence is NOT-RUN", () => {
-    expect(verdictFor({ ...base, issue: "OPEN" })).toBe("NOT-RUN");
+  test("[unit] G6 NOT-RUN needs at least one checkable path", () => {
+    expect(verdictFor({ ...base, issue: "OPEN" })).toBe("NO-EVIDENCE-POSSIBLE");
+    expect(verdictFor({ ...base, issue: "unknown" })).toBe("NO-EVIDENCE-POSSIBLE");
+    expect(verdictFor({ ...base, unchecked: 2 })).toBe("NO-EVIDENCE-POSSIBLE");
+    expect(verdictFor({ ...base, missing: 1 })).toBe("NOT-RUN");
+  });
+  test("[unit] G6 zero checkable paths with a CLOSED issue or any evidence is PARTIAL", () => {
+    expect(verdictFor({ ...base, issue: "CLOSED" })).toBe("PARTIAL");
+    expect(verdictFor({ ...base, issue: "OPEN", evidence: 1 })).toBe("PARTIAL");
   });
   test("[unit] F12 zero checkable paths, no issue, but evidence commits is PARTIAL", () => {
     expect(verdictFor({ ...base, evidence: 2 })).toBe("PARTIAL");
@@ -343,14 +367,14 @@ describe("flagsFor", () => {
   const f = (status: string | null, verdict: Verdict) => flagsFor(status, verdict);
   test("[unit] ready-not-run or draft with a non-NOT-RUN verdict is STALE-STATUS", () => {
     expect(f("ready-not-run", "PARTIAL")).toEqual(["STALE-STATUS"]);
-    expect(f("draft", "DELIVERED")).toEqual(["STALE-STATUS"]);
+    expect(f("draft", "PATHS-DONE")).toEqual(["STALE-STATUS"]);
   });
   test("[unit] ready-not-run with NOT-RUN is consistent", () => {
     expect(f("ready-not-run", "NOT-RUN")).toEqual([]);
   });
-  test("[unit] done must be DELIVERED", () => {
+  test("[unit] done must be PATHS-DONE", () => {
     expect(f("done", "PARTIAL")).toEqual(["STALE-STATUS"]);
-    expect(f("done", "DELIVERED")).toEqual([]);
+    expect(f("done", "PATHS-DONE")).toEqual([]);
   });
   test("[unit] a status outside the allowed set is INVALID-STATUS", () => {
     expect(f("in-progress", "PARTIAL")).toEqual(["INVALID-STATUS"]);
@@ -397,47 +421,57 @@ describe("classifyPath", () => {
     if (args[0] === "check-ignore") return { code: args.includes(".persona-swarm/") ? 0 : 1, out: "", err: "" };
     return { code: 0, out: args.some((a) => a.endsWith("scripts/new.ts")) ? "abc1234\n" : "", err: "" };
   };
-  const none = () => false;
   test("[unit] exists with commits since created is TOUCHED", () => {
-    expect(classifyPath("scripts/new.ts", tree, git, none, "origin/main", "2026-10-01")).toBe("TOUCHED");
+    expect(classifyPath("scripts/new.ts", tree, git, "origin/main", "2026-10-01")).toBe("TOUCHED");
   });
   test("[unit] exists with no commits since created is UNTOUCHED", () => {
-    expect(classifyPath("src/core/calc.ts", tree, git, none, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
-    expect(classifyPath("site/", tree, git, none, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
-  });
-  test("[unit] no created date falls back to plain existence", () => {
-    expect(classifyPath("src/core/calc.ts", tree, git, none, "origin/main", null)).toBe("TOUCHED");
+    expect(classifyPath("src/core/calc.ts", tree, git, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
+    expect(classifyPath("site/", tree, git, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
   });
   test("[unit] R3-4 absent from the pinned tree is MISSING and git check-ignore is never consulted", () => {
     const { calls, git: g } = recorder("");
-    expect(classifyPath("nope/x.ts", tree, g, none, "origin/main", "2026-10-01")).toBe("MISSING");
-    expect(classifyPath(".persona-swarm/", tree, g, none, "origin/main", "2026-10-01")).toBe("MISSING");
+    expect(classifyPath("nope/x.ts", tree, g, "origin/main", "2026-10-01")).toBe("MISSING");
+    expect(classifyPath(".persona-swarm/", tree, g, "origin/main", "2026-10-01")).toBe("MISSING");
     expect(calls.some((c) => c[0] === "check-ignore")).toBe(false);
-  });
-  test("[unit] absolute paths are checked on the filesystem", () => {
-    expect(classifyPath("/abs/there.ts", tree, git, (p) => p === "/abs/there.ts", "origin/main", "2026-10-01")).toBe("TOUCHED");
-    expect(classifyPath("/abs/gone.ts", tree, git, none, "origin/main", "2026-10-01")).toBe("MISSING");
   });
   test("[unit] F1 the since filter is UTC midnight of the date and never the time-of-day --since", () => {
     const { calls, git: g } = recorder("abc1234\n");
-    classifyPath("scripts/new.ts", tree, g, none, "origin/main", "2026-10-01");
+    classifyPath("scripts/new.ts", tree, g, "origin/main", "2026-10-01");
     const log = calls.find((c) => c[0] === "log") ?? [];
     expect(log).toContain("--since-as-filter=2026-10-01T00:00:00Z");
     expect(log.some((a) => a.startsWith("--since="))).toBe(false);
   });
   test("[unit] F6 a failing git log throws with its stderr instead of reading as empty", () => {
     const failing: Git = (args) => (args[0] === "log" ? { code: 128, out: "", err: "fatal: bad object" } : { code: 1, out: "", err: "" });
-    expect(() => classifyPath("scripts/new.ts", tree, failing, none, "origin/main", "2026-10-01")).toThrow("fatal: bad object");
+    expect(() => classifyPath("scripts/new.ts", tree, failing, "origin/main", "2026-10-01")).toThrow("fatal: bad object");
   });
   test("[unit] S2-13 a trailing-slash path needs a tracked descendant, not a file of that name", () => {
     const t = buildTree("docs/notes\0docs/real/a.md\0");
-    expect(classifyPath("docs/notes/", t, git, none, "origin/main", null)).toBe("MISSING");
-    expect(classifyPath("docs/real/", t, git, none, "origin/main", null)).toBe("TOUCHED");
-    expect(classifyPath("docs/notes", t, git, none, "origin/main", null)).toBe("TOUCHED");
+    const always: Git = () => ({ code: 0, out: "abc1234\n", err: "" });
+    expect(classifyPath("docs/notes/", t, always, "origin/main", "2026-10-01")).toBe("MISSING");
+    expect(classifyPath("docs/real/", t, always, "origin/main", "2026-10-01")).toBe("TOUCHED");
+    expect(classifyPath("docs/notes", t, always, "origin/main", "2026-10-01")).toBe("TOUCHED");
+  });
+  test("[unit] G4 a directory is TOUCHED only when a file under it was added since created", () => {
+    const t = buildTree("docs/real/a.md\0scripts/new.ts\0");
+    const calls: string[][] = [];
+    // Modifications show up in a plain log; only the --diff-filter=A query answers for additions.
+    const modifiedOnly: Git = (args) => {
+      calls.push(args);
+      return { code: 0, out: args.includes("--diff-filter=A") ? "" : "abc1234\n", err: "" };
+    };
+    expect(classifyPath("docs/real/", t, modifiedOnly, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
+    const added: Git = (args) => ({ code: 0, out: args.includes("--diff-filter=A") ? "abc1234\n" : "", err: "" });
+    expect(classifyPath("docs/real/", t, added, "origin/main", "2026-10-01")).toBe("TOUCHED");
+    expect(calls[0]).toContain("--diff-filter=A");
+    expect(calls[0]).toContain("--since-as-filter=2026-10-01T00:00:00Z");
+    // A file keeps the plain rule: any change counts.
+    expect(classifyPath("scripts/new.ts", t, modifiedOnly, "origin/main", "2026-10-01")).toBe("TOUCHED");
+    expect(calls.at(-1)?.includes("--diff-filter=A")).toBe(false);
   });
   test("[unit] F7 log pathspecs are literal", () => {
     const { calls, git: g } = recorder("abc1234\n");
-    classifyPath("scripts/new.ts", tree, g, none, "origin/main", "2026-10-01");
+    classifyPath("scripts/new.ts", tree, g, "origin/main", "2026-10-01");
     const log = calls.find((c) => c[0] === "log") ?? [];
     expect(log.slice(log.indexOf("--") + 1)).toEqual([":(literal)scripts/new.ts"]);
   });
@@ -452,11 +486,10 @@ describe("buildTree", () => {
 
 describe("auditPrompt", () => {
   const tree = buildTree("scripts/new.ts\0other/dir/calc.ts\0");
-  const none = () => false;
   const prompt = (items: string[], extra = "created: 2026-10-01\nstatus: ready-not-run") => `---\nprompt_id: p\n${extra}\ndeliverables:\n${items.map((i) => `  - "${i}"`).join("\n")}\n---\n`;
   test("[unit] F2 a bare filename never matches an unrelated tracked file", () => {
     const { git } = recorder("abc1234\n");
-    const r = auditPrompt("x.prompt.md", prompt(["calc.ts: the calculator"]), tree, git, "sha", null, none);
+    const r = auditPrompt("x.prompt.md", prompt(["calc.ts: the calculator"]), tree, git, "sha", null);
     expect(r.pathsTouched).toBe(0);
     expect(r.pathsMissing).toBe(0);
     expect(r.deliverables[0]?.unresolved).toEqual(["calc.ts"]);
@@ -464,7 +497,7 @@ describe("auditPrompt", () => {
   });
   test("[unit] F11 evidence queries use the same normalized, literal path as classification", () => {
     const { calls, git } = recorder("abc1234\n");
-    const r = auditPrompt("x.prompt.md", prompt(["./scripts/new.ts: x"]), tree, git, "sha", null, none);
+    const r = auditPrompt("x.prompt.md", prompt(["./scripts/new.ts: x"]), tree, git, "sha", null);
     expect(r.deliverables[0]?.paths).toEqual([{ path: "scripts/new.ts", state: "TOUCHED" }]);
     const specs = calls.filter((c) => c[0] === "log" && c.includes("--")).map((c) => c.slice(c.indexOf("--") + 1));
     expect(specs.length).toBeGreaterThan(1);
@@ -472,7 +505,7 @@ describe("auditPrompt", () => {
   });
   test("[unit] F1 an invalid created date is reported and no path is classified against it", () => {
     const { calls, git } = recorder("abc1234\n");
-    const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x"], "created: 2026-13-45\nstatus: ready-not-run"), tree, git, "sha", null, none);
+    const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x"], "created: 2026-13-45\nstatus: ready-not-run"), tree, git, "sha", null);
     expect(r.errors[0]).toContain("created");
     expect(r.flags).toContain("INVALID-HEADER");
     expect(r.pathsTouched).toBe(0);
@@ -481,21 +514,21 @@ describe("auditPrompt", () => {
   });
   test("[unit] F4 a bad governing_issue raises INVALID-HEADER", () => {
     const { git } = recorder("");
-    const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x"], "created: 2026-10-01\nstatus: ready-not-run\ngoverning_issue: soon"), tree, git, "sha", null, none);
+    const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x"], "created: 2026-10-01\nstatus: ready-not-run\ngoverning_issue: soon"), tree, git, "sha", null);
     expect(r.flags).toContain("INVALID-HEADER");
     expect(r.errors[0]).toContain("governing_issue");
   });
   test("[unit] S2-1 R3-4 a git-excluded path is plain MISSING and never counts toward delivery", () => {
     const { calls, git } = recorder("");
-    const r = auditPrompt("x.prompt.md", prompt([".persona-swarm/report.md: x"]), tree, git, "sha", null, none);
+    const r = auditPrompt("x.prompt.md", prompt([".persona-swarm/report.md: x"]), tree, git, "sha", null);
     expect(r.deliverables[0]?.paths).toEqual([{ path: ".persona-swarm/report.md", state: "MISSING" }]);
     expect(r.pathsTouched).toBe(0);
-    expect(r.verdict).not.toBe("DELIVERED");
+    expect(r.verdict).not.toBe("PATHS-DONE");
     expect(calls.some((c) => c[0] === "check-ignore")).toBe(false);
   });
-  test("[unit] R3-1 a prose deliverable with no path blocks DELIVERED even when every path is touched", () => {
+  test("[unit] R3-1 a prose deliverable with no path blocks PATHS-DONE even when every path is touched", () => {
     const { git } = recorder("abc1234\n");
-    const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x", "one PR with the gate evidence"]), tree, git, "sha", null, none);
+    const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x", "one PR with the gate evidence"]), tree, git, "sha", null);
     expect(r.pathsTouched).toBe(1);
     expect(r.deliverables[1]?.unchecked).toBe(true);
     expect(r.verdict).toBe("PARTIAL");
@@ -503,41 +536,74 @@ describe("auditPrompt", () => {
   test("[unit] R3-8 a backtick filename containing a comma is split and stays conservative", () => {
     const commaTree = buildTree("docs/a, b.md\0");
     const { git } = recorder("abc1234\n");
-    const r = auditPrompt("x.prompt.md", prompt(["`docs/a, b.md`: x"]), commaTree, git, "sha", null, none);
+    const r = auditPrompt("x.prompt.md", prompt(["`docs/a, b.md`: x"]), commaTree, git, "sha", null);
     expect(r.deliverables[0]?.unchecked).toBe(true);
-    expect(r.verdict).not.toBe("DELIVERED");
+    expect(r.verdict).not.toBe("PATHS-DONE");
   });
   test("[unit] R3-3 a prompt_id with a newline or no content never reaches a --grep argument", () => {
     for (const id of ['"a\\nb"', '""', '"   "']) {
       const { calls, git } = recorder("");
-      const r = auditPrompt("x.prompt.md", `---\nprompt_id: ${id}\nstatus: draft\n---\n`, tree, git, "sha", null, none);
+      const r = auditPrompt("x.prompt.md", `---\nprompt_id: ${id}\nstatus: draft\n---\n`, tree, git, "sha", null);
       expect(r.flags).toContain("INVALID-HEADER");
       expect(calls.flatMap((c) => c).some((a) => a.startsWith("--grep=") && (a.includes("\n") || a === "--grep="))).toBe(false);
     }
   });
   test("[unit] R3-3 a file stem with a newline is not used as a --grep needle", () => {
     const { calls, git } = recorder("");
-    auditPrompt("a\nb.prompt.md", "---\nstatus: draft\n---\n", tree, git, "sha", null, none);
+    auditPrompt("a\nb.prompt.md", "---\nstatus: draft\n---\n", tree, git, "sha", null);
     expect(calls.some((c) => c[0] === "log")).toBe(false);
   });
   test("[unit] S2-12 a deliverable with any unresolved or ignored candidate is unchecked", () => {
     const { git } = recorder("");
-    const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts and records.csv: x"]), tree, git, "sha", null, none);
+    const r = auditPrompt("x.prompt.md", prompt(["scripts/new.ts and records.csv: x"]), tree, git, "sha", null);
     expect(r.deliverables[0]?.paths.length).toBe(1);
     expect(r.deliverables[0]?.unresolved).toEqual(["records.csv"]);
     expect(r.deliverables[0]?.unchecked).toBe(true);
-    const ok = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x"]), tree, git, "sha", null, none);
+    const ok = auditPrompt("x.prompt.md", prompt(["scripts/new.ts: x"]), tree, git, "sha", null);
     expect(ok.deliverables[0]?.unchecked).toBe(false);
   });
   test("[unit] S2-3 with no prompt id and no stem the message query is skipped, never an unfiltered log", () => {
     const { calls, git } = recorder("abc1234\n");
-    const r = auditPrompt(".prompt.md", "---\nstatus: draft\n---\n", tree, git, "sha", null, none);
+    const r = auditPrompt(".prompt.md", "---\nstatus: draft\n---\n", tree, git, "sha", null);
     expect(calls.some((c) => c[0] === "log")).toBe(false);
     expect(r.evidenceCommits).toEqual([]);
   });
+  test("[unit] G1 a glob next to a touched path blocks PATHS-DONE", () => {
+    const { git } = recorder("abc1234\n");
+    for (const item of ["scripts/new.ts + scripts/missing/*.ts", "scripts/new.ts docs/runs/<date>/report.md"]) {
+      const r = auditPrompt("x.prompt.md", prompt([item]), tree, git, "sha", null);
+      expect(r.pathsTouched).toBe(1);
+      expect(r.deliverables[0]?.unchecked).toBe(true);
+      expect(r.verdict).toBe("PARTIAL");
+    }
+  });
+  test("[unit] G2 absolute and home paths are never classified or read from the filesystem", () => {
+    const { calls, git } = recorder("abc1234\n");
+    const r = auditPrompt("x.prompt.md", prompt(["~/.agents/skills/x/SKILL.md: y", "/etc/hosts.conf: z"]), tree, git, "sha", null);
+    expect(r.pathsTouched).toBe(0);
+    expect(r.deliverables.map((d) => d.unresolved)).toEqual([["~/.agents/skills/x/SKILL.md"], ["/etc/hosts.conf"]]);
+    expect(r.verdict).not.toBe("PATHS-DONE");
+    expect(calls.some((c) => c.includes("--") && c.some((a) => a.includes("SKILL.md") || a.includes("hosts.conf")))).toBe(false);
+  });
+  test("[unit] G3 a missing created date leaves every path unresolved and raises INVALID-HEADER", () => {
+    const { calls, git } = recorder("abc1234\n");
+    const text = '---\nprompt_id: p\nstatus: draft\ndeliverables:\n  - "scripts/new.ts: x"\n---\n';
+    const r = auditPrompt("x.prompt.md", text, tree, git, "sha", null);
+    expect(r.errors[0]).toContain("created");
+    expect(r.flags).toContain("INVALID-HEADER");
+    expect(r.pathsTouched).toBe(0);
+    expect(r.deliverables[0]?.unresolved).toEqual(["scripts/new.ts"]);
+    expect(calls.some((c) => c[0] === "log")).toBe(false);
+  });
+  test("[unit] G7 the message-evidence query is bounded by created too", () => {
+    const { calls, git } = recorder("abc1234\n");
+    auditPrompt("x.prompt.md", prompt(["site/: x"]), tree, git, "sha", null);
+    const grep = calls.find((c) => c.some((a) => a.startsWith("--grep=")));
+    expect(grep).toContain("--since-as-filter=2026-10-01T00:00:00Z");
+  });
   test("[unit] F6 a failing evidence grep throws", () => {
     const failing: Git = (args) => (args.some((a) => a.startsWith("--grep=")) ? { code: 128, out: "", err: "fatal: grep boom" } : { code: 1, out: "", err: "" });
-    expect(() => auditPrompt("x.prompt.md", prompt(["site/: x"]), tree, failing, "sha", null, none)).toThrow("grep boom");
+    expect(() => auditPrompt("x.prompt.md", prompt(["site/: x"]), tree, failing, "sha", null)).toThrow("grep boom");
   });
 });
 
@@ -674,7 +740,7 @@ describe("prompt-audit CLI", () => {
           rows.find((r) => dig(r, "stem") === stem),
           "verdict",
         );
-      expect(verdictOf("20200101-delivered")).toBe("DELIVERED");
+      expect(verdictOf("20200101-delivered")).toBe("PATHS-DONE");
       expect(verdictOf("20200101-notrun")).toBe("NOT-RUN");
       expect(verdictOf("20200101-partial")).toBe("PARTIAL");
       expect(verdictOf("20200101-untouched")).toBe("NOT-RUN");
@@ -698,12 +764,29 @@ describe("prompt-audit CLI", () => {
 
   test("[integration] F7 F8 literal pathspecs and unicode names resolve exactly", () => {
     withRepo((repo) => {
-      writeFileSync(join(repo, "scripts/a[1].ts"), "export const a = 1;\n");
-      commitAt(repo, "2019-01-01T00:00:00Z", "old bracket file");
-      writeFileSync(join(repo, "scripts/a1.ts"), "export const a1 = 1;\n");
+      // A backslash is an escape in a non-literal pathspec: `a\b.ts` would match the file `ab.ts`.
+      writeFileSync(join(repo, "scripts/a\\b.ts"), "export const a = 1;\n");
+      commitAt(repo, "2019-01-01T00:00:00Z", "old backslash file");
+      writeFileSync(join(repo, "scripts/ab.ts"), "export const ab = 1;\n");
       writeFileSync(join(repo, "scripts/café.ts"), "export const cafe = 1;\n");
-      writeFileSync(join(repo, "docs/prompts/20200101-names.prompt.md"), promptFile("fx-names", "ready-not-run", ["scripts/a[1].ts: x", "scripts/café.ts: y"]));
+      writeFileSync(join(repo, "docs/prompts/20200101-names.prompt.md"), promptFile("fx-names", "ready-not-run", ["scripts/a\\\\b.ts: x", "scripts/café.ts: y"]));
       commitAt(repo, null, "new files and prompt");
+      const rows = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out);
+      expect(dig(rows[0], "deliverables", 0, "paths", 0, "state")).toBe("UNTOUCHED");
+      expect(dig(rows[0], "deliverables", 1, "paths", 0, "state")).toBe("TOUCHED");
+    });
+  });
+
+  test("[integration] G4 a directory is TOUCHED by an added file, not by an edit to an old one", () => {
+    withRepo((repo) => {
+      mkdirSync(join(repo, "area1"), { recursive: true });
+      writeFileSync(join(repo, "area1/old.md"), "old\n");
+      commitAt(repo, "2019-01-01T00:00:00Z", "old dir");
+      writeFileSync(join(repo, "area1/old.md"), "edited\n");
+      mkdirSync(join(repo, "area2"), { recursive: true });
+      writeFileSync(join(repo, "area2/new.md"), "new\n");
+      writeFileSync(join(repo, "docs/prompts/20200101-dirs.prompt.md"), promptFile("fx-dirs", "ready-not-run", ["area1/: x", "area2/: y"]));
+      commitAt(repo, null, "edit one dir, add to another");
       const rows = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out);
       expect(dig(rows[0], "deliverables", 0, "paths", 0, "state")).toBe("UNTOUCHED");
       expect(dig(rows[0], "deliverables", 1, "paths", 0, "state")).toBe("TOUCHED");

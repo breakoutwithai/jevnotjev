@@ -21,17 +21,27 @@
 //
 // A deliverable token is a path only with a directory part: a trailing `/`, a `~/` or `./` prefix, or
 // a file extension on the last segment. A bare filename (`records.csv`) or a path escaping the repo is
-// UNRESOLVED. A deliverable with no path or any UNRESOLVED candidate is unchecked, and one unchecked
-// deliverable blocks DELIVERED. A path absent from the pinned tree is MISSING (no .gitignore lookup).
-// The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER); the
-// Definition of done is counted from Bun.markdown's rendering of the body.
+// UNRESOLVED, as are globs, `<placeholders>`, absolute and `~/` paths (outside the pinned repo there
+// is no history to pin). A deliverable with no path or any UNRESOLVED candidate is unchecked, and one
+// unchecked deliverable blocks PATHS-DONE. A path absent from the pinned tree is MISSING (no
+// .gitignore lookup). A file is TOUCHED when any commit changed it since `created`; a directory only
+// when a file under it was ADDED since then.
+// The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER);
+// `created` is required. The Definition of done is counted from Bun.markdown's rendering of the body.
 // Limitation: a backtick span naming a file with a comma in its name is split, so it stays UNRESOLVED.
-// The verdict says what the repo evidence supports; it never claims the Definition of done is met.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+//
+// Verdicts:
+//   PATHS-DONE  every extracted path is TOUCHED since `created`, no candidate is UNRESOLVED, and the
+//               governing issue is CLOSED or absent. Prose deliverables and the Definition of done
+//               are NOT verified: it is a floor on what the repo shows, not a claim the work is done.
+//   NOT-RUN     at least one checkable path, none TOUCHED, and no evidence commit.
+//   PARTIAL     some evidence, but not PATHS-DONE.
+//   NO-EVIDENCE-POSSIBLE  no checkable path, no evidence commit and no CLOSED issue.
+// STALE-STATUS: ready-not-run/draft with evidence of work, or `done` without PATHS-DONE.
+import { readdirSync, readFileSync } from "node:fs";
 import { basename, join, posix } from "node:path";
 
-export type Verdict = "NOT-RUN" | "PARTIAL" | "DELIVERED" | "NO-EVIDENCE-POSSIBLE";
+export type Verdict = "NOT-RUN" | "PARTIAL" | "PATHS-DONE" | "NO-EVIDENCE-POSSIBLE";
 export type IssueState = "OPEN" | "CLOSED" | "unknown" | "none";
 export type PathState = "TOUCHED" | "UNTOUCHED" | "MISSING";
 export type Flag = "STALE-STATUS" | "INVALID-STATUS" | "INVALID-HEADER";
@@ -39,7 +49,6 @@ export type Flag = "STALE-STATUS" | "INVALID-STATUS" | "INVALID-HEADER";
 export type ParsedPrompt = {
   promptId: string | null;
   created: string | null;
-  createdInvalid: boolean;
   status: string | null;
   governingIssue: number | null;
   deliverables: string[];
@@ -82,7 +91,7 @@ function stringField(data: Record<string, unknown>, key: string, errors: string[
 
 // The front matter goes through Bun's built-in YAML parser, then each field is type-checked.
 export function parsePrompt(text: string): ParsedPrompt {
-  const out: ParsedPrompt = { promptId: null, created: null, createdInvalid: false, status: null, governingIssue: null, deliverables: [], errors: [] };
+  const out: ParsedPrompt = { promptId: null, created: null, status: null, governingIssue: null, deliverables: [], errors: [] };
   const { source } = splitFrontMatter(text);
   if (source === null) {
     out.errors.push("no front matter block");
@@ -106,12 +115,10 @@ export function parsePrompt(text: string): ParsedPrompt {
   }
   out.status = stringField(data, "status", out.errors);
   const created = data["created"];
-  if (created !== undefined && created !== null) {
+  if (created === undefined || created === null) out.errors.push("created is required (YYYY-MM-DD)");
+  else {
     out.created = normalizeCreated(created);
-    if (out.created === null) {
-      out.createdInvalid = true;
-      out.errors.push(`created "${String(created)}" is not a YYYY-MM-DD date`);
-    }
+    if (out.created === null) out.errors.push(`created "${String(created)}" is not a YYYY-MM-DD date`);
   }
   const issue = data["governing_issue"];
   if (issue !== undefined && issue !== null) {
@@ -162,13 +169,16 @@ type Token = { kind: "path"; path: string } | { kind: "unresolved"; token: strin
 // except the dots of a `.` or `..` segment, which must reach the traversal check.
 function cleanToken(raw: string, span: boolean): string {
   if (span) return raw.trim();
-  const base = raw.replace(/^[`"'([]+/, "").replace(/[`"')\],;:]+$/, "");
+  const base = raw.replace(/^[`"'([]+/, "").replace(/[`"')\],;:!?]+$/, "");
   return (/(^|\/)\.{1,2}$/.test(base) ? base : base.replace(/\.+$/, "")).trim();
 }
 
 function classifyToken(raw: string, span: boolean): Token {
   const candidate = cleanToken(raw, span);
-  if (candidate === "" || /[<>*{}$=|,]/.test(candidate) || candidate.startsWith("#") || candidate.startsWith("--") || candidate.includes("://")) return { kind: "reject" };
+  if (candidate === "" || /[=|,]/.test(candidate) || candidate.startsWith("#") || candidate.startsWith("--") || candidate.includes("://")) return { kind: "reject" };
+  // A glob or placeholder in something that looks like a path or file can never be verified, but it
+  // must not vanish either: it stays an UNRESOLVED candidate and blocks PATHS-DONE.
+  if (/[*?[\]<>{}$]/.test(candidate)) return candidate.includes("/") || BARE_EXTENSION.test(candidate) ? { kind: "unresolved", token: candidate } : { kind: "reject" };
   if (!candidate.includes("/")) return BARE_EXTENSION.test(candidate) ? { kind: "unresolved", token: candidate } : { kind: "reject" };
   const home = candidate.startsWith("~/");
   const abs = candidate.startsWith("/");
@@ -185,7 +195,8 @@ function classifyToken(raw: string, span: boolean): Token {
   if (!home && !abs && (flat === "." || flat === ".." || flat.startsWith("../"))) return { kind: "unresolved", token: candidate };
   if (!segments.some((s) => /[\p{L}\p{N}]/u.test(s))) return { kind: "reject" };
   if (!(dir || home || dotLead || EXTENSION.test(segments.at(-1) ?? ""))) return { kind: "reject" };
-  if (home) return { kind: "path", path: posix.join(homedir(), body) };
+  // Outside the pinned repo there is no history to check: absolute and ~/ paths are never verified.
+  if (home || abs) return { kind: "unresolved", token: candidate };
   return { kind: "path", path: normalized };
 }
 
@@ -214,16 +225,13 @@ export function extractCandidates(deliverable: string): Candidates {
   return { paths, unresolved };
 }
 
-export function extractPaths(deliverable: string): string[] {
-  return extractCandidates(deliverable).paths;
-}
-
 // `unchecked` counts deliverables with no path or with an UNRESOLVED candidate: any of them blocks
-// DELIVERED, so every extraction miss fails conservative.
+// PATHS-DONE, so every extraction miss fails conservative.
 export function verdictFor(input: { exists: number; missing: number; unchecked: number; evidence: number; issue: IssueState }): Verdict {
   const checkable = input.exists + input.missing;
-  if (checkable === 0 && input.issue === "none") return input.evidence > 0 ? "PARTIAL" : "NO-EVIDENCE-POSSIBLE";
-  if (checkable > 0 && input.missing === 0 && input.unchecked === 0 && (input.issue === "none" || input.issue === "CLOSED")) return "DELIVERED";
+  // NOT-RUN is a positive claim ("a path was looked for and nothing happened"), so it needs a path.
+  if (checkable === 0) return input.issue === "CLOSED" || input.evidence > 0 ? "PARTIAL" : "NO-EVIDENCE-POSSIBLE";
+  if (input.missing === 0 && input.unchecked === 0 && (input.issue === "none" || input.issue === "CLOSED")) return "PATHS-DONE";
   if (input.exists === 0 && input.evidence === 0) return "NOT-RUN";
   return "PARTIAL";
 }
@@ -231,7 +239,7 @@ export function verdictFor(input: { exists: number; missing: number; unchecked: 
 export function flagsFor(status: string | null, verdict: Verdict): Flag[] {
   if (status === null || !VALID_STATUS.includes(status)) return ["INVALID-STATUS"];
   if ((status === "ready-not-run" || status === "draft") && verdict !== "NOT-RUN" && verdict !== "NO-EVIDENCE-POSSIBLE") return ["STALE-STATUS"];
-  if (status === "done" && verdict !== "DELIVERED") return ["STALE-STATUS"];
+  if (status === "done" && verdict !== "PATHS-DONE") return ["STALE-STATUS"];
   return [];
 }
 
@@ -286,30 +294,28 @@ export function buildTree(lsTreeZ: string): Tree {
   return { files: new Set(lsTreeZ.split("\0").filter((l) => l !== "")) };
 }
 
-// TOUCHED: on the ref and changed since `created`. UNTOUCHED: on the ref, no commit since `created`
-// (it predates the prompt, so it is no evidence the prompt ran). No `created` falls back to
-// existence. Absolute paths are outside git: existence on the filesystem is all that can be known.
-export function classifyPath(path: string, tree: Tree, git: Git, fsExists: (p: string) => boolean, ref: string, created: string | null): PathState {
-  if (path.startsWith("/")) return fsExists(path) ? "TOUCHED" : "MISSING";
+// TOUCHED: on the ref and changed since `created` (a directory: a file under it was ADDED since then;
+// edits to old files do not count). UNTOUCHED: on the ref, but not changed that way (it predates the
+// prompt, so it is no evidence the prompt ran). MISSING: not in the pinned tree.
+export function classifyPath(path: string, tree: Tree, git: Git, ref: string, created: string): PathState {
   const bare = path.replace(/\/+$/, "");
   // A trailing slash names a directory: it needs a tracked descendant, a file of that name is not one.
-  const inTree = (!path.endsWith("/") && tree.files.has(bare)) || [...tree.files].some((f) => f.startsWith(`${bare}/`));
-  if (!inTree) return "MISSING";
-  if (created === null) return "TOUCHED";
-  const out = must(git, ["log", ref, sinceFilter(created), "--format=%h", "--", literal(bare)]);
+  const isFile = !path.endsWith("/") && tree.files.has(bare);
+  const isDir = [...tree.files].some((f) => f.startsWith(`${bare}/`));
+  if (!isFile && !isDir) return "MISSING";
+  const out = must(git, ["log", ref, sinceFilter(created), ...(isFile ? [] : ["--diff-filter=A"]), "--format=%h", "--", literal(bare)]);
   return out.trim() === "" ? "UNTOUCHED" : "TOUCHED";
 }
 
-export function auditPrompt(file: string, text: string, tree: Tree, git: Git, ref: string, lookup: IssueLookup | null, fsExists: (p: string) => boolean): PromptResult {
+export function auditPrompt(file: string, text: string, tree: Tree, git: Git, ref: string, lookup: IssueLookup | null): PromptResult {
   const stem = basename(file).replace(/\.prompt\.md$/, "").replace(/\.md$/, "");
   const parsed = parsePrompt(text);
-  const createdBad = parsed.createdInvalid;
+  // null when absent or invalid: nothing can be dated, so nothing is classified or queried.
   const created = parsed.created;
   const deliverables: DeliverableResult[] = parsed.deliverables.map((d) => {
     const c = extractCandidates(d);
-    // An invalid created date means "touched since" cannot be computed: nothing is classified.
-    if (createdBad) return { text: d, paths: [], unresolved: [...c.paths, ...c.unresolved], unchecked: true };
-    const paths = c.paths.map((path) => ({ path, state: classifyPath(path, tree, git, fsExists, ref, created) }));
+    if (created === null) return { text: d, paths: [], unresolved: [...c.paths, ...c.unresolved], unchecked: true };
+    const paths = c.paths.map((path) => ({ path, state: classifyPath(path, tree, git, ref, created) }));
     // Checked only if there is a path and every candidate was classified.
     return { text: d, paths, unresolved: c.unresolved, unchecked: paths.length === 0 || c.unresolved.length > 0 };
   });
@@ -318,14 +324,14 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   const pathsUntouched = all.filter((p) => p.state === "UNTOUCHED").length;
   const pathsMissing = all.filter((p) => p.state === "MISSING").length;
   const commits = new Set<string>();
-  const repoPaths = all.filter((p) => p.state === "TOUCHED" && !p.path.startsWith("/")).map((p) => literal(p.path.replace(/\/+$/, "")));
-  if (repoPaths.length > 0) {
-    const since = created === null ? [] : [sinceFilter(created)];
-    for (const h of must(git, ["log", ref, ...since, "--format=%h", "--", ...repoPaths]).split("\n")) if (h !== "") commits.add(h);
+  if (created !== null) {
+    const since = sinceFilter(created);
+    const repoPaths = all.filter((p) => p.state === "TOUCHED").map((p) => literal(p.path.replace(/\/+$/, "")));
+    if (repoPaths.length > 0) for (const h of must(git, ["log", ref, since, "--format=%h", "--", ...repoPaths]).split("\n")) if (h !== "") commits.add(h);
+    const needles = [parsed.promptId, stem].filter((n): n is string => n !== null && n !== "" && !/[\r\n]/.test(n));
+    // With no needle the query would be an unfiltered `git log`: skip it.
+    if (needles.length > 0) for (const h of must(git, ["log", ref, since, "--fixed-strings", ...needles.map((n) => `--grep=${n}`), "--format=%h"]).split("\n")) if (h !== "") commits.add(h);
   }
-  const needles = [parsed.promptId, stem].filter((n): n is string => n !== null && n !== "" && !/[\r\n]/.test(n));
-  // With no needle the query would be an unfiltered `git log`: skip it.
-  if (needles.length > 0) for (const h of must(git, ["log", ref, "--fixed-strings", ...needles.map((n) => `--grep=${n}`), "--format=%h"]).split("\n")) if (h !== "") commits.add(h);
   let issue: IssueState = "none";
   if (parsed.governingIssue !== null) issue = lookup === null ? "unknown" : lookup(parsed.governingIssue);
   const verdict = verdictFor({ exists: pathsTouched, missing: pathsMissing + pathsUntouched, unchecked: deliverables.filter((d) => d.unchecked).length, evidence: commits.size, issue });
@@ -439,7 +445,7 @@ function run(o: Options): number {
   const sha = must(git, ["rev-parse", "--verify", `${o.ref}^{commit}`]).trim();
   const tree = buildTree(must(git, ["ls-tree", "-r", "-z", "--name-only", sha]));
   const lookup = o.noGh ? null : realIssueLookup;
-  const results = files.map((f) => auditPrompt(join(o.dir, f), readFileSync(join(o.dir, f), "utf8"), tree, git, sha, lookup, existsSync));
+  const results = files.map((f) => auditPrompt(join(o.dir, f), readFileSync(join(o.dir, f), "utf8"), tree, git, sha, lookup));
   console.log(o.json ? JSON.stringify(results, null, 2) : renderReport(results, `ref: ${o.ref} @ ${sha.slice(0, 12)}`));
   return o.strict && results.some((r) => r.flags.length > 0) ? 1 : 0;
 }

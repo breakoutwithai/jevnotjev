@@ -32,9 +32,14 @@
 // (outside the pinned repo there is no history to pin). Only a bare word, or a token made of
 // `/`, `~` and `.` alone (`/`, `//`, `~/`, `./`), is dropped as prose; `**/*`, `-/-` and `*` are kept.
 // A deliverable with no path or any UNRESOLVED candidate is unchecked: the audit cannot say it was
-// not run, so NOT-RUN is withheld. A path absent from the pinned tree is MISSING (no
-// .gitignore lookup). A file or directory is TOUCHED when any commit changed it (or anything under
-// it) since `created`, whether by adding or editing.
+// not run, so NOT-RUN is withheld. A path absent from the pinned tree is MISSING, unless
+// `git check-ignore --no-index` says an ignore rule covers it: then it is IGNORED (run outputs are
+// gitignored, so absence proves nothing) and counts as unchecked. That lookup reads the WORKING
+// TREE's ignore files, not the pinned commit's, so it can only withhold NOT-RUN, never grant
+// anything; a check-ignore failure (e.g. a path beyond a symlink) is listed as UNRESOLVED and does
+// not abort. A file or directory is TOUCHED when any commit changed it (or anything under it)
+// since `created`, whether by adding or editing. MISSING paths also get the evidence query, so a
+// file added after `created` and since deleted or renamed counts as work.
 // The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER);
 // `created` is required. The Definition of done is counted (not verified) from Bun.markdown's
 // rendering of the body.
@@ -56,7 +61,7 @@ import { basename, join, posix } from "node:path";
 
 export type Verdict = "NOT-RUN" | "PARTIAL" | "NO-EVIDENCE-POSSIBLE";
 export type IssueState = "OPEN" | "CLOSED" | "unknown" | "none";
-export type PathState = "TOUCHED" | "UNTOUCHED" | "MISSING";
+export type PathState = "TOUCHED" | "UNTOUCHED" | "MISSING" | "IGNORED";
 export type Flag = "STALE-STATUS" | "INVALID-STATUS" | "INVALID-HEADER";
 
 export type ParsedPrompt = {
@@ -321,13 +326,22 @@ export function buildTree(lsTreeZ: string): Tree {
 
 // TOUCHED: on the ref and changed since `created` (a directory: anything under it, added or edited).
 // UNTOUCHED: on the ref, but not changed since (it predates the prompt, so it is no evidence the
-// prompt ran). MISSING: not in the pinned tree.
-export function classifyPath(path: string, tree: Tree, git: Git, ref: string, created: string): PathState {
+// prompt ran). MISSING: not in the pinned tree and not covered by an ignore rule. IGNORED: not in the
+// tree and the working tree's ignore rules cover it (run outputs are gitignored by policy, so absence
+// proves nothing). UNKNOWN: check-ignore could not answer (exit other than 0 or 1, e.g. 128 for a path
+// beyond a symlink); it never aborts the audit and the caller treats it as unresolved.
+export type ClassifiedState = PathState | "UNKNOWN";
+export function classifyPath(path: string, tree: Tree, git: Git, ref: string, created: string): ClassifiedState {
   const bare = path.replace(/\/+$/, "");
   // A trailing slash names a directory: it needs a tracked descendant, a file of that name is not one.
   const isFile = !path.endsWith("/") && tree.files.has(bare);
   const isDir = [...tree.files].some((f) => f.startsWith(`${bare}/`));
-  if (!isFile && !isDir) return "MISSING";
+  if (!isFile && !isDir) {
+    // Plain path: check-ignore rejects :(literal) pathspec magic. --no-index so a tracked-ness
+    // lookup never hides a rule; it reads the working tree's ignore files, not the pinned commit's.
+    const r = git(["check-ignore", "-q", "--no-index", "--", path]);
+    return r.code === 0 ? "IGNORED" : r.code === 1 ? "MISSING" : "UNKNOWN";
+  }
   const out = must(git, ["log", ref, sinceFilter(created), "--format=%h", "--", literal(bare)]);
   return out.trim() === "" ? "UNTOUCHED" : "TOUCHED";
 }
@@ -340,9 +354,15 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   const deliverables: DeliverableResult[] = parsed.deliverables.map((d) => {
     const c = extractCandidates(d);
     if (created === null) return { text: d, paths: [], unresolved: [...c.paths, ...c.unresolved], unchecked: true };
-    const paths = c.paths.map((path) => ({ path, state: classifyPath(path, tree, git, ref, created) }));
-    // Checked only if there is a path and every candidate was classified.
-    return { text: d, paths, unresolved: c.unresolved, unchecked: paths.length === 0 || c.unresolved.length > 0 };
+    const paths: PathResult[] = [];
+    const unresolved = [...c.unresolved];
+    for (const path of c.paths) {
+      const state = classifyPath(path, tree, git, ref, created);
+      if (state === "UNKNOWN") unresolved.push(path);
+      else paths.push({ path, state });
+    }
+    // Checked only if there is a path and every candidate was classified and none is IGNORED.
+    return { text: d, paths, unresolved, unchecked: paths.length === 0 || unresolved.length > 0 || paths.some((p) => p.state === "IGNORED") };
   });
   const all = deliverables.flatMap((d) => d.paths);
   const pathsTouched = all.filter((p) => p.state === "TOUCHED").length;
@@ -351,7 +371,9 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   const commits = new Set<string>();
   if (created !== null) {
     const since = sinceFilter(created);
-    const repoPaths = all.filter((p) => p.state === "TOUCHED").map((p) => literal(p.path.replace(/\/+$/, "")));
+    // MISSING paths are queried too: a file added after `created` and since deleted or renamed has
+    // history on the ref even though it is gone from the tree. The path keeps its MISSING state.
+    const repoPaths = all.filter((p) => p.state === "TOUCHED" || p.state === "MISSING").map((p) => literal(p.path.replace(/\/+$/, "")));
     if (repoPaths.length > 0) for (const h of must(git, ["log", ref, since, "--format=%h", "--", ...repoPaths]).split("\n")) if (h !== "") commits.add(h);
     const needles = [parsed.promptId, stem].filter((n): n is string => n !== null && n !== "" && !/[\r\n]/.test(n));
     // With no needle the query would be an unfiltered `git log`: skip it.
@@ -400,6 +422,7 @@ export function renderReport(results: PromptResult[], refLine: string | null = n
       `MISSING: ${list("MISSING")}`,
       `UNTOUCHED: ${list("UNTOUCHED")}`,
     ];
+    if (paths.some((p) => p.state === "IGNORED")) parts.push(`IGNORED: ${list("IGNORED")}`);
     if (unresolved.length > 0) parts.push(`UNRESOLVED: ${unresolved.join(", ")}`);
     if (r.errors.length > 0) parts.push(`ERRORS: ${r.errors.join("; ")}`);
     return `- ${r.stem}: ${parts.join(" | ")}`;

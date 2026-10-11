@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -500,10 +500,22 @@ describe("classifyPath", () => {
     expect(classifyPath("src/core/calc.ts", tree, git, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
     expect(classifyPath("site/", tree, git, "origin/main", "2026-10-01")).toBe("UNTOUCHED");
   });
-  test("[unit] R3-4 absent from the pinned tree is MISSING and git check-ignore is never consulted", () => {
+  // Changed by S6: R3-4 asserted `git check-ignore` was never consulted. It is now, for paths absent
+  // from the tree, because a path in a gitignored folder must not read as "never created".
+  test("[unit] S6 an absent path is MISSING on check-ignore exit 1, IGNORED on 0, UNKNOWN (no throw) otherwise", () => {
+    const calls: string[][] = [];
+    const by = (code: number): Git => (args) => {
+      calls.push(args);
+      return { code: args[0] === "check-ignore" ? code : 0, out: "", err: code === 128 ? "fatal: pathspec is beyond a symbolic link" : "" };
+    };
+    expect(classifyPath("nope/x.ts", tree, by(1), "origin/main", "2026-10-01")).toBe("MISSING");
+    expect(classifyPath("_reference/run/", tree, by(0), "origin/main", "2026-10-01")).toBe("IGNORED");
+    expect(classifyPath("link/x.ts", tree, by(128), "origin/main", "2026-10-01")).toBe("UNKNOWN");
+    expect(calls[0]).toEqual(["check-ignore", "-q", "--no-index", "--", "nope/x.ts"]);
+  });
+  test("[unit] S6 a path present in the tree never asks check-ignore", () => {
     const { calls, git: g } = recorder("");
-    expect(classifyPath("nope/x.ts", tree, g, "origin/main", "2026-10-01")).toBe("MISSING");
-    expect(classifyPath(".persona-swarm/", tree, g, "origin/main", "2026-10-01")).toBe("MISSING");
+    classifyPath("scripts/new.ts", tree, g, "origin/main", "2026-10-01");
     expect(calls.some((c) => c[0] === "check-ignore")).toBe(false);
   });
   test("[unit] F1 the since filter is UTC midnight of the date and never the time-of-day --since", () => {
@@ -519,7 +531,8 @@ describe("classifyPath", () => {
   });
   test("[unit] S2-13 a trailing-slash path needs a tracked descendant, not a file of that name", () => {
     const t = buildTree("docs/notes\0docs/real/a.md\0");
-    const always: Git = () => ({ code: 0, out: "abc1234\n", err: "" });
+    // Changed by S6: this mock answered every call with exit 0, which is now "ignored" for check-ignore.
+    const always: Git = (args) => ({ code: args[0] === "check-ignore" ? 1 : 0, out: "abc1234\n", err: "" });
     expect(classifyPath("docs/notes/", t, always, "origin/main", "2026-10-01")).toBe("MISSING");
     expect(classifyPath("docs/real/", t, always, "origin/main", "2026-10-01")).toBe("TOUCHED");
     expect(classifyPath("docs/notes", t, always, "origin/main", "2026-10-01")).toBe("TOUCHED");
@@ -608,12 +621,30 @@ describe("auditPrompt", () => {
       expect(r.verdict, item).toBe("PARTIAL");
     }
   });
-  test("[unit] S2-1 R3-4 a git-excluded path is plain MISSING and never counts toward delivery", () => {
-    const { calls, git } = recorder("");
+  // Changed by S6: this S2-1/R3-4 test expected a git-excluded path to be plain MISSING with no
+  // check-ignore call. check-ignore now runs, and exit 0 gives IGNORED (unchecked, NOT-RUN withheld).
+  test("[unit] S6 an ignored path is IGNORED and unchecked, so NOT-RUN is withheld", () => {
+    const git: Git = (args) => ({ code: 0, out: "", err: args[0] === "check-ignore" ? "" : "" });
+    const r = auditPrompt("x.prompt.md", prompt([".persona-swarm/report.md: x"]), tree, git, "sha", null);
+    expect(r.deliverables[0]?.paths).toEqual([{ path: ".persona-swarm/report.md", state: "IGNORED" }]);
+    expect(r.pathsTouched).toBe(0);
+    expect(r.pathsMissing).toBe(0);
+    expect(r.deliverables[0]?.unchecked).toBe(true);
+    expect(r.verdict).toBe("NO-EVIDENCE-POSSIBLE");
+  });
+  test("[unit] S6 a check-ignore failure lists the path as UNRESOLVED and does not abort", () => {
+    const git: Git = (args) => (args[0] === "check-ignore" ? { code: 128, out: "", err: "fatal: beyond a symbolic link" } : { code: 0, out: "", err: "" });
+    const r = auditPrompt("x.prompt.md", prompt(["link/x.ts: x"]), tree, git, "sha", null);
+    expect(r.deliverables[0]?.paths).toEqual([]);
+    expect(r.deliverables[0]?.unresolved).toEqual(["link/x.ts"]);
+    expect(r.verdict).toBe("NO-EVIDENCE-POSSIBLE");
+  });
+  test("[unit] S2-1 a path in neither the tree nor an ignore rule is plain MISSING", () => {
+    const { git } = recorder("");
     const r = auditPrompt("x.prompt.md", prompt([".persona-swarm/report.md: x"]), tree, git, "sha", null);
     expect(r.deliverables[0]?.paths).toEqual([{ path: ".persona-swarm/report.md", state: "MISSING" }]);
     expect(r.pathsTouched).toBe(0);
-    expect(calls.some((c) => c[0] === "check-ignore")).toBe(false);
+    expect(r.verdict).toBe("NOT-RUN");
   });
   test("[unit] R3-1 a prose deliverable with no path is reported unchecked even when every path is touched", () => {
     const { git } = recorder("abc1234\n");
@@ -699,7 +730,9 @@ describe("auditPrompt", () => {
     expect(grep).toContain("--since-as-filter=2026-10-01T00:00:00Z");
   });
   test("[unit] F6 a failing evidence grep throws", () => {
-    const failing: Git = (args) => (args.some((a) => a.startsWith("--grep=")) ? { code: 128, out: "", err: "fatal: grep boom" } : { code: 1, out: "", err: "" });
+    // Changed by S5: the other calls used to return code 1; a MISSING path now also runs `git log`,
+    // which would have thrown first, so only the grep fails here.
+    const failing: Git = (args) => (args.some((a) => a.startsWith("--grep=")) ? { code: 128, out: "", err: "fatal: grep boom" } : { code: args[0] === "check-ignore" ? 1 : 0, out: "", err: "" });
     expect(() => auditPrompt("x.prompt.md", prompt(["site/: x"]), tree, failing, "sha", null)).toThrow("grep boom");
   });
 });
@@ -875,6 +908,66 @@ describe("prompt-audit CLI", () => {
       const rows = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out);
       expect(dig(rows[0], "deliverables", 0, "paths", 0, "state")).toBe("UNTOUCHED");
       expect(dig(rows[0], "deliverables", 1, "paths", 0, "state")).toBe("TOUCHED");
+    });
+  });
+
+  test("[integration] S5 a file added after created and later deleted or renamed is MISSING but not NOT-RUN", () => {
+    withRepo((repo) => {
+      writeFileSync(join(repo, "scripts/gone.ts"), "export const gone = 1;\n");
+      writeFileSync(join(repo, "scripts/old-name.ts"), "export const moved = 1;\n");
+      commitAt(repo, null, "add both after created");
+      git(repo, "rm", "-q", "scripts/gone.ts");
+      git(repo, "mv", "scripts/old-name.ts", "scripts/new-name.ts");
+      writeFileSync(join(repo, "docs/prompts/20200101-deleted.prompt.md"), promptFile("fx-deleted", "done", ["scripts/gone.ts: x"]));
+      writeFileSync(join(repo, "docs/prompts/20200101-renamed.prompt.md"), promptFile("fx-renamed", "ready-not-run", ["scripts/old-name.ts: y"]));
+      writeFileSync(join(repo, "docs/prompts/20200101-never.prompt.md"), promptFile("fx-never", "ready-not-run", ["scripts/never-existed.ts: z"]));
+      commitAt(repo, null, "delete one, rename the other");
+      const rows = rowsOf(cli(repo, "--json", "--no-gh", "--ref", "HEAD").out);
+      const row = (stem: string): unknown => rows.find((r) => dig(r, "stem") === stem);
+      for (const stem of ["20200101-deleted", "20200101-renamed"]) {
+        expect(dig(row(stem), "deliverables", 0, "paths", 0, "state"), stem).toBe("MISSING");
+        expect(dig(row(stem), "verdict"), stem).toBe("PARTIAL");
+        const evidence = dig(row(stem), "evidenceCommits");
+        expect(Array.isArray(evidence) ? evidence.length : 0, stem).toBeGreaterThanOrEqual(2);
+      }
+      // `done` on a deleted deliverable is not contradicted: the work happened.
+      expect(dig(row("20200101-deleted"), "flags")).toEqual([]);
+      // A path that never existed is still the NOT-RUN case.
+      expect(dig(row("20200101-never"), "verdict")).toBe("NOT-RUN");
+      expect(dig(row("20200101-never"), "evidenceCommits")).toEqual([]);
+    });
+  });
+
+  test("[integration] S6 a deliverable in a gitignored folder is IGNORED and not NOT-RUN", () => {
+    withRepo((repo) => {
+      writeFileSync(join(repo, ".gitignore"), "_reference/\n");
+      mkdirSync(join(repo, "_reference/run"), { recursive: true });
+      writeFileSync(join(repo, "_reference/run/out.json"), "{}\n");
+      writeFileSync(join(repo, "docs/prompts/20200101-ign.prompt.md"), promptFile("fx-ign", "ready-not-run", ["_reference/run/: outputs", "scripts/nothing-here.ts: y"]));
+      commitAt(repo, null, "gitignore and prompt");
+      const run = cli(repo, "--json", "--no-gh", "--ref", "HEAD");
+      expect(run.code).toBe(0);
+      const row = rowsOf(run.out)[0];
+      expect(dig(row, "deliverables", 0, "paths", 0, "state")).toBe("IGNORED");
+      expect(dig(row, "deliverables", 0, "unchecked")).toBe(true);
+      expect(dig(row, "deliverables", 1, "paths", 0, "state")).toBe("MISSING");
+      expect(dig(row, "verdict")).not.toBe("NOT-RUN");
+      expect(cli(repo, "--no-gh", "--ref", "HEAD").out).toContain("IGNORED: _reference/run/");
+    });
+  });
+
+  test("[integration] S6 a path beyond a symlink makes check-ignore fail, which is reported and does not abort", () => {
+    withRepo((repo) => {
+      mkdirSync(join(repo, "real"), { recursive: true });
+      writeFileSync(join(repo, "real/a.ts"), "export const a = 1;\n");
+      symlinkSync("real", join(repo, "link"));
+      writeFileSync(join(repo, "docs/prompts/20200101-sym.prompt.md"), promptFile("fx-sym", "ready-not-run", ["link/x.ts: via symlink"]));
+      commitAt(repo, null, "symlink and prompt");
+      const run = cli(repo, "--json", "--no-gh", "--ref", "HEAD");
+      expect(run.code).toBe(0);
+      const row = rowsOf(run.out)[0];
+      expect(dig(row, "deliverables", 0, "unresolved")).toEqual(["link/x.ts"]);
+      expect(dig(row, "verdict")).not.toBe("NOT-RUN");
     });
   });
 

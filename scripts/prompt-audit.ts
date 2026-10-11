@@ -1,4 +1,10 @@
-// Prompt audit: which prompts in docs/prompts/*.prompt.md have been run, and did they deliver?
+// Prompt audit: which prompts in docs/prompts/*.prompt.md show no sign of having been run?
+//
+// This is evidence of ABSENCE only. It reports what is MISSING, UNTOUCHED or not started, and it
+// never confirms that a prompt is done: no verdict means "delivered". A positive verdict needs
+// structured deliverables (#191), a verified Definition of done (#192) and a status lifecycle
+// (#193); those issues are where it is decided, not this script.
+//
 // The `status:` header is self-reported and goes stale, so this derives evidence instead: it checks
 // each deliverable path against the tracked tree of a git ref (TOUCHED = changed since the prompt
 // was created, UNTOUCHED = predates it and is not evidence), counts the commits on that ref that
@@ -25,28 +31,28 @@
 // (`records.csv`), a path escaping the repo, globs, `<placeholders>`, and absolute or `~/` paths
 // (outside the pinned repo there is no history to pin). Only a bare word, or a token made of
 // `/`, `~` and `.` alone (`/`, `//`, `~/`, `./`), is dropped as prose; `**/*`, `-/-` and `*` are kept.
-// A deliverable with no path or any UNRESOLVED candidate is unchecked, and one
-// unchecked deliverable blocks PATHS-DONE. A path absent from the pinned tree is MISSING (no
+// A deliverable with no path or any UNRESOLVED candidate is unchecked: the audit cannot say it was
+// not run, so NOT-RUN is withheld. A path absent from the pinned tree is MISSING (no
 // .gitignore lookup). A file is TOUCHED when any commit changed it since `created`; a directory only
 // when a file under it was ADDED since then.
 // The front matter is parsed with Bun.YAML and every field is type-checked (INVALID-HEADER);
-// `created` is required. The Definition of done is counted from Bun.markdown's rendering of the body.
+// `created` is required. The Definition of done is counted (not verified) from Bun.markdown's
+// rendering of the body.
 // Limitation: a backtick span naming a file with a comma in its name is split, so it stays UNRESOLVED.
 //
-// Verdicts:
-//   PATHS-DONE  every extracted path is TOUCHED since `created`, no candidate is UNRESOLVED, and the
-//               governing issue is CLOSED or absent. Prose deliverables and the Definition of done
-//               are NOT verified: it is a floor on what the repo shows, not a claim the work is done.
+// Verdicts (there is deliberately no "done" verdict):
 //   NOT-RUN     at least one checkable path, none TOUCHED, no evidence commit, no unchecked
 //               deliverable, and the issue not CLOSED.
-//   PARTIAL     some evidence (a TOUCHED path, an evidence commit or a CLOSED issue), not PATHS-DONE.
+//   PARTIAL     some sign of work (a TOUCHED path, an evidence commit or a CLOSED issue). It says
+//               nothing about whether the work is complete.
 //   NO-EVIDENCE-POSSIBLE  nothing touched and no evidence commit or CLOSED issue, but the audit
 //               cannot say "not run": no checkable path, or an unchecked deliverable may hold the work.
-// STALE-STATUS: ready-not-run/draft with evidence of work, or `done` without PATHS-DONE.
+// STALE-STATUS: ready-not-run/draft with a PARTIAL verdict, or `done` with a NOT-RUN verdict or any
+// MISSING path. A `done` or `running` status is never confirmed.
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join, posix } from "node:path";
 
-export type Verdict = "NOT-RUN" | "PARTIAL" | "PATHS-DONE" | "NO-EVIDENCE-POSSIBLE";
+export type Verdict = "NOT-RUN" | "PARTIAL" | "NO-EVIDENCE-POSSIBLE";
 export type IssueState = "OPEN" | "CLOSED" | "unknown" | "none";
 export type PathState = "TOUCHED" | "UNTOUCHED" | "MISSING";
 export type Flag = "STALE-STATUS" | "INVALID-STATUS" | "INVALID-HEADER";
@@ -179,7 +185,7 @@ function cleanToken(raw: string, span: boolean): string {
 }
 
 // The default is inverted: a token with a `/` in it, or inside a backtick span, is never dropped. It
-// is either a checkable repo path or an UNRESOLVED candidate that blocks PATHS-DONE, so a shape the
+// is either a checkable repo path or an UNRESOLVED candidate that withholds NOT-RUN, so a shape the
 // rules did not anticipate fails conservative instead of vanishing. Only a bare word, or a token made
 // of `/`, `~` and `.` alone (`/`, `//`, `~/`, `./`), is dropped as prose; `**/*`, `-/-` and `*` are not.
 function classifyToken(raw: string, span: boolean): Token {
@@ -243,22 +249,22 @@ export function extractCandidates(deliverable: string): Candidates {
   return { paths, unresolved };
 }
 
-// `unchecked` counts deliverables with no path or with an UNRESOLVED candidate: any of them blocks
-// PATHS-DONE, so every extraction miss fails conservative.
+// `unchecked` counts deliverables with no path or with an UNRESOLVED candidate: any of them could
+// hide the work, so every extraction miss withholds NOT-RUN.
 export function verdictFor(input: { exists: number; missing: number; unchecked: number; evidence: number; issue: IssueState }): Verdict {
   const checkable = input.exists + input.missing;
-  // NOT-RUN is a positive claim ("every deliverable was looked for and nothing happened"), so it
+  // NOT-RUN is the only claim made ("every deliverable was looked for and nothing happened"), so it
   // needs a checkable path and no unchecked deliverable that could hide the work.
   if (checkable === 0) return input.issue === "CLOSED" || input.evidence > 0 ? "PARTIAL" : "NO-EVIDENCE-POSSIBLE";
-  if (input.missing === 0 && input.unchecked === 0 && (input.issue === "none" || input.issue === "CLOSED")) return "PATHS-DONE";
   if (input.exists === 0 && input.evidence === 0 && input.issue !== "CLOSED") return input.unchecked === 0 ? "NOT-RUN" : "NO-EVIDENCE-POSSIBLE";
   return "PARTIAL";
 }
 
-export function flagsFor(status: string | null, verdict: Verdict): Flag[] {
+// Only contradictions are flagged: `done` or `running` is never confirmed.
+export function flagsFor(status: string | null, verdict: Verdict, missing: number): Flag[] {
   if (status === null || !VALID_STATUS.includes(status)) return ["INVALID-STATUS"];
-  if ((status === "ready-not-run" || status === "draft") && verdict !== "NOT-RUN" && verdict !== "NO-EVIDENCE-POSSIBLE") return ["STALE-STATUS"];
-  if (status === "done" && verdict !== "PATHS-DONE") return ["STALE-STATUS"];
+  if ((status === "ready-not-run" || status === "draft") && verdict === "PARTIAL") return ["STALE-STATUS"];
+  if (status === "done" && (verdict === "NOT-RUN" || missing > 0)) return ["STALE-STATUS"];
   return [];
 }
 
@@ -354,7 +360,7 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   let issue: IssueState = "none";
   if (parsed.governingIssue !== null) issue = lookup === null ? "unknown" : lookup(parsed.governingIssue);
   const verdict = verdictFor({ exists: pathsTouched, missing: pathsMissing + pathsUntouched, unchecked: deliverables.filter((d) => d.unchecked).length, evidence: commits.size, issue });
-  const flags = flagsFor(parsed.status, verdict);
+  const flags = flagsFor(parsed.status, verdict, pathsMissing);
   if (parsed.errors.length > 0) flags.push("INVALID-HEADER");
   return {
     stem,

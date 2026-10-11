@@ -20,14 +20,19 @@ function list(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw new Error("expected a list");
   return value;
 }
-// Built from parts so no scanner reads the test file as holding a key.
-const FAKE_KEYS = [
-  "sk-" + "ant-" + "api03-" + "x".repeat(24),
-  "sk-" + "proj-" + "A1b2C3d4E5f6G7h8I9j0",
-  "xai-" + "Q".repeat(24),
-  "AI" + "za" + "S".repeat(35),
-  "Bear" + "er " + "eyJhbGciOiJIUzI1NiJ9.payload",
+// KEY CORPUS: one realistic fake per shape CREDENTIAL_PATTERNS lists, built from parts so no scanner reads this file
+// as holding a key. Every entry must be refused and never echoed (the corpus tests below).
+const KEY_CORPUS: readonly (readonly [shape: string, key: string])[] = [
+  ["Anthropic sk-ant-api03-", "sk-" + "ant-" + "api03-" + "Zq8_Lm2-".repeat(11) + "AA"],
+  ["OpenAI sk-proj-", "sk-" + "proj-" + "A1b2C3d4E5f6G7h8_".repeat(9)],
+  ["OpenAI legacy sk-", "sk-" + "T3Blbk" + "FJa1B2c3D4".repeat(4)],
+  ["xAI xai-", "xai-" + "Q7wErT9y".repeat(10)],
+  ["Google AIza", "AI" + "za" + "SyD9x_k".repeat(5)],
+  ["GitHub ghp_", "gh" + "p_" + "a1B2c3".repeat(6)],
+  ["Bearer JWT", "Bear" + "er " + "eyJhbGciOiJIUzI1NiJ9.payload"],
+  ["lowercase bearer", "authorization: bear" + "er abc123DEF456ghi789JKL0"],
 ];
+const FAKE_KEYS = KEY_CORPUS.map(([, key]) => key);
 
 describe("D17 export check", () => {
   test("[integration] D17 sample export reloads ok and every verdict recomputes equal", async () => {
@@ -131,7 +136,7 @@ describe("D17 export check", () => {
     const dir = mkdtempSync(join(tmpdir(), "d17-inspect-"));
     try {
       const tampered = join(dir, "export.json");
-      const key = "sk-" + "ant-" + "k".repeat(40);
+      const key = "sk-" + "ant-" + "k9".repeat(20);
       writeFileSync(tampered, JSON.stringify({ ...fixture(), comparisonNote: key }));
       const bad = await run(tampered);
       expect(bad.code).toBe(1);
@@ -185,10 +190,10 @@ function has(problems: readonly string[], part: string): boolean {
 
 describe("D17 export check: reviewed defects (#187)", () => {
   test("[unit] D17 credential rejection echoes no untrusted value: redacted key paths, no calcVersion", async () => {
-    const key = "sk-" + "ant-" + "z".repeat(30);
+    const key = "sk-" + "ant-" + "z1".repeat(20);
     for (const data of [
       // The descendant value matches too, so its path would carry the parent key unless the segment is redacted.
-      { ...fixture(), extra: { [key]: { child: "plain", deeper: [{ more: "token: " + "y1".repeat(10) }] } } },
+      { ...fixture(), extra: { [key]: { child: "plain", deeper: [{ more: "xai-" + "y1".repeat(20) }] } } },
       { ...fixture(), calcVersion: key },
       { ...fixture(), calcVersion: "verdict/1 " + key },
     ]) {
@@ -197,7 +202,7 @@ describe("D17 export check: reviewed defects (#187)", () => {
       expect(result.calcVersion).toBeNull();
       expect(result.problems[0]).toContain("looks like a credential");
       expect(JSON.stringify(result)).not.toContain(key);
-      expect(JSON.stringify(result)).not.toContain("zzzzzzzz");
+      expect(JSON.stringify(result)).not.toContain("z1z1z1z1");
     }
   });
 
@@ -383,13 +388,13 @@ describe("D17 export check: reviewed defects (#187)", () => {
     const dir = mkdtempSync(join(tmpdir(), "d17-inspect-"));
     try {
       const file = join(dir, "export.json");
-      const key = "sk-" + "ant-" + "q".repeat(40);
+      const key = "sk-" + "ant-" + "q7".repeat(20);
       writeFileSync(file, JSON.stringify({ ...fixture(), calcVersion: key, extra: { [key]: { a: "b" } } }));
       const proc = Bun.spawn(["bun", cli, file], { stdout: "pipe", stderr: "pipe" });
       const out = await new Response(proc.stdout).text();
       expect(await proc.exited).toBe(1);
       expect(out).toContain("looks like a credential");
-      expect(out).not.toContain("qqqqqqqq");
+      expect(out).not.toContain("q7q7q7q7");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -416,34 +421,81 @@ describe("D17 export check: round-2 fixes (#187)", () => {
     return obj(JSON.parse(JSON.stringify(run.evidence())));
   }
 
-  test("[unit] D17 ordinary text about keys, bearers and passwords is not read as a credential", async () => {
-    const phrases = [
-      "Our api-gateway latency doubled; Bearer authentication broke",
-      "bearer bonds",
-      "API keys are rotated monthly",
-      "password reset flow",
-    ];
-    for (const phrase of phrases) {
-      expect(findCredentials({ note: phrase })).toEqual([]);
-      // In a genuine export's free text the phrase changes nothing: the export still checks ok.
-      expect((await checkExport({ ...fixture(), comparisonNote: phrase })).problems).toEqual([]);
+  /** A real run whose one case is `input`, labelled, revealed and reported, exported as evidence() writes it. */
+  async function caseExport(input: string): Promise<string> {
+    const scene: Scene = { ...SCENE, cases: [{ id: "c01", input }] };
+    const run = new BackstageRun(scene, "d17-corpus", { arms: ["jev", "claude-haiku-4-5-20251001", "rule"] });
+    await run.report();
+    return JSON.stringify(run.evidence());
+  }
+
+  // PROSE CORPUS: text a user might type into a case or question. None of it is a credential, so every line must
+  // export and check ok. Any change to CREDENTIAL_PATTERNS is checked against this list and KEY_CORPUS together.
+  const PROSE_CORPUS: readonly string[] = [
+    "token: pending-approval-from-security-2026",
+    "password: reset-required-after-90-days",
+    "Bump api_version_2026_10_11",
+    "api-v2-endpoint-latency-p99 dashboard",
+    "secret = rotated-quarterly-since-2024",
+    "task-runner sk-learn-pipeline-model-v3",
+    "Bearer authentication broke",
+    "bearer bonds",
+    "bearer of bad news: the 2026 budget is cut",
+    "API keys are rotated monthly",
+    "password reset flow",
+    "Our api-gateway latency doubled; Bearer authentication broke",
+    "Bearer token expired at 2026-10-11 12:00 UTC",
+    "Customer said: my api key stopped working after the 2026-09-30 rotation",
+    "Rotate the secret key every 90 days per policy SEC-0042",
+    "The authorization header was missing entirely",
+    "Upgraded from v1.13.0 to v2.0.0-rc.4 last week",
+    "jev-1.13.0 answered in 812 ms",
+    "Ticket billing-refund-escalation-2026-q3-eu-west-1 reopened",
+    "Request 3f2b9c1e-7a4d-4e5f-9b8a-1c2d3e4f5a6b failed",
+    "Fixed in commit 1bb6ee2d8ee7da9611c8e4b13ee84c7c520aa11",
+    "Deployed f0d93b9 on 2026-10-11T09:30:00Z",
+    "sha256 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "See https://jevnotjev.breakoutwithai.com/backstage?scene=p1#reveal",
+    "Docs at https://docs.anthropic.com/en/api/messages",
+    "Model claude-haiku-4-5-20251001 was slower than gpt-6.1-sol",
+    "Compared gemini-2.5-flash with grok-4.5 and claude-opus-5-5",
+    "SKUs sk-1234 and sk-5678 are out of stock",
+    "xai-grok integration lands next quarter",
+    "AIza is how Google keys start",
+    "ghp_ prefixes mark GitHub personal tokens",
+    "Order A1B2C3-2026-10-11 shipped to Unit 4B, 221B Baker Street",
+    "secret_santa_2025_list_final_v2.xlsx",
+  ];
+
+  test("[unit] D17 PROSE CORPUS: every line in a real scene case exports and checks ok", async () => {
+    expect(PROSE_CORPUS.length).toBeGreaterThanOrEqual(30);
+    const refused: string[] = [];
+    for (const line of PROSE_CORPUS) {
+      if (findCredentials({ note: line }).length > 0) refused.push(line);
+      const result = await checkExportText(await caseExport(line));
+      if (!result.ok) refused.push(`${line} -> ${result.problems.join("; ")}`);
     }
+    expect(refused).toEqual([]);
   });
 
-  test("[unit] D17 every real key shape is still refused, api_ and assignments with a long token holding a digit", async () => {
-    const shapes = [
-      ...FAKE_KEYS,
-      "api_" + "a1".repeat(10),
-      "api-" + "Zz9".repeat(6),
-      "password=" + "Xy9".repeat(6),
-      "token: " + "y1".repeat(10),
-      "Bearer " + "abc123DEF456ghi789JKL0",
-    ];
-    for (const key of shapes) {
-      const result = await checkExport({ ...fixture(), comparisonNote: "see " + key });
-      expect(result.ok).toBe(false);
-      expect(result.problems[0]).toContain("looks like a credential");
-      expect(JSON.stringify(result)).not.toContain(key);
+  test("[unit] D17 the credential scan is linear: 2 MB adversarial strings per prefix scan in well under 2 s", () => {
+    const size = 2 * 1024 * 1024;
+    const seeds = ["sk-ant-", "sk-proj-", "sk-", "xai-", "AIza", "ghp_", "bearer ", "Bearer  ", "a-", "sk-a-"];
+    const started = performance.now();
+    for (const seed of seeds) expect(findCredentials({ note: seed.repeat(Math.ceil(size / seed.length)) })).toEqual([]);
+    expect(findCredentials({ note: "sk-" + "ant-" + "a".repeat(size) })).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  test("[unit] D17 KEY CORPUS: every supported key shape in a real scene case is refused, never echoed", async () => {
+    expect(KEY_CORPUS.length).toBe(8);
+    for (const [shape, key] of KEY_CORPUS) {
+      for (const text of [await caseExport("Customer pasted " + key + " by mistake"), JSON.stringify({ ...fixture(), comparisonNote: key })]) {
+        const result = await checkExportText(text);
+        expect({ shape, ok: result.ok }).toEqual({ shape, ok: false });
+        expect(result.problems[0]).toContain("looks like a credential");
+        expect(JSON.stringify(result)).not.toContain(key);
+      }
     }
   });
 

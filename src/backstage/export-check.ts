@@ -36,26 +36,31 @@ import type { Verdict, VerdictName } from "../core/verdict.ts";
 
 export interface CredentialPattern {
   readonly name: string;
-  /** Global, single quantified run per alternative, so a scan is linear in the text. */
+  /** Global; a fixed prefix then ONE quantified run, captured as group 1 (the body), so a scan is linear in the text. */
   readonly pattern: RegExp;
-  /** The match must hold a digit too: words like "api-gateway" or "token: pending" are ordinary text, not a token. */
-  readonly needsDigit?: boolean;
 }
-/** Common provider-key and auth-header shapes. A match anywhere in the export, key or value, refuses it. */
+/**
+ * Credential SHAPES, never words: a fixed vendor prefix (or the Bearer scheme, case-insensitive per RFC 7235) followed
+ * by a long random body that mixes letters and digits (isTokenShaped). Words, slugs, version strings and model ids after
+ * a look-alike prefix are prose. A credential in a shape not listed is not caught; pass exact values as knownKeys.
+ * Any change here is checked against the PROSE_CORPUS and KEY_CORPUS tables in export-check.test.ts.
+ */
 export const CREDENTIAL_PATTERNS: readonly CredentialPattern[] = [
-  { name: "Anthropic key (sk-ant-)", pattern: /sk-ant-[A-Za-z0-9_-]{8,}/g },
-  { name: "OpenAI-style key (sk-)", pattern: /(?:^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}/g },
-  { name: "xAI key (xai-)", pattern: /(?:^|[^A-Za-z0-9])xai-[A-Za-z0-9_-]{16,}/g },
-  { name: "Google key (AIza)", pattern: /AIza[0-9A-Za-z_-]{30,}/g },
-  // Case-sensitive, and a token-length value: "Bearer authentication" and "bearer bonds" are prose.
-  { name: "Bearer token", pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/g },
-  { name: "GitHub token", pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g },
-  { name: "api_ key", pattern: /(?:^|[^A-Za-z0-9])api[_-][A-Za-z0-9_-]{16,}/g, needsDigit: true },
-  { name: "key assignment", pattern: /\b(?:api[_-]?key|secret|password|token)\s*[:=]\s*\S{16,}/gi, needsDigit: true },
+  { name: "Anthropic key (sk-ant-)", pattern: /sk-ant-([A-Za-z0-9_-]{32,})/g },
+  { name: "OpenAI project key (sk-proj-)", pattern: /\bsk-(?:proj|svcacct|admin)-([A-Za-z0-9_-]{32,})/g },
+  { name: "OpenAI key (sk-)", pattern: /\bsk-([A-Za-z0-9]{32,})/g },
+  { name: "xAI key (xai-)", pattern: /\bxai-([A-Za-z0-9]{32,})/g },
+  { name: "Google key (AIza)", pattern: /\bAIza([0-9A-Za-z_-]{35})/g },
+  { name: "GitHub token", pattern: /\bgh[pousr]_([A-Za-z0-9]{30,})/g },
+  { name: "Bearer token", pattern: /\bbearer\s+([A-Za-z0-9._~+/=-]{20,})/gi },
 ];
-function matchesCredential({ pattern, needsDigit }: CredentialPattern, s: string): boolean {
+/** A random token body holds both letters and digits. */
+function isTokenShaped(body: string): boolean {
+  return /[0-9]/.test(body) && /[A-Za-z]/.test(body);
+}
+function matchesCredential({ pattern }: CredentialPattern, s: string): boolean {
   // matchAll copies the pattern, so its lastIndex never leaks between calls; each match consumes its run, so this is linear.
-  for (const match of s.matchAll(pattern)) if (!needsDigit || /[0-9]/.test(match[0])) return true;
+  for (const match of s.matchAll(pattern)) if (isTokenShaped(match[1] ?? "")) return true;
   return false;
 }
 /** Nesting beyond this is refused before anything else reads the export; a real export nests under ten deep. */

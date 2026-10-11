@@ -1010,8 +1010,12 @@ button("download-evidence").onclick = async () => {
   const current = run;
   if (current?.exportable && (current.revealed || current.cards().length === 0)) {
     // evidence() exports the verdicts report() cached; a click right after reveal must not race the render's report().
-    await current.report().catch(() => undefined);
+    const reported = await current.report().then(
+      () => true,
+      () => false,
+    );
     download("backstage-evidence.json", JSON.stringify(current.evidence(), null, 2), "application/json");
+    if (!reported) notice("Verdict not ready; the download has no verdicts.");
   }
 };
 field("cases").addEventListener("input", () => {

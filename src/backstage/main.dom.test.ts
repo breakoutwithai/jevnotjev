@@ -988,6 +988,39 @@ test("[integration] D17 evidence downloaded right after reveal carries the repor
   }
 });
 
+test("[integration] D17 evidence downloaded when report() fails says the verdict is not ready", async () => {
+  const { spyOn } = await import("bun:test");
+  const { BackstageRun } = await import("./run.ts");
+  const blobs: Blob[] = [];
+  const created = spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+    if (blob instanceof Blob) blobs.push(blob);
+    return "blob:test";
+  });
+  const revoked = spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  const report = spyOn(BackstageRun.prototype, "report");
+  try {
+    const page = await mount(undefined, undefined, undefined, async (request) => ({
+      ...(await answerYes(request)),
+      output: request.choices[0].name,
+    }));
+    page.get("starter-p1").click();
+    page.get("jev-key").value = "jev-secret-value";
+    page.get("run-all").click();
+    await until(() => page.document.getElementById("open-judging") !== null);
+    await openJudging(page);
+    page.get("reveal").click();
+    page.get("confirm-reveal-yes").click();
+    report.mockRejectedValue(new Error("report failed"));
+    page.get("download-evidence").click();
+    await until(() => blobs.length > 0);
+    expect(page.get("notice").textContent).toBe("Verdict not ready; the download has no verdicts.");
+  } finally {
+    report.mockRestore();
+    created.mockRestore();
+    revoked.mockRestore();
+  }
+});
+
 test("[integration] M3 a CSV label column reaches the export: imported labels stay agent, a pick in the UI is human", async () => {
   const { spyOn } = await import("bun:test");
   const { validate } = await import("../format/validate.ts");

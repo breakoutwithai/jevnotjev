@@ -567,11 +567,12 @@ describe("in-product first-use guide (D18)", () => {
   });
 
   const ACCESS_STATEMENTS = [
-    "Backstage and its sample cases file need you to sign in.",
-    "use Go backstage with my own decision in the Ticket office",
+    'its title on screen is "Backstage Pass"',
+    "The workspace and its sample cases file need you to sign in.",
+    'use "Go backstage with my own decision" in the section headed "Ticket office"',
     "A person reads each request and replies by email",
     "the reply explains how to sign in",
-    "The request alone does not open Backstage.",
+    "The request alone does not open the workspace.",
   ];
 
   /** What the access note before section 1 fails to say; empty when it says all of it. */
@@ -590,10 +591,10 @@ describe("in-product first-use guide (D18)", () => {
     expect(await accessProblems(read(GUIDE))).toEqual([]);
     // The access path the guide describes is the one the ticket office states.
     expect(read("site/shows/office.js")).toContain("the reply explains how to sign in to Backstage; the request alone does not open it");
-    const reversed = mutate(read(GUIDE), "The request alone does not open Backstage.", "The request alone opens Backstage.");
-    expect(await accessProblems(reversed)).toEqual(["missing: The request alone does not open Backstage."]);
+    const reversed = mutate(read(GUIDE), "The request alone does not open the workspace.", "The request alone opens the workspace.");
+    expect(await accessProblems(reversed)).toEqual(["missing: The request alone does not open the workspace."]);
     const open = mutate(read(GUIDE), "need you to sign in.", "are open without signing in.");
-    expect(await accessProblems(open)).toEqual(["missing: Backstage and its sample cases file need you to sign in."]);
+    expect(await accessProblems(open)).toEqual(["missing: The workspace and its sample cases file need you to sign in."]);
   });
 
   // c03: the operator named the TypeSafe Playground as where testers get a key; Backstage already links it.
@@ -605,7 +606,7 @@ describe("in-product first-use guide (D18)", () => {
     const access = ((await grab(html, ["#access a"])).get("#access a") ?? []).map((a) => a.attrs.get("href") ?? "");
     if (!access.includes(KEY_PAGE)) out.push("access note: no key page link");
     const section1 = html.slice(html.indexOf('id="prepare"'), html.indexOf('id="label"'));
-    const keyItem = /<li><b>Get a TypeSafe API key\.<\/b>([\s\S]*?)<\/li>/.exec(section1)?.[1] ?? "";
+    const keyItem = /<li><strong>Get a TypeSafe API key\.<\/strong>([\s\S]*?)<\/li>/.exec(section1)?.[1] ?? "";
     if (!keyItem.includes(`href="${KEY_PAGE}"`)) out.push("section 1: no key page link");
     if (!keyItem.includes('data-const="BACKSTAGE_JEV_INPUT_USD_PER_MTOK"')) out.push("section 1: no Jev price beside the key");
     return out;
@@ -712,13 +713,13 @@ describe("in-product first-use guide (D18)", () => {
     expect(columnEntries(commentedEntry).names).not.toContain("run_id");
   });
 
-  const INTRO = /(<p class="lede jev-intro">[\s\S]*?<\/p>\n)/;
+  const INTRO = /(<p id="jev-intro">[\s\S]*?<\/p>\n)/;
 
   /** What the Jev intro fails to say, or where it fails to sit (the first thing after the page title). */
   async function introProblems(html: string): Promise<string[]> {
     const out: string[] = [];
-    if (!/<\/h1>\s*<p class="lede jev-intro">/.test(html)) out.push("intro is not right after the page title");
-    const intro = (await texts(html, "p.jev-intro"))[0] ?? "";
+    if (!/<\/h1>\s*<p id="jev-intro">/.test(html)) out.push("intro is not right after the page title");
+    const intro = (await texts(html, "p#jev-intro"))[0] ?? "";
     for (const needed of [JEV_PIN, "TypeSafe", "one decision", "not a cross-task benchmark"]) if (!intro.includes(needed)) out.push(`intro: missing ${needed}`);
     return out;
   }
@@ -738,7 +739,7 @@ describe("in-product first-use guide (D18)", () => {
     expect(costs).toContain("costs are entered for you");
     const text = (await texts(html, "main"))[0] ?? "";
     expect(text).toContain("hand_off");
-    expect(text).toContain('the Stage prints it as "hand off"');
+    expect(text).toContain('the sample run page prints it as "hand off"');
   });
 
   test("[unit] D18-SITE-GUIDE-LINKS the sample run, Backstage and the CLI guide link to /guide/", () => {
@@ -803,7 +804,7 @@ describe("guide reads the verdict statistics in plain words (D18 swarm l01)", ()
     const terms = (await texts(read(GUIDE), "p#verdict-terms"))[0] ?? "";
     expect(terms).toContain("The upper bound is the largest value in the range");
     expect(terms).toContain("a higher cost ratio means Jev is dearer");
-    const emptied = mutate(read(GUIDE), "<b>Newcombe's paired method</b>: a standard way", "<b>Newcombe's paired method</b>. A standard way");
+    const emptied = mutate(read(GUIDE), "<strong>Newcombe's paired method</strong>: a standard way", "<strong>Newcombe's paired method</strong>. A standard way");
     expect(await newcombeDefinition(emptied)).toBe("");
   });
 
@@ -815,5 +816,126 @@ describe("guide reads the verdict statistics in plain words (D18 swarm l01)", ()
     };
     expect(await explains(read(GUIDE))).toBe(true);
     expect(await explains(mutate(read(GUIDE), "is its version", "is a counter"))).toBe(false);
+  });
+});
+
+// Operator requirement for /guide/: no images, no styling, no theatre theme.
+describe("guide is plain: no images, no styling, no theatre theme", () => {
+  /** Styling and images left in the page: style blocks, links, style and class attributes, image and font elements. */
+  async function presentationProblems(html: string): Promise<string[]> {
+    const counts = new Map<string, number>();
+    const selectors = ["style", "link", "[style]", "[class]", "img", "svg", "picture", "b", "i", "font"];
+    let rewriter = new HTMLRewriter();
+    for (const selector of selectors) {
+      counts.set(selector, 0);
+      rewriter = rewriter.on(selector, {
+        element() {
+          counts.set(selector, (counts.get(selector) ?? 0) + 1);
+        },
+      });
+    }
+    await rewriter.transform(new Response(html)).text();
+    const out = [...counts].filter(([, n]) => n > 0).map(([selector, n]) => `${n} ${selector}`);
+    if (/url\(|@import|fonts\.googleapis|&#x1F|[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(html)) out.push("background image, font import or emoji");
+    return out;
+  }
+
+  test("[unit] D18-PLAIN-STYLE the guide has no style block, stylesheet, style or class attribute, or image", async () => {
+    expect(await presentationProblems(read(GUIDE))).toEqual([]);
+    expect(read(GUIDE)).toContain('<meta name="viewport"');
+  });
+
+  test("[unit] D18-PLAIN-STYLE-NEGATIVE each kind of styling or image put back goes RED", async () => {
+    const guide = read(GUIDE);
+    expect(await presentationProblems(mutate(guide, "</head>", "<style>main { color: red; }</style></head>"))).toEqual(["1 style"]);
+    expect(await presentationProblems(mutate(guide, "</head>", '<link rel="stylesheet" href="x.css"></head>'))).toEqual(["1 link"]);
+    expect(await presentationProblems(mutate(guide, "<main>", '<main style="color: red">'))).toEqual(["1 [style]"]);
+    expect(await presentationProblems(mutate(guide, "<main>", '<main class="wide">'))).toEqual(["1 [class]"]);
+    expect(await presentationProblems(mutate(guide, "<main>", '<main><img src="x.png" alt="">'))).toEqual(["1 img"]);
+    expect(await presentationProblems(mutate(guide, "<main>", "<main><svg></svg>"))).toEqual(["1 svg"]);
+    expect(await presentationProblems(mutate(guide, "<main>", "<main><picture></picture>"))).toEqual(["1 picture"]);
+    expect(await presentationProblems(mutate(guide, "<main>", '<main><p style="background: url(x.png)"></p>'))).toEqual(["1 [style]", "background image, font import or emoji"]);
+  });
+
+  /**
+   * Theatre-named labels the product UI really shows, each with the page it is on. The guide may name one only inside
+   * double quotes, or as a glossary term (the label verbatim), so a tester knows it is on-screen text to find.
+   */
+  const UI_LABELS: readonly (readonly [string, string])[] = [
+    ["Backstage Pass", BACKSTAGE],
+    ["House Lights", BACKSTAGE],
+    ["A little rough. A real rehearsal.", BACKSTAGE],
+    ["New Scene", BACKSTAGE],
+    ["Casting", BACKSTAGE],
+    ["Rehearsals", BACKSTAGE],
+    ["Dress Rehearsal", BACKSTAGE],
+    ["Opening Night", BACKSTAGE],
+    ["Edit as a new scene", BACKSTAGE],
+    ["Leave a stage note", BACKSTAGE],
+    ["Ticket office", STAGE],
+    ["Go backstage with my own decision", STAGE],
+    ["SKIP THE OVERTURE", STAGE],
+    ["GO TO THE TICKET OFFICE", STAGE],
+    ["IN REPERTOIRE", STAGE],
+    ["Spotlight", STAGE],
+    ["Understudies wait in the wings; the stage manager keeps tabs on the subs.", STAGE],
+  ];
+
+  const THEATRE = /\b(theat(?:re|er)s?|theatrical|stages?|backstage|curtains?|rehears\w*|tickets?|acts?|scenes?|overtures?|wings?|repertoire|spotlights?|casting|dress|opening night|house lights|understud(?:y|ies)|playbill|offstage|onstage)\b/gi;
+
+  /** A page's text with tags removed (script source kept, since some captions are built by the page script). */
+  function pageText(html: string): string {
+    return clean(html.replace(/<[^>]*>/g, " ")).toLowerCase();
+  }
+
+  /** Allowlisted labels that are not on their page (case-insensitive: the UI may upper-case them), or never used by the guide. */
+  function labelProblems(guideHtml: string, pageHtml: ReadonlyMap<string, string>): string[] {
+    const guide = clean(guideHtml);
+    const out: string[] = [];
+    for (const [label, page] of UI_LABELS) {
+      if (!pageText(pageHtml.get(page) ?? "").includes(label.toLowerCase())) out.push(`not on ${page}: ${label}`);
+      if (!guide.includes(label)) out.push(`unused allowance: ${label}`);
+    }
+    return out;
+  }
+
+  /** Every theatre word in the guide's title and body, outside a quoted UI label or a glossary term. */
+  async function theatreWords(html: string): Promise<string[]> {
+    const labels = UI_LABELS.map(([label]) => label).sort((a, b) => b.length - a.length);
+    const terms = await texts(html, "#glossary > dt");
+    const withoutTerms = await new HTMLRewriter()
+      .on("#glossary > dt", {
+        element(el) {
+          el.remove();
+        },
+      })
+      .transform(new Response(html))
+      .text();
+    let prose = [(await texts(html, "title"))[0] ?? "", (await texts(withoutTerms, "body"))[0] ?? ""].join(" ");
+    for (const label of labels) prose = prose.split(`"${label}"`).join(" ");
+    let termText = terms.join(" | ");
+    for (const label of labels) termText = termText.split(label).join(" ");
+    return [...`${prose} ${termText}`.matchAll(THEATRE)].map((m) => m[0]);
+  }
+
+  const pages = (): Map<string, string> => new Map([[STAGE, read(STAGE)], [BACKSTAGE, read(BACKSTAGE)]]);
+
+  test("[unit] D18-PLAIN-THEATRE no theatre word in the guide outside a quoted on-screen label, and every label is on its page", async () => {
+    expect(await theatreWords(read(GUIDE))).toEqual([]);
+    expect(labelProblems(read(GUIDE), pages())).toEqual([]);
+    expect(UI_LABELS.length).toBeGreaterThan(0);
+  });
+
+  test("[unit] D18-PLAIN-THEATRE-NEGATIVE theatre prose, an unquoted label, an unlisted quote and a renamed label each go RED", async () => {
+    const guide = read(GUIDE);
+    const anchor = "</main>";
+    expect(await theatreWords(mutate(guide, anchor, `<p>The curtain rises</p>${anchor}`))).toEqual(["curtain"]);
+    expect(await theatreWords(mutate(guide, anchor, `<p>Press House Lights</p>${anchor}`))).toEqual(["House Lights"]);
+    expect(await theatreWords(mutate(guide, anchor, `<p>Read "the second act"</p>${anchor}`))).toEqual(["act"]);
+    expect(await theatreWords(mutate(guide, "Jev!Jev: first-use guide", "Jev!Jev: stage guide"))).toEqual(["stage"]);
+    expect(await theatreWords(mutate(guide, "<dt>Stop</dt>", "<dt>Stop the show at the curtain</dt>"))).toEqual(["curtain"]);
+    const renamed = new Map(pages());
+    renamed.set(BACKSTAGE, mutate(read(BACKSTAGE), ">House Lights<", ">Theme<"));
+    expect(labelProblems(guide, renamed)).toEqual([`not on ${BACKSTAGE}: House Lights`]);
   });
 });

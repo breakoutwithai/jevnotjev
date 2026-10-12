@@ -100,7 +100,7 @@
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/guide.test.ts": 8,
     "src/docs/labelling-card.test.ts": 4,
-    "src/docs/site-guide.test.ts": 21,
+    "src/docs/site-guide.test.ts": 25,
     "src/docs/stack.test.ts": 18,
     "src/evidence/replay.test.ts": 18,
     "src/format/cli.test.ts": 3,

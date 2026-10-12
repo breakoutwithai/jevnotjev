@@ -6,7 +6,7 @@ Diagram: [docs/product/flow/comparison.html](docs/product/flow/comparison.html) 
 
 ## Scope (v1)
 - **Workflow:** one decision point with a fixed answer set, asked as a typed question; code maps each answer to the next step. Jev is never asked "which model".
-- **Historical (superseded 2026-09-28):** the first example was "How hard is this coding prompt? trivial / ordinary / hard", with code mapping the answer to Haiku, Sonnet or Opus (the Claude Code prompt router). That router was dropped and is not a v1 requirement.
+- **Historical (dropped 2026-09-28):** the first example was "How hard is this coding prompt? trivial / ordinary / hard", with code mapping the answer to Haiku, Sonnet or Opus (the Claude Code prompt router). That router was dropped, then brought back in scope on 2026-10-11 after the Haiku 5.5 release.
 - **User:** a builder who runs LLM calls in their workflow and wants to know if Jev can make some of those decisions cheaper without losing quality.
 - **Accepted result:** an output a person marks "accept" under one written rule: correct and complete enough to use without edits. Labels are blind to which arm gave the answer. A Jev pre-grade may pre-fill a label but a person confirms it.
 - **Flagship use case:** TokenMax, more accepted results from the same token budget.
@@ -34,7 +34,7 @@ Each arm answers the same typed question on the same case; code then acts on the
 | B. A simple rule | a simple baseline | `rule` | a rule written before labelling answers the question; e.g. keyword match `dashboard\|meter` | the case and the rule |
 | C. Jev decides | Jev routing | `jev` | Jev answers the question and gives a confidence | the case, the question, the answer set |
 
-Historical: arm examples were written for the Claude Code prompt router (every prompt to Sonnet; under 400 characters to Haiku; Jev's answer mapped to a model). That router was dropped on 2026-09-28 and these examples are superseded.
+Historical: arm examples were written for the Claude Code prompt router (every prompt to Sonnet; under 400 characters to Haiku; Jev's answer mapped to a model). That router was dropped on 2026-09-28 and is back in scope as of 2026-10-11 after the Haiku 5.5 release; these examples stay historical.
 
 ## Results file
 One CSV in the `jnj-record/1` format, one row per answerer per question per case. Columns, schema, fictional sample and validator: [format/](format/README.md). That file is the only column list.

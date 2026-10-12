@@ -1,5 +1,5 @@
 {
-  "minFiles": 116,
+  "minFiles": 117,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -100,6 +100,7 @@
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/guide.test.ts": 8,
     "src/docs/labelling-card.test.ts": 4,
+    "src/docs/site-guide.test.ts": 7,
     "src/docs/stack.test.ts": 18,
     "src/evidence/replay.test.ts": 18,
     "src/format/cli.test.ts": 3,

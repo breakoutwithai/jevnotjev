@@ -2,6 +2,8 @@
 
 Run these commands from the repository root with Bun and the dependencies installed. Use synthetic or redacted cases: selected provider arms receive their text. The worked example reuses the 40 fictional ski-shop messages in [UC13](../examples/uc13-shop-bot/). Replace its question, cases and rule with your own before spending money.
 
+In the browser instead: the [first-use guide](../site/guide/index.html), served at `/guide/`, covers the same steps in Backstage, explains every field on the sample run and Backstage, and lists the tool's limitations.
+
 ## 1. Describe the decision
 
 Pick one point in your workflow with a fixed answer set. Write what each answer means and when you would keep it before looking at any arm's output. Here the question is whether a ski-shop bot can answer a customer message from its [fact sheet](../examples/uc13-shop-bot/fact-sheet.md). `answer` means the sheet covers everything asked; `hand_off` means staff must check live stock, a booking, a policy, safety, or a complaint. Keep the same question and rule across all cases. The CLI's keyword rule matches case-insensitive substrings and only works with a two-choice question.

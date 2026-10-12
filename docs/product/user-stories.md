@@ -143,7 +143,7 @@ Journey step: J2.4
 
 ## Out of scope for v1
 
-- More than one decision point at a time (`FLOW.md`, Scope). The earlier limit to the Claude Code prompt router is historical: that router was dropped on 2026-09-28 and is back in scope as of 2026-10-11 after the Haiku 5.5 release.
+- More than one decision point at a time (`FLOW.md`, Scope). The historical limit to the Claude Code prompt router no longer applies: that router was dropped on 2026-09-28 and is back in scope as of 2026-10-11 after the Haiku 5.5 release, so it is not excluded here.
 - Running models or calling Jev from inside Jev!Jev; v1 reads results the user supplies.
 - Live or streaming traffic; v1 works on a recorded test set.
 - Real production or sensitive data; cases should be synthetic or redacted.

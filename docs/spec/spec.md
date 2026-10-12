@@ -127,7 +127,6 @@ Criterion ids are `R<n>.<letter>`. Each criterion is proved by at least one test
 ## Exclusions
 - Live model calls from the tool, including Jev: v1 reads results the builder supplies (`FLOW.md`, Scope).
 - Accounts, sign-in, and any server-side state for the main journey.
-- The Claude Code prompt router (Haiku / Sonnet / Opus per prompt): dropped on 2026-09-28, back in scope as of 2026-10-11 after the Haiku 5.5 release.
 - Comparing or combining decision points into one verdict.
 - Production, streaming or sensitive data; claims beyond the loaded test set.
 - Pooling or sharing subscriptions.

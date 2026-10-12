@@ -19,6 +19,8 @@ import { MAX_FILE_BYTES } from "../browser/results-loader.ts";
 import { RESAMPLES } from "../core/calc.ts";
 import { CHEAPER, MARGIN, MIN_PAIRED } from "../core/verdict.ts";
 import { PRICE_TABLE, PRICE_TABLE_DATE } from "../decide/prices.ts";
+import { COLUMNS_V1_2, SUGGESTION_COLUMNS } from "../format/validate.ts";
+import { JEV_PIN } from "../jev-answer.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const GUIDE = "site/guide/index.html";
@@ -212,6 +214,7 @@ function constants(): Map<string, string> {
     ["PRICE_TABLE_DATE", PRICE_TABLE_DATE],
     ["JEV_INPUT_USD_PER_MTOK", String(jev.inputUsdPerMTok)],
     ["BACKSTAGE_JEV_INPUT_USD_PER_MTOK", String(backstageJev.pricing.inputUsdPerMillion)],
+    ["JEV_PIN", JEV_PIN],
   ]);
 }
 
@@ -368,6 +371,8 @@ const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
   ["one kept and one rejected answer at $1 each cost $2 per kept answer", "arithmetic example"],
   ["about 1 to 4 bytes of your text", "estimate basis, quoted from Learning Lines"],
   ["A simple rule costs $0.", "a rule makes no call"],
+  ["jnj-record/1.1", "format name"],
+  ["jnj-record/1.2", "format name"],
   ["jnj-record/1", "format name"],
   ["(0.00003242, not", "cost_usd format example"],
   ["Use 0 for a rule", "cost_usd format example"],
@@ -382,6 +387,11 @@ const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
   ["Room 5:", "room number"],
   ["Room 6:", "room number"],
   ["such as c1.", "sample cases file id"],
+  ["Rule 1:", "verdict rule number, from src/core/verdict.ts"],
+  ["Rule 2:", "verdict rule number, from src/core/verdict.ts"],
+  ["Rule 3:", "verdict rule number, from src/core/verdict.ts"],
+  ["Rule 4:", "verdict rule number, from src/core/verdict.ts"],
+  ["UC1 to UC10", "use-case ids, from site/data.js"],
 ];
 
 /** Digits left in the guide's main text after removing validated marks, the allowed phrases and case ids (m33). */
@@ -487,6 +497,192 @@ describe("in-product first-use guide (D18)", () => {
     const notSpan = mutate(guide, '<span data-sample="cases">40</span>', '<b data-sample="cases">40</b>');
     expect(await errors(notSpan)).toEqual(["mark on <b> cases: use one data-const or data-sample on a span"]);
   }, 30000);
+
+  // D18 persona-swarm gaps (c01 to c07): each check reads the guide and the source it explains.
+
+  test("[unit] D18-SWARM-C01 every Backstage control the swarm could not read has a glossary entry and is still on the page", async () => {
+    const page = clean(`${read(BACKSTAGE)} ${read("src/backstage/main.ts")}`);
+    const entries = [...(await glossary(read(GUIDE))).keys()];
+    for (const label of ["Edit as a new scene", "House Lights", "Leave a stage note", "Run first case", "Try one small Jev query", "Copy own-key CLI", "Prefer the Playground?", "Catalog checked"]) {
+      expect(page).toContain(label);
+      expect(entries).toContain(label);
+    }
+  });
+
+  const ACCESS_STATEMENTS = [
+    "Backstage and its sample cases file need you to sign in.",
+    "use Go backstage with my own decision in the Ticket office",
+    "A person reads each request and replies by email",
+    "the reply explains how to sign in",
+    "The request alone does not open Backstage.",
+  ];
+
+  /** What the access note before section 1 fails to say; empty when it says all of it. */
+  async function accessProblems(html: string): Promise<string[]> {
+    const at = html.indexOf('id="access"');
+    if (at < 0 || at > html.indexOf('id="prepare"')) return ["no access note before section 1"];
+    const g = await grab(html, ["#access", "#access a"]);
+    const text = g.get("#access")?.[0]?.text ?? "";
+    const links = (g.get("#access a") ?? []).map((a) => a.attrs.get("href") ?? "");
+    const out = ACCESS_STATEMENTS.filter((s) => !text.includes(s)).map((s) => `missing: ${s}`);
+    if (!links.includes("../#tickets")) out.push("no Ticket office link");
+    return out;
+  }
+
+  test("[unit] D18-SWARM-C02 before section 1 the guide says Backstage and its sample cases file need sign-in, and how to get access", async () => {
+    expect(await accessProblems(read(GUIDE))).toEqual([]);
+    // The access path the guide describes is the one the ticket office states.
+    expect(read("site/shows/office.js")).toContain("the reply explains how to sign in to Backstage; the request alone does not open it");
+    const reversed = mutate(read(GUIDE), "The request alone does not open Backstage.", "The request alone opens Backstage.");
+    expect(await accessProblems(reversed)).toEqual(["missing: The request alone does not open Backstage."]);
+    const open = mutate(read(GUIDE), "need you to sign in.", "are open without signing in.");
+    expect(await accessProblems(open)).toEqual(["missing: Backstage and its sample cases file need you to sign in."]);
+  });
+
+  // c03: the operator named the TypeSafe Playground as where testers get a key; Backstage already links it.
+  const KEY_PAGE = "https://console.typesafe.ai/playground";
+
+  /** Where the guide fails to link the key page: the access note before section 1, and section 1 beside the Jev price. */
+  async function keyPageProblems(html: string): Promise<string[]> {
+    const out: string[] = [];
+    const access = ((await grab(html, ["#access a"])).get("#access a") ?? []).map((a) => a.attrs.get("href") ?? "");
+    if (!access.includes(KEY_PAGE)) out.push("access note: no key page link");
+    const section1 = html.slice(html.indexOf('id="prepare"'), html.indexOf('id="label"'));
+    const keyItem = /<li><b>Get a TypeSafe API key\.<\/b>([\s\S]*?)<\/li>/.exec(section1)?.[1] ?? "";
+    if (!keyItem.includes(`href="${KEY_PAGE}"`)) out.push("section 1: no key page link");
+    if (!keyItem.includes('data-const="BACKSTAGE_JEV_INPUT_USD_PER_MTOK"')) out.push("section 1: no Jev price beside the key");
+    return out;
+  }
+
+  test("[unit] D18-SWARM-C03 the guide links the TypeSafe key page near the top and in section 1, beside the Jev price", async () => {
+    expect(await keyPageProblems(read(GUIDE))).toEqual([]);
+    expect(read(BACKSTAGE)).toContain(`href="${KEY_PAGE}"`);
+    const unlinked = read(GUIDE).split(`href="${KEY_PAGE}"`).join('href="https://example.invalid/"');
+    expect(await keyPageProblems(unlinked)).toEqual(["access note: no key page link", "section 1: no key page link"]);
+  });
+
+  /** The Stage's visible text: markup, scripts and styles removed. */
+  function stageText(html: string): string {
+    return clean(html.replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]*>/g, " "));
+  }
+
+  /** [as the Stage shows it, as the guide quotes it] */
+  const STAGE_CAPTIONS: readonly (readonly [string, string])[] = [
+    ["ADMIT ONE", "ADMIT ONE"],
+    ["Row J", "ROW J"],
+    ["Seat J-EV", "SEAT J-EV"],
+    ["Skip the overture", "SKIP THE OVERTURE"],
+    ["Go to the ticket office", "GO TO THE TICKET OFFICE"],
+    ["Should I use Jev Ask", "Should I use Jev"],
+    ["In repertoire: other questions Jev could play", "IN REPERTOIRE"],
+  ];
+
+  /** Captions missing from the Stage or undecoded in the guide, and a wrong account of the question box. */
+  async function captionProblems(stageHtml: string, guideHtml: string): Promise<string[]> {
+    const stage = stageText(stageHtml);
+    const guide = (await texts(guideHtml, "main"))[0] ?? "";
+    const out: string[] = [];
+    for (const [onStage, inGuide] of STAGE_CAPTIONS) {
+      if (!stage.includes(onStage)) out.push(`not on the Stage: ${onStage}`);
+      if (!guide.includes(inGuide)) out.push(`not in the guide: ${inGuide}`);
+    }
+    // Act II's line is built by the page script, so it is read from the script source.
+    if (!stageHtml.includes("Understudies wait in the wings; the stage manager keeps tabs on the subs.")) out.push("not on the Stage: Understudies");
+    if (!guide.includes("Understudies wait in the wings")) out.push("not in the guide: Understudies");
+    const ids = [...read("site/data.js").matchAll(/"(UC\d+)"/g)].map((m) => m[1] ?? "");
+    if (ids.length < 2 || !guide.includes(`${ids[0] ?? ""} to ${ids[ids.length - 1] ?? ""}`)) out.push("use-case span not in the guide");
+    // The question box is disabled until the live check ships, and its examples make no call: the guide must say both.
+    if (!/<input id="askInput" disabled/.test(stageHtml) || !stage.includes("Your own question opens when the live check ships.")) out.push("the Stage's question box is no longer disabled");
+    for (const phrase of ["switched off until the live check ships", "no Jev call is made"]) if (!guide.includes(phrase)) out.push(`question box: missing ${phrase}`);
+    return out;
+  }
+
+  test("[unit] D18-SWARM-C04 the Stage's theatre captions are decoded, and each is still on the Stage", async () => {
+    expect(await captionProblems(read(STAGE), read(GUIDE))).toEqual([]);
+    // Markup around a caption does not change what the Stage shows.
+    const bold = mutate(read(STAGE), '<p class="admit">ADMIT ONE</p>', '<p class="admit"><b>ADMIT</b> ONE</p>');
+    expect(await captionProblems(bold, read(GUIDE))).toEqual([]);
+    const live = mutate(read(GUIDE), "typing your own question is switched off until the live check ships. The example buttons under it show prepared answers from the sample data; no Jev call is made.", "Type a question to call Jev live.");
+    expect(await captionProblems(read(STAGE), live)).toEqual(["question box: missing switched off until the live check ships", "question box: missing no Jev call is made"]);
+  });
+
+  test("[unit] D18-SWARM-C05 section 4 numbers every rule the verdict code can emit, in order", async () => {
+    const emitted = capture(/readonly rule: ([\d |]+);/, read("src/core/verdict.ts")).split("|").map((n) => `Rule ${n.trim()}`);
+    expect(emitted.length).toBeGreaterThan(1);
+    const items = await texts(read(GUIDE), "#verdict-rules > li");
+    expect(items.map((item) => capture(/^(Rule \d+):/, item))).toEqual(emitted);
+  });
+
+  /** The results-file column list in document order: each term with its own following meaning, and what is malformed. */
+  function columnEntries(html: string): { readonly names: string[]; readonly problems: string[] } {
+    // Comments are not rendered, so a commented-out list or entry is not in the guide.
+    const block = capture(/<dl id="record-columns"[^>]*>([\s\S]*?)<\/dl>/, html.replace(/<!--[\s\S]*?-->/g, " "));
+    const items = [...block.matchAll(/<(dt|dd)>([\s\S]*?)<\/\1>/g)].map((m) => ({ tag: m[1] ?? "", text: clean((m[2] ?? "").replace(/<[^>]*>/g, " ")) }));
+    const names: string[] = [];
+    const problems: string[] = [];
+    let last = "(start)";
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item === undefined) continue;
+      if (item.tag !== "dt") {
+        problems.push(`orphan meaning after ${last}`);
+        continue;
+      }
+      last = item.text;
+      names.push(item.text);
+      const meaning = items[i + 1];
+      if (meaning?.tag !== "dd") problems.push(`${item.text}: no meaning`);
+      else {
+        if (meaning.text === "") problems.push(`${item.text}: empty meaning`);
+        i++;
+      }
+    }
+    return { names, problems };
+  }
+
+  test("[unit] D18-SWARM-C06 the guide lists every jnj-record column the validator reads, each with a meaning", () => {
+    const { names, problems } = columnEntries(read(GUIDE));
+    expect(names).toEqual([...COLUMNS_V1_2, ...SUGGESTION_COLUMNS]);
+    expect(names).toContain("run_id");
+    expect(names).toContain("cost_usd");
+    expect(problems).toEqual([]);
+    const broken = mutate(read(GUIDE), "<dt>run_id</dt><dd>", "<dt>run_id</dt><dd></dd><dd>");
+    expect(columnEntries(broken).problems).toEqual(["run_id: empty meaning", "orphan meaning after run_id"]);
+    const list = capture(/(<dl id="record-columns"[\s\S]*?<\/dl>)/, read(GUIDE));
+    const commentedList = mutate(read(GUIDE), list, `<!-- ${list} -->`);
+    expect(() => columnEntries(commentedList)).toThrow();
+    const commentedEntry = mutate(mutate(read(GUIDE), "<dt>run_id</dt>", "<!-- <dt>run_id</dt>"), "own run_id.</dd>", "own run_id.</dd> -->");
+    expect(columnEntries(commentedEntry).names).not.toContain("run_id");
+  });
+
+  const INTRO = /(<p class="lede jev-intro">[\s\S]*?<\/p>\n)/;
+
+  /** What the Jev intro fails to say, or where it fails to sit (the first thing after the page title). */
+  async function introProblems(html: string): Promise<string[]> {
+    const out: string[] = [];
+    if (!/<\/h1>\s*<p class="lede jev-intro">/.test(html)) out.push("intro is not right after the page title");
+    const intro = (await texts(html, "p.jev-intro"))[0] ?? "";
+    for (const needed of [JEV_PIN, "TypeSafe", "one decision", "not a cross-task benchmark"]) if (!intro.includes(needed)) out.push(`intro: missing ${needed}`);
+    return out;
+  }
+
+  test("[unit] D18-SWARM-C07 under the title the guide says what Jev is, who makes it, its pinned model, and that this tests one decision", async () => {
+    expect(await introProblems(read(GUIDE))).toEqual([]);
+    expect(MODEL_CATALOG.find((entry) => entry.provider === "jev")?.modelId).toBe(JEV_PIN);
+    const para = capture(INTRO, read(GUIDE));
+    const moved = mutate(mutate(read(GUIDE), para, ""), "</main>", `${para}</main>`);
+    expect(await introProblems(moved)).toEqual(["intro is not right after the page title"]);
+  });
+
+  test("[unit] D18-SWARM-WORDING section 3's title and opening agree, and the answer name hand_off is explained", async () => {
+    const html = read(GUIDE);
+    const costs = html.slice(html.indexOf('id="costs"'), html.indexOf('id="verdict"'));
+    expect(costs).not.toContain("do not type costs");
+    expect(costs).toContain("costs are entered for you");
+    const text = (await texts(html, "main"))[0] ?? "";
+    expect(text).toContain("hand_off");
+    expect(text).toContain('the Stage prints it as "hand off"');
+  });
 
   test("[unit] D18-SITE-GUIDE-LINKS the sample run, Backstage and the CLI guide link to /guide/", () => {
     expect(read(STAGE)).toContain('href="guide/"');

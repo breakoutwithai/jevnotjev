@@ -821,22 +821,40 @@ describe("guide reads the verdict statistics in plain words (D18 swarm l01)", ()
 
 // Operator requirement for /guide/: no images, no styling, no theatre theme.
 describe("guide is plain: no images, no styling, no theatre theme", () => {
-  /** Styling and images left in the page: style blocks, links, style and class attributes, image and font elements. */
+  /** Decimal and hex character references decoded, so an entity cannot hide a word or an emoji. */
+  function decodeRefs(text: string): string {
+    const point = (n: number): string => (Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : " ");
+    return text.replace(/&#x([0-9a-f]+);?/gi, (_m: string, hex: string) => point(parseInt(hex, 16))).replace(/&#(\d+);?/g, (_m: string, dec: string) => point(Number(dec)));
+  }
+
+  const PRESENTATION_TAGS = new Set(["style", "img", "svg", "picture", "b", "i", "font", "object", "embed", "video", "canvas"]);
+  const PRESENTATION_ATTRS = ["style", "class", "background", "bgcolor", "color", "face", "align"];
+  const SIZED_TABLE_TAGS = new Set(["table", "td", "th", "col", "colgroup"]);
+  const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
+
+  /** Styling and images left in the page: presentational elements and attributes, styling links, imports and emoji. */
   async function presentationProblems(html: string): Promise<string[]> {
-    const counts = new Map<string, number>();
-    const selectors = ["style", "link", "[style]", "[class]", "img", "svg", "picture", "b", "i", "font"];
-    let rewriter = new HTMLRewriter();
-    for (const selector of selectors) {
-      counts.set(selector, 0);
-      rewriter = rewriter.on(selector, {
-        element() {
-          counts.set(selector, (counts.get(selector) ?? 0) + 1);
+    const out: string[] = [];
+    await new HTMLRewriter()
+      .on("*", {
+        element(el) {
+          const tag = el.tagName;
+          if (PRESENTATION_TAGS.has(tag)) out.push(tag);
+          for (const attr of PRESENTATION_ATTRS) if (el.hasAttribute(attr)) out.push(`${tag}[${attr}]`);
+          if (!SIZED_TABLE_TAGS.has(tag)) for (const attr of ["width", "height"]) if (el.hasAttribute(attr)) out.push(`${tag}[${attr}]`);
+          if (tag === "input" && (el.getAttribute("type") ?? "").toLowerCase() === "image") out.push("input[type=image]");
+          if (tag === "link") {
+            const rel = (el.getAttribute("rel") ?? "").toLowerCase().split(/\s+/);
+            const as = (el.getAttribute("as") ?? "").toLowerCase();
+            if (rel.includes("stylesheet") || rel.some((r) => r.includes("icon")) || (rel.includes("preload") && (as === "font" || as === "style"))) out.push(`link[rel=${rel.join(" ")}]`);
+          }
         },
-      });
-    }
-    await rewriter.transform(new Response(html)).text();
-    const out = [...counts].filter(([, n]) => n > 0).map(([selector, n]) => `${n} ${selector}`);
-    if (/url\(|@import|fonts\.googleapis|&#x1F|[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(html)) out.push("background image, font import or emoji");
+      })
+      .transform(new Response(html))
+      .text();
+    const raw = decodeRefs(html.replace(/<!--[\s\S]*?-->/g, " "));
+    if (/url\(|@import|fonts\.googleapis/i.test(raw)) out.push("background image or font import");
+    if (EMOJI.test(raw)) out.push("emoji");
     return out;
   }
 
@@ -847,56 +865,83 @@ describe("guide is plain: no images, no styling, no theatre theme", () => {
 
   test("[unit] D18-PLAIN-STYLE-NEGATIVE each kind of styling or image put back goes RED", async () => {
     const guide = read(GUIDE);
-    expect(await presentationProblems(mutate(guide, "</head>", "<style>main { color: red; }</style></head>"))).toEqual(["1 style"]);
-    expect(await presentationProblems(mutate(guide, "</head>", '<link rel="stylesheet" href="x.css"></head>'))).toEqual(["1 link"]);
-    expect(await presentationProblems(mutate(guide, "<main>", '<main style="color: red">'))).toEqual(["1 [style]"]);
-    expect(await presentationProblems(mutate(guide, "<main>", '<main class="wide">'))).toEqual(["1 [class]"]);
-    expect(await presentationProblems(mutate(guide, "<main>", '<main><img src="x.png" alt="">'))).toEqual(["1 img"]);
-    expect(await presentationProblems(mutate(guide, "<main>", "<main><svg></svg>"))).toEqual(["1 svg"]);
-    expect(await presentationProblems(mutate(guide, "<main>", "<main><picture></picture>"))).toEqual(["1 picture"]);
-    expect(await presentationProblems(mutate(guide, "<main>", '<main><p style="background: url(x.png)"></p>'))).toEqual(["1 [style]", "background image, font import or emoji"]);
+    const inMain = async (added: string): Promise<string[]> => presentationProblems(mutate(guide, "<main>", `<main>${added}`));
+    const inHead = async (added: string): Promise<string[]> => presentationProblems(mutate(guide, "</head>", `${added}</head>`));
+    expect(await inHead("<style>main { color: red; }</style>")).toEqual(["style"]);
+    expect(await inHead('<link rel="stylesheet" href="x.css">')).toEqual(["link[rel=stylesheet]"]);
+    expect(await inHead('<link rel="icon" href="x.ico">')).toEqual(["link[rel=icon]"]);
+    expect(await inHead('<link rel="preload" as="font" href="x.woff2">')).toEqual(["link[rel=preload]"]);
+    expect(await inHead('<link rel="canonical" href="https://example.invalid/guide/">')).toEqual([]);
+    expect(await presentationProblems(mutate(guide, "<main>", '<main style="color: red">'))).toEqual(["main[style]"]);
+    expect(await presentationProblems(mutate(guide, "<main>", '<main class="wide">'))).toEqual(["main[class]"]);
+    expect(await presentationProblems(mutate(guide, "<body>", '<body background="x.png" bgcolor="red">'))).toEqual(["body[background]", "body[bgcolor]"]);
+    expect(await inMain('<p width="10" align="center"></p>')).toEqual(["p[align]", "p[width]"]);
+    expect(await inMain('<img src="x.png" alt="">')).toEqual(["img"]);
+    expect(await inMain("<svg></svg>")).toEqual(["svg"]);
+    expect(await inMain("<picture></picture>")).toEqual(["picture"]);
+    expect(await inMain('<input type="image" src="x.png" alt="">')).toEqual(["input[type=image]"]);
+    for (const tag of ["object", "embed", "video", "canvas"]) expect(await inMain(`<${tag}></${tag}>`)).toEqual([tag]);
+    expect(await inMain('<p style="background: url(x.png)"></p>')).toEqual(["p[style]", "background image or font import"]);
+    expect(await inMain("<p>&#127917; &#x1F3AD;</p>")).toEqual(["emoji"]);
+    expect(await inMain("<!-- Removed @import -->")).toEqual([]);
   });
 
   /**
    * Theatre-named labels the product UI really shows, each with the page it is on. The guide may name one only inside
    * double quotes, or as a glossary term (the label verbatim), so a tester knows it is on-screen text to find.
    */
-  const UI_LABELS: readonly (readonly [string, string])[] = [
-    ["Backstage Pass", BACKSTAGE],
-    ["House Lights", BACKSTAGE],
-    ["A little rough. A real rehearsal.", BACKSTAGE],
-    ["New Scene", BACKSTAGE],
-    ["Casting", BACKSTAGE],
-    ["Rehearsals", BACKSTAGE],
-    ["Dress Rehearsal", BACKSTAGE],
-    ["Opening Night", BACKSTAGE],
-    ["Edit as a new scene", BACKSTAGE],
-    ["Leave a stage note", BACKSTAGE],
-    ["Ticket office", STAGE],
-    ["Go backstage with my own decision", STAGE],
-    ["SKIP THE OVERTURE", STAGE],
-    ["GO TO THE TICKET OFFICE", STAGE],
-    ["IN REPERTOIRE", STAGE],
-    ["Spotlight", STAGE],
-    ["Understudies wait in the wings; the stage manager keeps tabs on the subs.", STAGE],
+  // [label, page, where the page renders it: its markup, or a string literal its inline script writes into the page]
+  const UI_LABELS: readonly (readonly [string, string, "markup" | "script"])[] = [
+    ["Backstage Pass", BACKSTAGE, "markup"],
+    ["House Lights", BACKSTAGE, "markup"],
+    ["A little rough. A real rehearsal.", BACKSTAGE, "markup"],
+    ["New Scene", BACKSTAGE, "markup"],
+    ["Casting", BACKSTAGE, "markup"],
+    ["Rehearsals", BACKSTAGE, "markup"],
+    ["Dress Rehearsal", BACKSTAGE, "markup"],
+    ["Opening Night", BACKSTAGE, "markup"],
+    ["Edit as a new scene", BACKSTAGE, "markup"],
+    ["Leave a stage note", BACKSTAGE, "markup"],
+    ["Ticket office", STAGE, "markup"],
+    ["Go backstage with my own decision", STAGE, "markup"],
+    ["SKIP THE OVERTURE", STAGE, "markup"],
+    ["GO TO THE TICKET OFFICE", STAGE, "markup"],
+    ["IN REPERTOIRE", STAGE, "markup"],
+    ["Spotlight", STAGE, "script"],
+    ["Understudies wait in the wings; the stage manager keeps tabs on the subs.", STAGE, "script"],
   ];
 
   const THEATRE = /\b(theat(?:re|er)s?|theatrical|stages?|backstage|curtains?|rehears\w*|tickets?|acts?|scenes?|overtures?|wings?|repertoire|spotlights?|casting|dress|opening night|house lights|understud(?:y|ies)|playbill|offstage|onstage)\b/gi;
 
-  /** A page's text with tags removed (script source kept, since some captions are built by the page script). */
-  function pageText(html: string): string {
-    return clean(html.replace(/<[^>]*>/g, " ")).toLowerCase();
+  /** Rendered text of a page's markup: scripts, styles and comments dropped, tags removed, references decoded. */
+  function markupText(html: string): string {
+    const body = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ");
+    return decodeRefs(clean(body.replace(/<[^>]*>/g, " "))).toLowerCase();
+  }
+
+  /** Text of the string literals in a page's inline scripts (comments dropped), with any markup inside them removed. */
+  function scriptText(html: string): string {
+    const code = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1] ?? "").join("\n").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+    const literals = [...code.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"/g)].map((m) => m[1] ?? m[2] ?? "");
+    return decodeRefs(clean(literals.join(" ").replace(/<[^>]*>/g, " "))).toLowerCase();
   }
 
   /** Allowlisted labels that are not on their page (case-insensitive: the UI may upper-case them), or never used by the guide. */
   function labelProblems(guideHtml: string, pageHtml: ReadonlyMap<string, string>): string[] {
     const guide = clean(guideHtml);
     const out: string[] = [];
-    for (const [label, page] of UI_LABELS) {
-      if (!pageText(pageHtml.get(page) ?? "").includes(label.toLowerCase())) out.push(`not on ${page}: ${label}`);
+    for (const [label, page, where] of UI_LABELS) {
+      const html = pageHtml.get(page) ?? "";
+      const shown = where === "markup" ? markupText(html) : scriptText(html);
+      if (!shown.includes(label.toLowerCase())) out.push(`not on ${page}: ${label}`);
       if (!guide.includes(label)) out.push(`unused allowance: ${label}`);
     }
     return out;
+  }
+
+  /** A label as a whole phrase: not part of a longer word on either side. */
+  function wholeLabel(label: string): RegExp {
+    return new RegExp(`(?<![\\w])${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`, "g");
   }
 
   /** Every theatre word in the guide's title and body, outside a quoted UI label or a glossary term. */
@@ -911,10 +956,10 @@ describe("guide is plain: no images, no styling, no theatre theme", () => {
       })
       .transform(new Response(html))
       .text();
-    let prose = [(await texts(html, "title"))[0] ?? "", (await texts(withoutTerms, "body"))[0] ?? ""].join(" ");
+    let prose = decodeRefs([(await texts(html, "title"))[0] ?? "", (await texts(withoutTerms, "body"))[0] ?? ""].join(" "));
     for (const label of labels) prose = prose.split(`"${label}"`).join(" ");
-    let termText = terms.join(" | ");
-    for (const label of labels) termText = termText.split(label).join(" ");
+    let termText = decodeRefs(terms.join(" | "));
+    for (const label of labels) termText = termText.replace(wholeLabel(label), " ");
     return [...`${prose} ${termText}`.matchAll(THEATRE)].map((m) => m[0]);
   }
 
@@ -934,8 +979,19 @@ describe("guide is plain: no images, no styling, no theatre theme", () => {
     expect(await theatreWords(mutate(guide, anchor, `<p>Read "the second act"</p>${anchor}`))).toEqual(["act"]);
     expect(await theatreWords(mutate(guide, "Jev!Jev: first-use guide", "Jev!Jev: stage guide"))).toEqual(["stage"]);
     expect(await theatreWords(mutate(guide, "<dt>Stop</dt>", "<dt>Stop the show at the curtain</dt>"))).toEqual(["curtain"]);
+    expect(await theatreWords(mutate(guide, anchor, `<p>The cur&#116;ain and the cur&#x74;ain</p>${anchor}`))).toEqual(["curtain", "curtain"]);
+    expect(await theatreWords(mutate(guide, "<dt>Spotlight</dt>", "<dt>Spotlights</dt>"))).toEqual(["Spotlights"]);
     const renamed = new Map(pages());
     renamed.set(BACKSTAGE, mutate(read(BACKSTAGE), ">House Lights<", ">Theme<"));
     expect(labelProblems(guide, renamed)).toEqual([`not on ${BACKSTAGE}: House Lights`]);
+    // A markup label that survives only inside a script is not on screen.
+    const scriptOnly = new Map(pages());
+    scriptOnly.set(BACKSTAGE, mutate(read(BACKSTAGE), ">House Lights<", "><script>var t = 'House Lights';</script>Theme<"));
+    expect(labelProblems(guide, scriptOnly)).toEqual([`not on ${BACKSTAGE}: House Lights`]);
+    // A script label that survives only in a script comment is not rendered.
+    const commented = new Map(pages());
+    const line = "Understudies wait in the wings; the stage manager keeps tabs on the subs.";
+    commented.set(STAGE, mutate(read(STAGE), ` ${line}"`, `" /* ${line} */`));
+    expect(labelProblems(guide, commented)).toEqual([`not on ${STAGE}: ${line}`]);
   });
 });

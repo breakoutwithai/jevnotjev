@@ -19,6 +19,8 @@ import { MAX_FILE_BYTES } from "../browser/results-loader.ts";
 import { RESAMPLES } from "../core/calc.ts";
 import { CHEAPER, MARGIN, MIN_PAIRED } from "../core/verdict.ts";
 import { PRICE_TABLE, PRICE_TABLE_DATE } from "../decide/prices.ts";
+import { COLUMNS_V1_2, SUGGESTION_COLUMNS } from "../format/validate.ts";
+import { JEV_PIN } from "../jev-answer.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const GUIDE = "site/guide/index.html";
@@ -212,6 +214,7 @@ function constants(): Map<string, string> {
     ["PRICE_TABLE_DATE", PRICE_TABLE_DATE],
     ["JEV_INPUT_USD_PER_MTOK", String(jev.inputUsdPerMTok)],
     ["BACKSTAGE_JEV_INPUT_USD_PER_MTOK", String(backstageJev.pricing.inputUsdPerMillion)],
+    ["JEV_PIN", JEV_PIN],
   ]);
 }
 
@@ -382,6 +385,11 @@ const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
   ["Room 5:", "room number"],
   ["Room 6:", "room number"],
   ["such as c1.", "sample cases file id"],
+  ["Rule 1:", "verdict rule number, from src/core/verdict.ts"],
+  ["Rule 2:", "verdict rule number, from src/core/verdict.ts"],
+  ["Rule 3:", "verdict rule number, from src/core/verdict.ts"],
+  ["Rule 4:", "verdict rule number, from src/core/verdict.ts"],
+  ["UC1 to UC10", "use-case ids, from site/data.js"],
 ];
 
 /** Digits left in the guide's main text after removing validated marks, the allowed phrases and case ids (m33). */
@@ -487,6 +495,87 @@ describe("in-product first-use guide (D18)", () => {
     const notSpan = mutate(guide, '<span data-sample="cases">40</span>', '<b data-sample="cases">40</b>');
     expect(await errors(notSpan)).toEqual(["mark on <b> cases: use one data-const or data-sample on a span"]);
   }, 30000);
+
+  // D18 persona-swarm gaps (c01 to c07): each check reads the guide and the source it explains.
+
+  test("[unit] D18-SWARM-C01 every Backstage control the swarm could not read has a glossary entry and is still on the page", async () => {
+    const page = clean(`${read(BACKSTAGE)} ${read("src/backstage/main.ts")}`);
+    const entries = [...(await glossary(read(GUIDE))).keys()];
+    for (const label of ["Edit as a new scene", "House Lights", "Leave a stage note", "Run first case", "Try one small Jev query", "Copy own-key CLI", "Prefer the Playground?", "Catalog checked"]) {
+      expect(page).toContain(label);
+      expect(entries).toContain(label);
+    }
+  });
+
+  test("[unit] D18-SWARM-C02 before section 1 the guide says Backstage and its sample cases file need sign-in, and how to get access", async () => {
+    const html = read(GUIDE);
+    const before = html.slice(0, html.indexOf('id="prepare"'));
+    const text = clean(before.replace(/<[^>]*>/g, " "));
+    expect(text).toMatch(/sign in/i);
+    expect(text).toContain("sample cases file");
+    expect(text).toContain("Go backstage with my own decision");
+    expect(before).toContain('href="../#tickets"');
+    // The access path the guide describes is the one the ticket office states.
+    expect(read("site/shows/office.js")).toContain("the reply explains how to sign in to Backstage; the request alone does not open it");
+  });
+
+  test("[unit] D18-SWARM-C04 the Stage's theatre captions are decoded, and each is still on the Stage", async () => {
+    const stage = read(STAGE);
+    const guide = (await texts(read(GUIDE), "main"))[0] ?? "";
+    const ids = [...read("site/data.js").matchAll(/"(UC\d+)"/g)].map((m) => m[1] ?? "");
+    expect(ids.length).toBeGreaterThan(1);
+    const pairs: readonly (readonly [string, string])[] = [
+      ['<p class="admit">ADMIT ONE</p>', "ADMIT ONE"],
+      ["<dt>Row</dt><dd>J</dd>", "ROW J"],
+      ["<dt>Seat</dt><dd>J-EV</dd>", "SEAT J-EV"],
+      [">Skip the overture</button>", "SKIP THE OVERTURE"],
+      [">Go to the ticket office</a>", "GO TO THE TICKET OFFICE"],
+      [">Should I use Jev</label>", "Should I use Jev"],
+      ["Understudies wait in the wings; the stage manager keeps tabs on the subs.", "Understudies wait in the wings"],
+      ["In repertoire: other questions Jev could play", "IN REPERTOIRE"],
+    ];
+    for (const [onStage, inGuide] of pairs) {
+      expect(stage).toContain(onStage);
+      expect(guide).toContain(inGuide);
+    }
+    expect(guide).toContain(`${ids[0] ?? ""} to ${ids[ids.length - 1] ?? ""}`);
+  });
+
+  test("[unit] D18-SWARM-C05 section 4 numbers every rule the verdict code can emit, in order", async () => {
+    const emitted = capture(/readonly rule: ([\d |]+);/, read("src/core/verdict.ts")).split("|").map((n) => `Rule ${n.trim()}`);
+    expect(emitted.length).toBeGreaterThan(1);
+    const items = await texts(read(GUIDE), "#verdict-rules > li");
+    expect(items.map((item) => capture(/^(Rule \d+):/, item))).toEqual(emitted);
+  });
+
+  test("[unit] D18-SWARM-C06 the guide lists every jnj-record column the validator reads, each with a meaning", async () => {
+    const g = await grab(read(GUIDE), ["#record-columns > dt", "#record-columns > dd"]);
+    const listed = (g.get("#record-columns > dt") ?? []).map((x) => x.text);
+    const meanings = (g.get("#record-columns > dd") ?? []).map((x) => x.text).filter((m) => m !== "");
+    expect(listed).toEqual([...COLUMNS_V1_2, ...SUGGESTION_COLUMNS]);
+    expect(listed).toContain("run_id");
+    expect(listed).toContain("cost_usd");
+    expect(meanings.length).toBe(listed.length);
+  });
+
+  test("[unit] D18-SWARM-C07 under the title the guide says what Jev is, who makes it, its pinned model, and that this tests one decision", async () => {
+    const intro = (await texts(read(GUIDE), "p.jev-intro"))[0] ?? "";
+    expect(intro).toContain(JEV_PIN);
+    expect(intro).toContain("TypeSafe");
+    expect(intro).toMatch(/one decision/);
+    expect(intro).toMatch(/not a cross-task benchmark/);
+    expect(MODEL_CATALOG.find((entry) => entry.provider === "jev")?.modelId).toBe(JEV_PIN);
+  });
+
+  test("[unit] D18-SWARM-WORDING section 3's title and opening agree, and the answer name hand_off is explained", async () => {
+    const html = read(GUIDE);
+    const costs = html.slice(html.indexOf('id="costs"'), html.indexOf('id="verdict"'));
+    expect(costs).not.toContain("do not type costs");
+    expect(costs).toContain("costs are entered for you");
+    const text = (await texts(html, "main"))[0] ?? "";
+    expect(text).toContain("hand_off");
+    expect(text).toContain('the Stage prints it as "hand off"');
+  });
 
   test("[unit] D18-SITE-GUIDE-LINKS the sample run, Backstage and the CLI guide link to /guide/", () => {
     expect(read(STAGE)).toContain('href="guide/"');

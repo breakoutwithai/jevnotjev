@@ -615,7 +615,8 @@ describe("in-product first-use guide (D18)", () => {
 
   /** The results-file column list in document order: each term with its own following meaning, and what is malformed. */
   function columnEntries(html: string): { readonly names: string[]; readonly problems: string[] } {
-    const block = capture(/<dl id="record-columns"[^>]*>([\s\S]*?)<\/dl>/, html);
+    // Comments are not rendered, so a commented-out list or entry is not in the guide.
+    const block = capture(/<dl id="record-columns"[^>]*>([\s\S]*?)<\/dl>/, html.replace(/<!--[\s\S]*?-->/g, " "));
     const items = [...block.matchAll(/<(dt|dd)>([\s\S]*?)<\/\1>/g)].map((m) => ({ tag: m[1] ?? "", text: clean((m[2] ?? "").replace(/<[^>]*>/g, " ")) }));
     const names: string[] = [];
     const problems: string[] = [];
@@ -647,6 +648,11 @@ describe("in-product first-use guide (D18)", () => {
     expect(problems).toEqual([]);
     const broken = mutate(read(GUIDE), "<dt>run_id</dt><dd>", "<dt>run_id</dt><dd></dd><dd>");
     expect(columnEntries(broken).problems).toEqual(["run_id: empty meaning", "orphan meaning after run_id"]);
+    const list = capture(/(<dl id="record-columns"[\s\S]*?<\/dl>)/, read(GUIDE));
+    const commentedList = mutate(read(GUIDE), list, `<!-- ${list} -->`);
+    expect(() => columnEntries(commentedList)).toThrow();
+    const commentedEntry = mutate(mutate(read(GUIDE), "<dt>run_id</dt>", "<!-- <dt>run_id</dt>"), "own run_id.</dd>", "own run_id.</dd> -->");
+    expect(columnEntries(commentedEntry).names).not.toContain("run_id");
   });
 
   const INTRO = /(<p class="lede jev-intro">[\s\S]*?<\/p>\n)/;

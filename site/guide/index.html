@@ -134,7 +134,7 @@ th { color: var(--muted); font-weight: 600; font-size: 13px; }
   <dt>output</dt><dd>The answer given, one of answer_set. Empty on a row whose outcome is refused, unsupported or error; label is empty there too.</dd>
   <dt>confidence</dt><dd>The answerer's confidence from 0 to 1, or empty when it gives none (a rule).</dd>
   <dt>label</dt><dd><code>accept</code> or <code>reject</code>: whether this answer matches the label it is judged against. Empty when unlabelled. Whether that call was made blind is in label_blind.</dd>
-  <dt>label_source</dt><dd><code>human</code>, <code>human_reviewed</code> or <code>agent</code> (see Label acceptance); empty exactly when label is empty.</dd>
+  <dt>label_source</dt><dd><code>human</code>, <code>human_reviewed</code> or <code>agent</code> (see Label acceptance); empty exactly when label is empty. A jnj-record/1 file allows only <code>human</code> or empty; <code>human_reviewed</code> and <code>agent</code> need jnj-record/1.1 or jnj-record/1.2.</dd>
   <dt>tokens_in</dt><dd>Input tokens, from the provider's usage fields.</dd>
   <dt>tokens_out</dt><dd>Output tokens, from the provider's usage fields.</dd>
   <dt>cost_usd</dt><dd>What this one call cost in US dollars (above).</dd>
@@ -144,7 +144,7 @@ th { color: var(--muted); font-weight: 600; font-size: 13px; }
   <dt>label_blind</dt><dd><code>true</code> when the label was picked before seeing any answer or suggestion for the case; <code>false</code> for an imported or reviewed label.</dd>
   <dt>price_table_date</dt><dd>The date of the price list behind cost_usd (above).</dd>
   <dt>outcome</dt><dd><code>answered</code>, <code>refused</code>, <code>unsupported</code> or <code>error</code>; empty means answered.</dd>
-  <dt>label_final</dt><dd>The call from your final pick, made after the blind pick: a change after Jev's suggestion, or keeping the blind pick when no suggestion was available. Reported beside label, never instead of it.</dd>
+  <dt>label_final</dt><dd><code>accept</code> or <code>reject</code> from your final pick, made after the blind pick: the blind pick kept or changed, with or without Jev's suggestion shown. Reported beside label, never instead of it.</dd>
   <dt>suggestion_shown</dt><dd><code>true</code> when Jev's ranked suggestion was shown before the final pick, <code>false</code> when none was available.</dd>
 </dl>
 <p>The command line fills <code>cost_usd</code> for you from its price table dated <span data-const="PRICE_TABLE_DATE">2026-10-08</span>: Jev at $<span data-const="JEV_INPUT_USD_PER_MTOK">0.042</span> per million input tokens, output free.</p>

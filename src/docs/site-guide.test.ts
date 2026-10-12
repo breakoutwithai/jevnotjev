@@ -747,3 +747,54 @@ describe("in-product first-use guide (D18)", () => {
     expect(read("docs/GUIDE.md")).toContain("](../site/guide/index.html)");
   });
 });
+
+describe("guide reads the verdict statistics in plain words (D18 swarm l01)", () => {
+  /** Problems with the plain-words reading of the sample run's verdict line, section 5. */
+  async function verdictPlainProblems(html: string): Promise<string[]> {
+    const para = (await texts(html, "p#verdict-plain"))[0] ?? "";
+    if (para === "") return ["no plain-words reading of the verdict line"];
+    const sample = sampleValues();
+    const lower = sample.get("jev-lower") ?? "";
+    const out: string[] = [];
+    if (!para.includes(`Lower bound of Jev minus LLM ${lower}`)) out.push(`does not quote the sample lower bound ${lower}`);
+    for (const needed of ["the worst gap this evidence cannot rule out", `rule ${sample.get("verdict-rule-word") ?? ""} fires`, "does not say Jev is worse"]) {
+      if (!para.includes(needed)) out.push(`missing: ${needed}`);
+    }
+    return out;
+  }
+
+  /** The two sentences after "Newcombe's paired method:" in section 4. */
+  async function newcombeDefinition(html: string): Promise<string> {
+    const para = (await texts(html, "p#verdict-terms"))[0] ?? "";
+    return /Newcombe's paired method: ([^.]*\.[^.]*\.)/.exec(para)?.[1] ?? "";
+  }
+
+  test("[unit] D18-SWARM-L01 section 5 reads the sample's lower bound in plain words and says why rule four fires", async () => {
+    expect(await verdictPlainProblems(read(GUIDE))).toEqual([]);
+    const removed = mutate(read(GUIDE), "the worst gap this evidence cannot rule out", "the lower bound");
+    expect(await verdictPlainProblems(removed)).toEqual(["missing: the worst gap this evidence cannot rule out"]);
+    const para = capture(/(<p id="verdict-plain">[\s\S]*?<\/p>)/, read(GUIDE));
+    expect(await verdictPlainProblems(mutate(read(GUIDE), para, ""))).toEqual(["no plain-words reading of the verdict line"]);
+  });
+
+  test("[unit] D18-SWARM-L01 Newcombe's paired method is followed by a plain definition, and uncorrected is defined", async () => {
+    const definition = await newcombeDefinition(read(GUIDE));
+    expect(definition.split(" ").length).toBeGreaterThan(20);
+    expect(definition).toContain("same cases");
+    expect(definition).toContain("what paired means");
+    const terms = (await texts(read(GUIDE), "p#verdict-terms"))[0] ?? "";
+    expect(terms).toContain("Each verdict is uncorrected: it compares Jev with one other answerer on its own");
+    const emptied = mutate(read(GUIDE), "<b>Newcombe's paired method</b>: a standard way", "<b>Newcombe's paired method</b>. A standard way");
+    expect(await newcombeDefinition(emptied)).toBe("");
+  });
+
+  test("[unit] D18-SWARM-L01 jnj-record/1 is explained as a format name with a version, as format/README.md states", async () => {
+    expect(read("format/README.md").split("\n")[0]).toBe("# Eval record format `jnj-record/1` with its minor versions 1.1 and 1.2");
+    const explains = async (html: string): Promise<boolean> => {
+      const para = (await texts(html, "p#format-name"))[0] ?? "";
+      return para.startsWith("jnj-record/1 is a format name") && para.includes("the number after the slash is its version");
+    };
+    expect(await explains(read(GUIDE))).toBe(true);
+    expect(await explains(mutate(read(GUIDE), "is its version", "is a counter"))).toBe(false);
+  });
+});

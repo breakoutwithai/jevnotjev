@@ -509,6 +509,46 @@ describe("in-product first-use guide (D18)", () => {
     }
   });
 
+  // l02 (persona swarm 2026-10-12): Backstage controls and captions a tester met with no glossary entry.
+  describe("Backstage labels from swarm gap l02", () => {
+    /** [as Backstage's source has it, as the glossary names it] */
+    const L02_LABELS: readonly (readonly [string, string])[] = [
+      ["ADMIT ONE / WORK IN PROGRESS", "ADMIT ONE / WORK IN PROGRESS"],
+      ["Clear keys", "Clear keys"],
+      ["unmapped usage stays unknown", "Unmapped usage stays unknown"],
+      ["Copy first case for Playground", "Copy first case for Playground"],
+      ['<button id="stop" class="secondary" disabled>Stop</button', "Stop"],
+      ["Calibrate first: 5 practice cases", "Calibrate first"],
+    ];
+
+    /** Labels gone from Backstage, or with no non-empty glossary entry. */
+    async function l02Problems(guideHtml: string, source: string): Promise<string[]> {
+      const entries = await glossary(guideHtml);
+      const out: string[] = [];
+      for (const [inSource, term] of L02_LABELS) {
+        if (!source.includes(inSource)) out.push(`not in Backstage: ${inSource}`);
+        if ((entries.get(term) ?? "") === "") out.push(`no glossary entry: ${term}`);
+      }
+      return out;
+    }
+
+    const source = () => clean(`${read(BACKSTAGE)} ${read("src/backstage/main.ts")}`);
+
+    test("[unit] D18-SWARM-L02 each l02 Backstage label is still in the source and has a glossary entry", async () => {
+      expect(await l02Problems(read(GUIDE), source())).toEqual([]);
+    });
+
+    test("[unit] D18-SWARM-L02-NEGATIVE a dropped entry, an emptied meaning and a renamed control each go RED", async () => {
+      const dropped = mutate(read(GUIDE), "<dt>Clear keys</dt>", "<dt>Wipe keys</dt>");
+      expect(await l02Problems(dropped, source())).toEqual(["no glossary entry: Clear keys"]);
+      const emptied = read(GUIDE).replace(/(<dt>Stop<\/dt><dd>)[\s\S]*?(<\/dd>)/, "$1$2");
+      expect(emptied).not.toBe(read(GUIDE));
+      expect(await l02Problems(emptied, source())).toEqual(["no glossary entry: Stop"]);
+      const renamed = mutate(source(), "Calibrate first: 5 practice cases", "Practice first");
+      expect(await l02Problems(read(GUIDE), renamed)).toEqual(["not in Backstage: Calibrate first: 5 practice cases"]);
+    });
+  });
+
   const ACCESS_STATEMENTS = [
     "Backstage and its sample cases file need you to sign in.",
     "use Go backstage with my own decision in the Ticket office",

@@ -88,13 +88,14 @@ th { color: var(--muted); font-weight: 600; font-size: 13px; }
 <p class="note">A case file can carry labels too: add a <code>label</code> column (one of your two answers), then <code>label_source</code>, <code>labelled_by</code> and <code>labelled_at</code>. A label with no <code>label_source</code> is stored as <code>agent</code> and is never counted; one marked <code>human</code> is stored as <code>human_reviewed</code>.</p>
 
 <h2 id="label">2. Label acceptance</h2>
-<p>Labelling is you deciding, case by case, what the right answer is. An answer that matches your label is <span class="keep">kept</span> (the file says <code>accept</code>); one that does not is <span class="cut">rejected</span> (<code>reject</code>). Only kept answers count toward cost per kept answer and the verdict.</p>
+<p>Labelling is you deciding, case by case, what the right answer is. An answer that matches your label is <span class="keep">kept</span> (the file says <code>accept</code>); one that does not is <span class="cut">rejected</span> (<code>reject</code>). Kept and rejected answers both count: each labelled answer is in its player's accept rate (kept out of labelled) and in the paired comparison the verdict uses, and every answer's cost is in its player's spend. Cost per kept answer divides that whole spend by the kept answers only, so rejected answers make each kept one dearer: one kept and one rejected answer at $1 each cost $2 per kept answer.</p>
 <ol>
   <li><b>Write the rule first.</b> In New Scene, fill <b>Keep an answer when...</b> with the test you will apply to every answer, and <b>Leave out...</b> with cases this rehearsal does not cover. For the sample shop bot the rule was: <i>answer</i> when the fact sheet covers everything asked; <i>hand off</i> when it needs live stock, a booking, a policy not on the sheet, a safety judgement or a complaint.</li>
   <li><b>Calibrate.</b> Rehearsals starts with 5 practice cases whose reference labels a person approved. Your agreement shows at the end.</li>
   <li><b>Pick blind.</b> For each case, choose <b>First choice</b>, <b>Second choice</b> or <b>Unsure</b> before any answer is shown. That first pick is the label every player is scored against.</li>
   <li><b>Then keep or change.</b> Jev's ranked options appear after your pick. A change is recorded beside your blind pick, never instead of it.</li>
-  <li><b>Unsure means unlabelled.</b> An unsure case is left out of every count; it is never guessed.</li>
+  <li><b>Unsure means unlabelled.</b> An unsure case is never guessed. Its answers are left out of the accept rates and the verdict's pairing (shown as unlabelled and excluded), but what they cost still counts in spend and so in the cost per kept answer the tables show.</li>
+  <li><b>Imported labels.</b> A case you do not pick keeps its imported <code>human_reviewed</code> label and is scored on it. Any pick you make on the case, Unsure included, replaces the imported label for that case.</li>
   <li><b>Finish judging and lock labels.</b> This reveals the players and unlocks results and downloads. Labels and retries are locked after it.</li>
 </ol>
 <p>Where a label came from is recorded with it: <code>human</code> (a person picked it in Backstage), <code>human_reviewed</code> (a person approved it but did not pick it there, such as an approved AI draft) or <code>agent</code> (an AI made it and nobody reviewed it). <code>agent</code> labels are never counted as truth. The <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/docs/product/labelling-card.md">label card</a> is the one-page version.</p>
@@ -130,7 +131,7 @@ th { color: var(--muted); font-weight: 600; font-size: 13px; }
   <li><b>Use Jev</b> when all of these hold: the lower bound of Jev minus the LLM is above <span data-const="MARGIN_BOUND">-0.10</span> (Jev is within <span data-const="MARGIN_POINTS">10</span> points of the LLM); the cost ratio is <span data-const="CHEAPER">0.8</span> or less (at least <span data-const="CHEAPER_PERCENT">20</span>% cheaper per kept answer); and the cost ratio's upper bound is below one.</li>
   <li><b>Not enough evidence</b> otherwise. The screen names every condition of the use-Jev rule that was not met. It gives no count of extra cases here.</li>
 </ol>
-<p>"Not enough evidence" is a finding, not a failure: the cases did not show a difference either way within the margin. If Jev kept nothing while the LLM kept some, or the other way round, the verdict is also "not enough evidence" and names the labels to check. The same rules run in Backstage (Opening Night), on the Stage when you load your own file, and in <code>bun run decide verdict &lt;file&gt; --question &lt;id&gt;</code>.</p>
+<p>"Not enough evidence" is a finding, not a failure: the cases did not show a difference either way within the margin. If only one of Jev and the LLM kept nothing, the order above matters: the two accept-rate conditions of "don't use Jev" are checked first, so Jev keeping nothing while the LLM kept nearly everything is "don't use Jev" (Jev clearly worse). Only when neither of those fires is a one-sided zero "not enough evidence", with the labels to check named. The same rules run in Backstage (Opening Night), on the Stage when you load your own file, and in <code>bun run decide verdict &lt;file&gt; --question &lt;id&gt;</code>.</p>
 
 <h2 id="example">5. Worked example: the sample run</h2>
 <p>Open the <a href="../">Stage</a> and scroll. Everything on it is a recorded run, flagged <b>Sample run</b> in the corner: <span data-sample="cases">40</span> made-up messages to a ski shop's bot, and one decision, "can the bot answer this from its fact sheet, or must it hand off to staff?"</p>
@@ -195,7 +196,7 @@ th { color: var(--muted); font-weight: 600; font-size: 13px; }
   <dt>A now</dt><dd>Player A's pick for this message and whether it was kept.</dd>
   <dt>B rule</dt><dd>Player B's pick for this message and whether it was kept.</dd>
   <dt>C Jev</dt><dd>Player C's pick for this message and whether it was kept.</dd>
-  <dt>kept</dt><dd>The pick matches the label (<code>accept</code> in the file). Only kept answers count.</dd>
+  <dt>kept</dt><dd>The pick matches the label (<code>accept</code> in the file). Kept answers are the numerator of the accept rate and the divisor of cost per kept answer.</dd>
   <dt>rejected</dt><dd>The pick does not match the label (<code>reject</code> in the file).</dd>
   <dt>Jev said</dt><dd>Jev's pick and its confidence from 0 to 1, drawn as a bar. A red bar means the pick was rejected.</dd>
   <dt>Spotlight</dt><dd>Jev's most confident mistake, explained in one line.</dd>
@@ -227,6 +228,10 @@ th { color: var(--muted); font-weight: 600; font-size: 13px; }
   <dt>Leave out...</dt><dd>Optional: cases this rehearsal does not cover.</dd>
   <dt>Choose optional comparisons</dt><dd>Unticked runs Jev alone. Ticked lets you add LLMs and a keyword rule to compare against.</dd>
   <dt>TypeSafe API key</dt><dd>Your own Jev key from your TypeSafe account. Calls are billed to you.</dd>
+  <dt>Anthropic API key</dt><dd>Appears when you tick an Anthropic model: your own key for it, billed to your Anthropic account.</dd>
+  <dt>OpenAI API key</dt><dd>Appears when you tick an OpenAI model: your own key for it, billed to your OpenAI account.</dd>
+  <dt>Google API key</dt><dd>Appears when you tick a Google model: your own key for it, billed to your Google account.</dd>
+  <dt>xAI API key</dt><dd>Appears when you tick an xAI model: your own key for it, billed to your xAI account.</dd>
   <dt>Include a local keyword rule</dt><dd>Adds player B, a free keyword rule, to the comparison.</dd>
   <dt>Literal keywords, one per line</dt><dd>The rule's keywords. Case-insensitive; any match selects the first answer, otherwise the second.</dd>
   <dt>Cases, one per line</dt><dd>Your test cases typed or pasted, one case per line.</dd>
@@ -238,15 +243,15 @@ th { color: var(--muted); font-weight: 600; font-size: 13px; }
   <dt>labelled_at</dt><dd>When the label was made: a date or a UTC time.</dd>
   <dt>First choice</dt><dd>Your blind pick: the first answer is right for this case.</dd>
   <dt>Second choice</dt><dd>Your blind pick: the second answer is right.</dd>
-  <dt>Unsure</dt><dd>You cannot decide; the case stays unlabelled and out of every count.</dd>
-  <dt>Download records.csv</dt><dd>Every successful answer with its label and cost, one row each, in the jnj-record format.</dd>
+  <dt>Unsure</dt><dd>You cannot decide; the case is unlabelled, overriding any imported label. Its answers stay out of accept rates and pairing, but their cost still counts in spend.</dd>
+  <dt>Download records.csv</dt><dd>Successful answers with label and cost, in the jnj-record format: one row per answer per comparison. With several LLMs, Jev's and the rule's answers repeat under each comparison's run_id, so do not sum spend across comparisons.</dd>
   <dt>Download run evidence</dt><dd>The full run record, including failed and uncertain attempts.</dd>
   <dt>Model</dt><dd>Which player gave the answer.</dd>
   <dt>Answer</dt><dd>The answer that player picked.</dd>
   <dt>Returned confidence</dt><dd>The confidence the model returned with its answer, or "Not returned".</dd>
   <dt>Player</dt><dd>Jev, the LLM or the rule, in one comparison.</dd>
   <dt>Kept / labelled</dt><dd>Kept answers out of the answers you labelled.</dd>
-  <dt>Unlabelled</dt><dd>Answers with no label (unsure or not picked); left out of every count.</dd>
+  <dt>Unlabelled</dt><dd>Answers with no label: an Unsure pick, or a case you did not pick that has no imported human_reviewed label. Left out of accept rates and pairing; their cost stays in spend.</dd>
   <dt>Answers-only spend</dt><dd>The cost of the answers in the comparison, not counting failed attempts.</dd>
   <dt>Cost / kept</dt><dd>Answers-only spend divided by kept answers; a reason instead of a number when nothing was kept or a cost is missing.</dd>
   <dt>Total actual attempts</dt><dd>Everything the run spent, failed calls included, with how many charges are unknown.</dd>

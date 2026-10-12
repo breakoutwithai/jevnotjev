@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { KEY_FIELD_NAMES } from "../backstage/run-gate.ts";
 import { MAX_FILE_BYTES } from "../browser/results-loader.ts";
 import { RESAMPLES } from "../core/calc.ts";
 import { CHEAPER, MARGIN, MIN_PAIRED } from "../core/verdict.ts";
@@ -104,6 +105,8 @@ function backstageFields(): Field[] {
     ...fields(page, "label columns", labelColumns),
     ...fields(csv, "cases file header", (read(csv).split("\n")[0] ?? "").split(",").filter((name) => name !== "")),
     ...fields(script, "tables", [...ts.matchAll(/table\(\s*\[([^\]]*)\]/g)].flatMap((m) => all(/"([^"]+)"/g, m[1] ?? ""))),
+    // Casting renders one key field per provider at runtime (main.ts appends KEY_FIELD_NAMES[provider] as its label).
+    ...fields("src/backstage/run-gate.ts", "provider key fields", Object.values(KEY_FIELD_NAMES)),
     ...fields(script, "results lines", [
       capture(/"(Total actual attempts):/, ts),
       capture(/" (paired labelled cases);/, ts),
@@ -172,7 +175,7 @@ function usd(v: number): string {
   return "$" + v.toFixed(v > 0 && v < 0.001 ? 6 : 4);
 }
 
-function sampleValues(): Map<string, string> {
+function computeSampleValues(): Map<string, string> {
   const dataJs = read("site/data.js");
   const sample: unknown = JSON.parse(capture(/window\.JNJ = (\{[\s\S]*\});\s*$/, dataJs));
   const cases = list(sample, "cases");
@@ -216,6 +219,53 @@ function sampleValues(): Map<string, string> {
   return out;
 }
 
+let sampleCache: Map<string, string> | null = null;
+function sampleValues(): Map<string, string> {
+  sampleCache ??= computeSampleValues();
+  return sampleCache;
+}
+
+// ---------- Marked spans: one parser for the value checks and the unchecked-number scan ----------
+
+interface Marked {
+  readonly kind: "const" | "sample";
+  readonly name: string;
+  readonly shown: string;
+  readonly raw: string;
+}
+
+interface Known {
+  readonly const: ReadonlyMap<string, string>;
+  readonly sample: ReadonlyMap<string, string>;
+}
+
+/** Every `data-const` / `data-sample` span; any such attribute outside the plain span form is an error. */
+function marked(html: string): Marked[] {
+  const spans = [...html.matchAll(/<span data-(const|sample)="([^"]*)">([^<]*)<\/span>/g)].map((m): Marked => ({
+    kind: m[1] === "const" ? "const" : "sample",
+    name: m[2] ?? "",
+    shown: m[3] ?? "",
+    raw: m[0],
+  }));
+  const attributes = (html.match(/data-(?:const|sample)=/g) ?? []).length;
+  if (attributes !== spans.length) throw new Error(`${attributes - spans.length} data-const/data-sample attribute(s) outside a plain span`);
+  return spans;
+}
+
+/** Null when the span names a known value and shows it exactly; otherwise why not. */
+function spanError(span: Marked, known: Known): string | null {
+  const want = (span.kind === "const" ? known.const : known.sample).get(span.name);
+  if (want === undefined) return `unknown ${span.kind} ${span.name}`;
+  return want === span.shown ? null : `${span.kind} ${span.name} shows ${span.shown}, code says ${want}`;
+}
+
+/** Numbers left after removing only the spans that validate (and case ids such as m33). */
+function uncheckedNumbers(html: string, known: Known): string[] {
+  let text = html;
+  for (const span of marked(html)) if (spanError(span, known) === null) text = text.replace(span.raw, " ");
+  return flat(text).replace(/\bm\d{2}\b/g, " ").match(/\d[\d.,]*/g) ?? [];
+}
+
 /** The guide's sections, split at each level-two heading. */
 function sections(html: string): { readonly heading: string; readonly body: string }[] {
   return html
@@ -252,7 +302,7 @@ describe("in-product first-use guide (D18)", () => {
     for (const term of ["What you do now", "Jev said", "Cost per kept answer", "Median seconds per call", "Not enough evidence", "Rule N fired", "kept", "rejected"]) {
       expect(sample).toContain(term);
     }
-    for (const term of ["Keep an answer when...", "Dress Rehearsal: Cost and downloads", "Kept / labelled", "Returned confidence", "case_input", "label_source", "Jev-only wins"]) {
+    for (const term of ["Keep an answer when...", "Dress Rehearsal: Cost and downloads", "Kept / labelled", "Returned confidence", "case_input", "label_source", "Jev-only wins", "Anthropic API key", "xAI API key"]) {
       expect(backstage).toContain(term);
     }
   });
@@ -262,32 +312,41 @@ describe("in-product first-use guide (D18)", () => {
   });
 
   test("[unit] D18-SITE-GUIDE-CONSTANTS every threshold the guide states is the verdict code's constant", () => {
-    const html = read(GUIDE);
-    const known = constants();
-    const spans = [...html.matchAll(/<span data-const="([A-Z_]+)">([^<]*)<\/span>/g)];
-    const named = new Set(spans.map((span) => span[1] ?? ""));
+    const spans = marked(read(GUIDE)).filter((span) => span.kind === "const");
+    const named = new Set(spans.map((span) => span.name));
     for (const required of ["MIN_PAIRED", "MARGIN_POINTS", "MARGIN_BOUND", "CHEAPER", "CHEAPER_PERCENT", "RESAMPLES"]) expect(named).toContain(required);
-    for (const span of spans) expect(`${span[1]}=${span[2]}`).toBe(`${span[1]}=${known.get(span[1] ?? "") ?? "unknown constant"}`);
+    const known: Known = { const: constants(), sample: new Map() };
+    expect(spans.map((span) => spanError(span, known)).filter((error) => error !== null)).toEqual([]);
   });
 
   test("[integration] D18-SITE-GUIDE-SAMPLE every sample figure in the guide is what the sample run shows", () => {
-    const html = read(GUIDE);
-    const known = sampleValues();
-    const spans = [...html.matchAll(/<span data-sample="([\w-]+)">([^<]*)<\/span>/g)];
+    const spans = marked(read(GUIDE)).filter((span) => span.kind === "sample");
     expect(spans.length).toBeGreaterThan(10);
-    for (const span of spans) expect(`${span[1]}=${span[2]}`).toBe(`${span[1]}=${known.get(span[1] ?? "") ?? "unknown sample value"}`);
+    const known: Known = { const: new Map(), sample: sampleValues() };
+    expect(spans.map((span) => spanError(span, known)).filter((error) => error !== null)).toEqual([]);
   }, 30000);
 
-  test("[unit] D18-SITE-GUIDE-NUMBERS the verdict and worked-example sections state no number outside a checked span", () => {
+  test("[integration] D18-SITE-GUIDE-NUMBERS the verdict and worked-example sections state no number outside a validated span", () => {
     const html = read(GUIDE);
+    const known: Known = { const: constants(), sample: sampleValues() };
     const checked = sections(html).filter((s) => s.heading.startsWith("4.") || s.heading.startsWith("5."));
     expect(checked.length).toBe(2);
     for (const section of checked) {
-      const unchecked = flat(section.body.replace(/<span data-(?:const|sample)="[\w-]+">[^<]*<\/span>/g, " "))
-        .replace(/\bm\d{2}\b/g, " ")
-        .match(/\d[\d.,]*/g);
-      expect(`${section.heading}: ${unchecked?.join(" ") ?? ""}`).toBe(`${section.heading}: `);
+      expect(`${section.heading}: ${uncheckedNumbers(section.body, known).join(" ")}`).toBe(`${section.heading}: `);
     }
+  }, 30000);
+
+  test("[unit] D18-SITE-GUIDE-UNKNOWN-SPAN an unknown or wrong span is an error and its number stays unchecked", () => {
+    const known: Known = { const: constants(), sample: new Map([["cases", "40"]]) };
+    const planted = '<p>At <span data-const="MIN_PAIRED2">999</span>, <span data-sample="nope">7</span> and <span data-const="CHEAPER">0.9</span>; <span data-sample="cases">40</span> ok.</p>';
+    expect(marked(planted).map((span) => spanError(span, known))).toEqual([
+      "unknown const MIN_PAIRED2",
+      "unknown sample nope",
+      "const CHEAPER shows 0.9, code says 0.8",
+      null,
+    ]);
+    expect(uncheckedNumbers(planted, known)).toEqual(["999", "7", "0.9"]);
+    expect(() => marked('<p><b data-const="CHEAPER">0.8</b></p>')).toThrow("outside");
   });
 
   test("[unit] D18-SITE-GUIDE-LINKS the sample run, Backstage and the CLI guide link to /guide/", () => {

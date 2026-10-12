@@ -10,7 +10,7 @@ Jev!Jev is a small web tool that compares one workflow across three approaches o
 
 One decision point with a fixed answer set, asked as a typed question; code maps each answer to the next step (`FLOW.md`, Scope). The user chooses the decision.
 
-Historical: v1 first named the Claude Code prompt router (Jev picks Haiku, Sonnet or Opus per prompt). That router was dropped on 2026-09-28 and is superseded; no replacement workflow is chosen here.
+Historical: v1 first named the Claude Code prompt router (Jev picks Haiku, Sonnet or Opus per prompt). That router was dropped on 2026-09-28 and is back in scope as of 2026-10-11 after the Haiku 5.5 release.
 
 | Approach | What it means for this workflow |
 |---|---|
@@ -128,7 +128,7 @@ Journey step: J2.3
 - Then each row shows each approach's pick, its label, and whether Jev won, lost or tied against each other approach
 - And the page shows the win and loss counts that feed the verdict
 
-Historical: US-07 was "See router pick accuracy per prompt" for the Claude Code prompt router (Haiku, Sonnet or Opus). That router was dropped on 2026-09-28; the story is superseded by the wins and losses above.
+Historical: US-07 was "See router pick accuracy per prompt" for the Claude Code prompt router (Haiku, Sonnet or Opus). That router was dropped on 2026-09-28 and is back in scope as of 2026-10-11 after the Haiku 5.5 release; the story is superseded by the wins and losses above.
 
 ### US-08 Check whether confidence means a right pick
 
@@ -143,7 +143,7 @@ Journey step: J2.4
 
 ## Out of scope for v1
 
-- More than one decision point at a time (`FLOW.md`, Scope). The earlier limit to the Claude Code prompt router is historical: that router was dropped on 2026-09-28.
+- More than one decision point at a time (`FLOW.md`, Scope). The historical limit to the Claude Code prompt router no longer applies: that router was dropped on 2026-09-28 and is back in scope as of 2026-10-11 after the Haiku 5.5 release, so it is not excluded here.
 - Running models or calling Jev from inside Jev!Jev; v1 reads results the user supplies.
 - Live or streaming traffic; v1 works on a recorded test set.
 - Real production or sensitive data; cases should be synthetic or redacted.

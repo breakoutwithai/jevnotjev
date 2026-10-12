@@ -509,6 +509,63 @@ describe("in-product first-use guide (D18)", () => {
     }
   });
 
+  // l02 (persona swarm 2026-10-12): Backstage controls and captions a tester met with no glossary entry.
+  describe("Backstage labels from swarm gap l02", () => {
+    /** [element in site/backstage/index.html, its rendered text, the glossary term] */
+    const L02_ELEMENTS: readonly (readonly [string, string, string])[] = [
+      [".ticket p.eyebrow", "ADMIT ONE / WORK IN PROGRESS", "ADMIT ONE / WORK IN PROGRESS"],
+      ["button#clear-keys", "Clear keys", "Clear keys"],
+      ["button#copy-case", "Copy first case for Playground", "Copy first case for Playground"],
+      ["button#stop", "Stop", "Stop"],
+      ["h3#calibration-title", "Calibrate first: 5 practice cases", "Calibrate first"],
+    ];
+    /** The catalog note is set by main.ts, so its phrase is read from the text("catalog-note", ...) call. */
+    const CATALOG_NOTE = /text\(\s*"catalog-note",([\s\S]*?)\);/;
+    const UNMAPPED = ["unmapped usage stays unknown", "Unmapped usage stays unknown"];
+
+    /** Labels whose element no longer renders them, or with no non-empty glossary entry. */
+    async function l02Problems(guideHtml: string, backstageHtml: string, mainTs: string): Promise<string[]> {
+      const entries = await glossary(guideHtml);
+      const found = await grab(backstageHtml, L02_ELEMENTS.map(([selector]) => selector));
+      const out: string[] = [];
+      for (const [selector, shown, term] of L02_ELEMENTS) {
+        const rendered = (found.get(selector) ?? []).map((g) => g.text);
+        if (rendered.length !== 1 || rendered[0] !== shown) out.push(`${selector} does not render: ${shown}`);
+        if ((entries.get(term) ?? "") === "") out.push(`no glossary entry: ${term}`);
+      }
+      const [phrase, term] = UNMAPPED;
+      if (!(CATALOG_NOTE.exec(mainTs)?.[1] ?? "").includes(phrase ?? "")) out.push(`catalog note does not say: ${phrase}`);
+      if ((entries.get(term ?? "") ?? "") === "") out.push(`no glossary entry: ${term}`);
+      return out;
+    }
+
+    const MAIN_TS = "src/backstage/main.ts";
+
+    test("[unit] D18-SWARM-L02 each l02 Backstage label still renders and has a glossary entry", async () => {
+      expect(await l02Problems(read(GUIDE), read(BACKSTAGE), read(MAIN_TS))).toEqual([]);
+      // Attribute order and markup inside the button do not change its rendered label.
+      const reordered = mutate(read(BACKSTAGE), '<button id="stop" class="secondary" disabled>Stop</button', '<button class="secondary" disabled id="stop"><b>Stop</b></button');
+      expect(await l02Problems(read(GUIDE), reordered, read(MAIN_TS))).toEqual([]);
+    });
+
+    test("[unit] D18-SWARM-L02-NEGATIVE a dropped entry, an emptied meaning and a renamed control each go RED", async () => {
+      const dropped = mutate(read(GUIDE), "<dt>Clear keys</dt>", "<dt>Wipe keys</dt>");
+      expect(await l02Problems(dropped, read(BACKSTAGE), read(MAIN_TS))).toEqual(["no glossary entry: Clear keys"]);
+      const emptied = read(GUIDE).replace(/(<dt>Stop<\/dt><dd>)[\s\S]*?(<\/dd>)/, "$1$2");
+      expect(emptied).not.toBe(read(GUIDE));
+      expect(await l02Problems(emptied, read(BACKSTAGE), read(MAIN_TS))).toEqual(["no glossary entry: Stop"]);
+      // The button is renamed while "Clear keys" stays in the prose above it.
+      const wipe = read(BACKSTAGE).replace(/(<button id="clear-keys"[^>]*>)\s*Clear keys\s*</, "$1Wipe keys<");
+      expect(wipe).not.toBe(read(BACKSTAGE));
+      expect(wipe).toContain("Clear keys stops further calls");
+      expect(await l02Problems(read(GUIDE), wipe, read(MAIN_TS))).toEqual(["button#clear-keys does not render: Clear keys"]);
+      const calibration = mutate(read(BACKSTAGE), "Calibrate first: 5 practice cases", "Practice first");
+      expect(await l02Problems(read(GUIDE), calibration, read(MAIN_TS))).toEqual(["h3#calibration-title does not render: Calibrate first: 5 practice cases"]);
+      const note = mutate(read(MAIN_TS), "unmapped usage stays unknown", "usage is estimated");
+      expect(await l02Problems(read(GUIDE), read(BACKSTAGE), note)).toEqual(["catalog note does not say: unmapped usage stays unknown"]);
+    });
+  });
+
   const ACCESS_STATEMENTS = [
     "Backstage and its sample cases file need you to sign in.",
     "use Go backstage with my own decision in the Ticket office",

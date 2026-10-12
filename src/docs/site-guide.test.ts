@@ -757,7 +757,14 @@ describe("guide reads the verdict statistics in plain words (D18 swarm l01)", ()
     const lower = sample.get("jev-lower") ?? "";
     const out: string[] = [];
     if (!para.includes(`Lower bound of Jev minus LLM ${lower}`)) out.push(`does not quote the sample lower bound ${lower}`);
-    for (const needed of ["the worst gap this evidence cannot rule out", `rule ${sample.get("verdict-rule-word") ?? ""} fires`, "does not say Jev is worse"]) {
+    const bound = (-MARGIN).toFixed(2);
+    const reasons = [
+      "the worst gap this evidence cannot rule out",
+      `The use-Jev rule needs the bottom above ${bound}`,
+      `${lower} is not above it, so that condition of rule three is not met and rule ${sample.get("verdict-rule-word") ?? ""} fires`,
+      "does not say Jev is worse",
+    ];
+    for (const needed of reasons) {
       if (!para.includes(needed)) out.push(`missing: ${needed}`);
     }
     return out;
@@ -775,6 +782,11 @@ describe("guide reads the verdict statistics in plain words (D18 swarm l01)", ()
     expect(await verdictPlainProblems(removed)).toEqual(["missing: the worst gap this evidence cannot rule out"]);
     const para = capture(/(<p id="verdict-plain">[\s\S]*?<\/p>)/, read(GUIDE));
     expect(await verdictPlainProblems(mutate(read(GUIDE), para, ""))).toEqual(["no plain-words reading of the verdict line"]);
+    const why = capture(/(The use-Jev rule needs[\s\S]*? fires\.)/, para);
+    const lost = await verdictPlainProblems(mutate(read(GUIDE), why, "Therefore."));
+    expect(lost.length).toBe(2);
+    expect(lost[0]).toStartWith("missing: The use-Jev rule needs the bottom above");
+    expect(lost[1]).toContain("so that condition of rule three is not met");
   });
 
   test("[unit] D18-SWARM-L01 Newcombe's paired method is followed by a plain definition, and uncorrected is defined", async () => {
@@ -782,8 +794,15 @@ describe("guide reads the verdict statistics in plain words (D18 swarm l01)", ()
     expect(definition.split(" ").length).toBeGreaterThan(20);
     expect(definition).toContain("same cases");
     expect(definition).toContain("what paired means");
+    const uncorrected = async (html: string): Promise<boolean> => {
+      const terms = (await texts(html, "p#verdict-terms"))[0] ?? "";
+      return terms.includes("Each verdict is uncorrected: it compares Jev with one other answerer on its own, and nothing widens the ranges when several comparisons run at once");
+    };
+    expect(await uncorrected(read(GUIDE))).toBe(true);
+    expect(await uncorrected(mutate(read(GUIDE), "and nothing widens the ranges when several comparisons run at once", "and the ranges are widened to correct for several comparisons"))).toBe(false);
     const terms = (await texts(read(GUIDE), "p#verdict-terms"))[0] ?? "";
-    expect(terms).toContain("Each verdict is uncorrected: it compares Jev with one other answerer on its own");
+    expect(terms).toContain("The upper bound is the largest value in the range");
+    expect(terms).toContain("a higher cost ratio means Jev is dearer");
     const emptied = mutate(read(GUIDE), "<b>Newcombe's paired method</b>: a standard way", "<b>Newcombe's paired method</b>. A standard way");
     expect(await newcombeDefinition(emptied)).toBe("");
   });

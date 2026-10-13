@@ -143,8 +143,8 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
 <p>Some captions on the sample run page are decoration or navigation, not results:</p>
 <ul>
   <li><strong>"ADMIT ONE", "ROW J", "SEAT J-EV"</strong> are printed on the entrance card shown before the run. Decoration only: the J is for Jev, and there is nothing to book.</li>
-  <li>The button labelled "SKIP THE OVERTURE" shows the run at once instead of as you scroll. The link labelled "GO TO THE TICKET OFFICE" jumps to the section headed "Ticket office" at the foot of the page, where you ask to watch a recorded test or for access to the workspace.</li>
-  <li><strong>"Should I use Jev" with its "Ask" button:</strong> typing your own question is switched off until the live check ships. The example buttons under it show prepared answers from the sample data; no Jev call is made.</li>
+  <li>The link labelled "GO TO THE TICKET OFFICE" jumps to the section headed "Ticket office" at the foot of the page, where a button opens the form to ask to watch a recorded test or for access to the workspace.</li>
+  <li>The page has no box for typing your own question until the live check ships.</li>
   <li>The line "Understudies wait in the wings; the stage manager keeps tabs on the subs." in the second part of the run is decoration. It says nothing about the run.</li>
   <li>The list headed "IN REPERTOIRE" at the end names UC1 to UC10: other decisions Jev could be tested on, each with its question. They are not run on this page.</li>
 </ul>
@@ -171,7 +171,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
 <p>Jev and the LLM kept the same number of answers. Against the LLM, Jev won <span data-sample="wins-A">1</span> case and lost <span data-sample="losses-A">1</span>; against the rule it won <span data-sample="wins-B">10</span> and lost <span data-sample="losses-B">1</span>. Each answer Jev kept cost <span data-sample="save-vs-a">99</span>% less than one the LLM kept. Below it, <strong>Median seconds per call</strong> shows how long each player took.</p>
 
 <h3>The verdict</h3>
-<p>The verdict is <strong><span data-sample="verdict-word">Not enough evidence</span></strong>, and the line under it reads <strong>Rule <span data-sample="verdict-rule">4</span> fired</strong>. Walking the rules in order:</p>
+<p>The verdict is <strong><span data-sample="verdict-word">Not enough evidence</span></strong>, decided by rule <span data-sample="verdict-rule">4</span>; the page does not show the rule number. Walking the rules in order:</p>
 <ol>
   <li><strong>Rule one passes:</strong> Jev and the LLM have <span data-sample="paired">40</span> paired labelled cases, at least <span data-const="MIN_PAIRED">30</span>, and every paired row has a cost.</li>
   <li><strong>Rule two does not fire.</strong> The rule is not within the margin: the lower bound of the rule minus Jev is <span data-sample="rule-lower">-0.38</span>, not above <span data-const="MARGIN_BOUND">-0.10</span>. Jev is not clearly worse: the upper bound of Jev minus the LLM is <span data-sample="jev-upper">0.11</span>, not below <span data-const="MARGIN_BOUND">-0.10</span>. Jev is not dearer: the cost ratio is <span data-sample="cost-ratio">0.013</span>.</li>
@@ -223,7 +223,6 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>Use Jev</dt><dd>Verdict: Jev is within the margin of the LLM and clearly cheaper per kept answer (section 4, rule three).</dd>
   <dt>Don't use Jev</dt><dd>Verdict: a free rule does the job, or Jev is clearly worse or clearly dearer (rule two).</dd>
   <dt>Not enough evidence</dt><dd>Verdict: too few paired labelled cases or missing costs (rule one), or the use-Jev conditions were not all met (rule four).</dd>
-  <dt>Rule N fired</dt><dd>Which of the four verdict rules decided, in order; the line below gives its reason.</dd>
   <dt>Load your own script (CSV)</dt><dd>Choose a results file (one row per case per player) to check it and see its verdict. It is read in your browser.</dd>
 
   <dt>In the workspace</dt><dd>The signed-in tester area, titled "Backstage Pass" on screen (<a href="/backstage/">open it</a>). Six steps, each a button in the row at the top.</dd>

@@ -627,9 +627,7 @@ describe("in-product first-use guide (D18)", () => {
     ["ADMIT ONE", "ADMIT ONE"],
     ["Row J", "ROW J"],
     ["Seat J-EV", "SEAT J-EV"],
-    ["Skip the overture", "SKIP THE OVERTURE"],
     ["Go to the ticket office", "GO TO THE TICKET OFFICE"],
-    ["Should I use Jev Ask", "Should I use Jev"],
     ["In repertoire: other questions Jev could play", "IN REPERTOIRE"],
   ];
 
@@ -647,9 +645,9 @@ describe("in-product first-use guide (D18)", () => {
     if (!guide.includes("Understudies wait in the wings")) out.push("not in the guide: Understudies");
     const ids = [...read("site/data.js").matchAll(/"(UC\d+)"/g)].map((m) => m[1] ?? "");
     if (ids.length < 2 || !guide.includes(`${ids[0] ?? ""} to ${ids[ids.length - 1] ?? ""}`)) out.push("use-case span not in the guide");
-    // The question box is disabled until the live check ships, and its examples make no call: the guide must say both.
-    if (!/<input id="askInput" disabled/.test(stageHtml) || !stage.includes("Your own question opens when the live check ships.")) out.push("the Stage's question box is no longer disabled");
-    for (const phrase of ["switched off until the live check ships", "no Jev call is made"]) if (!guide.includes(phrase)) out.push(`question box: missing ${phrase}`);
+    // #203 removed the question box until the live check ships: the Stage has none, and the guide must say so.
+    if (/id="askInput"|id="askForm"/.test(stageHtml)) out.push("the Stage has a question box again");
+    for (const phrase of ["no box for typing your own question", "until the live check ships"]) if (!guide.includes(phrase)) out.push(`question box: missing ${phrase}`);
     return out;
   }
 
@@ -658,8 +656,10 @@ describe("in-product first-use guide (D18)", () => {
     // Markup around a caption does not change what the Stage shows.
     const bold = mutate(read(STAGE), '<p class="admit">ADMIT ONE</p>', '<p class="admit"><b>ADMIT</b> ONE</p>');
     expect(await captionProblems(bold, read(GUIDE))).toEqual([]);
-    const live = mutate(read(GUIDE), "typing your own question is switched off until the live check ships. The example buttons under it show prepared answers from the sample data; no Jev call is made.", "Type a question to call Jev live.");
-    expect(await captionProblems(read(STAGE), live)).toEqual(["question box: missing switched off until the live check ships", "question box: missing no Jev call is made"]);
+    const live = mutate(read(GUIDE), "The page has no box for typing your own question until the live check ships.", "Type a question to call Jev live.");
+    expect(await captionProblems(read(STAGE), live)).toEqual(["question box: missing no box for typing your own question", "question box: missing until the live check ships"]);
+    const boxBack = mutate(read(STAGE), "<main>", '<main><form id="askForm"></form>');
+    expect(await captionProblems(boxBack, read(GUIDE))).toEqual(["the Stage has a question box again"]);
   });
 
   test("[unit] D18-SWARM-C05 section 4 numbers every rule the verdict code can emit, in order", async () => {
@@ -997,7 +997,6 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
     ["Leave a stage note", BACKSTAGE, "markup"],
     ["Ticket office", STAGE, "markup"],
     ["Go backstage with my own decision", STAGE, "markup"],
-    ["SKIP THE OVERTURE", STAGE, "markup"],
     ["GO TO THE TICKET OFFICE", STAGE, "markup"],
     ["IN REPERTOIRE", STAGE, "markup"],
     ["Spotlight", STAGE, "script"],

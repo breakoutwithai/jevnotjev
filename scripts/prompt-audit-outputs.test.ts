@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { auditPrompt, buildTree, deliveringCommits, parseArgs, parsePrompt, parseRemoteRepo, renderReport, renderTable, validateOutput, type Git, type OutputResult, type PromptResult } from "./prompt-audit";
+import { auditPrompt, buildTree, DEFAULT_ATTRIBUTIONS, deliveringCommits, loadAttributions, parseArgs, parseAttributions, parsePrompt, parseRemoteRepo, renderReport, renderTable, validateOutput, type Flag, type Git, type OutputResult, type PromptResult } from "./prompt-audit";
 
 const emptyResult: PromptResult = {
   stem: "x",
@@ -464,6 +464,297 @@ describe("prompt-audit CLI with declared outputs", () => {
       const text = renderReport([r]);
       for (const word of ["verdict", "PARTIAL", "PATHS-DONE", "NOT-RUN"]) expect(text).not.toContain(word);
       expect(text).toContain("NOT-DELIVERED: a.ts");
+    });
+  });
+});
+
+describe("attribution ledger", () => {
+  const OUT = [
+    { repo: REPO, path: "scripts/a.ts", kind: "file" },
+    { repo: REPO, path: "src/mod/", kind: "dir" },
+  ];
+  const head = (repo: string): string => sh(repo, {}, "rev-parse", "HEAD").trim();
+  const audit = (repo: string, id: string, attributions: Record<string, string[]>, outputs: unknown[] = OUT): PromptResult => auditPrompt("a.prompt.md", promptWith(id, "2026-10-05", outputs), treeOf(repo), gitFor(repo), "HEAD", null, REPO, attributions);
+  const results = (r: PromptResult): string[] => (r.outputs ?? []).map((o) => `${o.path}=${o.result}`);
+
+  test("[unit] AT1 an attributed SHA touching a present path is DELIVERED-ATTRIBUTED, a dir via a file under it", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a, no trailer", { "scripts/a.ts": "a\n" });
+      const a = head(repo);
+      commitFiles(repo, "2026-10-07T12:00:00Z", "feat: mod, no trailer", { "src/mod/m.ts": "m\n" });
+      const m = head(repo);
+      const r = audit(repo, "old", { old: [a, m] });
+      expect(results(r)).toEqual(["scripts/a.ts=DELIVERED-ATTRIBUTED", "src/mod/=DELIVERED-ATTRIBUTED"]);
+      expect(r.outputs?.map((o) => o.commits)).toEqual([[a], [m]]);
+      expect(r.errors).toEqual([]);
+      expect(r.flags).not.toContain("INVALID-ATTRIBUTION");
+    });
+  });
+
+  test("[unit] AT2 an attributed SHA touching a path later deleted is REMOVED", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "scripts/a.ts": "a\n" });
+      const a = head(repo);
+      commitFiles(repo, "2026-10-07T12:00:00Z", "chore: drop a", { "scripts/a.ts": null });
+      const r = audit(repo, "old", { old: [a] }, [OUT[0]]);
+      expect(results(r)).toEqual(["scripts/a.ts=REMOVED"]);
+      expect(r.outputs?.[0]?.commits).toEqual([a]);
+      expect(r.errors).toEqual([]);
+    });
+  });
+
+  test("[unit] AT3 a trailer commit wins: DELIVERED and the trailer commit alone, even when the ledger lists a SHA", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "scripts/a.ts": "a\n" });
+      const plain = head(repo);
+      commitFiles(repo, "2026-10-07T12:00:00Z", "feat: a2\n\nPrompt-Id: old", { "scripts/a.ts": "a2\n" });
+      const trailer = head(repo);
+      const r = audit(repo, "old", { old: [plain] }, [OUT[0]]);
+      expect(results(r)).toEqual(["scripts/a.ts=DELIVERED"]);
+      expect(r.outputs?.[0]?.commits).toEqual([trailer]);
+      expect(r.errors).toEqual([]);
+    });
+  });
+
+  test("[unit] AT4 a prompt not in the ledger is audited exactly as without one", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "scripts/a.ts": "a\n" });
+      const a = head(repo);
+      const r = audit(repo, "other", { old: [a] }, [OUT[0]]);
+      expect(results(r)).toEqual(["scripts/a.ts=NOT-DELIVERED"]);
+      expect(r.errors).toEqual([]);
+    });
+  });
+
+  test("[unit] AT5 a ledger SHA that is a merge, predates created, or touches no declared output is not credited and is an error", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-01T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-02T12:00:00Z", "feat: early a", { "scripts/a.ts": "early\n" });
+      const early = head(repo);
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: elsewhere", { "other/x.ts": "x\n" });
+      const elsewhere = head(repo);
+      sh(repo, {}, "switch", "-q", "-c", "side");
+      commitFiles(repo, "2026-10-07T12:00:00Z", "feat: side", { "unrelated.txt": "u\n" });
+      sh(repo, {}, "switch", "-q", "main");
+      sh(repo, { GIT_AUTHOR_DATE: "2026-10-08T12:00:00Z", GIT_COMMITTER_DATE: "2026-10-08T12:00:00Z" }, "merge", "-q", "--no-ff", "-m", "merge side", "side");
+      const merge = head(repo);
+      const r = audit(repo, "old", { old: [early, elsewhere, merge] }, [OUT[0]]);
+      expect(results(r)).toEqual(["scripts/a.ts=NOT-DELIVERED"]);
+      expect(r.errors).toEqual([early, elsewhere, merge].map((s) => `attribution ${s} touches no declared output on HEAD after created`));
+      expect(r.flags).toContain("INVALID-ATTRIBUTION");
+    });
+  });
+
+  test("[unit] AT6 one bad SHA among good ones is reported while the good ones still credit", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "scripts/a.ts": "a\n" });
+      const a = head(repo);
+      const bogus = "0".repeat(40);
+      const r = audit(repo, "old", { old: [a, bogus] }, [OUT[0]]);
+      expect(results(r)).toEqual(["scripts/a.ts=DELIVERED-ATTRIBUTED"]);
+      expect(r.errors).toEqual([`attribution ${bogus} touches no declared output on HEAD after created`]);
+    });
+  });
+
+  test("[unit] AT7 renderReport keeps DELIVERED-ATTRIBUTED and REMOVED distinct from DELIVERED in the table and the detail", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "scripts/a.ts": "a\n" });
+      const a = head(repo);
+      commitFiles(repo, "2026-10-07T12:00:00Z", "feat: mod\n\nPrompt-Id: old", { "src/mod/m.ts": "m\n" });
+      commitFiles(repo, "2026-10-08T12:00:00Z", "feat: b", { "scripts/b.ts": "b\n" });
+      const b = head(repo);
+      commitFiles(repo, "2026-10-09T12:00:00Z", "chore: drop b", { "scripts/b.ts": null });
+      const outs = [...OUT, { repo: REPO, path: "scripts/b.ts", kind: "file" }];
+      const r = audit(repo, "old", { old: [a, b] }, outs);
+      expect(results(r)).toEqual(["scripts/a.ts=DELIVERED-ATTRIBUTED", "src/mod/=DELIVERED", "scripts/b.ts=REMOVED"]);
+      const text = renderReport([r]);
+      expect(text).toContain("DELIVERED-ATTRIBUTED: scripts/a.ts");
+      expect(text).toContain("REMOVED: scripts/b.ts");
+      const row = (text.split("\n").find((l) => l.startsWith("a")) ?? "").split(/\s+/);
+      expect(row).toContain("1+1/3");
+    });
+  });
+
+  test("[unit] AT13 attribution respects kind: a child change does not credit a file output, a file change does not credit a dir", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: child", { "src/mod/child.ts": "c\n" });
+      const child = head(repo);
+      commitFiles(repo, "2026-10-07T12:00:00Z", "feat: file a", { "a.ts": "a\n" });
+      const a = head(repo);
+      const asFile = audit(repo, "old", { old: [child] }, [{ repo: REPO, path: "src/mod", kind: "file" }]);
+      expect(results(asFile)).toEqual(["src/mod=NOT-DELIVERED"]);
+      expect(asFile.errors).toEqual([`attribution ${child} touches no declared output on HEAD after created`]);
+      const asDir = audit(repo, "old", { old: [a] }, [{ repo: REPO, path: "a.ts/", kind: "dir" }]);
+      expect(results(asDir)).toEqual(["a.ts/=NOT-DELIVERED"]);
+      expect(asDir.errors).toEqual([`attribution ${a} touches no declared output on HEAD after created`]);
+    });
+  });
+
+  test("[unit] AT14 a file output replaced by a directory of that name is REMOVED, not DELIVERED-ATTRIBUTED", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "a.ts": "a\n" });
+      const a = head(repo);
+      commitFiles(repo, "2026-10-07T12:00:00Z", "refactor: a becomes a dir", { "a.ts": null, "a.ts/child.ts": "c\n" });
+      const r = audit(repo, "old", { old: [a] }, [{ repo: REPO, path: "a.ts", kind: "file" }]);
+      expect(results(r)).toEqual(["a.ts=REMOVED"]);
+    });
+  });
+
+  test("[unit] AT15 prompt ids named like Object.prototype members do not crash, and a __proto__ ledger key stays an own key", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "a.ts": "a\n" });
+      const a = head(repo);
+      for (const id of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+        expect(results(audit(repo, id, {}, [{ repo: REPO, path: "a.ts", kind: "file" }])), id).toEqual(["a.ts=NOT-DELIVERED"]);
+      }
+      const ledger = parseAttributions(`{"__proto__": ["${a}"], "constructor": ["${a}"]}`);
+      expect(Object.keys(ledger).sort()).toEqual(["__proto__", "constructor"]);
+      expect(results(audit(repo, "__proto__", ledger, [{ repo: REPO, path: "a.ts", kind: "file" }]))).toEqual(["a.ts=DELIVERED-ATTRIBUTED"]);
+      expect(results(audit(repo, "constructor", ledger, [{ repo: REPO, path: "a.ts", kind: "file" }]))).toEqual(["a.ts=DELIVERED-ATTRIBUTED"]);
+    });
+  });
+
+  const MIXED = [
+    { repo: REPO, path: "a.ts", kind: "file" },
+    { repo: "acme/elsewhere", path: "x.ts", kind: "file" },
+  ];
+
+  test("[unit] AT16 with an OTHER-REPO output, a ledger SHA absent from this repo is not an error", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "a.ts": "a\n" });
+      const a = head(repo);
+      const foreign = "1".repeat(40);
+      const r = audit(repo, "old", { old: [a, foreign] }, MIXED);
+      expect(results(r)).toEqual(["a.ts=DELIVERED-ATTRIBUTED", "x.ts=OTHER-REPO"]);
+      expect(r.errors).toEqual([]);
+      expect(r.flags).not.toContain("INVALID-ATTRIBUTION");
+    });
+  });
+
+  test("[unit] AT19 an OTHER-REPO output does not excuse a SHA that resolves here but credits nothing, nor an absent SHA without one", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-01T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-02T12:00:00Z", "feat: early a", { "a.ts": "early\n" });
+      const early = head(repo);
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "a.ts": "a\n" });
+      const a = head(repo);
+      sh(repo, {}, "switch", "-q", "-c", "side");
+      commitFiles(repo, "2026-10-07T12:00:00Z", "feat: side", { "unrelated.txt": "u\n" });
+      sh(repo, {}, "switch", "-q", "main");
+      sh(repo, { GIT_AUTHOR_DATE: "2026-10-08T12:00:00Z", GIT_COMMITTER_DATE: "2026-10-08T12:00:00Z" }, "merge", "-q", "--no-ff", "-m", "merge side", "side");
+      const merge = head(repo);
+      const r = audit(repo, "old", { old: [a, early, merge] }, MIXED);
+      expect(r.errors).toEqual([early, merge].map((s) => `attribution ${s} touches no declared output on HEAD after created`));
+      expect(r.flags).toContain("INVALID-ATTRIBUTION");
+      const foreign = "2".repeat(40);
+      const noOther = audit(repo, "old", { old: [a, foreign] }, [MIXED[0]]);
+      expect(noOther.errors).toEqual([`attribution ${foreign} touches no declared output on HEAD after created`]);
+    });
+  });
+
+  test("[unit] AT20 a ledger entry for a legacy prompt (no outputs) is INVALID-ATTRIBUTION", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "a.ts": "a\n" });
+      const a = head(repo);
+      const legacy = "---\nprompt_id: old\ncreated: 2026-10-05\nstatus: ready-not-run\n---\n";
+      const r = auditPrompt("a.prompt.md", legacy, treeOf(repo), gitFor(repo), "HEAD", null, REPO, { old: [a] });
+      expect(r.errors).toEqual(["attribution ledger names a prompt with no declared outputs"]);
+      expect(r.flags).toContain("INVALID-ATTRIBUTION");
+      const other = auditPrompt("a.prompt.md", legacy.replace("old", "unlisted"), treeOf(repo), gitFor(repo), "HEAD", null, REPO, { old: [a] });
+      expect(other.errors).toEqual([]);
+    });
+  });
+
+  test("[unit] AT17 a long stem with INVALID-STATUS,INVALID-ATTRIBUTION keeps every table row under 100 characters", () => {
+    const flags: Flag[] = ["INVALID-STATUS", "INVALID-ATTRIBUTION"];
+    const rows = ["0+1/1", "-"].map((out) => ({ stem: "20261001-a-very-long-prompt-stem-name", status: "in-progress", touched: 0, checkable: 0, missing: 0, evidence: 3, out, flags }));
+    for (const line of renderTable(rows).split("\n")) expect(line.length, line).toBeLessThan(100);
+    expect(renderTable(rows)).toContain("INVALID-STATUS,INVALID-ATTRIBUTION");
+  });
+
+  test("[integration] AT18 a shallow clone exits 2 naming the shallow history instead of crediting its boundary commit", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "a.ts": "a\n" });
+      commitFiles(repo, "2026-10-07T12:00:00Z", "chore: other only", { "other.txt": "o\n" });
+      const other = head(repo);
+      const base = mkdtempSync(join(tmpdir(), "jnj-prompt-shallow-"));
+      try {
+        const clone = join(base, "clone");
+        const made = Bun.spawnSync(["git", "clone", "-q", "--depth", "1", `file://${repo}`, clone], { stdout: "pipe", stderr: "pipe" });
+        expect(made.exitCode).toBe(0);
+        mkdirSync(join(clone, "docs/prompts"), { recursive: true });
+        writeFileSync(join(clone, "docs/prompts/20261005-old.prompt.md"), promptWith("old", "2026-10-05", [{ repo: REPO, path: "a.ts", kind: "file" }]));
+        writeFileSync(join(base, "ledger.json"), JSON.stringify({ old: [other] }));
+        const run = Bun.spawnSync(["bun", SCRIPT, "--no-gh", "--ref", "HEAD", "--repo", REPO, "--attributions", join(base, "ledger.json")], { cwd: clone, stdout: "pipe", stderr: "pipe" });
+        expect(run.stdout.toString()).not.toContain("DELIVERED-ATTRIBUTED");
+        expect(run.stderr.toString()).toContain("shallow");
+        expect(run.exitCode).toBe(2);
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("[unit] AT8 parseAttributions rejects every malformed shape loudly", () => {
+    const sha = "a".repeat(40);
+    expect(parseAttributions(JSON.stringify({ p: [sha] }))).toEqual({ p: [sha] });
+    for (const bad of ["not json", "[]", "null", '{"p": []}', '{"p": "x"}', `{"p": ["${"a".repeat(39)}"]}`, `{"p": ["${"A".repeat(40)}"]}`, `{"p": ["${sha}", 3]}`, `{"": ["${sha}"]}`]) {
+      expect(() => parseAttributions(bad), bad).toThrow(/attributions/);
+    }
+  });
+
+  test("[unit] AT9 loadAttributions names the file when it is missing", () => {
+    expect(() => loadAttributions(join(tmpdir(), "jnj-no-such-attributions.json"))).toThrow(/attributions/);
+  });
+
+  test("[unit] AT10 the real scripts/prompt-attributions.json parses and every SHA is 40-hex", () => {
+    const ledger = loadAttributions(DEFAULT_ATTRIBUTIONS);
+    expect(Object.keys(ledger).sort()).toEqual(["jevnotjev-scripted-deploy-all-modules", "jnj-eliminate-python-residue", "jnj-stage-theatre-uc13-demo", "jnj-ticket-office"]);
+    for (const shas of Object.values(ledger)) for (const s of shas) expect(s).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  test("[unit] AT11 parseArgs accepts --attributions <file> and rejects a missing value", () => {
+    const ok = parseArgs(["--attributions", "x.json"]);
+    expect(ok.ok && ok.options.attributions).toBe("x.json");
+    const def = parseArgs([]);
+    expect(def.ok && def.options.attributions).toBe(DEFAULT_ATTRIBUTIONS);
+    expect(parseArgs(["--attributions"]).ok).toBe(false);
+  });
+
+  test("[integration] AT12 CLI: --attributions credits, --json carries the outcome, --strict exits 1 on a bad SHA, a malformed ledger exits 2", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "scripts/a.ts": "a\n" });
+      const a = head(repo);
+      mkdirSync(join(repo, "docs/prompts"), { recursive: true });
+      writeFileSync(join(repo, "docs/prompts/20261005-old.prompt.md"), promptWith("old", "2026-10-05", [OUT[0]]));
+      const ledger = join(repo, "ledger.json");
+      const cli = (...args: string[]) => {
+        const run = Bun.spawnSync(["bun", SCRIPT, "--no-gh", "--ref", "HEAD", "--repo", REPO, ...args], { cwd: repo, stdout: "pipe", stderr: "pipe" });
+        return { code: run.exitCode, out: run.stdout.toString(), err: run.stderr.toString() };
+      };
+      writeFileSync(ledger, JSON.stringify({ old: [a] }));
+      const good = cli("--json", "--attributions", ledger);
+      expect(good.code).toBe(0);
+      expect(dig(JSON.parse(good.out), 0, "outputs", 0, "result")).toBe("DELIVERED-ATTRIBUTED");
+      writeFileSync(ledger, JSON.stringify({ old: [a, "f".repeat(40)] }));
+      const bad = cli("--strict", "--attributions", ledger);
+      expect(bad.code).toBe(1);
+      expect(bad.out).toContain("INVALID-ATTRIBUTION");
+      writeFileSync(ledger, "{broken");
+      const broken = cli("--attributions", ledger);
+      expect(broken.code).toBe(2);
+      expect(broken.err).toContain("attributions");
     });
   });
 });

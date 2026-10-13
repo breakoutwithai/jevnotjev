@@ -126,21 +126,27 @@ function roundedMatch(display: string, actual: number): boolean {
   return Number.isFinite(shown) && (Math.abs(shown - abs) < 1e-10 || Math.round((abs + Number.EPSILON) * factor) / factor === shown);
 }
 function numberMatches(display: string, actual: number, points: boolean): boolean {
-  return roundedMatch(display, actual) || (points && actual < 1 && Math.round(actual * 100) === Math.abs(Number(display)));
+  // A figure in points ("4 points", "10-point limit") is backed only by a share under 1 read x100 (0.043 as 4), never
+  // by a whole number that happens to be equal ("d 9" for "9 points").
+  if (points) return Math.abs(actual) < 1 && Math.round(Math.abs(actual) * 100) === Math.abs(Number(display));
+  return roundedMatch(display, actual);
 }
 /**
- * The figure's numbers must match the quote's numbers IN ORDER, so "86 against 88" cannot cite "88 of 100, the LLM 86".
- * A version ("5.5") matches "5-5" anywhere in the quote. A decimal read as points (0.043 as "4") needs "point" in the
- * figure text, so 0.197 cannot stand for an unrelated "20".
+ * The figure's numbers match the quote's numbers in order, so "86 against 88" cannot cite "88 ... 86". When the figure
+ * names an arm (Jev, the LLM, the simple rule) the quote must be exactly its evidence: the numbers pair one to one, so
+ * a long line cannot lend the LLM's "86" to a figure that says "Jev 86". A version in the figure ("5.5") reads "5-5" in
+ * the quote as one number. Points need "point" in the figure text, and then only a decimal under 1 counts as points.
  */
-function quoteSupports(text: string, quote: string): string[] {
-  const unsupported: string[] = [];
+function quoteSupports(text: string, quote: string, exact: boolean): string[] {
+  const shown = [...text.matchAll(NUMBERS)].map((match) => match[0]);
+  let evidence = quote;
+  for (const display of shown) if (/^\d+\.\d+$/.test(display)) evidence = evidence.replace(new RegExp(`\\b${display.replace(".", "-")}\\b`, "g"), display);
+  const quoted = [...evidence.matchAll(NUMBERS)].map((match) => Number(match[0]));
   const points = /\bpoints?\b/i.test(text);
-  const quoted = [...quote.matchAll(NUMBERS)].map((match) => Number(match[0]));
+  if (exact && quoted.length !== shown.length) return [`${shown.join(" ") || "none"} (an arm figure needs a quote with exactly its ${shown.length} numbers, this one has ${quoted.length})`];
+  const unsupported: string[] = [];
   let next = 0;
-  for (const match of text.matchAll(NUMBERS)) {
-    const display = match[0];
-    if (/^\d+\.\d+$/.test(display) && new RegExp(`\\b${display.replace(".", "-")}\\b`).test(quote)) continue;
+  for (const display of shown) {
     const at = quoted.findIndex((actual, index) => index >= next && numberMatches(display, actual, points));
     if (at < 0) unsupported.push(display);
     else next = at + 1;
@@ -202,7 +208,7 @@ function checkFigures(samples: Sample[]): string[] {
       const source = readFileSync(full, "utf8");
       if ("quote" in entry) {
         if (!entry.quote.trim() || !collapsed(source).includes(collapsed(entry.quote))) { problems.push(`${sample.id}: quote absent from ${entry.file}`); continue; }
-        const unsupported = quoteSupports(entry.text, entry.quote);
+        const unsupported = quoteSupports(entry.text, entry.quote, armsNamed(entry.text).length > 0);
         for (const number of unsupported) problems.push(`${sample.id}: figure number ${number} unsupported by quote in ${entry.file}`);
         const foreign = armsNamed(entry.text).filter((arm) => !armsNamed(entry.quote).includes(arm));
         if (foreign.length) problems.push(`${sample.id}: figure ${JSON.stringify(entry.text)} names ${foreign.join(", ")}, its quote does not`);
@@ -253,7 +259,7 @@ function figureFixture(): Sample[] {
   return [
     { id: "uc13", fit: [], runBacked: true, verdictLine: "Use Jev", explained: {
       why: "The rule is met.", cases: "Jev accepted 88", next: "Review the result.", rephrase: null, earlier: null,
-      figures: [{ text: "Jev accepted 88", file: LABELS, quote: "Jev accepted 88 of 100, the LLM 86 of 100" }],
+      figures: [{ text: "Jev accepted 88", file: LABELS, quote: "Jev accepted 88" }],
     } },
     { id: "uc11", fit: ["Jev probably not"], runBacked: true, verdictLine: "Jev probably not", explained: {
       why: "The present question needs review.", cases: "Jev accepted 88", next: "Rewrite the question.", rephrase: null, earlier: null,
@@ -332,7 +338,7 @@ test("[unit] #201-3 mutation: a fact counted over the wrong question or every qu
   delete everyFigure.question;
   expect(checkFigures(every).some((problem) => problem.includes("fact accepted:rule does not support simple rule 2"))).toBe(true);
 });
-test("[unit] #201-3 mutation: swapped arms, swapped order and a decimal read as points", () => {
+test("[unit] #201-3 mutation: swapped arms, swapped order, lent numbers and points", () => {
   const sample = (cases: string, figures: Figure[]): Sample[] => [{ id: "uc13", fit: [], runBacked: true, verdictLine: "Needs a test", explained: {
     why: "The rule is met.", cases, next: "Review the result.", rephrase: null, earlier: null, figures } }];
   const pair = "Jev accepted 88 of 100, the LLM 86 of 100";
@@ -351,6 +357,14 @@ test("[unit] #201-3 mutation: swapped arms, swapped order and a decimal read as 
   expect(checkFigures(wrongQuoteArm).some((problem) => problem.includes("names jev, its quote does not"))).toBe(true);
   const asPoints = sample("about 20 percent", [{ text: "about 20 percent", file: LABELS, quote: "Jev costs 0.197 of the LLM" }]);
   expect(checkFigures(asPoints).some((problem) => problem.includes("figure number 20 unsupported"))).toBe(true);
+  const lentNumber = sample("Jev 86 of 100", [{ text: "Jev 86 of 100", file: LABELS, quote: pair }]);
+  expect(checkFigures(lentNumber).some((problem) => problem.includes("an arm figure needs a quote with exactly its 2 numbers"))).toBe(true);
+  const ownQuote = sample("Jev 88 of 100", [{ text: "Jev 88 of 100", file: LABELS, quote: "Jev accepted 88 of 100" }]);
+  expect(checkFigures(ownQuote)).toEqual([]);
+  const wholeAsPoints = sample("about 9 points behind", [{ text: "9 points", file: LABELS, quote: "a 83, b 5, c 3, d 9" }]);
+  expect(checkFigures(wholeAsPoints).some((problem) => problem.includes("figure number 9 unsupported"))).toBe(true);
+  const decimalAsPoints = sample("about 4 points behind", [{ text: "4 points", file: LABELS, quote: "lower bound -0.043" }]);
+  expect(checkFigures(decimalAsPoints)).toEqual([]);
   const twice = sample("Jev 88 and Jev 88", [{ text: "Jev 88", file: RECORDS, fact: "accepted:jev" }]);
   expect(checkFigures(twice).some((problem) => problem.includes("occurs more than once"))).toBe(true);
 });

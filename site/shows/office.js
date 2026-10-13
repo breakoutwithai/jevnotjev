@@ -5,14 +5,14 @@
   "use strict";
   var REPO = "https://github.com/breakoutwithai/jevnotjev";
   var STAGE = {
-    "show": { name: "Show", sub: "results are in", pick: "Ticket for this show" },
-    "rehearsal": { name: "Rehearsal", sub: "recorded, fewer than 30 checked cases" },
-    "script-reading": { name: "Script reading", sub: "idea only, not run yet" }
+    "show": { name: "Tested", sub: "show" },
+    "rehearsal": { name: "Small test (under 30 cases)", sub: "rehearsal" },
+    "script-reading": { name: "Idea only, not tested", sub: "script reading" }
   };
   /* Same rule as src/backstage/tickets.ts: RFC 5322 dot-atom local part, dot-separated domain labels. */
   var ATOM = "[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+";
   var EMAIL = new RegExp("^(?=.{1,64}@)" + ATOM + "(?:\\." + ATOM + ")*@(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$");
-  var METHOD = { llm: "LLM", rule: "Simple rule", jev: "Jev" };
+  var METHOD = { llm: "LLM", rule: "simple rule", jev: "Jev" };
   var VERDICT = { "use Jev": "use Jev", "don't use Jev": "don't use Jev", "not enough evidence": "not enough proof yet: test more cases" };
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -49,6 +49,29 @@
   }
   form.querySelectorAll("input[name=kind]").forEach(function (r) { r.addEventListener("change", syncKind); });
   select.addEventListener("change", syncKind);
+  function openPanel() {
+    $("officePanel").hidden = false;
+    $("officeOpen").setAttribute("aria-expanded", "true");
+  }
+  if ($("officeOpen")) $("officeOpen").addEventListener("click", function () {
+    var open = $("officePanel").hidden;
+    $("officePanel").hidden = !open;
+    $("officeOpen").setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) reopen();
+  });
+  function openHash() {
+    if (window.location.hash !== "#tkForm" && window.location.hash !== "#csv") return;
+    openPanel();
+    if (window.location.hash === "#tkForm") {
+      reopen();
+      form.querySelector("input[name=kind]").focus();
+    }
+  }
+  if (typeof window !== "undefined") openHash();
+  if (typeof window !== "undefined") window.addEventListener("load", openHash);
+  if (typeof window !== "undefined") window.addEventListener("hashchange", function () {
+    openHash();
+  });
   function reopen() {
     if (!form.hidden) return;
     $("tkIssued").hidden = true;
@@ -56,71 +79,68 @@
     requestKey = null;
     ["tkShowErr", "tkEmailErr", "tkWebsiteErr", "tkConsentErr", "tkFormErr"].forEach(function (id) { setErr(id, ""); });
     form.querySelectorAll("[aria-invalid]").forEach(function (e) { e.setAttribute("aria-invalid", "false"); });
+    /* reset() restores the default "show" choice; keep backstage when the show list failed, then redraw the fields. */
+    if (form.querySelector("input[value=show]").disabled) form.querySelector("input[value=backstage]").checked = true;
+    syncKind();
     form.hidden = false;
   }
-  function choose(k, id) {
-    reopen();
-    if (k === "show" && form.querySelector("input[value=show]").disabled) k = "backstage";
-    form.querySelector("input[value=" + k + "]").checked = true;
-    if (id) select.value = id;
-    syncKind();
-    form.scrollIntoView({ block: "start" });
-    (k === "show" && !select.value ? select : $("tkEmail")).focus();
-  }
-  document.querySelectorAll(".office-go").forEach(function (a) {
-    a.addEventListener("click", function (e) { e.preventDefault(); choose(a.getAttribute("data-kind"), null); });
-  });
-
   function poster(p) {
     var st = STAGE[p.stage];
     var card = el("article", "tk-poster tk-" + p.stage);
     card.setAttribute("data-id", p.id);
-    card.appendChild(el("p", "tk-badge", st.name));
-    card.appendChild(el("p", "tk-sub", st.sub));
+    card.appendChild(el("p", "tk-badge", st.name + " · " + st.sub));
     card.appendChild(el("h3", "", p.title));
-    if (p.run) {
-      if (p.run.headline) card.appendChild(el("h4", "tk-headline", p.run.headline));
-      if (p.run.verdict) card.appendChild(el("p", "tk-verdict", "Verdict: " + (VERDICT[p.run.verdict] || p.run.verdict)));
-      if (p.run.whyNotYet) card.appendChild(el("p", "tk-why", p.run.whyNotYet));
-    }
-    if (p.story) card.appendChild(el("p", "tk-story", p.story));
-    if (p.fit.length) card.appendChild(el("p", "tk-fit", "Fit check: " + p.fit.map(plainFit).join(" / ")));
+    var verdict = p.stage === "show" ? "Verdict: " + (VERDICT[p.run.verdict] || p.run.verdict) :
+      p.stage === "rehearsal" ? (p.run && p.run.whyNotYet ? p.run.whyNotYet : "No verdict yet: under 30 checked cases") :
+      "Fit check: " + plainFit(p.fit[p.fit.length - 1]);
+    card.appendChild(el("p", "tk-verdict", verdict));
     if (p.run) {
       var r = p.run;
-      if (r.cohorts > 1 && r.question) card.appendChild(el("p", "tk-scope", "Counts below are for one of its " + r.cohorts + " questions: " + r.question));
+      var counted = r.methods.some(function (m) { return m.labelled > 0; });
+      var jev = r.methods.filter(function (m) { return m.arm === "jev"; })[0];
+      card.appendChild(el("p", "tk-figure", counted && jev ? "Jev: " + jev.accepted + " of " + jev.labelled + " right" +
+        (r.cohorts > 1 ? " on one of its " + r.cohorts + " questions" : "") :
+        jev ? "Jev: " + jev.rows + " answers recorded" : "Recorded: " + r.rows + " answers"));
+    }
+    var primary = el("a", "tk-primary", p.stage === "show" ? "Watch now" : p.stage === "rehearsal" ? "Follow this" : "Read the idea");
+    primary.href = p.watch || REPO + "/blob/main/" + p.source;
+    primary.setAttribute("aria-label", primary.textContent + ": " + p.title);
+    card.appendChild(primary);
+    var more = el("details", "tk-more");
+    more.appendChild(el("summary", "", "More about " + p.title));
+    if (p.run) {
+      if (r.headline) more.appendChild(el("p", "tk-headline", r.headline));
+    }
+    if (p.run) {
+      if (r.whyNotYet) more.appendChild(el("p", "tk-why", r.whyNotYet));
+      if (r.cohorts > 1 && r.question) more.appendChild(el("p", "tk-scope", "One question: " + r.question));
       if (r.methods.some(function (m) { return m.labelled > 0; })) {
         var ul = el("ul", "tk-methods");
         r.methods.forEach(function (m) {
           ul.appendChild(el("li", "", METHOD[m.arm] + ": " + m.accepted + " of " + m.labelled + " right, spend " + usd(m.spendUsd)));
         });
-        card.appendChild(ul);
+        more.appendChild(ul);
       } else {
-        card.appendChild(el("p", "tk-facts", r.rows + " answers recorded, none checked yet. Spend so far: " +
-          r.methods.map(function (m) { return METHOD[m.arm] + " " + usd(m.spendUsd); }).join(", ")));
+        var recorded = el("ul", "tk-methods");
+        r.methods.forEach(function (m) {
+          recorded.appendChild(el("li", "", METHOD[m.arm] + ": " + m.rows + " answers recorded, none checked yet, spend " + usd(m.spendUsd)));
+        });
+        more.appendChild(recorded);
       }
-      if (r.labels) card.appendChild(el("p", "tk-labels", "Right answers " + labelsPlain(r.labels) + "."));
+      if (r.labels) more.appendChild(el("p", "tk-labels", "Right answers " + labelsPlain(r.labels) + "."));
     }
-    card.appendChild(el("p", "tk-date", p.date));
-    var count = el("p", "tk-count"); count.hidden = true; card.appendChild(count);
-    var links = el("p", "tk-links");
-    var ev = el("a", "", p.run ? "Open the evidence" : "Read the idea");
-    ev.href = p.run ? REPO + "/tree/main/docs/product/runs/" + p.run.folder : REPO + "/blob/main/" + p.source;
-    ev.setAttribute("aria-label", (p.run ? "Open the evidence: " : "Read the idea: ") + p.title);
-    links.appendChild(ev);
-    if (p.watch) {
-      var w = el("a", "", p.stage === "show" ? "Watch now" : "Follow this");
-      w.href = p.watch;
-      w.setAttribute("aria-label", (p.stage === "show" ? "Watch now: " : "Follow this: ") + p.title);
-      links.appendChild(w);
+    if (p.story) more.appendChild(el("p", "tk-story", p.story));
+    more.appendChild(el("p", "tk-date", p.date));
+    var count = el("p", "tk-count"); count.hidden = true; more.appendChild(count);
+    if (p.run) {
+      var links = el("p", "tk-links");
+      var ev = el("a", "", "Open the evidence");
+      ev.href = REPO + "/tree/main/docs/product/runs/" + p.run.folder;
+      ev.setAttribute("aria-label", "Open the evidence: " + p.title);
+      links.appendChild(ev);
+      more.appendChild(links);
     }
-    if (p.stage === "show") {
-      var pick = el("a", "tk-pick", st.pick);
-      pick.href = "#tkForm";
-      pick.setAttribute("aria-label", st.pick + ": " + p.title);
-      pick.addEventListener("click", function (e) { e.preventDefault(); choose("show", p.id); });
-      links.appendChild(pick);
-    }
-    card.appendChild(links);
+    card.appendChild(more);
     return card;
   }
 
@@ -151,8 +171,6 @@
     wrap.textContent = "The show list did not load, so show tickets are paused. Reload the page, or go backstage with your own decision.";
     var watch = form.querySelector("input[value=show]");
     watch.disabled = true;
-    var go = document.querySelector('.office-go[data-kind="show"]');
-    if (go) go.hidden = true;
     form.querySelector("input[value=backstage]").checked = true;
     syncKind();
   }

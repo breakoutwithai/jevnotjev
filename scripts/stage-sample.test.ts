@@ -120,11 +120,9 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
 
   test("[unit] F2-D6 the page's script draws Acts II to V from it: 40 cases, the run's verdict and the run's costs", async () => {
     const els = await renderPage();
-    const sample = await buildSample(await readFile(SAMPLE_RECORDS, "utf8"));
     expect(els.get("docket")?.children.filter((c) => c.className.includes("row")).length).toBe(40);
     expect(els.get("t3")?.textContent).toBe("The trial of 40 messages");
     expect(els.get("t5")?.textContent).toBe("Not enough evidence");
-    expect(els.get("ruleLine")?.textContent).toBe(`Rule ${sample.verdict.rule} fired`);
     expect(els.get("caveat")?.textContent).toContain("lower bound of Jev minus LLM");
     const ledger = els.get("ledger")?.innerHTML ?? "";
     expect(ledger).toContain('data-to="0.103167"');
@@ -140,7 +138,6 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
   test("[unit] F2-D7 the sample's verdict is not use Jev, so the page cannot show a rule-3 win the run did not earn", async () => {
     const els = await renderPage();
     expect(els.get("t5")?.textContent).not.toBe("Use Jev");
-    expect(els.get("ruleLine")?.textContent).not.toBe("Rule 3 fired");
   });
 
   test("[unit] F2-D10 a method with no accepted answer has an undefined cost per kept answer, shown as such, with no savings claim or bar", async () => {

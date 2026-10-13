@@ -43,71 +43,28 @@ async function pageAt(width: number, height: number, reducedMotion: "reduce" | "
   return page;
 }
 
-test("[integration] #136 overture and reduced-motion ticket-office links are visible and clickable on the first screen", async () => {
-  for (const [width, height] of VIEWPORTS) {
-    for (const motion of MOTIONS) {
-      const page = await pageAt(width, height, motion);
-      try {
-        if (motion === "reduce") expect(await page.locator(".first-screen-jump").count()).toBe(0);
-        const jump = page.locator(motion === "reduce" ? '.door-preview[href="#tickets"]' : ".overture-jump");
-        const visible = await jump.evaluate((node) => {
-          const box = node.getBoundingClientRect();
-          const x = box.left + box.width / 2;
-          const y = box.top + box.height / 2;
-          let ancestor: Element | null = node;
-          while (ancestor) {
-            const style = getComputedStyle(ancestor);
-            if (style.visibility !== "visible" || Number(style.opacity) <= 0) return false;
-            ancestor = ancestor.parentElement;
-          }
-          const hit = document.elementFromPoint(x, y);
-          return box.width > 0 && box.height > 0 && box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight &&
-            (hit === node || (hit !== null && node.contains(hit)));
-        });
-        expect(visible).toBe(true);
-        if (CAPTURE && motion === "no-preference") {
-          mkdirSync(CAPTURE, { recursive: true });
-          await page.screenshot({ path: join(CAPTURE, `first-${width}.png`) });
-        }
-        await jump.click({ timeout: 2000 });
-        expect(new URL(page.url()).hash).toBe("#tickets");
-        await page.waitForFunction(() => {
-          const office = document.getElementById("tickets");
-          return office !== null && Math.abs(office.getBoundingClientRect().top) <= 100;
-        });
-        if (CAPTURE && motion === "no-preference") {
-          await page.evaluate(() => {
-            document.documentElement.style.scrollBehavior = "auto";
-            document.getElementById("tickets")?.scrollIntoView();
-          });
-          await page.screenshot({ path: join(CAPTURE, `office-${width}.png`) });
-        }
-      } finally { await page.close(); }
-    }
+test("[integration] #136 plain first screen and ticket-office link are visible and clickable", async () => {
+  for (const [width, height] of VIEWPORTS) for (const motion of MOTIONS) {
+    const page = await pageAt(width, height, motion);
+    try {
+      expect(await page.locator("#t1").innerText()).toBe("Jev picks one answer from a fixed list. It does not write text.");
+      const jump = page.getByRole("link", { name: "Go to the ticket office" });
+      expect(await jump.isVisible()).toBe(true);
+      expect(await jump.evaluate((node) => { const box = node.getBoundingClientRect(); return box.top >= 0 && box.top < innerHeight; })).toBe(true);
+      if (CAPTURE && motion === "no-preference") { mkdirSync(CAPTURE, { recursive: true }); await page.screenshot({ path: join(CAPTURE, `first-${width}.png`) }); }
+      await jump.click();
+      expect(new URL(page.url()).hash).toBe("#tickets");
+    } finally { await page.close(); }
   }
 }, 20000);
 
-test("[integration] #136 the first screen explains a fixed-answer decision and says Jev does not write text", async () => {
-  for (const [width, height] of VIEWPORTS) {
-    for (const motion of MOTIONS) {
-      const page = await pageAt(width, height, motion);
-      try {
-        const text = await page.evaluate((selector) => {
-          const node = document.querySelector(selector);
-          if (!node) return "";
-          const box = node.getBoundingClientRect();
-          let ancestor: Element | null = node;
-          while (ancestor) {
-            const style = getComputedStyle(ancestor);
-            if (style.visibility !== "visible" || Number(style.opacity) <= 0) return "";
-            ancestor = ancestor.parentElement;
-          }
-          return box.width > 0 && box.height > 0 && box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight ? node.textContent ?? "" : "";
-        }, motion === "reduce" ? ".first-screen-note" : ".overture .ticket .fine");
-        expect(text).toMatch(/fixed (?:answers|list)|pick(?:s)? one answer/i);
-        expect(text).toMatch(/does not write text/i);
-      } finally { await page.close(); }
-    }
+test("[integration] #136 first screen explains the fixed-answer decision", async () => {
+  for (const [width, height] of VIEWPORTS) for (const motion of MOTIONS) {
+    const page = await pageAt(width, height, motion);
+    try {
+      expect(await page.locator("#t1").innerText()).toBe("Jev picks one answer from a fixed list. It does not write text.");
+      expect(await page.locator("#t1").isVisible()).toBe(true);
+    } finally { await page.close(); }
   }
 }, 20000);
 

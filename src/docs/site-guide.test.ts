@@ -133,8 +133,7 @@ async function sampleRunFields(html: string): Promise<Field[]> {
   const page = await grab(html, ["div.sample > span", "#t6"]);
   const list = (map: Map<string, Grabbed[]>, selector: string): string[] => (map.get(selector) ?? []).map((x) => x.text);
   const marks = /\? "(\w+)" : "(\w+)"\) \+ '<\/span><\/span>'/.exec(html);
-  const ruleLine = /\$\("ruleLine"\)\.textContent = "(\w+) " \+ [^+]+\+ " (\w+)"/.exec(html);
-  if (marks === null || ruleLine === null) throw new Error("answer marks or rule line not found");
+  if (marks === null) throw new Error("answer marks not found");
   return [
     ...fields(src, "sample badge", list(page, "div.sample > span")),
     ...fields(src, "players", objectValues(html, "ARM_NAME")),
@@ -146,7 +145,6 @@ async function sampleRunFields(html: string): Promise<Field[]> {
     ...fields(src, "ledger", list(g, "dl.fig dt")),
     ...fields(src, "timing table", list(g, "thead th")),
     ...fields(src, "verdict words", objectValues(html, "VWORD")),
-    ...fields(src, "rule line", [`${ruleLine[1] ?? ""} N ${ruleLine[2] ?? ""}`]),
     ...fields(src, "own file", list(page, "#t6")),
   ];
 }
@@ -444,7 +442,7 @@ describe("in-product first-use guide (D18)", () => {
   test("[unit] D18-SITE-GUIDE-EXTRACT the extractors read the real pages, so the glossary check is not vacuous", async () => {
     const sample = (await sampleRunFields(read(STAGE))).map((field) => field.term);
     const backstage = (await backstageFields(read(BACKSTAGE))).map((field) => field.term);
-    for (const term of ["Sample run", "What you do now", "Case", "Jev said", "label", "Spotlight", "Kept so far", "Cost per kept answer", "Median seconds per call", "Not enough evidence", "Rule N fired", "kept", "rejected", "Load your own script (CSV)"]) {
+    for (const term of ["Sample run", "What you do now", "Case", "Jev said", "label", "Spotlight", "Kept so far", "Cost per kept answer", "Median seconds per call", "Not enough evidence", "kept", "rejected", "Load your own script (CSV)"]) {
       expect(sample).toContain(term);
     }
     for (const term of ["Keep an answer when...", "Leave out...", "Choose optional comparisons", "Dress Rehearsal: Cost and downloads", "First choice", "Download run evidence", "Kept / labelled", "Returned confidence", "case_input", "label_source", "Jev-only wins", "Anthropic API key", "xAI API key"]) {

@@ -865,13 +865,14 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
 
   /** CSS as the browser reads it: comments dropped, escapes decoded, rgb() as hex, lower case. */
   function normaliseCss(css: string): string {
-    const hex = (n: string): string => Math.min(255, Number(n)).toString(16).padStart(2, "0");
+    const channel = (n: string): number => (n.endsWith("%") ? (Number(n.slice(0, -1)) * 255) / 100 : Number(n));
+    const hex = (n: string): string => Math.max(0, Math.min(255, Math.round(channel(n)))).toString(16).padStart(2, "0");
     return css
       .replace(/\/\*[\s\S]*?\*\//g, " ")
       .replace(/\\([0-9a-f]{1,6})\s?/gi, (_m: string, h: string) => String.fromCodePoint(Math.min(parseInt(h, 16), 0x10ffff)))
       .replace(/\\(.)/g, "$1")
       .toLowerCase()
-      .replace(/rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)[^)]*\)/g, (_m: string, r: string, g: string, b: string) => `#${hex(r)}${hex(g)}${hex(b)}`);
+      .replace(/rgba?\(\s*([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)[^)]*\)/g, (_m: string, r: string, g: string, b: string) => `#${hex(r)}${hex(g)}${hex(b)}`);
   }
 
   /** What the one inline style block fails to give a readable plain page; empty when it gives all of it. */
@@ -907,9 +908,16 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
     const out: string[] = [];
     if (block.attrs > 0) out.push("style block has attributes");
     const css = normaliseCss(block.css);
-    if (!/(?:^|[}\s])(?:main|body)\s*\{[^}]*max-width\s*:\s*\d+(?:\.\d+)?(?:ch|px|rem|em)\b/.test(css)) out.push("no max-width on the content");
-    if (!/(?:^|[}\s])body\s*\{[^}]*font(?:-family)?\s*:[^;}]*sans-serif/.test(css)) out.push("no body font-family");
-    if (/url\(|@import|image-set\(|image\(/.test(css)) out.push("css image or import");
+    // Required rules hold only if nothing later overrides them and no at-rule but dark mode wraps them.
+    const atRules = (css.match(/@[^{;]*/g) ?? []).map((r) => r.trim().replace(/\s+/g, " "));
+    if (atRules.some((r) => r !== "@media (prefers-color-scheme: dark)")) out.push("at-rule other than dark mode");
+    const LENGTH = /^\d+(?:\.\d+)?(?:ch|px|rem|em)$/;
+    const widths = [...css.matchAll(/max-width\s*:\s*([^;}]+)/g)].map((m) => (m[1] ?? "").trim());
+    if (!/(?:^|[}\s])(?:main|body)\s*\{[^}]*max-width\s*:/.test(css) || widths.some((w) => !LENGTH.test(w))) out.push("no max-width on the content");
+    const fonts = [...css.matchAll(/font(?:-family)?\s*:\s*([^;}]+)/g)].map((m) => (m[1] ?? "").trim());
+    if (!/(?:^|[}\s])body\s*\{[^}]*font(?:-family)?\s*:[^;}]*sans-serif/.test(css) || fonts.some((f) => !/(?:sans-serif|monospace)$/.test(f))) out.push("no body font-family");
+    if (/url\(|@import|image-set\(|image\(|gradient\(|element\(/.test(css)) out.push("css image or import");
+    if (/(?:^|[;{\s])content\s*:/.test(css) || EMOJI.test(css)) out.push("generated content or emoji");
     if (THEATRE_STYLE.test(css)) out.push("theatre styling");
     if (!viewport) out.push("no viewport meta");
     return out;
@@ -941,6 +949,14 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
     expect(await check("background: #fff;", "background: rgb(123, 20, 36);")).toEqual(["theatre styling"]);
     expect(await check("background: #fff;", 'background: u\\72l("x.png");')).toEqual(["css image or import"]);
     expect(await check('<meta name="viewport"', '<meta name="x-viewport"')).toEqual(["no viewport meta"]);
+    const append = async (rule: string): Promise<string[]> => check("</style>", `${rule}\n</style>`);
+    expect(await append("@media print { main { color: red; } }")).toEqual(["at-rule other than dark mode"]);
+    expect(await append("main { max-width: var(--unbounded, none); }")).toEqual(["no max-width on the content"]);
+    expect(await append("body { font-family: serif; }")).toEqual(["no body font-family"]);
+    expect(await append("body { background: rgb(123.0 20.0 36.0); }")).toEqual(["theatre styling"]);
+    expect(await append("body { background: rgb(48.24% 7.84% 14.12%); }")).toEqual(["theatre styling"]);
+    expect(await append("body { background: linear-gradient(red, blue); }")).toEqual(["css image or import"]);
+    expect(await append('main::before { content: "\\1f3ad"; }')).toEqual(["generated content or emoji"]);
   });
 
   test("[unit] D18-PLAIN-STYLE-NEGATIVE each kind of styling or image put back goes RED", async () => {

@@ -119,13 +119,17 @@ const ROOM_TITLES: readonly string[] = [
   "opening-title",
 ];
 const ROOM_LINES: readonly string[] = [
-  "Set the scene before the first call.",
+  "State your question and define the two answers.",
   "Pick who answers, and add a key for each provider you pick.",
   "Add your test cases, check the estimate, then run.",
   "Judge each answer against your rule.",
   "Check the cost, then download your records and evidence.",
   "Read the result for this question and these cases.",
 ];
+function showTopic() {
+  const question = field("question").value.trim();
+  text("topic-heading", question || "What do you want to decide?");
+}
 // A control that cannot act stays focusable (aria-disabled) and names why in its described-by text.
 function gate(ids: readonly string[], reasonId: string, reason: string) {
   for (const id of ids)
@@ -135,6 +139,8 @@ function gate(ids: readonly string[], reasonId: string, reason: string) {
 // Focus moves to the heading only when the user changes room, never on first load (#125).
 function showRoom(next: number, moveFocus = true) {
   room = Math.max(0, Math.min(5, next));
+  document.documentElement.dataset.room = String(room);
+  if (room !== 0) element("start-pack").hidden = true;
   for (const panel of document.querySelectorAll<HTMLElement>("[data-panel]"))
     panel.hidden = panel.dataset.panel !== String(room);
   for (const item of document.querySelectorAll<HTMLElement>("[data-room]")) {
@@ -842,6 +848,7 @@ for (const item of document.querySelectorAll<HTMLElement>("[data-room]"))
   item.addEventListener("click", () => showRoom(Number(item.dataset.room)));
 button("back").onclick = () => showRoom(room - 1);
 button("next").onclick = () => showRoom(room + 1);
+button("start-pack").onclick = () => showRoom(1);
 function runClicked(firstOnly: boolean) {
   if (signingOut) return;
   const reason = runReason();
@@ -1131,6 +1138,8 @@ async function loadTrialAvailability() {
     )
       return;
     trialAvailable = true;
+    element("run-trial").hidden = false;
+    element("trial-status").hidden = false;
     text(
       "trial-status",
       "One small funded Jev query is available. A browser cookie and network limits prevent repeats. Reloading may lose the answer without restoring the allowance. Prefer your own key or Playground.",
@@ -1188,6 +1197,8 @@ for (const id of SCENE_DRAFT_FIELDS) {
   field(id).addEventListener("input", persistDraft);
 }
 field("coach-key").addEventListener("input", persistDraft);
+field("question").addEventListener("input", showTopic);
+showTopic();
 imported = savedDraft.imported;
 // Starter packs (labelling loop M3): a pack goes through the same CSV import as a tester's file, labels included.
 function loadStarterPack(pack: StarterPack) {
@@ -1208,6 +1219,8 @@ function loadStarterPack(pack: StarterPack) {
     keywords: pack.keywords.join("\n"),
   };
   for (const [id, value] of Object.entries(values)) field(id).value = value;
+  showTopic();
+  element("start-pack").hidden = false;
   imported = loaded.cases;
   importedLabels = loaded.labels;
   field("cases").value = importedDisplay(loaded.cases);
@@ -1310,6 +1323,7 @@ function renderCoachDrafts(drafts: readonly CoachDraft[]) {
           card.append(add);
         }
       }
+      showTopic();
       persistDraft();
       field("question").focus();
       coachStatus(added ? "Draft applied with starter cases. Edit any field before running." : "Draft applied: question, two answers, their meanings, keep rule, exclusions and keyword rule replaced. Cases and labels kept. Edit any scene field before running.");

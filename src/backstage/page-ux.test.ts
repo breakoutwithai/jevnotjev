@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { PURPOSE_SENTENCE } from "./purpose.ts";
 import { renderSignInPage } from "./sign-in-page.ts";
 
@@ -57,8 +58,64 @@ test("[smoke] UX-C02 Casting says a key field appears per provider, and where a 
   for (const href of source.matchAll(/href="([^"]+)"/g)) expect(href[1]).toBe("https://console.typesafe.ai/playground");
 });
 
-const jobs = ["Question", "Models and keys", "Test cases", "Judge answers", "Cost and downloads", "Result"];
+const jobs = ["Your question", "Who answers", "Your cases", "Judge the answers", "Cost and downloads", "Verdict"];
 const titles = ["scene-title", "casting-title", "lines-title", "rehearsal-title", "dress-title", "opening-title"];
+const plainSteps = ["Your question", "Who answers", "Your cases", "Judge the answers", "Cost and downloads", "Verdict"];
+const theatreSteps = ["New Scene", "Casting", "Learning Lines", "Rehearsals", "Dress Rehearsal", "Opening Night"];
+
+test("[smoke] W5 every pre-existing Backstage id survives", async () => {
+  const html = await page();
+  const oldIds = [...html.matchAll(/id="([^"]+)"/g)]
+    .map((match) => match[0])
+    .filter((id) => id !== 'id="topic-heading"' && id !== 'id="start-pack"')
+    .sort();
+  const digest = (ids: readonly string[]) => createHash("sha256").update(ids.join("\n") + "\n").digest("hex");
+  expect(digest(oldIds)).toBe("406bd9c5f44b0733f7c83492c539631be3a123641e2f95cd8e27e6735da83851");
+  expect(digest(oldIds.slice(1))).not.toBe(digest(oldIds));
+});
+
+test("[smoke] W5 the first heading asks for the tester's question before the first field", async () => {
+  const html = await page();
+  expect(flat(/<h1[^>]*>([\s\S]*?)<\/h1>/.exec(html)?.[1] ?? "")).toBe("What do you want to decide?");
+  const firstField = /<(?:input|textarea|select)\b[^>]*\bid="([^"]+)"/.exec(html);
+  expect(firstField?.[1]).toBe("question");
+  expect(flat(html.slice(html.indexOf("<main>"), firstField?.index ?? 0))).not.toMatch(/\b(?:Scene|Casting|Learning Lines|Rehearsals|Dress Rehearsal|Opening Night|Act)\b/i);
+});
+
+test("[smoke] W5 tabs lead with plain names and put theatre names in secondary text", async () => {
+  const html = await page();
+  const nav = /<nav[\s\S]*?<\/nav>/.exec(html)?.[0] ?? "";
+  plainSteps.forEach((plain, index) => {
+    const tab = new RegExp(`<button data-room="${index}"[\\s\\S]*?</button`).exec(nav)?.[0] ?? "";
+    expect(flat(/<span>([^<]+)<\/span>/.exec(tab)?.[1] ?? "")).toBe(plain);
+    expect(flat(/<small class="job">([^<]+)<\/small>/.exec(tab)?.[1] ?? "")).toBe(theatreSteps[index] ?? "");
+  });
+});
+
+test("[smoke] W5 each step starts with one Jev tutorial sentence before controls", async () => {
+  const html = await page();
+  plainSteps.forEach((_, index) => {
+    const room = panel(html, index);
+    const tutorial = /<p class="direction">([\s\S]*?)<\/p>/.exec(room);
+    const sentence = flat(tutorial?.[1] ?? "");
+    expect(sentence).toMatch(/^Jev .*\.$/);
+    expect(sentence.match(/[.!?]/g)?.length).toBe(1);
+    const firstControl = room.search(/<(?:input|textarea|select|button)\b/);
+    if (firstControl >= 0) expect(tutorial?.index ?? Infinity).toBeLessThan(firstControl);
+  });
+});
+
+test("[unit] W5 heading, field order, tab priority and tutorial checks reject mutations", async () => {
+  const html = await page();
+  const firstHeading = (source: string) => flat(/<h1[^>]*>([\s\S]*?)<\/h1>/.exec(source)?.[1] ?? "");
+  const firstField = (source: string) => /<(?:input|textarea|select)\b[^>]*\bid="([^"]+)"/.exec(source)?.[1];
+  const firstTab = (source: string) => flat(/<button data-room="0"[\s\S]*?<span>([^<]+)<\/span>/.exec(source)?.[1] ?? "");
+  const firstTutorial = (source: string) => flat(/<section data-panel="0"[\s\S]*?<p class="direction">([\s\S]*?)<\/p>/.exec(source)?.[1] ?? "");
+  expect(firstHeading(html.replace("What do you want to decide?</h1>", "Backstage Pass</h1>"))).not.toBe("What do you want to decide?");
+  expect(firstField(html.replace('<textarea id="question"', '<input id="premature"><textarea id="question"'))).not.toBe("question");
+  expect(firstTab(html.replace("<span>Your question</span>", "<span>New Scene</span>"))).not.toBe("Your question");
+  expect(firstTutorial(html.replace("Jev answers your question with one of your two choices and a confidence so you can test which answers to keep.\n        </p>", "Set the scene before the first call.\n        </p>"))).not.toMatch(/^Jev .*\.$/);
+});
 
 test("[smoke] UX-C03 every room names its plain job in the nav and in its heading", async () => {
   const html = await page();
@@ -67,16 +124,14 @@ test("[smoke] UX-C03 every room names its plain job in the nav and in its headin
     const navButton = new RegExp(`<button data-room="${index}"[\\s\\S]*?</button`).exec(nav)?.[0] ?? "";
     expect(flat(navButton)).toContain(job);
     // A literal space keeps the accessible name from running the two labels together.
-    expect(navButton).toContain(`</span> <small class="job">${job}</small>`);
+    expect(navButton).toContain(`<span>${job}</span> <small class="job">${theatreSteps[index]}</small>`);
     expect(flat(roomTitle(html, titles[index] ?? ""))).toContain(job);
   });
 });
 
-test("[smoke] UX-C03 acts run I to VI, one per room", async () => {
+test("[smoke] W5 each room leads with the plain name and keeps theatre secondary", async () => {
   const html = await page();
-  const acts = [...html.matchAll(/<p class="eyebrow">ACT ([IVX]+) \//g)].map((match) => match[1]);
-  expect(acts).toEqual(["I", "II", "III", "IV", "V", "VI"]);
-  acts.forEach((act, index) => expect(panel(html, index)).toContain(`ACT ${act} /`));
+  titles.forEach((title, index) => expect(roomTitle(html, title)).toContain(`${jobs[index]} <span class="job">${theatreSteps[index]}</span>`));
 });
 
 test("[smoke] UX-C04 room 1 opens with a Before you start box naming every requirement", async () => {
@@ -84,11 +139,12 @@ test("[smoke] UX-C04 room 1 opens with a Before you start box naming every requi
   const room = panel(html, 0);
   const box = /<aside[^>]*id="before-you-start"[^>]*>[\s\S]*?<\/aside>/.exec(room)?.[0] ?? "";
   expect(room.indexOf('id="before-you-start"')).toBeGreaterThan(-1);
-  expect(room.indexOf('id="before-you-start"')).toBeLessThan(room.indexOf('id="scene-fields"'));
+  expect(room.indexOf('id="before-you-start"')).toBeGreaterThan(room.indexOf('id="scene-fields"'));
   expect(openTag(box, "before-you-start")).not.toMatch(/\shidden(\s|>|=)/);
   const shown = flat(box);
-  for (const required of ["Before you start", "your own Jev key", "billed to your own accounts", "30 paired, human-labelled cases", "synthetic or redacted data only", PURPOSE_SENTENCE])
+  for (const required of ["Before you start", "your own Jev key", "billed to your own provider accounts", "30 paired, human-labelled cases", "synthetic or redacted data only", PURPOSE_SENTENCE])
     expect(shown).toContain(required);
+  expect(box).toContain('href="/guide/"');
 });
 
 test("[unit] UX-C04 the sign-in page carries the same purpose sentence", async () => {

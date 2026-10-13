@@ -922,7 +922,7 @@ test("[integration] UX-C03 the line under the nav names each room's own step", a
     navButton(page, index).click();
     lines.push(page.get("room-line").textContent);
   }
-  expect(lines[0]).toBe("Set the scene before the first call.");
+  expect(lines[0]).toBe("State your question and define the two answers.");
   expect(new Set(lines).size).toBe(6);
   for (const line of lines) expect(line.length).toBeGreaterThan(10);
 });
@@ -1695,12 +1695,36 @@ test("[integration] PL6 ?pack=p5 loads that pack on arrival, with 30 cases and n
   expect(page.get("question").value).toBe("Was that video worth the watch?");
   expect(page.get("choice-a").value).toBe("keep_watching");
   expect(page.get("choice-b").value).toBe("quiz_time");
+  expect(page.get("topic-heading").textContent).toBe("Was that video worth the watch?");
+  expect(page.get("start-pack").hidden).toBe(false);
+  expect(await Bun.file("site/backstage/index.html").text()).toContain('id="start-pack" type="button" hidden>Start</button>');
   expect(page.get("cases").value.split("\n").length).toBe(30);
   expect(page.get("notice").textContent).toContain("Loaded P5");
   expect(page.get("notice").textContent).toContain("30 cases");
   expect(page.requests.some((request) => request.input === "/api/backstage/answer")).toBe(false);
   expect(page.historyCalls.length).toBe(1);
   expect(String(page.historyCalls[0]?.[2])).toBe("/backstage/");
+});
+
+test("[integration] W5 the topic heading follows the tester's question and Start opens Who answers", async () => {
+  const page = await mount(undefined, undefined, undefined, undefined, "?pack=p5");
+  typeInto(page, "question", "Should this request be approved?");
+  expect(page.get("topic-heading").textContent).toBe("Should this request be approved?");
+  page.get("start-pack").click();
+  expect(page.get("start-pack").hidden).toBe(true);
+  expect(page.document.querySelectorAll("[data-panel]")[1]?.hidden).toBe(false);
+  expect(page.get("room-count").textContent).toBe("2 / 6");
+});
+
+test("[integration] W5 a funded trial appears only when health reports availability", async () => {
+  const unavailable = await mount(new Response(JSON.stringify({ trial: { available: false } })));
+  await tick();
+  expect(unavailable.get("run-trial").hidden).toBe(true);
+  expect(unavailable.get("trial-status").hidden).toBe(true);
+  const available = await mount();
+  await tick();
+  expect(available.get("run-trial").hidden).toBe(false);
+  expect(available.get("trial-status").hidden).toBe(false);
 });
 
 test("[integration] PL7 an unknown pack id, or none, shows the normal page: empty scene, no notice", async () => {

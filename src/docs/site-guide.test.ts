@@ -466,7 +466,7 @@ describe("in-product first-use guide (D18)", () => {
     for (const term of ["Sample run", "Sample questions", "Tested", "Small test (under 30 cases)", "Idea only, not tested", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "See all 100 cases", "Try it: pick a seat", "Get another ticket", "Open the ticket office", "What you do now", "Case", "Jev said", "label", "Spotlight", "Kept so far", "Cost per kept answer", "Median seconds per call", "Use Jev (rule 3)", "kept", "rejected", "Load your own script (CSV)"]) {
       expect(sample).toContain(term);
     }
-    for (const term of ["Keep an answer when...", "Leave out...", "Choose optional comparisons", "Dress Rehearsal: Cost and downloads", "First choice", "Download run evidence", "Kept / labelled", "Returned confidence", "case_input", "label_source", "Jev-only wins", "Anthropic API key", "xAI API key"]) {
+    for (const term of ["Keep an answer when...", "Leave out...", "Choose optional comparisons", "Cost and downloads: Dress Rehearsal", "First choice", "Download run evidence", "Kept / labelled", "Returned confidence", "case_input", "label_source", "Jev-only wins", "Anthropic API key", "xAI API key"]) {
       expect(backstage).toContain(term);
     }
   });
@@ -529,7 +529,7 @@ describe("in-product first-use guide (D18)", () => {
   test("[unit] D18-SWARM-C01 every Backstage control the swarm could not read has a glossary entry and is still on the page", async () => {
     const page = clean(`${read(BACKSTAGE)} ${read("src/backstage/main.ts")}`);
     const entries = [...(await glossary(read(GUIDE))).keys()];
-    for (const label of ["Edit as a new scene", "House Lights", "Leave a stage note", "Run first case", "Try one small Jev query", "Copy own-key CLI", "Prefer the Playground?", "Catalog checked"]) {
+    for (const label of ["Edit as a new scene", "Theme", "Leave a stage note", "Run first case", "Try one small Jev query", "Copy own-key CLI", "Prefer the Playground?", "Catalog checked"]) {
       expect(page).toContain(label);
       expect(entries).toContain(label);
     }
@@ -539,7 +539,7 @@ describe("in-product first-use guide (D18)", () => {
   describe("Backstage labels from swarm gap l02", () => {
     /** [element in site/backstage/index.html, its rendered text, the glossary term] */
     const L02_ELEMENTS: readonly (readonly [string, string, string])[] = [
-      [".ticket p.eyebrow", "ADMIT ONE / WORK IN PROGRESS", "ADMIT ONE / WORK IN PROGRESS"],
+      [".ticket span", "Jev!Jev / Backstage Pass", "Jev!Jev / Backstage Pass"],
       ["button#clear-keys", "Clear keys", "Clear keys"],
       ["button#copy-case", "Copy first case for Playground", "Copy first case for Playground"],
       ["button#stop", "Stop", "Stop"],
@@ -1051,8 +1051,6 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
   // [label, page, where the page renders it: its markup, or a string literal its inline script writes into the page]
   const UI_LABELS: readonly (readonly [string, string, "markup" | "script"])[] = [
     ["Backstage Pass", BACKSTAGE, "markup"],
-    ["House Lights", BACKSTAGE, "markup"],
-    ["A little rough. A real rehearsal.", BACKSTAGE, "markup"],
     ["New Scene", BACKSTAGE, "markup"],
     ["Casting", BACKSTAGE, "markup"],
     ["Rehearsals", BACKSTAGE, "markup"],
@@ -1143,12 +1141,12 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
     expect(await theatreWords(mutate(guide, anchor, `<p>The cur&#116;ain and the cur&#x74;ain</p>${anchor}`))).toEqual(["curtain", "curtain"]);
     expect(await theatreWords(mutate(guide, "<dt>Spotlight</dt>", "<dt>Spotlights</dt>"))).toEqual(["Spotlights"]);
     const renamed = new Map(pages());
-    renamed.set(BACKSTAGE, mutate(read(BACKSTAGE), ">House Lights<", ">Theme<"));
-    expect(labelProblems(guide, renamed)).toEqual([`not on ${BACKSTAGE}: House Lights`]);
+    renamed.set(BACKSTAGE, mutate(read(BACKSTAGE), ">Leave a stage note<", ">Feedback<"));
+    expect(labelProblems(guide, renamed)).toEqual([`not on ${BACKSTAGE}: Leave a stage note`]);
     // A markup label that survives only inside a script is not on screen.
     const scriptOnly = new Map(pages());
-    scriptOnly.set(BACKSTAGE, mutate(read(BACKSTAGE), ">House Lights<", "><script>var t = 'House Lights';</script>Theme<"));
-    expect(labelProblems(guide, scriptOnly)).toEqual([`not on ${BACKSTAGE}: House Lights`]);
+    scriptOnly.set(BACKSTAGE, mutate(read(BACKSTAGE), ">Leave a stage note<", "><script>var t = 'Leave a stage note';</script>Feedback<"));
+    expect(labelProblems(guide, scriptOnly)).toEqual([`not on ${BACKSTAGE}: Leave a stage note`]);
     // A script label that survives only in a script comment is not rendered.
     const commented = new Map(pages());
     const line = "Understudies wait in the wings; the stage manager keeps tabs on the subs.";

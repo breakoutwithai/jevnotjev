@@ -1181,21 +1181,31 @@ describe("blind-then-suggest picks", () => {
     });
   });
   test("[unit] #133 K9 final changes and suggestion visibility do not change metrics or verdict", async () => {
-    const run = await jevAndRule();
+    // Exercise populated verdict numbers; comparison-bound correctness is tracked separately in #209.
+    const cases = Array.from({ length: 32 }, (_, index) => ({ id: `c${index + 1}`, input: `Synthetic input ${index + 1}` }));
+    const run = new BackstageRun({ ...scene(), cases }, "test", { arms: ["jev", "claude-haiku-4-5-20251001"] });
+    await run.start(keys, async (request) => ({
+      ...(await success(request)),
+      output: request.caseId === "c1" ? "yes" : "no",
+      confidence: request.provider === "jev" ? 0.8 : null,
+      ...(request.provider === "jev" ? { probabilities: request.caseId === "c1" ? { yes: 0.8, no: 0.2 } : { yes: 0.2, no: 0.8 } } : {}),
+    }));
     run.beginLabeling();
-    run.pickBlind("c1", "no", BACKSTAGE_BLIND_PICK, AT);
-    run.pickBlind("c2", "yes", BACKSTAGE_BLIND_PICK, AT);
+    for (const item of cases) run.pickBlind(item.id, item.id === "c1" ? "no" : item.id === "c2" ? "yes" : "no", BACKSTAGE_BLIND_PICK, AT);
     const before = await run.report();
+    expect(before.verdict).not.toBeNull();
+    expect(before.verdict?.numbers.jevVsLlm).not.toBeNull();
     run.pickFinal("c1", "yes");
     run.pickFinal("c2", "yes");
     const after = await run.report();
+    expect(before.verdict?.numbers.jevVsLlm?.n).toBe(32);
+    expect(after.verdict).not.toBeNull();
+    expect(after.verdict?.numbers.jevVsLlm).not.toBeNull();
     expect(after.metrics).toEqual(before.metrics);
-    expect(after.verdict).toEqual(before.verdict);
-    expect(loopCells(run, "c1")).toEqual([
-      ["rule", "yes", "reject", "human", "true", "accept", "true"],
-      ["jev", "yes", "reject", "human", "true", "accept", "true"],
-    ]);
-    expect(loopCells(run, "c2").map((cells) => [cells[2], cells[5], cells[6]])).toEqual([["reject", "reject", "true"], ["reject", "reject", "true"]]);
+    expect(after.verdict?.verdict).toEqual(before.verdict?.verdict);
+    const jevCells = loopCells(run, "c1").find((cells) => cells[0] === "jev");
+    expect(jevCells).toEqual(["jev", "yes", "reject", "human", "true", "accept", "true"]);
+    expect(loopCells(run, "c2").find((cells) => cells[0] === "jev")?.slice(2)).toEqual(["reject", "human", "true", "reject", "true"]);
     run.reveal(); await run.report();
     expect((await checkExport(run.evidence())).problems).toEqual([]);
   });

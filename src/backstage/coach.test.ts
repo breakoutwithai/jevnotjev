@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { applicableDraft, coachPrompt, parseCoachReply } from "./coach.ts";
+import { applicableDraft, coachPrompt, parseCasesReply, parseCoachReply } from "./coach.ts";
 
 const draft = {
   type: "choice", question: "Should I refund this order?",
@@ -83,4 +83,11 @@ test("[unit] #132 C1 valid reply has an answer meaning and keep rule", () => {
     expect(parsed.drafts).toHaveLength(1);
     expect(parsed.drafts[0]?.keepRule).toBe(draft.keepRule);
   }
+});
+test("[unit] #133 O1 maximum case text survives JSON escaping", () => {
+  const cases = Array.from({ length: 10 }, (_item, index) => "a".repeat(7999) + index);
+  const escapedCases = JSON.stringify({ cases }).replaceAll("a", "\\u0061");
+  expect(parseCasesReply(escapedCases).ok).toBe(true);
+  const escapedDrafts = JSON.stringify({ drafts: Array(3).fill({ ...draft, cases }) }).replaceAll("a", "\\u0061");
+  expect(parseCoachReply(escapedDrafts).ok).toBe(true);
 });

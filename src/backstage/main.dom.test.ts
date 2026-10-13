@@ -370,6 +370,139 @@ test("[integration] #133 K7 cases prompt and paste-back add valid cases; bad JSO
   page.get("cases-use-reply").click();
   expect(page.get("cases").value).toBe(starterCases.join("\n"));
 });
+test("[integration] #133 B1 decoded pasted and fetched cases reject an escaped provider key", async () => {
+  const key = 'coach"secret\\part';
+  const contaminated = [...starterCases.slice(0, 9), `Input ${key}`];
+  const page = await mount(undefined, undefined, undefined, undefined, "", (_question, _signal, mode) => mode === "cases" ? contaminated : []);
+  page.get("coach-key").value = key;
+  page.get("cases-reply").value = JSON.stringify({ cases: contaminated });
+  page.get("cases-use-reply").click();
+  expect(page.get("cases-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  expect(page.get("cases").value).toBe("");
+  typeInto(page, "question", "Refund?");
+  typeInto(page, "definition-a", "When damaged.");
+  typeInto(page, "definition-b", "When intact.");
+  page.get("coach-provider").value = "anthropic";
+  page.get("draft-cases").click();
+  await tick();
+  expect(page.get("cases-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  expect(page.get("cases").value).toBe("");
+});
+test("[integration] #133 B2 cases prompt and reply scan Casting and Coach keys", async () => {
+  const castingKey = "casting-secret-value";
+  const page = await mount(undefined, undefined, undefined, undefined, "", (_question, _signal, mode) => mode === "cases" ? [...starterCases.slice(0, 9), `Input ${castingKey}`] : []);
+  page.get("anthropic-key").value = castingKey;
+  page.get("coach-key").value = "coach-secret-value";
+  typeInto(page, "question", "Refund?");
+  typeInto(page, "definition-a", `When ${castingKey}.`);
+  typeInto(page, "definition-b", "When intact.");
+  page.get("cases-copy-prompt").click();
+  await tick();
+  expect(page.copied).toHaveLength(0);
+  expect(page.get("cases-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  typeInto(page, "definition-a", "When damaged.");
+  page.get("coach-provider").value = "anthropic";
+  page.get("draft-cases").click();
+  await tick();
+  expect(page.get("cases-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  expect(page.get("cases").value).toBe("");
+});
+test("[integration] #133 B3 append preserves imported ids, multiline text and human label", async () => {
+  const { spyOn } = await import("bun:test");
+  const { validate } = await import("../format/validate.ts");
+  const blobs: Blob[] = [];
+  const created = spyOn(URL, "createObjectURL").mockImplementation((blob) => { if (blob instanceof Blob) blobs.push(blob); return "blob:test"; });
+  const revoked = spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  try {
+    const sent: AnswerRequest[] = [];
+    const page = await mount(undefined, undefined, undefined, async (request) => { sent.push(request); return answerYes(request); });
+    await importCsv(page, 'case_id,case_input,label,label_source,labelled_by,labelled_at\ncase-1,"line one\nline two",yes,human_reviewed,operator,2026-10-13\n');
+    expect(page.get("notice").textContent).toContain("1 human_reviewed");
+    page.get("cases-reply").value = JSON.stringify({ cases: starterCases });
+    page.get("cases-use-reply").click();
+    const stored: unknown = JSON.parse(page.store.getItem(SCENE_DRAFT_KEY) ?? "null");
+    const records: unknown = typeof stored === "object" && stored !== null ? Reflect.get(stored, "imported") : undefined;
+    expect(records).toEqual([{ id: "case-1", input: "line one\nline two" }, ...starterCases.map((input, index) => ({ id: `case-${index + 2}`, input }))]);
+    fillScene(page);
+    await runFirstCase(page);
+    expect(sent.map((request) => [request.caseId, request.input])).toEqual([["case-1", "line one\nline two"]]);
+    await openJudging(page);
+    page.get("reveal").click(); page.get("confirm-reveal-yes").click(); await tick();
+    page.get("download-csv").click();
+    const csv = await blobs.at(-1)?.text();
+    if (csv === undefined) throw new Error("no CSV downloaded");
+    const parsed = validate(csv);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.rows[0]?.values.get("label_source")).toBe("human_reviewed");
+  } finally { created.mockRestore(); revoked.mockRestore(); }
+});
+test("[integration] #133 B4 append refuses a combined list over 100 without changing it", async () => {
+  const page = await mount();
+  const original = Array.from({ length: 96 }, (_item, index) => `Existing ${index + 1}`).join("\n");
+  typeInto(page, "cases", original);
+  const saved = page.store.getItem(SCENE_DRAFT_KEY);
+  page.get("cases-reply").value = JSON.stringify({ cases: starterCases });
+  page.get("cases-use-reply").click();
+  expect(page.get("cases-status").textContent).toBe("Adding these would make 106 cases; the limit is 100.");
+  expect(page.get("cases").value).toBe(original);
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toBe(saved);
+  page.get("coach-reply").value = JSON.stringify({ drafts: [coachDraft] });
+  page.get("coach-use-reply").click(); coachApply(page).click();
+  const add = page.get("coach-drafts").querySelectorAll("button").find((item) => item.textContent === "Add starter cases");
+  if (!add) throw new Error("Missing Add starter cases button");
+  add.click();
+  expect(page.get("cases-status").textContent).toBe("Adding these would make 106 cases; the limit is 100.");
+  expect(page.get("cases").value).toBe(original);
+});
+test("[integration] #133 B2 Add starter cases rechecks keys entered after draft rendering", async () => {
+  const page = await mount();
+  typeInto(page, "cases", "Existing case");
+  page.get("coach-reply").value = JSON.stringify({ drafts: [coachDraft] });
+  page.get("coach-use-reply").click(); coachApply(page).click();
+  const add = page.get("coach-drafts").querySelectorAll("button").find((item) => item.textContent === "Add starter cases");
+  if (!add) throw new Error("Missing Add starter cases button");
+  page.get("anthropic-key").value = starterCases[0] ?? "";
+  add.click();
+  expect(page.get("cases-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  expect(page.get("cases").value).toBe("Existing case");
+});
+test("[integration] #133 B5 invalid run choice names block cases copy and paid fetch", async () => {
+  const page = await mount();
+  typeInto(page, "question", "Refund?");
+  typeInto(page, "definition-a", "When damaged.");
+  typeInto(page, "definition-b", "When intact.");
+  page.get("coach-provider").value = "anthropic";
+  page.get("coach-key").value = "coach-secret-value";
+  const invalidChoices: readonly (readonly [string, string])[] = [["same", "same"], ["yes|maybe", "no"], ["yes\nmaybe", "no"]];
+  for (const [first, second] of invalidChoices) {
+    typeInto(page, "choice-a", first); typeInto(page, "choice-b", second);
+    page.get("cases-copy-prompt").click();
+    page.get("draft-cases").click();
+    await tick();
+    expect(page.get("cases-status").textContent).toBe("Use two different choice names without pipes or line breaks.");
+  }
+  expect(page.copied).toHaveLength(0);
+  expect(page.requests.filter((item) => item.input === "/api/backstage/coach")).toHaveLength(0);
+});
+test("[integration] #133 B6 delayed cases reply is discarded after scene revision", async () => {
+  for (const changed of ["question", "choice-a", "definition-b"]) {
+    let deliver: ((value: readonly string[]) => void) | undefined;
+    const pending = new Promise<readonly string[]>((resolve) => { deliver = resolve; });
+    const page = await mount(undefined, undefined, undefined, undefined, "", (_question, _signal, mode) => mode === "cases" ? pending : []);
+    typeInto(page, "question", "Refund?");
+    typeInto(page, "definition-a", "When damaged.");
+    typeInto(page, "definition-b", "When intact.");
+    page.get("coach-provider").value = "anthropic";
+    page.get("coach-key").value = "coach-secret-value";
+    page.get("draft-cases").click();
+    await tick();
+    typeInto(page, changed, `Changed ${changed}`);
+    deliver?.(starterCases);
+    await tick();
+    expect(page.get("cases").value).toBe("");
+    expect(page.get("cases-status").textContent).toBe("Scene changed while starter cases were drafted. Nothing was added.");
+  }
+});
 test("[integration] #133 K8 three drafted cases keep case one answer out of DOM until its blind pick", async () => {
   const page = await mount(undefined, undefined, undefined, answerYesRanked);
   const draft = { ...coachDraft, answers: [{ name: "yes", meaning: "When the item is damaged." }, { name: "no", meaning: "When it is intact." }] };
@@ -1270,6 +1403,31 @@ test("[e2e] M2 blind integrity per case: picking one case shows its ranking and 
   expect(page.get("download-evidence").getAttribute("aria-disabled")).toBe("true");
   page.get("download-evidence").click();
   expect(page.get("notice").textContent).toBe("Finish judging in Rehearsals to unlock downloads.");
+});
+test("[e2e] #133 B7 C2 compare hides plain Jev and LLM outputs for every unpicked case", async () => {
+  const page = await mount(undefined, undefined, undefined, async (request) => ({
+    ...(await answerYesRanked(request)), output: request.provider === "jev" ? "yes" : "no",
+  }));
+  fillScene(page);
+  compareOn(page);
+  tickModel(page, "gpt-6-luna");
+  page.get("openai-key").value = "openai-secret-value";
+  typeInto(page, "cases", "case one plain\ncase two plain\ncase three plain");
+  page.get("run-all").click();
+  await until(() => page.document.getElementById("open-judging") !== null);
+  await openJudging(page);
+  const assertUnpickedHidden = (ids: readonly string[]) => {
+    const dom = page.document.connectedText();
+    expect(dom).not.toMatch(/Jev chose (?:yes|no)/);
+    expect(dom).not.toMatch(/(?:OpenAI|gpt-6-luna) chose (?:yes|no)/);
+    for (const id of ids) expect(dom).not.toMatch(new RegExp(`${id}\\s+(?:jev|gpt-6-luna)\\s+(?:yes|no)`));
+  };
+  assertUnpickedHidden(["case-1", "case-2", "case-3"]);
+  page.get("pick-first").click(); await tick();
+  expect(textOf(page.get("suggestion"))).toContain("#1 yes 82% (Jev's choice)");
+  assertUnpickedHidden(["case-2", "case-3"]);
+  page.get("next-card").click(); await tick();
+  assertUnpickedHidden(["case-2", "case-3"]);
 });
 
 /** Compare mode with the keyword rule, so a case whose Jev call failed still has an answer to pick. */

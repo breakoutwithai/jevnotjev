@@ -1,3 +1,4 @@
+import { validSceneChoices } from "./run.ts";
 import { join, resolve, sep } from "node:path";
 import { isIP } from "node:net";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -473,9 +474,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
           if (casesMode ?
             ("question" in decoded || !scene || typeof scene !== "object" || Array.isArray(scene) ||
               !("question" in scene) || !validText(scene.question, 1000) ||
-              !("choices" in scene) || !Array.isArray(scene.choices) || scene.choices.length !== 2 ||
-              !scene.choices.every((choice: unknown) => typeof choice === "object" && choice !== null && !Array.isArray(choice) &&
-                "name" in choice && validText(choice.name, 64) && "definition" in choice && validText(choice.definition, 1000)) ||
+              !("choices" in scene) || !validSceneChoices(scene.choices) ||
               Object.keys(scene).some((name) => !["question", "choices"].includes(name))) :
             ("mode" in decoded || "scene" in decoded || !("question" in decoded) || !validText(decoded.question, 1000)))
             return json({ code: "invalid-request", message: "Enter a question, provider and valid key." }, 400);

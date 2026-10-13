@@ -2,6 +2,9 @@ export const COACH_PROMPT_VERSION = "coach.2";
 export const CASES_PROMPT_VERSION = "cases.1";
 export const COACH_REPLY_ERROR = "Could not read that reply. Nothing was changed.";
 export const COACH_UNSAFE_MESSAGE = "A provider key appears in the scene. Remove it before running.";
+// A JSON \u escape can take six source characters for one decoded case character.
+export const MAX_CASES_REPLY_TEXT = 10 * 8000 * 6 + 4096;
+export const MAX_COACH_REPLY_TEXT = 3 * (MAX_CASES_REPLY_TEXT + 16000) + 4096;
 
 export interface CoachAnswer { readonly name: string; readonly meaning: string }
 interface DraftBase {
@@ -50,7 +53,7 @@ export function parseCasesReply(text: string): { readonly ok: true; readonly cas
   const trimmed = text.trim();
   const fenced = /^```json\s*\n([\s\S]*?)\n```$/i.exec(trimmed);
   const source = fenced ? fenced[1] : trimmed;
-  if (!source || source.length > 82000 || (trimmed.startsWith("```") && !fenced)) return { ok: false, reason: COACH_REPLY_ERROR };
+  if (!source || source.length > MAX_CASES_REPLY_TEXT || (trimmed.startsWith("```") && !fenced)) return { ok: false, reason: COACH_REPLY_ERROR };
   try {
     const parsed: unknown = JSON.parse(source);
     if (!record(parsed) || !validCases(parsed.cases)) return { ok: false, reason: COACH_REPLY_ERROR };
@@ -76,7 +79,7 @@ export function parseCoachReply(text: string): CoachReply {
   const trimmed = text.trim();
   const fenced = /^```json\s*\n([\s\S]*?)\n```$/i.exec(trimmed);
   const source = fenced ? fenced[1] : trimmed;
-  if (!source || source.length > 262144 || (trimmed.startsWith("```") && !fenced))
+  if (!source || source.length > MAX_COACH_REPLY_TEXT || (trimmed.startsWith("```") && !fenced))
     return { ok: false, reason: COACH_REPLY_ERROR };
   try {
     const parsed: unknown = JSON.parse(source);

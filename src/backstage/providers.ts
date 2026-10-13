@@ -11,7 +11,7 @@ import type {
 import { MODEL_CATALOG, CATALOG_VERSION, getModelEntry } from "./catalog.ts";
 import { requestFingerprint } from "./fingerprint.ts";
 import { decisionPrompt, PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
-import { casesPrompt, coachPrompt, parseCasesReply, parseCoachReply, type CasesScene, type CoachReply } from "./coach.ts";
+import { casesPrompt, coachPrompt, MAX_COACH_REPLY_TEXT, parseCasesReply, parseCoachReply, type CasesScene, type CoachReply } from "./coach.ts";
 import { findCredentials } from "./credential-scan.ts";
 export { requestFingerprint } from "./fingerprint.ts";
 export type ProviderFetch = (
@@ -39,7 +39,7 @@ export async function callCoach(
   try {
     const response = await doFetch(url, { method: "POST", headers, body: JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
     if (!response.ok) return { ok: false, reason: `Coach provider returned ${response.status}. Check your key or try again.` };
-    const raw = await boundedText(response, 300000, AbortSignal.timeout(timeoutMs));
+    const raw = await boundedText(response, MAX_COACH_REPLY_TEXT * 2 + 16384, AbortSignal.timeout(timeoutMs));
     if (raw.includes(key)) return { ok: false, reason: "Coach reply contained a credential." };
     const payload: unknown = JSON.parse(raw);
     if (!object(payload)) return { ok: false, reason: "Coach provider returned an unreadable reply." };

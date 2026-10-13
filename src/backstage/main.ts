@@ -4,6 +4,8 @@ import {
   CaseImportState,
   checkRunnerHealth,
   validateSceneKeys,
+  validCases,
+  validSceneChoices,
   trialTransport,
   type PickCard,
 } from "./run.ts";
@@ -78,6 +80,7 @@ let renderEpoch = 0;
 let imported: Scene["cases"] | undefined;
 /** Labels that came with the imported cases; held in memory only, so a reload drops them (the cases survive). */
 let importedLabels: readonly ImportedLabel[] = [];
+let casesSceneRevision = 0;
 const imports = new CaseImportState();
 let startup: AbortController | undefined;
 function notice(message: string) {
@@ -1242,9 +1245,23 @@ function coachUnsafe(value: unknown): boolean {
 function appendStarterCases(lines: readonly string[]): boolean {
   if (run || starting || signingOut) return false;
   const box = field("cases");
-  const existing = box.value;
-  box.value = existing.trim() === "" ? lines.join("\n") : existing + (existing.endsWith("\n") ? "" : "\n") + lines.join("\n");
-  imports.invalidate(); imported = undefined; importedLabels = [];
+  const existing = cases();
+  const total = existing.length + lines.length;
+  if (total > 100) { coachStatus(`Adding these would make ${total} cases; the limit is 100.`); return false; }
+  const ids = new Set(existing.map((item) => item.id));
+  let nextId = 1;
+  const added = lines.map((input) => {
+    while (ids.has(`case-${nextId}`)) nextId += 1;
+    const id = `case-${nextId++}`;
+    ids.add(id);
+    return { id, input };
+  });
+  let combined: Scene["cases"];
+  try { combined = validCases([...existing, ...added]); }
+  catch (error) { coachStatus(error instanceof Error ? error.message : "Could not add starter cases."); return false; }
+  const before = box.value;
+  box.value = imported ? importedDisplay(combined) : before.trim() === "" ? lines.join("\n") : before + (before.endsWith("\n") ? "" : "\n") + lines.join("\n");
+  imports.invalidate(); imported = combined;
   persistDraft();
   void render();
   return true;
@@ -1285,7 +1302,11 @@ function renderCoachDrafts(drafts: readonly CoachDraft[]) {
         if (card.querySelectorAll("button").length === 1) {
           const add = document.createElement("button");
           add.type = "button"; add.textContent = "Add starter cases"; add.dataset.applicable = "true";
-          add.onclick = () => { if (run || starting || signingOut) return; appendStarterCases(draft.cases); coachStatus("Starter cases added. Edit them before running."); };
+          add.onclick = () => {
+            if (run || starting || signingOut) return;
+            if (coachUnsafe(draft.cases)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
+            if (appendStarterCases(draft.cases)) coachStatus("Starter cases added. Edit them before running.");
+          };
           card.append(add);
         }
       }
@@ -1356,15 +1377,21 @@ button("coach-draft").onclick = async () => {
   finally { if (coachController === controller) coachController = undefined; if (coachController === undefined) trigger.disabled = false; }
 };
 
-function casesScene(): CasesScene | null {
-  const scene = { question: field("question").value.trim(), choices: [
+function casesSceneValues(): CasesScene {
+  return { question: field("question").value.trim(), choices: [
     { name: field("choice-a").value.trim(), definition: field("definition-a").value.trim() },
     { name: field("choice-b").value.trim(), definition: field("definition-b").value.trim() },
   ] };
+}
+for (const id of ["question", "choice-a", "choice-b", "definition-a", "definition-b"])
+  field(id).addEventListener("input", () => { casesSceneRevision += 1; });
+function casesScene(): CasesScene | null {
+  const scene = casesSceneValues();
   if (coachUnsafe(scene)) { coachStatus(COACH_UNSAFE_MESSAGE); return null; }
-  if (!scene.question || scene.question.length > 1000 || scene.choices.some((choice) => !choice.name || !choice.definition || choice.name.length > 64 || choice.definition.length > 1000)) {
+  if (!scene.question || scene.question.length > 1000 || scene.choices.some((choice) => !choice.definition || choice.definition.length > 1000)) {
     coachStatus("Write a question and both answer meanings first."); return null;
   }
+  if (!validSceneChoices(scene.choices)) { coachStatus("Use two different choice names without pipes or line breaks."); return null; }
   return scene;
 }
 button("cases-copy-prompt").onclick = async () => {
@@ -1378,11 +1405,14 @@ button("cases-use-reply").onclick = () => {
   if (coachUnsafe(reply)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
   const parsed = parseCasesReply(reply);
   if (!parsed.ok) { coachStatus(COACH_REPLY_ERROR); return; }
+  if (coachUnsafe(parsed.cases)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
   if (appendStarterCases(parsed.cases)) coachStatus(`${parsed.cases.length} starter cases added. Edit them before running.`);
 };
 button("draft-cases").onclick = async () => {
   if (run || starting || signingOut || coachController) return;
   const scene = casesScene(); if (!scene) return;
+  const revision = casesSceneRevision;
+  const signature = JSON.stringify(scene);
   const key = field("coach-key").value.trim();
   const selected = element("coach-provider");
   if (!(selected instanceof HTMLSelectElement) || !["anthropic", "openai"].includes(selected.value) || !key) { coachStatus("Choose a provider and enter your model key."); return; }
@@ -1393,6 +1423,7 @@ button("draft-cases").onclick = async () => {
     const response = await fetch("/api/backstage/coach", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ provider: selected.value, key, mode: "cases", scene }), signal: controller.signal });
     if (controller.signal.aborted) return;
     const payload: unknown = await response.json();
+    if (revision !== casesSceneRevision || signature !== JSON.stringify(casesSceneValues())) { coachStatus("Scene changed while starter cases were drafted. Nothing was added."); return; }
     if (typeof payload !== "object" || payload === null) throw new Error(COACH_REPLY_ERROR);
     if (!response.ok) {
       const message = Reflect.get(payload, "message");

@@ -762,3 +762,25 @@ test("[integration] JF7 health reports durable funding hold after restart", asyn
     { providerFetch: async () => new Response("", { status: 401 }) },
   );
 });
+
+test("[unit] #133 B5 cases mode rejects choices that cannot form a run before dispatch", async () => {
+  let calls = 0;
+  const handler = createHandler({ version: "test", log: () => {}, providerFetch: async () => {
+    calls++;
+    return Response.json({ model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ cases: starterCases }) }] });
+  } });
+  const first = { name: "Refund", definition: "When damaged." };
+  const second = { name: "Decline", definition: "When intact." };
+  for (const choices of [
+    [first, first],
+    [{ ...first, name: "Refund|Replace" }, second],
+    [{ ...first, name: " Refund" }, second],
+    [{ ...first, name: "Refund\n" }, second],
+    [{ ...first, name: "Refund\u007f" }, second],
+  ]) {
+    const response = await handler(coachRequest({ provider: "anthropic", key: "test-secret-value", mode: "cases", scene: { question: "Refund?", choices } }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ code: "invalid-request", message: "Enter a question, provider and valid key." });
+  }
+  expect(calls).toBe(0);
+});

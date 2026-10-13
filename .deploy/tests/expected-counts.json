@@ -30,7 +30,7 @@
     "scripts/hand-check.test.ts": 24,
     "scripts/little-shop-seating.test.ts": 14,
     "scripts/math-check.test.ts": 28,
-    "scripts/prompt-audit-outputs.test.ts": 55,
+    "scripts/prompt-audit-outputs.test.ts": 60,
     "scripts/prompt-audit.test.ts": 129,
     "scripts/replay-data.test.ts": 8,
     "scripts/replay-paging.test.ts": 7,

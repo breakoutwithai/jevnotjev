@@ -368,7 +368,9 @@ export function renderTable(rows: TableRow[]): string {
   // The out column fits its widest cell (min 3); the stem column gives up the difference beyond 5
   // so the longest row (both INVALID flags, 29 characters) stays under 100 characters.
   const outWidth = Math.max(3, ...rows.map((r) => r.out.length));
-  const stemWidth = Math.min(28, 33 - outWidth);
+  // The flags width is the widest joined flag list (at least the 29 the 33 above assumed).
+  const flagsWidth = Math.max(29, ...rows.map((r) => r.flags.join(",").length));
+  const stemWidth = Math.max(5, Math.min(28, 62 - outWidth - flagsWidth));
   const line = (stem: string, status: string, touched: string, missing: string, evid: string, out: string, flags: string) => `${cell(stem, stemWidth)} ${cell(status, 13)} ${cell(touched, 7)} ${cell(missing, 7)} ${cell(evid, 4)} ${cell(out, outWidth)} ${flags}`.trimEnd();
   // A prompt with declared outputs has no touched/missing figures: those columns are legacy-only.
   return [
@@ -492,7 +494,8 @@ export function parseAttributions(text: string, source = "attributions"): Attrib
     throw new Error(`${source}: attributions are not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
   }
   if (!isRecord(data)) throw new Error(`${source}: attributions must be an object of prompt_id -> [sha]`);
-  const out: Attributions = {};
+  // No prototype: a `__proto__` or `constructor` prompt id is an ordinary own key.
+  const out: Attributions = Object.create(null);
   for (const [id, shas] of Object.entries(data)) {
     if (id.trim() === "") throw new Error(`${source}: attributions have an empty prompt_id`);
     if (!Array.isArray(shas) || shas.length === 0) throw new Error(`${source}: attributions for ${id} must be a non-empty array`);
@@ -516,15 +519,23 @@ export function loadAttributions(path: string): Attributions {
 }
 
 // Ledger SHAs that are on the ref, not merges, on/after `created`, and touch the output path (one query).
-function attributedCommits(git: Git, ref: string, created: string, path: string, ledger: string[]): string[] {
+function attributedCommits(git: Git, ref: string, created: string, path: string, kind: OutputKind, ledger: string[]): string[] {
   const bare = path.replace(/\/+$/, "");
   const found = new Set(must(git, ["log", ref, "--no-show-signature", sinceFilter(created), "--full-history", "--no-merges", "--format=%H", "--", literal(bare)]).split("\n"));
-  return ledger.filter((sha) => found.has(sha));
+  // The pathspec is a prefilter; each candidate's own changed paths (deletions included, renames not
+  // detected) must match the kind: file = exactly the path, dir = anything under it.
+  return ledger
+    .filter((sha) => found.has(sha))
+    .filter((sha) => {
+      const changed = must(git, ["diff-tree", "--root", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", sha]).split("\0");
+      return changed.some((p) => (kind === "file" ? p === bare : p.startsWith(`${bare}/`)));
+    });
 }
 
-function treeHas(tree: Tree, path: string): boolean {
+// A file output needs that exact file in the tree; only a dir output accepts descendants.
+function treeHas(tree: Tree, path: string, kind: OutputKind): boolean {
   const bare = path.replace(/\/+$/, "");
-  return (!path.endsWith("/") && tree.files.has(bare)) || [...tree.files].some((f) => f.startsWith(`${bare}/`));
+  return kind === "file" ? tree.files.has(bare) : [...tree.files].some((f) => f.startsWith(`${bare}/`));
 }
 
 function auditOutputs(declared: DeclaredOutput[], parsed: ParsedPrompt, tree: Tree, git: Git, ref: string, repo: string | null, ledger: string[], matched: Set<string>): OutputResult[] {
@@ -535,10 +546,10 @@ function auditOutputs(declared: DeclaredOutput[], parsed: ParsedPrompt, tree: Tr
     if (o.repo.toLowerCase() !== repo.toLowerCase()) return { ...base, result: "OTHER-REPO", commits: [], sharedWith: [] };
     const commits = deliveringCommits(git, ref, parsed.created, parsed.promptId, o.path, o.kind ?? "file");
     // Queried even when a trailer delivered, so a ledger SHA is judged against every declared output.
-    const attributed = ledger.length === 0 ? [] : attributedCommits(git, ref, parsed.created, o.path, ledger);
+    const attributed = ledger.length === 0 ? [] : attributedCommits(git, ref, parsed.created, o.path, o.kind ?? "file", ledger);
     for (const sha of attributed) matched.add(sha);
     if (commits.length > 0) return { ...base, result: "DELIVERED", commits, sharedWith: sharedPromptIds(git, commits, parsed.promptId) };
-    if (attributed.length > 0) return { ...base, result: treeHas(tree, o.path) ? "DELIVERED-ATTRIBUTED" : "REMOVED", commits: attributed, sharedWith: [] };
+    if (attributed.length > 0) return { ...base, result: treeHas(tree, o.path, o.kind ?? "file") ? "DELIVERED-ATTRIBUTED" : "REMOVED", commits: attributed, sharedWith: [] };
     return { ...base, result: "NOT-DELIVERED", commits: [], sharedWith: [] };
   });
 }
@@ -548,12 +559,12 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   const parsed = parsePrompt(text);
   // null when absent or invalid: nothing can be dated, so nothing is classified or queried.
   const created = parsed.created;
-  const ledger = parsed.promptId === null || attributions === null ? [] : (attributions[parsed.promptId] ?? []);
+  const ledger = parsed.promptId === null || attributions === null || !Object.hasOwn(attributions, parsed.promptId) ? [] : (attributions[parsed.promptId] ?? []);
   const matched = new Set<string>();
   const outputs = parsed.outputs === null ? null : auditOutputs(parsed.outputs, parsed, tree, git, ref, repo, ledger, matched);
   // A ledger SHA that credits no declared output is a wrong SHA: reported, never trusted. Only when
   // every output could be queried (a prompt with an invalid or other-repo output is not judged).
-  const attributionErrors = outputs === null || outputs.some((o) => o.result === "INVALID-HEADER") ? [] : ledger.filter((sha) => !matched.has(sha)).map((sha) => `attribution ${sha} touches no declared output on ${ref} after created`);
+  const attributionErrors = outputs === null || outputs.some((o) => o.result === "INVALID-HEADER" || o.result === "OTHER-REPO") ? [] : ledger.filter((sha) => !matched.has(sha)).map((sha) => `attribution ${sha} touches no declared output on ${ref} after created`);
   // Declared outputs replace the prose extraction: a prompt with `outputs:` never reaches the path heuristics.
   const deliverables: DeliverableResult[] = (outputs === null ? parsed.deliverables : []).map((d) => {
     const c = extractCandidates(d);

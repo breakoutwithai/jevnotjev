@@ -36,7 +36,8 @@
             "values": [
               88,
               86,
-              100
+              100,
+              -0.04266031343755382
             ],
             "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
             "arms": [

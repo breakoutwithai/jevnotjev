@@ -77,7 +77,7 @@ export const LANDING_COPY: Readonly<Record<LandingSampleId, ExplainedCopy>> = {
     rephrase: null,
     figures: [
       f("verdict", "100", "int", [100], R100, { metric: "paired" }),
-      f("why", "Same accuracy as the LLM (88 against 86 of 100)", "sameAccuracy", [88, 86, 100], R100, jL),
+      f("why", "Same accuracy as the LLM (88 against 86 of 100)", "sameAccuracy", [88, 86, 100, -0.04266031343755382], R100, jL),
       f("why", "at about a fifth of the cost per kept answer", "costShare", [0.19745918526106973], R100, jL),
       f("cases", "Jev 88", "armCount", [88], R100, jev),
       f("cases", "LLM (Haiku 5.5) 86", "armModelCount", ["claude-haiku-5-5", 86], R100, llm),

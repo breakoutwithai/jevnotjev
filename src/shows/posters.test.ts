@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { MAX_POSTERS, casesToClear, headlineOf, parseUseCase, rankPosters, verdictWordShown, whyNotYetOf, type HeadlinePair, type Poster } from "./posters.ts";
 import { newcombePaired } from "../core/calc.ts";
 import { MARGIN } from "../core/verdict.ts";
+import { LANDING_COPY } from "./landing-copy.ts";
 
 const paired: HeadlinePair = {
   n: 40,
@@ -95,7 +96,7 @@ const doc = [
 ].join("\n");
 
 const poster = (id: string, date: string): Poster =>
-  ({ id: id, title: id, story: "", fit: [], stage: "script-reading", date: date, source: `docs/product/use-cases/${id}.md`, run: null, watch: null });
+  ({ id: id, title: id, story: "", fit: [], verdictLine: "Needs a test", explained: LANDING_COPY.uc9, stage: "script-reading", date: date, source: `docs/product/use-cases/${id}.md`, run: null, watch: null });
 
 describe("parseUseCase", () => {
   test("[unit] T2 title, story, fit check and run folder come from the doc text", () => {

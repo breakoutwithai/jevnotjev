@@ -141,7 +141,7 @@ test("[integration] #137 picker options equal show posters and other stages have
       const card = page.locator(`.tk-poster[data-id="${poster.id}"]`);
       expect(await card.count()).toBe(1);
       expect(await card.locator(".tk-pick").count()).toBe(0);
-      expect(await card.getByRole("link", { name: poster.stage === "rehearsal" ? /Follow this/ : /Read the idea/ }).count()).toBe(1);
+      expect(await card.getByRole("link", { name: poster.watch ? /Watch now/ : poster.run ? /Open the evidence/ : /Read the idea/ }).count()).toBe(1);
     }
   } finally { await page.close(); }
 }, 10000);

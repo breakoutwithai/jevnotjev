@@ -59,11 +59,12 @@ Jev request, per message (`POST https://api.typesafe.ai/v1/systemone`):
 The run fails loudly if the response model is not `jev-1.13.0`. The Jev key is read from the operator's keychain at run time and never written anywhere.
 
 ## Labels and result
+The latest run is [the 2026-10-11 run](../runs/2026-10-11-uc13-shop-bot-100/): 100 customer messages, with Jev accepted on 88, the LLM on 86, and a use Jev verdict under rule 3.
 - One correct answer per message (answer / hand_off), never decided from any arm's output. The 2026-10-01 run's answers were drafted by three AI labellers from the fact sheet and this acceptance rule, then reviewed and approved by a person ([LABELS.md](../runs/2026-10-01-uc13-shop-bot/LABELS.md)). Each arm's row is then `accept` when its output equals that answer, else `reject`, with `label_source` `human`.
 - Result: right answers and cost per right answer per arm (D07 metrics, `src/core/metrics.ts`), Jev against the LLM and against the rule on paired cases, and the verdict from [verdict-rules.md](../../decision/verdict-rules.md).
 - Misses are listed by direction, **answered when it should have handed off** first: those include every unknown-stock and booking message an arm got wrong, and one miss there matters more than the overall rate. Handed off when it could have answered comes second.
 
-Files: the synthetic shop in [examples/uc13-shop-bot/](../../../examples/uc13-shop-bot/), the run in [docs/product/runs/2026-10-01-uc13-shop-bot/](../runs/2026-10-01-uc13-shop-bot/).
+Files: the synthetic shop in [examples/uc13-shop-bot/](../../../examples/uc13-shop-bot/), the first run in [docs/product/runs/2026-10-01-uc13-shop-bot/](../runs/2026-10-01-uc13-shop-bot/), and the latest run in [docs/product/runs/2026-10-11-uc13-shop-bot-100/](../runs/2026-10-11-uc13-shop-bot-100/).
 
 Commands (TypeScript on Bun, from the repo root):
 
@@ -75,20 +76,18 @@ bun scripts/uc13/run-arms.ts label       # merge labels.csv into the records
 bun run validate docs/product/runs/2026-10-01-uc13-shop-bot/records.csv
 ```
 
-## Run status (2026-10-01)
+## Run status
 | Step | State |
 |---|---|
-| Fact sheet, 40 messages, acceptance rule, simple rule | written, before any arm ran |
-| Rule arm | run: 13 hand_off, 27 answer, cost 0 |
-| Jev arm | run: 40 calls, all `jev-1.13.0`; 22 hand_off, 18 answer; $0.001302 at the published price |
-| LLM arm | run: 40 calls, all `claude-haiku-4-5-20251001`; 22 hand_off, 18 answer; $0.103167 from `total_cost_usd` |
-| Labels | none yet |
-| Verdict | none |
+| First run, 2026-10-01 | 40 messages; Jev and the LLM each had 38 accepted answers ([records.csv](../runs/2026-10-01-uc13-shop-bot/records.csv)) |
+| Latest run, 2026-10-11 | 100 messages; Jev had 88 accepted answers and the LLM 86 ([LABELS.md](../runs/2026-10-11-uc13-shop-bot-100/LABELS.md)) |
+| Labels | All 40 first-run messages and all 100 latest-run messages were labelled ([first-run LABELS.md](../runs/2026-10-01-uc13-shop-bot/LABELS.md), [latest-run LABELS.md](../runs/2026-10-11-uc13-shop-bot-100/LABELS.md)) |
+| Verdict | First run: not enough evidence (rule 4) from its [records.csv](../runs/2026-10-01-uc13-shop-bot/records.csv). Latest run: use Jev (rule 3), recorded in [LABELS.md](../runs/2026-10-11-uc13-shop-bot-100/LABELS.md) |
 
 ## Not established
-- Anything about Jev's accuracy or cost on this decision; nothing has been measured yet.
+- The two recorded runs measured accepted answers and costs for this test decision. The first run tied at 38 of 40 and returned not enough evidence under rule 4 ([records.csv](../runs/2026-10-01-uc13-shop-bot/records.csv)); the latest run returned use Jev under rule 3 with 88 of 100 accepted for Jev and 86 of 100 for the LLM ([LABELS.md](../runs/2026-10-11-uc13-shop-bot-100/LABELS.md)). Whether those results hold for a real shop is still untested.
 - Whether the keyword rule already gets every unknown-stock and booking case right; if it does, Jev has nothing to add on the first decision.
 - Whether Haiku with these rules stands in for a real shop bot's prompt and model.
-- Whether 40 messages we wrote resemble what real customers send.
+- Whether the first 40 messages we wrote and the 60 more written by five AI persona writers resemble what real customers send.
 - Whether one label set from us matches the shop owner's own call.
 - How long a Jev call takes compared with a phone bot's response target.

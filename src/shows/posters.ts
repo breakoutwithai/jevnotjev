@@ -4,6 +4,7 @@ import { MARGIN, MIN_PAIRED } from "../core/verdict.ts";
 import { newcombePaired, type PairedCounts } from "../core/calc.ts";
 import type { Spend } from "../core/metrics.ts";
 import type { Condition } from "../core/verdict.ts";
+import type { ExplainedCopy } from "./landing-copy.ts";
 
 export const MAX_POSTERS = 10;
 
@@ -21,6 +22,8 @@ export interface RunSummary {
   readonly labelledPaired: number;
   /** The verdict name from src/core/verdict.ts; null under 30 paired labelled cases (verdict-rules.md rule 1). */
   readonly verdict: string | null;
+  /** Computed verdict, including rule 1 below the public display minimum. */
+  readonly computedVerdict: string | null;
   readonly reason: string | null;
   readonly headline: string | null;
   readonly whyNotYet: string | null;
@@ -43,6 +46,8 @@ export interface Poster {
   readonly title: string;
   readonly story: string;
   readonly fit: readonly string[];
+  readonly verdictLine: string;
+  readonly explained: ExplainedCopy;
   readonly stage: Stage;
   /** YYYY-MM-DD: the run folder's date, else the date the use-case doc was added. */
   readonly date: string;

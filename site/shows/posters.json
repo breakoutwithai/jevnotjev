@@ -3,6 +3,185 @@
   "generated_by": "scripts/shows/build-posters.ts",
   "posters": [
     {
+      "id": "uc13",
+      "title": "Shop bot, answer or hand off",
+      "story": "As a small shop owner running a website and phone bot, I want the bot to answer what its configured facts cover and hand everything else to staff, so customers never hear an invented price, stock level or booking.",
+      "fit": [
+        "!Jev",
+        "Jev could help"
+      ],
+      "verdictLine": "Use Jev (100 messages)",
+      "explained": {
+        "verdict": "Use Jev (100 messages)",
+        "why": "Same accuracy as the LLM (88 against 86 of 100) at about a fifth of the cost per kept answer.",
+        "cases": "Jev 88, LLM (Haiku 5.5) 86, simple rule 49, of 100.",
+        "next": "Open the 100-message run, or try your own decision.",
+        "earlier": "40 messages: tied 38 to 38, Not proven yet (LLM was Haiku 4.5).",
+        "rephrase": null,
+        "figures": [
+          {
+            "part": "verdict",
+            "display": "100",
+            "format": "int",
+            "values": [
+              100
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "metric": "paired"
+          },
+          {
+            "part": "why",
+            "display": "Same accuracy as the LLM (88 against 86 of 100)",
+            "format": "sameAccuracy",
+            "values": [
+              88,
+              86,
+              100,
+              -0.04266031343755382
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "arms": [
+              "jev",
+              "llm"
+            ]
+          },
+          {
+            "part": "why",
+            "display": "at about a fifth of the cost per kept answer",
+            "format": "costShare",
+            "values": [
+              0.19745918526106973
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "arms": [
+              "jev",
+              "llm"
+            ]
+          },
+          {
+            "part": "cases",
+            "display": "Jev 88",
+            "format": "armCount",
+            "values": [
+              88
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "arm": "jev"
+          },
+          {
+            "part": "cases",
+            "display": "LLM (Haiku 5.5) 86",
+            "format": "armModelCount",
+            "values": [
+              "claude-haiku-5-5",
+              86
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "arm": "llm"
+          },
+          {
+            "part": "cases",
+            "display": "simple rule 49",
+            "format": "armCount",
+            "values": [
+              49
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "arm": "rule"
+          },
+          {
+            "part": "cases",
+            "display": "100",
+            "format": "int",
+            "values": [
+              100
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "metric": "paired"
+          },
+          {
+            "part": "next",
+            "display": "100-message",
+            "format": "messageRun",
+            "values": [
+              100
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
+          },
+          {
+            "part": "earlier",
+            "display": "40",
+            "format": "int",
+            "values": [
+              40
+            ],
+            "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
+            "metric": "paired"
+          },
+          {
+            "part": "earlier",
+            "display": "tied 38 to 38",
+            "format": "tiedTo",
+            "values": [
+              38
+            ],
+            "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"
+          },
+          {
+            "part": "earlier",
+            "display": "LLM was Haiku 4.5",
+            "format": "modelWas",
+            "values": [
+              "claude-haiku-4-5-20251001"
+            ],
+            "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
+            "arm": "llm"
+          }
+        ]
+      },
+      "stage": "show",
+      "date": "2026-10-11",
+      "source": "docs/product/use-cases/uc13-shop-bot-answer-or-handoff.md",
+      "run": {
+        "folder": "2026-10-11-uc13-shop-bot-100",
+        "rows": 300,
+        "cohorts": 1,
+        "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?",
+        "labelledPaired": 100,
+        "verdict": "use Jev",
+        "computedVerdict": "use Jev",
+        "computedRule": 3,
+        "reason": "use Jev: Jev is within 10 points of the LLM (lower bound -0.04) and costs 0.197 of it per accepted answer (upper bound 0.218)",
+        "headline": "At least as accurate as the LLM (88/100 vs 86/100) at 1/4th of the cost",
+        "whyNotYet": null,
+        "labels": "human_reviewed, blind: no",
+        "methods": [
+          {
+            "arm": "llm",
+            "rows": 100,
+            "labelled": 100,
+            "accepted": 86,
+            "spendUsd": 0.016255
+          },
+          {
+            "arm": "rule",
+            "rows": 100,
+            "labelled": 100,
+            "accepted": 49,
+            "spendUsd": 0
+          },
+          {
+            "arm": "jev",
+            "rows": 100,
+            "labelled": 100,
+            "accepted": 88,
+            "spendUsd": 0.003284
+          }
+        ]
+      },
+      "watch": "./#act2"
+    },
+    {
       "id": "uc11",
       "title": "CV against a job ad",
       "story": "As a hiring manager I want each CV checked against each line of my job ad, so I read the strong ones first and stop paying an LLM to reread every CV in full.",
@@ -10,6 +189,117 @@
         "Jev probably not",
         "Jev could help"
       ],
+      "verdictLine": "Not enough evidence (rule 1)",
+      "explained": {
+        "verdict": "Not enough evidence (rule 1)",
+        "why": "Only 5 CVs are labelled. The rules need at least 30 before they compare Jev with the LLM.",
+        "cases": "Jev 5 of 5, the LLM 5 of 5, the simple rule 2 of 5. Jev spent $0.00008 against the LLM's $0.0109.",
+        "next": "Label 25 more CVs against the same ad line.",
+        "rephrase": "\"Rank these CVs\" is a written judgement, so Jev probably not. Ask one yes/no per ad line instead: \"Does the CV show the person has built or run a product that pools AI subscriptions or tokens?\" Code adds up the lines to rank (pattern P2).",
+        "earlier": null,
+        "figures": [
+          {
+            "part": "verdict",
+            "display": "rule 1",
+            "format": "rule",
+            "values": [
+              1
+            ],
+            "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "question": "q1"
+          },
+          {
+            "part": "why",
+            "display": "5",
+            "format": "int",
+            "values": [
+              5
+            ],
+            "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "metric": "paired",
+            "question": "q1"
+          },
+          {
+            "part": "why",
+            "display": "at least 30",
+            "format": "int",
+            "values": [
+              30
+            ],
+            "source": "src/core/verdict.ts",
+            "metric": "minPaired"
+          },
+          {
+            "part": "cases",
+            "display": "Jev 5 of 5",
+            "format": "armScore",
+            "values": [
+              5,
+              5
+            ],
+            "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "arm": "jev",
+            "question": "q1"
+          },
+          {
+            "part": "cases",
+            "display": "the LLM 5 of 5",
+            "format": "armScore",
+            "values": [
+              5,
+              5
+            ],
+            "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "arm": "llm",
+            "question": "q1"
+          },
+          {
+            "part": "cases",
+            "display": "the simple rule 2 of 5",
+            "format": "armScore",
+            "values": [
+              2,
+              5
+            ],
+            "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "arm": "rule",
+            "question": "q1"
+          },
+          {
+            "part": "cases",
+            "display": "Jev spent $0.00008",
+            "format": "armSpent5",
+            "values": [
+              0.000080682
+            ],
+            "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "arm": "jev",
+            "question": "q1"
+          },
+          {
+            "part": "cases",
+            "display": "the LLM's $0.0109",
+            "format": "armSpendOf4",
+            "values": [
+              0.010851
+            ],
+            "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "arm": "llm",
+            "question": "q1"
+          },
+          {
+            "part": "next",
+            "display": "25 more",
+            "format": "int",
+            "values": [
+              25
+            ],
+            "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "metric": "toMinimum",
+            "question": "q1"
+          }
+        ]
+      },
       "stage": "rehearsal",
       "date": "2026-10-03",
       "source": "docs/product/use-cases/uc11-cv-vs-job-ad.md",
@@ -20,6 +310,8 @@
         "question": "Does the CV show the person has built or run a product that pools AI subscriptions or tokens?",
         "labelledPaired": 5,
         "verdict": null,
+        "computedVerdict": "not enough evidence",
+        "computedRule": 1,
         "reason": null,
         "headline": null,
         "whyNotYet": null,
@@ -51,54 +343,6 @@
       "watch": "replay/?run=tokenmax"
     },
     {
-      "id": "uc13",
-      "title": "Shop bot, answer or hand off",
-      "story": "As a small shop owner running a website and phone bot, I want the bot to answer what its configured facts cover and hand everything else to staff, so customers never hear an invented price, stock level or booking.",
-      "fit": [
-        "!Jev",
-        "Jev could help"
-      ],
-      "stage": "show",
-      "date": "2026-10-01",
-      "source": "docs/product/use-cases/uc13-shop-bot-answer-or-handoff.md",
-      "run": {
-        "folder": "2026-10-01-uc13-shop-bot",
-        "rows": 120,
-        "cohorts": 1,
-        "question": "Can the bot answer this customer message using only the fact sheet, or must it hand off to staff?",
-        "labelledPaired": 40,
-        "verdict": "not enough evidence",
-        "reason": "not enough evidence: Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM -0.11, not above -0.10)",
-        "headline": "Same accuracy as the LLM (38/40 each) at 1/79th of the cost",
-        "whyNotYet": "Not proven yet: the lower bound of Jev minus the LLM is -0.11, below the -0.10 margin, on 40 paired cases. If the next cases split the same way, about 6 more paired cases would bring it inside the margin.",
-        "labels": "human_reviewed, blind: no",
-        "methods": [
-          {
-            "arm": "llm",
-            "rows": 40,
-            "labelled": 40,
-            "accepted": 38,
-            "spendUsd": 0.103167
-          },
-          {
-            "arm": "rule",
-            "rows": 40,
-            "labelled": 40,
-            "accepted": 29,
-            "spendUsd": 0
-          },
-          {
-            "arm": "jev",
-            "rows": 40,
-            "labelled": 40,
-            "accepted": 38,
-            "spendUsd": 0.001302
-          }
-        ]
-      },
-      "watch": "little-shop/"
-    },
-    {
       "id": "uc12",
       "title": "Requirement evidence check",
       "story": "As a builder before a demo I want each requirement in my spec checked against the evidence I hold for it, so I know which ones are met, partly met or not met without rereading everything.",
@@ -106,6 +350,27 @@
         "!Jev",
         "Jev could help"
       ],
+      "verdictLine": "Split two ways",
+      "explained": {
+        "verdict": "Split two ways",
+        "why": "No cases have been run yet, so there is nothing to compare.",
+        "cases": "nothing yet.",
+        "next": "20 or more requirement and evidence pairs, each labelled met, partly met or not met by hand.",
+        "rephrase": "Where a test or check script exists, its exit code decides \"met\", and Jev adds nothing. Where the evidence is prose, ask: \"Does this evidence excerpt support this requirement? met / partly met / not met\" (pattern P1).",
+        "earlier": null,
+        "figures": [
+          {
+            "part": "next",
+            "display": "20 or more",
+            "format": "int",
+            "values": [
+              20
+            ],
+            "source": "docs/product/use-cases/uc12-requirement-evidence-check.md",
+            "metric": "docCases"
+          }
+        ]
+      },
       "stage": "script-reading",
       "date": "2026-09-30",
       "source": "docs/product/use-cases/uc12-requirement-evidence-check.md",
@@ -119,6 +384,27 @@
       "fit": [
         "Jev probably not"
       ],
+      "verdictLine": "Jev probably not",
+      "explained": {
+        "verdict": "Jev probably not",
+        "why": "No cases have been run. \"Decide my tech stack\" is open design work that needs reasoning and a written answer, which Jev does not do.",
+        "cases": "nothing yet.",
+        "next": "20 or more project descriptions, each labelled by hand with the properties it needs.",
+        "rephrase": "Ask yes/no per property instead: \"Does this project need realtime updates?\" (and the same for relational joins, row-level access, self-hosting, offline-first, file storage). A written mapping table, not Jev, turns the answers into the stack (pattern P2).",
+        "earlier": null,
+        "figures": [
+          {
+            "part": "next",
+            "display": "20 or more",
+            "format": "int",
+            "values": [
+              20
+            ],
+            "source": "docs/product/use-cases/uc10-tech-stack-choice.md",
+            "metric": "docCases"
+          }
+        ]
+      },
       "stage": "script-reading",
       "date": "2026-09-28",
       "source": "docs/product/use-cases/uc10-tech-stack-choice.md",
@@ -133,6 +419,27 @@
         "Jev probably not",
         "Jev could help"
       ],
+      "verdictLine": "Jev probably not",
+      "explained": {
+        "verdict": "Jev probably not",
+        "why": "No cases have been run. \"Is this AI slop?\" is an open question with no fixed answer set.",
+        "cases": "nothing yet.",
+        "next": "a labelled set of real sites, each check marked by hand, before any score is published.",
+        "rephrase": "Ask one check at a time with a fixed answer, for example \"Is the headline generic marketing filler? 0 / 1 / 2\" or \"Does the hero use a purple-to-blue gradient? yes / no\". Code weights the answers into the score (pattern P3). Jev reads text only, so visual checks need the page text or CSS.",
+        "earlier": null,
+        "figures": [
+          {
+            "part": "rephrase",
+            "display": "0 / 1 / 2",
+            "format": "answers",
+            "values": [
+              "0 / 1 / 2"
+            ],
+            "source": "docs/product/use-cases/uc9-website-slop-roast.md",
+            "row": "S6"
+          }
+        ]
+      },
       "stage": "script-reading",
       "date": "2026-09-28",
       "source": "docs/product/use-cases/uc9-website-slop-roast.md",

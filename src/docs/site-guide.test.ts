@@ -26,8 +26,9 @@ const ROOT = join(import.meta.dir, "..", "..");
 const GUIDE = "site/guide/index.html";
 const STAGE = "site/index.html";
 const OFFICE = "site/shows/office.js";
+const POSTERS = "site/shows/posters.json";
 const BACKSTAGE = "site/backstage/index.html";
-const SAMPLE_RECORDS = "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv";
+const SAMPLE_RECORDS = "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv";
 
 function read(path: string): string {
   if (path === GUIDE && process.env.SITE_GUIDE_TEST_GUIDE) return readFileSync(process.env.SITE_GUIDE_TEST_GUIDE, "utf8");
@@ -150,9 +151,9 @@ async function sampleRunFields(html: string): Promise<Field[]> {
     ...fields(src, "tally", list(g, "span.t-label")),
     ...fields(src, "ledger", list(g, "dl.fig dt")),
     ...fields(src, "timing table", list(g, "thead th")),
-    ...fields(src, "verdict words", objectValues(html, "VWORD")),
+    ...fields(src, "rendered Stage verdict", [str(JSON.parse(capture(/window\.JNJ = (\{[\s\S]*\});\s*$/, read("site/data.js"))), "explained", "verdict")]),
     ...fields(src, "own file", list(page, "#t6")),
-    ...fields(OFFICE, "card and ticket controls", ["Fit check", "Get another ticket"]),
+    ...fields(OFFICE, "card and ticket controls", ["Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "Get another ticket"]),
   ];
 }
 
@@ -198,7 +199,12 @@ async function glossary(html: string): Promise<Map<string, string>> {
 
 async function glossaryMissing(guideHtml: string, stageHtml: string, backstageHtml: string): Promise<string[]> {
   const entries = await glossary(guideHtml);
-  const wanted = [...(await sampleRunFields(stageHtml)), ...(await backstageFields(backstageHtml))];
+  const posters: unknown = JSON.parse(read(POSTERS));
+  const cards = list(posters, "posters");
+  const verdicts = cards.map((card) => str(card, "verdictLine"));
+  const patterns = [...new Set([...JSON.stringify(cards).matchAll(/pattern P\d+/g)].map((match) => match[0]))];
+  const wanted = [...(await sampleRunFields(stageHtml)), ...(await backstageFields(backstageHtml)),
+    ...fields(POSTERS, "card verdict lines", verdicts), ...fields(POSTERS, "card rephrase patterns", patterns)];
   return wanted.filter((field) => !entries.has(field.term)).map((field) => `${field.term} (${field.source})`);
 }
 
@@ -277,7 +283,8 @@ function computeSampleValues(): Map<string, string> {
   if (str(sample, "verdict", "result") !== verdictName || num(sample, "verdict", "rule") !== rule || str(sample, "verdict", "reason") !== str(v, "reason")) {
     throw new Error("the page's sample verdict and the CLI verdict on its records differ");
   }
-  const vword = new Map(objectValues(read(STAGE), "VWORD").map((word) => [word.toLowerCase(), word]));
+  const verdictLine = str(sample, "explained", "verdict");
+  if (verdictLine.toLowerCase() !== `${verdictName.toLowerCase()} (rule ${rule})`) throw new Error("the Stage verdict line differs from the computed verdict and rule");
   const out = new Map<string, string>([
     ["cases", String(cases.length)],
     ["truth-answer", String(cases.filter((c) => str(c, "truth") === "answer").length)],
@@ -285,7 +292,7 @@ function computeSampleValues(): Map<string, string> {
     ["spot-id", str(spot, "id")],
     ["spot-confidence", num(spot, "arms", "C", "confidence").toFixed(2)],
     ["save-vs-a", ((1 - cpkC / cpkA) * 100).toFixed(0)],
-    ["verdict-word", vword.get(verdictName) ?? `no VWORD for ${verdictName}`],
+    ["verdict-word", verdictLine],
     ["verdict-name", verdictName],
     ["verdict-rule", String(rule)],
     ["verdict-rule-word", RULE_WORDS[rule - 1] ?? "none"],
@@ -372,6 +379,13 @@ const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
   ["(section 4)", "cross-reference"],
   ["(section 4, rule three)", "cross-reference"],
   ["P1 to P4 come with 10 labelled cases and P5 to P8 with 30 cases", "starter packs, quoted from New Scene"],
+  ["ready packs P1 to P4", "different from the card rephrase patterns"],
+  ["pattern P1", "card rephrase pattern"],
+  ["pattern P2", "card rephrase pattern"],
+  ["pattern P3", "card rephrase pattern"],
+  ["Use Jev (rule 3)", "sample verdict glossary term"],
+  ["Use Jev (100 messages)", "shop-bot card verdict glossary term"],
+  ["Not enough evidence (rule 1)", "CV card verdict glossary term"],
   ["starts with 5 practice cases", "calibration, quoted from Rehearsals"],
   ["one kept and one rejected answer at $1 each cost $2 per kept answer", "arithmetic example"],
   ["about 1 to 4 bytes of your text", "estimate basis, quoted from Learning Lines"],
@@ -449,7 +463,7 @@ describe("in-product first-use guide (D18)", () => {
   test("[unit] D18-SITE-GUIDE-EXTRACT the extractors read the real pages, so the glossary check is not vacuous", async () => {
     const sample = (await sampleRunFields(read(STAGE))).map((field) => field.term);
     const backstage = (await backstageFields(read(BACKSTAGE))).map((field) => field.term);
-    for (const term of ["Sample run", "Sample questions", "Tested", "Small test (under 30 cases)", "Idea only, not tested", "Fit check", "See all 40 cases", "Try it: pick a seat", "Get another ticket", "Open the ticket office", "What you do now", "Case", "Jev said", "label", "Spotlight", "Kept so far", "Cost per kept answer", "Median seconds per call", "Not enough evidence", "kept", "rejected", "Load your own script (CSV)"]) {
+    for (const term of ["Sample run", "Sample questions", "Tested", "Small test (under 30 cases)", "Idea only, not tested", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "See all 100 cases", "Try it: pick a seat", "Get another ticket", "Open the ticket office", "What you do now", "Case", "Jev said", "label", "Spotlight", "Kept so far", "Cost per kept answer", "Median seconds per call", "Use Jev (rule 3)", "kept", "rejected", "Load your own script (CSV)"]) {
       expect(sample).toContain(term);
     }
     for (const term of ["Keep an answer when...", "Leave out...", "Choose optional comparisons", "Dress Rehearsal: Cost and downloads", "First choice", "Download run evidence", "Kept / labelled", "Returned confidence", "case_input", "label_source", "Jev-only wins", "Anthropic API key", "xAI API key"]) {
@@ -460,6 +474,13 @@ describe("in-product first-use guide (D18)", () => {
   test("[unit] D18-SITE-GUIDE-NESTED a header with nested markup is a field, so a new one without an entry fails", async () => {
     const stage = mutate(read(STAGE), "<span>Case</span>", "<span>Case</span><span><b>New unexplained field</b></span>");
     expect(await glossaryMissing(read(GUIDE), stage, read(BACKSTAGE))).toEqual(["New unexplained field (site/index.html)"]);
+  });
+
+  test("[unit] #201 card verdict lines and rephrase patterns need glossary entries", async () => {
+    expect(await glossaryMissing(read(GUIDE), read(STAGE), read(BACKSTAGE))).toEqual([]);
+    const guide = mutate(read(GUIDE),
+      "<dt>pattern P2</dt><dd>Card rephrase pattern: ask one yes or no statement Jev can check on one text, then let code combine the answers.</dd>", "");
+    expect(await glossaryMissing(guide, read(STAGE), read(BACKSTAGE))).toContain(`pattern P2 (${POSTERS})`);
   });
 
   test("[unit] D18-SITE-GUIDE-SECTIONS the six sections and the glossary come in order", async () => {
@@ -493,13 +514,13 @@ describe("in-product first-use guide (D18)", () => {
     const plain = mutate(guide, '<span data-const="MIN_PAIRED">30</span>', "999");
     expect(await uncheckedNumbers(plain, values)).toEqual(["999"]);
     // Round 2 #4: the displayed verdict changed to another verdict.
-    const wrongVerdict = mutate(guide, '<span data-sample="verdict-word">Not enough evidence</span>', '<span data-sample="verdict-word">Use Jev</span>');
-    expect(await errors(wrongVerdict)).toEqual(["sample verdict-word shows Use Jev, code says Not enough evidence"]);
+    const wrongVerdict = mutate(guide, '<span data-sample="verdict-word">Use Jev (rule 3)</span>', '<span data-sample="verdict-word">Not enough evidence</span>');
+    expect(await errors(wrongVerdict)).toEqual(["sample verdict-word shows Not enough evidence, code says Use Jev (rule 3)"]);
     // A marked value wrapped in nested markup is still read and checked.
     const nested = mutate(guide, '<span data-const="CHEAPER">0.8</span>', '<span data-const="CHEAPER"><b>0.9</b></span>');
     expect(await errors(nested)).toEqual(["const CHEAPER shows 0.9, code says 0.8"]);
     // A mark on anything but a span is refused.
-    const notSpan = mutate(guide, '<span data-sample="cases">40</span>', '<b data-sample="cases">40</b>');
+    const notSpan = mutate(guide, '<span data-sample="cases">100</span>', '<b data-sample="cases">100</b>');
     expect(await errors(notSpan)).toEqual(["mark on <b> cases: use one data-const or data-sample on a span"]);
   }, 30000);
 
@@ -691,19 +712,19 @@ describe("in-product first-use guide (D18)", () => {
     expect(names).toEqual(["Tested", "Small test (under 30 cases)", "Idea only, not tested"]);
     const stage = read(STAGE);
     const cardLabels = (await sampleRunFields(stage)).map((field) => field.term);
-    const fixed = ["Sample questions", "Fit check", "See all 40 cases", "Try it: pick a seat", "Get another ticket", "Open the ticket office"];
+    const fixed = ["Sample questions", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "See all 100 cases", "Try it: pick a seat", "Get another ticket", "Open the ticket office"];
     for (const term of [...names, ...fixed]) expect(cardLabels).toContain(term);
     expect(stage).toContain('<h2>Sample questions</h2>');
     expect(stage).toContain('"See all " + J.cases.length + " cases"');
-    expect(office).toContain('"Fit check: "');
+    for (const label of ["Why: ", "What the cases show: ", "Next step: ", "Rephrased for Jev: ", "Earlier run: "]) expect(office).toContain(`"${label}"`);
     expect(office).toContain('"Get another ticket"');
     expect(await glossaryMissing(read(GUIDE), stage, read(BACKSTAGE))).toEqual([]);
     const guide = read(GUIDE);
     expect(guide).toContain("Below the sample cards, the shop-bot sections show a recorded run");
     expect(guide).toContain('The "Sample questions" cards begin with a plain status label');
     expect((await glossary(guide)).get("Sample run")).toContain("below the sample cards");
-    const missing = mutate(read(GUIDE), "<dt>Fit check</dt>", "<dt>Unexplained check</dt>");
-    expect(await glossaryMissing(missing, stage, read(BACKSTAGE))).toContain("Fit check (site/shows/office.js)");
+    const missing = mutate(read(GUIDE), "<dt>Why:</dt>", "<dt>Unexplained check</dt>");
+    expect(await glossaryMissing(missing, stage, read(BACKSTAGE))).toContain("Why: (site/shows/office.js)");
   });
 
   test("[unit] D18-SWARM-C05 section 4 numbers every rule the verdict code can emit, in order", async () => {
@@ -804,7 +825,7 @@ describe("guide reads the verdict statistics in plain words (D18 swarm l01)", ()
     const reasons = [
       "the worst gap this evidence cannot rule out",
       `The use-Jev rule needs the bottom above ${bound}`,
-      `${lower} is not above it, so that condition of rule three is not met and rule ${sample.get("verdict-rule-word") ?? ""} fires`,
+      `${lower} is above it, so that condition of rule three is met; the cost condition is met too, and rule ${sample.get("verdict-rule-word") ?? ""} fires`,
       "does not say Jev is worse",
     ];
     for (const needed of reasons) {
@@ -819,7 +840,7 @@ describe("guide reads the verdict statistics in plain words (D18 swarm l01)", ()
     return /Newcombe's paired method: ([^.]*\.[^.]*\.)/.exec(para)?.[1] ?? "";
   }
 
-  test("[unit] D18-SWARM-L01 section 5 reads the sample's lower bound in plain words and says why rule four fires", async () => {
+  test("[unit] D18-SWARM-L01 section 5 reads the sample's lower bound and both rule three conditions", async () => {
     expect(await verdictPlainProblems(read(GUIDE))).toEqual([]);
     const removed = mutate(read(GUIDE), "the worst gap this evidence cannot rule out", "the lower bound");
     expect(await verdictPlainProblems(removed)).toEqual(["missing: the worst gap this evidence cannot rule out"]);
@@ -829,7 +850,7 @@ describe("guide reads the verdict statistics in plain words (D18 swarm l01)", ()
     const lost = await verdictPlainProblems(mutate(read(GUIDE), why, "Therefore."));
     expect(lost.length).toBe(2);
     expect(lost[0]).toStartWith("missing: The use-Jev rule needs the bottom above");
-    expect(lost[1]).toContain("so that condition of rule three is not met");
+    expect(lost[1]).toContain("so that condition of rule three is met");
   });
 
   test("[unit] D18-SWARM-L01 Newcombe's paired method is followed by a plain definition, and uncorrected is defined", async () => {

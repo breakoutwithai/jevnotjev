@@ -137,8 +137,8 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
 <p>"Not enough evidence" is a finding, not a failure: the cases did not show a difference either way within the margin. If only one of Jev and the LLM kept nothing, the order above matters: the two accept-rate conditions of "don't use Jev" are checked first, so Jev keeping nothing while the LLM kept nearly everything is "don't use Jev" (Jev clearly worse). Only when neither of those fires is a one-sided zero "not enough evidence", with the labels to check named. Two cost guards sit at the same point, after those two accept-rate conditions and before "Jev is clearly dearer": when Jev and the LLM both cost $0 per kept answer there is no cost ratio, and when the costs are too large to add up or divide the ratio is not finite. Either gives "not enough evidence", reported as rule one. The same rules run in the workspace (the step labelled "Opening Night"), on the sample run page when you load your own file, and in <code>bun run decide verdict &lt;file&gt; --question &lt;id&gt;</code>.</p>
 
 <h2 id="example">5. Worked example: the sample run</h2>
-<p>Open the <a href="../">sample run page</a> and scroll. Below the sample cards, the shop-bot sections show a recorded run, flagged <strong>Sample run</strong> in the corner: <span data-sample="cases">40</span> made-up messages to a ski shop's bot, and one decision, "can the bot answer this from its fact sheet, or must it hand off to staff?"</p>
-<p>The "Sample questions" cards begin with a plain status label: "Tested", "Small test (under <span data-const="MIN_PAIRED">30</span> cases)", or "Idea only, not tested". Each card has one verdict line, one figure when a run has results, and one button. Open "More about ..." for details.</p>
+<p>Open the <a href="../">sample run page</a> and scroll. Below the sample cards, the shop-bot sections show a recorded run, flagged <strong>Sample run</strong> in the corner: <span data-sample="cases">100</span> made-up messages to a ski shop's bot, and one decision, "can the bot answer this from its fact sheet, or must it hand off to staff?" The first forty were used in the earlier run; five AI persona writers wrote the next sixty before the answerers ran.</p>
+<p>The "Sample questions" cards begin with a plain status label: "Tested", "Small test (under <span data-const="MIN_PAIRED">30</span> cases)", or "Idea only, not tested". Each card visibly gives the verdict, why, what the cases show and the next step. Cards also show a rephrased question where one helps, and an earlier result where one exists. Open "More about ..." for methods, labels, story, date and evidence.</p>
 
 <h3>Captions that are not results</h3>
 <p>Some captions on the sample run page are decoration or navigation, not results:</p>
@@ -154,33 +154,33 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
 <p><strong>A, What you do now</strong> is an LLM answering each message from the fact sheet. <strong>B, A simple rule</strong> is a keyword list that sends stock, booking, policy and safety words to staff. <strong>C, Jev decides</strong> picks answer or hand off, with a confidence. The second answer's name is <code>hand_off</code>, as the workspace and the results file write it; the sample run page prints it as "hand off". The coloured bar under each player shows how often it picked each answer.</p>
 
 <h3>The labels</h3>
-<p>Every message has one label, the right answer: <span data-sample="truth-answer">20</span> answer and <span data-sample="truth-hand_off">20</span> hand off. Three AI labellers who never saw any player's answer drafted them from the fact sheet, and a person reviewed and approved them, so they are <code>human_reviewed</code>, not blind picks. The acceptance rule is the one quoted under <a href="#label">Label acceptance</a>.</p>
+<p>Every message has one label, the right answer: <span data-sample="truth-answer">33</span> answer and <span data-sample="truth-hand_off">67</span> hand off. Three AI labellers who never saw any player's answer drafted them from the fact sheet, and a person reviewed and approved them, so they are <code>human_reviewed</code>, not blind picks. The acceptance rule is the one quoted under <a href="#label">Label acceptance</a>.</p>
 
 <h3>The cases table</h3>
 <p>Each row is one message. <strong>Case</strong> is its id, <strong>Message</strong> its text, and the small <strong>label</strong> tag after the text is the right answer. Under <strong>A now</strong>, <strong>B rule</strong> and <strong>C Jev</strong> each player's pick is marked kept if it matches the label, rejected if not. <strong>Jev said</strong> repeats Jev's pick with its confidence and a bar.</p>
-<p>Jev's mistakes come first, highest confidence first. The box marked "Spotlight" is <span data-sample="spot-id">m33</span>, "If it dumps overnight can I swap my demo skis for something wider?" The fact sheet promises free condition swaps on demo rentals, so the label is answer. Jev said hand off with <span data-sample="spot-confidence">0.78</span> confidence, so its answer was rejected. A high confidence on a rejected answer is why confidence is the model's own score, not measured accuracy. <strong>Kept so far</strong> gives each player's total kept answers across all cases.</p>
+<p>Jev's mistakes come first, highest confidence first. The box marked "Spotlight" is <span data-sample="spot-id">m44</span>, a message asking which counter to visit in the morning. The fact sheet does not settle everything it asks, so the label is hand off. Jev said answer with <span data-sample="spot-confidence">0.88</span> confidence, so its answer was rejected. A high confidence on a rejected answer is why confidence is the model's own score, not measured accuracy. <strong>Kept so far</strong> gives each player's total kept answers across all cases.</p>
 
 <h3>The cost table</h3>
 <table>
   <thead><tr><th>Player</th><th>Spend</th><th>Kept answers</th><th>Cost per kept answer</th></tr></thead>
   <tbody>
-    <tr><td>A, What you do now</td><td><span data-sample="spend-A">$0.1032</span></td><td><span data-sample="kept-A">38</span>/<span data-sample="cases">40</span></td><td><span data-sample="cpk-A">$0.0027</span></td></tr>
-    <tr><td>B, A simple rule</td><td><span data-sample="spend-B">$0.0000</span></td><td><span data-sample="kept-B">29</span>/<span data-sample="cases">40</span></td><td><span data-sample="cpk-B">$0.0000</span></td></tr>
-    <tr><td>C, Jev decides</td><td><span data-sample="spend-C">$0.0013</span></td><td><span data-sample="kept-C">38</span>/<span data-sample="cases">40</span></td><td><span data-sample="cpk-C">$0.000034</span></td></tr>
+    <tr><td>A, What you do now</td><td><span data-sample="spend-A">$0.0163</span></td><td><span data-sample="kept-A">86</span>/<span data-sample="cases">100</span></td><td><span data-sample="cpk-A">$0.000189</span></td></tr>
+    <tr><td>B, A simple rule</td><td><span data-sample="spend-B">$0.0000</span></td><td><span data-sample="kept-B">49</span>/<span data-sample="cases">100</span></td><td><span data-sample="cpk-B">$0.0000</span></td></tr>
+    <tr><td>C, Jev decides</td><td><span data-sample="spend-C">$0.0033</span></td><td><span data-sample="kept-C">88</span>/<span data-sample="cases">100</span></td><td><span data-sample="cpk-C">$0.000037</span></td></tr>
   </tbody>
 </table>
-<p>Jev and the LLM kept the same number of answers. Against the LLM, Jev won <span data-sample="wins-A">1</span> case and lost <span data-sample="losses-A">1</span>; against the rule it won <span data-sample="wins-B">10</span> and lost <span data-sample="losses-B">1</span>. Each answer Jev kept cost <span data-sample="save-vs-a">99</span>% less than one the LLM kept. Below it, <strong>Median seconds per call</strong> shows how long each player took.</p>
+<p>Jev kept <span data-sample="kept-C">88</span> answers and the LLM kept <span data-sample="kept-A">86</span>. Against the LLM, Jev won <span data-sample="wins-A">5</span> cases and lost <span data-sample="losses-A">3</span>; against the rule it won <span data-sample="wins-B">43</span> and lost <span data-sample="losses-B">4</span>. Each answer Jev kept cost <span data-sample="save-vs-a">80</span>% less than one the LLM kept. Below it, <strong>Median seconds per call</strong> shows how long each player took.</p>
 
 <h3>The verdict</h3>
-<p>The verdict is <strong><span data-sample="verdict-word">Not enough evidence</span></strong>, decided by rule <span data-sample="verdict-rule">4</span>; the page does not show the rule number. Walking the rules in order:</p>
+<p>The page shows <strong><span data-sample="verdict-word">Use Jev (rule 3)</span></strong> as its verdict line. Rule <span data-sample="verdict-rule">3</span> fired. The final section gives the why, case results, next step and earlier result before the supporting list and caveat. Walking the rules in order:</p>
 <ol>
-  <li><strong>Rule one passes:</strong> Jev and the LLM have <span data-sample="paired">40</span> paired labelled cases, at least <span data-const="MIN_PAIRED">30</span>, and every paired row has a cost.</li>
-  <li><strong>Rule two does not fire.</strong> The rule is not within the margin: the lower bound of the rule minus Jev is <span data-sample="rule-lower">-0.38</span>, not above <span data-const="MARGIN_BOUND">-0.10</span>. Jev is not clearly worse: the upper bound of Jev minus the LLM is <span data-sample="jev-upper">0.11</span>, not below <span data-const="MARGIN_BOUND">-0.10</span>. Jev is not dearer: the cost ratio is <span data-sample="cost-ratio">0.013</span>.</li>
-  <li><strong>Rule three fails on one condition.</strong> Cost passes: the ratio <span data-sample="cost-ratio">0.013</span> is under <span data-const="CHEAPER">0.8</span> and its upper bound <span data-sample="cost-upper">0.014</span> is below one. Accept rate does not: both kept the same share, but on <span data-sample="paired">40</span> cases the lower bound of Jev minus the LLM is <span data-sample="jev-lower">-0.11</span>, just below the <span data-const="MARGIN_BOUND">-0.10</span> the margin needs.</li>
-  <li><strong>So rule <span data-sample="verdict-rule-word">four</span> fires:</strong> <span data-sample="verdict-name">not enough evidence</span>. The caveat line on the page quotes the reason: "<span data-sample="reason">Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM -0.11, not above -0.10)</span>".</li>
+  <li><strong>Rule one passes:</strong> Jev and the LLM have <span data-sample="paired">100</span> paired labelled cases, at least <span data-const="MIN_PAIRED">30</span>, and every paired row has a cost.</li>
+  <li><strong>Rule two does not fire.</strong> The rule is not within the margin: the lower bound of the rule minus Jev is <span data-sample="rule-lower">-0.49</span>, not above <span data-const="MARGIN_BOUND">-0.10</span>. Jev is not clearly worse: the upper bound of Jev minus the LLM is <span data-sample="jev-upper">0.08</span>, not below <span data-const="MARGIN_BOUND">-0.10</span>. Jev is not dearer: the cost ratio is <span data-sample="cost-ratio">0.197</span>.</li>
+  <li><strong>Rule three meets both conditions.</strong> Cost passes: the ratio <span data-sample="cost-ratio">0.197</span> is under <span data-const="CHEAPER">0.8</span> and its upper bound <span data-sample="cost-upper">0.218</span> is below one. Accept rate passes too: on <span data-sample="paired">100</span> cases the lower bound of Jev minus the LLM is <span data-sample="jev-lower">-0.04</span>, above the <span data-const="MARGIN_BOUND">-0.10</span> the margin needs.</li>
+  <li><strong>So rule <span data-sample="verdict-rule-word">three</span> fires:</strong> <span data-sample="verdict-name">use Jev</span>. The caveat line on the page quotes the reason: "<span data-sample="reason">Jev is within 10 points of the LLM (lower bound -0.04) and costs 0.197 of it per accepted answer (upper bound 0.218)</span>".</li>
 </ol>
-<p id="verdict-plain"><strong>The verdict line in plain words.</strong> Jev kept <span data-sample="kept-C">38</span> and the LLM <span data-sample="kept-A">38</span> of the <span data-sample="paired">40</span> paired cases, so the best single guess of Jev minus the LLM is no difference. A sample this small still leaves room for luck, so the method puts a range around that guess, from <span data-sample="jev-lower">-0.11</span> to <span data-sample="jev-upper">0.11</span>. "Lower bound of Jev minus LLM <span data-sample="jev-lower">-0.11</span>" is the bottom of that range: the worst gap this evidence cannot rule out, with Jev keeping that much smaller a share of answers than the LLM. The use-Jev rule needs the bottom above <span data-const="MARGIN_BOUND">-0.10</span>, Jev at worst <span data-const="MARGIN_POINTS">10</span> points behind. <span data-sample="jev-lower">-0.11</span> is not above it, so that condition of rule three is not met and rule <span data-sample="verdict-rule-word">four</span> fires. It does not say Jev is worse; more paired cases would narrow the range and could settle it either way.</p>
-<p>Read it this way: on this test set Jev matched the LLM's kept answers at a small fraction of the cost, but the cases are too few to rule out Jev being more than <span data-const="MARGIN_POINTS">10</span> points worse. The page shows the reason line; the rule-two and cost-ratio figures above come from the same verdict command run on the sample's records file.</p>
+<p id="verdict-plain"><strong>The verdict line in plain words.</strong> Jev kept <span data-sample="kept-C">88</span> and the LLM <span data-sample="kept-A">86</span> of the <span data-sample="paired">100</span> paired cases. The method puts a range around the observed difference, from <span data-sample="jev-lower">-0.04</span> to <span data-sample="jev-upper">0.08</span>. "Lower bound of Jev minus LLM <span data-sample="jev-lower">-0.04</span>" is the bottom of that range: the worst gap this evidence cannot rule out, with Jev keeping that much smaller a share of answers than the LLM. It does not say Jev is worse. The use-Jev rule needs the bottom above <span data-const="MARGIN_BOUND">-0.10</span>, Jev at worst <span data-const="MARGIN_POINTS">10</span> points behind. <span data-sample="jev-lower">-0.04</span> is above it, so that condition of rule three is met; the cost condition is met too, and rule <span data-sample="verdict-rule-word">three</span> fires.</p>
+<p>Read it this way: on this test set Jev kept more answers than the LLM at about a fifth of the cost per kept answer. The lower bound is within the <span data-const="MARGIN_POINTS">10</span>-point limit. The page gives the next step: label at least <span data-const="MIN_PAIRED">30</span> cases from your own decision. Its earlier-run line explains why the first forty-message run did not prove the result. The rule-two and cost-ratio figures above come from the same verdict command run on the sample's records file.</p>
 <p>To try your own file, press "Open the ticket office" at the foot of the sample run page, then <strong>Load your own script (CSV)</strong>. The file is read in your browser and never leaves it.</p>
 
 <h2 id="limits">6. Limitations</h2>
@@ -194,11 +194,12 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <li><strong>Three players only.</strong> The verdict reads the LLM, the rule and Jev. An optional fourth arm in the command line (the OpenAI Decisions API) is recorded but not judged.</li>
   <li><strong>Several models, several verdicts.</strong> When the workspace compares Jev with more than one LLM, each pair gets its own uncorrected verdict and no overall winner is picked.</li>
   <li><strong>Size limits.</strong> The workspace takes 1 to 100 cases of up to 8,000 characters each; the sample run page reads a results file up to <span data-const="MAX_FILE_MB">5</span> MB.</li>
-  <li><strong>Confidence is not accuracy.</strong> Jev's confidence is the model's own score; the sample's case marked "Spotlight" was rejected at <span data-sample="spot-confidence">0.78</span>.</li>
+  <li><strong>Confidence is not accuracy.</strong> Jev's confidence is the model's own score; the sample's case marked "Spotlight" was rejected at <span data-sample="spot-confidence">0.88</span>.</li>
 </ul>
 
 <h2 id="fields">Field glossary</h2>
 <p>Labels on the sample cards and the recorded shop-bot run, plus the workspace fields, in the order you meet them.</p>
+<p>The card rephrase patterns below are separate from the ready packs P1 to P4 in the step labelled "New Scene".</p>
 <dl id="glossary">
   <dt>On the sample run page</dt><dd>The public page at <a href="../">/</a>.</dd>
   <dt>Sample run</dt><dd>The badge in the corner identifies the recorded shop-bot run below the sample cards. The cards also include questions that have not been tested.</dd>
@@ -206,8 +207,15 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>Tested</dt><dd>A card with a recorded run and checked results.</dd>
   <dt>Small test (under <span data-const="MIN_PAIRED">30</span> cases)</dt><dd>A card with a run too small for a verdict.</dd>
   <dt>Idea only, not tested</dt><dd>A question without a run or verdict yet.</dd>
-  <dt>Fit check</dt><dd>For an untested card, whether its question fits Jev's fixed-answer task.</dd>
-  <dt>See all <span data-sample="cases">40</span> cases</dt><dd>The summary that opens the complete list of messages; the number follows the recorded run's case count.</dd>
+  <dt>Why:</dt><dd>Why the card has its verdict, including the condition the current evidence meets or does not meet.</dd>
+  <dt>What the cases show:</dt><dd>The current Jev, LLM and rule results, or plainly that no cases have been run.</dd>
+  <dt>Next step:</dt><dd>The next set of cases to label, or another way to test the question.</dd>
+  <dt>Rephrased for Jev:</dt><dd>A fixed-answer question for a card whose original question does not fit Jev.</dd>
+  <dt>pattern P1</dt><dd>Card rephrase pattern: ask a closed choice and say what each option means, such as met, partly met or not met for a requirement and its evidence.</dd>
+  <dt>pattern P2</dt><dd>Card rephrase pattern: ask one yes or no statement Jev can check on one text, then let code combine the answers.</dd>
+  <dt>pattern P3</dt><dd>Card rephrase pattern: split a score into one fixed-answer check per item, then let code weight the answers into the score.</dd>
+  <dt>Earlier run:</dt><dd>The earlier result when the same question has been tested before.</dd>
+  <dt>See all <span data-sample="cases">100</span> cases</dt><dd>The summary that opens the complete list of messages; the number follows the recorded run's case count.</dd>
   <dt>Try it: pick a seat</dt><dd>The first action links to an interactive example where you choose an answer.</dd>
   <dt>Get another ticket</dt><dd>After a request succeeds, clears the form so you can make another request.</dd>
   <dt>Open the ticket office</dt><dd>Opens the form for a recorded test or workspace access.</dd>
@@ -232,8 +240,14 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>Method</dt><dd>Which player a timing row is for.</dd>
   <dt>Median seconds per call</dt><dd>The middle time one call took. The LLM figure includes starting the command that called it.</dd>
   <dt>Use Jev</dt><dd>Verdict: Jev is within the margin of the LLM and clearly cheaper per kept answer (section 4, rule three).</dd>
+  <dt>Use Jev (rule 3)</dt><dd>The recorded sample verdict, including the rule number shown on the page.</dd>
+  <dt>Use Jev (100 messages)</dt><dd>The shop-bot card's result from its latest recorded run.</dd>
   <dt>Don't use Jev</dt><dd>Verdict: a free rule does the job, or Jev is clearly worse or clearly dearer (rule two).</dd>
   <dt>Not enough evidence</dt><dd>Verdict: too few paired labelled cases or missing costs (rule one), or the use-Jev conditions were not all met (rule four).</dd>
+  <dt>Not enough evidence (rule 1)</dt><dd>The CV card has too few paired labelled cases for a verdict comparison.</dd>
+  <dt>Jev probably not</dt><dd>The original question asks for open judgement or writing; the card gives a fixed-answer rephrase to test instead.</dd>
+  <dt>Split two ways</dt><dd>Use a script where a check can settle the answer, and test a fixed-answer Jev question where the evidence is prose.</dd>
+  <dt>Not proven yet</dt><dd>An earlier run did not establish enough evidence for the use-Jev verdict.</dd>
   <dt>Load your own script (CSV)</dt><dd>Choose a results file (one row per case per player) to check it and see its verdict. It is read in your browser.</dd>
 
   <dt>In the workspace</dt><dd>The signed-in tester area, titled "Backstage Pass" on screen (<a href="/backstage/">open it</a>). Six steps, each a button in the row at the top.</dd>

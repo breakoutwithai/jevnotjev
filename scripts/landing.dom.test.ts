@@ -59,7 +59,8 @@ for (const motion of MOTIONS) {
           const range = document.createRange(); range.selectNodeContents(node); return range.getClientRects().length;
         })).toBeLessThanOrEqual(2);
         const result = await page.locator("#heroResult").innerText();
-        for (const word of ["40", "Jev", "LLM", "simple rule", "Not enough evidence"]) expect(result).toContain(word);
+        for (const word of ["100", "Jev", "LLM", "simple rule", "Verdict: Use Jev (rule 3)."] ) expect(result).toContain(word);
+        expect(await page.locator("#heroWhy").innerText()).toContain("Why: On 100 shop messages");
         expect(await page.locator("#primaryAction").innerText()).toBe("Try it: pick a seat");
         expect(new URL(await page.locator("#primaryAction").getAttribute("href") ?? "", page.url()).pathname).toBe("/little-shop/");
         const actionProbe = await page.locator("#primaryAction").evaluate((node) => {
@@ -110,8 +111,8 @@ test("[integration] L9 cases disclosure and confidence ordered spotlights", asyn
   const page = await pageAt(1440, 900);
   try {
     expect(await page.locator("#allCases").getAttribute("open")).toBeNull();
-    expect(await page.locator("#allCases summary").innerText()).toBe("See all 40 cases");
-    expect(await page.locator("#allCases .case.row").count()).toBe(40);
+    expect(await page.locator("#allCases summary").innerText()).toBe("See all 100 cases");
+    expect(await page.locator("#allCases .case.row").count()).toBe(100);
     const spots = page.locator("#act3 .spotlight");
     expect(await spots.count()).toBe(2);
     const expected = await page.evaluate(() => window.JNJ.cases.filter((c) => c.arms.C.picked !== c.truth)
@@ -339,7 +340,8 @@ test("[integration] L12-L14 page dimensions and tap targets", async () => {
           const box = node.getBoundingClientRect();
           return style.visibility !== "hidden" && box.width > 0 && box.height > 0 && (box.width < 24 || box.height < 24);
         }).map((node) => `${node.tagName}#${node.id}.${node.className}`) }));
-      expect(measure.height).toBeLessThan(width === 390 ? 8000 : 5000);
+      // #201 adds the explained verdict to every card: measured 8085 at 390 and 4610 at 1440 on 2026-10-13.
+      expect(measure.height).toBeLessThan(width === 390 ? 8500 : 5000);
       expect(measure.small).toEqual([]);
       expect(measure.overflow).toBe(0);
     } finally { await page.close(); }

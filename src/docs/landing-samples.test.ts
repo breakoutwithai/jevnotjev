@@ -18,7 +18,8 @@ const FACTS = ["accepted:jev", "accepted:llm", "accepted:rule", "labelled:jev", 
 const BARE = /^(?:Verdict:\s*)?(?:use Jev|don't use Jev|not enough evidence|not proven yet|not enough proof yet|Jev probably not|Jev could help|not Jev|!Jev|split two ways|needs a test)(?:\s*\([^)]*\))?\.?$/i;
 
 type Fact = "accepted:jev" | "accepted:llm" | "accepted:rule" | "labelled:jev" | "labelled:llm" | "labelled:rule" | "spend:jev" | "spend:llm" | "spend:rule" | "toMinimum";
-type Figure = { text: string; file: string; quote: string } | { text: string; file: string; fact: Fact };
+// A fact may name one question_id: a run file can hold several questions, and a card describes one of them.
+type Figure = { text: string; file: string; quote: string } | { text: string; file: string; fact: Fact; question?: string };
 interface Explained {
   why: string | null;
   cases: string | null;
@@ -43,7 +44,8 @@ function stringOrNull(value: unknown): string | null { return typeof value === "
 function figure(value: unknown): value is Figure {
   return record(value) && typeof value.text === "string" && typeof value.file === "string" &&
     ((typeof value.quote === "string" && value.fact === undefined) ||
-      (typeof value.fact === "string" && FACTS.includes(value.fact) && value.quote === undefined));
+      (typeof value.fact === "string" && FACTS.includes(value.fact) && value.quote === undefined &&
+        (value.question === undefined || typeof value.question === "string")));
 }
 function explained(value: unknown): Explained | null {
   if (!record(value)) return null;
@@ -131,10 +133,12 @@ function quoteMatches(display: string, quote: string): boolean {
   }
   return false;
 }
-function factValue(fact: Fact, csv: string): { value: number | null; error: string | null } {
+function factValue(fact: Fact, csv: string, question: string | undefined): { value: number | null; error: string | null } {
   const parsed = validate(csv);
   if (parsed.errors.length) return { value: null, error: `invalid records.csv: ${parsed.errors[0]}` };
-  const labelled = parsed.rows.map((row) => row.values).filter((values) => truthLabel(values) !== null);
+  const labelled = parsed.rows.map((row) => row.values)
+    .filter((values) => truthLabel(values) !== null && (question === undefined || values.get("question_id") === question));
+  if (question !== undefined && labelled.length === 0) return { value: null, error: `no labelled rows for question ${question}` };
   if (fact === "toMinimum") {
     const paired = new Map<string, Set<string>>();
     for (const values of labelled) {
@@ -185,7 +189,7 @@ function checkFigures(samples: Sample[]): string[] {
         if (!entry.file.endsWith("/records.csv")) { problems.push(`${sample.id}: fact source is not records.csv: ${entry.file}`); continue; }
         const numbers = [...entry.text.matchAll(NUMBERS)];
         if (numbers.length !== 1) { problems.push(`${sample.id}: fact figure must hold exactly one number: ${entry.text}`); continue; }
-        const measured = factValue(entry.fact, source);
+        const measured = factValue(entry.fact, source, entry.question);
         if (measured.error) problems.push(`${sample.id}: ${measured.error}`);
         else if (measured.value === null || !roundedMatch(numbers[0]?.[0] ?? "", measured.value)) problems.push(`${sample.id}: fact ${entry.fact} does not support ${entry.text}`);
       }
@@ -283,6 +287,24 @@ test("[unit] #201-3 mutation: invented uc13 and uc11 numbers and unsupported quo
   expect(problems.some((problem) => problem.includes("uc13: undeclared number 89"))).toBe(true);
   expect(problems.some((problem) => problem.includes("uc11: undeclared number 7"))).toBe(true);
   expect(problems.some((problem) => problem.includes("uc13: quote absent"))).toBe(true);
+});
+test("[unit] #201-3 mutation: a fact counted over the wrong question or every question", () => {
+  const tokenmax = "docs/product/runs/2026-10-03-tokenmax/records.csv";
+  const samples: Sample[] = [{ id: "uc11", fit: [], runBacked: true, verdictLine: "Needs a test", explained: {
+    why: "The rule is unmet.", cases: "the simple rule 2 of 5", next: "Label more cases.", rephrase: null, earlier: null,
+    figures: [{ text: "2", file: tokenmax, fact: "accepted:rule", question: "q1" }, { text: "5", file: tokenmax, fact: "labelled:rule", question: "q1" }],
+  } }];
+  expect(checkFigures(samples)).toEqual([]);
+  const wrong = structuredClone(samples);
+  const wrongFigure = wrong[0]?.explained?.figures?.[0];
+  if (!wrongFigure || !("fact" in wrongFigure)) throw new Error("fact fixture incomplete");
+  wrongFigure.question = "q2";
+  expect(checkFigures(wrong).some((problem) => problem.includes("fact accepted:rule does not support 2"))).toBe(true);
+  const every = structuredClone(samples);
+  const everyFigure = every[0]?.explained?.figures?.[0];
+  if (!everyFigure || !("fact" in everyFigure)) throw new Error("fact fixture incomplete");
+  delete everyFigure.question;
+  expect(checkFigures(every).some((problem) => problem.includes("fact accepted:rule does not support 2"))).toBe(true);
 });
 test("[unit] #201-4 no sample ends on a bare verdict word", () => {
   const loaded = loadSamples();

@@ -66,7 +66,7 @@
     "src/backstage/confirm.test.ts": 21,
     "src/backstage/copy.test.ts": 2,
     "src/backstage/demo-notice.test.ts": 7,
-    "src/backstage/downloads.test.ts": 4,
+    "src/backstage/downloads.test.ts": 5,
     "src/backstage/export-check.test.ts": 28,
     "src/backstage/house-key.test.ts": 7,
     "src/backstage/lead-sign-in.test.ts": 47,

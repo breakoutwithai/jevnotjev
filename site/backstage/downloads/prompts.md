@@ -27,10 +27,10 @@ Use synthetic or redacted input. These are starter questions to adapt, not measu
 3. For choice, set `type: "choice"`, `instructions.question`, and `criteria` mapping answer names to meanings. For noul, set `type: "noul"` and `instructions.question`. For score, set `type: "score"`, `instructions.question`, and `criteria` as ordered descriptions.
 4. Start with [choice](requests/choice.json), [noul](requests/noul.json), or [score](requests/score.json). Compare answers on labelled cases against a simple rule before using them to route real work.
 
-The three JSON files are direct Jev `/v1/systemone` body examples. To try one, set `JEV_API_KEY` in your shell and run:
+All three JSON files are unrun direct Jev `/v1/systemone` body examples that follow the documented request shapes. Their state, question text, and criteria are synthetic. To try one, set `JEV_API_KEY` in your shell and run:
 
 ```sh
 curl -sS https://api.typesafe.ai/v1/systemone -H "Authorization: Bearer ${JEV_API_KEY}" -H 'Content-Type: application/json' --data-binary @requests/choice.json
 ```
 
-Change the filename for another type. The JSON files contain no key. The noul and score bodies are unrun examples based on the repo's documented shapes.
+Change the filename for another type. The JSON files contain no key.

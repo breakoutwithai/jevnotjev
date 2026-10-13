@@ -8,7 +8,7 @@ allowed-tools: Read
 
 Use this skill when someone asks whether Jev could help with a task. Jev answers fixed-answer questions about one state, such as a message, page text, JSON record, or chat log. It does not write prose. This assessment makes no API call. One live answer proves nothing.
 
-If no decision is named, ask one question: "Where does something get sorted, checked, or routed today, and what are the options?" Answer on the reply. If still vague, guess one common decision and mark it `Needs a test`; tell the user it was a guess. If a task is already named, proceed. Use one to three rows. For a broader request, ask that one question first.
+If no decision is named, ask one question: "Where does something get sorted, checked, or routed today, and what are the options?" Use the user's answer. If still vague, assume one common decision and mark it `Needs a test`; tell the user it was an assumption. If a task is already named, proceed. Use one to three rows. For a broader request, ask that one question first.
 
 ## Five conditions
 

@@ -819,15 +819,16 @@ describe("guide reads the verdict statistics in plain words (D18 swarm l01)", ()
   });
 });
 
-// Operator requirement for /guide/: no images, no styling, no theatre theme.
-describe("guide is plain: no images, no styling, no theatre theme", () => {
+// Operator requirement for /guide/: readable plain styling, no images, no theatre theme
+// (confirmed 2026-10-13; #200 read "no styling" as zero CSS and shipped an unreadable page).
+describe("guide is plain: readable styling, no images, no theatre theme", () => {
   /** Decimal and hex character references decoded, so an entity cannot hide a word or an emoji. */
   function decodeRefs(text: string): string {
     const point = (n: number): string => (Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : " ");
     return text.replace(/&#x([0-9a-f]+);?/gi, (_m: string, hex: string) => point(parseInt(hex, 16))).replace(/&#(\d+);?/g, (_m: string, dec: string) => point(Number(dec)));
   }
 
-  const PRESENTATION_TAGS = new Set(["style", "img", "svg", "picture", "b", "i", "font", "object", "embed", "video", "canvas"]);
+  const PRESENTATION_TAGS = new Set(["img", "svg", "picture", "b", "i", "font", "object", "embed", "video", "canvas"]);
   const PRESENTATION_ATTRS = ["style", "class", "background", "bgcolor", "color", "face", "align"];
   const SIZED_TABLE_TAGS = new Set(["table", "td", "th", "col", "colgroup"]);
   const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
@@ -858,16 +859,110 @@ describe("guide is plain: no images, no styling, no theatre theme", () => {
     return out;
   }
 
-  test("[unit] D18-PLAIN-STYLE the guide has no style block, stylesheet, style or class attribute, or image", async () => {
+  // The Stage's fonts and palette (site/index.html before #200), light and dark.
+  const THEATRE_STYLE = /alegreya|schibsted|curtain|brass|theatre|#7b1424|#94203a|#8a5f10|#e0b04e/;
+  const STYLE_BLOCK = /<style\b[^>]*>[\s\S]*?<\/style\s*>\n?/i;
+
+  /** CSS as the browser reads it: comments dropped, escapes decoded, rgb() as hex, lower case. */
+  function normaliseCss(css: string): string {
+    const channel = (n: string): number => (n.endsWith("%") ? (Number(n.slice(0, -1)) * 255) / 100 : Number(n));
+    const hex = (n: string): string => Math.max(0, Math.min(255, Math.round(channel(n)))).toString(16).padStart(2, "0");
+    return css
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\\([0-9a-f]{1,6})\s?/gi, (_m: string, h: string) => String.fromCodePoint(Math.min(parseInt(h, 16), 0x10ffff)))
+      .replace(/\\(.)/g, "$1")
+      .toLowerCase()
+      .replace(/rgba?\(\s*([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)[^)]*\)/g, (_m: string, r: string, g: string, b: string) => `#${hex(r)}${hex(g)}${hex(b)}`);
+  }
+
+  /** What the one inline style block fails to give a readable plain page; empty when it gives all of it. */
+  async function readableStyleProblems(html: string): Promise<string[]> {
+    const blocks: { inHead: boolean; attrs: number; css: string }[] = [];
+    let viewport = false;
+    await new HTMLRewriter()
+      .on("style", {
+        element(el) {
+          blocks.push({ inHead: false, attrs: [...el.attributes].length, css: "" });
+        },
+        text(chunk) {
+          const last = blocks[blocks.length - 1];
+          if (last !== undefined) last.css += chunk.text;
+        },
+      })
+      .on("head > style", {
+        element() {
+          const last = blocks[blocks.length - 1];
+          if (last !== undefined) last.inHead = true;
+        },
+      })
+      .on('meta[name="viewport"]', {
+        element() {
+          viewport = true;
+        },
+      })
+      .transform(new Response(html))
+      .text();
+    const block = blocks[0];
+    if (blocks.length !== 1 || block === undefined) return [`style blocks: ${blocks.length}`];
+    if (!block.inHead) return ["style block outside head"];
+    const out: string[] = [];
+    if (block.attrs > 0) out.push("style block has attributes");
+    const css = normaliseCss(block.css);
+    // Required rules hold only if nothing later overrides them and no at-rule but dark mode wraps them.
+    const atRules = (css.match(/@[^{;]*/g) ?? []).map((r) => r.trim().replace(/\s+/g, " "));
+    if (atRules.some((r) => r !== "@media (prefers-color-scheme: dark)")) out.push("at-rule other than dark mode");
+    const LENGTH = /^\d+(?:\.\d+)?(?:ch|px|rem|em)$/;
+    const widths = [...css.matchAll(/max-width\s*:\s*([^;}]+)/g)].map((m) => (m[1] ?? "").trim());
+    if (!/(?:^|[}\s])(?:main|body)\s*\{[^}]*max-width\s*:/.test(css) || widths.some((w) => !LENGTH.test(w))) out.push("no max-width on the content");
+    const fonts = [...css.matchAll(/font(?:-family)?\s*:\s*([^;}]+)/g)].map((m) => (m[1] ?? "").trim());
+    if (!/(?:^|[}\s])body\s*\{[^}]*font(?:-family)?\s*:[^;}]*sans-serif/.test(css) || fonts.some((f) => !/(?:sans-serif|monospace)$/.test(f))) out.push("no body font-family");
+    if (/url\(|@import|image-set\(|image\(|gradient\(|element\(/.test(css)) out.push("css image or import");
+    if (/(?:^|[;{\s])content\s*:/.test(css) || EMOJI.test(css)) out.push("generated content or emoji");
+    if (THEATRE_STYLE.test(css)) out.push("theatre styling");
+    if (!viewport) out.push("no viewport meta");
+    return out;
+  }
+
+  test("[unit] D18-PLAIN-STYLE the guide has one readable inline style block and no stylesheet, style or class attribute, or image", async () => {
     expect(await presentationProblems(read(GUIDE))).toEqual([]);
-    expect(read(GUIDE)).toContain('<meta name="viewport"');
+    expect(await readableStyleProblems(read(GUIDE))).toEqual([]);
+  });
+
+  test("[unit] D18-PLAIN-STYLE-READABLE-NEGATIVE a missing, extra, hidden, unreadable or theatre style block goes RED", async () => {
+    const guide = read(GUIDE);
+    const block = STYLE_BLOCK.exec(guide)?.[0] ?? "";
+    expect(block).toContain("max-width");
+    const unstyled = mutate(guide, block, "");
+    const check = async (from: string, to: string): Promise<string[]> => readableStyleProblems(mutate(guide, from, to));
+    expect(await readableStyleProblems(unstyled)).toEqual(["style blocks: 0"]);
+    expect(await check("<style>", "<!--<style>")).toEqual(["style blocks: 0"]);
+    expect(await readableStyleProblems(guide.replace("</style>", "</style >"))).toEqual([]);
+    expect(await check("<main>", "<main><style>p { color: red; }</style>")).toEqual(["style blocks: 2"]);
+    expect(await readableStyleProblems(mutate(unstyled, "<main>", `<main>${block}`))).toEqual(["style block outside head"]);
+    expect(await check("<style>", '<style media="print">')).toEqual(["style block has attributes"]);
+    expect(await check("max-width: 72ch;", "")).toEqual(["no max-width on the content"]);
+    expect(await check("max-width: 72ch;", "max-width: none;")).toEqual(["no max-width on the content"]);
+    expect(await check("max-width: 72ch;", "/* max-width: 72ch; */")).toEqual(["no max-width on the content"]);
+    expect(await check('system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', "Georgia, serif")).toEqual(["no body font-family"]);
+    expect(await check("system-ui,", '"Alegreya", system-ui,')).toEqual(["theatre styling"]);
+    expect(await check("background: #fff;", "background: #7b1424;")).toEqual(["theatre styling"]);
+    expect(await check("background: #fff;", "background: rgb(123, 20, 36);")).toEqual(["theatre styling"]);
+    expect(await check("background: #fff;", 'background: u\\72l("x.png");')).toEqual(["css image or import"]);
+    expect(await check('<meta name="viewport"', '<meta name="x-viewport"')).toEqual(["no viewport meta"]);
+    const append = async (rule: string): Promise<string[]> => check("</style>", `${rule}\n</style>`);
+    expect(await append("@media print { main { color: red; } }")).toEqual(["at-rule other than dark mode"]);
+    expect(await append("main { max-width: var(--unbounded, none); }")).toEqual(["no max-width on the content"]);
+    expect(await append("body { font-family: serif; }")).toEqual(["no body font-family"]);
+    expect(await append("body { background: rgb(123.0 20.0 36.0); }")).toEqual(["theatre styling"]);
+    expect(await append("body { background: rgb(48.24% 7.84% 14.12%); }")).toEqual(["theatre styling"]);
+    expect(await append("body { background: linear-gradient(red, blue); }")).toEqual(["css image or import"]);
+    expect(await append('main::before { content: "\\1f3ad"; }')).toEqual(["generated content or emoji"]);
   });
 
   test("[unit] D18-PLAIN-STYLE-NEGATIVE each kind of styling or image put back goes RED", async () => {
     const guide = read(GUIDE);
     const inMain = async (added: string): Promise<string[]> => presentationProblems(mutate(guide, "<main>", `<main>${added}`));
     const inHead = async (added: string): Promise<string[]> => presentationProblems(mutate(guide, "</head>", `${added}</head>`));
-    expect(await inHead("<style>main { color: red; }</style>")).toEqual(["style"]);
     expect(await inHead('<link rel="stylesheet" href="x.css">')).toEqual(["link[rel=stylesheet]"]);
     expect(await inHead('<link rel="icon" href="x.ico">')).toEqual(["link[rel=icon]"]);
     expect(await inHead('<link rel="preload" as="font" href="x.woff2">')).toEqual(["link[rel=preload]"]);

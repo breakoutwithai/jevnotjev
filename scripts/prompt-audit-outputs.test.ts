@@ -623,17 +623,55 @@ describe("attribution ledger", () => {
     });
   });
 
-  test("[unit] AT16 an OTHER-REPO output suppresses the unmatched-SHA error", () => {
+  const MIXED = [
+    { repo: REPO, path: "a.ts", kind: "file" },
+    { repo: "acme/elsewhere", path: "x.ts", kind: "file" },
+  ];
+
+  test("[unit] AT16 with an OTHER-REPO output, a ledger SHA absent from this repo is not an error", () => {
     withTemp((repo) => {
       commitFiles(repo, "2026-10-04T12:00:00Z", "init", { "README.md": "x\n" });
       commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "a.ts": "a\n" });
       const a = head(repo);
-      commitFiles(repo, "2026-10-07T12:00:00Z", "feat: other repo's file", { "x.ts": "x\n" });
-      const x = head(repo);
-      const r = audit(repo, "old", { old: [a, x] }, [{ repo: REPO, path: "a.ts", kind: "file" }, { repo: "acme/elsewhere", path: "x.ts", kind: "file" }]);
+      const foreign = "1".repeat(40);
+      const r = audit(repo, "old", { old: [a, foreign] }, MIXED);
       expect(results(r)).toEqual(["a.ts=DELIVERED-ATTRIBUTED", "x.ts=OTHER-REPO"]);
       expect(r.errors).toEqual([]);
       expect(r.flags).not.toContain("INVALID-ATTRIBUTION");
+    });
+  });
+
+  test("[unit] AT19 an OTHER-REPO output does not excuse a SHA that resolves here but credits nothing, nor an absent SHA without one", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-01T12:00:00Z", "init", { "README.md": "x\n" });
+      commitFiles(repo, "2026-10-02T12:00:00Z", "feat: early a", { "a.ts": "early\n" });
+      const early = head(repo);
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "a.ts": "a\n" });
+      const a = head(repo);
+      sh(repo, {}, "switch", "-q", "-c", "side");
+      commitFiles(repo, "2026-10-07T12:00:00Z", "feat: side", { "unrelated.txt": "u\n" });
+      sh(repo, {}, "switch", "-q", "main");
+      sh(repo, { GIT_AUTHOR_DATE: "2026-10-08T12:00:00Z", GIT_COMMITTER_DATE: "2026-10-08T12:00:00Z" }, "merge", "-q", "--no-ff", "-m", "merge side", "side");
+      const merge = head(repo);
+      const r = audit(repo, "old", { old: [a, early, merge] }, MIXED);
+      expect(r.errors).toEqual([early, merge].map((s) => `attribution ${s} touches no declared output on HEAD after created`));
+      expect(r.flags).toContain("INVALID-ATTRIBUTION");
+      const foreign = "2".repeat(40);
+      const noOther = audit(repo, "old", { old: [a, foreign] }, [MIXED[0]]);
+      expect(noOther.errors).toEqual([`attribution ${foreign} touches no declared output on HEAD after created`]);
+    });
+  });
+
+  test("[unit] AT20 a ledger entry for a legacy prompt (no outputs) is INVALID-ATTRIBUTION", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "a.ts": "a\n" });
+      const a = head(repo);
+      const legacy = "---\nprompt_id: old\ncreated: 2026-10-05\nstatus: ready-not-run\n---\n";
+      const r = auditPrompt("a.prompt.md", legacy, treeOf(repo), gitFor(repo), "HEAD", null, REPO, { old: [a] });
+      expect(r.errors).toEqual(["attribution ledger names a prompt with no declared outputs"]);
+      expect(r.flags).toContain("INVALID-ATTRIBUTION");
+      const other = auditPrompt("a.prompt.md", legacy.replace("old", "unlisted"), treeOf(repo), gitFor(repo), "HEAD", null, REPO, { old: [a] });
+      expect(other.errors).toEqual([]);
     });
   });
 

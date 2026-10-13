@@ -80,7 +80,10 @@
 // absent now). Both stay distinct from DELIVERED: the `out` column reads delivered+attributed/declared
 // (`1+1/3`; REMOVED is not counted) and the detail lists them. A ledger SHA that credits none of the
 // prompt's outputs (not on the ref, a merge, before `created`, or wrong path) is an error on that prompt and
-// raises INVALID-ATTRIBUTION, so --strict exits 1. A ledger entry for a prompt not in the directory is ignored.
+// raises INVALID-ATTRIBUTION, so --strict exits 1. Two rules: an OTHER-REPO output excuses only a SHA that
+// does not resolve in this repo (`git cat-file -e`, it may be a foreign commit), never one that resolves and
+// credits nothing; and a ledger entry for a legacy prompt (no `outputs:`) is an error, not a no-op.
+// A ledger entry for a prompt not in the directory is ignored.
 // Limitation: a backtick span containing whitespace is one UNRESOLVED candidate, never a path, so a
 // file name with a space (or a comma and space) is always UNRESOLVED.
 import { readdirSync, readFileSync } from "node:fs";
@@ -564,7 +567,18 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   const outputs = parsed.outputs === null ? null : auditOutputs(parsed.outputs, parsed, tree, git, ref, repo, ledger, matched);
   // A ledger SHA that credits no declared output is a wrong SHA: reported, never trusted. Only when
   // every output could be queried (a prompt with an invalid or other-repo output is not judged).
-  const attributionErrors = outputs === null || outputs.some((o) => o.result === "INVALID-HEADER" || o.result === "OTHER-REPO") ? [] : ledger.filter((sha) => !matched.has(sha)).map((sha) => `attribution ${sha} touches no declared output on ${ref} after created`);
+  // An OTHER-REPO output excuses only a SHA this repo does not have (it may be a foreign commit); a SHA that
+  // resolves here and credits nothing is still wrong. A ledger entry for a legacy prompt is an error too.
+  const hasOther = outputs?.some((o) => o.result === "OTHER-REPO") === true;
+  const foreign = (sha: string): boolean => hasOther && git(["cat-file", "-e", `${sha}^{commit}`]).code !== 0;
+  const attributionErrors =
+    ledger.length === 0
+      ? []
+      : outputs === null
+        ? ["attribution ledger names a prompt with no declared outputs"]
+        : outputs.some((o) => o.result === "INVALID-HEADER")
+          ? []
+          : ledger.filter((sha) => !matched.has(sha) && !foreign(sha)).map((sha) => `attribution ${sha} touches no declared output on ${ref} after created`);
   // Declared outputs replace the prose extraction: a prompt with `outputs:` never reaches the path heuristics.
   const deliverables: DeliverableResult[] = (outputs === null ? parsed.deliverables : []).map((d) => {
     const c = extractCandidates(d);
@@ -646,7 +660,8 @@ export function renderReport(results: PromptResult[], refLine: string | null = n
         `DoD: ${r.dod.checked} checked, ${r.dod.unchecked} unchecked (unverified)`,
         `NOT-DELIVERED: ${names("NOT-DELIVERED")}`,
       ];
-      for (const result of ["DELIVERED-ATTRIBUTED", "REMOVED"] as const) if (declaredOutputs.some((o) => o.result === result)) declared.push(`${result}: ${names(result)}`);
+      const credited: OutputOutcome[] = ["DELIVERED-ATTRIBUTED", "REMOVED"];
+      for (const result of credited) if (declaredOutputs.some((o) => o.result === result)) declared.push(`${result}: ${names(result)}`);
       const other = declaredOutputs.filter((o) => o.result === "OTHER-REPO");
       if (other.length > 0) declared.push(`OTHER-REPO: ${other.map((o) => `${o.repo}:${o.path}`).join(", ")}`);
       const shared = declaredOutputs.filter((o) => o.sharedWith.length > 0);

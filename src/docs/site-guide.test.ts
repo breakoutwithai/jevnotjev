@@ -1114,6 +1114,11 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
           el.remove();
         },
       })
+      .on("footer", {
+        element(el) {
+          el.remove();
+        },
+      })
       .transform(new Response(html))
       .text();
     let prose = decodeRefs([(await texts(html, "title"))[0] ?? "", (await texts(withoutTerms, "body"))[0] ?? ""].join(" "));

@@ -1,0 +1,91 @@
+<!--
+Source map for this page, checked against this tree:
+docs/product/what-is-stored.md:71-102 (inventory and provider map; its old line numbers were rechecked below)
+docs/design/ticket-office.md:53-67 (published wording and open retention decision)
+site/index.html:229 (ticket office promise and request route)
+src/backstage/tickets.ts:74,97-100,123-127 (consent check, SQLite columns and insert)
+src/backstage/server.ts:216-218,299-313,322-327,418-458,567-571,628-675,677-698,736-739 (state paths, sign-in, relay, ticket write and static serving)
+src/backstage/api-v1.ts:11,68-71,191-212 (HTTP answer routes return data without a server output file)
+src/backstage/trial.ts:121-124,213-224,254,329 (ledger fields and pruning)
+src/backstage/log.ts:8-16,24-57 (fields written to stdout)
+.deploy/journald@jevnotjev-backstage.conf:1-5 (journal configuration)
+.deploy/nginx-jevnotjev.conf:19,51-59 (static page routing and web access log)
+src/backstage/auth.ts:57-94,141-146,155-188 (operator fields, session fields, cookie and revocation file)
+src/backstage/scene-draft.ts:1-13,57-69,100-104 (draft fields and storage calls)
+src/backstage/main.ts:205-210,307-323,902-913,1012-1018,1152-1175 (keys, run, clear and browser draft/download)
+src/backstage/run.ts:687-692,745-769,1511-1539 (relay, in-memory run and export)
+src/backstage/providers.ts:234-320,521-529 (selected provider destinations, body and credential)
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Jev!Jev handles data</title>
+<meta name="description" content="What Jev!Jev keeps, what goes to model providers, retention limits and how to request deletion.">
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0; background: #fff; color: #1a1a1a; font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 72ch; margin: 0 auto; padding: 24px 20px 64px; overflow-wrap: break-word; }
+h1 { font-size: 1.9em; line-height: 1.2; margin: 0.4em 0; }
+h2 { font-size: 1.4em; line-height: 1.25; margin: 2em 0 0.5em; padding-top: 0.6em; border-top: 1px solid #ddd; }
+a { color: #0b57d0; }
+code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #f2f2f2; padding: 0 0.2em; border-radius: 3px; }
+table { display: block; overflow-x: auto; border-collapse: collapse; margin: 1em 0; }
+th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
+@media (prefers-color-scheme: dark) {
+  body { background: #161616; color: #e6e6e6; }
+  a { color: #8ab4f8; }
+  code { background: #2a2a2a; }
+  h2 { border-top-color: #333; }
+  th, td { border-color: #444; }
+}
+</style>
+</head>
+<body>
+<main>
+<p><a href="/">Back to Jev!Jev</a></p>
+<h1>How Jev!Jev handles data</h1>
+<p id="data-summary">Backstage does not store your cases, runs or provider keys on our server.</p>
+<p>Use made-up or redacted cases. A case you run passes through our server and goes to each provider you select. This page describes the storage and requests visible in the code; it cannot promise what a provider or other infrastructure keeps.</p>
+
+<h2>What we keep</h2>
+<p><strong>Ticket office.</strong> With your consent, the form puts your ticket number, submission time, ticket type, selected show, email, optional website and idea, follow-up choice, consent flag and retry identifiers in a SQLite file on our server. The form promises that these details are never shared or sold; the application code does not send ticket rows to another service.</p>
+<p><strong>Sign-in.</strong> If Backstage sign-in is enabled, an operators file on our server holds approved email addresses, optional display names and password hashes. A signed session cookie contains the email and session details, is marked <code>HttpOnly</code>, and lasts up to 12 hours. A sign-out can add the session id and expiry to a revocation file on our server. Google sign-in uses a short-lived cookie during sign-in.</p>
+<p><strong>Logs and trial accounting.</strong> Backstage event logs go to the server journal. They contain sign-in email and IP address, request ids, run provider and model, API route and status, and ticket ids or rejection reasons. They do not include case text in the event fields. nginx also has a web access log configured. If a funded trial is available, its SQLite ledger holds allowance, network bucket, reservation, cost and day data; it has no case, question, answer or key column.</p>
+
+<h2>What we do not keep</h2>
+<p>Backstage does not write your cases, questions, answers, labels, runs or provider keys to its server files or databases. Your unfinished scene draft, including cases and question text, is saved in this tab's <code>sessionStorage</code>. It can survive a reload and is cleared by the clear action or when the tab closes. The active run and keys are held in page memory. Clear keys stops further calls; closing the page loses the run. If you download records or run evidence, the browser saves your own copy.</p>
+<p>The server temporarily reads each submitted case and key to relay a request. The statement above concerns persistent storage by this application, not transient request handling or storage by a provider.</p>
+
+<h2>What leaves your browser</h2>
+<p>For each model you select, the browser sends the case, question, choice definitions and credential through the Backstage server. The server sends them to that model's provider. A local keyword rule does not call a provider.</p>
+<table>
+<thead><tr><th>Selected provider</th><th>Destination</th></tr></thead>
+<tbody>
+<tr><td>Jev (TypeSafe)</td><td><code>api.typesafe.ai</code></td></tr>
+<tr><td>Anthropic</td><td><code>api.anthropic.com</code></td></tr>
+<tr><td>Google</td><td><code>generativelanguage.googleapis.com</code></td></tr>
+<tr><td>OpenAI</td><td><code>api.openai.com</code></td></tr>
+<tr><td>xAI</td><td><code>api.x.ai</code></td></tr>
+</tbody>
+</table>
+<p>If you use Google sign-in, sign-in also contacts Google's account services. This code does not tell us how long those services or model providers keep requests.</p>
+
+<h2>How long</h2>
+<p>The scene draft lasts in this tab until it is cleared or the tab closes; a live run lasts only while the page stays open. A sign-in session cookie has a 12-hour maximum age, the temporary Google sign-in cookie 10 minutes, and a funded trial cookie 90 days. The journal configuration requests a one-day maximum retention for Backstage event logs, with one-hour file rotation. The trial ledger prunes settled reservations and eligible allowances after 90 days, but keeps uncertain spend for reconciliation. The ticket office has no automated deletion in code. Its published wording describes a plan for manual deletion, but the retention period is not settled here. The web access log's retention is not set in this repository.</p>
+
+<h2>How to get your data deleted</h2>
+<p>To request deletion of a ticket office row, <a href="https://github.com/breakoutwithai/jevnotjev/issues/new">open a GitHub issue</a> quoting your ticket number, as the ticket form instructs. Do not put your email, case text or provider key in a public issue. The code has no self-service ticket deletion route; an operator must handle the request. For a draft, use the Backstage clear action or close the tab. For a signed-in session, sign out to revoke it. How to request deletion of other server-side records is still undecided.</p>
+
+<h2>Not decided yet</h2>
+<ul>
+<li>Whether case data will ever be generalised or used for internal testing, and what those terms would mean. The current server code has no such storage or reuse step.</li>
+<li>The retention period and manual deletion schedule for ticket office rows. The form publishes a plan, but code does not enforce it.</li>
+<li>Whether the form's never shared or sold promise has been verified for manual handling and infrastructure outside the application code.</li>
+<li>How to request deletion of operator account records, revocation records, logs or trial ledger records, and how completion of a ticket deletion request is confirmed.</li>
+<li>Retention of the nginx web access log, and retention and deletion by model providers and other infrastructure beyond the application code.</li>
+</ul>
+</main>
+</body>
+</html>

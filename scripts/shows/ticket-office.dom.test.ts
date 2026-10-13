@@ -5,7 +5,7 @@ import { chromium, type Browser, type Page } from "playwright-core";
 import { resolveChromium } from "../uat/happy-path-lib.ts";
 import type { Poster } from "../../src/shows/posters.ts";
 
-const SITE = join(import.meta.dir, "..", "..", "site");
+const SITE = process.env.LANDING_TEST_SITE ?? join(import.meta.dir, "..", "..", "site");
 const POSTERS: { posters: Poster[] } = JSON.parse(readFileSync(join(SITE, "shows", "posters.json"), "utf8"));
 const CAPTURE = process.env.UAT_SCREENSHOT_DIR;
 const VIEWPORTS: [number, number][] = [[390, 844], [1440, 900]];
@@ -52,8 +52,14 @@ test("[integration] #136 plain first screen and ticket-office link are visible a
       expect(await jump.isVisible()).toBe(true);
       expect(await jump.evaluate((node) => { const box = node.getBoundingClientRect(); return box.top >= 0 && box.top < innerHeight; })).toBe(true);
       if (CAPTURE && motion === "no-preference") { mkdirSync(CAPTURE, { recursive: true }); await page.screenshot({ path: join(CAPTURE, `first-${width}.png`) }); }
+      await page.evaluate(() => { document.documentElement.style.scrollBehavior = "auto"; });
       await jump.click();
       expect(new URL(page.url()).hash).toBe("#tickets");
+      await page.waitForFunction(() => {
+        const office = document.getElementById("tickets");
+        return office !== null && Math.abs(office.getBoundingClientRect().top) <= 100;
+      }, null, { polling: 100, timeout: 5000 });
+      expect(await page.locator("#officeOpen").isVisible()).toBe(true);
     } finally { await page.close(); }
   }
 }, 20000);

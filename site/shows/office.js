@@ -57,7 +57,6 @@
     var open = $("officePanel").hidden;
     $("officePanel").hidden = !open;
     $("officeOpen").setAttribute("aria-expanded", open ? "true" : "false");
-    if (open) reopen();
   });
   function openHash() {
     if (window.location.hash !== "#tkForm" && window.location.hash !== "#csv") return;
@@ -102,7 +101,7 @@
         (r.cohorts > 1 ? " on one of its " + r.cohorts + " questions" : "") :
         jev ? "Jev: " + jev.rows + " answers recorded" : "Recorded: " + r.rows + " answers"));
     }
-    var primary = el("a", "tk-primary", p.stage === "show" ? "Watch now" : p.stage === "rehearsal" ? "Follow this" : "Read the idea");
+    var primary = el("a", "tk-primary", p.stage === "show" ? "Watch now" : p.stage === "rehearsal" && p.watch ? "Follow this" : "Read the idea");
     primary.href = p.watch || REPO + "/blob/main/" + p.source;
     primary.setAttribute("aria-label", primary.textContent + ": " + p.title);
     card.appendChild(primary);
@@ -112,7 +111,7 @@
       if (r.headline) more.appendChild(el("p", "tk-headline", r.headline));
     }
     if (p.run) {
-      if (r.whyNotYet) more.appendChild(el("p", "tk-why", r.whyNotYet));
+      if (r.whyNotYet && r.whyNotYet !== verdict) more.appendChild(el("p", "tk-why", r.whyNotYet));
       if (r.cohorts > 1 && r.question) more.appendChild(el("p", "tk-scope", "One question: " + r.question));
       if (r.methods.some(function (m) { return m.labelled > 0; })) {
         var ul = el("ul", "tk-methods");
@@ -169,6 +168,7 @@
 
   function catalogueFailed() {
     wrap.textContent = "The show list did not load, so show tickets are paused. Reload the page, or go backstage with your own decision.";
+    document.querySelector(".tk-stages").hidden = true;
     var watch = form.querySelector("input[value=show]");
     watch.disabled = true;
     form.querySelector("input[value=backstage]").checked = true;
@@ -272,6 +272,10 @@
     } else {
       box.appendChild(el("p", "", "A person reads each backstage request and replies to your email address. If your decision suits a test, the reply explains how to sign in to Backstage; the request alone does not open it."));
     }
+    var another = el("button", "tk-submit", "Get another ticket");
+    another.type = "button";
+    another.addEventListener("click", reopen);
+    box.appendChild(another);
     form.hidden = true;
     box.hidden = false;
     h.focus();

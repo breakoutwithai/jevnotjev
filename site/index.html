@@ -81,19 +81,20 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; overflow-x: clip; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.45 var(--serif); overflow-x: hidden; }
-a { color: var(--ink); } a[href] { display: inline-flex; align-items: center; min-height: 24px; } button,input,select,textarea { font: inherit; color: inherit; }
+a { color: var(--ink); } p a { line-height: 24px; padding-block: 5px; } button,input,select,textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
 [hidden] { display: none !important; }
 .num { font-family: var(--sans); font-variant-numeric: normal; }
 .house { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 8px max(16px,calc((100vw - 1120px)/2)); border-bottom: 3px solid var(--curtain); font: 600 13px var(--sans); }
-.brand { font: 800 22px var(--serif); color: var(--ink); text-decoration: none; }
+.brand { font: 800 22px/24px var(--serif); color: var(--ink); text-decoration: none; }
 .sample { display: flex; align-items: center; gap: 8px; color: var(--brass); font: 700 11px var(--sans); text-transform: uppercase; }
-.house-lights { min-height: 30px; padding: 4px 8px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; font: 600 11px var(--sans); }
+.house-lights { min-height: 30px; padding: 4px 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink-soft); cursor: pointer; font: 600 11px var(--sans); }
 .ticket { display: flex; align-items: center; gap: 8px; padding: 3px 8px; background: #efe2c4; color: #2a1408; font: 700 11px var(--sans); }
 .ticket .admit { margin: 0; font: 800 13px var(--serif); }
-.house-link { margin-left: auto; }
+.house-link { display: inline-flex; align-items: center; min-height: 24px; margin-left: auto; }
 main { max-width: 1120px; margin: auto; padding: 0 16px; }
 .act, .samples, .office, .door-area { padding: 30px 0; border-bottom: 1px solid var(--line); }
+.office { min-height: calc(100vh - 100px); }
 .act { display: grid; grid-template-columns: 96px minmax(0,1fr); gap: 24px; }
 .slate { color: var(--muted); font: 700 12px var(--sans); text-transform: uppercase; }
 .slate-in { display: flex; flex-direction: column; }
@@ -115,7 +116,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 .tk-poster { display: flex; flex-direction: column; gap: 7px; padding: 14px; border: 1px solid var(--line); border-top: 4px solid var(--brass); min-width: 0; }
 .tk-poster h3 { margin: 0; font: 700 21px/1.15 var(--serif); }
 .tk-poster p { margin: 0; overflow-wrap: anywhere; }
-.tk-badge { font: 700 12px var(--sans); color: var(--brass); }
+.tk-badge { font: 700 12px var(--sans); color: var(--ink-soft); }
 .tk-verdict { font-weight: 700; }
 .tk-figure { font-size: 14px; }
 .tk-primary { margin-top: auto; align-self: flex-start; }
@@ -133,7 +134,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 .spotlight { padding: 9px 12px; margin: 8px 0; border-left: 3px solid var(--brass); background: var(--brass-soft); }
 .spotlight p { margin: 0; }.spotlight .spot-prompt { margin: 3px 0; overflow-wrap: anywhere; }.monologue b { margin-right: 8px; font: 700 12px var(--sans); color: var(--brass); text-transform: uppercase; }
 .tally { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 0; font: 13px var(--sans); }.tally b { margin-left: 4px; }.t-label { font-weight: 700; }
-.docket { list-style: none; padding: 0; margin: 0; }.case { display: grid; grid-template-columns: 40px minmax(0,1fr) repeat(3,74px) 110px; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); align-items: start; }.case.head { font: 700 11px var(--sans); }.case .prompt { line-height: 1.2; }.cid,.cell,.truth { font: 12px var(--sans); }.truth { display: block; color: var(--muted); }.cell .model { display: block; }.lab.accept { color: var(--keep); }.lab.reject { color: var(--cut); }.conf { display: none; }
+.docket { list-style: none; padding: 0; margin: 0; }.case { display: grid; grid-template-columns: 40px minmax(0,1fr) repeat(3,74px) 110px; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); align-items: start; }.case.head { font: 700 11px var(--sans); }.case .prompt { line-height: 1.2; }.cid,.cell,.truth { font: 12px var(--sans); }.truth { display: block; color: var(--muted); }.cell .model { display: block; }.lab.accept { color: var(--keep); }.lab.reject { color: var(--cut); }.conf { display: block; height: 4px; background: var(--line); }.conf i { display: block; height: 100%; background: var(--brass); }.case.wrong .conf i { background: var(--cut); }
 .arm-name { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 @media(max-width:720px) { .case.head { display: none; }.cell::before { content: attr(data-arm); display: block; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); } }
 .acct .who { font: 700 13px var(--sans); }.fig { margin: 7px 0; }.fig dt { font: 12px var(--sans); }.fig dd { margin: 0; font: 800 22px var(--sans); }.bar { display: none; }
@@ -142,7 +143,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 .door-area .door { min-height: 44px; padding: 10px 16px; border: 1px solid var(--brass); background: var(--brass-soft); cursor: pointer; font-weight: 700; }.door small { display: block; }.door-demo { margin-top: 12px; }.door-demo[hidden] { display: none; }
 .office-lede { max-width: 70ch; margin: 0 0 16px; font: 16px var(--sans); }.office-panel { margin-top: 14px; }.office-panel[hidden] { display: none; }
 .tk-form,.tk-issued { max-width: 560px; display: grid; gap: 12px; padding: 16px; margin: 0 0 20px; border: 1px solid var(--line); background: var(--brass-soft); font: 15px var(--sans); }.tk-form[hidden],.tk-form [hidden],.tk-issued[hidden],.tk-err[hidden] { display: none; }.tk-kind { border: 0; padding: 0; display: grid; gap: 6px; }.tk-field { display: grid; gap: 4px; }.tk-field input,.tk-field select,.tk-field textarea { width: 100%; padding: 9px; background: var(--bg); border: 1px solid var(--line); }.tk-field [aria-invalid=true] { border: 2px solid var(--cut); }.tk-check label { display: flex; gap: 8px; }.tk-check input { width: 24px; height: 24px; flex: 0 0 24px; }.tk-help,.tk-privacy { font-size: 13px; margin: 0; }.tk-err { color: var(--cut); margin: 0; }.tk-chosen:empty { display: none; }.tk-submit { min-height: 44px; padding: 10px 16px; background: var(--curtain); color: #fff; border: 0; cursor: pointer; }.tk-submit:disabled { opacity: .6; cursor: wait; }.tk-trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
-.tk-kind input[type=radio] { width: 24px; height: 24px; vertical-align: middle; }
+.tk-kind input[type=radio] { width: 24px; height: 24px; vertical-align: middle; }.tk-links a { display: inline-flex; align-items: center; min-height: 24px; }
 .dropzone { position: relative; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: center; max-width: 700px; padding: 16px; border: 2px dashed var(--brass); cursor: pointer; background: var(--brass-soft); }.dropzone.over { border-color: var(--curtain-hi); background: var(--bg-2); }.dropzone h3 { margin: 0; font-size: 22px; }.dropzone p { margin: 0; }.dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; }.btn { display: inline-flex; align-items: center; min-height: 44px; padding: 10px 16px; background: var(--ink); color: var(--bg); font: 700 13px var(--sans); cursor: pointer; }.drop-status { max-width: 700px; margin: 12px 0; color: var(--ink-soft); font: 13px var(--sans); }.loaded { max-width: 700px; margin-top: 16px; padding: 12px; border: 1px solid var(--line); font: 14px var(--sans); overflow-wrap: anywhere; }.loaded[hidden] { display: none; }.loaded .ld-word { margin: 0 0 6px; font-size: 28px; }.loaded .ld-invalid { color: var(--cut); }.loaded .ld-file { margin: 0 0 10px; color: var(--ink-soft); }.loaded .ld-head { margin: 14px 0 6px; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }.loaded ul { margin: 0 0 8px; padding-left: 18px; }.loaded .ld-v { font-weight: 700; margin-left: 6px; }.loaded .ld-why { display: block; color: var(--ink-soft); }.loaded .ld-scroll { max-width: 100%; overflow-x: auto; margin: 10px 0 4px; }.loaded .ld-cases { width: 100%; border-collapse: collapse; font-size: 13px; }.loaded .ld-cases caption { text-align: left; color: var(--muted); font-size: 12px; padding-bottom: 6px; }.loaded .ld-cases th,.loaded .ld-cases td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }.loaded .ld-cases thead th { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }.loaded .ld-more { margin: 0 0 8px; color: var(--ink-soft); font-size: 13px; }
 .sample-flag { max-width: 64ch; margin: 0 0 18px; padding: 8px 12px; border: 1px solid var(--brass); background: var(--brass-soft); color: var(--ink); font: 13px var(--sans); }.current { margin: 0 0 26px; padding: 14px 18px; border: 2px solid var(--ink); font: 15px var(--sans); overflow-wrap: anywhere; }.current .ld-now-head { margin: 0 0 6px; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }.current .ld-now-list { margin: 0; padding-left: 18px; }.current .ld-v { font-weight: 800; }.current .ld-now { margin: 6px 0 0; }
 .dropzone:focus-within { outline: 2px solid var(--brass); outline-offset: 3px; }
@@ -255,7 +256,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
   /* ---------- The recorded result ---------- */
   var vr = J.verdict.result;
   var VWORD = { "use Jev": "Use Jev", "don't use Jev": "Don't use Jev", "not enough evidence": "Not enough evidence" };
-  $("heroResult").textContent = "Shop bot, " + J.cases.length + " messages: Jev kept " + J.summary.C.kept + ", LLM " + J.summary.A.kept + ", simple rule " + J.summary.B.kept + ". Verdict: " + (VWORD[vr] || vr);
+  $("heroResult").textContent = "Sample run: Shop bot, " + J.cases.length + " messages: Jev kept " + J.summary.C.kept + ", LLM " + J.summary.A.kept + ", simple rule " + J.summary.B.kept + ". Verdict: " + (VWORD[vr] || vr) + ".";
 
   /* ---------- Act I ---------- */
   var OUT = J.meta.outputs;
@@ -303,11 +304,11 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
       armCell(c, "A") + armCell(c, "B") + armCell(c, "C") + jev + (extra || "");
     return li;
   }
-  function monologue(c) {
+  function monologue(c, label) {
     var C = c.arms.C;
-    return '<p class="monologue"><b>Spotlight</b>Jev said &ldquo;' + esc(say(C.picked).toLowerCase()) + '&rdquo; with ' + conf(c).toFixed(2) + ' confidence. The label said &ldquo;' + esc(say(c.truth).toLowerCase()) + '&rdquo;, so the answer was rejected.</p>';
+    return '<p class="monologue">' + (label === "Spotlight" ? '<b>Spotlight</b>' : '<b>Next miss</b>') + 'Jev said &ldquo;' + esc(say(C.picked).toLowerCase()) + '&rdquo; with ' + conf(c).toFixed(2) + ' confidence. The label said &ldquo;' + esc(say(c.truth).toLowerCase()) + '&rdquo;, so the answer was rejected.</p>';
   }
-  mistakes.slice(0, 2).forEach(function (c) { var d = document.createElement("div"); d.className = "spotlight"; d.innerHTML = '<span class="num">' + esc(c.id) + '</span><p class="spot-prompt">' + esc(c.prompt) + "</p>" + monologue(c); $("spotlights").appendChild(d); });
+  mistakes.slice(0, 2).forEach(function (c, i) { var d = document.createElement("div"); d.className = "spotlight"; d.innerHTML = '<span class="num">' + esc(c.id) + '</span><p class="spot-prompt">' + esc(c.prompt) + "</p>" + monologue(c, i === 0 ? "Spotlight" : "Next miss"); $("spotlights").appendChild(d); });
   mistakes.forEach(function (c) { docket.appendChild(row(c)); });
   rest.forEach(function (c) { docket.appendChild(row(c)); });
 
@@ -322,8 +323,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
       ARMS.forEach(function (k) { if (c.arms[k].label === "accept") kept[k]++; });
     });
     tally.innerHTML = '<span class="t-label">Kept so far</span>' +
-      ARMS.map(function (k) { return '<span class="t' + k.toLowerCase() + '">' + ARM_SHORT[k] + '<b class="num">' + kept[k] + '</b></span>'; }).join("") +
-      '<span class="heard num">' + lit.length + ' of ' + J.cases.length + ' heard</span>';
+      ARMS.map(function (k) { return '<span class="t' + k.toLowerCase() + '">' + ARM_SHORT[k] + '<b class="num">' + kept[k] + '</b></span>'; }).join("");
   }
   renderTally();
 

@@ -662,6 +662,13 @@ describe("in-product first-use guide (D18)", () => {
     expect(await captionProblems(boxBack, read(GUIDE))).toEqual(["the Stage has a question box again"]);
   });
 
+  test("[unit] D18-SWARM-C04-LOADER the guide names the control that opens the file loader", async () => {
+    const stage = read(STAGE);
+    const guide = read(GUIDE);
+    expect(stage).toMatch(/<button id="officeOpen"[^>]*>Open the ticket office<\/button>/);
+    expect(guide).toContain('press "Open the ticket office" at the foot of the sample run page, then <strong>Load your own script (CSV)</strong>');
+  });
+
   test("[unit] D18-SWARM-C05 section 4 numbers every rule the verdict code can emit, in order", async () => {
     const emitted = capture(/readonly rule: ([\d |]+);/, read("src/core/verdict.ts")).split("|").map((n) => `Rule ${n.trim()}`);
     expect(emitted.length).toBeGreaterThan(1);
@@ -996,6 +1003,7 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
     ["Edit as a new scene", BACKSTAGE, "markup"],
     ["Leave a stage note", BACKSTAGE, "markup"],
     ["Ticket office", STAGE, "markup"],
+    ["Open the ticket office", STAGE, "markup"],
     ["Go backstage with my own decision", STAGE, "markup"],
     ["GO TO THE TICKET OFFICE", STAGE, "markup"],
     ["IN REPERTOIRE", STAGE, "markup"],

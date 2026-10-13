@@ -157,7 +157,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
 
 <h3>The cases table</h3>
 <p>Each row is one message. <strong>Case</strong> is its id, <strong>Message</strong> its text, and the small <strong>label</strong> tag after the text is the right answer. Under <strong>A now</strong>, <strong>B rule</strong> and <strong>C Jev</strong> each player's pick is marked kept if it matches the label, rejected if not. <strong>Jev said</strong> repeats Jev's pick with its confidence and a bar.</p>
-<p>Jev's mistakes come first, highest confidence first. The row marked "Spotlight" is <span data-sample="spot-id">m33</span>, "If it dumps overnight can I swap my demo skis for something wider?" The fact sheet promises free condition swaps on demo rentals, so the label is answer. Jev said hand off with <span data-sample="spot-confidence">0.78</span> confidence, so its answer was rejected. A high confidence on a rejected answer is why confidence is the model's own score, not measured accuracy. <strong>Kept so far</strong> counts kept answers as rows scroll into view.</p>
+<p>Jev's mistakes come first, highest confidence first. The box marked "Spotlight" is <span data-sample="spot-id">m33</span>, "If it dumps overnight can I swap my demo skis for something wider?" The fact sheet promises free condition swaps on demo rentals, so the label is answer. Jev said hand off with <span data-sample="spot-confidence">0.78</span> confidence, so its answer was rejected. A high confidence on a rejected answer is why confidence is the model's own score, not measured accuracy. <strong>Kept so far</strong> gives each player's total kept answers across all cases.</p>
 
 <h3>The cost table</h3>
 <table>
@@ -180,7 +180,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
 </ol>
 <p id="verdict-plain"><strong>The verdict line in plain words.</strong> Jev kept <span data-sample="kept-C">38</span> and the LLM <span data-sample="kept-A">38</span> of the <span data-sample="paired">40</span> paired cases, so the best single guess of Jev minus the LLM is no difference. A sample this small still leaves room for luck, so the method puts a range around that guess, from <span data-sample="jev-lower">-0.11</span> to <span data-sample="jev-upper">0.11</span>. "Lower bound of Jev minus LLM <span data-sample="jev-lower">-0.11</span>" is the bottom of that range: the worst gap this evidence cannot rule out, with Jev keeping that much smaller a share of answers than the LLM. The use-Jev rule needs the bottom above <span data-const="MARGIN_BOUND">-0.10</span>, Jev at worst <span data-const="MARGIN_POINTS">10</span> points behind. <span data-sample="jev-lower">-0.11</span> is not above it, so that condition of rule three is not met and rule <span data-sample="verdict-rule-word">four</span> fires. It does not say Jev is worse; more paired cases would narrow the range and could settle it either way.</p>
 <p>Read it this way: on this test set Jev matched the LLM's kept answers at a small fraction of the cost, but the cases are too few to rule out Jev being more than <span data-const="MARGIN_POINTS">10</span> points worse. The page shows the reason line; the rule-two and cost-ratio figures above come from the same verdict command run on the sample's records file.</p>
-<p>To try your own file, scroll to <strong>Load your own script (CSV)</strong> at the end of the sample run page. The file is read in your browser and never leaves it.</p>
+<p>To try your own file, press "Open the ticket office" at the foot of the sample run page, then <strong>Load your own script (CSV)</strong>. The file is read in your browser and never leaves it.</p>
 
 <h2 id="limits">6. Limitations</h2>
 <ul>
@@ -214,7 +214,8 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>rejected</dt><dd>The pick does not match the label (<code>reject</code> in the file).</dd>
   <dt>Jev said</dt><dd>Jev's pick and its confidence from 0 to 1, drawn as a bar. A red bar means the pick was rejected.</dd>
   <dt>Spotlight</dt><dd>Jev's most confident mistake, explained in one line.</dd>
-  <dt>Kept so far</dt><dd>Running count of kept answers per player for the rows you have scrolled past.</dd>
+  <dt>Next miss</dt><dd>Jev's next most confident mistake, explained in one line.</dd>
+  <dt>Kept so far</dt><dd>Total kept answers per player across all cases.</dd>
   <dt>Spend</dt><dd>What the player's calls cost in total, in US dollars, at list prices.</dd>
   <dt>Kept answers</dt><dd>How many of the player's answers were kept, out of all cases.</dd>
   <dt>Cost per kept answer</dt><dd>Spend divided by kept answers; "undefined (0 kept)" when a player kept nothing.</dd>

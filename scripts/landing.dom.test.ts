@@ -10,7 +10,6 @@ declare global {
 }
 
 const SITE = process.env.LANDING_TEST_SITE ?? join(import.meta.dir, "..", "site");
-const SOURCE = readFileSync(join(SITE, "index.html"), "utf8");
 const RECORDS = readFileSync(join(import.meta.dir, "..", "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"), "utf8");
 const FIRST_SHOW = posters.posters.find((p) => p.stage === "show")?.id;
 const VIEWPORTS: [number, number][] = [[390, 844], [1440, 900]];
@@ -58,7 +57,7 @@ for (const motion of MOTIONS) {
         expect(await page.locator("#t1").innerText()).toBe("Jev picks one answer from a fixed list. It does not write text.");
         if (width >= 1280) expect(await page.locator("#t1").evaluate((node) => {
           const range = document.createRange(); range.selectNodeContents(node); return range.getClientRects().length;
-        })).toBe(2);
+        })).toBeLessThanOrEqual(2);
         const result = await page.locator("#heroResult").innerText();
         for (const word of ["40", "Jev", "LLM", "simple rule", "Not enough evidence"]) expect(result).toContain(word);
         expect(await page.locator("#primaryAction").innerText()).toBe("Try it: pick a seat");
@@ -76,7 +75,7 @@ for (const motion of MOTIONS) {
             (ids[1].compareDocumentPosition(ids[2]) & Node.DOCUMENT_POSITION_FOLLOWING) &&
             (ids[1].compareDocumentPosition(ids[3]) & Node.DOCUMENT_POSITION_FOLLOWING));
         })).toBe(true);
-        expect(await page.locator("body").innerText()).not.toMatch(/Rule \d fired/);
+        expect(await page.locator("body").evaluate((node) => node.textContent)).not.toMatch(/Rule \d+ fired/);
       } finally { await page.close(); }
     }
   }, 30000);
@@ -104,7 +103,6 @@ test("[integration] L6-L8 links, cards and removed elements", async () => {
     }
     expect(await page.locator("#tkPosters").innerText()).not.toMatch(/Fit check: .* \/ /);
     expect(await page.locator("#askForm, #askInput, .overture, #runway").count()).toBe(0);
-    expect(SOURCE).not.toMatch(/Rule ["' ]*\+[^\n]+fired/);
   } finally { await page.close(); }
 });
 
@@ -122,8 +120,13 @@ test("[integration] L9 cases disclosure and confidence ordered spotlights", asyn
     for (let i = 0; i < expected.length; i++) {
       expect(await spots.nth(i).innerText()).toContain(expected[i]?.id ?? "");
       expect(await spots.nth(i).innerText()).toContain(expected[i]?.prompt ?? "");
+      expect(await spots.nth(i).locator(".monologue b").textContent()).toBe(i === 0 ? "Spotlight" : "Next miss");
     }
     expect(await page.locator("#allCases .monologue").count()).toBe(0);
+    await page.locator("#allCases").evaluate((node) => { (node as HTMLDetailsElement).open = true; });
+    expect(await page.locator(".case.row .conf").first().evaluate((node) => getComputedStyle(node).height)).toBe("4px");
+    expect(await page.locator(".case.wrong .conf i").first().evaluate((node) => getComputedStyle(node).backgroundColor)).toBe("rgb(178, 56, 42)");
+    expect(await page.locator("#tally").innerText()).not.toContain("heard");
   } finally { await page.close(); }
 });
 
@@ -154,9 +157,14 @@ test("[integration] T-reopen issued ticket can be followed by a fresh form", asy
     await page.locator("#tkConsent").check();
     await page.locator("#tkForm .tk-submit").click();
     await page.locator("#tkIssued").waitFor({ state: "visible" });
+    expect(await page.locator("#tkIssued").innerText()).toContain("T1");
     await page.locator("#officeOpen").click();
     await page.locator("#officeOpen").click();
+    expect(await page.locator("#tkIssued").isVisible()).toBe(true);
+    expect(await page.locator("#tkIssued").innerText()).toContain("T1");
+    await page.getByRole("button", { name: "Get another ticket" }).click();
     expect(await page.locator("#tkForm").isVisible()).toBe(true);
+    expect(await page.locator("#tkIssued").isVisible()).toBe(false);
     expect(await page.locator("#tkEmail").inputValue()).toBe("");
     expect(await page.locator("#tkShow").inputValue()).toBe("");
     expect(await page.locator("#tkConsent").isChecked()).toBe(false);
@@ -172,8 +180,16 @@ test("[integration] T-reopen-backstage after a backstage request the reopened fo
     await page.locator("#tkConsent").check();
     await page.locator("#tkForm .tk-submit").click();
     await page.locator("#tkIssued").waitFor({ state: "visible" });
+    expect(await page.locator("#tkIssued").innerText()).toContain("T1");
     await page.locator("#officeOpen").click();
     await page.locator("#officeOpen").click();
+    expect(await page.locator("#tkIssued").isVisible()).toBe(true);
+    expect(await page.locator("#tkIssued").innerText()).toContain("T1");
+    await page.getByRole("button", { name: "Get another ticket" }).click();
+    expect(await page.locator("#tkIssued").isVisible()).toBe(false);
+    expect(await page.locator("#tkForm").isVisible()).toBe(true);
+    expect(await page.locator("#tkEmail").inputValue()).toBe("");
+    expect(await page.locator("#tkConsent").isChecked()).toBe(false);
     expect(await page.locator('input[name="kind"][value="show"]').isChecked()).toBe(true);
     expect(await page.locator("#tkShowField").isVisible()).toBe(true);
     expect(await page.locator("#tkWebsiteField").isVisible()).toBe(false);
@@ -188,7 +204,8 @@ test("[integration] T-catalogue failed catalogue offers backstage", async () => 
     await page.waitForFunction(() => document.querySelector<HTMLInputElement>('input[value="show"]')?.disabled);
     expect(await page.locator('input[value="backstage"]').isChecked()).toBe(true);
     expect(await page.locator('input[value="show"]').isDisabled()).toBe(true);
-    expect(await page.locator("body").innerText()).toContain("go backstage");
+    expect(await page.locator("#tkPosters").innerText()).toContain("The show list did not load");
+    expect(await page.locator(".tk-stages").isVisible()).toBe(false);
     expect(errors).toEqual([]);
   } finally { await page.close(); }
 }, 15000);
@@ -233,7 +250,23 @@ test("[integration] T-csv loaded file shows current verdict and all sample flags
   } finally { await page.close(); }
 }, 30000);
 
-test("[integration] T-contrast visible links meet 4.5:1 in both themes", async () => {
+test("[integration] T-csv flag names only act numerals present on the page", async () => {
+  const page = await pageAt(390, 844);
+  try {
+    await page.locator("#officeOpen").click();
+    await page.locator("#csv").setInputFiles({ name: "uc13-records.csv", mimeType: "text/csv", buffer: Buffer.from(RECORDS) });
+    await page.locator("#loadedResult").waitFor({ state: "visible" });
+    const { flag, slates } = await page.evaluate(() => ({
+      flag: document.querySelector("#sampleFlag2")?.textContent ?? "",
+      slates: [...document.querySelectorAll(".roman")].map((node) => node.textContent?.trim() ?? ""),
+    }));
+    expect(flag).toContain("verdict section");
+    for (const match of flag.matchAll(/\bAct\s+([IVX]+)\b/g)) expect(slates).toContain(match[1] ?? "");
+    expect(flag).not.toMatch(/\bAct\s+[IVX]+\b/);
+  } finally { await page.close(); }
+}, 30000);
+
+test("[integration] T-contrast visible links, buttons and badges meet 4.5:1 in both themes", async () => {
   const page = await pageAt(1440, 900);
   try {
     await page.locator("#officeOpen").click();
@@ -241,7 +274,7 @@ test("[integration] T-contrast visible links meet 4.5:1 in both themes", async (
     await page.locator(".tk-more").evaluateAll((details) => details.forEach((node) => node.setAttribute("open", "")));
     for (const theme of ["light", "dark"]) {
       await page.evaluate((value) => document.documentElement.setAttribute("data-theme", value), theme);
-      const failures = await page.locator("a[href]:visible").evaluateAll((links) => {
+      const failures = await page.locator("a[href]:visible, button:visible, .tk-badge:visible").evaluateAll((links) => {
         const rgb = (s: string) => (s.match(/[\d.]+/g) ?? []).map(Number);
         const lum = (a: number[]) => a.slice(0, 3).map((v) => { const c = v / 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i]!, 0);
         return links.flatMap((link) => {

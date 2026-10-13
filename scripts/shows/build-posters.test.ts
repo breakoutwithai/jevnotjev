@@ -80,15 +80,16 @@ describe("posters", () => {
     expect(run?.whyNotYet).toBe("Not proven yet: the lower bound of Jev minus the LLM is -0.11, below the -0.10 margin, on 40 paired cases. If the next cases split the same way, about 6 more paired cases would bring it inside the margin.");
   });
 
-  test("[integration] S6 office renders real poster headline, verdict and projection in order", async () => {
+  test("[integration] S6 office renders real poster verdict, headline and projection in order", async () => {
     const wrap = await renderedOffice();
     const card = wrap.children.find((child) => child.getAttribute("data-id") === "uc13");
     expect(card).toBeDefined();
-    const measured = card?.children.filter((child) => ["tk-headline", "tk-verdict", "tk-why"].includes(child.className));
-    expect(measured?.map((child) => child.className)).toEqual(["tk-headline", "tk-verdict", "tk-why"]);
+    const descendants = (node: FakeElement): FakeElement[] => node.children.flatMap((child) => [child, ...descendants(child)]);
+    const measured = card ? descendants(card).filter((child) => ["tk-headline", "tk-verdict", "tk-why"].includes(child.className)) : undefined;
+    expect(measured?.map((child) => child.className)).toEqual(["tk-verdict", "tk-headline", "tk-why"]);
     expect(measured?.map((child) => child.textContent)).toEqual([
-      "Same accuracy as the LLM (38/40 each) at 1/79th of the cost",
       "Verdict: not enough proof yet: test more cases",
+      "Same accuracy as the LLM (38/40 each) at 1/79th of the cost",
       "Not proven yet: the lower bound of Jev minus the LLM is -0.11, below the -0.10 margin, on 40 paired cases. If the next cases split the same way, about 6 more paired cases would bring it inside the margin.",
     ]);
   });

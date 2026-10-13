@@ -25,10 +25,13 @@ import { JEV_PIN } from "../jev-answer.ts";
 const ROOT = join(import.meta.dir, "..", "..");
 const GUIDE = "site/guide/index.html";
 const STAGE = "site/index.html";
+const OFFICE = "site/shows/office.js";
 const BACKSTAGE = "site/backstage/index.html";
 const SAMPLE_RECORDS = "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv";
 
 function read(path: string): string {
+  if (path === GUIDE && process.env.SITE_GUIDE_TEST_GUIDE) return readFileSync(process.env.SITE_GUIDE_TEST_GUIDE, "utf8");
+  if (path.startsWith("site/") && process.env.LANDING_TEST_SITE) return readFileSync(join(process.env.LANDING_TEST_SITE, path.slice(5)), "utf8");
   return readFileSync(join(ROOT, path), "utf8");
 }
 
@@ -130,13 +133,15 @@ async function sampleRunFields(html: string): Promise<Field[]> {
   const src = STAGE;
   const built = scriptMarkup(html, "ARM_NAME");
   const g = await grab(built, ["li.case.head span", "dl.fig dt", "thead th", "p.monologue b", "span.t-label", "span.truth"]);
-  const page = await grab(html, ["div.sample > span", "#t6"]);
+  const page = await grab(html, ["div.sample > span", "#t6", "section.samples h2", ".tk-stages a", "#primaryAction", "#officeOpen"]);
   const list = (map: Map<string, Grabbed[]>, selector: string): string[] => (map.get(selector) ?? []).map((x) => x.text);
   const marks = /\? "(\w+)" : "(\w+)"\) \+ '<\/span><\/span>'/.exec(html);
-  const ruleLine = /\$\("ruleLine"\)\.textContent = "(\w+) " \+ [^+]+\+ " (\w+)"/.exec(html);
-  if (marks === null || ruleLine === null) throw new Error("answer marks or rule line not found");
+  if (marks === null) throw new Error("answer marks not found");
   return [
     ...fields(src, "sample badge", list(page, "div.sample > span")),
+    ...fields(src, "sample cards", [...list(page, "section.samples h2"), ...list(page, ".tk-stages a")]),
+    ...fields(src, "case summary", [`See all ${sampleValues().get("cases")} cases`]),
+    ...fields(src, "landing actions", [...list(page, "#primaryAction"), ...list(page, "#officeOpen")]),
     ...fields(src, "players", objectValues(html, "ARM_NAME")),
     ...fields(src, "docket header", list(g, "li.case.head span")),
     ...fields(src, "answer marks", [marks[1] ?? "", marks[2] ?? ""]),
@@ -146,8 +151,8 @@ async function sampleRunFields(html: string): Promise<Field[]> {
     ...fields(src, "ledger", list(g, "dl.fig dt")),
     ...fields(src, "timing table", list(g, "thead th")),
     ...fields(src, "verdict words", objectValues(html, "VWORD")),
-    ...fields(src, "rule line", [`${ruleLine[1] ?? ""} N ${ruleLine[2] ?? ""}`]),
     ...fields(src, "own file", list(page, "#t6")),
+    ...fields(OFFICE, "card and ticket controls", ["Fit check", "Get another ticket"]),
   ];
 }
 
@@ -444,7 +449,7 @@ describe("in-product first-use guide (D18)", () => {
   test("[unit] D18-SITE-GUIDE-EXTRACT the extractors read the real pages, so the glossary check is not vacuous", async () => {
     const sample = (await sampleRunFields(read(STAGE))).map((field) => field.term);
     const backstage = (await backstageFields(read(BACKSTAGE))).map((field) => field.term);
-    for (const term of ["Sample run", "What you do now", "Case", "Jev said", "label", "Spotlight", "Kept so far", "Cost per kept answer", "Median seconds per call", "Not enough evidence", "Rule N fired", "kept", "rejected", "Load your own script (CSV)"]) {
+    for (const term of ["Sample run", "Sample questions", "Tested", "Small test (under 30 cases)", "Idea only, not tested", "Fit check", "See all 40 cases", "Try it: pick a seat", "Get another ticket", "Open the ticket office", "What you do now", "Case", "Jev said", "label", "Spotlight", "Kept so far", "Cost per kept answer", "Median seconds per call", "Not enough evidence", "kept", "rejected", "Load your own script (CSV)"]) {
       expect(sample).toContain(term);
     }
     for (const term of ["Keep an answer when...", "Leave out...", "Choose optional comparisons", "Dress Rehearsal: Cost and downloads", "First choice", "Download run evidence", "Kept / labelled", "Returned confidence", "case_input", "label_source", "Jev-only wins", "Anthropic API key", "xAI API key"]) {
@@ -569,7 +574,7 @@ describe("in-product first-use guide (D18)", () => {
   const ACCESS_STATEMENTS = [
     'its title on screen is "Backstage Pass"',
     "The workspace and its sample cases file need you to sign in.",
-    'use "Go backstage with my own decision" in the section headed "Ticket office"',
+    'press "Open the ticket office", then choose "Go backstage with my own decision"',
     "A person reads each request and replies by email",
     "the reply explains how to sign in",
     "The request alone does not open the workspace.",
@@ -583,7 +588,7 @@ describe("in-product first-use guide (D18)", () => {
     const text = g.get("#access")?.[0]?.text ?? "";
     const links = (g.get("#access a") ?? []).map((a) => a.attrs.get("href") ?? "");
     const out = ACCESS_STATEMENTS.filter((s) => !text.includes(s)).map((s) => `missing: ${s}`);
-    if (!links.includes("../#tickets")) out.push("no Ticket office link");
+    if (!links.includes("../#tkForm")) out.push("no form-opening link");
     return out;
   }
 
@@ -629,9 +634,7 @@ describe("in-product first-use guide (D18)", () => {
     ["ADMIT ONE", "ADMIT ONE"],
     ["Row J", "ROW J"],
     ["Seat J-EV", "SEAT J-EV"],
-    ["Skip the overture", "SKIP THE OVERTURE"],
     ["Go to the ticket office", "GO TO THE TICKET OFFICE"],
-    ["Should I use Jev Ask", "Should I use Jev"],
     ["In repertoire: other questions Jev could play", "IN REPERTOIRE"],
   ];
 
@@ -649,9 +652,9 @@ describe("in-product first-use guide (D18)", () => {
     if (!guide.includes("Understudies wait in the wings")) out.push("not in the guide: Understudies");
     const ids = [...read("site/data.js").matchAll(/"(UC\d+)"/g)].map((m) => m[1] ?? "");
     if (ids.length < 2 || !guide.includes(`${ids[0] ?? ""} to ${ids[ids.length - 1] ?? ""}`)) out.push("use-case span not in the guide");
-    // The question box is disabled until the live check ships, and its examples make no call: the guide must say both.
-    if (!/<input id="askInput" disabled/.test(stageHtml) || !stage.includes("Your own question opens when the live check ships.")) out.push("the Stage's question box is no longer disabled");
-    for (const phrase of ["switched off until the live check ships", "no Jev call is made"]) if (!guide.includes(phrase)) out.push(`question box: missing ${phrase}`);
+    // #203 removed the question box until the live check ships: the Stage has none, and the guide must say so.
+    if (/id="askInput"|id="askForm"/.test(stageHtml)) out.push("the Stage has a question box again");
+    for (const phrase of ["no box for typing your own question", "until the live check ships"]) if (!guide.includes(phrase)) out.push(`question box: missing ${phrase}`);
     return out;
   }
 
@@ -660,8 +663,47 @@ describe("in-product first-use guide (D18)", () => {
     // Markup around a caption does not change what the Stage shows.
     const bold = mutate(read(STAGE), '<p class="admit">ADMIT ONE</p>', '<p class="admit"><b>ADMIT</b> ONE</p>');
     expect(await captionProblems(bold, read(GUIDE))).toEqual([]);
-    const live = mutate(read(GUIDE), "typing your own question is switched off until the live check ships. The example buttons under it show prepared answers from the sample data; no Jev call is made.", "Type a question to call Jev live.");
-    expect(await captionProblems(read(STAGE), live)).toEqual(["question box: missing switched off until the live check ships", "question box: missing no Jev call is made"]);
+    const live = mutate(read(GUIDE), "The page has no box for typing your own question until the live check ships.", "Type a question to call Jev live.");
+    expect(await captionProblems(read(STAGE), live)).toEqual(["question box: missing no box for typing your own question", "question box: missing until the live check ships"]);
+    const boxBack = mutate(read(STAGE), "<main>", '<main><form id="askForm"></form>');
+    expect(await captionProblems(boxBack, read(GUIDE))).toEqual(["the Stage has a question box again"]);
+  });
+
+  test("[unit] D18-SWARM-C04-LOADER the guide names the control that opens the file loader", async () => {
+    const stage = read(STAGE);
+    const guide = read(GUIDE);
+    expect(stage).toMatch(/<button id="officeOpen"[^>]*>Open the ticket office<\/button>/);
+    expect(guide).toContain('press "Open the ticket office" at the foot of the sample run page, then <strong>Load your own script (CSV)</strong>');
+  });
+
+  test("[unit] D18-SWARM-C04-ACCESS the access path opens the form with the named radio choice", async () => {
+    const stage = read(STAGE);
+    expect(await accessProblems(read(GUIDE))).toEqual([]);
+    expect(stage).toMatch(/<button id="officeOpen"[^>]*>Open the ticket office<\/button>/);
+    expect(stage).toMatch(/<label><input type="radio" name="kind" value="backstage"> Go backstage with my own decision<\/label>/);
+    expect(read(OFFICE)).toContain('window.location.hash === "#tkForm"');
+    expect(await accessProblems(mutate(read(GUIDE), 'href="../#tkForm"', 'href="../#tickets"'))).toContain("no form-opening link");
+  });
+
+  test("[unit] D18-SWARM-C04-CARDS every plain card stage and fixed landing label has a glossary entry", async () => {
+    const office = read(OFFICE);
+    const names = [...office.matchAll(/\bname: "([^"]+)"/g)].map((match) => match[1] ?? "");
+    expect(names).toEqual(["Tested", "Small test (under 30 cases)", "Idea only, not tested"]);
+    const stage = read(STAGE);
+    const cardLabels = (await sampleRunFields(stage)).map((field) => field.term);
+    const fixed = ["Sample questions", "Fit check", "See all 40 cases", "Try it: pick a seat", "Get another ticket", "Open the ticket office"];
+    for (const term of [...names, ...fixed]) expect(cardLabels).toContain(term);
+    expect(stage).toContain('<h2>Sample questions</h2>');
+    expect(stage).toContain('"See all " + J.cases.length + " cases"');
+    expect(office).toContain('"Fit check: "');
+    expect(office).toContain('"Get another ticket"');
+    expect(await glossaryMissing(read(GUIDE), stage, read(BACKSTAGE))).toEqual([]);
+    const guide = read(GUIDE);
+    expect(guide).toContain("Below the sample cards, the shop-bot sections show a recorded run");
+    expect(guide).toContain('The "Sample questions" cards begin with a plain status label');
+    expect((await glossary(guide)).get("Sample run")).toContain("below the sample cards");
+    const missing = mutate(read(GUIDE), "<dt>Fit check</dt>", "<dt>Unexplained check</dt>");
+    expect(await glossaryMissing(missing, stage, read(BACKSTAGE))).toContain("Fit check (site/shows/office.js)");
   });
 
   test("[unit] D18-SWARM-C05 section 4 numbers every rule the verdict code can emit, in order", async () => {
@@ -998,8 +1040,9 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
     ["Edit as a new scene", BACKSTAGE, "markup"],
     ["Leave a stage note", BACKSTAGE, "markup"],
     ["Ticket office", STAGE, "markup"],
+    ["Open the ticket office", STAGE, "markup"],
+    ["Get another ticket", OFFICE, "script"],
     ["Go backstage with my own decision", STAGE, "markup"],
-    ["SKIP THE OVERTURE", STAGE, "markup"],
     ["GO TO THE TICKET OFFICE", STAGE, "markup"],
     ["IN REPERTOIRE", STAGE, "markup"],
     ["Spotlight", STAGE, "script"],
@@ -1016,7 +1059,8 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
 
   /** Text of the string literals in a page's inline scripts (comments dropped), with any markup inside them removed. */
   function scriptText(html: string): string {
-    const code = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1] ?? "").join("\n").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+    const inline = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1] ?? "").join("\n");
+    const code = (inline || html).replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
     const literals = [...code.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"/g)].map((m) => m[1] ?? m[2] ?? "");
     return decodeRefs(clean(literals.join(" ").replace(/<[^>]*>/g, " "))).toLowerCase();
   }
@@ -1058,7 +1102,7 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
     return [...`${prose} ${termText}`.matchAll(THEATRE)].map((m) => m[0]);
   }
 
-  const pages = (): Map<string, string> => new Map([[STAGE, read(STAGE)], [BACKSTAGE, read(BACKSTAGE)]]);
+  const pages = (): Map<string, string> => new Map([[STAGE, read(STAGE)], [BACKSTAGE, read(BACKSTAGE)], [OFFICE, read(OFFICE)]]);
 
   test("[unit] D18-PLAIN-THEATRE no theatre word in the guide outside a quoted on-screen label, and every label is on its page", async () => {
     expect(await theatreWords(read(GUIDE))).toEqual([]);

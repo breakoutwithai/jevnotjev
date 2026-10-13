@@ -424,6 +424,8 @@ describe("the Stage tells one story once a file is loaded (F1)", () => {
       expect(f.hidden).toBe(false);
       expect(f.textContent ?? "").toMatch(/sample/i);
       expect(f.textContent ?? "").toContain("mine.csv");
+      expect(f.textContent ?? "").toContain("top of the verdict section");
+      expect(f.textContent ?? "").not.toMatch(/\bAct\s+[IVX]+\b/);
     }
     expect(p.current.hidden).toBe(false);
     expect(p.current.innerHTML).toContain("use Jev");

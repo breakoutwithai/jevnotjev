@@ -1562,7 +1562,7 @@
   var MAX_CURRENT = 10;
   function markStage(doc, r) {
     const name = r.fileName;
-    const flagText = r.valid ? "Sample data: this act replays the recorded shop-bot run, not " + name + ". The verdict for " + name + " is at the top of Act V." : "Sample data: this act replays the recorded shop-bot run. " + name + " is INVALID, so it has no verdict.";
+    const flagText = r.valid ? "Sample data: this act replays the recorded shop-bot run, not " + name + ". The verdict for " + name + " is at the top of the verdict section." : "Sample data: this act replays the recorded shop-bot run. " + name + " is INVALID, so it has no verdict.";
     for (const id of STAGE_IDS.flags) {
       const flag = doc.getElementById(id);
       if (!flag)

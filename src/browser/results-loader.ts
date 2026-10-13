@@ -211,20 +211,20 @@ export interface LoaderDocument {
 
 export const IDS = { zone: "dropzone", input: "csv", status: "dropStatus", panel: "loadedResult" } as const;
 
-/** Acts II to V each carry a flag, and Act V a slot for the loaded verdict; the page has no flag until a file is loaded. */
+/** Each sample section carries a flag, and the verdict section has a slot for the loaded verdict; the page has no flag until a file is loaded. */
 export const STAGE_IDS = { flags: ["sampleFlag2", "sampleFlag3", "sampleFlag4", "sampleFlag5"], current: "currentVerdict" } as const;
 
-/** Most questions listed in the Act V slot; the panel below the play lists them all. */
+/** Most questions listed in the verdict slot; the panel below the play lists them all. */
 const MAX_CURRENT = 10;
 
 /**
- * Once a file has been checked, Acts II to V (still the recorded sample) say so, and Act V shows the file's own verdict
+ * Once a file has been checked, the sample sections say so, and the verdict section shows the file's own verdict
  * as the current one, so the page never shows two verdicts with no label on which is which. Each element is optional.
  */
 export function markStage(doc: LoaderDocument, r: LoadedResult): void {
   const name = r.fileName;
   const flagText = r.valid
-    ? "Sample data: this act replays the recorded shop-bot run, not " + name + ". The verdict for " + name + " is at the top of Act V."
+    ? "Sample data: this act replays the recorded shop-bot run, not " + name + ". The verdict for " + name + " is at the top of the verdict section."
     : "Sample data: this act replays the recorded shop-bot run. " + name + " is INVALID, so it has no verdict.";
   for (const id of STAGE_IDS.flags) {
     const flag = doc.getElementById(id);

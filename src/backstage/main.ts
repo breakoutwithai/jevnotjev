@@ -9,7 +9,7 @@ import {
 } from "./run.ts";
 import { rankJevOptions, type JevSuggestion } from "../labels/rank.ts";
 import { MODEL_CATALOG, CATALOG_CHECKED_DATE, JEV_ARM_ID } from "./catalog.ts";
-import { copyDecision } from "./copy.ts";
+import { copyDecision } from "./copy.ts"; import { applicableDraft, coachPrompt, COACH_PROMPT_VERSION, COACH_REPLY_ERROR, COACH_UNSAFE_MESSAGE, parseCoachReply, type CoachDraft } from "./coach.ts";
 import {
   KEY_FIELD_NAMES,
   estimateRange,
@@ -274,7 +274,7 @@ function mountCatalog() {
       ". Account access is checked only when you run. Prices are estimates; unmapped usage stays unknown.",
   );
 }
-let activeKeys: ProviderKeys = {};
+let activeKeys: ProviderKeys = {}; let coachController: AbortController | undefined;
 function freezeFields(frozen: boolean) {
   for (const id of [
     "scene-fields",
@@ -283,9 +283,9 @@ function freezeFields(frozen: boolean) {
     "mode-fields",
     "model-fields",
   ]) {
-    const value = element(id);
-    if (value instanceof HTMLFieldSetElement) value.disabled = frozen;
+    const value = element(id); if (value instanceof HTMLFieldSetElement) value.disabled = frozen;
   }
+  for (const control of element("coach-drafts").querySelectorAll<HTMLButtonElement>("button")) control.disabled = frozen || control.dataset.applicable !== "true";
 }
 let starting = false;
 let signingOut = false;
@@ -900,10 +900,10 @@ function confirmReveal() {
   showRoom(4);
 }
 function clearKeys() {
-  activeKeys = {};
+  activeKeys = {}; coachController?.abort(); coachController = undefined;
   startup?.abort();
   run?.stop();
-  for (const provider of providers) field(provider + "-key").value = "";
+  for (const provider of providers) field(provider + "-key").value = ""; field("coach-key").value = "";
 }
 button("clear-keys").onclick = () => {
   clearKeys();
@@ -1221,3 +1221,95 @@ if (linkedPack !== null) {
   const query = rest.toString();
   history.replaceState(null, "", location.pathname + (query === "" ? "" : "?" + query));
 }
+
+function coachStatus(message: string) { text("coach-status", message); }
+function coachUnsafe(question: string, key: string): boolean {
+  return (key.length > 0 && question.includes(key)) ||
+    /sk-ant-[A-Za-z0-9_-]{32,}|\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{32,}|\bsk-[A-Za-z0-9]{32,}|\bxai-[A-Za-z0-9]{32,}|\bAIza[0-9A-Za-z_-]{35}|\bgh[pousr]_[A-Za-z0-9]{30,}|\bbearer\s+[A-Za-z0-9._~+/=-]{20,}/i.test(question);
+}
+function renderCoachDrafts(drafts: readonly CoachDraft[]) {
+  const target = element("coach-drafts");
+  target.replaceChildren();
+  for (const draft of drafts) {
+    const card = document.createElement("article");
+    card.className = "answer-card";
+    card.append(node("h4", draft.type === "choice" ? "Choice" : draft.type === "score" ? "Score" : "Noul"));
+    card.append(node("p", draft.question));
+    if (draft.type === "noul") card.append(node("p", draft.statement));
+    for (const answer of draft.type === "score" ? draft.levels : draft.answers)
+      card.append(node("p", `${answer.name}: ${answer.meaning}`));
+    card.append(node("p", `Keep rule: ${draft.keepRule}`));
+    card.append(node("p", `Rule to beat: ${draft.ruleToBeat.join(", ")}`));
+    card.append(node("p", `Leave out: ${draft.exclusions}`));
+    const values = applicableDraft(draft);
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.textContent = "Apply";
+    apply.dataset.applicable = String(Boolean(values));
+    apply.disabled = !values || Boolean(run) || starting || signingOut;
+    if (!values) card.append(node("p", "Backstage runs two-answer questions today. This shape is not supported yet."));
+    apply.onclick = () => {
+      if (!values || run || starting || signingOut) return;
+      for (const [id, value] of Object.entries(values)) field(id).value = value;
+      imported = undefined;
+      persistDraft();
+      field("question").focus();
+      coachStatus("Draft applied. Edit any scene field before running.");
+      void render();
+    };
+    card.append(apply);
+    target.append(card);
+  }
+}
+function coachQuestion(): string | null {
+  const question = field("coach-question").value.trim();
+  const key = field("coach-key").value.trim();
+  if (coachUnsafe(question, key)) { coachStatus(COACH_UNSAFE_MESSAGE); return null; }
+  if (!question || question.length > 1000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(question)) { coachStatus("Enter a question of at most 1000 characters."); return null; }
+  return question;
+}
+button("coach-copy-prompt").onclick = async () => {
+  const question = coachQuestion();
+  if (!question) return;
+  try { await navigator.clipboard.writeText(coachPrompt(question)); coachStatus("Coach prompt copied. Paste the JSON reply below."); }
+  catch { coachStatus("Could not copy the coach prompt."); }
+};
+button("coach-use-reply").onclick = () => {
+  const reply = field("coach-reply").value;
+  if (coachUnsafe(reply, field("coach-key").value.trim())) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
+  const parsed = parseCoachReply(reply);
+  if (!parsed.ok) { coachStatus(COACH_REPLY_ERROR); return; }
+  renderCoachDrafts(parsed.drafts);
+  coachStatus(`${parsed.drafts.length} draft${parsed.drafts.length === 1 ? "" : "s"} ready.`);
+};
+button("coach-draft").onclick = async () => {
+  if (coachController) return;
+  const question = coachQuestion();
+  if (!question) return;
+  const key = field("coach-key").value.trim();
+  const selected = element("coach-provider");
+  if (!(selected instanceof HTMLSelectElement) || !["anthropic", "openai"].includes(selected.value) || !key) {
+    coachStatus("Choose a provider and enter your model key."); return;
+  }
+  const trigger = button("coach-draft");
+  const controller = new AbortController();
+  coachController = controller;
+  trigger.disabled = true;
+  coachStatus("Drafting scenes...");
+  try {
+    const response = await fetch("/api/backstage/coach", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ provider: selected.value, key, question }), signal: controller.signal });
+    if (controller.signal.aborted) return;
+    const payload: unknown = await response.json();
+    if (typeof payload !== "object" || payload === null) throw new Error("Could not draft scenes.");
+    if (!response.ok) {
+      const message = Reflect.get(payload, "message");
+      throw new Error(message === COACH_UNSAFE_MESSAGE ? COACH_UNSAFE_MESSAGE : "Could not draft scenes. Check your key or try again.");
+    }
+    if (Reflect.get(payload, "promptVersion") !== COACH_PROMPT_VERSION) throw new Error("Coach version changed. Reload before drafting.");
+    const parsed = parseCoachReply(JSON.stringify({ drafts: Reflect.get(payload, "drafts") }));
+    if (!parsed.ok) throw new Error(COACH_REPLY_ERROR);
+    renderCoachDrafts(parsed.drafts);
+    coachStatus(`${parsed.drafts.length} draft${parsed.drafts.length === 1 ? "" : "s"} ready.`);
+  } catch (error) { if (!controller.signal.aborted) coachStatus(error instanceof Error ? error.message : "Could not draft scenes."); }
+  finally { if (coachController === controller) coachController = undefined; trigger.disabled = false; }
+};

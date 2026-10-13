@@ -27,6 +27,76 @@ function request(origin = "http://localhost:3456", data: unknown = body) {
     body: JSON.stringify(data),
   });
 }
+const coachDraft = { type: "choice", question: "Refund?", answers: [{ name: "Refund", meaning: "When damaged." }, { name: "Decline", meaning: "When not damaged." }], keepRule: "Keep when I would refund it.", ruleToBeat: ["damaged"], exclusions: "Unknown condition." };
+function coachRequest(data: unknown = { provider: "anthropic", key: "test-secret-value", question: "Refund?" }, origin = "http://localhost:3456", contentType = "application/json") {
+  return new Request("http://localhost:3456/api/backstage/coach", { method: "POST", headers: { origin, "content-type": contentType }, body: JSON.stringify(data) });
+}
+test("[integration] #132 C1 coach routes two questions to the selected model and returns distinct complete drafts", async () => {
+  const logs: string[] = [];
+  const handler = createHandler({ version: "test", log: (line) => logs.push(line), providerFetch: async (_url, options) => {
+    const sent = String(options.body);
+    const question = sent.includes("Replace?") ? "Replace?" : "Refund?";
+    return Response.json({ model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ drafts: [{ ...coachDraft, question }] }) }] });
+  } });
+  const first = await (await handler(coachRequest())).json();
+  const second = await (await handler(coachRequest({ provider: "anthropic", key: "test-secret-value", question: "Replace?" }))).json();
+  expect(first.drafts[0].question).toBe("Refund?");
+  expect(second.drafts[0].question).toBe("Replace?");
+  expect(first.drafts[0].answers[0].meaning).toBe("When damaged.");
+  expect(first.drafts[0].keepRule).toBe("Keep when I would refund it.");
+  expect(first.promptVersion).toBe("coach.1");
+  expect(first.model).toBe("claude-sonnet-5-5");
+  expect(logs).toHaveLength(2);
+  expect(logs.join(" ")).not.toContain("test-secret-value");
+  expect(logs.join(" ")).not.toContain("Refund?");
+});
+test("[unit] #132 C4 coach refuses exact and shaped credentials before provider dispatch", async () => {
+  let calls = 0;
+  const handler = createHandler({ version: "test", providerFetch: async () => { calls++; return Response.json({}); } });
+  const key = "test-secret-value";
+  for (const question of [key, `Use ${"sk-ant-" + "Ab3".repeat(12)}`, `Bearer ${"Ab3".repeat(10)}`]) {
+    const response = await handler(coachRequest({ provider: "anthropic", key, question }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ code: "unsafe-input", message: "A provider key appears in the scene. Remove it before running." });
+  }
+  expect(calls).toBe(0);
+});
+test("[unit] #132 C8 coach request boundary refuses unsafe requests before dispatch", async () => {
+  let calls = 0;
+  const handler = createHandler({ version: "test", providerFetch: async () => { calls++; return Response.json({}); } });
+  expect((await handler(coachRequest(undefined, "https://evil.test"))).status).toBe(403);
+  expect((await handler(coachRequest(undefined, undefined, "text/plain"))).status).toBe(415);
+  expect((await handler(coachRequest({ provider: "openai", key: "test-secret-value", question: "x".repeat(66000) }))).status).toBe(400);
+  for (const data of [{ provider: "google", key: "test-secret-value", question: "Refund?" }, { provider: "openai", question: "Refund?" }])
+    expect((await handler(coachRequest(data))).status).toBe(400);
+  const gated = createHandler({ version: "test", requireSession: true, providerFetch: async () => { calls++; return Response.json({}); } });
+  expect((await gated(coachRequest())).status).toBe(401);
+  expect(calls).toBe(0);
+});
+test("[unit] #132 C9 provider faults and credential echoes are sanitized", async () => {
+  const key = "test-secret-value";
+  const logs: string[] = [];
+  for (const response of [new Response(key, { status: 401 }), new Response(key, { status: 429 }), new Response("not json"), Response.json({ stop_reason: "end_turn", content: [{ type: "text", text: key }] })]) {
+    const handler = createHandler({ version: "test", log: (line) => logs.push(line), providerFetch: async () => response.clone() });
+    const result = await handler(coachRequest({ provider: "anthropic", key, question: "Refund?" }));
+    expect(result.status).toBe(502);
+    expect(await result.text()).not.toContain(key);
+  }
+  expect(logs.join(" ")).not.toContain(key);
+});
+test("[unit] #132 C8 coach shares the BYOK concurrency limit", async () => {
+  let release: () => void = () => {};
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  const handler = createHandler({ version: "test", maxConcurrent: 8, log: () => {}, providerFetch: async () => {
+    await pending;
+    return Response.json({ model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ drafts: [coachDraft] }) }] });
+  } });
+  const first = Array.from({ length: 6 }, () => handler(coachRequest()));
+  await Bun.sleep(5);
+  expect((await handler(request())).status).toBe(503);
+  release();
+  expect((await Promise.all(first)).map((response) => response.status)).toEqual(Array(6).fill(200));
+});
 test("[unit] B4 server rejects cross-origin and malformed requests without calling upstream", async () => {
   let calls = 0;
   const handler = createHandler({

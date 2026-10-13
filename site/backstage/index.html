@@ -65,6 +65,20 @@
           </p>
           <div class="actions" id="starter-pack-buttons"></div>
         </div>
+        <div id="question-coach" class="before-you-start" aria-labelledby="coach-title">
+          <h3 id="coach-title">Question coach</h3>
+          <label>What do you want to decide?<textarea id="coach-question" maxlength="1000" rows="3"></textarea></label>
+          <label for="coach-provider">Model provider</label><select id="coach-provider"><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option></select>
+          <label>Your model key<input id="coach-key" type="password" autocomplete="off" spellcheck="false"></label>
+          <div class="actions">
+            <button id="coach-draft" type="button">Draft with my model key</button>
+            <button id="coach-copy-prompt" type="button" class="secondary">Copy coach prompt</button>
+          </div>
+          <label>Paste your model's JSON reply<textarea id="coach-reply" rows="5"></textarea></label>
+          <button id="coach-use-reply" type="button" class="secondary">Use this reply</button>
+          <p id="coach-status" role="status"></p>
+          <div id="coach-drafts"></div>
+        </div>
         <fieldset id="scene-fields">
           <legend class="sr-only">Your decision</legend>
           <p id="scene-safety" class="trust-sign">

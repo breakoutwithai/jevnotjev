@@ -14,6 +14,7 @@ import { PROTOCOL_VERSION } from "./contracts.ts";
 import {
   boundedText,
   callProvider,
+  callCoach,
   validateAnswerRequest,
   dispatchError,
 } from "./providers.ts";
@@ -21,6 +22,8 @@ import type { ProviderFetch } from "./providers.ts";
 import { openTrial, validTrialInput } from "./trial.ts";
 import { checkTicket, MAX_TICKET_BODY, TicketLimiter, TicketStore } from "./tickets.ts";
 import { rankPosters, type Poster } from "../shows/posters.ts";
+import { COACH_PROMPT_VERSION, COACH_UNSAFE_MESSAGE } from "./coach.ts";
+import { findCredentials } from "./export-check.ts";
 import type { TrialConfig } from "./trial.ts";
 declare const BACKSTAGE_BUILD_VERSION: string;
 export function runtimeVersion(
@@ -416,6 +419,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     if (
       [
         "/api/backstage/answer",
+        "/api/backstage/coach",
         "/api/backstage/trial/mint",
         "/api/backstage/trial/answer",
       ].includes(pathname)
@@ -456,6 +460,25 @@ export function createHandler(options: ServerOptions): BackstageHandler {
           AbortSignal.timeout(5000),
         );
         const decoded: unknown = JSON.parse(raw);
+        if (pathname === "/api/backstage/coach") {
+          if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded) ||
+              !("provider" in decoded) || !("key" in decoded) || !("question" in decoded) ||
+              (decoded.provider !== "anthropic" && decoded.provider !== "openai") ||
+              typeof decoded.key !== "string" || !/^[\x21-\x7e]{8,512}$/.test(decoded.key) ||
+              typeof decoded.question !== "string" || !decoded.question.trim() || decoded.question.length > 1000 ||
+              /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(decoded.question) ||
+              Object.keys(decoded).some((name) => !["provider", "key", "question"].includes(name)))
+            return json({ code: "invalid-request", message: "Enter a question, provider and valid key." }, 400);
+          if (findCredentials(decoded.question, [decoded.key]).length > 0)
+            return json({ code: "unsafe-input", message: COACH_UNSAFE_MESSAGE }, 400);
+          const model = decoded.provider === "anthropic" ? "claude-sonnet-5-5" : "gpt-6-luna";
+          logger.coach({ event: "coach.request", rid, provider: decoded.provider, model });
+          const result = await callCoach(decoded.provider, decoded.key, decoded.question, options.providerFetch, options.timeoutMs);
+          if (!result.ok) return json({ code: "coach-failed", message: result.reason }, 502);
+          if (JSON.stringify(result.drafts).includes(decoded.key))
+            return json({ code: "coach-failed", message: "Coach reply contained a credential." }, 502);
+          return json({ drafts: result.drafts, promptVersion: COACH_PROMPT_VERSION, model });
+        }
         if (trialRoute) {
           const publicOrigin = new URL(options.origin ?? url.origin);
           if (

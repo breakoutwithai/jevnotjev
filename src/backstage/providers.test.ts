@@ -4,6 +4,7 @@ import { test, expect, spyOn } from "bun:test";
 import {
   buildProviderRequest,
   callProvider,
+  callCoach,
   parseAnswerRequest,
 } from "./providers.ts";
 import type { AnswerRequest } from "./contracts.ts";
@@ -25,6 +26,38 @@ const request: AnswerRequest = {
   provider: "jev",
   key: "secret-test-key",
 };
+test("[unit] #132 C1 coach pins Anthropic and OpenAI model requests with bounded output", async () => {
+  const calls: Array<{ url: string; options: RequestInit }> = [];
+  const draft = { type: "choice", question: "Refund?", answers: [{ name: "Refund", meaning: "When damaged." }, { name: "Decline", meaning: "When intact." }], keepRule: "Keep when I would refund it.", ruleToBeat: ["damaged"], exclusions: "Unknown condition." };
+  for (const provider of ["anthropic", "openai"] as const) {
+    const result = await callCoach(provider, "test-secret-value", "Refund?", async (url, options) => {
+      calls.push({ url, options });
+      const output = JSON.stringify({ drafts: [draft] });
+      return provider === "anthropic" ? Response.json({ model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: output }] })
+        : Response.json({ model: "gpt-6-luna", status: "completed", output: [{ content: [{ type: "output_text", text: output }] }] });
+    });
+    expect(result.ok).toBe(true);
+  }
+  expect(calls.map((call) => call.url)).toEqual(["https://api.anthropic.com/v1/messages", "https://api.openai.com/v1/responses"]);
+  expect(String(calls[0]?.options.body)).toContain("claude-sonnet-5-5");
+  expect(String(calls[1]?.options.body)).toContain("gpt-6-luna");
+  expect(String(calls[0]?.options.body)).toContain("max_tokens\":2048");
+  expect(String(calls[1]?.options.body)).toContain("max_output_tokens\":2048");
+  expect(String(calls[0]?.options.body)).not.toContain("test-secret-value");
+  expect(String(calls[1]?.options.body)).not.toContain("test-secret-value");
+});
+test("[unit] #132 C9 coach provider timeout and malformed output return plain errors", async () => {
+  const timed = await callCoach("openai", "test-secret-value", "Refund?", async (_url, options) => {
+    await new Promise<void>((_resolve, reject) => options.signal?.addEventListener("abort", () => reject(new Error("test-secret-value"))));
+    return Response.json({});
+  }, 5);
+  expect(timed.ok).toBe(false);
+  expect(JSON.stringify(timed)).not.toContain("test-secret-value");
+  const malformed = await callCoach("openai", "test-secret-value", "Refund?", async () => Response.json({ status: "completed", output: [{ content: [{ type: "output_text", text: "not json" }] }] }));
+  expect(malformed.ok).toBe(false);
+  const wrongModel = await callCoach("openai", "test-secret-value", "Refund?", async () => Response.json({ model: "other-model", status: "completed", output: [] }));
+  expect(wrongModel.ok).toBe(false);
+});
 test("[unit] B4 strict requests reject malformed and secret-bearing inputs", () => {
   expect(parseAnswerRequest(request)).not.toBeNull();
   expect(

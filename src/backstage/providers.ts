@@ -11,12 +11,49 @@ import type {
 import { MODEL_CATALOG, CATALOG_VERSION, getModelEntry } from "./catalog.ts";
 import { requestFingerprint } from "./fingerprint.ts";
 import { decisionPrompt, PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
+import { coachPrompt, parseCoachReply, type CoachReply } from "./coach.ts";
 export { requestFingerprint } from "./fingerprint.ts";
 export type ProviderFetch = (
   url: string,
   options: RequestInit,
 ) => Promise<Response>;
 export const PROVIDER_TIMEOUT_MS = 30000;
+export async function callCoach(
+  provider: "anthropic" | "openai", key: string, question: string,
+  doFetch: ProviderFetch = fetch, timeoutMs = PROVIDER_TIMEOUT_MS,
+): Promise<CoachReply> {
+  const model = provider === "anthropic" ? "claude-sonnet-5-5" : "gpt-6-luna";
+  const prompt = coachPrompt(question);
+  const url = provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : "https://api.openai.com/v1/responses";
+  const headers = provider === "anthropic"
+    ? { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }
+    : { "content-type": "application/json", authorization: `Bearer ${key}` };
+  const body = provider === "anthropic"
+    ? { model, max_tokens: 2048, system: prompt, messages: [{ role: "user", content: question }] }
+    : { model, max_output_tokens: 2048, input: [{ role: "system", content: prompt }, { role: "user", content: question }], reasoning: { effort: "none" }, tools: [], store: false };
+  try {
+    const response = await doFetch(url, { method: "POST", headers, body: JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
+    if (!response.ok) return { ok: false, reason: `Coach provider returned ${response.status}. Check your key or try again.` };
+    const raw = await boundedText(response, 65536, AbortSignal.timeout(timeoutMs));
+    if (raw.includes(key)) return { ok: false, reason: "Coach reply contained a credential." };
+    const payload: unknown = JSON.parse(raw);
+    if (!object(payload)) return { ok: false, reason: "Coach provider returned an unreadable reply." };
+    if (payload.model !== model) return { ok: false, reason: "Coach provider returned a different model." };
+    let output: unknown;
+    if (provider === "anthropic" && payload.stop_reason === "end_turn" && Array.isArray(payload.content)) {
+      const parts = payload.content.filter((part: unknown) => object(part) && part.type === "text");
+      if (parts.length === 1 && object(parts[0])) output = parts[0].text;
+    }
+    if (provider === "openai" && payload.status === "completed" && Array.isArray(payload.output)) {
+      const parts = payload.output.flatMap((item: unknown) => object(item) && Array.isArray(item.content) ? item.content : []);
+      const texts = parts.filter((part: unknown) => object(part) && part.type === "output_text");
+      if (texts.length === 1 && object(texts[0])) output = texts[0].text;
+    }
+    return typeof output === "string" ? parseCoachReply(output) : { ok: false, reason: "Coach provider returned an unreadable reply." };
+  } catch {
+    return { ok: false, reason: "Coach provider timed out or returned an unreadable reply." };
+  }
+}
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

@@ -2,8 +2,9 @@ import { expect, test } from "bun:test";
 import { CATALOG_VERSION } from "./catalog.ts";
 import { PROTOCOL_VERSION, type AnswerRequest } from "./contracts.ts";
 import { getModelEntry } from "./catalog.ts";
-import { inputFingerprint } from "./run.ts";
+import { inputFingerprint, runScene } from "./run.ts";
 import { SCENE_DRAFT_KEY } from "./scene-draft.ts";
+import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 
 class FakeNode extends EventTarget {
   children: FakeNode[] = [];
@@ -40,11 +41,19 @@ class FakeElement extends FakeNode {
   attributeText(): string { return [...this.attributes.values(), this.value].join("\n"); }
   focus() { if (this.owner) this.owner.activeElement = this; }
   click() { this.onclick?.(); this.dispatchEvent(new Event("click")); }
+  querySelectorAll(selector: string): FakeElement[] {
+    if (selector !== "button") throw new Error(`Unexpected selector: ${selector}`);
+    const found: FakeElement[] = [];
+    const walk = (node: FakeNode) => { for (const child of node.children) { if (child instanceof FakeElement && child.tagName === "BUTTON") found.push(child); walk(child); } };
+    walk(this);
+    return found;
+  }
 }
 class FakeInput extends FakeElement { files: File[] | null = null; }
 class FakeTextArea extends FakeElement {}
 class FakeButton extends FakeElement {}
 class FakeFieldSet extends FakeElement {}
+class FakeSelect extends FakeElement {}
 
 class FakeDocument {
   readonly documentElement = new FakeElement("HTML");
@@ -56,6 +65,7 @@ class FakeDocument {
       : upper === "TEXTAREA" ? new FakeTextArea(upper)
       : upper === "BUTTON" ? new FakeButton(upper)
       : upper === "FIELDSET" ? new FakeFieldSet(upper)
+      : upper === "SELECT" ? new FakeSelect(upper)
       : new FakeElement(upper);
     element.owner = this;
     this.elements.push(element);
@@ -71,6 +81,7 @@ class FakeDocument {
     return root === undefined ? "" : walk(root);
   }
   querySelectorAll(selector: string): FakeElement[] {
+    if (selector === "img") return this.elements.filter((element) => element.tagName === "IMG");
     if (selector === "[data-panel]") return this.elements.filter((element) => element.dataset.panel !== undefined);
     if (selector === "[data-room]") return this.elements.filter((element) => element.dataset.room !== undefined);
     if (selector === "[data-arm]:checked") return this.elements.filter((element) => element.dataset.arm !== undefined && element.checked);
@@ -124,10 +135,11 @@ class FakeStorage {
   setItem(key: string, value: string) { this.items.set(key, value); }
   removeItem(key: string) { this.items.delete(key); }
 }
-async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage(), answer?: (request: AnswerRequest) => Promise<unknown>, search = "") {
+async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage(), answer?: (request: AnswerRequest) => Promise<unknown>, search = "", coach?: (question: string) => unknown) {
   const document = documentFromMarkup(await Bun.file("site/backstage/index.html").text());
   const urls: string[] = [];
   const requests: Array<{ input: string; init: RequestInit | undefined }> = [];
+  const copied: string[] = [];
   const replacements: string[] = [];
   const historyCalls: unknown[][] = [];
   const location = { search, pathname: "/backstage/", origin: "https://example.test", replace: (url: string) => replacements.push(url) };
@@ -137,13 +149,14 @@ async function mount(health = new Response(JSON.stringify({ trial: { available: 
     document, window, location,
     sessionStorage: store,
     history: { replaceState: (...args: unknown[]) => historyCalls.push(args) },
-    navigator: { clipboard: { writeText: async (_value: string) => {} } },
+    navigator: { clipboard: { writeText: async (value: string) => { copied.push(value); } } },
     matchMedia: (_query: string) => ({ matches: false }),
     XMLHttpRequest: class { constructor() { throw new Error("No XMLHttpRequest may be constructed"); } },
     HTMLInputElement: FakeInput,
     HTMLTextAreaElement: FakeTextArea,
     HTMLButtonElement: FakeButton,
     HTMLFieldSetElement: FakeFieldSet,
+    HTMLSelectElement: FakeSelect,
     BACKSTAGE_BUILD_VERSION: "so6-test",
     fetch: async (input: string, init?: RequestInit) => {
       urls.push(input);
@@ -156,6 +169,11 @@ async function mount(health = new Response(JSON.stringify({ trial: { available: 
         const request: AnswerRequest = JSON.parse(init.body);
         return new Response(JSON.stringify(await answer(request)), { status: 200, headers: { "content-type": "application/json" } });
       }
+      if (input === "/api/backstage/coach" && coach && typeof init?.body === "string") {
+        const data: unknown = JSON.parse(init.body);
+        const question = typeof data === "object" && data !== null && "question" in data && typeof data.question === "string" ? data.question : "";
+        return Response.json({ drafts: coach(question), promptVersion: "coach.1", model: "claude-sonnet-5-5" });
+      }
       if (input !== "/api/backstage/health") throw new Error(`Unexpected fetch: ${input}`);
       return health.clone();
     },
@@ -166,7 +184,7 @@ async function mount(health = new Response(JSON.stringify({ trial: { available: 
     if (!found) throw new Error(`Missing markup element: ${id}`);
     return found;
   };
-  return { document, get, urls, requests, replacements, historyCalls, window, store };
+  return { document, get, urls, requests, replacements, historyCalls, window, store, copied };
 }
 
 const keyIds = ["jev-key", "anthropic-key", "openai-key", "google-key", "xai-key"];
@@ -262,6 +280,141 @@ test("[integration] A2 other health errors leave expiry message absent", async (
 });
 
 const sceneIds = ["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "exclusions", "keywords", "cases"];
+const coachDraft = { type: "choice", question: "Should I refund?", answers: [{ name: "Refund", meaning: "When the item is damaged." }, { name: "Decline", meaning: "When it is intact." }], keepRule: "Keep when I would refund the order.", ruleToBeat: ["damaged"], exclusions: "Unknown condition." };
+function coachApply(page: Awaited<ReturnType<typeof mount>>, index = 0): FakeElement {
+  const card = page.get("coach-drafts").children[index];
+  const candidate = card?.children.at(-1);
+  if (!(candidate instanceof FakeElement)) throw new Error("Missing Apply button");
+  return candidate;
+}
+test("[integration] #132 C1 coach uses two typed questions and renders complete drafts", async () => {
+  const page = await mount(undefined, undefined, undefined, undefined, "", (question) => [{ ...coachDraft, question }]);
+  page.get("coach-provider").value = "anthropic";
+  page.get("coach-key").value = "test-secret-value";
+  for (const question of ["Should I refund?", "Should I replace?"]) {
+    page.get("coach-question").value = question;
+    page.get("coach-draft").click();
+    await tick();
+    const card = page.get("coach-drafts").children[0];
+    expect(card?.children[1]?.textContent).toBe(question);
+    expect(card?.children[2]?.textContent).toContain("When the item is damaged.");
+    expect(card?.children[4]?.textContent).toContain(coachDraft.keepRule);
+  }
+  expect(page.requests.filter((item) => item.input === "/api/backstage/coach")).toHaveLength(2);
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toBeNull();
+});
+test("[integration] #132 copy coach prompt contains the question but no key or network call", async () => {
+  const page = await mount();
+  page.get("coach-question").value = "Should I refund?";
+  page.get("coach-key").value = "test-secret-value";
+  page.get("coach-copy-prompt").click();
+  await tick();
+  expect(page.copied).toHaveLength(1);
+  expect(page.copied[0]).toContain("coach.1");
+  expect(page.copied[0]).toContain("Should I refund?");
+  expect(page.copied[0]).not.toContain("test-secret-value");
+  expect(page.requests.filter((item) => item.input === "/api/backstage/coach")).toHaveLength(0);
+});
+test("[integration] #132 C2 C3 applying a Choice replaces editable fields and makes no provider call", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYes);
+  for (const id of sceneIds) typeInto(page, id, "old value");
+  page.get("coach-reply").value = JSON.stringify({ drafts: [coachDraft] });
+  page.get("coach-use-reply").click();
+  const before = page.requests.length;
+  coachApply(page).click();
+  expect(page.requests).toHaveLength(before);
+  expect(["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "exclusions", "keywords"].map((id) => page.get(id).value))
+    .toEqual(["Should I refund?", "Refund", "Decline", "When the item is damaged.", "When it is intact.", "Keep when I would refund the order.", "Unknown condition.", "damaged"]);
+  expect(page.document.activeElement).toBe(page.get("question"));
+  typeInto(page, "cases", "damaged item");
+  expect(runScene({ question: page.get("question").value, choices: [{ name: page.get("choice-a").value, definition: page.get("definition-a").value }, { name: page.get("choice-b").value, definition: page.get("definition-b").value }], acceptance: page.get("acceptance").value, exclusions: page.get("exclusions").value, keywords: [page.get("keywords").value], matchChoice: page.get("choice-a").value, otherwiseChoice: page.get("choice-b").value, cases: [{ id: "case-1", input: page.get("cases").value }] }, ["jev", "rule"]).question).toBe("Should I refund?");
+  for (const id of ["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "exclusions", "keywords"]) {
+    typeInto(page, id, `${page.get(id).value} edited`);
+    expect(page.get(id).value.endsWith(" edited")).toBe(true);
+  }
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toContain("Should I refund? edited");
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).not.toContain("coach-key");
+  typeInto(page, "jev-key", "test-secret-value");
+  page.get("run-one").click();
+  await Bun.sleep(30);
+  expect(page.get("scene-fields").disabled).toBe(true);
+  expect(page.get("notice").textContent).not.toContain("required");
+});
+test("[integration] #132 C5 unsupported drafts and frozen scenes cannot apply", async () => {
+  const page = await mount();
+  const score = { ...coachDraft, type: "score", levels: coachDraft.answers };
+  const noul = { ...coachDraft, type: "noul", statement: "This qualifies.", answers: [{ name: "True", meaning: "When it qualifies." }, { name: "False", meaning: "When it does not." }] };
+  const three = { ...coachDraft, answers: [...coachDraft.answers, { name: "Escalate", meaning: "When unsure." }] };
+  page.get("coach-reply").value = JSON.stringify({ drafts: [score, noul, three] });
+  page.get("coach-use-reply").click();
+  for (let index = 0; index < 3; index++) {
+    expect(coachApply(page, index).disabled).toBe(true);
+    expect(page.get("coach-drafts").children[index]?.children.some((child) => child.textContent.includes("This shape is not supported yet."))).toBe(true);
+  }
+  page.get("coach-reply").value = JSON.stringify({ drafts: [coachDraft] });
+  page.get("coach-use-reply").click();
+  typeInto(page, "question", "Already edited");
+  typeInto(page, "definition-a", "First");
+  typeInto(page, "definition-b", "Second");
+  typeInto(page, "acceptance", "Keep first");
+  typeInto(page, "cases", "sample");
+  typeInto(page, "jev-key", "test-secret-value");
+  page.get("run-one").click();
+  expect(coachApply(page).disabled).toBe(true);
+  coachApply(page).click();
+  expect(page.get("question").value).toBe("Already edited");
+  await Bun.sleep(50);
+});
+test("[integration] #132 C6 invalid paste never changes any scene field", async () => {
+  const page = await mount();
+  const ids = sceneIds.slice(0, 8);
+  ids.forEach((id, index) => typeInto(page, id, `original ${index}`));
+  const original = ids.map((id) => page.get(id).value);
+  const invalid = ["bad json", JSON.stringify({ drafts: [] }), JSON.stringify({ drafts: Array(4).fill(coachDraft) }), JSON.stringify({ drafts: [coachDraft, { ...coachDraft, keepRule: "" }] }), JSON.stringify({ drafts: [{ ...coachDraft, question: "x".repeat(1001) }] })];
+  for (const reply of invalid) {
+    page.get("coach-reply").value = reply;
+    page.get("coach-use-reply").click();
+    expect(page.get("coach-status").textContent).toBe("Could not read that reply. Nothing was changed.");
+    expect(ids.map((id) => page.get(id).value)).toEqual(original);
+  }
+});
+test("[integration] #132 C4 C12 coach blocks keys in question and Clear keys blanks coach key", async () => {
+  const page = await mount();
+  page.get("coach-provider").value = "anthropic";
+  page.get("coach-key").value = "test-secret-value";
+  for (const question of ["test-secret-value", `sk-ant-${"Ab3".repeat(12)}`, `Bearer ${"Ab3".repeat(10)}`]) {
+    page.get("coach-question").value = question;
+    page.get("coach-draft").click();
+    expect(page.get("coach-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  }
+  expect(page.requests.filter((item) => item.input === "/api/backstage/coach")).toHaveLength(0);
+  page.get("coach-reply").value = JSON.stringify({ drafts: [{ ...coachDraft, question: "test-secret-value" }] });
+  page.get("coach-use-reply").click();
+  expect(page.get("coach-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  expect(page.get("coach-drafts").children).toHaveLength(0);
+  page.get("clear-keys").click();
+  expect(page.get("coach-key").value).toBe("");
+});
+test("[integration] #132 C10 model markup is displayed as text", async () => {
+  const page = await mount();
+  const attack = "<img src=x onerror=alert(1)>";
+  page.get("coach-reply").value = JSON.stringify({ drafts: [{ ...coachDraft, question: attack }] });
+  page.get("coach-use-reply").click();
+  expect(page.get("coach-drafts").children[0]?.children[1]?.textContent).toBe(attack);
+  expect(page.get("coach-drafts").querySelectorAll("button")).toHaveLength(1);
+  expect(page.document.querySelectorAll("img")).toHaveLength(0);
+});
+test("[integration] #132 C7 existing saved scene and two-choice fingerprint stay unchanged", async () => {
+  const store = new FakeStorage();
+  store.setItem(SCENE_DRAFT_KEY, JSON.stringify({ fields: { question: "Keep?", "choice-a": "keep", "choice-b": "cut", "definition-a": "Suitable", "definition-b": "Unsuitable", acceptance: "Keep suitable answers", exclusions: "", keywords: "suitable", cases: "Example" }, imported: null }));
+  const page = await mount(undefined, undefined, store);
+  expect(["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "exclusions", "keywords", "cases"].map((id) => page.get(id).value))
+    .toEqual(["Keep?", "keep", "cut", "Suitable", "Unsuitable", "Keep suitable answers", "", "suitable", "Example"]);
+  expect(page.get("coach-question").value).toBe("");
+  expect(page.get("coach-key").value).toBe("");
+  expect(await inputFingerprint({ question: "Keep?", choices: [{ name: "keep", definition: "Suitable" }, { name: "cut", definition: "Unsuitable" }], input: "Example", provider: "jev", modelId: "jev-1.13.0", armId: "jev", promptVersion: PROMPT_TEMPLATE_VERSION, catalogVersion: CATALOG_VERSION }))
+    .toBe("df51f1711d153b642d1c180c89599e0a98d74fddead5994582f84a36a3cd3931");
+});
 function typeInto(page: Awaited<ReturnType<typeof mount>>, id: string, value: string) {
   page.get(id).value = value;
   page.get(id).dispatchEvent(new Event("input"));

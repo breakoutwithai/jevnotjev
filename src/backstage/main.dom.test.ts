@@ -431,6 +431,7 @@ test("[integration] #132 C5 unsupported drafts and frozen scenes cannot apply", 
   const three = { ...coachDraft, answers: [...coachDraft.answers, { name: "Escalate", meaning: "When unsure." }] };
   page.get("coach-reply").value = JSON.stringify({ drafts: [score, noul, three] });
   page.get("coach-use-reply").click();
+  expect(page.get("coach-drafts").children[2]?.children[0]?.textContent).toBe("3 answers (choice)");
   for (let index = 0; index < 3; index++) {
     expect(coachApply(page, index).disabled).toBe(true);
     expect(page.get("coach-drafts").children[index]?.children.some((child) => child.textContent.includes("This shape is not supported yet."))).toBe(true);
@@ -508,6 +509,26 @@ test("[integration] #132 funded run also rejects a Coach key in the scene", asyn
   await tick();
   expect(page.get("notice").textContent).toBe("A provider key appears in the scene. Remove it before running.");
   expect(page.requests.some((request) => request.input.startsWith("/api/backstage/trial/"))).toBe(false);
+});
+test("[integration] #132 funded trial ignores unused key syntax but still scans the scene", async () => {
+  const clean = await mount();
+  fillScene(clean);
+  typeInto(clean, "jev-key", "bad");
+  typeInto(clean, "cases", "sample");
+  clean.get("run-trial").click();
+  await until(() => clean.requests.some((request) => request.input === "/api/backstage/trial/mint"));
+  await until(() => clean.get("notice").textContent.includes("Calls stopped."));
+
+  const unsafe = await mount();
+  fillScene(unsafe);
+  typeInto(unsafe, "jev-key", "bad");
+  typeInto(unsafe, "anthropic-key", "anthropic-secret-value");
+  typeInto(unsafe, "question", "Use anthropic-secret-value?");
+  typeInto(unsafe, "cases", "sample");
+  unsafe.get("run-trial").click();
+  await tick();
+  expect(unsafe.get("notice").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  expect(unsafe.requests.some((request) => request.input === "/api/backstage/trial/mint")).toBe(false);
 });
 test("[integration] #132 Coach key is never included in an answer request", async () => {
   const page = await mount(undefined, undefined, undefined, answerYes);

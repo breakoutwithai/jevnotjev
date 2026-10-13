@@ -52,8 +52,8 @@ One CSV in the `jnj-record/1` format, one row per answerer per question per case
 | Latency | client wall clock around each call | Recorded as `latency_ms` (src/backstage/run.ts:543 and src/backstage/records.ts:63); shown nowhere; not used in the verdict |
 | Label source | `label_source` (`human`, `human_reviewed`, `agent` or empty) with `labelled_by`, `labelled_at` and `label_blind`, plus `label_final` and `suggestion_shown` from the blind-then-suggest loop (jnj-record/1.1) | Recorded (src/backstage/records.ts:59-68, format/README.md:45); not displayed |
 | Labelling time | none: no column holds it and nothing measures it | Not recorded, not shown |
-| Failed-attempt spend | charges of attempts that returned no answer: known dollars, plus a count of unknown charges (src/backstage/run.ts:1471-1473, counted by src/backstage/records.ts:117-126) | Backstage progress line (src/backstage/main.ts:543) |
-| Total attempts | every attempt's cost once, shared Jev answers billed once (src/backstage/run.ts:1475-1477, counted by src/backstage/records.ts:128-136) | Backstage "Total actual attempts" (src/backstage/main.ts:593-598) |
+| Failed-attempt spend | charges of attempts that returned no answer: known dollars, plus a count of unknown charges (src/backstage/run.ts:1472-1474, counted by src/backstage/records.ts:117-126) | Backstage progress line (src/backstage/main.ts:543) |
+| Total attempts | every attempt's cost once, shared Jev answers billed once (src/backstage/run.ts:1476-1478, counted by src/backstage/records.ts:128-136) | Backstage "Total actual attempts" (src/backstage/main.ts:593-598) |
 | Unlabelled | answers with no label: neither kept nor rejected (src/core/metrics.ts:37) | Backstage "Unlabelled" (src/backstage/main.ts:609); result view "Gaps" (scripts/result-view.ts:150) |
 | Excluded | cases where one answer is unlabelled or absent, left out of a pair (src/core/metrics.ts:57-58) | Backstage pair line (src/backstage/main.ts:629-630) |
 | Interval bounds | 95% Newcombe bounds and cost-ratio bounds (docs/decision/verdict-rules.md) | Result view numbers table (scripts/result-view.ts:211) and the verdict reason text |

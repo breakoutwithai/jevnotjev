@@ -318,7 +318,7 @@ async function start(firstOnly: boolean, retry = false, funded = false) {
       // Capture and validate before the first asynchronous operation: Run authorizes these exact inputs.
       const candidate = scene(firstOnly);
       const selectedMode = mode();
-      validateSceneKeys(candidate, enteredKeys(), selectedMode, houseKey || funded);
+      validateSceneKeys(candidate, enteredKeys(), selectedMode, houseKey, !funded);
       current = new BackstageRun(
         candidate,
         BACKSTAGE_BUILD_VERSION,
@@ -1242,7 +1242,7 @@ function renderCoachDrafts(drafts: readonly CoachDraft[]) {
   for (const draft of drafts) {
     const card = document.createElement("article");
     card.className = "answer-card";
-    card.append(node("h4", draft.type === "choice" ? "Two answers (choice)" : draft.type === "score" ? "Score levels" : "Yes/no chance (noul)"));
+    card.append(node("h4", draft.type === "choice" ? `${draft.answers.length} answers (choice)` : draft.type === "score" ? "Score levels" : "Yes/no chance (noul)"));
     card.append(node("p", draft.question));
     if (draft.type === "noul") card.append(node("p", draft.statement));
     for (const answer of draft.type === "score" ? draft.levels : draft.answers)

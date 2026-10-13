@@ -156,12 +156,13 @@ export function validateSceneKeys(
   keys: Keys,
   _mode: RunMode = "jev-only",
   houseJev = false,
+  validateJevKey = true,
 ): void {
   if (containsKey(scene, keyValues(keys)))
     throw new Error(
       "A provider key appears in the scene. Remove it before running.",
     );
-  if (!(houseJev && !keys.jev) && !validKey(keys.jev))
+  if (validateJevKey && !(houseJev && !keys.jev) && !validKey(keys.jev))
     throw new Error(
       "Supply a valid jev key (8-512 printable characters, no spaces).",
     );

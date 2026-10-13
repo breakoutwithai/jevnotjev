@@ -15,6 +15,10 @@ function openTag(html: string, id: string): string {
 function panel(html: string, index: number): string {
   return new RegExp(`<section data-panel="${index}"[\\s\\S]*?</section>`).exec(html)?.[0] ?? "";
 }
+function firstStep(html: string): string {
+  const entry = /<div class="topic-entry">[\s\S]*?<\/div>/.exec(html)?.[0] ?? "";
+  return entry + panel(html, 0);
+}
 // The room title element, from its id to its closing tag.
 function roomTitle(html: string, id: string): string {
   const start = html.indexOf(`id="${id}"`);
@@ -67,10 +71,10 @@ test("[smoke] W5 every pre-existing Backstage id survives", async () => {
   const html = await page();
   const oldIds = [...html.matchAll(/id="([^"]+)"/g)]
     .map((match) => match[0])
-    .filter((id) => id !== 'id="topic-heading"' && id !== 'id="start-pack"')
+    .filter((id) => id !== 'id="topic-heading"' && id !== 'id="start-pack"' && id !== 'id="question-hint"')
     .sort();
   const digest = (ids: readonly string[]) => createHash("sha256").update(ids.join("\n") + "\n").digest("hex");
-  expect(digest(oldIds)).toBe("406bd9c5f44b0733f7c83492c539631be3a123641e2f95cd8e27e6735da83851");
+  expect(digest(oldIds)).toBe("5143692d364687a22ce0f9219673fb8ad72e129931ec7e61f4a93d7600e8e1b2");
   expect(digest(oldIds.slice(1))).not.toBe(digest(oldIds));
 });
 
@@ -95,7 +99,7 @@ test("[smoke] W5 tabs lead with plain names and put theatre names in secondary t
 test("[smoke] W5 each step starts with one Jev tutorial sentence before controls", async () => {
   const html = await page();
   plainSteps.forEach((_, index) => {
-    const room = panel(html, index);
+    const room = index === 0 ? firstStep(html) : panel(html, index);
     const tutorial = /<p class="direction">([\s\S]*?)<\/p>/.exec(room);
     const sentence = flat(tutorial?.[1] ?? "");
     expect(sentence).toMatch(/^Jev .*\.$/);
@@ -110,11 +114,11 @@ test("[unit] W5 heading, field order, tab priority and tutorial checks reject mu
   const firstHeading = (source: string) => flat(/<h1[^>]*>([\s\S]*?)<\/h1>/.exec(source)?.[1] ?? "");
   const firstField = (source: string) => /<(?:input|textarea|select)\b[^>]*\bid="([^"]+)"/.exec(source)?.[1];
   const firstTab = (source: string) => flat(/<button data-room="0"[\s\S]*?<span>([^<]+)<\/span>/.exec(source)?.[1] ?? "");
-  const firstTutorial = (source: string) => flat(/<section data-panel="0"[\s\S]*?<p class="direction">([\s\S]*?)<\/p>/.exec(source)?.[1] ?? "");
+  const firstTutorial = (source: string) => flat(/<p class="direction">([\s\S]*?)<\/p>/.exec(firstStep(source))?.[1] ?? "");
   expect(firstHeading(html.replace("What do you want to decide?</h1>", "Backstage Pass</h1>"))).not.toBe("What do you want to decide?");
   expect(firstField(html.replace('<textarea id="question"', '<input id="premature"><textarea id="question"'))).not.toBe("question");
   expect(firstTab(html.replace("<span>Your question</span>", "<span>New Scene</span>"))).not.toBe("Your question");
-  expect(firstTutorial(html.replace("Jev answers your question with one of your two choices and a confidence so you can test which answers to keep.\n        </p>", "Set the scene before the first call.\n        </p>"))).not.toMatch(/^Jev .*\.$/);
+  expect(firstTutorial(html.replace("Jev answers your question with one of your two choices and how sure it is so you can test which answers to keep.</p>", "Set the scene before the first call.</p>"))).not.toMatch(/^Jev .*\.$/);
 });
 
 test("[smoke] UX-C03 every room names its plain job in the nav and in its heading", async () => {

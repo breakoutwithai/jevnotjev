@@ -289,6 +289,7 @@ function mountCatalog() {
 }
 let activeKeys: ProviderKeys = {}; let coachController: AbortController | undefined;
 function freezeFields(frozen: boolean) {
+  field("question").disabled = frozen;
   for (const id of [
     "scene-fields",
     "rule-fields",

@@ -20,9 +20,10 @@
     <main>
       <h1 id="topic-heading">What do you want to decide?</h1>
       <div class="topic-entry">
-        <p class="direction">Jev answers your question with one of your two choices and a confidence so you can test which answers to keep.</p>
+        <p class="direction">Jev answers your question with one of your two choices and how sure it is so you can test which answers to keep.</p>
         <p id="scene-safety" class="trust-sign">Keep API keys, passwords and private data out of the question. Use synthetic or redacted cases. Enter keys only in a key field.</p>
         <label class="topic-field">One question<textarea id="question" maxlength="1000" rows="2" placeholder="Does this message ask for a refund?"></textarea></label>
+        <p id="question-hint" class="fine">Not sure how to word it? Use the <a href="#question-coach">Question coach below.</a></p>
       </div>
       <button id="start-pack" type="button" hidden>Start</button>
       <nav aria-label="Backstage rooms" id="rooms">
@@ -36,11 +37,9 @@
       </nav>
       <div class="ticket"><span>Jev!Jev / Backstage Pass</span></div>
       <p id="room-line" class="room-line">State your question and define the two answers.</p>
+      <p id="notice" role="status" aria-live="polite"></p>
       <section data-panel="0" aria-labelledby="scene-title">
         <h2 id="scene-title" tabindex="-1">Your question <span class="job">New Scene</span></h2>
-        <p class="direction">
-          Jev answers your question with one of your two choices and a confidence so you can test which answers to keep.
-        </p>
         <fieldset id="scene-fields">
           <legend class="sr-only">Your decision</legend>
           <div class="columns">
@@ -115,7 +114,7 @@
         </div>
 
         <button id="new-scene" class="secondary" type="button">
-          Edit as a new scene
+          Edit the question
         </button>
         <div
           id="confirm-new-scene"
@@ -127,7 +126,7 @@
           hidden
         >
           <p id="confirm-new-scene-title" class="confirm-title">
-            Start a new scene?
+            Start a new question?
           </p>
           <p id="confirm-new-scene-message">
             Download your records and evidence first; this clears the current
@@ -148,21 +147,20 @@
         </p>
         <p id="draft-status" class="fine" role="status"></p>
       </section>
-      <p id="notice" role="status" aria-live="polite"></p>
       <section data-panel="1" aria-labelledby="casting-title" hidden>
         <h2 id="casting-title" tabindex="-1">Who answers <span class="job">Casting</span></h2>
         <p class="direction">
           Jev answers with your key, and you can choose other providers to compare their answers.
         </p>
         <fieldset id="mode-fields">
-          <legend>Choose your cast</legend>
+          <legend>Choose who answers</legend>
           <label
             ><input id="compare" type="checkbox" /> Choose optional
             comparisons</label
           >
           <p class="fine">
             Unchecked: Jev only. No Anthropic key needed. Select only models you
-            want to call. Your cast locks when the run starts.
+            want to call. Who answers is locked when the run starts.
           </p>
         </fieldset>
         <div class="cast">
@@ -354,7 +352,7 @@
           <p id="calibration-result" tabindex="-1" aria-live="polite"></p>
         </section>
         <p id="judging-direction" class="direction">
-          Pick the right answer for each case before you see any answer.
+          Pick the right answer for each case first. Jev's answer appears after you pick.
         </p>
         <p id="rubric"></p>
         <p id="leave-out"></p>
@@ -410,7 +408,7 @@
           hidden
         >
           <p id="confirm-reveal-title" class="confirm-title">
-            Reveal the players and lock your labels?
+            Show who answered and lock your labels?
           </p>
           <p id="confirm-reveal-message">
             You can leave answers unlabelled. Unfinished calls remain missing.
@@ -430,7 +428,7 @@
       </section>
       <section data-panel="4" aria-labelledby="dress-title" hidden>
         <h2 id="dress-title" tabindex="-1">Cost and downloads <span class="job">Dress Rehearsal</span></h2>
-        <p class="direction">Jev shows kept answers and estimated costs so you can download the records and evidence.</p>
+        <p class="direction">Jev shows answers you would keep and estimated costs so you can download the records and evidence.</p>
         <div id="metrics"><p>No run yet.</p></div>
         <div class="actions">
           <button id="download-csv" aria-describedby="download-reason csv-note">Download records.csv</button
@@ -452,7 +450,7 @@
       </section>
       <section data-panel="5" aria-labelledby="opening-title" hidden>
         <h2 id="opening-title" tabindex="-1">Verdict <span class="job">Opening Night</span></h2>
-        <p class="direction">Jev uses your labelled cases to show what the evidence says about this question.</p>
+        <p class="direction">Jev compares its answers with your labels and says whether to use it.</p>
         <div id="verdict">
           <p>No run yet. The verdict follows your actual answers and labels.</p>
         </div>
@@ -473,7 +471,7 @@
     <p class="colophon">
       Jev!Jev / Backstage is always a little rough.
       <a href="https://github.com/breakoutwithai/jevnotjev/issues/new"
-        >Leave a stage note</a
+        >Send feedback</a
       >
     </p>
     <p class="demo-notice">Demo service. Use made-up or redacted data only. Backstage does not save your cases, runs or keys to a file or database on our server. We accept no responsibility for real data sent through our servers or to third-party language models. <a href="/privacy/">How we handle data</a></p>

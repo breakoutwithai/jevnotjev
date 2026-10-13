@@ -1763,3 +1763,17 @@ test("[integration] HK8 Casting enables Run with an empty Jev key when the serve
   expect(sent[0]?.key).toBe("");
   expect(sent[0]?.armId).toBe("jev");
 });
+
+test("[integration] CF146-B1 question freezes with the run and unlocks for a new question", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYes);
+  fillScene(page);
+  typeInto(page, "cases", "Please refund my mug");
+  await runFirstCase(page);
+  expect(page.get("question").disabled).toBe(true);
+  expect(page.get("scene-fields").disabled).toBe(true);
+  page.get("new-scene").click();
+  page.get("confirm-new-scene-yes").click();
+  await tick();
+  expect(page.get("question").disabled).toBe(false);
+  expect(page.get("scene-fields").disabled).toBe(false);
+});

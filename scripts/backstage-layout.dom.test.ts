@@ -29,6 +29,7 @@ test("[integration] W5 question field fits above the fold at 1280x900 and 390x84
       await page.goto(`http://127.0.0.1:${server.port}/backstage/`);
       const firstHeading = await page.locator("main :is(h1,h2,h3):visible").first().innerText();
       expect(firstHeading).toBe("What do you want to decide?");
+      expect(await page.locator("main :is(input,textarea,select):visible").first().getAttribute("id")).toBe("question");
       const box = await page.locator("#question").boundingBox();
       expect(box).not.toBeNull();
       expect(box?.y ?? Infinity).toBeGreaterThanOrEqual(0);

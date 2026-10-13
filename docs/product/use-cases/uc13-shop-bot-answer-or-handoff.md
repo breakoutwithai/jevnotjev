@@ -64,7 +64,7 @@ The latest run is [the 2026-10-11 run](../runs/2026-10-11-uc13-shop-bot-100/): 1
 - Result: right answers and cost per right answer per arm (D07 metrics, `src/core/metrics.ts`), Jev against the LLM and against the rule on paired cases, and the verdict from [verdict-rules.md](../../decision/verdict-rules.md).
 - Misses are listed by direction, **answered when it should have handed off** first: those include every unknown-stock and booking message an arm got wrong, and one miss there matters more than the overall rate. Handed off when it could have answered comes second.
 
-Files: the synthetic shop in [examples/uc13-shop-bot/](../../../examples/uc13-shop-bot/), the run in [docs/product/runs/2026-10-01-uc13-shop-bot/](../runs/2026-10-01-uc13-shop-bot/).
+Files: the synthetic shop in [examples/uc13-shop-bot/](../../../examples/uc13-shop-bot/), the first run in [docs/product/runs/2026-10-01-uc13-shop-bot/](../runs/2026-10-01-uc13-shop-bot/), and the latest run in [docs/product/runs/2026-10-11-uc13-shop-bot-100/](../runs/2026-10-11-uc13-shop-bot-100/).
 
 Commands (TypeScript on Bun, from the repo root):
 
@@ -88,6 +88,6 @@ bun run validate docs/product/runs/2026-10-01-uc13-shop-bot/records.csv
 - The two recorded runs measured accepted answers and costs for this test decision. The first run tied at 38 of 40 and returned not enough evidence under rule 4 ([records.csv](../runs/2026-10-01-uc13-shop-bot/records.csv)); the latest run returned use Jev under rule 3 with 88 of 100 accepted for Jev and 86 of 100 for the LLM ([LABELS.md](../runs/2026-10-11-uc13-shop-bot-100/LABELS.md)). Whether those results hold for a real shop is still untested.
 - Whether the keyword rule already gets every unknown-stock and booking case right; if it does, Jev has nothing to add on the first decision.
 - Whether Haiku with these rules stands in for a real shop bot's prompt and model.
-- Whether 40 messages we wrote resemble what real customers send.
+- Whether the first 40 messages we wrote and the 60 more written by five AI persona writers resemble what real customers send.
 - Whether one label set from us matches the shop owner's own call.
 - How long a Jev call takes compared with a phone bot's response target.

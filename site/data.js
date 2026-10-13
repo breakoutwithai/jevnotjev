@@ -2378,17 +2378,17 @@ window.JNJ = {
    {
     "text": "4 points",
     "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-    "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
+    "quote": "lower bound -0.043"
    },
    {
     "text": "10-point",
     "file": "docs/decision/verdict-rules.md",
-    "quote": "| Accept-rate margin | 10 points |"
+    "quote": "lower bound of (Jev minus LLM) above -0.10"
    },
    {
     "text": "Jev 88 of 100",
     "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-    "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
+    "quote": "Jev accepted 88 of 100"
    },
    {
     "text": "Haiku 5.5",
@@ -2398,7 +2398,7 @@ window.JNJ = {
    {
     "text": "86 of 100",
     "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-    "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
+    "quote": "the LLM 86 of 100"
    },
    {
     "text": "simple rule 49",
@@ -2406,9 +2406,9 @@ window.JNJ = {
     "fact": "accepted:rule"
    },
    {
-    "text": "of 100. Jev spent",
+    "text": "of 100.",
     "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-    "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
+    "quote": "of 100"
    },
    {
     "text": "Jev spent $0.0033",

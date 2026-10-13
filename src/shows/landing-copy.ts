@@ -17,7 +17,6 @@ const hundredRecords = "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.c
 const fortyRecords = "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv";
 const cvRecords = "docs/product/runs/2026-10-03-tokenmax/records.csv";
 const approved = "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218).";
-const margin = "| Accept-rate margin | 10 points |";
 const minimum = "on at least 30 paired Jev and rule cases";
 const fig = (text: string, file: string, quote: string): LandingFigure => ({ text, file, quote });
 const fact = (text: string, file: string, kind: FigureFact, question?: string): LandingFigure => ({ text, file, fact: kind, ...(question === undefined ? {} : { question }) });
@@ -31,11 +30,11 @@ export const LANDING_COPY: Readonly<Record<LandingSampleId, ExplainedCopy>> = {
     rephrase: null,
     figures: [
       fig("rule 3", hundredLabels, approved), fig("100 shop messages", hundredLabels, approved),
-      fig("(88 against 86)", hundredLabels, approved), fig("4 points", hundredLabels, approved),
-      fig("10-point", "docs/decision/verdict-rules.md", margin),
-      fig("Jev 88 of 100", hundredLabels, approved), fig("Haiku 5.5", hundredReadme, "claude-haiku-5-5"),
-      fig("86 of 100", hundredLabels, approved), fact("simple rule 49", hundredRecords, "accepted:rule"),
-      fig("of 100. Jev spent", hundredLabels, approved), fact("Jev spent $0.0033", hundredRecords, "spend:jev"),
+      fig("(88 against 86)", hundredLabels, approved), fig("4 points", hundredLabels, "lower bound -0.043"),
+      fig("10-point", "docs/decision/verdict-rules.md", "lower bound of (Jev minus LLM) above -0.10"),
+      fig("Jev 88 of 100", hundredLabels, "Jev accepted 88 of 100"), fig("Haiku 5.5", hundredReadme, "claude-haiku-5-5"),
+      fig("86 of 100", hundredLabels, "the LLM 86 of 100"), fact("simple rule 49", hundredRecords, "accepted:rule"),
+      fig("of 100.", hundredLabels, "of 100"), fact("Jev spent $0.0033", hundredRecords, "spend:jev"),
       fact("LLM's $0.0163", hundredRecords, "spend:llm"), fig("30 or more", "docs/decision/verdict-rules.md", minimum),
       fig("first 40", hundredReadme, "the 40 of `run-shopbot-2026-10-01`"),
       fig("38 each", "site/little-shop/index.html", "Same accuracy as the LLM (38/40 each) at 1/79th of the cost"),

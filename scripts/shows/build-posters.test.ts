@@ -230,6 +230,7 @@ describe("watch links", () => {
   test("[unit] the latest UC13 run opens the Stage page that plays it", async () => {
     const built = await buildPosters(ROOT);
     expect(built.find((p) => p.id === "uc13")?.watch).toBe("./#act2");
+    expect(page).toContain('id="act2"');
     expect(watchPage(ROOT, "2026-10-01-uc13-shop-bot")).toBe("little-shop/");
   });
 

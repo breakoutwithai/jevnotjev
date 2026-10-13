@@ -109,7 +109,9 @@ function checkRephrases(samples: Sample[]): string[] {
   for (const sample of selected) {
     const rephrase = sample.explained?.rephrase?.trim();
     if (!rephrase) { problems.push(`${sample.id}: no rephrase`); continue; }
-    const question = /["“][^"”]*\?[^"”]*["”]/.test(rephrase);
+    // The quoted question must be new: the original question, quoted in the why, does not count as a rephrase.
+    const why = sample.explained?.why ?? "";
+    const question = [...rephrase.matchAll(/["“]([^"”]*\?[^"”]*)["”]/g)].some((match) => !why.includes(match[1] ?? ""));
     const none = /no (Jev )?rephras|none exists/i.test(rephrase) && /\b(?:because|since|as)\b/i.test(rephrase);
     if (!question && !none) problems.push(`${sample.id}: rephrase has no quoted question or stated reason none exists`);
   }
@@ -123,15 +125,31 @@ function roundedMatch(display: string, actual: number): boolean {
   const factor = 10 ** decimalPlaces(display);
   return Number.isFinite(shown) && (Math.abs(shown - abs) < 1e-10 || Math.round((abs + Number.EPSILON) * factor) / factor === shown);
 }
-function quoteMatches(display: string, quote: string): boolean {
-  const shown = Math.abs(Number(display));
-  if (!Number.isFinite(shown)) return false;
-  if (new RegExp(`\\b${display.replace(".", "-")}\\b`).test(quote)) return true;
-  for (const match of quote.matchAll(NUMBERS)) {
-    const actual = Number(match[0]);
-    if (roundedMatch(display, actual) || (actual < 1 && Math.round(actual * 100) === shown)) return true;
+function numberMatches(display: string, actual: number, points: boolean): boolean {
+  return roundedMatch(display, actual) || (points && actual < 1 && Math.round(actual * 100) === Math.abs(Number(display)));
+}
+/**
+ * The figure's numbers must match the quote's numbers IN ORDER, so "86 against 88" cannot cite "88 of 100, the LLM 86".
+ * A version ("5.5") matches "5-5" anywhere in the quote. A decimal read as points (0.043 as "4") needs "point" in the
+ * figure text, so 0.197 cannot stand for an unrelated "20".
+ */
+function quoteSupports(text: string, quote: string): string[] {
+  const unsupported: string[] = [];
+  const points = /\bpoints?\b/i.test(text);
+  const quoted = [...quote.matchAll(NUMBERS)].map((match) => Number(match[0]));
+  let next = 0;
+  for (const match of text.matchAll(NUMBERS)) {
+    const display = match[0];
+    if (/^\d+\.\d+$/.test(display) && new RegExp(`\\b${display.replace(".", "-")}\\b`).test(quote)) continue;
+    const at = quoted.findIndex((actual, index) => index >= next && numberMatches(display, actual, points));
+    if (at < 0) unsupported.push(display);
+    else next = at + 1;
   }
-  return false;
+  return unsupported;
+}
+const ARM_WORDS: [string, RegExp][] = [["jev", /\bJev\b/], ["llm", /\bLLM\b/], ["rule", /\bsimple rule\b/i]];
+function armsNamed(text: string): string[] {
+  return ARM_WORDS.filter(([, pattern]) => pattern.test(text)).map(([arm]) => arm);
 }
 function factValue(fact: Fact, csv: string, question: string | undefined): { value: number | null; error: string | null } {
   const parsed = validate(csv);
@@ -166,15 +184,15 @@ function checkFigures(samples: Sample[]): string[] {
     if (!copy) problems.push(`${sample.id}: no sample copy`);
     if ((sample.runBacked || /\d/.test(copy)) && (!figures || figures.length === 0)) problems.push(`${sample.id}: no figures for run or numbered copy`);
     if (!figures) continue;
-    const covered: { start: number; end: number }[] = [];
+    // Each number position in the copy must be verified by a figure: a quote figure verifies every number in its text,
+    // a fact figure only its last number. A figure's text must occur exactly once, so it binds one place in the copy.
+    const verified = new Set<number>();
     for (const entry of figures) {
       if (!entry.text.trim()) { problems.push(`${sample.id}: figure text empty`); continue; }
-      let at = copy.indexOf(entry.text);
-      if (at < 0) problems.push(`${sample.id}: figure text ${JSON.stringify(entry.text)} absent from copy`);
-      while (at >= 0) {
-        covered.push({ start: at, end: at + entry.text.length });
-        at = copy.indexOf(entry.text, at + 1);
-      }
+      const at = copy.indexOf(entry.text);
+      if (at < 0) { problems.push(`${sample.id}: figure text ${JSON.stringify(entry.text)} absent from copy`); continue; }
+      if (copy.indexOf(entry.text, at + 1) >= 0) { problems.push(`${sample.id}: figure text ${JSON.stringify(entry.text)} occurs more than once`); continue; }
+      const numbers = [...entry.text.matchAll(NUMBERS)];
       const full = resolve(ROOT, entry.file);
       const rel = relative(ROOT, full);
       if (isAbsolute(entry.file) || rel === ".." || rel.startsWith(`..${sep}`) || rel === "site/shows/posters.json" || rel === "site/data.js") {
@@ -183,20 +201,27 @@ function checkFigures(samples: Sample[]): string[] {
       if (!existsSync(full)) { problems.push(`${sample.id}: figure source missing ${entry.file}`); continue; }
       const source = readFileSync(full, "utf8");
       if ("quote" in entry) {
-        if (!entry.quote.trim() || !collapsed(source).includes(collapsed(entry.quote))) problems.push(`${sample.id}: quote absent from ${entry.file}`);
-        for (const number of entry.text.matchAll(NUMBERS)) if (!quoteMatches(number[0], entry.quote)) problems.push(`${sample.id}: figure number ${number[0]} unsupported by quote in ${entry.file}`);
+        if (!entry.quote.trim() || !collapsed(source).includes(collapsed(entry.quote))) { problems.push(`${sample.id}: quote absent from ${entry.file}`); continue; }
+        const unsupported = quoteSupports(entry.text, entry.quote);
+        for (const number of unsupported) problems.push(`${sample.id}: figure number ${number} unsupported by quote in ${entry.file}`);
+        const foreign = armsNamed(entry.text).filter((arm) => !armsNamed(entry.quote).includes(arm));
+        if (foreign.length) problems.push(`${sample.id}: figure ${JSON.stringify(entry.text)} names ${foreign.join(", ")}, its quote does not`);
+        if (unsupported.length === 0 && foreign.length === 0) for (const number of numbers) if (number.index !== undefined) verified.add(at + number.index);
       } else {
         if (!entry.file.endsWith("/records.csv")) { problems.push(`${sample.id}: fact source is not records.csv: ${entry.file}`); continue; }
-        const numbers = [...entry.text.matchAll(NUMBERS)];
-        if (numbers.length !== 1) { problems.push(`${sample.id}: fact figure must hold exactly one number: ${entry.text}`); continue; }
+        const last = numbers.at(-1);
+        if (!last || last.index === undefined) { problems.push(`${sample.id}: fact figure holds no number: ${entry.text}`); continue; }
+        const arm = entry.fact.includes(":") ? entry.fact.split(":")[1] ?? "" : "";
+        const named = armsNamed(entry.text);
+        if (named.join(",") !== arm) { problems.push(`${sample.id}: fact ${entry.fact} figure ${JSON.stringify(entry.text)} names ${named.join(", ") || "no arm"}`); continue; }
         const measured = factValue(entry.fact, source, entry.question);
         if (measured.error) problems.push(`${sample.id}: ${measured.error}`);
-        else if (measured.value === null || !roundedMatch(numbers[0]?.[0] ?? "", measured.value)) problems.push(`${sample.id}: fact ${entry.fact} does not support ${entry.text}`);
+        else if (measured.value === null || !roundedMatch(last[0], measured.value)) problems.push(`${sample.id}: fact ${entry.fact} does not support ${entry.text}`);
+        else verified.add(at + last.index);
       }
     }
     for (const match of copy.matchAll(NUMBERS)) {
-      const start = match.index;
-      if (start === undefined || !covered.some((span) => span.start <= start && span.end >= start + match[0].length)) problems.push(`${sample.id}: undeclared number ${match[0]}`);
+      if (match.index === undefined || !verified.has(match.index)) problems.push(`${sample.id}: undeclared number ${match[0]}`);
     }
   }
   return problems;
@@ -228,11 +253,11 @@ function figureFixture(): Sample[] {
   return [
     { id: "uc13", fit: [], runBacked: true, verdictLine: "Use Jev", explained: {
       why: "The rule is met.", cases: "Jev accepted 88", next: "Review the result.", rephrase: null, earlier: null,
-      figures: [{ text: "88", file: LABELS, quote: "Jev accepted 88 of 100, the LLM 86 of 100" }],
+      figures: [{ text: "Jev accepted 88", file: LABELS, quote: "Jev accepted 88 of 100, the LLM 86 of 100" }],
     } },
     { id: "uc11", fit: ["Jev probably not"], runBacked: true, verdictLine: "Jev probably not", explained: {
       why: "The present question needs review.", cases: "Jev accepted 88", next: "Rewrite the question.", rephrase: null, earlier: null,
-      figures: [{ text: "88", file: RECORDS, fact: "accepted:jev" }],
+      figures: [{ text: "Jev accepted 88", file: RECORDS, fact: "accepted:jev" }],
     } },
   ];
 }
@@ -280,31 +305,63 @@ test("[unit] #201-3 mutation: invented uc13 and uc11 numbers and unsupported quo
   expect(checkFigures(samples)).toEqual([]);
   uc13.explained.cases = "Jev accepted 89";
   uc11.explained.next = "Rewrite the question; about 7 more cases.";
-  const quote = uc13.explained.figures?.[0];
-  if (!quote || !("quote" in quote)) throw new Error("quote fixture incomplete");
-  quote.quote = "This sentence does not occur in the source.";
   const problems = checkFigures(samples);
   expect(problems.some((problem) => problem.includes("uc13: undeclared number 89"))).toBe(true);
   expect(problems.some((problem) => problem.includes("uc11: undeclared number 7"))).toBe(true);
-  expect(problems.some((problem) => problem.includes("uc13: quote absent"))).toBe(true);
+  const unquoted = structuredClone(figureFixture());
+  const quote = unquoted[0]?.explained?.figures?.[0];
+  if (!quote || !("quote" in quote)) throw new Error("quote fixture incomplete");
+  quote.quote = "This sentence does not occur in the source.";
+  expect(checkFigures(unquoted).some((problem) => problem.includes("uc13: quote absent"))).toBe(true);
 });
 test("[unit] #201-3 mutation: a fact counted over the wrong question or every question", () => {
   const tokenmax = "docs/product/runs/2026-10-03-tokenmax/records.csv";
   const samples: Sample[] = [{ id: "uc11", fit: [], runBacked: true, verdictLine: "Needs a test", explained: {
     why: "The rule is unmet.", cases: "the simple rule 2 of 5", next: "Label more cases.", rephrase: null, earlier: null,
-    figures: [{ text: "2", file: tokenmax, fact: "accepted:rule", question: "q1" }, { text: "5", file: tokenmax, fact: "labelled:rule", question: "q1" }],
+    figures: [{ text: "simple rule 2", file: tokenmax, fact: "accepted:rule", question: "q1" }, { text: "simple rule 2 of 5", file: tokenmax, fact: "labelled:rule", question: "q1" }],
   } }];
   expect(checkFigures(samples)).toEqual([]);
   const wrong = structuredClone(samples);
   const wrongFigure = wrong[0]?.explained?.figures?.[0];
   if (!wrongFigure || !("fact" in wrongFigure)) throw new Error("fact fixture incomplete");
   wrongFigure.question = "q2";
-  expect(checkFigures(wrong).some((problem) => problem.includes("fact accepted:rule does not support 2"))).toBe(true);
+  expect(checkFigures(wrong).some((problem) => problem.includes("fact accepted:rule does not support simple rule 2"))).toBe(true);
   const every = structuredClone(samples);
   const everyFigure = every[0]?.explained?.figures?.[0];
   if (!everyFigure || !("fact" in everyFigure)) throw new Error("fact fixture incomplete");
   delete everyFigure.question;
-  expect(checkFigures(every).some((problem) => problem.includes("fact accepted:rule does not support 2"))).toBe(true);
+  expect(checkFigures(every).some((problem) => problem.includes("fact accepted:rule does not support simple rule 2"))).toBe(true);
+});
+test("[unit] #201-3 mutation: swapped arms, swapped order and a decimal read as points", () => {
+  const sample = (cases: string, figures: Figure[]): Sample[] => [{ id: "uc13", fit: [], runBacked: true, verdictLine: "Needs a test", explained: {
+    why: "The rule is met.", cases, next: "Review the result.", rephrase: null, earlier: null, figures } }];
+  const pair = "Jev accepted 88 of 100, the LLM 86 of 100";
+  const good = sample("Jev 88, LLM 86 (88 against 86), cost 0.197", [
+    { text: "Jev 88", file: RECORDS, fact: "accepted:jev" }, { text: "LLM 86", file: RECORDS, fact: "accepted:llm" },
+    { text: "(88 against 86)", file: LABELS, quote: pair }, { text: "cost 0.197", file: LABELS, quote: "Jev costs 0.197 of the LLM" },
+  ]);
+  expect(checkFigures(good)).toEqual([]);
+  const swapped = sample("Jev 86, LLM 88", [{ text: "Jev 86", file: RECORDS, fact: "accepted:jev" }, { text: "LLM 88", file: RECORDS, fact: "accepted:llm" }]);
+  expect(checkFigures(swapped).some((problem) => problem.includes("fact accepted:jev does not support Jev 86"))).toBe(true);
+  const relabelled = sample("Jev 86", [{ text: "Jev 86", file: RECORDS, fact: "accepted:llm" }]);
+  expect(checkFigures(relabelled).some((problem) => problem.includes("fact accepted:llm figure \"Jev 86\" names jev"))).toBe(true);
+  const reversed = sample("(86 against 88)", [{ text: "(86 against 88)", file: LABELS, quote: pair }]);
+  expect(checkFigures(reversed).some((problem) => problem.includes("figure number 88 unsupported"))).toBe(true);
+  const wrongQuoteArm = sample("Jev 86", [{ text: "Jev 86", file: LABELS, quote: "the LLM 86 of 100" }]);
+  expect(checkFigures(wrongQuoteArm).some((problem) => problem.includes("names jev, its quote does not"))).toBe(true);
+  const asPoints = sample("about 20 percent", [{ text: "about 20 percent", file: LABELS, quote: "Jev costs 0.197 of the LLM" }]);
+  expect(checkFigures(asPoints).some((problem) => problem.includes("figure number 20 unsupported"))).toBe(true);
+  const twice = sample("Jev 88 and Jev 88", [{ text: "Jev 88", file: RECORDS, fact: "accepted:jev" }]);
+  expect(checkFigures(twice).some((problem) => problem.includes("occurs more than once"))).toBe(true);
+});
+test("[unit] #201-2 mutation: quoting the original question is not a rephrase", () => {
+  const samples = structuredClone(fixture());
+  const uc9 = samples.find((sample) => sample.id === "uc9");
+  if (!uc9?.explained) throw new Error("fixture incomplete");
+  uc9.explained.why = '"Is this AI slop?" is an open question.';
+  expect(checkRephrases(samples)).toEqual([]);
+  uc9.explained.rephrase = 'The original "Is this AI slop?" stays as asked.';
+  expect(checkRephrases(samples).some((problem) => problem.includes("uc9: rephrase has no quoted question"))).toBe(true);
 });
 test("[unit] #201-4 no sample ends on a bare verdict word", () => {
   const loaded = loadSamples();
@@ -353,7 +410,6 @@ async function visiblePart(scope: Locator, selector: string, expected: string | 
   const element = scope.locator(selector);
   const count = await element.count();
   if (count !== 1) { problems.push(`${selector} missing in ${name} (found ${count})`); return; }
-  await element.scrollIntoViewIfNeeded();
   if (!await element.isVisible()) problems.push(`${selector} hidden in ${name}`);
   if (await element.evaluate((node) => Boolean(node.closest("details")))) problems.push(`${selector} inside details in ${name}`);
   if (expected !== null && !((await element.innerText()).includes(expected))) problems.push(`${selector} text does not contain explained copy in ${name}`);

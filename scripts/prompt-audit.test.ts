@@ -7,6 +7,7 @@ import {
   buildTree,
   classifyPath,
   countChecklist,
+  DEFAULT_ATTRIBUTIONS,
   extractCandidates,
   flagsFor,
   isIsoDate,
@@ -686,11 +687,11 @@ describe("auditPrompt", () => {
 describe("parseArgs", () => {
   test("[unit] defaults", () => {
     const r = parseArgs([]);
-    expect(r).toEqual({ ok: true, options: { dir: "docs/prompts", ref: "origin/main", repo: null, json: false, strict: false, noGh: false, help: false } });
+    expect(r).toEqual({ ok: true, options: { dir: "docs/prompts", ref: "origin/main", repo: null, attributions: DEFAULT_ATTRIBUTIONS, json: false, strict: false, noGh: false, help: false } });
   });
   test("[unit] F16 accepts every documented option", () => {
     const r = parseArgs(["--dir", "d", "--ref", "r", "--json", "--strict", "--no-gh"]);
-    expect(r).toEqual({ ok: true, options: { dir: "d", ref: "r", repo: null, json: true, strict: true, noGh: true, help: false } });
+    expect(r).toEqual({ ok: true, options: { dir: "d", ref: "r", repo: null, attributions: DEFAULT_ATTRIBUTIONS, json: true, strict: true, noGh: true, help: false } });
   });
   test("[unit] F16 an unknown option is an error", () => {
     const r = parseArgs(["--bogus"]);

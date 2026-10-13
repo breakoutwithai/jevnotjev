@@ -17,13 +17,14 @@
 //   bun scripts/prompt-audit.ts --dir <path>     prompt directory (default docs/prompts)
 //   bun scripts/prompt-audit.ts --ref <ref>      git ref the evidence is read from (default origin/main)
 //   bun scripts/prompt-audit.ts --repo <o/n>     the audited repo for declared outputs (default: from origin)
+//   bun scripts/prompt-audit.ts --attributions <file>  attribution ledger (default scripts/prompt-attributions.json)
 //
 // Table columns: prompt, status, touched (touched/checkable), missing (count), evid (evidence
 // commits), flags. The detail lines add the issue state, the Definition of done counts (counted, not
 // verified), the unchecked deliverable count and the MISSING / UNTOUCHED / IGNORED / UNRESOLVED lists.
 //
 // Flags: INVALID-STATUS and INVALID-HEADER (a bad `created`, `governing_issue`, `prompt_id`,
-// `deliverables` or front matter), and STALE-STATUS, one rule only: `draft` or `ready-not-run` with
+// `deliverables` or front matter), INVALID-ATTRIBUTION (a ledger SHA that credits nothing), and STALE-STATUS, one rule only: `draft` or `ready-not-run` with
 // evidence commits or a TOUCHED path. `done` and `running` are never flagged, because no claim of
 // absence is made.
 //
@@ -70,6 +71,16 @@
 // without a trailing slash) is INVALID-HEADER, on the output and on the prompt. The table column `out`
 // is delivered/declared (`-` for a legacy prompt). Still no done/not-done verdict: that is #193.
 // A prompt with no `outputs:` is legacy: evidence only, exactly as described above.
+// Attribution ledger: prompts that ran before Prompt-Id trailers existed are credited by
+// scripts/prompt-attributions.json ({ "<prompt_id>": ["<40-hex sha>", ...] }, operator-approved and tracked;
+// --attributions <file> overrides the path). A malformed ledger exits 2. Only a prompt whose id is in the
+// ledger is affected, and a trailer delivery always wins (DELIVERED, unchanged). Otherwise an output is
+// credited by the ledger SHAs that are on the ref, not merges, on/after `created` and touch the path:
+// DELIVERED-ATTRIBUTED when the path is in the ref's tree now, REMOVED when it is not (credited once,
+// absent now). Both stay distinct from DELIVERED: the `out` column reads delivered+attributed/declared
+// (`1+1/3`; REMOVED is not counted) and the detail lists them. A ledger SHA that credits none of the
+// prompt's outputs (not on the ref, a merge, before `created`, or wrong path) is an error on that prompt and
+// raises INVALID-ATTRIBUTION, so --strict exits 1. A ledger entry for a prompt not in the directory is ignored.
 // Limitation: a backtick span containing whitespace is one UNRESOLVED candidate, never a path, so a
 // file name with a space (or a comma and space) is always UNRESOLVED.
 import { readdirSync, readFileSync } from "node:fs";
@@ -77,7 +88,7 @@ import { basename, join, posix } from "node:path";
 
 export type IssueState = "OPEN" | "CLOSED" | "unknown" | "none";
 export type PathState = "TOUCHED" | "UNTOUCHED" | "MISSING" | "IGNORED";
-export type Flag = "STALE-STATUS" | "INVALID-STATUS" | "INVALID-HEADER";
+export type Flag = "STALE-STATUS" | "INVALID-STATUS" | "INVALID-HEADER" | "INVALID-ATTRIBUTION";
 
 export type ParsedPrompt = {
   promptId: string | null;
@@ -366,7 +377,7 @@ export function renderTable(rows: TableRow[]): string {
   ].join("\n");
 }
 
-export type OutputOutcome = "DELIVERED" | "NOT-DELIVERED" | "OTHER-REPO" | "INVALID-HEADER";
+export type OutputOutcome = "DELIVERED" | "DELIVERED-ATTRIBUTED" | "REMOVED" | "NOT-DELIVERED" | "OTHER-REPO" | "INVALID-HEADER";
 export type OutputResult = { repo: string; path: string; kind: string; result: OutputOutcome; commits: string[]; sharedWith: string[] };
 
 export type PathResult = { path: string; state: PathState };
@@ -468,23 +479,81 @@ export function sharedPromptIds(git: Git, shas: string[], promptId: string): str
   return ids;
 }
 
-function auditOutputs(declared: DeclaredOutput[], parsed: ParsedPrompt, git: Git, ref: string, repo: string | null): OutputResult[] {
+// prompt_id -> approved commit SHAs, for prompts that ran before Prompt-Id trailers existed.
+export type Attributions = Record<string, string[]>;
+export const DEFAULT_ATTRIBUTIONS = join(import.meta.dir, "prompt-attributions.json");
+
+// A malformed ledger throws: an object of non-empty prompt_id -> non-empty array of 40-hex SHAs, or nothing.
+export function parseAttributions(text: string, source = "attributions"): Attributions {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`${source}: attributions are not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (!isRecord(data)) throw new Error(`${source}: attributions must be an object of prompt_id -> [sha]`);
+  const out: Attributions = {};
+  for (const [id, shas] of Object.entries(data)) {
+    if (id.trim() === "") throw new Error(`${source}: attributions have an empty prompt_id`);
+    if (!Array.isArray(shas) || shas.length === 0) throw new Error(`${source}: attributions for ${id} must be a non-empty array`);
+    const clean = shas.map((s): string => {
+      if (typeof s !== "string" || !/^[0-9a-f]{40}$/.test(s)) throw new Error(`${source}: attributions for ${id} has a value that is not a 40-hex sha: ${JSON.stringify(s)}`);
+      return s;
+    });
+    out[id] = clean;
+  }
+  return out;
+}
+
+export function loadAttributions(path: string): Attributions {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (e) {
+    throw new Error(`cannot read attributions ${path}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  return parseAttributions(text, path);
+}
+
+// Ledger SHAs that are on the ref, not merges, on/after `created`, and touch the output path (one query).
+function attributedCommits(git: Git, ref: string, created: string, path: string, ledger: string[]): string[] {
+  const bare = path.replace(/\/+$/, "");
+  const found = new Set(must(git, ["log", ref, "--no-show-signature", sinceFilter(created), "--full-history", "--no-merges", "--format=%H", "--", literal(bare)]).split("\n"));
+  return ledger.filter((sha) => found.has(sha));
+}
+
+function treeHas(tree: Tree, path: string): boolean {
+  const bare = path.replace(/\/+$/, "");
+  return (!path.endsWith("/") && tree.files.has(bare)) || [...tree.files].some((f) => f.startsWith(`${bare}/`));
+}
+
+function auditOutputs(declared: DeclaredOutput[], parsed: ParsedPrompt, tree: Tree, git: Git, ref: string, repo: string | null, ledger: string[], matched: Set<string>): OutputResult[] {
   return declared.map((o): OutputResult => {
     const base = { repo: o.repo, path: o.path, kind: o.kind ?? "" };
     if (o.error !== null || parsed.created === null || parsed.promptId === null) return { ...base, result: "INVALID-HEADER", commits: [], sharedWith: [] };
     if (repo === null) throw new Error("cannot derive owner/name from `git remote get-url origin`; pass --repo owner/name");
     if (o.repo.toLowerCase() !== repo.toLowerCase()) return { ...base, result: "OTHER-REPO", commits: [], sharedWith: [] };
     const commits = deliveringCommits(git, ref, parsed.created, parsed.promptId, o.path, o.kind ?? "file");
-    return { ...base, result: commits.length > 0 ? "DELIVERED" : "NOT-DELIVERED", commits, sharedWith: sharedPromptIds(git, commits, parsed.promptId) };
+    // Queried even when a trailer delivered, so a ledger SHA is judged against every declared output.
+    const attributed = ledger.length === 0 ? [] : attributedCommits(git, ref, parsed.created, o.path, ledger);
+    for (const sha of attributed) matched.add(sha);
+    if (commits.length > 0) return { ...base, result: "DELIVERED", commits, sharedWith: sharedPromptIds(git, commits, parsed.promptId) };
+    if (attributed.length > 0) return { ...base, result: treeHas(tree, o.path) ? "DELIVERED-ATTRIBUTED" : "REMOVED", commits: attributed, sharedWith: [] };
+    return { ...base, result: "NOT-DELIVERED", commits: [], sharedWith: [] };
   });
 }
 
-export function auditPrompt(file: string, text: string, tree: Tree, git: Git, ref: string, lookup: IssueLookup | null, repo: string | null = null): PromptResult {
+export function auditPrompt(file: string, text: string, tree: Tree, git: Git, ref: string, lookup: IssueLookup | null, repo: string | null = null, attributions: Attributions | null = null): PromptResult {
   const stem = basename(file).replace(/\.prompt\.md$/, "").replace(/\.md$/, "");
   const parsed = parsePrompt(text);
   // null when absent or invalid: nothing can be dated, so nothing is classified or queried.
   const created = parsed.created;
-  const outputs = parsed.outputs === null ? null : auditOutputs(parsed.outputs, parsed, git, ref, repo);
+  const ledger = parsed.promptId === null || attributions === null ? [] : (attributions[parsed.promptId] ?? []);
+  const matched = new Set<string>();
+  const outputs = parsed.outputs === null ? null : auditOutputs(parsed.outputs, parsed, tree, git, ref, repo, ledger, matched);
+  // A ledger SHA that credits no declared output is a wrong SHA: reported, never trusted. Only when
+  // every output could be queried (a prompt with an invalid or other-repo output is not judged).
+  const attributionErrors = outputs === null || outputs.some((o) => o.result === "INVALID-HEADER") ? [] : ledger.filter((sha) => !matched.has(sha)).map((sha) => `attribution ${sha} touches no declared output on ${ref} after created`);
   // Declared outputs replace the prose extraction: a prompt with `outputs:` never reaches the path heuristics.
   const deliverables: DeliverableResult[] = (outputs === null ? parsed.deliverables : []).map((d) => {
     const c = extractCandidates(d);
@@ -519,6 +588,7 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   if (parsed.governingIssue !== null) issue = lookup === null ? "unknown" : lookup(parsed.governingIssue);
   const flags = flagsFor(parsed.status, commits.size, pathsTouched);
   if (parsed.errors.length > 0) flags.push("INVALID-HEADER");
+  if (attributionErrors.length > 0) flags.push("INVALID-ATTRIBUTION");
   return {
     stem,
     file,
@@ -527,7 +597,7 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
     status: parsed.status,
     governingIssue: parsed.governingIssue,
     issue,
-    errors: parsed.errors,
+    errors: [...parsed.errors, ...attributionErrors],
     deliverables,
     outputs,
     pathsTouched,
@@ -540,11 +610,13 @@ export function auditPrompt(file: string, text: string, tree: Tree, git: Git, re
   };
 }
 
-// delivered/declared, OTHER-REPO outputs not counted; `-` for a legacy prompt.
+// delivered[+attributed]/declared, OTHER-REPO outputs not counted; `-` for a legacy prompt. REMOVED is
+// not counted as delivered: it is credited once but absent from the ref now (listed in the detail).
 function outCell(r: PromptResult): string {
   if (r.outputs === null) return "-";
   const counted = r.outputs.filter((o) => o.result !== "OTHER-REPO");
-  return `${counted.filter((o) => o.result === "DELIVERED").length}/${counted.length}`;
+  const attributed = counted.filter((o) => o.result === "DELIVERED-ATTRIBUTED").length;
+  return `${counted.filter((o) => o.result === "DELIVERED").length}${attributed > 0 ? `+${attributed}` : ""}/${counted.length}`;
 }
 
 export function renderReport(results: PromptResult[], refLine: string | null = null): string {
@@ -563,6 +635,7 @@ export function renderReport(results: PromptResult[], refLine: string | null = n
         `DoD: ${r.dod.checked} checked, ${r.dod.unchecked} unchecked (unverified)`,
         `NOT-DELIVERED: ${names("NOT-DELIVERED")}`,
       ];
+      for (const result of ["DELIVERED-ATTRIBUTED", "REMOVED"] as const) if (declaredOutputs.some((o) => o.result === result)) declared.push(`${result}: ${names(result)}`);
       const other = declaredOutputs.filter((o) => o.result === "OTHER-REPO");
       if (other.length > 0) declared.push(`OTHER-REPO: ${other.map((o) => `${o.repo}:${o.path}`).join(", ")}`);
       const shared = declaredOutputs.filter((o) => o.sharedWith.length > 0);
@@ -593,24 +666,25 @@ export function renderReport(results: PromptResult[], refLine: string | null = n
   return `${refLine === null ? "" : `${refLine}\n`}${table}\n\n${bullets.join("\n")}`;
 }
 
-export type Options = { dir: string; ref: string; repo: string | null; json: boolean; strict: boolean; noGh: boolean; help: boolean };
+export type Options = { dir: string; ref: string; repo: string | null; attributions: string; json: boolean; strict: boolean; noGh: boolean; help: boolean };
 export type ParsedArgs = { ok: true; options: Options } | { ok: false; error: string };
 
-export const USAGE = "Usage: bun scripts/prompt-audit.ts [--dir <path>] [--ref <ref>] [--repo <owner/name>] [--json] [--strict] [--no-gh] [--help]";
+export const USAGE = "Usage: bun scripts/prompt-audit.ts [--dir <path>] [--ref <ref>] [--repo <owner/name>] [--attributions <file>] [--json] [--strict] [--no-gh] [--help]";
 
 export function parseArgs(args: string[]): ParsedArgs {
-  const options: Options = { dir: "docs/prompts", ref: "origin/main", repo: null, json: false, strict: false, noGh: false, help: false };
+  const options: Options = { dir: "docs/prompts", ref: "origin/main", repo: null, attributions: DEFAULT_ATTRIBUTIONS, json: false, strict: false, noGh: false, help: false };
   for (let i = 0; i < args.length; i++) {
     const a = args[i] ?? "";
     if (a === "--json") options.json = true;
     else if (a === "--strict") options.strict = true;
     else if (a === "--no-gh") options.noGh = true;
     else if (a === "--help" || a === "-h") options.help = true;
-    else if (a === "--dir" || a === "--ref" || a === "--repo") {
+    else if (a === "--dir" || a === "--ref" || a === "--repo" || a === "--attributions") {
       const v = args[i + 1];
       if (v === undefined || v.startsWith("--")) return { ok: false, error: `missing value for ${a}` };
       if (a === "--dir") options.dir = v;
       else if (a === "--ref") options.ref = v;
+      else if (a === "--attributions") options.attributions = v;
       else if (REPO_NAME.test(v)) options.repo = v;
       else return { ok: false, error: `--repo must be owner/name, got ${v}` };
       i += 1;
@@ -652,6 +726,7 @@ function run(o: Options): number {
     console.error(`no prompts in ${o.dir}`);
     return 2;
   }
+  const attributions = loadAttributions(o.attributions);
   // Only the newline git appends is removed: a repository path may itself end in whitespace.
   const top = gitAt(null)(["rev-parse", "--show-toplevel"]);
   const git = gitAt(top.code === 0 ? top.out.replace(/\n$/, "") : null);
@@ -660,7 +735,7 @@ function run(o: Options): number {
   const lookup = o.noGh ? null : realIssueLookup;
   const remote = git(["remote", "get-url", "origin"]);
   const repo = o.repo ?? (remote.code === 0 ? parseRemoteRepo(remote.out) : null);
-  const results = files.map((f) => auditPrompt(join(o.dir, f), readFileSync(join(o.dir, f), "utf8"), tree, git, sha, lookup, repo));
+  const results = files.map((f) => auditPrompt(join(o.dir, f), readFileSync(join(o.dir, f), "utf8"), tree, git, sha, lookup, repo, attributions));
   console.log(o.json ? JSON.stringify(results, null, 2) : renderReport(results, `ref: ${o.ref} @ ${sha.slice(0, 12)}`));
   return o.strict && results.some((r) => r.flags.length > 0) ? 1 : 0;
 }

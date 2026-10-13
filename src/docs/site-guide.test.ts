@@ -859,41 +859,88 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
     return out;
   }
 
-  const THEATRE_STYLE = /alegreya|schibsted|curtain|brass|theatre|#7b1424|#94203a/i;
+  // The Stage's fonts and palette (site/index.html before #200), light and dark.
+  const THEATRE_STYLE = /alegreya|schibsted|curtain|brass|theatre|#7b1424|#94203a|#8a5f10|#e0b04e/;
+  const STYLE_BLOCK = /<style\b[^>]*>[\s\S]*?<\/style\s*>\n?/i;
+
+  /** CSS as the browser reads it: comments dropped, escapes decoded, rgb() as hex, lower case. */
+  function normaliseCss(css: string): string {
+    const hex = (n: string): string => Math.min(255, Number(n)).toString(16).padStart(2, "0");
+    return css
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\\([0-9a-f]{1,6})\s?/gi, (_m: string, h: string) => String.fromCodePoint(Math.min(parseInt(h, 16), 0x10ffff)))
+      .replace(/\\(.)/g, "$1")
+      .toLowerCase()
+      .replace(/rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)[^)]*\)/g, (_m: string, r: string, g: string, b: string) => `#${hex(r)}${hex(g)}${hex(b)}`);
+  }
 
   /** What the one inline style block fails to give a readable plain page; empty when it gives all of it. */
-  function readableStyleProblems(html: string): string[] {
-    const out: string[] = [];
-    const blocks = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)];
-    const head = html.slice(0, html.indexOf("</head>"));
-    if (blocks.length !== 1) return [`style blocks: ${blocks.length}`];
+  async function readableStyleProblems(html: string): Promise<string[]> {
+    const blocks: { inHead: boolean; attrs: number; css: string }[] = [];
+    let viewport = false;
+    await new HTMLRewriter()
+      .on("style", {
+        element(el) {
+          blocks.push({ inHead: false, attrs: [...el.attributes].length, css: "" });
+        },
+        text(chunk) {
+          const last = blocks[blocks.length - 1];
+          if (last !== undefined) last.css += chunk.text;
+        },
+      })
+      .on("head > style", {
+        element() {
+          const last = blocks[blocks.length - 1];
+          if (last !== undefined) last.inHead = true;
+        },
+      })
+      .on('meta[name="viewport"]', {
+        element() {
+          viewport = true;
+        },
+      })
+      .transform(new Response(html))
+      .text();
     const block = blocks[0];
-    if (block === undefined || block.index === undefined || block.index > head.length) return ["style block outside head"];
-    const css = block[1] ?? "";
-    if (!/(?:main|body)\s*\{[^}]*max-width\s*:/.test(css)) out.push("no max-width on the content");
-    if (!/body\s*\{[^}]*font(?:-family)?\s*:[^;}]*sans-serif/.test(css)) out.push("no body font-family");
+    if (blocks.length !== 1 || block === undefined) return [`style blocks: ${blocks.length}`];
+    if (!block.inHead) return ["style block outside head"];
+    const out: string[] = [];
+    if (block.attrs > 0) out.push("style block has attributes");
+    const css = normaliseCss(block.css);
+    if (!/(?:^|[}\s])(?:main|body)\s*\{[^}]*max-width\s*:\s*\d+(?:\.\d+)?(?:ch|px|rem|em)\b/.test(css)) out.push("no max-width on the content");
+    if (!/(?:^|[}\s])body\s*\{[^}]*font(?:-family)?\s*:[^;}]*sans-serif/.test(css)) out.push("no body font-family");
+    if (/url\(|@import|image-set\(|image\(/.test(css)) out.push("css image or import");
     if (THEATRE_STYLE.test(css)) out.push("theatre styling");
-    if (!html.includes('<meta name="viewport"')) out.push("no viewport meta");
+    if (!viewport) out.push("no viewport meta");
     return out;
   }
 
   test("[unit] D18-PLAIN-STYLE the guide has one readable inline style block and no stylesheet, style or class attribute, or image", async () => {
     expect(await presentationProblems(read(GUIDE))).toEqual([]);
-    expect(readableStyleProblems(read(GUIDE))).toEqual([]);
+    expect(await readableStyleProblems(read(GUIDE))).toEqual([]);
   });
 
-  test("[unit] D18-PLAIN-STYLE-READABLE-NEGATIVE a missing, extra, unreadable or theatre style block goes RED", () => {
+  test("[unit] D18-PLAIN-STYLE-READABLE-NEGATIVE a missing, extra, hidden, unreadable or theatre style block goes RED", async () => {
     const guide = read(GUIDE);
-    const unstyled = guide.replace(/<style>[\s\S]*?<\/style>\n/, "");
-    expect(readableStyleProblems(unstyled)).toEqual(["style blocks: 0"]);
-    expect(readableStyleProblems(mutate(guide, "<main>", "<main><style>p { color: red; }</style>"))).toEqual(["style blocks: 2"]);
-    const moved = mutate(unstyled, "<main>", `<main>${/<style>[\s\S]*?<\/style>/.exec(guide)?.[0] ?? ""}`);
-    expect(readableStyleProblems(moved)).toEqual(["style block outside head"]);
-    expect(readableStyleProblems(mutate(guide, "max-width: 72ch;", ""))).toEqual(["no max-width on the content"]);
-    expect(readableStyleProblems(mutate(guide, "system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif", "Georgia, serif"))).toEqual(["no body font-family"]);
-    expect(readableStyleProblems(mutate(guide, "system-ui,", "\"Alegreya\", system-ui,"))).toEqual(["theatre styling"]);
-    expect(readableStyleProblems(mutate(guide, "background: #fff;", "background: #7b1424;"))).toEqual(["theatre styling"]);
-    expect(readableStyleProblems(mutate(guide, '<meta name="viewport"', '<meta name="x-viewport"'))).toEqual(["no viewport meta"]);
+    const block = STYLE_BLOCK.exec(guide)?.[0] ?? "";
+    expect(block).toContain("max-width");
+    const unstyled = mutate(guide, block, "");
+    const check = async (from: string, to: string): Promise<string[]> => readableStyleProblems(mutate(guide, from, to));
+    expect(await readableStyleProblems(unstyled)).toEqual(["style blocks: 0"]);
+    expect(await check("<style>", "<!--<style>")).toEqual(["style blocks: 0"]);
+    expect(await readableStyleProblems(guide.replace("</style>", "</style >"))).toEqual([]);
+    expect(await check("<main>", "<main><style>p { color: red; }</style>")).toEqual(["style blocks: 2"]);
+    expect(await readableStyleProblems(mutate(unstyled, "<main>", `<main>${block}`))).toEqual(["style block outside head"]);
+    expect(await check("<style>", '<style media="print">')).toEqual(["style block has attributes"]);
+    expect(await check("max-width: 72ch;", "")).toEqual(["no max-width on the content"]);
+    expect(await check("max-width: 72ch;", "max-width: none;")).toEqual(["no max-width on the content"]);
+    expect(await check("max-width: 72ch;", "/* max-width: 72ch; */")).toEqual(["no max-width on the content"]);
+    expect(await check('system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', "Georgia, serif")).toEqual(["no body font-family"]);
+    expect(await check("system-ui,", '"Alegreya", system-ui,')).toEqual(["theatre styling"]);
+    expect(await check("background: #fff;", "background: #7b1424;")).toEqual(["theatre styling"]);
+    expect(await check("background: #fff;", "background: rgb(123, 20, 36);")).toEqual(["theatre styling"]);
+    expect(await check("background: #fff;", 'background: u\\72l("x.png");')).toEqual(["css image or import"]);
+    expect(await check('<meta name="viewport"', '<meta name="x-viewport"')).toEqual(["no viewport meta"]);
   });
 
   test("[unit] D18-PLAIN-STYLE-NEGATIVE each kind of styling or image put back goes RED", async () => {

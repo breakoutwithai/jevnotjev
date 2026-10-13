@@ -1,0 +1,10 @@
+{
+  "state": "Customer message: Please refund my duplicate payment for order 1042.",
+  "model": "jev-1.13.0",
+  "questions": {
+    "refund_requested": {
+      "type": "noul",
+      "instructions": { "question": "Does this support message explicitly ask for a refund?" }
+    }
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "minFiles": 123,
+  "minFiles": 124,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -66,11 +66,11 @@
     "src/backstage/confirm.test.ts": 21,
     "src/backstage/copy.test.ts": 2,
     "src/backstage/demo-notice.test.ts": 7,
+    "src/backstage/downloads.test.ts": 4,
     "src/backstage/export-check.test.ts": 28,
     "src/backstage/house-key.test.ts": 7,
     "src/backstage/lead-sign-in.test.ts": 47,
     "src/backstage/log.test.ts": 10,
-    "src/backstage/mailer.test.ts": 5,
     "src/backstage/main.dom.test.ts": 85,
     "src/backstage/page-catchup.test.ts": 5,
     "src/backstage/page-ux.test.ts": 15,
@@ -122,6 +122,7 @@
     "src/mcp/broken-paths.test.ts": 25,
     "src/mcp/server.test.ts": 8,
     "src/shows/posters.test.ts": 19,
+    "src/backstage/mailer.test.ts": 5,
     "src/backstage/coach.test.ts": 11,
     "scripts/backstage-layout.dom.test.ts": 1
   }

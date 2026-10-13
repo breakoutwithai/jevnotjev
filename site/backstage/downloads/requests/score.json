@@ -1,0 +1,15 @@
+{
+  "state": "Support message: Our whole team cannot use the checkout today. Please help now.",
+  "model": "jev-1.13.0",
+  "questions": {
+    "urgency": {
+      "type": "score",
+      "instructions": { "question": "How urgent is this support message?" },
+      "criteria": [
+        "routine: General question with no deadline.",
+        "blocked: One task is blocked but a workaround exists.",
+        "critical: The whole team is blocked today."
+      ]
+    }
+  }
+}

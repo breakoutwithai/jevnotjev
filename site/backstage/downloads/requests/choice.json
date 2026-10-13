@@ -1,0 +1,16 @@
+{
+  "state": "Customer message: I cannot sign in to my account after resetting my password.",
+  "model": "jev-1.13.0",
+  "questions": {
+    "queue": {
+      "type": "choice",
+      "instructions": { "question": "Which queue should receive this support message?" },
+      "criteria": {
+        "billing": "Payment, invoice, or refund issue.",
+        "technical": "Product failure or error unrelated to account access.",
+        "account": "Sign-in or profile access issue.",
+        "none": "No listed queue fits; send to a person."
+      }
+    }
+  }
+}

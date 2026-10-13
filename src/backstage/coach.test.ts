@@ -6,11 +6,26 @@ const draft = {
   answers: [{ name: "Refund", meaning: "When the order qualifies for a refund." }, { name: "Decline", meaning: "When it does not qualify." }],
   keepRule: "Keep when I would make the same refund call.",
   ruleToBeat: ["refund", "damaged"], exclusions: "Orders without enough information.",
+  cases: ["Damaged item", "Broken package", "Wrong item", "Item missing", "Late delivery", "Changed mind", "Opened item", "No receipt", "Unclear condition", "Unrelated greeting"],
 };
+
+test("[unit] #133 K3 K11 coach.2 requires 5 to 10 distinct one-line starter cases", () => {
+  expect(coachPrompt("Refund?")).toContain("coach.2");
+  expect(coachPrompt("Refund?")).toContain("10 synthetic");
+  for (const cases of [undefined, draft.cases.slice(0, 4), [...draft.cases, "Extra"],
+    [...draft.cases.slice(0, 9), draft.cases[0]], [...draft.cases.slice(0, 9), ""],
+    [...draft.cases.slice(0, 9), "line one\nline two"],
+    [...draft.cases.slice(0, 9), "tester@example.test"],
+    [...draft.cases.slice(0, 9), "Account 123456789012"]]) {
+    const candidate = cases === undefined ? { ...draft, cases: undefined } : { ...draft, cases };
+    expect(parseCoachReply(JSON.stringify({ drafts: [candidate] })).ok).toBe(false);
+  }
+  expect(parseCoachReply(JSON.stringify({ drafts: [draft] })).ok).toBe(true);
+});
 
 test("[unit] #132 C1 coach prompt asks for a bounded JSON decision draft", () => {
   const prompt = coachPrompt("Should I refund this order?");
-  expect(prompt).toContain("coach.1");
+  expect(prompt).toContain("coach.2");
   expect(prompt).toContain("Should I refund this order?");
   expect(prompt).toContain("no-match");
   expect(prompt).toContain("JSON only");

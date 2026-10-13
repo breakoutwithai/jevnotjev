@@ -135,7 +135,7 @@ class FakeStorage {
   setItem(key: string, value: string) { this.items.set(key, value); }
   removeItem(key: string) { this.items.delete(key); }
 }
-async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage(), answer?: (request: AnswerRequest) => Promise<unknown>, search = "", coach?: (question: string, signal: AbortSignal | undefined) => unknown | Promise<unknown>) {
+async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage(), answer?: (request: AnswerRequest) => Promise<unknown>, search = "", coach?: (question: string, signal: AbortSignal | undefined, mode?: string) => unknown | Promise<unknown>) {
   const document = documentFromMarkup(await Bun.file("site/backstage/index.html").text());
   const urls: string[] = [];
   const requests: Array<{ input: string; init: RequestInit | undefined }> = [];
@@ -171,9 +171,11 @@ async function mount(health = new Response(JSON.stringify({ trial: { available: 
       }
       if (input === "/api/backstage/coach" && coach && typeof init?.body === "string") {
         const data: unknown = JSON.parse(init.body);
-        const question = typeof data === "object" && data !== null && "question" in data && typeof data.question === "string" ? data.question : "";
-        const reply = await coach(question, init.signal ?? undefined);
-        return reply instanceof Response ? reply : Response.json({ drafts: reply, promptVersion: "coach.1", model: "claude-sonnet-5-5" });
+        const question = typeof data === "object" && data !== null && "question" in data && typeof data.question === "string" ? data.question :
+          typeof data === "object" && data !== null && "scene" in data && typeof data.scene === "object" && data.scene !== null && "question" in data.scene && typeof data.scene.question === "string" ? data.scene.question : "";
+        const casesMode = typeof data === "object" && data !== null && "mode" in data && data.mode === "cases";
+        const reply = await coach(question, init.signal ?? undefined, casesMode ? "cases" : undefined);
+        return reply instanceof Response ? reply : Response.json(casesMode ? { cases: reply } : { drafts: reply, promptVersion: "coach.2", model: "claude-sonnet-5-5" });
       }
       if (input !== "/api/backstage/health") throw new Error(`Unexpected fetch: ${input}`);
       return health.clone();
@@ -281,13 +283,108 @@ test("[integration] A2 other health errors leave expiry message absent", async (
 });
 
 const sceneIds = ["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "exclusions", "keywords", "cases"];
-const coachDraft = { type: "choice", question: "Should I refund?", answers: [{ name: "Refund", meaning: "When the item is damaged." }, { name: "Decline", meaning: "When it is intact." }], keepRule: "Keep when I would refund the order.", ruleToBeat: ["damaged"], exclusions: "Unknown condition." };
+const starterCases = ["Damaged item", "Broken package", "Wrong item", "Item missing", "Late delivery", "Changed mind", "Opened item", "No receipt", "Unclear condition", "Unrelated greeting"];
+const coachDraft = { type: "choice", question: "Should I refund?", answers: [{ name: "Refund", meaning: "When the item is damaged." }, { name: "Decline", meaning: "When it is intact." }], keepRule: "Keep when I would refund the order.", ruleToBeat: ["damaged"], exclusions: "Unknown condition.", cases: starterCases };
 function coachApply(page: Awaited<ReturnType<typeof mount>>, index = 0): FakeElement {
   const card = page.get("coach-drafts").children[index];
   const candidate = card?.children.at(-1);
   if (!(candidate instanceof FakeElement)) throw new Error("Missing Apply button");
   return candidate;
 }
+test("[integration] #133 K1 ten coach cases fill an empty editable case box", async () => {
+  const page = await mount();
+  page.get("coach-reply").value = JSON.stringify({ drafts: [coachDraft] });
+  page.get("coach-use-reply").click();
+  const listed = page.get("coach-drafts").children[0]?.children.find((child) => child.tagName === "OL");
+  expect(listed?.children.map((child) => child.textContent)).toEqual(starterCases);
+  coachApply(page).click();
+  expect(page.get("cases").value).toBe(starterCases.join("\n"));
+  typeInto(page, "cases", page.get("cases").value + "\nMy edit");
+  expect(page.get("cases").value.endsWith("My edit")).toBe(true);
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toContain("Damaged item");
+  const whitespace = await mount();
+  typeInto(whitespace, "cases", "  \n  ");
+  whitespace.get("coach-reply").value = JSON.stringify({ drafts: [coachDraft] });
+  whitespace.get("coach-use-reply").click(); coachApply(whitespace).click();
+  expect(whitespace.get("cases").value).toBe(starterCases.join("\n"));
+});
+test("[integration] #133 K2 Apply preserves existing bytes until Add starter cases", async () => {
+  const page = await mount();
+  typeInto(page, "cases", "Original  \nline two");
+  page.get("coach-reply").value = JSON.stringify({ drafts: [coachDraft] });
+  page.get("coach-use-reply").click();
+  coachApply(page).click();
+  expect(page.get("cases").value).toBe("Original  \nline two");
+  expect(page.get("coach-status").textContent).toContain("Cases and labels kept.");
+  const add = page.get("coach-drafts").querySelectorAll("button").find((item) => item.textContent === "Add starter cases");
+  if (!add) throw new Error("Missing Add starter cases button");
+  add.click();
+  expect(page.get("cases").value).toBe("Original  \nline two\n" + starterCases.join("\n"));
+});
+test("[integration] #133 K3 K4 invalid or credential-bearing coach cases change no scene fields", async () => {
+  const page = await mount();
+  typeInto(page, "question", "Original question");
+  typeInto(page, "cases", "Original case");
+  for (const cases of [starterCases.slice(0, 4), [...starterCases, "Extra"],
+    [...starterCases.slice(0, 9), starterCases[0]], [...starterCases.slice(0, 9), ""],
+    [...starterCases.slice(0, 9), "Line one\nline two"],
+    [...starterCases.slice(0, 9), `sk-ant-${"Ab3".repeat(12)}`], [...starterCases.slice(0, 9), "test-secret-value"]]) {
+    page.get("coach-key").value = "test-secret-value";
+    page.get("coach-reply").value = JSON.stringify({ drafts: [{ ...coachDraft, cases }] });
+    page.get("coach-use-reply").click();
+    expect(page.get("coach-drafts").children).toHaveLength(0);
+    expect(page.get("question").value).toBe("Original question");
+    expect(page.get("cases").value).toBe("Original case");
+  }
+});
+test("[integration] #133 K5 K6 typed scene uses cases mode and scans every field before fetch", async () => {
+  const page = await mount(undefined, undefined, undefined, undefined, "", (_question, _signal, mode) => mode === "cases" ? starterCases : []);
+  typeInto(page, "question", "Refund?");
+  typeInto(page, "choice-a", "Refund"); typeInto(page, "choice-b", "Decline");
+  typeInto(page, "definition-a", "When damaged."); typeInto(page, "definition-b", `sk-ant-${"Ab3".repeat(12)}`);
+  page.get("coach-provider").value = "anthropic";
+  page.get("coach-key").value = "test-secret-value";
+  page.get("draft-cases").click();
+  expect(page.get("coach-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  expect(page.requests.filter((item) => item.input === "/api/backstage/coach")).toHaveLength(0);
+  typeInto(page, "definition-b", "When intact.");
+  typeInto(page, "cases", "My existing case");
+  page.get("draft-cases").click(); await tick();
+  expect(page.get("coach-status").textContent).toBe("10 starter cases added. Edit them before running.");
+  expect(page.get("cases").value).toBe("My existing case\n" + starterCases.join("\n"));
+  const sent = page.requests.filter((item) => item.input === "/api/backstage/coach");
+  expect(sent).toHaveLength(1);
+  expect(JSON.parse(String(sent[0]?.init?.body))).toEqual({ provider: "anthropic", key: "test-secret-value", mode: "cases", scene: { question: "Refund?", choices: [{ name: "Refund", definition: "When damaged." }, { name: "Decline", definition: "When intact." }] } });
+});
+test("[integration] #133 K7 cases prompt and paste-back add valid cases; bad JSON preserves cases", async () => {
+  const page = await mount();
+  typeInto(page, "question", "Refund?"); typeInto(page, "definition-a", "When damaged."); typeInto(page, "definition-b", "When intact.");
+  page.get("cases-copy-prompt").click(); await tick();
+  expect(page.copied[0]).toContain("cases.1");
+  page.get("cases-reply").value = "not json";
+  page.get("cases-use-reply").click();
+  expect(page.get("coach-status").textContent).toBe("Could not read that reply. Nothing was changed.");
+  expect(page.get("cases-status").textContent).toBe("Could not read that reply. Nothing was changed.");
+  expect(page.get("cases").value).toBe("");
+  page.get("cases-reply").value = JSON.stringify({ cases: starterCases });
+  page.get("cases-use-reply").click();
+  expect(page.get("cases").value).toBe(starterCases.join("\n"));
+});
+test("[integration] #133 K8 three drafted cases keep case one answer out of DOM until its blind pick", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYesRanked);
+  const draft = { ...coachDraft, answers: [{ name: "yes", meaning: "When the item is damaged." }, { name: "no", meaning: "When it is intact." }] };
+  page.get("coach-reply").value = JSON.stringify({ drafts: [draft] });
+  page.get("coach-use-reply").click(); coachApply(page).click();
+  typeInto(page, "cases", starterCases.slice(0, 3).join("\n"));
+  typeInto(page, "jev-key", "test-secret-value");
+  page.get("run-all").click();
+  await until(() => page.document.getElementById("open-judging") !== null);
+  await openJudging(page);
+  expect(page.get("suggestion").children).toEqual([]);
+  expect(leaks(page)).toEqual([]);
+  page.get("pick-second").click(); await tick();
+  expect(textOf(page.get("suggestion"))).toContain("#1 yes 82% (Jev's choice)");
+});
 test("[integration] #132 C1 coach uses two typed questions and renders complete drafts", async () => {
   const page = await mount(undefined, undefined, undefined, undefined, "", (question) => [{ ...coachDraft, question }]);
   page.get("coach-provider").value = "anthropic";
@@ -311,7 +408,7 @@ test("[integration] #132 copy coach prompt contains the question but no key or n
   page.get("coach-copy-prompt").click();
   await tick();
   expect(page.copied).toHaveLength(1);
-  expect(page.copied[0]).toContain("coach.1");
+  expect(page.copied[0]).toContain("coach.2");
   expect(page.copied[0]).toContain("Should I refund?");
   expect(page.copied[0]).not.toContain("test-secret-value");
   expect(page.requests.filter((item) => item.input === "/api/backstage/coach")).toHaveLength(0);
@@ -396,7 +493,7 @@ test("[integration] #132 pasted and fetched decoded drafts reject escaped creden
   const shaped = `sk-proj-${"Ab3".repeat(12)}`;
   const page = await mount(undefined, undefined, undefined, undefined, "", (question) => {
     const draft = { ...coachDraft, question: question.includes("shape") ? `Refund ${shaped}?` : `Refund ${key}?` };
-    const body = JSON.stringify({ drafts: [draft], promptVersion: "coach.1", model: "claude-sonnet-5-5" });
+    const body = JSON.stringify({ drafts: [draft], promptVersion: "coach.2", model: "claude-sonnet-5-5" });
     return new Response(question.includes("shape") ? body.replaceAll("-", "\\u002d") : body, { headers: { "content-type": "application/json" } });
   });
   page.get("coach-key").value = key;
@@ -447,6 +544,8 @@ test("[integration] #132 C5 unsupported drafts and frozen scenes cannot apply", 
   typeInto(page, "jev-key", "test-secret-value");
   page.get("run-one").click();
   expect(coachApply(page).disabled).toBe(true);
+  expect(page.get("draft-cases").disabled).toBe(true);
+  expect(page.get("cases-use-reply").disabled).toBe(true);
   coachApply(page).click();
   expect(page.get("question").value).toBe("Already edited");
   await Bun.sleep(50);

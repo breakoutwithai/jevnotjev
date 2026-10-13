@@ -23,7 +23,7 @@ import { openTrial, validTrialInput } from "./trial.ts";
 import { checkTicket, MAX_TICKET_BODY, TicketLimiter, TicketStore } from "./tickets.ts";
 import { rankPosters, type Poster } from "../shows/posters.ts";
 import { COACH_PROMPT_VERSION, COACH_UNSAFE_MESSAGE } from "./coach.ts";
-import { findCredentials } from "./export-check.ts";
+import { findCredentials } from "./credential-scan.ts";
 import type { TrialConfig } from "./trial.ts";
 declare const BACKSTAGE_BUILD_VERSION: string;
 export function runtimeVersion(
@@ -462,17 +462,39 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         const decoded: unknown = JSON.parse(raw);
         if (pathname === "/api/backstage/coach") {
           if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded) ||
-              !("provider" in decoded) || !("key" in decoded) || !("question" in decoded) ||
+              !("provider" in decoded) || !("key" in decoded) ||
               (decoded.provider !== "anthropic" && decoded.provider !== "openai") ||
               typeof decoded.key !== "string" || !/^[\x21-\x7e]{8,512}$/.test(decoded.key) ||
-              typeof decoded.question !== "string" || !decoded.question.trim() || decoded.question.length > 1000 ||
-              /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(decoded.question) ||
-              Object.keys(decoded).some((name) => !["provider", "key", "question"].includes(name)))
+              Object.keys(decoded).some((name) => !["provider", "key", "question", "mode", "scene"].includes(name)))
             return json({ code: "invalid-request", message: "Enter a question, provider and valid key." }, 400);
-          if (findCredentials(decoded.question, [decoded.key]).length > 0)
+          const casesMode = "mode" in decoded && decoded.mode === "cases";
+          const scene = "scene" in decoded ? decoded.scene : undefined;
+          const validText = (value: unknown, max: number) => typeof value === "string" && value.trim().length > 0 && value.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value);
+          if (casesMode ?
+            ("question" in decoded || !scene || typeof scene !== "object" || Array.isArray(scene) ||
+              !("question" in scene) || !validText(scene.question, 1000) ||
+              !("choices" in scene) || !Array.isArray(scene.choices) || scene.choices.length !== 2 ||
+              !scene.choices.every((choice: unknown) => typeof choice === "object" && choice !== null && !Array.isArray(choice) &&
+                "name" in choice && validText(choice.name, 64) && "definition" in choice && validText(choice.definition, 1000)) ||
+              Object.keys(scene).some((name) => !["question", "choices"].includes(name))) :
+            ("mode" in decoded || "scene" in decoded || !("question" in decoded) || !validText(decoded.question, 1000)))
+            return json({ code: "invalid-request", message: "Enter a question, provider and valid key." }, 400);
+          if (findCredentials(casesMode ? scene : "question" in decoded ? decoded.question : undefined, [decoded.key]).length > 0)
             return json({ code: "unsafe-input", message: COACH_UNSAFE_MESSAGE }, 400);
           const model = decoded.provider === "anthropic" ? "claude-sonnet-5-5" : "gpt-6-luna";
           logger.coach({ event: "coach.request", rid, provider: decoded.provider, model });
+          if (casesMode && scene && typeof scene === "object" && "question" in scene && typeof scene.question === "string" && "choices" in scene && Array.isArray(scene.choices)) {
+            const choices = scene.choices;
+            const first = choices[0]; const second = choices[1];
+            if (!first || !second || typeof first.name !== "string" || typeof first.definition !== "string" || typeof second.name !== "string" || typeof second.definition !== "string")
+              return json({ code: "invalid-request", message: "Enter a question, provider and valid key." }, 400);
+            const result = await callCoach(decoded.provider, decoded.key, { question: scene.question, choices: [{ name: first.name, definition: first.definition }, { name: second.name, definition: second.definition }] }, options.providerFetch, options.timeoutMs);
+            if (!result.ok) return json({ code: "coach-failed", message: result.reason }, 502);
+            if (findCredentials(result.cases, [decoded.key]).length > 0)
+              return json({ code: "coach-failed", message: "Coach reply contained a credential." }, 502);
+            return json({ cases: result.cases });
+          }
+          if (!("question" in decoded) || typeof decoded.question !== "string") return json({ code: "invalid-request", message: "Enter a question, provider and valid key." }, 400);
           const result = await callCoach(decoded.provider, decoded.key, decoded.question, options.providerFetch, options.timeoutMs);
           if (!result.ok) return json({ code: "coach-failed", message: result.reason }, 502);
           if (findCredentials(result.drafts, [decoded.key]).length > 0)

@@ -11,7 +11,7 @@ import type {
 import { MODEL_CATALOG, CATALOG_VERSION, getModelEntry } from "./catalog.ts";
 import { requestFingerprint } from "./fingerprint.ts";
 import { decisionPrompt, PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
-import { coachPrompt, parseCoachReply, type CoachReply } from "./coach.ts";
+import { casesPrompt, coachPrompt, parseCasesReply, parseCoachReply, type CasesScene, type CoachReply } from "./coach.ts";
 import { findCredentials } from "./credential-scan.ts";
 export { requestFingerprint } from "./fingerprint.ts";
 export type ProviderFetch = (
@@ -19,12 +19,16 @@ export type ProviderFetch = (
   options: RequestInit,
 ) => Promise<Response>;
 export const PROVIDER_TIMEOUT_MS = 30000;
+type CasesReply = ReturnType<typeof parseCasesReply>;
+export function callCoach(provider: "anthropic" | "openai", key: string, question: string, doFetch?: ProviderFetch, timeoutMs?: number): Promise<CoachReply>;
+export function callCoach(provider: "anthropic" | "openai", key: string, scene: CasesScene, doFetch?: ProviderFetch, timeoutMs?: number): Promise<CasesReply>;
 export async function callCoach(
-  provider: "anthropic" | "openai", key: string, question: string,
+  provider: "anthropic" | "openai", key: string, input: string | CasesScene,
   doFetch: ProviderFetch = fetch, timeoutMs = PROVIDER_TIMEOUT_MS,
-): Promise<CoachReply> {
+): Promise<CoachReply | CasesReply> {
   const model = provider === "anthropic" ? "claude-sonnet-5-5" : "gpt-6-luna";
-  const prompt = coachPrompt(question);
+  const prompt = typeof input === "string" ? coachPrompt(input) : casesPrompt(input);
+  const question = typeof input === "string" ? input : JSON.stringify(input);
   const url = provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : "https://api.openai.com/v1/responses";
   const headers = provider === "anthropic"
     ? { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }
@@ -35,7 +39,7 @@ export async function callCoach(
   try {
     const response = await doFetch(url, { method: "POST", headers, body: JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
     if (!response.ok) return { ok: false, reason: `Coach provider returned ${response.status}. Check your key or try again.` };
-    const raw = await boundedText(response, 65536, AbortSignal.timeout(timeoutMs));
+    const raw = await boundedText(response, 300000, AbortSignal.timeout(timeoutMs));
     if (raw.includes(key)) return { ok: false, reason: "Coach reply contained a credential." };
     const payload: unknown = JSON.parse(raw);
     if (!object(payload)) return { ok: false, reason: "Coach provider returned an unreadable reply." };
@@ -51,8 +55,8 @@ export async function callCoach(
       if (texts.length === 1 && object(texts[0])) output = texts[0].text;
     }
     if (typeof output !== "string") return { ok: false, reason: "Coach provider returned an unreadable reply." };
-    const parsed = parseCoachReply(output);
-    if (parsed.ok && findCredentials(parsed.drafts, [key]).length > 0)
+    const parsed = typeof input === "string" ? parseCoachReply(output) : parseCasesReply(output);
+    if (parsed.ok && findCredentials(parsed, [key]).length > 0)
       return { ok: false, reason: "Coach reply contained a credential." };
     return parsed;
   } catch {

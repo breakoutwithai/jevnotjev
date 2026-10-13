@@ -21,6 +21,7 @@ import { validate } from "../format/validate.ts";
 import { cohortMetrics } from "../core/metrics.ts";
 import { fileSeed } from "../core/calc.ts";
 import { verdict } from "../core/verdict.ts";
+import { checkExport } from "./export-check.ts";
 const compareSelection = { arms: ["jev", "claude-haiku-4-5-20251001", "rule"] };
 function evidenceAfterReveal(run: BackstageRun) {
   if (run.manifest.mode === "compare" && !run.revealed && run.cards().length) {
@@ -1178,6 +1179,25 @@ describe("blind-then-suggest picks", () => {
       suggestionShown: true,
       labelledAt: "2026-10-07T10:00:00.000Z",
     });
+  });
+  test("[unit] #133 K9 final changes and suggestion visibility do not change metrics or verdict", async () => {
+    const run = await jevAndRule();
+    run.beginLabeling();
+    run.pickBlind("c1", "no", BACKSTAGE_BLIND_PICK, AT);
+    run.pickBlind("c2", "yes", BACKSTAGE_BLIND_PICK, AT);
+    const before = await run.report();
+    run.pickFinal("c1", "yes");
+    run.pickFinal("c2", "yes");
+    const after = await run.report();
+    expect(after.metrics).toEqual(before.metrics);
+    expect(after.verdict).toEqual(before.verdict);
+    expect(loopCells(run, "c1")).toEqual([
+      ["rule", "yes", "reject", "human", "true", "accept", "true"],
+      ["jev", "yes", "reject", "human", "true", "accept", "true"],
+    ]);
+    expect(loopCells(run, "c2").map((cells) => [cells[2], cells[5], cells[6]])).toEqual([["reject", "reject", "true"], ["reject", "reject", "true"]]);
+    run.reveal(); await run.report();
+    expect((await checkExport(run.evidence())).problems).toEqual([]);
   });
 
   /** Jev fails on c2; the rule answers both cases. */

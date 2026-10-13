@@ -293,6 +293,13 @@
               placeholder="Paste your own test cases here. Each line is one case."
             ></textarea>
           </label>
+          <div class="actions">
+            <button id="draft-cases" type="button">Draft starter cases</button>
+            <button id="cases-copy-prompt" type="button" class="secondary">Copy cases prompt</button>
+          </div>
+          <label>Paste your model's cases JSON reply<textarea id="cases-reply" rows="4"></textarea></label>
+          <button id="cases-use-reply" type="button" class="secondary">Use these cases</button>
+          <p id="cases-status" role="status"></p>
           <p class="fine">
             1 to 100 cases, up to 8,000 characters each. For multiline cases,
             import a CSV whose first two columns are case_id,case_input.

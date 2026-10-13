@@ -27,7 +27,8 @@ function request(origin = "http://localhost:3456", data: unknown = body) {
     body: JSON.stringify(data),
   });
 }
-const coachDraft = { type: "choice", question: "Refund?", answers: [{ name: "Refund", meaning: "When damaged." }, { name: "Decline", meaning: "When not damaged." }], keepRule: "Keep when I would refund it.", ruleToBeat: ["damaged"], exclusions: "Unknown condition." };
+const starterCases = ["Damaged item", "Broken package", "Wrong item", "Item missing", "Late delivery", "Changed mind", "Opened item", "No receipt", "Unclear condition", "Unrelated greeting"];
+const coachDraft = { type: "choice", question: "Refund?", answers: [{ name: "Refund", meaning: "When damaged." }, { name: "Decline", meaning: "When not damaged." }], keepRule: "Keep when I would refund it.", ruleToBeat: ["damaged"], exclusions: "Unknown condition.", cases: starterCases };
 function coachRequest(data: unknown = { provider: "anthropic", key: "test-secret-value", question: "Refund?" }, origin = "http://localhost:3456", contentType = "application/json") {
   return new Request("http://localhost:3456/api/backstage/coach", { method: "POST", headers: { origin, "content-type": contentType }, body: JSON.stringify(data) });
 }
@@ -44,11 +45,33 @@ test("[integration] #132 C1 coach routes two questions to the selected model and
   expect(second.drafts[0].question).toBe("Replace?");
   expect(first.drafts[0].answers[0].meaning).toBe("When damaged.");
   expect(first.drafts[0].keepRule).toBe("Keep when I would refund it.");
-  expect(first.promptVersion).toBe("coach.1");
+  expect(first.promptVersion).toBe("coach.2");
   expect(first.model).toBe("claude-sonnet-5-5");
   expect(logs).toHaveLength(2);
   expect(logs.join(" ")).not.toContain("test-secret-value");
   expect(logs.join(" ")).not.toContain("Refund?");
+});
+test("[integration] #133 K5 K6 cases mode scans scene text and returns only synthetic cases", async () => {
+  let calls = 0;
+  const handler = createHandler({ version: "test", providerFetch: async (_url, options) => {
+    calls++;
+    expect(String(options.body)).toContain("cases.1");
+    return Response.json({ model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ cases: starterCases.slice(0, 5) }) }] });
+  } });
+  const scene = { question: "Refund?", choices: [{ name: "Refund", definition: "When damaged." }, { name: "Decline", definition: "When intact." }] };
+  const unsafe = await handler(coachRequest({ provider: "anthropic", key: "test-secret-value", mode: "cases", scene: { ...scene, choices: [{ name: "Refund", definition: "test-secret-value" }, scene.choices[1]] } }));
+  expect(await unsafe.json()).toEqual({ code: "unsafe-input", message: "A provider key appears in the scene. Remove it before running." });
+  expect(calls).toBe(0);
+  const response = await handler(coachRequest({ provider: "anthropic", key: "test-secret-value", mode: "cases", scene }));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ cases: starterCases.slice(0, 5) });
+  expect(calls).toBe(1);
+});
+test("[unit] #133 K4 provider case with a shaped credential is refused", async () => {
+  const handler = createHandler({ version: "test", providerFetch: async () => Response.json({ model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ drafts: [{ ...coachDraft, cases: [...starterCases.slice(0, 9), `sk-ant-${"Ab3".repeat(12)}`] }] }) }] }) });
+  const response = await handler(coachRequest());
+  expect(response.status).toBe(502);
+  expect(await response.text()).not.toContain("sk-ant-");
 });
 test("[unit] #132 C4 coach refuses exact and shaped credentials before provider dispatch", async () => {
   let calls = 0;

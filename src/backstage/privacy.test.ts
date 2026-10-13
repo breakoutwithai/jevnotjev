@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
-import { SESSION_TTL_MS } from "./auth.ts";
+import { OAUTH_TTL_MS, SESSION_TTL_MS } from "./auth.ts";
 import { renderSignInPage } from "./sign-in-page.ts";
 import { createHandler } from "./server.ts";
+import { TOKEN_LIFETIME_MS } from "./trial.ts";
 
 const privacyPath = "site/privacy/index.html";
 const summary = "Backstage does not save your cases, runs or keys to a file or database on our server.";
@@ -98,7 +99,7 @@ test("[unit] #128 every privacy source citation resolves to existing lines", asy
 });
 
 const allowedWriters = new Set(["tickets.ts", "trial.ts", "auth.ts", "api-tokens.ts"]);
-const writer = /\b(?:writeFileSync|Bun\.write|appendFile(?:Sync)?|new Database|createWriteStream|openSync)\b/;
+const writer = /\b(?:writeFile(?:Sync)?|Bun\.write|appendFile(?:Sync)?|new Database|createWriteStream|openSync)\b|\.writer\s*\(/;
 function unexpectedWriters(sources: ReadonlyMap<string, string>): string[] {
   return [...sources].filter(([name, source]) => !allowedWriters.has(name) && writer.test(source)).map(([name]) => name);
 }
@@ -110,6 +111,8 @@ test("[unit] #128 a new server storage writer requires a privacy page update", a
   }
   expect(unexpectedWriters(sources)).toEqual([]);
   expect(unexpectedWriters(new Map([...sources, ["new-storage.ts", "Bun.write(path, data)"]]))).toContain("new-storage.ts");
+  expect(unexpectedWriters(new Map([...sources, ["new-storage.ts", "await writeFile(path, data)"]]))).toContain("new-storage.ts");
+  expect(unexpectedWriters(new Map([...sources, ["new-storage.ts", "file.writer()"]]))).toContain("new-storage.ts");
 });
 
 function statedSessionHours(page: string): number | null {
@@ -121,6 +124,30 @@ test("[unit] #128 stated session cookie hours equal SESSION_TTL_MS", async () =>
   const page = await Bun.file(privacyPath).text();
   expect(statedSessionHours(page)).toBe(SESSION_TTL_MS / 3_600_000);
   expect(statedSessionHours(page.replace("12-hour maximum age", "13-hour maximum age"))).not.toBe(SESSION_TTL_MS / 3_600_000);
+});
+
+function retentionLine(page: string): string {
+  return page.match(/<li>The ticket office[^<]*<\/li>/)?.[0] ?? "";
+}
+
+test("[unit] #128 ticket retention names the 90-day manual plan and absent automatic deletion", async () => {
+  const page = await Bun.file(privacyPath).text();
+  const line = retentionLine(page);
+  expect(line).toMatch(/90 days after the event ends/);
+  expect(line).toMatch(/no automatic deletion/);
+  expect(line).toMatch(/code does not carry it out/);
+  expect(retentionLine(page.replace("deleted by hand 90 days", "deleted by hand later"))).not.toMatch(/90 days after the event ends/);
+});
+
+test("[unit] #128 Google and trial cookie durations match their constants and server settings", async () => {
+  const page = await Bun.file(privacyPath).text();
+  const server = await Bun.file("src/backstage/server.ts").text();
+  expect(page).toMatch(new RegExp(`Google sign-in cookie lasts ${OAUTH_TTL_MS / 60_000} minutes`));
+  expect(page).toMatch(new RegExp(`funded trial cookie lasts ${TOKEN_LIFETIME_MS / 86_400_000} days`));
+  expect(server).toContain(`cookie(origin, "oauth", nonce, ${OAUTH_TTL_MS / 1_000})`);
+  expect(server).toContain(`Max-Age=${TOKEN_LIFETIME_MS / 1_000}`);
+  expect(page.replace("10 minutes", "11 minutes")).not.toMatch(new RegExp(`Google sign-in cookie lasts ${OAUTH_TTL_MS / 60_000} minutes`));
+  expect(page.replace("funded trial cookie lasts 90 days", "funded trial cookie lasts 91 days")).not.toMatch(new RegExp(`funded trial cookie lasts ${TOKEN_LIFETIME_MS / 86_400_000} days`));
 });
 
 test("[unit] #128 scene draft directions name sign-out and closing the tab, never a clear action", async () => {

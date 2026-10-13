@@ -43,7 +43,7 @@ interface ReservationRow {
   amount: number;
   day: string;
 }
-const TOKEN_LIFETIME_MS = 90 * 86400000;
+export const TOKEN_LIFETIME_MS = 90 * 86400000;
 function positive(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0 && value <= 1_000_000_000_000;
 }

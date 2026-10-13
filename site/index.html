@@ -154,6 +154,14 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 
 </style>
 <link rel="stylesheet" href="theatre.css">
+<script>
+/* Decide motion before first paint so the demo starts in the right state. */
+(function () {
+  var r = document.documentElement;
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  r.classList.add(!reduced && "IntersectionObserver" in window ? "motion" : "static");
+})();
+</script>
 </head>
 <body>
 
@@ -342,7 +350,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
   }).join("");
   var V = J.jev_vs;
   var saveVsA = S.A.cpk !== null && S.C.cpk !== null && S.A.cpk > 0 ? (1 - S.C.cpk / S.A.cpk) * 100 : null;
-  $("versus").innerHTML = 'Against what you do now, Jev won <strong>' + V.A.wins + '</strong> cases and lost <strong>' + V.A.losses + '</strong>. Against the simple rule, won <strong>' + V.B.wins + '</strong>, lost <strong>' + V.B.losses + '</strong>. ' + (saveVsA === null ? 'No cost comparison: a method kept nothing, so its cost per kept answer is undefined.' : 'Each kept answer costs <strong>' + saveVsA.toFixed(0) + '%</strong> less than today.');
+  $("versus").innerHTML = 'Against the ' + ARM_SHORT.A + ', Jev won <strong>' + V.A.wins + '</strong> cases and lost <strong>' + V.A.losses + '</strong>. Against the ' + ARM_SHORT.B + ', Jev won <strong>' + V.B.wins + '</strong> and lost <strong>' + V.B.losses + '</strong>. ' + (saveVsA === null ? 'No cost comparison: a method kept nothing, so its cost per kept answer is undefined.' : 'Each Jev kept answer costs <strong>' + saveVsA.toFixed(0) + '%</strong> less than the ' + ARM_SHORT.A + '.');
   var T = J.timing;
   $("benchTitle").textContent = "Offstage: how long each took";
   var bh = '<caption class="bench-note">' + esc(T.note) + '</caption><thead><tr><th>Method</th><th>Median seconds per call</th></tr></thead><tbody>';
@@ -354,9 +362,9 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
   /* ---------- Act IV ---------- */
   $("t5").textContent = VWORD[vr] || vr;
   $("because").innerHTML =
-    '<li><span class="k num">' + S.C.kept + ' vs ' + S.A.kept + '</span><span class="v">answers kept by Jev against what you do now, out of ' + J.cases.length + '. The simple rule kept ' + S.B.kept + '.</span></li>' +
-    '<li><span class="k num">' + cpkText(S.C.cpk) + '</span><span class="v">per kept answer, against ' + cpkText(S.A.cpk) + ' today and ' + cpkText(S.B.cpk) + ' for the rule.</span></li>' +
-    '<li><span class="k num">' + V.A.wins + ' / ' + V.A.losses + '</span><span class="v">wins and losses against what you do now; ' + V.B.wins + ' / ' + V.B.losses + ' against the simple rule.</span></li>';
+    '<li><span class="k num">Jev ' + S.C.kept + ' vs ' + ARM_SHORT.A + ' ' + S.A.kept + '</span><span class="v">answers kept out of ' + J.cases.length + '; the ' + ARM_SHORT.B + ' kept ' + S.B.kept + '.</span></li>' +
+    '<li><span class="k num">Jev ' + cpkText(S.C.cpk) + '</span><span class="v">per kept answer, against ' + cpkText(S.A.cpk) + ' for the ' + ARM_SHORT.A + ' and ' + cpkText(S.B.cpk) + ' for the ' + ARM_SHORT.B + '.</span></li>' +
+    '<li><span class="k num">Jev ' + V.A.wins + ' / ' + V.A.losses + '</span><span class="v">wins and losses against the ' + ARM_SHORT.A + '; ' + V.B.wins + ' / ' + V.B.losses + ' against the ' + ARM_SHORT.B + '.</span></li>';
   $("caveat").textContent = J.verdict.reason.charAt(0).toUpperCase() + J.verdict.reason.slice(1) + ". " +
     (spotlit ? "The sharpest miss: " + spotlit.id + " (" + spotlit.prompt.toLowerCase() + ") at " + conf(spotlit).toFixed(2) + " confidence. " : "") +
     "The verdict describes these " + J.cases.length + " messages about a made-up shop, not production.";

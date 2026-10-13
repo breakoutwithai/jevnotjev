@@ -24,6 +24,12 @@
 .dd-v.accept { color: var(--keep); } .dd-v.reject { color: var(--cut); }
 .dd-v.pending { color: var(--muted); font-weight: 600; text-transform: none; letter-spacing: 0; font-style: italic; }
 .dd-label { font-family: var(--sans); font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+.motion .dd-msg { opacity: 0; transform: translateY(10px); transition: opacity .5s ease, transform .5s ease; }
+.motion .dd-msg.on { opacity: 1; transform: none; }
+.motion .dd-msg .dd-arm { opacity: 0; transition: opacity .4s ease; }
+.motion .dd-msg.on .dd-arm { opacity: 1; }
+.motion .dd-msg.on .dd-arm:nth-child(2) { transition-delay: .25s; }
+.motion .dd-msg.on .dd-arm:nth-child(3) { transition-delay: .5s; }
 .dd-tally { margin: 24px 0 0; }
 .dd-tally h3 { font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
 .dd-tally table { width: 100%; border-collapse: collapse; font-family: var(--sans); font-size: 14px; }
@@ -32,9 +38,11 @@
 .dd-tally td:first-child { font-weight: 700; }
 .dd-tally .wait { color: var(--muted); font-style: italic; }
 .dd-tally-note { font-family: var(--sans); font-size: 13px; color: var(--ink-soft); margin: 10px 0 0; max-width: 72ch; }
+.motion .dd-tally { opacity: 0; transition: opacity .6s ease; }
+.motion .dd-tally.on { opacity: 1; }
 .dd-actions { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 18px 0 0; font-family: var(--sans); font-size: 14px; }
 .dd-actions button { font-family: var(--sans); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; background: none; border: 1px solid var(--line); padding: 8px 12px; cursor: pointer; }
-.dd-actions a { color: var(--ink); font-weight: 700; }
+.dd-actions a { display: inline-flex; align-items: center; min-height: 24px; color: var(--ink); font-weight: 700; }
 @media (max-width: 720px) {
   .dd-arms { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .dd-arm { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }

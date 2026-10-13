@@ -62,8 +62,8 @@
     if (window.location.hash !== "#tkForm" && window.location.hash !== "#csv") return;
     openPanel();
     if (window.location.hash === "#tkForm") {
-      reopen();
-      form.querySelector("input[name=kind]").focus();
+      if ($("tkIssued").hidden) reopen();
+      if (!form.hidden) form.querySelector("input[name=kind]:checked").focus();
     }
   }
   if (typeof window !== "undefined") openHash();
@@ -82,6 +82,7 @@
     if (form.querySelector("input[value=show]").disabled) form.querySelector("input[value=backstage]").checked = true;
     syncKind();
     form.hidden = false;
+    form.querySelector("input[name=kind]:checked").focus();
   }
   function poster(p) {
     var st = STAGE[p.stage];

@@ -162,12 +162,18 @@ test("[integration] T-reopen issued ticket can be followed by a fresh form", asy
     await page.locator("#officeOpen").click();
     expect(await page.locator("#tkIssued").isVisible()).toBe(true);
     expect(await page.locator("#tkIssued").innerText()).toContain("T1");
+    await page.evaluate(() => { window.location.hash = "#tkForm"; });
+    await page.waitForTimeout(50);
+    expect(await page.locator("#tkIssued").isVisible()).toBe(true);
+    expect(await page.locator("#tkIssued").innerText()).toContain("T1");
+    expect(await page.locator("#tkForm").isVisible()).toBe(false);
     await page.getByRole("button", { name: "Get another ticket" }).click();
     expect(await page.locator("#tkForm").isVisible()).toBe(true);
     expect(await page.locator("#tkIssued").isVisible()).toBe(false);
     expect(await page.locator("#tkEmail").inputValue()).toBe("");
     expect(await page.locator("#tkShow").inputValue()).toBe("");
     expect(await page.locator("#tkConsent").isChecked()).toBe(false);
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("name"))).toBe("kind");
   } finally { await page.close(); }
 }, 15000);
 
@@ -231,12 +237,40 @@ test("[integration] T-panel-open-measure open office fits both viewports", async
     const page = await pageAt(width, height);
     try {
       await page.locator("#officeOpen").click();
+      await page.locator("#door").click();
+      expect(await page.locator("#doorDemo").isVisible()).toBe(true);
       expect(await page.getByText("Choose a file", { exact: true }).count()).toBe(1);
       expect(await page.locator("#csv").evaluate((node) => getComputedStyle(node).opacity)).toBe("0");
       expect(await measurePage(page)).toEqual({ overflow: 0, outside: [], small: [] });
     } finally { await page.close(); }
   }
 });
+
+test("[integration] T-figures Acts III and IV name an arm in every numbered sentence", async () => {
+  const page = await pageAt(390, 844);
+  try {
+    for (const selector of ["#versus", "#because li"]) {
+      for (const text of await page.locator(selector).allInnerTexts()) {
+        const sentences = text.split(/\.(?!\d)\s*/).filter((sentence) => /\d/.test(sentence));
+        expect(sentences.length).toBeGreaterThan(0);
+        for (const sentence of sentences) expect(sentence).toMatch(/\b(?:LLM|simple rule|Jev)\b/i);
+      }
+    }
+  } finally { await page.close(); }
+});
+
+test("[integration] T-door-replay Play again restarts the animated demo", async () => {
+  const page = await pageAt(390, 844, "no-preference");
+  try {
+    expect(await page.locator("html").getAttribute("class")).toContain("motion");
+    await page.locator("#door").click();
+    expect(await page.locator("#doorDemo .dd-msg").last().evaluate((node) => getComputedStyle(node).opacity)).toBe("0");
+    await page.waitForFunction(() => document.querySelectorAll("#doorDemo .dd-msg.on").length >= 2);
+    await page.getByRole("button", { name: "Play again" }).click();
+    expect(await page.locator("#doorDemo .dd-msg.on").count()).toBe(0);
+    expect(await page.locator("#doorDemo").getAttribute("data-played")).toBe("playing");
+  } finally { await page.close(); }
+}, 15000);
 
 test("[integration] T-csv loaded file shows current verdict and all sample flags without overflow", async () => {
   const page = await pageAt(390, 844);

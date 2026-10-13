@@ -2361,94 +2361,192 @@ window.JNJ = {
   "rephrase": null,
   "figures": [
    {
-    "text": "rule 3",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-    "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
+    "part": "verdict",
+    "display": "rule 3",
+    "metric": "rule",
+    "format": "rule",
+    "value": 3,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
    },
    {
-    "text": "100 shop messages",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-    "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
+    "part": "why",
+    "display": "100",
+    "metric": "paired",
+    "format": "int",
+    "value": 100,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
    },
    {
-    "text": "(88 against 86)",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-    "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
+    "part": "why",
+    "display": "88",
+    "metric": "accepted",
+    "format": "int",
+    "value": 88,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arm": "jev"
    },
    {
-    "text": "4 points",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-    "quote": "lower bound -0.043"
+    "part": "why",
+    "display": "86",
+    "metric": "accepted",
+    "format": "int",
+    "value": 86,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arm": "llm"
    },
    {
-    "text": "10-point",
-    "file": "docs/decision/verdict-rules.md",
-    "quote": "lower bound of (Jev minus LLM) above -0.10"
+    "part": "why",
+    "display": "about 4 points",
+    "metric": "lowerBound",
+    "format": "aboutPoints",
+    "value": -0.04266031343755382,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
    },
    {
-    "text": "Jev 88 of 100",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-    "quote": "Jev accepted 88 of 100"
+    "part": "why",
+    "display": "10-point",
+    "metric": "margin",
+    "format": "pointLimit",
+    "value": 0.1,
+    "source": "src/core/verdict.ts"
    },
    {
-    "text": "Haiku 5.5",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/README.md",
-    "quote": "claude-haiku-5-5"
+    "part": "why",
+    "display": "about a fifth",
+    "metric": "costRatio",
+    "format": "aboutFraction",
+    "value": 0.19745918526106973,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
    },
    {
-    "text": "86 of 100",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-    "quote": "the LLM 86 of 100"
+    "part": "cases",
+    "display": "88",
+    "metric": "accepted",
+    "format": "int",
+    "value": 88,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arm": "jev"
    },
    {
-    "text": "simple rule 49",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-    "fact": "accepted:rule"
+    "part": "cases",
+    "display": "100",
+    "metric": "labelled",
+    "format": "int",
+    "value": 100,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arm": "jev"
    },
    {
-    "text": "of 100.",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-    "quote": "of 100"
+    "part": "cases",
+    "display": "Haiku 5.5",
+    "metric": "model",
+    "format": "modelShort",
+    "value": "claude-haiku-5-5",
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arm": "llm"
    },
    {
-    "text": "Jev spent $0.0033",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-    "fact": "spend:jev"
+    "part": "cases",
+    "display": "86",
+    "metric": "accepted",
+    "format": "int",
+    "value": 86,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arm": "llm"
    },
    {
-    "text": "LLM's $0.0163",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-    "fact": "spend:llm"
+    "part": "cases",
+    "display": "100",
+    "metric": "labelled",
+    "format": "int",
+    "value": 100,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arm": "llm"
    },
    {
-    "text": "30 or more",
-    "file": "docs/decision/verdict-rules.md",
-    "quote": "on at least 30 paired Jev and rule cases"
+    "part": "cases",
+    "display": "49",
+    "metric": "accepted",
+    "format": "int",
+    "value": 49,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arm": "rule"
    },
    {
-    "text": "first 40",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/README.md",
-    "quote": "the 40 of `run-shopbot-2026-10-01`"
+    "part": "cases",
+    "display": "100",
+    "metric": "labelled",
+    "format": "int",
+    "value": 100,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arm": "rule"
    },
    {
-    "text": "38 each",
-    "file": "site/little-shop/index.html",
-    "quote": "Same accuracy as the LLM (38/40 each) at 1/79th of the cost"
+    "part": "cases",
+    "display": "$0.0033",
+    "metric": "spend",
+    "format": "usd4",
+    "value": 0.00328442,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arm": "jev"
    },
    {
-    "text": "and 40 was too few",
-    "file": "docs/product/runs/2026-10-01-uc13-shop-bot/LABELS.md",
-    "quote": "all 40 messages"
+    "part": "cases",
+    "display": "$0.0163",
+    "metric": "spend",
+    "format": "usd4",
+    "value": 0.01625538,
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arm": "llm"
    },
    {
-    "text": "Haiku 4.5",
-    "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/README.md",
-    "quote": "claude-haiku-4-5-20251001"
+    "part": "next",
+    "display": "30",
+    "metric": "minPaired",
+    "format": "int",
+    "value": 30,
+    "source": "src/core/verdict.ts"
    },
    {
-    "text": "1/79th",
-    "file": "site/little-shop/index.html",
-    "quote": "Same accuracy as the LLM (38/40 each) at 1/79th of the cost"
+    "part": "earlier",
+    "display": "40",
+    "metric": "paired",
+    "format": "int",
+    "value": 40,
+    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"
+   },
+   {
+    "part": "earlier",
+    "display": "38 each",
+    "metric": "acceptedEach",
+    "format": "each",
+    "value": 38,
+    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"
+   },
+   {
+    "part": "earlier",
+    "display": "40",
+    "metric": "paired",
+    "format": "int",
+    "value": 40,
+    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"
+   },
+   {
+    "part": "earlier",
+    "display": "Haiku 4.5",
+    "metric": "model",
+    "format": "modelShort",
+    "value": "claude-haiku-4-5-20251001",
+    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
+    "arm": "llm"
+   },
+   {
+    "part": "earlier",
+    "display": "1/79th",
+    "metric": "spendRatio",
+    "format": "ordinalFraction",
+    "value": 79.25193584070799,
+    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"
    }
   ]
  },

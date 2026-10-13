@@ -1,6 +1,22 @@
-// Approved landing sample words and the source of each displayed figure.
-export type FigureFact = "accepted:jev" | "accepted:llm" | "accepted:rule" | "labelled:jev" | "labelled:llm" | "labelled:rule" | "spend:jev" | "spend:llm" | "spend:rule" | "toMinimum";
-export type LandingFigure = { readonly text: string; readonly file: string; readonly quote: string } | { readonly text: string; readonly file: string; readonly fact: FigureFact; readonly question?: string };
+// Approved landing sample words, and every figure they show as a structured value. src/docs/landing-samples.test.ts
+// computes each value from its source (a run's records.csv through src/core, a src/core/verdict.ts constant, or a
+// use-case doc field) and checks the display follows from it by the named format and sits next to the named arm.
+export type FigureArm = "jev" | "llm" | "rule";
+export type FigurePart = "verdict" | "why" | "cases" | "next" | "rephrase" | "earlier";
+export type FigureMetric = "accepted" | "labelled" | "spend" | "model" | "paired" | "acceptedEach" | "toMinimum" | "rule" | "lowerBound"
+  | "costRatio" | "spendRatio" | "minPaired" | "margin" | "docCases" | "docAnswers";
+export type FigureFormat = "int" | "usd4" | "usd5" | "rule" | "aboutPoints" | "pointLimit" | "aboutFraction" | "ordinalFraction" | "each" | "tie"
+  | "messageRun" | "modelShort" | "answers";
+export interface LandingFigure {
+  readonly part: FigurePart;
+  readonly display: string;
+  readonly metric: FigureMetric;
+  readonly format: FigureFormat;
+  readonly value: number | string;
+  readonly source: string;
+  readonly arm?: FigureArm;
+  readonly question?: string;
+}
 export interface ExplainedCopy {
   readonly verdict: string;
   readonly why: string;
@@ -11,15 +27,15 @@ export interface ExplainedCopy {
   readonly figures: readonly LandingFigure[];
 }
 export type LandingSampleId = "stage" | "uc9" | "uc10" | "uc11" | "uc12" | "uc13";
-const hundredLabels = "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md";
-const hundredReadme = "docs/product/runs/2026-10-11-uc13-shop-bot-100/README.md";
-const hundredRecords = "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv";
-const fortyRecords = "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv";
-const cvRecords = "docs/product/runs/2026-10-03-tokenmax/records.csv";
-const approved = "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218).";
-const minimum = "on at least 30 paired Jev and rule cases";
-const fig = (text: string, file: string, quote: string): LandingFigure => ({ text, file, quote });
-const fact = (text: string, file: string, kind: FigureFact, question?: string): LandingFigure => ({ text, file, fact: kind, ...(question === undefined ? {} : { question }) });
+const R100 = "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv";
+const R40 = "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv";
+const RCV = "docs/product/runs/2026-10-03-tokenmax/records.csv";
+const VERDICT_TS = "src/core/verdict.ts";
+type Opt = { readonly arm?: FigureArm; readonly question?: string };
+const f = (part: FigurePart, display: string, metric: FigureMetric, format: FigureFormat, value: number | string, source: string, opt: Opt = {}): LandingFigure =>
+  ({ part, display, metric, format, value, source, ...opt });
+const jev: Opt = { arm: "jev" }, llm: Opt = { arm: "llm" }, rule: Opt = { arm: "rule" };
+const q1 = (arm?: FigureArm): Opt => (arm === undefined ? { question: "q1" } : { arm, question: "q1" });
 export const LANDING_COPY: Readonly<Record<LandingSampleId, ExplainedCopy>> = {
   stage: {
     verdict: "Use Jev (rule 3)",
@@ -29,18 +45,18 @@ export const LANDING_COPY: Readonly<Record<LandingSampleId, ExplainedCopy>> = {
     earlier: "On the first 40 of these messages Jev and the LLM tied, 38 each, and 40 was too few to prove it: the verdict was Not proven yet. That run used Claude Haiku 4.5 as the LLM, which is why its cost gap (Jev about 1/79th of the LLM) differs from this run.",
     rephrase: null,
     figures: [
-      fig("rule 3", hundredLabels, approved), fig("100 shop messages", hundredLabels, approved),
-      fig("(88 against 86)", hundredLabels, approved), fig("4 points", hundredLabels, "lower bound -0.043"),
-      fig("10-point", "docs/decision/verdict-rules.md", "lower bound of (Jev minus LLM) above -0.10"),
-      fig("Jev 88 of 100", hundredLabels, "Jev accepted 88 of 100"), fig("Haiku 5.5", hundredReadme, "claude-haiku-5-5"),
-      fig("86 of 100", hundredLabels, "the LLM 86 of 100"), fact("simple rule 49", hundredRecords, "accepted:rule"),
-      fig("of 100.", hundredLabels, "of 100"), fact("Jev spent $0.0033", hundredRecords, "spend:jev"),
-      fact("LLM's $0.0163", hundredRecords, "spend:llm"), fig("30 or more", "docs/decision/verdict-rules.md", minimum),
-      fig("first 40", hundredReadme, "the 40 of `run-shopbot-2026-10-01`"),
-      fig("38 each", "site/little-shop/index.html", "Same accuracy as the LLM (38/40 each) at 1/79th of the cost"),
-      fig("and 40 was too few", "docs/product/runs/2026-10-01-uc13-shop-bot/LABELS.md", "all 40 messages"),
-      fig("Haiku 4.5", hundredReadme, "claude-haiku-4-5-20251001"),
-      fig("1/79th", "site/little-shop/index.html", "Same accuracy as the LLM (38/40 each) at 1/79th of the cost"),
+      f("verdict", "rule 3", "rule", "rule", 3, R100),
+      f("why", "100", "paired", "int", 100, R100), f("why", "88", "accepted", "int", 88, R100, jev), f("why", "86", "accepted", "int", 86, R100, llm),
+      f("why", "about 4 points", "lowerBound", "aboutPoints", -0.04266031343755382, R100), f("why", "10-point", "margin", "pointLimit", 0.1, VERDICT_TS),
+      f("why", "about a fifth", "costRatio", "aboutFraction", 0.19745918526106973, R100),
+      f("cases", "88", "accepted", "int", 88, R100, jev), f("cases", "100", "labelled", "int", 100, R100, jev),
+      f("cases", "Haiku 5.5", "model", "modelShort", "claude-haiku-5-5", R100, llm), f("cases", "86", "accepted", "int", 86, R100, llm),
+      f("cases", "100", "labelled", "int", 100, R100, llm), f("cases", "49", "accepted", "int", 49, R100, rule),
+      f("cases", "100", "labelled", "int", 100, R100, rule), f("cases", "$0.0033", "spend", "usd4", 0.00328442, R100, jev),
+      f("cases", "$0.0163", "spend", "usd4", 0.01625538, R100, llm),
+      f("next", "30", "minPaired", "int", 30, VERDICT_TS),
+      f("earlier", "40", "paired", "int", 40, R40), f("earlier", "38 each", "acceptedEach", "each", 38, R40), f("earlier", "40", "paired", "int", 40, R40),
+      f("earlier", "Haiku 4.5", "model", "modelShort", "claude-haiku-4-5-20251001", R40, llm), f("earlier", "1/79th", "spendRatio", "ordinalFraction", 79.25193584070799, R40),
     ],
   },
   uc13: {
@@ -50,14 +66,16 @@ export const LANDING_COPY: Readonly<Record<LandingSampleId, ExplainedCopy>> = {
     next: "Open the 100-message run, or try your own decision.",
     earlier: "40 messages: tied 38 to 38, Not proven yet (LLM was Haiku 4.5).",
     rephrase: null,
-    figures: [fig("100 messages", hundredLabels, approved), fig("(88 against 86 of 100)", hundredLabels, approved),
-      fact("Jev 88", hundredRecords, "accepted:jev"), fig("Haiku 5.5", hundredReadme, "claude-haiku-5-5"),
-      fact("LLM (Haiku 5.5) 86", hundredRecords, "accepted:llm"), fact("simple rule 49", hundredRecords, "accepted:rule"),
-      fig("of 100.", hundredLabels, approved), fig("100-message run", hundredLabels, approved),
-      fig("40 messages", "docs/product/runs/2026-10-01-uc13-shop-bot/LABELS.md", "all 40 messages"),
-      fig("38 to", "site/little-shop/index.html", "Same accuracy as the LLM (38/40 each) at 1/79th of the cost"),
-      fig("to 38", "site/little-shop/index.html", "Same accuracy as the LLM (38/40 each) at 1/79th of the cost"),
-      fig("Haiku 4.5", hundredReadme, "claude-haiku-4-5-20251001")],
+    figures: [
+      f("verdict", "100", "paired", "int", 100, R100),
+      f("why", "88", "accepted", "int", 88, R100, jev), f("why", "86", "accepted", "int", 86, R100, llm), f("why", "100", "paired", "int", 100, R100),
+      f("why", "about a fifth", "costRatio", "aboutFraction", 0.19745918526106973, R100),
+      f("cases", "88", "accepted", "int", 88, R100, jev), f("cases", "Haiku 5.5", "model", "modelShort", "claude-haiku-5-5", R100, llm),
+      f("cases", "86", "accepted", "int", 86, R100, llm), f("cases", "49", "accepted", "int", 49, R100, rule), f("cases", "100", "paired", "int", 100, R100),
+      f("next", "100-message", "paired", "messageRun", 100, R100),
+      f("earlier", "40", "paired", "int", 40, R40), f("earlier", "38 to 38", "acceptedEach", "tie", 38, R40),
+      f("earlier", "Haiku 4.5", "model", "modelShort", "claude-haiku-4-5-20251001", R40, llm),
+    ],
   },
   uc11: {
     verdict: "Not enough evidence (rule 1)",
@@ -66,14 +84,15 @@ export const LANDING_COPY: Readonly<Record<LandingSampleId, ExplainedCopy>> = {
     next: "Label 25 more CVs against the same ad line.",
     rephrase: '"Rank these CVs" is a written judgement, so Jev probably not. Ask one yes/no per ad line instead: "Does the CV show the person has built or run a product that pools AI subscriptions or tokens?" Code adds up the lines to rank (pattern P2).',
     earlier: null,
-    figures: [fig("rule 1", "docs/decision/verdict-rules.md", "1. **Not enough evidence**"),
-      fig("Only 5 CVs", "docs/product/runs/2026-10-03-tokenmax/README.md", "5 CVs x 2 questions"),
-      fig("at least 30", "docs/decision/verdict-rules.md", minimum),
-      fact("Jev 5", cvRecords, "accepted:jev", "q1"), fact("Jev 5 of 5", cvRecords, "labelled:jev", "q1"),
-      fact("the LLM 5", cvRecords, "accepted:llm", "q1"), fact("the LLM 5 of 5", cvRecords, "labelled:llm", "q1"),
-      fact("the simple rule 2", cvRecords, "accepted:rule", "q1"), fact("the simple rule 2 of 5", cvRecords, "labelled:rule", "q1"),
-      fact("Jev spent $0.00008", cvRecords, "spend:jev", "q1"), fact("LLM's $0.0109", cvRecords, "spend:llm", "q1"),
-      fact("25 more", cvRecords, "toMinimum", "q1")],
+    figures: [
+      f("verdict", "rule 1", "rule", "rule", 1, RCV, q1()),
+      f("why", "5", "paired", "int", 5, RCV, q1()), f("why", "30", "minPaired", "int", 30, VERDICT_TS),
+      f("cases", "5", "accepted", "int", 5, RCV, q1("jev")), f("cases", "5", "labelled", "int", 5, RCV, q1("jev")),
+      f("cases", "5", "accepted", "int", 5, RCV, q1("llm")), f("cases", "5", "labelled", "int", 5, RCV, q1("llm")),
+      f("cases", "2", "accepted", "int", 2, RCV, q1("rule")), f("cases", "5", "labelled", "int", 5, RCV, q1("rule")),
+      f("cases", "$0.00008", "spend", "usd5", 0.000080682, RCV, q1("jev")), f("cases", "$0.0109", "spend", "usd4", 0.010851, RCV, q1("llm")),
+      f("next", "25", "toMinimum", "int", 25, RCV, q1()),
+    ],
   },
   uc12: {
     verdict: "Split two ways",
@@ -82,7 +101,7 @@ export const LANDING_COPY: Readonly<Record<LandingSampleId, ExplainedCopy>> = {
     next: "20 or more requirement and evidence pairs, each labelled met, partly met or not met by hand.",
     rephrase: 'Where a test or check script exists, its exit code decides "met", and Jev adds nothing. Where the evidence is prose, ask: "Does this evidence excerpt support this requirement? met / partly met / not met" (pattern P1).',
     earlier: null,
-    figures: [fig("20 or more", "docs/product/use-cases/uc12-requirement-evidence-check.md", "20 or more requirement and evidence pairs")],
+    figures: [f("next", "20", "docCases", "int", 20, "docs/product/use-cases/uc12-requirement-evidence-check.md")],
   },
   uc10: {
     verdict: "Jev probably not",
@@ -91,7 +110,7 @@ export const LANDING_COPY: Readonly<Record<LandingSampleId, ExplainedCopy>> = {
     next: "20 or more project descriptions, each labelled by hand with the properties it needs.",
     rephrase: 'Ask yes/no per property instead: "Does this project need realtime updates?" (and the same for relational joins, row-level access, self-hosting, offline-first, file storage). A written mapping table, not Jev, turns the answers into the stack (pattern P2).',
     earlier: null,
-    figures: [fig("20 or more", "docs/product/use-cases/uc10-tech-stack-choice.md", "20 or more real project descriptions")],
+    figures: [f("next", "20", "docCases", "int", 20, "docs/product/use-cases/uc10-tech-stack-choice.md")],
   },
   uc9: {
     verdict: "Jev probably not",
@@ -100,6 +119,6 @@ export const LANDING_COPY: Readonly<Record<LandingSampleId, ExplainedCopy>> = {
     next: "a labelled set of real sites, each check marked by hand, before any score is published.",
     rephrase: 'Ask one check at a time with a fixed answer, for example "Is the headline generic marketing filler? 0 / 1 / 2" or "Does the hero use a purple-to-blue gradient? yes / no". Code weights the answers into the score (pattern P3). Jev reads text only, so visual checks need the page text or CSS.',
     earlier: null,
-    figures: [fig("0 / 1 / 2", "docs/product/use-cases/uc9-website-slop-roast.md", "0 / 1 / 2 score")],
+    figures: [f("rephrase", "0 / 1 / 2", "docAnswers", "answers", "0 / 1 / 2", "docs/product/use-cases/uc9-website-slop-roast.md")],
   },
 };

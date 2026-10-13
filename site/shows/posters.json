@@ -22,119 +22,117 @@
           {
             "part": "verdict",
             "display": "100",
-            "metric": "paired",
             "format": "int",
-            "value": 100,
-            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
+            "values": [
+              100
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "metric": "paired"
           },
           {
             "part": "why",
-            "display": "88",
-            "metric": "accepted",
-            "format": "int",
-            "value": 88,
+            "display": "Same accuracy as the LLM (88 against 86 of 100)",
+            "format": "sameAccuracy",
+            "values": [
+              88,
+              86,
+              100
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "arms": [
+              "jev",
+              "llm"
+            ]
+          },
+          {
+            "part": "why",
+            "display": "at about a fifth of the cost per kept answer",
+            "format": "costShare",
+            "values": [
+              0.19745918526106973
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "arms": [
+              "jev",
+              "llm"
+            ]
+          },
+          {
+            "part": "cases",
+            "display": "Jev 88",
+            "format": "armCount",
+            "values": [
+              88
+            ],
             "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
             "arm": "jev"
           },
           {
-            "part": "why",
-            "display": "86",
-            "metric": "accepted",
-            "format": "int",
-            "value": 86,
-            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-            "arm": "llm"
-          },
-          {
-            "part": "why",
-            "display": "100",
-            "metric": "paired",
-            "format": "int",
-            "value": 100,
-            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
-          },
-          {
-            "part": "why",
-            "display": "about a fifth",
-            "metric": "costRatio",
-            "format": "aboutFraction",
-            "value": 0.19745918526106973,
-            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
-          },
-          {
             "part": "cases",
-            "display": "88",
-            "metric": "accepted",
-            "format": "int",
-            "value": 88,
-            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-            "arm": "jev"
-          },
-          {
-            "part": "cases",
-            "display": "Haiku 5.5",
-            "metric": "model",
-            "format": "modelShort",
-            "value": "claude-haiku-5-5",
+            "display": "LLM (Haiku 5.5) 86",
+            "format": "armModelCount",
+            "values": [
+              "claude-haiku-5-5",
+              86
+            ],
             "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
             "arm": "llm"
           },
           {
             "part": "cases",
-            "display": "86",
-            "metric": "accepted",
-            "format": "int",
-            "value": 86,
-            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-            "arm": "llm"
-          },
-          {
-            "part": "cases",
-            "display": "49",
-            "metric": "accepted",
-            "format": "int",
-            "value": 49,
+            "display": "simple rule 49",
+            "format": "armCount",
+            "values": [
+              49
+            ],
             "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
             "arm": "rule"
           },
           {
             "part": "cases",
             "display": "100",
-            "metric": "paired",
             "format": "int",
-            "value": 100,
-            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
+            "values": [
+              100
+            ],
+            "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "metric": "paired"
           },
           {
             "part": "next",
             "display": "100-message",
-            "metric": "paired",
             "format": "messageRun",
-            "value": 100,
+            "values": [
+              100
+            ],
             "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
           },
           {
             "part": "earlier",
             "display": "40",
-            "metric": "paired",
             "format": "int",
-            "value": 40,
+            "values": [
+              40
+            ],
+            "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
+            "metric": "paired"
+          },
+          {
+            "part": "earlier",
+            "display": "tied 38 to 38",
+            "format": "tiedTo",
+            "values": [
+              38
+            ],
             "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"
           },
           {
             "part": "earlier",
-            "display": "38 to 38",
-            "metric": "acceptedEach",
-            "format": "tie",
-            "value": 38,
-            "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"
-          },
-          {
-            "part": "earlier",
-            "display": "Haiku 4.5",
-            "metric": "model",
-            "format": "modelShort",
-            "value": "claude-haiku-4-5-20251001",
+            "display": "LLM was Haiku 4.5",
+            "format": "modelWas",
+            "values": [
+              "claude-haiku-4-5-20251001"
+            ],
             "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
             "arm": "llm"
           }
@@ -202,105 +200,88 @@
           {
             "part": "verdict",
             "display": "rule 1",
-            "metric": "rule",
             "format": "rule",
-            "value": 1,
+            "values": [
+              1
+            ],
             "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "question": "q1"
           },
           {
             "part": "why",
             "display": "5",
-            "metric": "paired",
             "format": "int",
-            "value": 5,
+            "values": [
+              5
+            ],
             "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "metric": "paired",
             "question": "q1"
           },
           {
             "part": "why",
             "display": "30",
-            "metric": "minPaired",
             "format": "int",
-            "value": 30,
-            "source": "src/core/verdict.ts"
+            "values": [
+              30
+            ],
+            "source": "src/core/verdict.ts",
+            "metric": "minPaired"
           },
           {
             "part": "cases",
-            "display": "5",
-            "metric": "accepted",
-            "format": "int",
-            "value": 5,
+            "display": "Jev 5 of 5",
+            "format": "armScore",
+            "values": [
+              5,
+              5
+            ],
             "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "arm": "jev",
             "question": "q1"
           },
           {
             "part": "cases",
-            "display": "5",
-            "metric": "labelled",
-            "format": "int",
-            "value": 5,
-            "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
-            "arm": "jev",
-            "question": "q1"
-          },
-          {
-            "part": "cases",
-            "display": "5",
-            "metric": "accepted",
-            "format": "int",
-            "value": 5,
+            "display": "the LLM 5 of 5",
+            "format": "armScore",
+            "values": [
+              5,
+              5
+            ],
             "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "arm": "llm",
             "question": "q1"
           },
           {
             "part": "cases",
-            "display": "5",
-            "metric": "labelled",
-            "format": "int",
-            "value": 5,
-            "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
-            "arm": "llm",
-            "question": "q1"
-          },
-          {
-            "part": "cases",
-            "display": "2",
-            "metric": "accepted",
-            "format": "int",
-            "value": 2,
+            "display": "the simple rule 2 of 5",
+            "format": "armScore",
+            "values": [
+              2,
+              5
+            ],
             "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "arm": "rule",
             "question": "q1"
           },
           {
             "part": "cases",
-            "display": "5",
-            "metric": "labelled",
-            "format": "int",
-            "value": 5,
-            "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
-            "arm": "rule",
-            "question": "q1"
-          },
-          {
-            "part": "cases",
-            "display": "$0.00008",
-            "metric": "spend",
-            "format": "usd5",
-            "value": 0.000080682,
+            "display": "Jev spent $0.00008",
+            "format": "armSpent5",
+            "values": [
+              0.000080682
+            ],
             "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "arm": "jev",
             "question": "q1"
           },
           {
             "part": "cases",
-            "display": "$0.0109",
-            "metric": "spend",
-            "format": "usd4",
-            "value": 0.010851,
+            "display": "the LLM's $0.0109",
+            "format": "armSpendOf4",
+            "values": [
+              0.010851
+            ],
             "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "arm": "llm",
             "question": "q1"
@@ -308,10 +289,12 @@
           {
             "part": "next",
             "display": "25",
-            "metric": "toMinimum",
             "format": "int",
-            "value": 25,
+            "values": [
+              25
+            ],
             "source": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "metric": "toMinimum",
             "question": "q1"
           }
         ]
@@ -378,10 +361,12 @@
           {
             "part": "next",
             "display": "20",
-            "metric": "docCases",
             "format": "int",
-            "value": 20,
-            "source": "docs/product/use-cases/uc12-requirement-evidence-check.md"
+            "values": [
+              20
+            ],
+            "source": "docs/product/use-cases/uc12-requirement-evidence-check.md",
+            "metric": "docCases"
           }
         ]
       },
@@ -410,10 +395,12 @@
           {
             "part": "next",
             "display": "20",
-            "metric": "docCases",
             "format": "int",
-            "value": 20,
-            "source": "docs/product/use-cases/uc10-tech-stack-choice.md"
+            "values": [
+              20
+            ],
+            "source": "docs/product/use-cases/uc10-tech-stack-choice.md",
+            "metric": "docCases"
           }
         ]
       },
@@ -443,10 +430,12 @@
           {
             "part": "rephrase",
             "display": "0 / 1 / 2",
-            "metric": "docAnswers",
             "format": "answers",
-            "value": "0 / 1 / 2",
-            "source": "docs/product/use-cases/uc9-website-slop-roast.md"
+            "values": [
+              "0 / 1 / 2"
+            ],
+            "source": "docs/product/use-cases/uc9-website-slop-roast.md",
+            "row": "S6"
           }
         ]
       },

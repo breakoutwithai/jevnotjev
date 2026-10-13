@@ -17,13 +17,19 @@ const RECORDS = "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv";
 const NUMBERS = /\b\d+(?:\.\d+)?/g;
 // Fraction words are figures too ("about a fifth"), so they must be declared like digits.
 const FRACTION_WORDS = /\ba (?:half|third|quarter|fifth|sixth|seventh|eighth|ninth|tenth)\b/g;
+const WORD_FIGURES = /\b(?:one(?:[ -]hundred)?|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|thirty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|forty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|fifty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|sixty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|seventy(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|eighty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|ninety(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|hundred|half|twice|double|percent|(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten) times)\b/gi;
+const PROSE_EXCEPTIONS: readonly { sample: string; part: Part; phrase: string }[] = [
+  { sample: "uc12", part: "verdict", phrase: "Split two ways" },
+  { sample: "uc11", part: "rephrase", phrase: "Ask one yes/no per ad line" },
+  { sample: "uc9", part: "rephrase", phrase: "Ask one check at a time" },
+];
 const BARE = /^(?:Verdict:\s*)?(?:use Jev|don't use Jev|not enough evidence|not proven yet|not enough proof yet|Jev probably not|Jev could help|not Jev|!Jev|split two ways|needs a test)(?:\s*\([^)]*\))?\.?$/i;
 
 /*
- * Every figure on the page is a structured value: the text it shows (display), where it shows (part, in order), what it
- * measures (metric, and arm when the metric is per arm), how it is written (format, one named rounding rule each) and the
- * value. The test computes the value itself from the cited source and fails unless value and display both follow from
- * it. There are no prose quotes: a figure with no computable source cannot appear.
+ * Every figure on the page is a whole claim fragment: its arm label, its number(s) and its direction word sit inside
+ * the display. The format names the slots it holds (metric per declared arm), the test computes each slot from the
+ * cited source and renders the fragment from those values and the declared arms; the display must equal a rendering.
+ * No arm is inferred from nearby prose, and a digit or number word outside every display is an undeclared figure.
  */
 type FigureArm = "jev" | "llm" | "rule";
 const ARMS: readonly FigureArm[] = ["jev", "llm", "rule"];
@@ -39,23 +45,22 @@ const CONSTANT_METRICS = ["minPaired", "margin"] as const;
 const DOC_METRICS = ["docCases", "docAnswers"] as const;
 type Metric = (typeof ARM_METRICS)[number] | (typeof RUN_METRICS)[number] | (typeof CONSTANT_METRICS)[number] | (typeof DOC_METRICS)[number];
 const METRICS: readonly string[] = [...ARM_METRICS, ...RUN_METRICS, ...CONSTANT_METRICS, ...DOC_METRICS];
-type Format = "int" | "usd4" | "usd5" | "rule" | "aboutPoints" | "pointLimit" | "aboutFraction" | "ordinalFraction" | "each" | "tie" | "messageRun" | "modelShort" | "answers";
-// The only formats a metric may use: a cost ratio cannot be written as points, a count cannot be written as money.
-const FORMATS: Readonly<Record<Metric, readonly Format[]>> = {
-  accepted: ["int"], labelled: ["int"], spend: ["usd4", "usd5"], model: ["modelShort"],
-  paired: ["int", "messageRun"], acceptedEach: ["each", "tie"], toMinimum: ["int"], rule: ["rule"],
-  lowerBound: ["aboutPoints"], costRatio: ["aboutFraction"], spendRatio: ["ordinalFraction"],
-  minPaired: ["int"], margin: ["pointLimit"], docCases: ["int"], docAnswers: ["answers"],
-};
+type Format = "int" | "rule" | "pointLimit" | "messageRun" | "pointsBehind" | "tiedTo" | "armCount" | "armScore" | "armModelCount" | "armModelScore"
+  | "armSpent4" | "armSpent5" | "armSpendOf4" | "armSpendOf5" | "modelWas" | "modelAs" | "keptAsMany" | "sameAccuracy"
+  | "costShareOf" | "costShare" | "tiedEach" | "spendShareOf" | "answers";
+const FORMATS: readonly Format[] = ["int", "rule", "pointLimit", "messageRun", "pointsBehind", "tiedTo", "armCount", "armScore", "armModelCount", "armModelScore",
+  "armSpent4", "armSpent5", "armSpendOf4", "armSpendOf5", "modelWas", "modelAs", "keptAsMany", "sameAccuracy", "costShareOf", "costShare", "tiedEach", "spendShareOf", "answers"];
 interface Figure {
   part: Part;
   display: string;
-  metric: Metric;
   format: Format;
-  value: number | string;
   source: string;
+  metric?: Metric;
   arm?: FigureArm;
+  arms?: [FigureArm, FigureArm];
+  values: (number | string)[];
   question?: string;
+  row?: string;
 }
 interface Explained {
   why: string | null;
@@ -82,12 +87,14 @@ function isPart(value: unknown): value is Part { return PARTS.some((part) => par
 function isMetric(value: unknown): value is Metric { return typeof value === "string" && METRICS.includes(value); }
 function isArm(value: unknown): value is FigureArm { return ARMS.some((arm) => arm === value); }
 function isFormat(value: unknown): value is Format {
-  return Object.values(FORMATS).some((formats) => formats.some((format) => format === value));
+  return FORMATS.some((format) => format === value);
 }
 function figure(value: unknown): value is Figure {
-  return record(value) && isPart(value.part) && typeof value.display === "string" && isMetric(value.metric) && isFormat(value.format) &&
-    (typeof value.value === "number" || typeof value.value === "string") && typeof value.source === "string" &&
-    (value.arm === undefined || isArm(value.arm)) && (value.question === undefined || typeof value.question === "string");
+  return record(value) && isPart(value.part) && typeof value.display === "string" && isFormat(value.format) &&
+    Array.isArray(value.values) && value.values.every((item) => typeof item === "number" || typeof item === "string") && typeof value.source === "string" &&
+    (value.metric === undefined || isMetric(value.metric)) && (value.arm === undefined || isArm(value.arm)) &&
+    (value.arms === undefined || (Array.isArray(value.arms) && value.arms.length === 2 && value.arms.every(isArm))) &&
+    (value.question === undefined || typeof value.question === "string") && (value.row === undefined || typeof value.row === "string");
 }
 function explained(value: unknown): Explained | null {
   if (!record(value)) return null;
@@ -212,39 +219,47 @@ function runFacts(file: string, question: string | undefined): Promise<RunFacts 
   runCache.set(key, made);
   return made;
 }
-/** The value a figure's metric has in its source, or why it has none. */
+/** One slot computed from the cited source. */
 type Computed = { value: number | string } | { error: string };
 const no = (error: string): Computed => ({ error });
-async function computed(entry: Figure): Promise<Computed> {
-  const kind = (ARM_METRICS as readonly string[]).includes(entry.metric) ? "arm" : (RUN_METRICS as readonly string[]).includes(entry.metric) ? "run"
-    : (CONSTANT_METRICS as readonly string[]).includes(entry.metric) ? "constant" : "doc";
+async function computed(entry: Figure, metric: Metric, arm: FigureArm | undefined, sampleId: string): Promise<Computed> {
+  const kind = (ARM_METRICS as readonly string[]).includes(metric) ? "arm" : (RUN_METRICS as readonly string[]).includes(metric) ? "run"
+    : (CONSTANT_METRICS as readonly string[]).includes(metric) ? "constant" : "doc";
   if (kind === "constant") {
-    if (entry.source !== "src/core/verdict.ts") return no(`${entry.metric} comes from src/core/verdict.ts, not ${entry.source}`);
-    return { value: entry.metric === "minPaired" ? MIN_PAIRED : MARGIN };
+    if (entry.source !== "src/core/verdict.ts") return no(`${metric} comes from src/core/verdict.ts, not ${entry.source}`);
+    return { value: metric === "minPaired" ? MIN_PAIRED : MARGIN };
   }
   if (!existsSync(join(ROOT, entry.source))) return no(`source missing ${entry.source}`);
   if (kind === "doc") {
-    if (!/^docs\/product\/use-cases\/uc\d+-[^/]+\.md$/.test(entry.source)) return no(`${entry.metric} comes from a use-case doc, not ${entry.source}`);
+    const docId = /^docs\/product\/use-cases\/(uc\d+)-[^/]+\.md$/.exec(entry.source)?.[1];
+    if (!docId) return no(`${metric} comes from a use-case doc, not ${entry.source}`);
+    if (docId !== sampleId) return no(`${metric} source ${docId} does not match sample ${sampleId}`);
     const doc = readFileSync(join(ROOT, entry.source), "utf8");
-    if (entry.metric === "docCases") {
+    if (metric === "docCases") {
       const cases = /^- Cases: (\d+) or more\b/m.exec(doc)?.[1];
       return cases === undefined ? no(`${entry.source} has no "- Cases: N or more" line`) : { value: Number(cases) };
     }
-    const answers = [...doc.matchAll(/^\|[^|\n]*\|[^|\n]*\|([^|\n]+)\|/gm)].map((match) => (match[1] ?? "").trim());
-    const answer = answers.find((cell) => cell === entry.value);
-    return answer === undefined ? no(`${entry.source} has no decision-table answer ${JSON.stringify(entry.value)}`) : { value: answer };
+    if (!entry.row) return no("docAnswers requires a row check id");
+    const lines = doc.split("\n");
+    const header = lines.findIndex((line) => /^\|\s*#\s*\|\s*Check\s*\|\s*Answer\s*\|/.test(line));
+    if (header < 0) return no(`${entry.source} has no decision-table header`);
+    for (const line of lines.slice(header + 2)) {
+      if (!line.startsWith("|")) break;
+      const cells = line.split("|").slice(1).map((cell) => cell.trim());
+      if (cells[0] === entry.row) return cells[2] ? { value: cells[2] } : no(`${entry.source} row ${entry.row} has no Answer`);
+    }
+    return no(`${entry.source} has no decision-table row ${entry.row}`);
   }
-  if (!/^docs\/product\/runs\/[^/]+\/records\.csv$/.test(entry.source)) return no(`${entry.metric} comes from a run's records.csv, not ${entry.source}`);
+  if (!/^docs\/product\/runs\/[^/]+\/records\.csv$/.test(entry.source)) return no(`${metric} comes from a run's records.csv, not ${entry.source}`);
   const facts = await runFacts(entry.source, entry.question);
   if (typeof facts === "string") return no(facts);
   if (kind === "arm") {
-    if (!entry.arm) return no(`${entry.metric} is per arm and names none`);
-    const value = entry.metric === "accepted" ? facts.accepted[entry.arm] : entry.metric === "labelled" ? facts.labelled[entry.arm]
-      : entry.metric === "spend" ? facts.spend[entry.arm] : facts.model[entry.arm];
-    return value === null ? no(`${entry.metric} of ${entry.arm} is not recorded`) : { value };
+    if (!arm) return no(`${metric} is per arm and names none`);
+    const value = metric === "accepted" ? facts.accepted[arm] : metric === "labelled" ? facts.labelled[arm]
+      : metric === "spend" ? facts.spend[arm] : facts.model[arm];
+    return value === null ? no(`${metric} of ${arm} is not recorded`) : { value };
   }
-  if (entry.arm) return no(`${entry.metric} is not per arm, yet names ${entry.arm}`);
-  switch (entry.metric) {
+  switch (metric) {
     case "paired": return { value: facts.paired };
     case "toMinimum": return { value: MIN_PAIRED - facts.paired };
     case "rule": return { value: facts.rule };
@@ -252,7 +267,7 @@ async function computed(entry: Figure): Promise<Computed> {
     case "lowerBound": return facts.lowerBound === null ? no("no Jev minus LLM lower bound") : { value: facts.lowerBound };
     case "costRatio": return facts.costRatio === null ? no("no cost ratio") : { value: facts.costRatio };
     case "spendRatio": return facts.spend.jev && facts.spend.llm !== null ? { value: facts.spend.llm / facts.spend.jev } : no("no spend ratio");
-    default: return no(`unknown metric ${entry.metric}`);
+    default: return no(`unknown metric ${metric}`);
   }
 }
 const UNIT_FRACTIONS: Readonly<Record<number, string>> = { 2: "a half", 3: "a third", 4: "a quarter", 5: "a fifth", 6: "a sixth", 7: "a seventh", 8: "an eighth", 9: "a ninth", 10: "a tenth" };
@@ -260,62 +275,85 @@ function ordinal(n: number): string {
   const suffix = n % 100 >= 11 && n % 100 <= 13 ? "th" : n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th";
   return `${n}${suffix}`;
 }
-/**
- * The named rounding rules. int: the whole number. usd4/usd5: dollars to 4 or 5 decimals. rule: "rule N".
- * aboutPoints: "about N points", N = the share x100 rounded (a lower bound of -0.043 is "about 4 points").
- * pointLimit: "N-point", N = the share x100. aboutFraction: "about a fifth", the unit fraction 1/n nearest the ratio
- * (n = round(1 / ratio)). ordinalFraction: "1/79th", n = round(ratio). each: "N each". tie: "N to N".
- * messageRun: "N-message". modelShort: "claude-haiku-5-5" is "Haiku 5.5". answers: the answer set as written.
- */
-function render(format: Format, value: number | string): string | null {
-  if (format === "modelShort" || format === "answers") {
-    if (typeof value !== "string") return null;
-    if (format === "answers") return value;
-    const match = /^claude-([a-z]+)-(\d+)-(\d+)(?:-\d{8})?$/.exec(value);
-    return match ? `${(match[1] ?? "").charAt(0).toUpperCase()}${(match[1] ?? "").slice(1)} ${match[2]}.${match[3]}` : null;
+type Slot = { metric: Metric; arm?: FigureArm };
+const labels: Readonly<Record<FigureArm, readonly string[]>> = { jev: ["Jev"], llm: ["the LLM", "LLM"], rule: ["the simple rule", "simple rule"] };
+const slot = (metric: Metric, arm?: FigureArm): Slot => arm ? { metric, arm } : { metric };
+function slots(entry: Figure): Slot[] | string {
+  const a = entry.arm, pair = entry.arms;
+  if (entry.format === "int") return !a && !pair && entry.metric && ["paired", "minPaired", "toMinimum", "docCases"].includes(entry.metric) ? [slot(entry.metric)] : "int requires only its count metric";
+  if (entry.metric) return `${entry.format} cannot name a metric`;
+  if (["rule", "pointLimit", "messageRun", "pointsBehind", "tiedTo", "answers"].includes(entry.format)) {
+    if (a || pair) return `${entry.format} names no arm`;
+    const metric: Metric = entry.format === "rule" ? "rule" : entry.format === "pointLimit" ? "margin" : entry.format === "messageRun" ? "paired"
+      : entry.format === "pointsBehind" ? "lowerBound" : entry.format === "tiedTo" ? "acceptedEach" : "docAnswers";
+    return [slot(metric)];
   }
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  switch (format) {
-    case "int": return Number.isInteger(value) ? String(value) : null;
-    case "usd4": return `$${value.toFixed(4)}`;
-    case "usd5": return `$${value.toFixed(5)}`;
-    case "rule": return `rule ${value}`;
-    case "aboutPoints": return Math.abs(value) < 1 ? `about ${Math.round(Math.abs(value) * 100)} points` : null;
-    case "pointLimit": return Math.abs(value) < 1 ? `${Math.round(value * 100)}-point` : null;
-    case "aboutFraction": { const word = value > 0 ? UNIT_FRACTIONS[Math.round(1 / value)] : undefined; return word ? `about ${word}` : null; }
-    case "ordinalFraction": return value > 1 ? `1/${ordinal(Math.round(value))}` : null;
-    case "each": return Number.isInteger(value) ? `${value} each` : null;
-    case "tie": return Number.isInteger(value) ? `${value} to ${value}` : null;
-    case "messageRun": return Number.isInteger(value) ? `${value}-message` : null;
+  if (["armCount", "armScore", "armModelCount", "armModelScore", "armSpent4", "armSpent5", "armSpendOf4", "armSpendOf5", "modelWas", "modelAs"].includes(entry.format)) {
+    if (!a || pair) return `${entry.format} requires one declared arm`;
+    if (entry.format === "armCount") return [slot("accepted", a)];
+    if (entry.format === "armScore") return [slot("accepted", a), slot("labelled", a)];
+    if (entry.format === "armModelCount") return [slot("model", a), slot("accepted", a)];
+    if (entry.format === "armModelScore") return [slot("model", a), slot("accepted", a), slot("labelled", a)];
+    return [slot(entry.format.startsWith("armSpent") || entry.format.startsWith("armSpendOf") ? "spend" : "model", a)];
+  }
+  if (a || !pair || pair[0] === pair[1]) return `${entry.format} requires two distinct declared arms`;
+  const [first, second] = pair;
+  if (["keptAsMany", "sameAccuracy"].includes(entry.format)) {
+    if (entry.format === "sameAccuracy" && first !== "jev") return "sameAccuracy subject must be jev";
+    return entry.format === "sameAccuracy" ? [slot("accepted", first), slot("accepted", second), slot("paired")]
+      : [slot("accepted", first), slot("accepted", second)];
+  }
+  if (first === "rule" || second === "rule") return `${entry.format} requires Jev and LLM`;
+  if (entry.format === "tiedEach") return [slot("acceptedEach")];
+  if (entry.format === "costShare") return first === "jev" && second === "llm" ? [slot("costRatio")] : "costShare requires [jev,llm]";
+  if (entry.format === "costShareOf" || entry.format === "spendShareOf") return [slot(entry.format === "costShareOf" ? "costRatio" : "spendRatio")];
+  return `unknown format ${entry.format}`;
+}
+function model(value: number | string): string | null {
+  if (typeof value !== "string") return null;
+  const match = /^claude-([a-z]+)-(\d+)-(\d+)(?:-\d{8})?$/.exec(value);
+  return match ? `${(match[1] ?? "").charAt(0).toUpperCase()}${(match[1] ?? "").slice(1)} ${match[2]}.${match[3]}` : null;
+}
+function render(entry: Figure, values: readonly (number | string)[]): string[] {
+  const [v, w, x] = values;
+  const a = entry.arm ? labels[entry.arm] : [];
+  const pair = entry.arms;
+  const pairs = pair ? labels[pair[0]].flatMap((left) => labels[pair[1]].map((right) => [left, right])) : [];
+  const n = typeof v === "number" && Number.isFinite(v) ? v : null;
+  const whole = n !== null && Number.isInteger(n);
+  const frac = n !== null && n > 0 ? UNIT_FRACTIONS[Math.round(1 / n)] : undefined;
+  const short = model(v ?? "");
+  switch (entry.format) {
+    case "int": return whole ? [String(v)] : [];
+    case "rule": return whole ? [`rule ${v}`] : [];
+    case "pointLimit": return n !== null && n >= 0 && n < 1 ? [`${Math.round(n * 100)}-point`] : [];
+    case "messageRun": return whole ? [`${v}-message`] : [];
+    case "pointsBehind": { const points = n === null ? 0 : Math.round(Math.abs(n) * 100); return n !== null && Math.abs(n) < 1 && points > 0 ? [n < 0 ? `no more than about ${points} points behind` : `at least about ${points} points ahead`] : []; }
+    case "tiedTo": return whole ? [`tied ${v} to ${v}`] : [];
+    case "armCount": return whole ? a.map((name) => `${name} ${v}`) : [];
+    case "armScore": return whole && typeof w === "number" && Number.isInteger(w) ? a.map((name) => `${name} ${v} of ${w}`) : [];
+    case "armModelCount": return model(v ?? "") && typeof w === "number" && Number.isInteger(w) ? a.map((name) => `${name} (${model(v ?? "")}) ${w}`) : [];
+    case "armModelScore": return short && typeof w === "number" && Number.isInteger(w) && typeof x === "number" && Number.isInteger(x) ? a.map((name) => `${name} (Claude ${short}) ${w} of ${x}`) : [];
+    case "armSpent4": case "armSpent5": return n !== null ? a.map((name) => `${name} spent $${n.toFixed(entry.format === "armSpent4" ? 4 : 5)}`) : [];
+    case "armSpendOf4": case "armSpendOf5": return n !== null ? a.map((name) => `${name}'s $${n.toFixed(entry.format === "armSpendOf4" ? 4 : 5)}`) : [];
+    case "modelWas": return short ? a.map((name) => `${name} was ${short}`) : [];
+    case "modelAs": return short ? a.map((name) => `Claude ${short} as ${name}`) : [];
+    case "keptAsMany": return typeof v === "number" && typeof w === "number" && Number.isInteger(v) && Number.isInteger(w) && v >= w
+      ? pairs.map(([left, right]) => `${left} kept as many right answers as ${right} (${v} against ${w})`) : [];
+    case "sameAccuracy": return typeof v === "number" && typeof w === "number" && typeof x === "number" && Number.isInteger(v) && Number.isInteger(w) && Number.isInteger(x) && v >= w && pair?.[0] === "jev"
+      ? labels[pair[1]].map((name) => `Same accuracy as ${name} (${v} against ${w} of ${x})`) : [];
+    case "costShareOf": { const word = n && n > 0 && n < 1 ? UNIT_FRACTIONS[Math.round(1 / n)] : undefined;
+      return word ? pairs.map(([left, right]) => `cost ${left} about ${word} of what it cost ${right}`) : []; }
+    case "costShare": return n !== null && n < 1 && frac ? [`at about ${frac} of the cost per kept answer`] : [];
+    case "tiedEach": return whole ? pairs.map(([left, right]) => `${left} and ${right} tied, ${v} each`) : [];
+    case "spendShareOf": return n !== null && n > 1 ? pairs.map(([left, right]) => `${left} about 1/${ordinal(Math.round(n))} of ${right}`) : [];
+    case "answers": return typeof v === "string" ? [v] : [];
   }
 }
-function sameValue(a: number | string, b: number | string): boolean {
-  return typeof a === "number" && typeof b === "number" ? Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b)) : a === b;
-}
-const ARM_WORDS: [FigureArm, RegExp][] = [["jev", /\bJev\b/g], ["llm", /\bLLM\b/g], ["rule", /\bsimple rule\b/gi]];
-function armWords(text: string): { arm: FigureArm; at: number }[] {
-  return ARM_WORDS.flatMap(([arm, pattern]) => [...text.matchAll(pattern)].map((match) => ({ arm, at: match.index ?? 0 }))).sort((a, b) => a.at - b.at);
-}
-/**
- * The arm the page attributes a figure to. In "(X against Y)" X is Jev (the subject of every comparison on these
- * pages) and Y the arm named just before the parenthesis. Otherwise the nearest arm word before the figure in its
- * sentence, or, when none comes before, the nearest after it.
- */
-function armAt(text: string, start: number): FigureArm | null {
-  const sentenceStart = Math.max(0, text.lastIndexOf(". ", start) + 1);
-  const nextStop = text.indexOf(". ", start);
-  const sentenceEnd = nextStop < 0 ? text.length : nextStop;
-  const open = text.lastIndexOf("(", start), close = text.indexOf(")", start);
-  if (open >= sentenceStart && close >= 0 && text.lastIndexOf(")", start) < open) {
-    const inside = text.slice(open, close);
-    const against = inside.indexOf(" against ");
-    if (against >= 0) {
-      if (start < open + against) return "jev";
-      return armWords(text.slice(sentenceStart, open)).at(-1)?.arm ?? null;
-    }
-  }
-  const words = armWords(text.slice(sentenceStart, sentenceEnd)).map((word) => ({ ...word, at: word.at + sentenceStart }));
-  return words.filter((word) => word.at < start).at(-1)?.arm ?? words.find((word) => word.at > start)?.arm ?? null;
+const EXACT_METRICS: readonly Metric[] = ["accepted", "labelled", "paired", "toMinimum", "rule", "minPaired", "docCases", "acceptedEach", "docAnswers", "model"];
+function sameValue(a: number | string, b: number | string, metric: Metric): boolean {
+  if (EXACT_METRICS.includes(metric)) return a === b;
+  return typeof a === "number" && typeof b === "number" && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
 }
 function partText(sample: Sample, part: Part): string | null {
   return part === "verdict" ? sample.verdictLine : sample.explained?.[part] ?? null;
@@ -329,6 +367,12 @@ async function checkFigures(samples: Sample[]): Promise<string[]> {
     if (!figures) continue;
     const covered: Record<Part, { start: number; end: number }[]> = { verdict: [], why: [], cases: [], next: [], rephrase: [], earlier: [] };
     const cursor: Record<Part, number> = { verdict: 0, why: 0, cases: 0, next: 0, rephrase: 0, earlier: 0 };
+    for (const exception of PROSE_EXCEPTIONS.filter((item) => item.sample === sample.id)) {
+      const page = partText(sample, exception.part) ?? "";
+      const at = page.indexOf(exception.phrase);
+      if (at < 0) problems.push(`${sample.id} ${exception.part}: prose exception not on page ${JSON.stringify(exception.phrase)}`);
+      else covered[exception.part].push({ start: at, end: at + exception.phrase.length });
+    }
     for (const entry of figures) {
       const label = `${sample.id} ${entry.part} ${JSON.stringify(entry.display)}`;
       const text = partText(sample, entry.part);
@@ -336,22 +380,26 @@ async function checkFigures(samples: Sample[]): Promise<string[]> {
       if (text === null || at < 0) { problems.push(`${label}: not on the page (in order)`); continue; }
       cursor[entry.part] = at + entry.display.length;
       covered[entry.part].push({ start: at, end: at + entry.display.length });
-      if (!FORMATS[entry.metric].includes(entry.format)) { problems.push(`${label}: format ${entry.format} is not allowed for ${entry.metric}`); continue; }
-      const result = await computed(entry);
-      if ("error" in result) { problems.push(`${label}: ${result.error}`); continue; }
-      const expected = result.value;
-      if (!sameValue(entry.value, expected)) { problems.push(`${label}: value ${entry.value} but ${entry.source} gives ${expected}`); continue; }
-      const shown = render(entry.format, expected);
-      if (shown !== entry.display) problems.push(`${label}: ${entry.source} gives ${expected}, which ${entry.format} writes as ${JSON.stringify(shown)}`);
-      if (entry.arm) {
-        const pageArm = armAt(text, at);
-        if (pageArm !== entry.arm) problems.push(`${label}: the page attributes it to ${pageArm ?? "no arm"}, the figure to ${entry.arm}`);
+      const spec = slots(entry);
+      if (typeof spec === "string") { problems.push(`${label}: ${spec}`); continue; }
+      if (entry.values.length !== spec.length) { problems.push(`${label}: ${entry.format} needs ${spec.length} values, got ${entry.values.length}`); continue; }
+      const expected: (number | string)[] = [];
+      for (const [index, item] of spec.entries()) {
+        const result = await computed(entry, item.metric, item.arm, sample.id);
+        if ("error" in result) { problems.push(`${label}: ${result.error}`); break; }
+        let sourceValue = result.value;
+        if ((entry.format === "costShareOf" || entry.format === "spendShareOf") && entry.arms?.[0] === "llm" && typeof sourceValue === "number") sourceValue = 1 / sourceValue;
+        expected.push(sourceValue);
+        if (!sameValue(entry.values[index] ?? NaN, sourceValue, item.metric)) problems.push(`${label}: value ${entry.values[index]} but ${entry.source} gives ${sourceValue}`);
       }
+      if (expected.length !== spec.length) continue;
+      const shown = render(entry, expected);
+      if (!shown.includes(entry.display)) problems.push(`${label}: ${entry.source} gives ${expected.join(", ")}, which ${entry.format} writes as ${JSON.stringify(shown)}`);
     }
     for (const part of PARTS) {
       const text = partText(sample, part);
       if (!text) continue;
-      for (const match of [...text.matchAll(NUMBERS), ...text.matchAll(FRACTION_WORDS)]) {
+      for (const match of [...text.matchAll(NUMBERS), ...text.matchAll(FRACTION_WORDS), ...text.matchAll(WORD_FIGURES)]) {
         const start = match.index ?? 0;
         if (!covered[part].some((span) => span.start <= start && span.end >= start + match[0].length)) problems.push(`${sample.id} ${part}: undeclared figure ${JSON.stringify(match[0])}`);
       }
@@ -419,78 +467,120 @@ test("[unit] #201-3 every figure in the sample copy follows from the source it c
   requireClean([...loaded.problems, ...await checkFigures(loaded.samples)]);
 });
 
-/** The shipped Stage sample, cloned, so each mutation starts from copy and figures that pass. */
-function stageSample(): Sample {
-  const stage = loadSamples().samples.find((sample) => sample.id === "Stage");
-  if (!stage?.explained?.figures) throw new Error("Stage sample with figures missing");
-  return structuredClone(stage);
+function sampleBy(id: string): Sample {
+  const sample = loadSamples().samples.find((item) => item.id === id);
+  if (!sample?.explained?.figures) throw new Error(`${id} sample with figures missing`);
+  return structuredClone(sample);
 }
-/** Change the copy and the figure together, as an author who wanted the wrong number to pass would. */
-function rewrite(sample: Sample, part: Part, from: string, to: string, index: number, patch: Partial<Figure>, drop: (keyof Figure)[] = []): void {
+function change(sample: Sample, part: Part, from: string, to: string): void {
+  const original = partText(sample, part);
+  if (!original?.includes(from) || !sample.explained) throw new Error(`${sample.id} ${part} has no ${from}`);
+  if (part === "verdict") sample.verdictLine = original.replace(from, to);
+  else sample.explained[part] = original.replace(from, to);
+}
+function chosen(sample: Sample, part: Part, display: string): Figure {
+  const item = sample.explained?.figures?.find((entry) => entry.part === part && entry.display === display);
+  if (!item) throw new Error(`no ${sample.id} ${part} ${display}`);
+  return item;
+}
+function remove(sample: Sample, part: Part, display: string): void {
   const e = sample.explained;
   if (!e?.figures) throw new Error("no figures");
-  const text = partText(sample, part);
-  if (text === null || !text.includes(from)) throw new Error(`${part} has no ${from}`);
-  const changed = text.replace(from, to);
-  if (part === "verdict") sample.verdictLine = changed; else e[part] = changed;
-  const target = e.figures.filter((entry) => entry.part === part)[index];
-  if (!target) throw new Error(`no figure ${index} in ${part}`);
-  Object.assign(target, patch);
-  for (const key of drop) delete target[key];
+  e.figures = e.figures.filter((entry) => entry.part !== part || entry.display !== display);
 }
-test("[unit] #201-3 mutation: the gate's wrong figures all go RED, the correct ones pass", async () => {
-  // Correct figures whose source holds many other numbers (the 100-message run) pass: the control.
-  expect(await checkFigures([stageSample()])).toEqual([]);
-  const cases: [string, (stage: Sample) => void, string][] = [
-    ["arm swap with arm-less figures", (stage) => {
-      rewrite(stage, "cases", "Jev 88 of 100, the LLM (Claude Haiku 5.5) 86", "Jev 86 of 100, the LLM (Claude Haiku 5.5) 88", 0, { display: "86", value: 86 }, ["arm"]);
-      const llm = stage.explained?.figures?.filter((entry) => entry.part === "cases")[3];
-      if (llm) { llm.display = "88"; llm.value = 88; delete llm.arm; }
-    }, "accepted is per arm and names none"],
-    ["arm swap with the arms swapped too", (stage) => {
-      rewrite(stage, "cases", "Jev 88 of 100, the LLM (Claude Haiku 5.5) 86", "Jev 86 of 100, the LLM (Claude Haiku 5.5) 88", 0, { display: "86", value: 86, arm: "llm" });
-      const llm = stage.explained?.figures?.filter((entry) => entry.part === "cases")[3];
-      if (llm) { llm.display = "88"; llm.value = 88; llm.arm = "jev"; }
-    }, "the page attributes it to jev, the figure to llm"],
-    ["88 against 83", (stage) => rewrite(stage, "why", "(88 against 86)", "(88 against 83)", 2, { display: "83", value: 83 }), "value 83 but"],
-    ["88 against 9", (stage) => rewrite(stage, "why", "(88 against 86)", "(88 against 9)", 2, { display: "9", value: 9 }), "value 9 but"],
-    ["20 points from the cost ratio 0.197", (stage) => rewrite(stage, "why", "about 4 points", "about 20 points", 3, { display: "about 20 points", metric: "costRatio", value: 0.197 }), "format aboutPoints is not allowed for costRatio"],
-    ["2 points from the point estimate +0.02", (stage) => rewrite(stage, "why", "about 4 points", "about 2 points", 3, { display: "about 2 points", value: 0.02 }), "value 0.02 but"],
-    ["49 of 300", (stage) => rewrite(stage, "cases", "49 of 100", "49 of 300", 6, { display: "300", value: 300 }), "value 300 but"],
-    ["a quarter for a fifth", (stage) => rewrite(stage, "why", "about a fifth", "about a quarter", 5, { display: "about a quarter", value: 0.25 }), "value 0.25 but"],
-    ["the right value written with the wrong rule", (stage) => rewrite(stage, "cases", "$0.0033", "$0.0032", 7, { display: "$0.0032" }), "which usd4 writes as \"$0.0033\""],
-    ["38 each from the 40-message run changed to 37", (stage) => rewrite(stage, "earlier", "38 each", "37 each", 1, { display: "37 each", value: 37 }), "value 37 but"],
-    ["an undeclared number", (stage) => { if (stage.explained) stage.explained.next += " About 7 more would settle it."; }, "undeclared figure \"7\""],
-    ["an undeclared fraction word", (stage) => { if (stage.explained) stage.explained.next += " Or a third of them."; }, "undeclared figure \"a third\""],
-    ["a figure cited to a page instead of a source", (stage) => rewrite(stage, "earlier", "1/79th", "1/79th", 4, { source: "site/little-shop/index.html" }), "comes from a run's records.csv"],
+type Mutation = [string, string, string, (sample: Sample) => void];
+const mutations: readonly Mutation[] = [
+  ["R1 direction copy", "Stage", "not on the page", (s) => change(s, "why", "no more than about 4 points behind", "no more than about 4 points ahead")],
+  ["R2 direction copy and display", "Stage", "pointsBehind writes as", (s) => { change(s, "why", "no more than about 4 points behind", "no more than about 4 points ahead"); chosen(s, "why", "no more than about 4 points behind").display = "no more than about 4 points ahead"; }],
+  ["R1b gate's direction copy", "Stage", "not on the page", (s) => change(s, "why", "it is no more than about 4 points behind", "it is still about 4 points ahead")],
+  ["R22 bound qualifier flipped", "Stage", "pointsBehind writes as", (s) => { const from = "no more than about 4 points behind"; const to = "at least about 4 points behind"; change(s, "why", from, to); chosen(s, "why", from).display = to; }],
+  ["R3 reversed cost arms", "Stage", "costShareOf writes as", (s) => { const from = "cost Jev about a fifth of what it cost the LLM"; const to = "cost the LLM about a fifth of what it cost Jev"; change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, arms: ["llm", "jev"] }); }],
+  ["R4 uc13 reversed cost copy", "uc13", "not on the page", (s) => change(s, "why", "at about a fifth of the cost per kept answer", "while the LLM costs about a fifth of Jev per kept answer")],
+  ["R5 uc13 reversed cost display", "uc13", "costShare writes as", (s) => { const from = "at about a fifth of the cost per kept answer"; const to = "while the LLM costs about a fifth of Jev per kept answer"; change(s, "why", from, to); chosen(s, "why", from).display = to; }],
+  ["R6 twelve points", "Stage", "undeclared figure \"twelve\"", (s) => { if (s.explained) s.explained.why += " and twelve points ahead at best"; }],
+  ["R7 half cost", "uc13", "undeclared figure \"half\"", (s) => { change(s, "why", "about a fifth", "half"); remove(s, "why", "at about a fifth of the cost per kept answer"); }],
+  ["R8 five times cheaper", "uc13", "undeclared figure \"five\"", (s) => { change(s, "why", "at about a fifth of the cost per kept answer", "five times cheaper"); remove(s, "why", "at about a fifth of the cost per kept answer"); }],
+  ["R9 twice", "Stage", "undeclared figure \"twice\"", (s) => { if (s.explained) s.explained.next += " twice"; }],
+  ["R10 double", "Stage", "undeclared figure \"double\"", (s) => { if (s.explained) s.explained.next += " double"; }],
+  ["R11 fifty percent", "Stage", "undeclared figure \"fifty\"", (s) => { if (s.explained) s.explained.next += " fifty percent"; }],
+  ["R12 one hundred", "Stage", "undeclared figure \"one hundred\"", (s) => { if (s.explained) s.explained.next += " one hundred"; }],
+  ["R13 Stage backward arms", "Stage", "not on the page", (s) => { if (s.explained) s.explained.cases = "Jev beat it: 88 of 100 for the LLM (Claude Haiku 5.5), 86 of 100 for Jev, the simple rule 49 of 100."; }],
+  ["R14 uc13 backward arms", "uc13", "not on the page", (s) => { if (s.explained) s.explained.cases = "Jev beat it: 88 for the LLM (Haiku 5.5), 86 for Jev; simple rule 49, of 100."; }],
+  ["R15 reversed kept arms", "Stage", "value 88 but", (s) => { const from = "Jev kept as many right answers as the LLM (88 against 86)"; const to = "the LLM kept as many right answers as Jev (88 against 86)"; change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, arms: ["llm", "jev"] }); }],
+  ["R16 backward single arm", "Stage", "armScore writes as", (s) => { const from = "Jev 88 of 100"; const to = "88 of 100 for the LLM"; change(s, "cases", from, to); Object.assign(chosen(s, "cases", from), { display: to, arm: "llm", values: [88, 100] }); }],
+  ["R17 cross sample doc", "Stage", "does not match sample Stage", (s) => { if (!s.explained?.figures) return; s.explained.next += " Score it 0 / 1 / 2."; s.explained.figures.push({ part: "next", display: "0 / 1 / 2", format: "answers", values: ["0 / 1 / 2"], source: "docs/product/use-cases/uc9-website-slop-roast.md", row: "S6" }); }],
+  ["R18 wrong answer row", "uc9", "value 0 / 1 / 2 but", (s) => { chosen(s, "rephrase", "0 / 1 / 2").row = "S1"; }],
+  ["R19 fractional integer", "Stage", "value 88.00000001 but", (s) => { chosen(s, "cases", "Jev 88 of 100").values = [88.00000001, 100]; }],
+  ["R20 stale exemption", "uc9", "prose exception not on page", (s) => change(s, "rephrase", "Ask one check", "Ask a check")],
+  ["R21 word beside exemption", "uc9", "undeclared figure \"three\"", (s) => change(s, "rephrase", "Ask one check at a time", "Ask one check at a time, three times")],
+  ["ported arm swap without arms", "Stage", "requires one declared arm", (s) => { const f = chosen(s, "cases", "Jev 88 of 100"); delete f.arm; }],
+  ["ported arm swap with declared arms", "Stage", "value 88 but", (s) => { chosen(s, "cases", "Jev 88 of 100").arm = "llm"; }],
+  ["ported 88 against 83", "Stage", "value 83 but", (s) => { const from = "Jev kept as many right answers as the LLM (88 against 86)"; const to = from.replace("86)", "83)"); change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, values: [88, 83] }); }],
+  ["ported 88 against 9", "Stage", "value 9 but", (s) => { const from = "Jev kept as many right answers as the LLM (88 against 86)"; const to = from.replace("86)", "9)"); change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, values: [88, 9] }); }],
+  ["ported cost ratio as points", "Stage", "cannot name a metric", (s) => { const f = chosen(s, "why", "no more than about 4 points behind"); f.metric = "costRatio"; }],
+  ["ported positive point estimate", "Stage", "value 0.02 but", (s) => { const from = "no more than about 4 points behind"; const to = "at least about 2 points ahead"; change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, values: [0.02] }); }],
+  ["ported 49 of 300", "Stage", "value 300 but", (s) => { const from = "the simple rule 49 of 100"; const to = "the simple rule 49 of 300"; change(s, "cases", from, to); Object.assign(chosen(s, "cases", from), { display: to, values: [49, 300] }); }],
+  ["ported quarter for fifth", "Stage", "value 0.25 but", (s) => { const from = "cost Jev about a fifth of what it cost the LLM"; const to = "cost Jev about a quarter of what it cost the LLM"; change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, values: [0.25] }); }],
+  ["ported wrong spend rounding", "Stage", "armSpent4 writes as", (s) => { const from = "Jev spent $0.0033"; const to = "Jev spent $0.0032"; change(s, "cases", from, to); chosen(s, "cases", from).display = to; }],
+  ["ported tied 37", "Stage", "value 37 but", (s) => { const from = "Jev and the LLM tied, 38 each"; const to = "Jev and the LLM tied, 37 each"; change(s, "earlier", from, to); Object.assign(chosen(s, "earlier", from), { display: to, values: [37] }); }],
+  ["ported undeclared digit", "Stage", "undeclared figure \"7\"", (s) => { if (s.explained) s.explained.next += " About 7 more would settle it."; }],
+  ["ported undeclared fraction", "Stage", "undeclared figure \"a third\"", (s) => { if (s.explained) s.explained.next += " Or a third of them."; }],
+  ["ported source is page", "Stage", "comes from a run's records.csv", (s) => { chosen(s, "earlier", "Jev about 1/79th of the LLM").source = "site/little-shop/index.html"; }],
+];
+for (const [name, id, expected, mutate] of mutations) test(`[unit] #201-3 mutation: ${name}`, async () => {
+  const sample = sampleBy(id);
+  expect(await checkFigures([sample])).toEqual([]);
+  mutate(sample);
+  const problems = await checkFigures([sample]);
+  expect(problems.some((problem) => problem.includes(expected))).toBe(true);
+});
+test("[unit] #201-3 control: added valid arm score", async () => {
+  const stage = sampleBy("Stage");
+  if (!stage.explained?.figures) throw new Error("Stage figures missing");
+  stage.explained.next += " Jev 88 of 100.";
+  stage.explained.figures.push({ part: "next", display: "Jev 88 of 100", format: "armScore", arm: "jev", values: [88, 100], source: RECORDS });
+  expect(await checkFigures([stage])).toEqual([]);
+});
+test("[unit] #201-3 each named format renders its whole claim", () => {
+  const cases: { format: Format; values: (number | string)[]; expected: string[]; arm?: FigureArm; arms?: [FigureArm, FigureArm] }[] = [
+    { format: "pointsBehind", values: [-0.04266031343755382], expected: ["no more than about 4 points behind"] },
+    { format: "pointsBehind", values: [0.02], expected: ["at least about 2 points ahead"] },
+    { format: "pointsBehind", values: [-0.0427], expected: ["no more than about 4 points behind"] },
+    { format: "pointsBehind", values: [0.001], expected: [] },
+    { format: "pointsBehind", values: [9], expected: [] },
+    { format: "pointLimit", values: [0.1], expected: ["10-point"] },
+    { format: "costShare", values: [0.19745918526106973], arms: ["jev", "llm"], expected: ["at about a fifth of the cost per kept answer"] },
+    { format: "costShareOf", values: [0.19745918526106973], arms: ["jev", "llm"], expected: ["cost Jev about a fifth of what it cost the LLM", "cost Jev about a fifth of what it cost LLM"] },
+    { format: "costShareOf", values: [1 / 0.19745918526106973], arms: ["llm", "jev"], expected: [] },
+    { format: "spendShareOf", values: [79.25193584070799], arms: ["jev", "llm"], expected: ["Jev about 1/79th of the LLM", "Jev about 1/79th of LLM"] },
+    { format: "spendShareOf", values: [0.5], arms: ["jev", "llm"], expected: [] },
+    { format: "armSpent4", values: [0.00328442], arm: "jev", expected: ["Jev spent $0.0033"] },
+    { format: "armSpent5", values: [0.000080682], arm: "jev", expected: ["Jev spent $0.00008"] },
+    { format: "int", values: [88], expected: ["88"] },
+    { format: "int", values: [88.5], expected: [] },
+    { format: "tiedEach", values: [38], arms: ["jev", "llm"], expected: ["Jev and the LLM tied, 38 each", "Jev and LLM tied, 38 each"] },
+    { format: "tiedTo", values: [38], expected: ["tied 38 to 38"] },
+    { format: "messageRun", values: [100], expected: ["100-message"] },
+    { format: "rule", values: [3], expected: ["rule 3"] },
+    { format: "modelWas", values: ["claude-haiku-5-5"], arm: "llm", expected: ["the LLM was Haiku 5.5", "LLM was Haiku 5.5"] },
+    { format: "modelWas", values: ["claude-haiku-4-5-20251001"], arm: "llm", expected: ["the LLM was Haiku 4.5", "LLM was Haiku 4.5"] },
+    { format: "modelWas", values: ["gpt-6-sol"], arm: "llm", expected: [] },
   ];
-  for (const [name, apply, expected] of cases) {
-    const stage = stageSample();
-    apply(stage);
-    const problems = await checkFigures([stage]);
-    if (!problems.some((problem) => problem.includes(expected))) throw new Error(`${name}: expected a problem containing ${JSON.stringify(expected)}, got ${JSON.stringify(problems)}`);
+  for (const item of cases) {
+    const entry: Figure = { part: "why", display: "", format: item.format, values: item.values, source: RECORDS,
+      ...(item.arm ? { arm: item.arm } : {}), ...(item.arms ? { arms: item.arms } : {}) };
+    expect(render(entry, item.values)).toEqual(item.expected);
   }
 });
-test("[unit] #201-3 each named rounding rule writes its source value one way", () => {
-  const written: [Format, number | string, string | null][] = [
-    ["aboutPoints", -0.04266031343755382, "about 4 points"], ["aboutPoints", 0.02, "about 2 points"], ["aboutPoints", 9, null],
-    ["pointLimit", 0.1, "10-point"], ["aboutFraction", 0.19745918526106973, "about a fifth"], ["aboutFraction", 0.25, "about a quarter"],
-    ["ordinalFraction", 79.25193584070799, "1/79th"], ["ordinalFraction", 0.5, null], ["usd4", 0.00328442, "$0.0033"], ["usd5", 0.000080682, "$0.00008"],
-    ["int", 88, "88"], ["int", 88.5, null], ["each", 38, "38 each"], ["tie", 38, "38 to 38"], ["messageRun", 100, "100-message"], ["rule", 3, "rule 3"],
-    ["modelShort", "claude-haiku-5-5", "Haiku 5.5"], ["modelShort", "claude-haiku-4-5-20251001", "Haiku 4.5"], ["modelShort", "gpt-6-sol", null],
-  ];
-  for (const [format, value, expected] of written) expect([format, value, render(format, value)]).toEqual([format, value, expected]);
-});
-test("[unit] #201-3 mutation: a count from the wrong question or from every question", async () => {
-  const tokenmax = "docs/product/runs/2026-10-03-tokenmax/records.csv";
-  const sample = (question: string | undefined): Sample[] => [{ id: "uc11", fit: [], runBacked: true, verdictLine: "Needs a test", explained: {
-    why: "The rule is unmet.", cases: "the simple rule 2 of 5", next: "Label more cases.", rephrase: null, earlier: null,
-    figures: [{ part: "cases", display: "2", metric: "accepted", format: "int", value: 2, source: tokenmax, arm: "rule", ...(question === undefined ? {} : { question }) },
-      { part: "cases", display: "5", metric: "labelled", format: "int", value: 5, source: tokenmax, arm: "rule", question: "q1" }],
-  } }];
-  expect(await checkFigures(sample("q1"))).toEqual([]);
-  expect((await checkFigures(sample("q2"))).some((problem) => problem.includes("value 2 but") && problem.includes("gives 4"))).toBe(true);
-  expect((await checkFigures(sample(undefined))).some((problem) => problem.includes("2 labelled cohorts"))).toBe(true);
+test("[unit] #201-3 mutation: wrong question or unnamed cohort", async () => {
+  const good = sampleBy("uc11");
+  expect(await checkFigures([good])).toEqual([]);
+  const wrong = sampleBy("uc11");
+  chosen(wrong, "cases", "the simple rule 2 of 5").question = "q2";
+  expect((await checkFigures([wrong])).some((problem) => problem.includes("value 2 but") && problem.includes("gives 4"))).toBe(true);
+  const unnamed = sampleBy("uc11");
+  delete chosen(unnamed, "cases", "the simple rule 2 of 5").question;
+  expect((await checkFigures([unnamed])).some((problem) => problem.includes("2 labelled cohorts"))).toBe(true);
 });
 test("[unit] #201-2 mutation: quoting the original question is not a rephrase", () => {
   const samples = structuredClone(fixture());

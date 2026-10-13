@@ -2363,190 +2363,186 @@ window.JNJ = {
    {
     "part": "verdict",
     "display": "rule 3",
-    "metric": "rule",
     "format": "rule",
-    "value": 3,
+    "values": [
+     3
+    ],
     "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
    },
    {
     "part": "why",
     "display": "100",
-    "metric": "paired",
     "format": "int",
-    "value": 100,
-    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
-   },
-   {
-    "part": "why",
-    "display": "88",
-    "metric": "accepted",
-    "format": "int",
-    "value": 88,
+    "values": [
+     100
+    ],
     "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-    "arm": "jev"
+    "metric": "paired"
    },
    {
     "part": "why",
-    "display": "86",
-    "metric": "accepted",
-    "format": "int",
-    "value": 86,
+    "display": "Jev kept as many right answers as the LLM (88 against 86)",
+    "format": "keptAsMany",
+    "values": [
+     88,
+     86
+    ],
     "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-    "arm": "llm"
+    "arms": [
+     "jev",
+     "llm"
+    ]
    },
    {
     "part": "why",
-    "display": "about 4 points",
-    "metric": "lowerBound",
-    "format": "aboutPoints",
-    "value": -0.04266031343755382,
+    "display": "no more than about 4 points behind",
+    "format": "pointsBehind",
+    "values": [
+     -0.04266031343755382
+    ],
     "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
    },
    {
     "part": "why",
     "display": "10-point",
-    "metric": "margin",
     "format": "pointLimit",
-    "value": 0.1,
+    "values": [
+     0.1
+    ],
     "source": "src/core/verdict.ts"
    },
    {
     "part": "why",
-    "display": "about a fifth",
-    "metric": "costRatio",
-    "format": "aboutFraction",
-    "value": 0.19745918526106973,
-    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
+    "display": "cost Jev about a fifth of what it cost the LLM",
+    "format": "costShareOf",
+    "values": [
+     0.19745918526106973
+    ],
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+    "arms": [
+     "jev",
+     "llm"
+    ]
    },
    {
     "part": "cases",
-    "display": "88",
-    "metric": "accepted",
-    "format": "int",
-    "value": 88,
+    "display": "Jev 88 of 100",
+    "format": "armScore",
+    "values": [
+     88,
+     100
+    ],
     "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
     "arm": "jev"
    },
    {
     "part": "cases",
-    "display": "100",
-    "metric": "labelled",
-    "format": "int",
-    "value": 100,
-    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-    "arm": "jev"
-   },
-   {
-    "part": "cases",
-    "display": "Haiku 5.5",
-    "metric": "model",
-    "format": "modelShort",
-    "value": "claude-haiku-5-5",
+    "display": "the LLM (Claude Haiku 5.5) 86 of 100",
+    "format": "armModelScore",
+    "values": [
+     "claude-haiku-5-5",
+     86,
+     100
+    ],
     "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
     "arm": "llm"
    },
    {
     "part": "cases",
-    "display": "86",
-    "metric": "accepted",
-    "format": "int",
-    "value": 86,
-    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-    "arm": "llm"
-   },
-   {
-    "part": "cases",
-    "display": "100",
-    "metric": "labelled",
-    "format": "int",
-    "value": 100,
-    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-    "arm": "llm"
-   },
-   {
-    "part": "cases",
-    "display": "49",
-    "metric": "accepted",
-    "format": "int",
-    "value": 49,
+    "display": "the simple rule 49 of 100",
+    "format": "armScore",
+    "values": [
+     49,
+     100
+    ],
     "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
     "arm": "rule"
    },
    {
     "part": "cases",
-    "display": "100",
-    "metric": "labelled",
-    "format": "int",
-    "value": 100,
-    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-    "arm": "rule"
-   },
-   {
-    "part": "cases",
-    "display": "$0.0033",
-    "metric": "spend",
-    "format": "usd4",
-    "value": 0.00328442,
+    "display": "Jev spent $0.0033",
+    "format": "armSpent4",
+    "values": [
+     0.00328442
+    ],
     "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
     "arm": "jev"
    },
    {
     "part": "cases",
-    "display": "$0.0163",
-    "metric": "spend",
-    "format": "usd4",
-    "value": 0.01625538,
+    "display": "the LLM's $0.0163",
+    "format": "armSpendOf4",
+    "values": [
+     0.01625538
+    ],
     "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
     "arm": "llm"
    },
    {
     "part": "next",
     "display": "30",
-    "metric": "minPaired",
     "format": "int",
-    "value": 30,
-    "source": "src/core/verdict.ts"
+    "values": [
+     30
+    ],
+    "source": "src/core/verdict.ts",
+    "metric": "minPaired"
    },
    {
     "part": "earlier",
     "display": "40",
-    "metric": "paired",
     "format": "int",
-    "value": 40,
-    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"
+    "values": [
+     40
+    ],
+    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
+    "metric": "paired"
    },
    {
     "part": "earlier",
-    "display": "38 each",
-    "metric": "acceptedEach",
-    "format": "each",
-    "value": 38,
-    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"
+    "display": "Jev and the LLM tied, 38 each",
+    "format": "tiedEach",
+    "values": [
+     38
+    ],
+    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
+    "arms": [
+     "jev",
+     "llm"
+    ]
    },
    {
     "part": "earlier",
     "display": "40",
-    "metric": "paired",
     "format": "int",
-    "value": 40,
-    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"
+    "values": [
+     40
+    ],
+    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
+    "metric": "paired"
    },
    {
     "part": "earlier",
-    "display": "Haiku 4.5",
-    "metric": "model",
-    "format": "modelShort",
-    "value": "claude-haiku-4-5-20251001",
+    "display": "Claude Haiku 4.5 as the LLM",
+    "format": "modelAs",
+    "values": [
+     "claude-haiku-4-5-20251001"
+    ],
     "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
     "arm": "llm"
    },
    {
     "part": "earlier",
-    "display": "1/79th",
-    "metric": "spendRatio",
-    "format": "ordinalFraction",
-    "value": 79.25193584070799,
-    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv"
+    "display": "Jev about 1/79th of the LLM",
+    "format": "spendShareOf",
+    "values": [
+     79.25193584070799
+    ],
+    "source": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
+    "arms": [
+     "jev",
+     "llm"
+    ]
    }
   ]
  },

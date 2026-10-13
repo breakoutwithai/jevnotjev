@@ -10,6 +10,7 @@ import {
 import { rankJevOptions, type JevSuggestion } from "../labels/rank.ts";
 import { MODEL_CATALOG, CATALOG_CHECKED_DATE, JEV_ARM_ID } from "./catalog.ts";
 import { copyDecision } from "./copy.ts"; import { applicableDraft, coachPrompt, COACH_PROMPT_VERSION, COACH_REPLY_ERROR, COACH_UNSAFE_MESSAGE, parseCoachReply, type CoachDraft } from "./coach.ts";
+import { findCredentials } from "./credential-scan.ts";
 import {
   KEY_FIELD_NAMES,
   estimateRange,
@@ -208,6 +209,9 @@ function keys(): ProviderKeys {
     values[provider] = field(provider + "-key").value.trim();
   return values;
 }
+function enteredKeys() {
+  return { ...keys(), coach: field("coach-key").value.trim() };
+}
 function selectedArms(): string[] {
   return [
     JEV_ARM_ID,
@@ -259,7 +263,7 @@ function mountCatalog() {
     input.type = "password";
     input.autocomplete = "off";
     input.spellcheck = false;
-    input.addEventListener("input", () => void render());
+    input.addEventListener("input", () => { persistDraft(); void render(); });
     label.append(input);
     article.append(
       label,
@@ -314,7 +318,7 @@ async function start(firstOnly: boolean, retry = false, funded = false) {
       // Capture and validate before the first asynchronous operation: Run authorizes these exact inputs.
       const candidate = scene(firstOnly);
       const selectedMode = mode();
-      if (!funded) validateSceneKeys(candidate, activeKeys, selectedMode, houseKey);
+      validateSceneKeys(candidate, enteredKeys(), selectedMode, houseKey || funded);
       current = new BackstageRun(
         candidate,
         BACKSTAGE_BUILD_VERSION,
@@ -1152,6 +1156,11 @@ function showDraftStatus(status: DraftStatus) {
 function persistDraft() {
   // Once sign-out starts nothing may recreate the draft it removed.
   if (signingOut) return;
+  if (coachUnsafe(SCENE_DRAFT_FIELDS.map((name) => field(name).value))) {
+    removeDraft();
+    showDraftStatus("save-failed");
+    return;
+  }
   showDraftStatus(
     saveSceneDraft(draftStorage(), (name) => field(name).value, imported),
   );
@@ -1172,6 +1181,7 @@ for (const id of SCENE_DRAFT_FIELDS) {
   if (saved !== undefined) field(id).value = saved;
   field(id).addEventListener("input", persistDraft);
 }
+field("coach-key").addEventListener("input", persistDraft);
 imported = savedDraft.imported;
 // Starter packs (labelling loop M3): a pack goes through the same CSV import as a tester's file, labels included.
 function loadStarterPack(pack: StarterPack) {
@@ -1223,9 +1233,8 @@ if (linkedPack !== null) {
 }
 
 function coachStatus(message: string) { text("coach-status", message); }
-function coachUnsafe(question: string, key: string): boolean {
-  return (key.length > 0 && question.includes(key)) ||
-    /sk-ant-[A-Za-z0-9_-]{32,}|\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{32,}|\bsk-[A-Za-z0-9]{32,}|\bxai-[A-Za-z0-9]{32,}|\bAIza[0-9A-Za-z_-]{35}|\bgh[pousr]_[A-Za-z0-9]{30,}|\bbearer\s+[A-Za-z0-9._~+/=-]{20,}/i.test(question);
+function coachUnsafe(value: unknown): boolean {
+  return findCredentials(value, Object.values(enteredKeys()).filter((key): key is string => typeof key === "string" && key.length > 0)).length > 0;
 }
 function renderCoachDrafts(drafts: readonly CoachDraft[]) {
   const target = element("coach-drafts");
@@ -1233,13 +1242,13 @@ function renderCoachDrafts(drafts: readonly CoachDraft[]) {
   for (const draft of drafts) {
     const card = document.createElement("article");
     card.className = "answer-card";
-    card.append(node("h4", draft.type === "choice" ? "Choice" : draft.type === "score" ? "Score" : "Noul"));
+    card.append(node("h4", draft.type === "choice" ? "Two answers (choice)" : draft.type === "score" ? "Score levels" : "Yes/no chance (noul)"));
     card.append(node("p", draft.question));
     if (draft.type === "noul") card.append(node("p", draft.statement));
     for (const answer of draft.type === "score" ? draft.levels : draft.answers)
       card.append(node("p", `${answer.name}: ${answer.meaning}`));
-    card.append(node("p", `Keep rule: ${draft.keepRule}`));
-    card.append(node("p", `Rule to beat: ${draft.ruleToBeat.join(", ")}`));
+    card.append(node("p", `When you would keep an answer: ${draft.keepRule}`));
+    card.append(node("p", `Simple keyword rule to compare against: ${draft.ruleToBeat.join(", ")}`));
     card.append(node("p", `Leave out: ${draft.exclusions}`));
     const values = applicableDraft(draft);
     const apply = document.createElement("button");
@@ -1247,14 +1256,14 @@ function renderCoachDrafts(drafts: readonly CoachDraft[]) {
     apply.textContent = "Apply";
     apply.dataset.applicable = String(Boolean(values));
     apply.disabled = !values || Boolean(run) || starting || signingOut;
-    if (!values) card.append(node("p", "Backstage runs two-answer questions today. This shape is not supported yet."));
+    if (!values) card.append(node("p", "Only two-answer choice drafts can be used in Backstage today. This shape is not supported yet."));
     apply.onclick = () => {
       if (!values || run || starting || signingOut) return;
+      if (coachUnsafe(draft)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
       for (const [id, value] of Object.entries(values)) field(id).value = value;
-      imported = undefined;
       persistDraft();
       field("question").focus();
-      coachStatus("Draft applied. Edit any scene field before running.");
+      coachStatus("Draft applied: question, two answers, their meanings, keep rule, exclusions and keyword rule replaced. Cases and labels kept. Edit any scene field before running.");
       void render();
     };
     card.append(apply);
@@ -1263,8 +1272,7 @@ function renderCoachDrafts(drafts: readonly CoachDraft[]) {
 }
 function coachQuestion(): string | null {
   const question = field("coach-question").value.trim();
-  const key = field("coach-key").value.trim();
-  if (coachUnsafe(question, key)) { coachStatus(COACH_UNSAFE_MESSAGE); return null; }
+  if (coachUnsafe(question)) { coachStatus(COACH_UNSAFE_MESSAGE); return null; }
   if (!question || question.length > 1000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(question)) { coachStatus("Enter a question of at most 1000 characters."); return null; }
   return question;
 }
@@ -1276,9 +1284,9 @@ button("coach-copy-prompt").onclick = async () => {
 };
 button("coach-use-reply").onclick = () => {
   const reply = field("coach-reply").value;
-  if (coachUnsafe(reply, field("coach-key").value.trim())) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
   const parsed = parseCoachReply(reply);
   if (!parsed.ok) { coachStatus(COACH_REPLY_ERROR); return; }
+  if (coachUnsafe(parsed.drafts)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
   renderCoachDrafts(parsed.drafts);
   coachStatus(`${parsed.drafts.length} draft${parsed.drafts.length === 1 ? "" : "s"} ready.`);
 };
@@ -1308,6 +1316,7 @@ button("coach-draft").onclick = async () => {
     if (Reflect.get(payload, "promptVersion") !== COACH_PROMPT_VERSION) throw new Error("Coach version changed. Reload before drafting.");
     const parsed = parseCoachReply(JSON.stringify({ drafts: Reflect.get(payload, "drafts") }));
     if (!parsed.ok) throw new Error(COACH_REPLY_ERROR);
+    if (coachUnsafe(parsed.drafts)) throw new Error(COACH_UNSAFE_MESSAGE);
     renderCoachDrafts(parsed.drafts);
     coachStatus(`${parsed.drafts.length} draft${parsed.drafts.length === 1 ? "" : "s"} ready.`);
   } catch (error) { if (!controller.signal.aborted) coachStatus(error instanceof Error ? error.message : "Could not draft scenes."); }

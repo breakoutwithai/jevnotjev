@@ -56,7 +56,11 @@ export function createEventLogger(clock: () => number, sink?: (line: string) => 
       });
     },
     coach(fields: CoachLog): void {
-      write(() => ({ ts: new Date(clock()).toISOString(), ...fields }));
+      write(() => {
+        const ts = new Date(clock()).toISOString();
+        const { event, rid, provider, model } = fields;
+        return { ts, event, rid, provider, model };
+      });
     },
   };
 }

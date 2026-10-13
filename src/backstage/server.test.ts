@@ -84,6 +84,33 @@ test("[unit] #132 C9 provider faults and credential echoes are sanitized", async
   }
   expect(logs.join(" ")).not.toContain(key);
 });
+test("[integration] #132 valid provider drafts with decoded credentials are rejected", async () => {
+  for (const key of ["test-secret-value", 'secret"with\\backslash']) {
+    for (const question of [`Refund with ${key}?`, `Refund with sk-proj-${"Ab3".repeat(12)}?`]) {
+      const handler = createHandler({ version: "test", providerFetch: async () => Response.json({
+        model: "claude-sonnet-5-5", stop_reason: "end_turn",
+        content: [{ type: "text", text: JSON.stringify({ drafts: [{ ...coachDraft, question }] }) }],
+      }) });
+      const response = await handler(coachRequest({ provider: "anthropic", key, question: "Refund?" }));
+      expect(response.status).toBe(502);
+      expect(await response.text()).not.toContain(key);
+    }
+  }
+});
+test("[integration] #132 coach releases capacity after bad requests and failed providers", async () => {
+  let calls = 0;
+  const handler = createHandler({ version: "test", maxConcurrent: 1, providerFetch: async () => {
+    calls++;
+    return calls <= 8 ? new Response("bad upstream", { status: 500 })
+      : Response.json({ model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ drafts: [coachDraft] }) }] });
+  } });
+  for (let index = 0; index < 8; index++) {
+    expect((await handler(coachRequest({ provider: "invalid", key: "test-secret-value", question: "Refund?" }))).status).toBe(400);
+    expect((await handler(coachRequest())).status).toBe(502);
+  }
+  expect((await handler(coachRequest())).status).toBe(200);
+  expect(calls).toBe(9);
+});
 test("[unit] #132 C8 coach shares the BYOK concurrency limit", async () => {
   let release: () => void = () => {};
   const pending = new Promise<void>((resolve) => { release = resolve; });

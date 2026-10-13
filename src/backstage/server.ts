@@ -475,7 +475,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
           logger.coach({ event: "coach.request", rid, provider: decoded.provider, model });
           const result = await callCoach(decoded.provider, decoded.key, decoded.question, options.providerFetch, options.timeoutMs);
           if (!result.ok) return json({ code: "coach-failed", message: result.reason }, 502);
-          if (JSON.stringify(result.drafts).includes(decoded.key))
+          if (findCredentials(result.drafts, [decoded.key]).length > 0)
             return json({ code: "coach-failed", message: "Coach reply contained a credential." }, 502);
           return json({ drafts: result.drafts, promptVersion: COACH_PROMPT_VERSION, model });
         }

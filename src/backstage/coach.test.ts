@@ -14,6 +14,12 @@ test("[unit] #132 C1 coach prompt asks for a bounded JSON decision draft", () =>
   expect(prompt).toContain("Should I refund this order?");
   expect(prompt).toContain("no-match");
   expect(prompt).toContain("JSON only");
+  expect(prompt).toContain("ruleToBeat: literal keywords that, if found in a case, select the FIRST answer; otherwise the second");
+});
+
+test("[unit] #132 coach accepts no exclusions", () => {
+  expect(parseCoachReply(JSON.stringify({ drafts: [{ ...draft, exclusions: "" }] })).ok).toBe(true);
+  expect(coachPrompt("Refund?")).toContain("Use an empty string for exclusions when nothing is left out.");
 });
 
 test("[unit] #132 C1 two questions yield distinct complete drafts", () => {

@@ -12,6 +12,7 @@ import { MODEL_CATALOG, CATALOG_VERSION, getModelEntry } from "./catalog.ts";
 import { requestFingerprint } from "./fingerprint.ts";
 import { decisionPrompt, PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { coachPrompt, parseCoachReply, type CoachReply } from "./coach.ts";
+import { findCredentials } from "./credential-scan.ts";
 export { requestFingerprint } from "./fingerprint.ts";
 export type ProviderFetch = (
   url: string,
@@ -29,8 +30,8 @@ export async function callCoach(
     ? { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" }
     : { "content-type": "application/json", authorization: `Bearer ${key}` };
   const body = provider === "anthropic"
-    ? { model, max_tokens: 2048, system: prompt, messages: [{ role: "user", content: question }] }
-    : { model, max_output_tokens: 2048, input: [{ role: "system", content: prompt }, { role: "user", content: question }], reasoning: { effort: "none" }, tools: [], store: false };
+    ? { model, max_tokens: 2048, system: prompt, messages: [{ role: "user", content: "Return the drafts as JSON." }], thinking: { type: "adaptive" }, output_config: { effort: "low" } }
+    : { model, max_output_tokens: 2048, input: [{ role: "system", content: prompt }, { role: "user", content: "Return the drafts as JSON." }], reasoning: { effort: "none" }, tools: [], store: false };
   try {
     const response = await doFetch(url, { method: "POST", headers, body: JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
     if (!response.ok) return { ok: false, reason: `Coach provider returned ${response.status}. Check your key or try again.` };
@@ -49,7 +50,11 @@ export async function callCoach(
       const texts = parts.filter((part: unknown) => object(part) && part.type === "output_text");
       if (texts.length === 1 && object(texts[0])) output = texts[0].text;
     }
-    return typeof output === "string" ? parseCoachReply(output) : { ok: false, reason: "Coach provider returned an unreadable reply." };
+    if (typeof output !== "string") return { ok: false, reason: "Coach provider returned an unreadable reply." };
+    const parsed = parseCoachReply(output);
+    if (parsed.ok && findCredentials(parsed.drafts, [key]).length > 0)
+      return { ok: false, reason: "Coach reply contained a credential." };
+    return parsed;
   } catch {
     return { ok: false, reason: "Coach provider timed out or returned an unreadable reply." };
   }

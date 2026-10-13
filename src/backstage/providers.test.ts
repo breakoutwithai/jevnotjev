@@ -26,10 +26,18 @@ const request: AnswerRequest = {
   provider: "jev",
   key: "secret-test-key",
 };
+const validCoachDraft = { type: "choice", question: "Refund?", answers: [{ name: "Refund", meaning: "When damaged." }, { name: "Decline", meaning: "When intact." }], keepRule: "Keep when I would refund it.", ruleToBeat: ["damaged"], exclusions: "Unknown condition." };
+function coachResponse(provider: "anthropic" | "openai", draft: unknown = validCoachDraft, model = provider === "anthropic" ? "claude-sonnet-5-5" : "gpt-6-luna"): Response {
+  const output = JSON.stringify({ drafts: [draft] });
+  return provider === "anthropic"
+    ? Response.json({ model, stop_reason: "end_turn", content: [{ type: "text", text: output }] })
+    : Response.json({ model, status: "completed", output: [{ content: [{ type: "output_text", text: output }] }] });
+}
+const coachProviders: readonly ("anthropic" | "openai")[] = ["anthropic", "openai"];
 test("[unit] #132 C1 coach pins Anthropic and OpenAI model requests with bounded output", async () => {
   const calls: Array<{ url: string; options: RequestInit }> = [];
   const draft = { type: "choice", question: "Refund?", answers: [{ name: "Refund", meaning: "When damaged." }, { name: "Decline", meaning: "When intact." }], keepRule: "Keep when I would refund it.", ruleToBeat: ["damaged"], exclusions: "Unknown condition." };
-  for (const provider of ["anthropic", "openai"] as const) {
+  for (const provider of coachProviders) {
     const result = await callCoach(provider, "test-secret-value", "Refund?", async (url, options) => {
       calls.push({ url, options });
       const output = JSON.stringify({ drafts: [draft] });
@@ -45,6 +53,29 @@ test("[unit] #132 C1 coach pins Anthropic and OpenAI model requests with bounded
   expect(String(calls[1]?.options.body)).toContain("max_output_tokens\":2048");
   expect(String(calls[0]?.options.body)).not.toContain("test-secret-value");
   expect(String(calls[1]?.options.body)).not.toContain("test-secret-value");
+  for (const [index, provider] of coachProviders.entries()) {
+    const options = calls[index]?.options;
+    expect(options?.method).toBe("POST");
+    expect(options?.redirect).toBe("error");
+    const headers = new Headers(options?.headers);
+    expect(headers.get("content-type")).toBe("application/json");
+    if (provider === "anthropic") {
+      expect(headers.get("x-api-key")).toBe("test-secret-value");
+      expect(headers.get("anthropic-version")).toBe("2023-06-01");
+      expect(headers.get("authorization")).toBeNull();
+    } else {
+      expect(headers.get("authorization")).toBe("Bearer test-secret-value");
+      expect(headers.get("x-api-key")).toBeNull();
+      const body: unknown = JSON.parse(String(options?.body));
+      expect(typeof body === "object" && body !== null && Reflect.get(body, "store")).toBe(false);
+      expect(typeof body === "object" && body !== null && Reflect.get(body, "tools")).toEqual([]);
+    }
+  }
+  const anthropicBody: unknown = JSON.parse(String(calls[0]?.options.body));
+  expect(typeof anthropicBody === "object" && anthropicBody !== null && Reflect.get(anthropicBody, "thinking")).toEqual({ type: "adaptive" });
+  expect(typeof anthropicBody === "object" && anthropicBody !== null && Reflect.get(anthropicBody, "output_config")).toEqual({ effort: "low" });
+  expect(String(calls[0]?.options.body).split("Refund?").length - 1).toBe(1);
+  expect(String(calls[1]?.options.body).split("Refund?").length - 1).toBe(1);
 });
 test("[unit] #132 C9 coach provider timeout and malformed output return plain errors", async () => {
   const timed = await callCoach("openai", "test-secret-value", "Refund?", async (_url, options) => {
@@ -55,8 +86,23 @@ test("[unit] #132 C9 coach provider timeout and malformed output return plain er
   expect(JSON.stringify(timed)).not.toContain("test-secret-value");
   const malformed = await callCoach("openai", "test-secret-value", "Refund?", async () => Response.json({ status: "completed", output: [{ content: [{ type: "output_text", text: "not json" }] }] }));
   expect(malformed.ok).toBe(false);
-  const wrongModel = await callCoach("openai", "test-secret-value", "Refund?", async () => Response.json({ model: "other-model", status: "completed", output: [] }));
-  expect(wrongModel.ok).toBe(false);
+  for (const provider of coachProviders) {
+    const wrongModel = await callCoach(provider, "test-secret-value", "Refund?", async () => coachResponse(provider, validCoachDraft, "other-model"));
+    expect(wrongModel).toEqual({ ok: false, reason: "Coach provider returned a different model." });
+  }
+});
+
+test("[unit] #132 decoded coach provider replies refuse plain and JSON-escaped credentials", async () => {
+  for (const provider of coachProviders) {
+    for (const key of ["test-secret-value", 'secret"with\\backslash']) {
+      const draft = { ...validCoachDraft, question: `Refund with ${key}?` };
+      const result = await callCoach(provider, key, "Refund?", async () => coachResponse(provider, draft));
+      expect(result).toEqual({ ok: false, reason: "Coach reply contained a credential." });
+    }
+    const shaped = `sk-proj-${"Ab3".repeat(12)}`;
+    const result = await callCoach(provider, "test-secret-value", "Refund?", async () => coachResponse(provider, { ...validCoachDraft, question: `Refund ${shaped}?` }));
+    expect(result).toEqual({ ok: false, reason: "Coach reply contained a credential." });
+  }
 });
 test("[unit] B4 strict requests reject malformed and secret-bearing inputs", () => {
   expect(parseAnswerRequest(request)).not.toBeNull();

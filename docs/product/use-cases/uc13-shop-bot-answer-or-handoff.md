@@ -59,6 +59,7 @@ Jev request, per message (`POST https://api.typesafe.ai/v1/systemone`):
 The run fails loudly if the response model is not `jev-1.13.0`. The Jev key is read from the operator's keychain at run time and never written anywhere.
 
 ## Labels and result
+The latest run is [the 2026-10-11 run](../runs/2026-10-11-uc13-shop-bot-100/): 100 customer messages, with Jev accepted on 88, the LLM on 86, and a use Jev verdict under rule 3.
 - One correct answer per message (answer / hand_off), never decided from any arm's output. The 2026-10-01 run's answers were drafted by three AI labellers from the fact sheet and this acceptance rule, then reviewed and approved by a person ([LABELS.md](../runs/2026-10-01-uc13-shop-bot/LABELS.md)). Each arm's row is then `accept` when its output equals that answer, else `reject`, with `label_source` `human`.
 - Result: right answers and cost per right answer per arm (D07 metrics, `src/core/metrics.ts`), Jev against the LLM and against the rule on paired cases, and the verdict from [verdict-rules.md](../../decision/verdict-rules.md).
 - Misses are listed by direction, **answered when it should have handed off** first: those include every unknown-stock and booking message an arm got wrong, and one miss there matters more than the overall rate. Handed off when it could have answered comes second.

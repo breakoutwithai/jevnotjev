@@ -14,7 +14,7 @@ const ROOT = join(import.meta.dir, "..");
 const SITE = join(ROOT, "site");
 
 /** The router premise: model names and the word router. */
-const ROUTER = /haiku|sonnet|opus|router/i;
+const ROUTER = /sonnet|opus|\brouter\b/i;
 /** The same, as whole words, for prose that may name OpenRouter. */
 const DOC_ROUTER = /haiku|sonnet|opus|\brouter\b/i;
 
@@ -82,15 +82,16 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
     expect(await readFile(SAMPLE_OUT, "utf8")).toBe(await build());
   });
 
-  test("[unit] F2-D2 no router premise survives on the page or in its data: no Haiku, Sonnet, Opus or router", async () => {
+  test("[unit] F2-D2 no router premise survives on the page or in its data; Haiku names the recorded LLM", async () => {
     for (const file of ["data.js", "index.html"]) expect(await readFile(join(SITE, file), "utf8")).not.toMatch(ROUTER);
+    expect(await readFile(join(SITE, "data.js"), "utf8")).toContain("Claude Haiku 5.5");
   });
 
-  test("[unit] F2-D3 the sample holds the 40 labelled messages with the llm, rule and Jev answers of the run", async () => {
+  test("[unit] F2-D3 the sample holds the 100 labelled messages with the llm, rule and Jev answers of the run", async () => {
     const csv = await readFile(SAMPLE_RECORDS, "utf8");
     const sample = await buildSample(csv);
-    expect(sample.cases.length).toBe(40);
-    expect(sample.meta.run_id).toBe("run-shopbot-2026-10-01");
+    expect(sample.cases.length).toBe(100);
+    expect(sample.meta.run_id).toBe("run-shopbot-2026-10-11");
     const rows = validate(csv).rows.map((r) => r.values);
     for (const c of sample.cases) {
       for (const [letter, arm] of [["A", "llm"], ["B", "rule"], ["C", "jev"]] as const) {
@@ -100,7 +101,7 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
         expect(row?.get("case_input")).toBe(c.prompt);
       }
     }
-    expect([sample.summary.A.kept, sample.summary.B.kept, sample.summary.C.kept]).toEqual([38, 29, 38]);
+    expect([sample.summary.A.kept, sample.summary.B.kept, sample.summary.C.kept]).toEqual([86, 49, 88]);
   });
 
   test("[unit] F2-D4 the sample's verdict is the one the loader gives the same file", async () => {
@@ -118,32 +119,39 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
     expect(sample.meta.note).toContain(sample.meta.run_id);
   });
 
-  test("[unit] F2-D6 the page's script draws Acts II to V from it: 40 cases, the run's verdict and the run's costs", async () => {
+  test("[unit] F2-D6 the page's script draws Acts II to V from it: 100 cases, explained verdict and costs", async () => {
     const els = await renderPage();
-    expect(els.get("docket")?.children.filter((c) => c.className.includes("row")).length).toBe(40);
-    expect(els.get("t3")?.textContent).toBe("The trial of 40 messages");
-    expect(els.get("t5")?.textContent).toBe("Not enough evidence");
-    expect(els.get("caveat")?.textContent).toContain("lower bound of Jev minus LLM");
+    expect(els.get("docket")?.children.filter((c) => c.className.includes("row")).length).toBe(100);
+    expect(els.get("t3")?.textContent).toBe("The trial of 100 messages");
+    expect(els.get("t5")?.textContent).toBe("Use Jev (rule 3)");
+    expect(els.get("heroWhy")?.textContent).toContain("Why: On 100 shop messages");
+    expect(els.get("verdictWhy")?.textContent).toContain("Why: On 100 shop messages");
+    expect(els.get("verdictCases")?.textContent).toContain("Jev 88 of 100");
+    expect(els.get("verdictNext")?.textContent).toContain("write 30 or more cases");
+    expect(els.get("verdictEarlier")?.textContent).toContain("first 40");
+    expect(els.get("caveat")?.textContent).toContain("lower bound -0.04");
     const ledger = els.get("ledger")?.innerHTML ?? "";
-    expect(ledger).toContain('data-to="0.103167"');
-    expect(ledger).toContain('data-to="0.00130176"');
-    expect(ledger).toContain(">$0.1032<");
-    expect(ledger).toContain(">$0.000034<");
-    expect(ledger).toContain("38/40");
+    expect(ledger).toContain('data-to="0.01625538"');
+    expect(ledger).toContain('data-to="0.00328442"');
+    expect(ledger).toContain(">$0.0163<");
+    expect(ledger).toContain(">$0.000037<");
+    expect(ledger).toContain("88/100");
     expect(els.get("cast")?.children.length).toBe(3);
-    expect(els.get("cast")?.children[0]?.innerHTML).toContain("Answer 18");
-    expect(els.get("cast")?.children[0]?.innerHTML).toContain("Hand off 22");
+    expect(els.get("cast")?.children[0]?.innerHTML).toContain("Answer 29");
+    expect(els.get("cast")?.children[0]?.innerHTML).toContain("Hand off 71");
   });
 
-  test("[unit] F2-D7 the sample's verdict is not use Jev, so the page cannot show a rule-3 win the run did not earn", async () => {
+  test("[unit] F2-D7 the sample's verdict and copy agree on rule 3", async () => {
     const els = await renderPage();
-    expect(els.get("t5")?.textContent).not.toBe("Use Jev");
+    expect(els.get("t5")?.textContent).toBe("Use Jev (rule 3)");
+    expect(els.get("heroResult")?.textContent).toEndWith("Verdict: Use Jev (rule 3).");
   });
 
   test("[unit] F2-D10 a method with no accepted answer has an undefined cost per kept answer, shown as such, with no savings claim or bar", async () => {
     const csv = (await readFile(SAMPLE_RECORDS, "utf8")).split("\n").map((l) => (l.includes(",jev,") ? l.replace(",accept,", ",reject,") : l)).join("\n");
-    const sample = await buildSample(csv);
-    expect(sample.summary.C.kept).toBe(0);
+    await expect(buildSample(csv)).rejects.toThrow("Stage copy disagrees with computed verdict and rule");
+    const original = await buildSample(await readFile(SAMPLE_RECORDS, "utf8"));
+    const sample = { ...original, summary: { ...original.summary, C: { ...original.summary.C, kept: 0, cpk: null } } };
     expect(sample.summary.C.cpk).toBeNull();
     expect(sample.summary.A.cpk).not.toBeNull();
     const els = await renderPage(sampleScript(sample));

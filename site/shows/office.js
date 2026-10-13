@@ -13,10 +13,8 @@
   var ATOM = "[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+";
   var EMAIL = new RegExp("^(?=.{1,64}@)" + ATOM + "(?:\\." + ATOM + ")*@(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$");
   var METHOD = { llm: "LLM", rule: "simple rule", jev: "Jev" };
-  var VERDICT = { "use Jev": "use Jev", "don't use Jev": "don't use Jev", "not enough evidence": "not enough proof yet: test more cases" };
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-  function plainFit(f) { return f.replace(/^!Jev$/, "not Jev"); }
   function usd(v) { return v === null ? "n/a" : "$" + (v > 0 && v < 0.01 ? v.toFixed(6) : v.toFixed(2)); }
   function labelsPlain(s) {
     return s.split("; ").map(function (part) {
@@ -90,10 +88,12 @@
     card.setAttribute("data-id", p.id);
     card.appendChild(el("p", "tk-badge", st.name + " · " + st.sub));
     card.appendChild(el("h3", "", p.title));
-    var verdict = p.stage === "show" ? "Verdict: " + (VERDICT[p.run.verdict] || p.run.verdict) :
-      p.stage === "rehearsal" ? (p.run && p.run.whyNotYet ? p.run.whyNotYet : "No verdict yet: under 30 checked cases") :
-      "Fit check: " + plainFit(p.fit[p.fit.length - 1]);
-    card.appendChild(el("p", "tk-verdict", verdict));
+    card.appendChild(el("p", "tk-verdict", p.verdictLine));
+    card.appendChild(el("p", "tk-why", "Why: " + p.explained.why));
+    card.appendChild(el("p", "tk-cases", "What the cases show: " + p.explained.cases));
+    card.appendChild(el("p", "tk-next", "Next step: " + p.explained.next));
+    if (p.explained.rephrase) card.appendChild(el("p", "tk-rephrase", "Rephrased for Jev: " + p.explained.rephrase));
+    if (p.explained.earlier) card.appendChild(el("p", "tk-earlier", "Earlier run: " + p.explained.earlier));
     if (p.run) {
       var r = p.run;
       var counted = r.methods.some(function (m) { return m.labelled > 0; });
@@ -102,17 +102,13 @@
         (r.cohorts > 1 ? " on one of its " + r.cohorts + " questions" : "") :
         jev ? "Jev: " + jev.rows + " answers recorded" : "Recorded: " + r.rows + " answers"));
     }
-    var primary = el("a", "tk-primary", p.stage === "show" ? "Watch now" : p.stage === "rehearsal" && p.watch ? "Follow this" : "Read the idea");
-    primary.href = p.watch || REPO + "/blob/main/" + p.source;
+    var primary = el("a", "tk-primary", p.watch ? "Watch now" : p.run ? "Open the evidence" : "Read the idea");
+    primary.href = p.watch || (p.run ? REPO + "/tree/main/docs/product/runs/" + p.run.folder : REPO + "/blob/main/" + p.source);
     primary.setAttribute("aria-label", primary.textContent + ": " + p.title);
     card.appendChild(primary);
     var more = el("details", "tk-more");
     more.appendChild(el("summary", "", "More about " + p.title));
     if (p.run) {
-      if (r.headline) more.appendChild(el("p", "tk-headline", r.headline));
-    }
-    if (p.run) {
-      if (r.whyNotYet && r.whyNotYet !== verdict) more.appendChild(el("p", "tk-why", r.whyNotYet));
       if (r.cohorts > 1 && r.question) more.appendChild(el("p", "tk-scope", "One question: " + r.question));
       if (r.methods.some(function (m) { return m.labelled > 0; })) {
         var ul = el("ul", "tk-methods");

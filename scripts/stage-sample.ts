@@ -1,4 +1,4 @@
-// Builds the public Stage's sample (site/data.js) from the recorded UC13 shop-bot run: 40 messages we wrote about a
+// Builds the public Stage's sample (site/data.js) from the recorded UC13 shop-bot run: 100 messages about a
 // made-up shop, answered by the LLM, a keyword rule and Jev, labelled, with the verdict the written rules give.
 // Every message, answer, label, cost, confidence and latency comes from records.csv; the verdict from src/core.
 // The earlier sample (a Haiku/Sonnet/Opus prompt router) is gone: that premise was dropped on 2026-09-28.
@@ -12,9 +12,10 @@ import { fileSeed } from "../src/core/calc.ts";
 import { groupCohorts, metricsOfCohortRows, type Arm } from "../src/core/metrics.ts";
 import { verdict } from "../src/core/verdict.ts";
 import { truthLabel, validate, type Row } from "../src/format/validate.ts";
+import { LANDING_COPY, type ExplainedCopy } from "../src/shows/landing-copy.ts";
 
 const ROOT = join(import.meta.dir, "..");
-export const RECORDS_REL = "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv";
+export const RECORDS_REL = "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv";
 export const SAMPLE_RECORDS = join(ROOT, RECORDS_REL);
 export const SAMPLE_OUT = join(ROOT, "site", "data.js");
 
@@ -45,6 +46,7 @@ export interface StageSample {
   readonly summary: Readonly<Record<Letter, { readonly spend: number; readonly kept: number; readonly cpk: number | null }>>;
   readonly jev_vs: { readonly A: { readonly wins: number; readonly losses: number }; readonly B: { readonly wins: number; readonly losses: number } };
   readonly verdict: { readonly result: string; readonly rule: number; readonly reason: string };
+  readonly explained: ExplainedCopy;
   readonly timing: { readonly note: string; readonly median_ms: Readonly<Record<Letter, number>> };
   readonly use_cases: readonly (readonly string[])[];
   readonly ask_examples: readonly Readonly<Record<string, string>>[];
@@ -150,12 +152,13 @@ export async function buildSample(csv: string): Promise<StageSample> {
   });
 
   const v = verdict(metricsOfCohortRows(group.rows, group.key), await fileSeed(csv));
+  if (`${v.verdict.toLowerCase()} (rule ${v.rule})` !== LANDING_COPY.stage.verdict.toLowerCase()) throw new Error("Stage copy disagrees with computed verdict and rule");
   const latency = (arm: Arm): number => median(group.rows.filter((r) => str(r, "answerer") === arm).map((r) => num(r, "latency_ms")));
   const medians = { A: latency("llm"), B: latency("rule"), C: latency("jev") };
   const runId = group.key.runId;
   return {
     meta: {
-      note: `Sample run, recorded and not invented: ${cases.length} messages we wrote about a made-up shop (${runId}). Labels drafted from the fact sheet by three AI labellers who never saw an arm's answer to any message, then reviewed and approved by a person.`,
+      note: `Sample run, recorded and not invented: ${cases.length} messages about a made-up shop (${runId}). The first 40 messages were written for the earlier run; five AI persona writers wrote 60 more before any arm ran. Labels were drafted from the fact sheet by three AI labellers who never saw an arm's answer to any message, then reviewed and approved by a person.`,
       workflow: "Can the shop bot answer this customer message from its fact sheet, or must it hand off to staff?",
       source: RECORDS_REL,
       run_id: runId,
@@ -170,6 +173,7 @@ export async function buildSample(csv: string): Promise<StageSample> {
     summary,
     jev_vs: { A: vs("A"), B: vs("B") },
     verdict: { result: v.verdict, rule: v.rule, reason: v.reason },
+    explained: LANDING_COPY.stage,
     timing: { note: "Median time per call. The LLM figure includes the start-up of the command that called it.", median_ms: medians },
     use_cases: USE_CASES,
     ask_examples: ASK_EXAMPLES,

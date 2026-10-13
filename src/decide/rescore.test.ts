@@ -56,7 +56,7 @@ describe("rescore CLI", () => {
     }
   }));
 
-  test("[integration] D17-UC13 two runs are byte identical and match published figures", () => {
+  test("[integration] D17-UC13 the earlier rescore is byte identical and keeps its recorded figures", () => {
     const first = cli(["rescore", RECORDS, "--labels", LABELS]);
     const second = cli(["rescore", RECORDS, "--labels", LABELS]);
     expect(first.code).toBe(4);
@@ -64,17 +64,45 @@ describe("rescore CLI", () => {
     expect(first.stdout).toBe(second.stdout);
     expect(createHash("sha256").update(first.stdout).digest("hex")).toBe("1f02f8560f15d041ae2498748040936f84a23e13945c50117e7ee891bc0e5d1c");
     const got = firstVerdict(first.stdout);
+    expect(got.verdict).toBe("not enough evidence");
+    expect(got.reason).toBe("not enough evidence: Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM -0.11, not above -0.10)");
+    const numbers = object(got.numbers);
+    const pair = object(numbers.jevVsLlm);
+    expect(pair.n).toBe(40);
+    expect(numbers.jevAccepted).toBe(38);
+    expect(numbers.llmAccepted).toBe(38);
+    expect(object(pair.jev).accepted).toBe(38);
+    expect(object(pair.otherArm).accepted).toBe(38);
+    expect(Number(Number(String(object(object(pair.jev).spend).usd)).toFixed(6))).toBe(0.001302);
+    expect(Number(Number(String(object(object(pair.otherArm).spend).usd)).toFixed(6))).toBe(0.103167);
+    expect(object(got.ruleComparison).p1).toBe(29 / 40);
+    const { header, rows } = readDictRows(readFileSync(RECORDS, "utf8"));
+    if (header === null) throw new Error("records header missing");
+    const armAt = header.indexOf("answerer");
+    const costAt = header.indexOf("cost_usd");
+    const ruleSpend = rows.filter((row) => row.fields[armAt] === "rule")
+      .reduce((sum, row) => sum + Number(row.fields[costAt]), 0);
+    expect(Number(ruleSpend.toFixed(6))).toBe(0);
+  });
+
+  test("[integration] D17-UC13 latest poster matches its own 100-message CLI verdict", () => {
+    const folder = "2026-10-11-uc13-shop-bot-100";
+    const latest = cli(["verdict", join(ROOT, "docs/product/runs", folder, "records.csv"), "--question", "q1"]);
+    expect(latest.code).toBe(0);
+    expect(latest.stderr).toBe("");
+    const got = firstVerdict(latest.stdout);
     const all = array(object(JSON.parse(readFileSync(join(ROOT, "site/shows/posters.json"), "utf8"))).posters);
     const uc13 = all.map(object).find((item) => item.id === "uc13");
     if (uc13 === undefined) throw new Error("uc13 poster missing");
     const published = object(uc13.run);
+    expect(published.folder).toBe(folder);
     expect(got.verdict).toBe(published.verdict);
     expect(got.reason).toBe(published.reason);
     const numbers = object(got.numbers);
     const pair = object(numbers.jevVsLlm);
     expect(pair.n).toBe(published.labelledPaired);
-    expect(numbers.jevAccepted).toBe(38);
-    expect(numbers.llmAccepted).toBe(38);
+    expect(numbers.jevAccepted).toBe(88);
+    expect(numbers.llmAccepted).toBe(86);
     const methods = array(published.methods).map(object);
     for (const side of [object(pair.jev), object(pair.otherArm)]) {
       const method = methods.find((item) => item.arm === side.arm);
@@ -84,14 +112,7 @@ describe("rescore CLI", () => {
     }
     const rule = methods.find((item) => item.arm === "rule");
     if (rule === undefined) throw new Error("missing rule method");
-    expect(object(got.ruleComparison).p1).toBe(Number(String(rule.accepted)) / 40);
-    const { header, rows } = readDictRows(readFileSync(RECORDS, "utf8"));
-    if (header === null) throw new Error("records header missing");
-    const armAt = header.indexOf("answerer");
-    const costAt = header.indexOf("cost_usd");
-    const ruleSpend = rows.filter((row) => row.fields[armAt] === "rule")
-      .reduce((sum, row) => sum + Number(row.fields[costAt]), 0);
-    expect(Number(ruleSpend.toFixed(6))).toBe(Number(String(rule.spendUsd)));
+    expect(object(got.ruleComparison).p1).toBe(Number(String(rule.accepted)) / 100);
   });
 
   test("[integration] D17-LABELS stripped labels rebuild the published UC13 counts", () => withTemp((dir) => {

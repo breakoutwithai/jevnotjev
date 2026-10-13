@@ -14,12 +14,16 @@ import { armsInFile, groupCohorts, metricsOfCohortRows } from "../../src/core/me
 import { fileSeed } from "../../src/core/calc.ts";
 import { verdict } from "../../src/core/verdict.ts";
 import { RUN_SOURCES } from "../../src/evidence/replay.ts";
+import { LANDING_COPY, type LandingSampleId } from "../../src/shows/landing-copy.ts";
 import { headlineOf, latestFirst, parseUseCase, stageOf, verdictWordShown, whyNotYetOf, type MethodLine, type Poster, type RunSummary } from "../../src/shows/posters.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 export const USE_CASES_REL = "docs/product/use-cases";
 export const RUNS_REL = "docs/product/runs";
 export const POSTERS_OUT = join(ROOT, "site", "shows", "posters.json");
+function isLandingSampleId(id: string): id is LandingSampleId {
+  return id === "uc9" || id === "uc10" || id === "uc11" || id === "uc12" || id === "uc13";
+}
 
 function text(value: unknown): string {
   return value === null || value === undefined ? "" : String(value);
@@ -95,7 +99,7 @@ export async function summariseRun(root: string, folder: string): Promise<RunSum
   const result = await evaluateText(`${folder}/records.csv`, csv);
   const question = best ? result.questions.find((q) => q.runId === best.key.runId && q.promptVersion === best.key.promptVersion && q.questionId === best.key.questionId) : undefined;
   const judged = verdictWordShown(labelledPaired) && question?.verdict ? question : null;
-  const metrics = best && judged ? metricsOfCohortRows(best.rows.map((row) => row.values), best.key) : null;
+  const metrics = best ? metricsOfCohortRows(best.rows.map((row) => row.values), best.key) : null;
   const decision = metrics === null ? null : verdict(metrics, await fileSeed(csv), armsInFile(checked.rows));
   const pair = metrics?.jevVsLlm;
   const summary: RunSummary = {
@@ -105,6 +109,7 @@ export async function summariseRun(root: string, folder: string): Promise<RunSum
     question: labelledPaired > 0 && question ? question.question : null,
     labelledPaired,
     verdict: judged?.verdict ?? null,
+    computedVerdict: decision?.verdict ?? null,
     reason: judged?.reason ?? null,
     headline: null,
     whyNotYet: whyNotYetOf(decision?.verdict ?? null, decision?.unmet ?? [], pair === null || pair === undefined ? null : { a: pair.a, b: pair.b, c: pair.c, d: pair.d }),
@@ -115,15 +120,18 @@ export async function summariseRun(root: string, folder: string): Promise<RunSum
 }
 
 /**
- * The first site/<dir>/ whose index.html names the run folder, as a page-relative link. When no page names it, the
- * data-driven replay page (site/replay/, fed by src/evidence/replay.ts RUN_SOURCES) shows the run whose records file
- * lives in that folder: `replay/?run=<key>`.
+ * The Stage plays the run named by site/data.js meta.source. Otherwise, the first site/<dir>/ page that names the
+ * folder plays it; the guide is excluded because it only explains runs. If neither does, the data-driven replay
+ * page (site/replay/, fed by src/evidence/replay.ts RUN_SOURCES) can play a listed run: `replay/?run=<key>`.
  */
 export function watchPage(root: string, folder: string): string | null {
   const site = join(root, "site");
+  const stageData = join(site, "data.js");
+  const stageSource = existsSync(stageData) ? /"source": "([^"]+)"/.exec(readFileSync(stageData, "utf8"))?.[1] : null;
+  if (stageSource === `${RUNS_REL}/${folder}/records.csv`) return "./";
   for (const dir of readdirSync(site, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()) {
     const page = join(site, dir, "index.html");
-    if (existsSync(page) && readFileSync(page, "utf8").includes(folder)) return `${dir}/`;
+    if (dir !== "guide" && existsSync(page) && readFileSync(page, "utf8").includes(folder)) return `${dir}/`;
   }
   const replay = RUN_SOURCES.find((source) => source.file.startsWith(`${RUNS_REL}/${folder}/`));
   return replay ? `replay/?run=${encodeURIComponent(replay.key)}` : null;
@@ -135,11 +143,21 @@ export async function buildPosters(root: string = ROOT): Promise<Poster[]> {
   const posters: Poster[] = [];
   for (const file of files) {
     const source = `${USE_CASES_REL}/${file}`;
-    const parsed = parseUseCase(file, readFileSync(join(dir, file), "utf8"));
+    const doc = readFileSync(join(dir, file), "utf8");
+    const parsed = parseUseCase(file, doc);
     if (parsed.fit.length === 0) throw new Error(`${source}: no fit check found (a bold verdict under "## Jev or not")`);
+    if (!isLandingSampleId(parsed.id)) throw new Error(`${source}: no approved landing copy`);
+    const copy = LANDING_COPY[parsed.id];
     const run = parsed.runFolder ? await summariseRun(root, parsed.runFolder) : null;
+    const word = /^(Use Jev|Don't use Jev|Not enough evidence)\b/i.exec(copy.verdict)?.[1]?.toLowerCase();
+    if (word) {
+      if (!run || word !== run.computedVerdict?.toLowerCase()) throw new Error(`${source}: card verdict disagrees with computed run verdict`);
+    } else {
+      const section = doc.match(/^## Jev or not[^\n]*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1] ?? "";
+      if (!section.toLowerCase().includes(copy.verdict.toLowerCase())) throw new Error(`${source}: card verdict missing from Jev or not section`);
+    }
     const date = run ? run.folder.slice(0, 10) : addedDate(root, source);
-    posters.push({ id: parsed.id, title: parsed.title, story: parsed.story, fit: parsed.fit, stage: stageOf(run), date, source, run, watch: run ? watchPage(root, run.folder) : null });
+    posters.push({ id: parsed.id, title: parsed.title, story: parsed.story, fit: parsed.fit, verdictLine: copy.verdict, explained: copy, stage: stageOf(run), date, source, run, watch: run ? watchPage(root, run.folder) : null });
   }
   // Every use case is kept: the ten-poster limit applies after ranking with ticket counts (server and page).
   return latestFirst(posters);

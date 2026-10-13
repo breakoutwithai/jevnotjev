@@ -1,5 +1,5 @@
 {
-  "minFiles": 117,
+  "minFiles": 118,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -36,7 +36,7 @@
     "scripts/replay-paging.test.ts": 7,
     "scripts/release-check.test.ts": 9,
     "scripts/result-view.test.ts": 46,
-    "scripts/shows/build-posters.test.ts": 15,
+    "scripts/shows/build-posters.test.ts": 17,
     "scripts/shows/ticket-office.dom.test.ts": 5,
     "scripts/landing.dom.test.ts": 16,
     "scripts/site-content.test.ts": 9,
@@ -95,10 +95,11 @@
     "src/db/tests/roundtrip.test.ts": 10,
     "src/decide/broken-paths.test.ts": 24,
     "src/decide/cli.test.ts": 27,
-    "src/decide/rescore.test.ts": 16,
+    "src/decide/rescore.test.ts": 17,
     "src/decide/decide.test.ts": 34,
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/guide.test.ts": 8,
+    "src/docs/landing-samples.test.ts": 10,
     "src/docs/labelling-card.test.ts": 4,
     "src/docs/site-guide.test.ts": 29,
     "src/docs/stack.test.ts": 18,

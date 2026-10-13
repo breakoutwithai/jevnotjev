@@ -220,7 +220,7 @@
           },
           {
             "part": "why",
-            "display": "30",
+            "display": "at least 30",
             "format": "int",
             "values": [
               30
@@ -288,7 +288,7 @@
           },
           {
             "part": "next",
-            "display": "25",
+            "display": "25 more",
             "format": "int",
             "values": [
               25
@@ -360,7 +360,7 @@
         "figures": [
           {
             "part": "next",
-            "display": "20",
+            "display": "20 or more",
             "format": "int",
             "values": [
               20
@@ -394,7 +394,7 @@
         "figures": [
           {
             "part": "next",
-            "display": "20",
+            "display": "20 or more",
             "format": "int",
             "values": [
               20

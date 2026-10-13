@@ -13,11 +13,12 @@ const SITE = resolve(process.env.LANDING_TEST_SITE ?? join(ROOT, "site"));
 const IDS = ["uc9", "uc10", "uc11", "uc12", "uc13"];
 const NOT_FIT = ["uc9", "uc10", "uc11"];
 const RECORDS = "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv";
-// A number starts at a word boundary: digits glued to letters ("P2", "m40") are identifiers, not figures.
-const NUMBERS = /\b\d+(?:\.\d+)?/g;
-// Fraction words are figures too ("about a fifth"), so they must be declared like digits.
-const FRACTION_WORDS = /\ba (?:half|third|quarter|fifth|sixth|seventh|eighth|ninth|tenth)\b/g;
-const WORD_FIGURES = /\b(?:one(?:[ -]hundred)?|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|thirty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|forty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|fifty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|sixty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|seventy(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|eighty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|ninety(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|hundred|half|twice|double|percent|(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten) times)\b/gi;
+// Any Unicode number: ASCII and full-width digits, and number glyphs such as "⅕". Digits glued after a letter
+// ("pattern P2", "m40") are identifiers, not figures.
+const NUMBERS = /(?<![\p{L}\p{N}_])\p{N}+/gu;
+// Fraction words are figures too ("about a fifth", "an eighth", "A third"), so they must be declared like digits.
+const FRACTION_WORDS = /\ban? (?:half|third|quarter|fifth|sixth|seventh|eighth|ninth|tenth)\b/gi;
+const WORD_FIGURES = /\b(?:one(?:[ -]hundred)?|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|thirty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|forty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|fifty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|sixty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|seventy(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|eighty(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|ninety(?:[ -](?:one|two|three|four|five|six|seven|eight|nine))?|hundred|half|twice|double|percent|\w*fold|dozen|zero|(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten) times)\b/gi;
 const PROSE_EXCEPTIONS: readonly { sample: string; part: Part; phrase: string }[] = [
   { sample: "uc12", part: "verdict", phrase: "Split two ways" },
   { sample: "uc11", part: "rephrase", phrase: "Ask one yes/no per ad line" },
@@ -26,8 +27,8 @@ const PROSE_EXCEPTIONS: readonly { sample: string; part: Part; phrase: string }[
 const BARE = /^(?:Verdict:\s*)?(?:use Jev|don't use Jev|not enough evidence|not proven yet|not enough proof yet|Jev probably not|Jev could help|not Jev|!Jev|split two ways|needs a test)(?:\s*\([^)]*\))?\.?$/i;
 
 /*
- * Every figure on the page is a whole claim fragment: its arm label, its number(s) and its direction word sit inside
- * the display. The format names the slots it holds (metric per declared arm), the test computes each slot from the
+ * Every figure on the page is a whole claim fragment: its arm label, its number(s) and its direction or bound word
+ * ("no more than ... behind", "at least 30", "20 or more", "25 more", "inside the 10-point limit") sit inside the display. The format names the slots it holds (metric per declared arm), the test computes each slot from the
  * cited source and renders the fragment from those values and the declared arms; the display must equal a rendering.
  * No arm is inferred from nearby prose, and a digit or number word outside every display is an undeclared figure.
  */
@@ -226,7 +227,8 @@ async function computed(entry: Figure, metric: Metric, arm: FigureArm | undefine
   const kind = (ARM_METRICS as readonly string[]).includes(metric) ? "arm" : (RUN_METRICS as readonly string[]).includes(metric) ? "run"
     : (CONSTANT_METRICS as readonly string[]).includes(metric) ? "constant" : "doc";
   if (kind === "constant") {
-    if (entry.source !== "src/core/verdict.ts") return no(`${metric} comes from src/core/verdict.ts, not ${entry.source}`);
+    // A pointLimit cites the run whose bound it places; its margin is still the src/core/verdict.ts constant.
+    if (entry.source !== "src/core/verdict.ts" && !(entry.format === "pointLimit" && metric === "margin")) return no(`${metric} comes from src/core/verdict.ts, not ${entry.source}`);
     return { value: metric === "minPaired" ? MIN_PAIRED : MARGIN };
   }
   if (!existsSync(join(ROOT, entry.source))) return no(`source missing ${entry.source}`);
@@ -284,7 +286,8 @@ function slots(entry: Figure): Slot[] | string {
   if (entry.metric) return `${entry.format} cannot name a metric`;
   if (["rule", "pointLimit", "messageRun", "pointsBehind", "tiedTo", "answers"].includes(entry.format)) {
     if (a || pair) return `${entry.format} names no arm`;
-    const metric: Metric = entry.format === "rule" ? "rule" : entry.format === "pointLimit" ? "margin" : entry.format === "messageRun" ? "paired"
+    if (entry.format === "pointLimit") return [slot("lowerBound"), slot("margin")];
+    const metric: Metric = entry.format === "rule" ? "rule" : entry.format === "messageRun" ? "paired"
       : entry.format === "pointsBehind" ? "lowerBound" : entry.format === "tiedTo" ? "acceptedEach" : "docAnswers";
     return [slot(metric)];
   }
@@ -324,9 +327,12 @@ function render(entry: Figure, values: readonly (number | string)[]): string[] {
   const frac = n !== null && n > 0 ? UNIT_FRACTIONS[Math.round(1 / n)] : undefined;
   const short = model(v ?? "");
   switch (entry.format) {
-    case "int": return whole ? [String(v)] : [];
+    // A minimum carries its bound word; the count still to reach it carries "more"; a plain count carries none.
+    case "int": return !whole ? [] : entry.metric === "minPaired" || entry.metric === "docCases" ? [`at least ${v}`, `${v} or more`]
+      : entry.metric === "toMinimum" ? [`${v} more`] : [String(v)];
     case "rule": return whole ? [`rule ${v}`] : [];
-    case "pointLimit": return n !== null && n >= 0 && n < 1 ? [`${Math.round(n * 100)}-point`] : [];
+    // Inside iff lower > -MARGIN, the comparison src/core/verdict.ts makes.
+    case "pointLimit": return n !== null && typeof w === "number" && w > 0 && w < 1 ? [`${n > -w ? "inside" : "outside"} the ${Math.round(w * 100)}-point limit`] : [];
     case "messageRun": return whole ? [`${v}-message`] : [];
     case "pointsBehind": { const points = n === null ? 0 : Math.round(Math.abs(n) * 100); return n !== null && Math.abs(n) < 1 && points > 0 ? [n < 0 ? `no more than about ${points} points behind` : `at least about ${points} points ahead`] : []; }
     case "tiedTo": return whole ? [`tied ${v} to ${v}`] : [];
@@ -526,6 +532,21 @@ const mutations: readonly Mutation[] = [
   ["ported undeclared digit", "Stage", "undeclared figure \"7\"", (s) => { if (s.explained) s.explained.next += " About 7 more would settle it."; }],
   ["ported undeclared fraction", "Stage", "undeclared figure \"a third\"", (s) => { if (s.explained) s.explained.next += " Or a third of them."; }],
   ["ported source is page", "Stage", "comes from a run's records.csv", (s) => { chosen(s, "earlier", "Jev about 1/79th of the LLM").source = "site/little-shop/index.html"; }],
+  // Round 5 (f62b512): each passed before the scanners took any Unicode number, "an"/"A" fractions, -fold, dozen and zero.
+  ["R5 an eighth", "uc13", "undeclared figure \"an eighth\"", (s) => { change(s, "why", "at about a fifth of the cost per kept answer", "at about an eighth of the cost per kept answer"); remove(s, "why", "at about a fifth of the cost per kept answer"); }],
+  ["R5 capital A third", "Stage", "undeclared figure \"A third\"", (s) => { if (s.explained) s.explained.next += " A third of them is enough."; }],
+  ["R5 fraction glyph", "uc13", "undeclared figure \"⅕\"", (s) => { change(s, "why", "at about a fifth of the cost per kept answer", "at about ⅕ of the cost per kept answer"); remove(s, "why", "at about a fifth of the cost per kept answer"); }],
+  ["R5 fivefold", "uc13", "undeclared figure \"fivefold\"", (s) => { change(s, "why", "at about a fifth of the cost per kept answer", "fivefold cheaper per kept answer"); remove(s, "why", "at about a fifth of the cost per kept answer"); }],
+  ["R5 a dozen", "Stage", "undeclared figure \"dozen\"", (s) => { if (s.explained) s.explained.next += " A dozen more would settle it."; }],
+  ["R5 zero", "Stage", "undeclared figure \"zero\"", (s) => { if (s.explained) s.explained.next += " The rule kept zero."; }],
+  ["R5 full-width digits", "Stage", "undeclared figure \"８８\"", (s) => { if (s.explained) s.explained.next += " Jev kept ８８."; }],
+  // Round 5: a bound word outside its display made the claim untrue and passed; the bound now sits in the display.
+  ["R5 outside the limit", "Stage", "not on the page", (s) => change(s, "why", "inside the 10-point limit", "outside the 10-point limit")],
+  ["R5 outside the limit, display too", "Stage", "pointLimit writes as", (s) => { const from = "inside the 10-point limit"; const to = "outside the 10-point limit"; change(s, "why", from, to); chosen(s, "why", from).display = to; }],
+  ["R5 at most 30", "uc11", "not on the page", (s) => change(s, "why", "at least 30", "at most 30")],
+  ["R5 at most 30, display too", "uc11", "int writes as", (s) => { change(s, "why", "at least 30", "at most 30"); chosen(s, "why", "at least 30").display = "at most 30"; }],
+  ["R5 20 or fewer", "uc12", "not on the page", (s) => change(s, "next", "20 or more", "20 or fewer")],
+  ["R5 20 or fewer, display too", "uc12", "int writes as", (s) => { change(s, "next", "20 or more", "20 or fewer"); chosen(s, "next", "20 or more").display = "20 or fewer"; }],
 ];
 for (const [name, id, expected, mutate] of mutations) test(`[unit] #201-3 mutation: ${name}`, async () => {
   const sample = sampleBy(id);
@@ -542,13 +563,15 @@ test("[unit] #201-3 control: added valid arm score", async () => {
   expect(await checkFigures([stage])).toEqual([]);
 });
 test("[unit] #201-3 each named format renders its whole claim", () => {
-  const cases: { format: Format; values: (number | string)[]; expected: string[]; arm?: FigureArm; arms?: [FigureArm, FigureArm] }[] = [
+  const cases: { format: Format; values: (number | string)[]; expected: string[]; metric?: Metric; arm?: FigureArm; arms?: [FigureArm, FigureArm] }[] = [
     { format: "pointsBehind", values: [-0.04266031343755382], expected: ["no more than about 4 points behind"] },
     { format: "pointsBehind", values: [0.02], expected: ["at least about 2 points ahead"] },
     { format: "pointsBehind", values: [-0.0427], expected: ["no more than about 4 points behind"] },
     { format: "pointsBehind", values: [0.001], expected: [] },
     { format: "pointsBehind", values: [9], expected: [] },
-    { format: "pointLimit", values: [0.1], expected: ["10-point"] },
+    { format: "pointLimit", values: [-0.04266031343755382, 0.1], expected: ["inside the 10-point limit"] },
+    { format: "pointLimit", values: [-0.12, 0.1], expected: ["outside the 10-point limit"] },
+    { format: "pointLimit", values: [-0.1, 0.1], expected: ["outside the 10-point limit"] },
     { format: "costShare", values: [0.19745918526106973], arms: ["jev", "llm"], expected: ["at about a fifth of the cost per kept answer"] },
     { format: "costShareOf", values: [0.19745918526106973], arms: ["jev", "llm"], expected: ["cost Jev about a fifth of what it cost the LLM", "cost Jev about a fifth of what it cost LLM"] },
     { format: "costShareOf", values: [1 / 0.19745918526106973], arms: ["llm", "jev"], expected: [] },
@@ -558,6 +581,9 @@ test("[unit] #201-3 each named format renders its whole claim", () => {
     { format: "armSpent5", values: [0.000080682], arm: "jev", expected: ["Jev spent $0.00008"] },
     { format: "int", values: [88], expected: ["88"] },
     { format: "int", values: [88.5], expected: [] },
+    { format: "int", metric: "minPaired", values: [30], expected: ["at least 30", "30 or more"] },
+    { format: "int", metric: "docCases", values: [20], expected: ["at least 20", "20 or more"] },
+    { format: "int", metric: "toMinimum", values: [25], expected: ["25 more"] },
     { format: "tiedEach", values: [38], arms: ["jev", "llm"], expected: ["Jev and the LLM tied, 38 each", "Jev and LLM tied, 38 each"] },
     { format: "tiedTo", values: [38], expected: ["tied 38 to 38"] },
     { format: "messageRun", values: [100], expected: ["100-message"] },
@@ -568,7 +594,7 @@ test("[unit] #201-3 each named format renders its whole claim", () => {
   ];
   for (const item of cases) {
     const entry: Figure = { part: "why", display: "", format: item.format, values: item.values, source: RECORDS,
-      ...(item.arm ? { arm: item.arm } : {}), ...(item.arms ? { arms: item.arms } : {}) };
+      ...(item.metric ? { metric: item.metric } : {}), ...(item.arm ? { arm: item.arm } : {}), ...(item.arms ? { arms: item.arms } : {}) };
     expect(render(entry, item.values)).toEqual(item.expected);
   }
 });

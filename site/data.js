@@ -2404,12 +2404,13 @@ window.JNJ = {
    },
    {
     "part": "why",
-    "display": "10-point",
+    "display": "inside the 10-point limit",
     "format": "pointLimit",
     "values": [
+     -0.04266031343755382,
      0.1
     ],
-    "source": "src/core/verdict.ts"
+    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv"
    },
    {
     "part": "why",
@@ -2480,7 +2481,7 @@ window.JNJ = {
    },
    {
     "part": "next",
-    "display": "30",
+    "display": "30 or more",
     "format": "int",
     "values": [
      30

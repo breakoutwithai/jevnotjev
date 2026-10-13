@@ -678,7 +678,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       return json({ error: "Not found." }, 404);
     if (request.method !== "GET" && request.method !== "HEAD")
       return json({ error: "Method not allowed." }, 405);
-    const path = pathname === "/privacy" ? "/privacy/" : pathname;
+    const path = pathname;
     if (path.split("/").some((p) => p.startsWith(".")))
       return json({ error: "Not found." }, 404);
     const target = resolve(

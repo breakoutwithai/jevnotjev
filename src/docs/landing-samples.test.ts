@@ -224,8 +224,8 @@ function runFacts(file: string, question: string | undefined): Promise<RunFacts 
 type Computed = { value: number | string } | { error: string };
 const no = (error: string): Computed => ({ error });
 async function computed(entry: Figure, metric: Metric, arm: FigureArm | undefined, sampleId: string): Promise<Computed> {
-  const kind = (ARM_METRICS as readonly string[]).includes(metric) ? "arm" : (RUN_METRICS as readonly string[]).includes(metric) ? "run"
-    : (CONSTANT_METRICS as readonly string[]).includes(metric) ? "constant" : "doc";
+  const within = (list: readonly string[]) => list.some((name) => name === metric);
+  const kind = within(ARM_METRICS) ? "arm" : within(RUN_METRICS) ? "run" : within(CONSTANT_METRICS) ? "constant" : "doc";
   if (kind === "constant") {
     // A pointLimit cites the run whose bound it places; its margin is still the src/core/verdict.ts constant.
     if (entry.source !== "src/core/verdict.ts" && !(entry.format === "pointLimit" && metric === "margin")) return no(`${metric} comes from src/core/verdict.ts, not ${entry.source}`);

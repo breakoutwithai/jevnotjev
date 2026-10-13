@@ -76,18 +76,16 @@ bun scripts/uc13/run-arms.ts label       # merge labels.csv into the records
 bun run validate docs/product/runs/2026-10-01-uc13-shop-bot/records.csv
 ```
 
-## Run status (2026-10-01)
+## Run status
 | Step | State |
 |---|---|
-| Fact sheet, 40 messages, acceptance rule, simple rule | written, before any arm ran |
-| Rule arm | run: 13 hand_off, 27 answer, cost 0 |
-| Jev arm | run: 40 calls, all `jev-1.13.0`; 22 hand_off, 18 answer; $0.001302 at the published price |
-| LLM arm | run: 40 calls, all `claude-haiku-4-5-20251001`; 22 hand_off, 18 answer; $0.103167 from `total_cost_usd` |
-| Labels | none yet |
-| Verdict | none |
+| First run, 2026-10-01 | 40 messages; Jev and the LLM each had 38 accepted answers ([records.csv](../runs/2026-10-01-uc13-shop-bot/records.csv)) |
+| Latest run, 2026-10-11 | 100 messages; Jev had 88 accepted answers and the LLM 86 ([LABELS.md](../runs/2026-10-11-uc13-shop-bot-100/LABELS.md)) |
+| Labels | All 40 first-run messages and all 100 latest-run messages were labelled ([first-run LABELS.md](../runs/2026-10-01-uc13-shop-bot/LABELS.md), [latest-run LABELS.md](../runs/2026-10-11-uc13-shop-bot-100/LABELS.md)) |
+| Verdict | First run: not enough evidence (rule 4) from its [records.csv](../runs/2026-10-01-uc13-shop-bot/records.csv). Latest run: use Jev (rule 3), recorded in [LABELS.md](../runs/2026-10-11-uc13-shop-bot-100/LABELS.md) |
 
 ## Not established
-- Anything about Jev's accuracy or cost on this decision; nothing has been measured yet.
+- The two recorded runs measured accepted answers and costs for this test decision. The first run tied at 38 of 40 and returned not enough evidence under rule 4 ([records.csv](../runs/2026-10-01-uc13-shop-bot/records.csv)); the latest run returned use Jev under rule 3 with 88 of 100 accepted for Jev and 86 of 100 for the LLM ([LABELS.md](../runs/2026-10-11-uc13-shop-bot-100/LABELS.md)). Whether those results hold for a real shop is still untested.
 - Whether the keyword rule already gets every unknown-stock and booking case right; if it does, Jev has nothing to add on the first decision.
 - Whether Haiku with these rules stands in for a real shop bot's prompt and model.
 - Whether 40 messages we wrote resemble what real customers send.

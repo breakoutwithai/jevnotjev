@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { formatRows, readDictRows } from "../../src/format/csv.ts";
 import { join } from "node:path";
 import { buildPosters, POSTERS_OUT, render, summariseRun, watchPage } from "./build-posters.ts";
+import { LANDING_COPY } from "../../src/shows/landing-copy.ts";
 import type { Poster } from "../../src/shows/posters.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -42,7 +43,7 @@ const submit = new FakeElement("button");
 const showKind = new FakeElement("input");
 showKind.value = "show";
 
-async function renderedOffice(): Promise<FakeElement> {
+async function renderedOffice(data: { posters: Poster[] } = committed): Promise<FakeElement> {
   const wrap = new FakeElement("div");
   const form = new FakeElement("form");
   const select = new FakeElement("select");
@@ -54,7 +55,7 @@ async function renderedOffice(): Promise<FakeElement> {
     querySelectorAll: (_selector: string) => [],
   };
   const fetch = async (url: string) => url === "shows/posters.json"
-    ? { ok: true, json: async () => committed }
+    ? { ok: true, json: async () => data }
     : { ok: false, json: async () => ({}) };
   new Function("document", "fetch", "crypto", script)(document, fetch, crypto);
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -94,6 +95,17 @@ describe("posters", () => {
       "Next step: Open the 100-message run, or try your own decision.",
       "Earlier run: 40 messages: tied 38 to 38, Not proven yet (LLM was Haiku 4.5).",
     ]);
+  });
+
+  test("[unit] a card whose primary link opens evidence has no second evidence link in details", async () => {
+    const posters = committed.posters.map((poster) => poster.id === "uc13" ? { ...poster, watch: null } : poster);
+    const wrap = await renderedOffice({ posters });
+    const card = wrap.children.find((child) => child.getAttribute("data-id") === "uc13");
+    expect(card).toBeDefined();
+    const links = card?.children.filter((child) => child.tag === "a") ?? [];
+    expect(links.filter((link) => link.textContent === "Open the evidence")).toHaveLength(1);
+    const details = card?.children.find((child) => child.tag === "details");
+    expect(details?.children.some((child) => child.className === "tk-links")).toBe(false);
   });
 
   test("[unit] T2 posters generated, at most 10, none typed", async () => {
@@ -217,7 +229,7 @@ describe("watch links", () => {
 
   test("[unit] the latest UC13 run opens the Stage page that plays it", async () => {
     const built = await buildPosters(ROOT);
-    expect(built.find((p) => p.id === "uc13")?.watch).toBe("./");
+    expect(built.find((p) => p.id === "uc13")?.watch).toBe("./#act2");
     expect(watchPage(ROOT, "2026-10-01-uc13-shop-bot")).toBe("little-shop/");
   });
 
@@ -249,6 +261,12 @@ describe("approved landing copy guards", () => {
     writeFileSync(join(root, folder, "records.csv"), formatRows([header, ...rows]));
     expect((await summariseRun(root, "2026-10-11-uc13-shop-bot-100"))?.computedVerdict).toBe("don't use Jev");
     await expect(buildPosters(root)).rejects.toThrow("card verdict disagrees with computed run verdict");
+  });
+
+  test("[unit] #201 a card with the right verdict word and wrong rule number stops generation", async () => {
+    const copies = { ...LANDING_COPY, uc11: { ...LANDING_COPY.uc11, verdict: "Not enough evidence (rule 4)" } };
+    expect((await summariseRun(ROOT, "2026-10-03-tokenmax"))?.computedRule).toBe(1);
+    await expect(buildPosters(ROOT, copies)).rejects.toThrow("card rule disagrees with computed run rule");
   });
 
   test("[unit] #201 a card verdict absent from the use-case section stops generation", async () => {

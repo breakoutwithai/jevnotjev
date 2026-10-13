@@ -128,7 +128,7 @@
     if (p.story) more.appendChild(el("p", "tk-story", p.story));
     more.appendChild(el("p", "tk-date", p.date));
     var count = el("p", "tk-count"); count.hidden = true; more.appendChild(count);
-    if (p.run) {
+    if (p.run && p.watch) {
       var links = el("p", "tk-links");
       var ev = el("a", "", "Open the evidence");
       ev.href = REPO + "/tree/main/docs/product/runs/" + p.run.folder;

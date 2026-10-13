@@ -8,13 +8,27 @@ import { join } from "node:path";
 import { createContext, runInContext } from "node:vm";
 import { evaluateText } from "../src/browser/results-loader.ts";
 import { validate } from "../src/format/validate.ts";
-import { build, buildSample, sampleScript, SAMPLE_OUT, SAMPLE_RECORDS } from "./stage-sample.ts";
+import { armTotal, build, buildSample, sampleScript, SAMPLE_OUT, SAMPLE_RECORDS, type StageSample, type StageCase } from "./stage-sample.ts";
 
 const ROOT = join(import.meta.dir, "..");
 const SITE = join(ROOT, "site");
 
-/** The router premise: model names and the word router. */
-const ROUTER = /sonnet|opus|\brouter\b/i;
+/** Only model names in the recorded data and the exact explained-copy model labels may mention Haiku. */
+const ROUTER = /haiku|sonnet|opus|\brouter\b/i;
+const EXPLAINED_HAIKU = /Claude Haiku 5\.5|Haiku 5\.5|Claude Haiku 4\.5|Haiku 4\.5/g;
+const RUN_MODELS = /claude-haiku-5-5|claude-haiku-4-5-20251001/g;
+function routerPremise(text: string, data: boolean): boolean {
+  if (!data) return ROUTER.test(text);
+  const json = text.replace(/^\s*\/\*[\s\S]*?\*\/\s*/, "").replace(/^window\.JNJ\s*=\s*/, "").replace(/;\s*$/, "");
+  const sample: StageSample = JSON.parse(json);
+  const copy = sample.explained;
+  const words = [copy.verdict, copy.why, copy.cases, copy.next, copy.rephrase, copy.earlier];
+  if (words.some((word) => word !== null && ROUTER.test(word.replace(EXPLAINED_HAIKU, "")))) return true;
+  const figures = JSON.stringify(copy.figures).replace(EXPLAINED_HAIKU, "").replace(RUN_MODELS, "");
+  if (ROUTER.test(figures)) return true;
+  const rest = JSON.stringify({ ...sample, explained: null }).replace(RUN_MODELS, "");
+  return ROUTER.test(rest);
+}
 /** The same, as whole words, for prose that may name OpenRouter. */
 const DOC_ROUTER = /haiku|sonnet|opus|\brouter\b/i;
 
@@ -83,8 +97,10 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
   });
 
   test("[unit] F2-D2 no router premise survives on the page or in its data; Haiku names the recorded LLM", async () => {
-    for (const file of ["data.js", "index.html"]) expect(await readFile(join(SITE, file), "utf8")).not.toMatch(ROUTER);
+    for (const file of ["data.js", "index.html"]) expect(routerPremise(await readFile(join(SITE, file), "utf8"), file === "data.js")).toBe(false);
     expect(await readFile(join(SITE, "data.js"), "utf8")).toContain("Claude Haiku 5.5");
+    expect(routerPremise((await readFile(join(SITE, "index.html"), "utf8")) + " Haiku", false)).toBe(true);
+    expect(routerPremise((await readFile(join(SITE, "data.js"), "utf8")).replace("On 100 shop messages", "Haiku routed 100 shop messages"), true)).toBe(true);
   });
 
   test("[unit] F2-D3 the sample holds the 100 labelled messages with the llm, rule and Jev answers of the run", async () => {
@@ -151,7 +167,13 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
     const csv = (await readFile(SAMPLE_RECORDS, "utf8")).split("\n").map((l) => (l.includes(",jev,") ? l.replace(",accept,", ",reject,") : l)).join("\n");
     await expect(buildSample(csv)).rejects.toThrow("Stage copy disagrees with computed verdict and rule");
     const original = await buildSample(await readFile(SAMPLE_RECORDS, "utf8"));
-    const sample = { ...original, summary: { ...original.summary, C: { ...original.summary.C, kept: 0, cpk: null } } };
+    const rejected: StageCase[] = [{ id: "zero", prompt: "A message", truth: "answer", arms: {
+      A: { picked: "answer", cost: 0.02, label: "accept" },
+      B: { picked: "hand_off", cost: 0, label: "reject" },
+      C: { picked: "hand_off", cost: 0.01, label: "reject" },
+    } }];
+    expect(armTotal(rejected, "C")).toEqual({ spend: 0.01, kept: 0, cpk: null });
+    const sample = { ...original, summary: { ...original.summary, C: armTotal(rejected, "C") } };
     expect(sample.summary.C.cpk).toBeNull();
     expect(sample.summary.A.cpk).not.toBeNull();
     const els = await renderPage(sampleScript(sample));

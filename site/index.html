@@ -264,8 +264,6 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
   }
 
   /* ---------- The recorded result ---------- */
-  var vr = J.verdict.result;
-  var VWORD = { "use Jev": "Use Jev", "don't use Jev": "Don't use Jev", "not enough evidence": "Not enough evidence" };
   $("heroResult").textContent = "Sample run: Shop bot, " + J.cases.length + " messages: Jev kept " + J.summary.C.kept + ", LLM " + J.summary.A.kept + ", simple rule " + J.summary.B.kept + ". Verdict: " + J.explained.verdict + ".";
   $("heroWhy").textContent = "Why: " + J.explained.why;
 

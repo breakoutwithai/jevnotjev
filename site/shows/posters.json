@@ -20,47 +20,62 @@
         "rephrase": null,
         "figures": [
           {
-            "text": "100",
+            "text": "100 messages",
             "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
             "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
           },
           {
-            "text": "88",
+            "text": "(88 against 86 of 100)",
             "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
             "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
           },
           {
-            "text": "86",
-            "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
-            "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
+            "text": "Jev 88",
+            "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "fact": "accepted:jev"
           },
           {
-            "text": "5.5",
+            "text": "Haiku 5.5",
             "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/README.md",
             "quote": "claude-haiku-5-5"
           },
           {
-            "text": "49",
+            "text": "LLM (Haiku 5.5) 86",
+            "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
+            "fact": "accepted:llm"
+          },
+          {
+            "text": "simple rule 49",
             "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
             "fact": "accepted:rule"
           },
           {
-            "text": "40",
-            "file": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
-            "fact": "labelled:jev"
+            "text": "of 100.",
+            "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
+            "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
           },
           {
-            "text": "38",
-            "file": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
-            "fact": "accepted:jev"
+            "text": "100-message run",
+            "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/LABELS.md",
+            "quote": "`bun src/decide/cli.ts verdict records.csv`: use Jev (rule 3). Jev accepted 88 of 100, the LLM 86 of 100 (paired a 83, b 5, c 3, d 9); Jev minus LLM +0.02, lower bound -0.043; Jev costs 0.197 of the LLM per accepted answer (upper bound 0.218)."
           },
           {
-            "text": "38",
-            "file": "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv",
-            "fact": "accepted:llm"
+            "text": "40 messages",
+            "file": "docs/product/runs/2026-10-01-uc13-shop-bot/LABELS.md",
+            "quote": "all 40 messages"
           },
           {
-            "text": "4.5",
+            "text": "38 to",
+            "file": "site/little-shop/index.html",
+            "quote": "Same accuracy as the LLM (38/40 each) at 1/79th of the cost"
+          },
+          {
+            "text": "to 38",
+            "file": "site/little-shop/index.html",
+            "quote": "Same accuracy as the LLM (38/40 each) at 1/79th of the cost"
+          },
+          {
+            "text": "Haiku 4.5",
             "file": "docs/product/runs/2026-10-11-uc13-shop-bot-100/README.md",
             "quote": "claude-haiku-4-5-20251001"
           }
@@ -77,6 +92,7 @@
         "labelledPaired": 100,
         "verdict": "use Jev",
         "computedVerdict": "use Jev",
+        "computedRule": 3,
         "reason": "use Jev: Jev is within 10 points of the LLM (lower bound -0.04) and costs 0.197 of it per accepted answer (upper bound 0.218)",
         "headline": "At least as accurate as the LLM (88/100 vs 86/100) at 1/4th of the cost",
         "whyNotYet": null,
@@ -105,7 +121,7 @@
           }
         ]
       },
-      "watch": "./"
+      "watch": "./#act2"
     },
     {
       "id": "uc11",
@@ -125,53 +141,70 @@
         "earlier": null,
         "figures": [
           {
-            "text": "1",
+            "text": "rule 1",
             "file": "docs/decision/verdict-rules.md",
             "quote": "1. **Not enough evidence**"
           },
           {
-            "text": "5",
-            "file": "docs/product/runs/2026-10-03-tokenmax/records.csv",
-            "fact": "labelled:jev",
-            "question": "q1"
+            "text": "Only 5 CVs",
+            "file": "docs/product/runs/2026-10-03-tokenmax/README.md",
+            "quote": "5 CVs x 2 questions"
           },
           {
-            "text": "30",
+            "text": "at least 30",
             "file": "docs/decision/verdict-rules.md",
             "quote": "on at least 30 paired Jev and rule cases"
           },
           {
-            "text": "5",
+            "text": "Jev 5",
             "file": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "fact": "accepted:jev",
             "question": "q1"
           },
           {
-            "text": "5",
+            "text": "Jev 5 of 5",
+            "file": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "fact": "labelled:jev",
+            "question": "q1"
+          },
+          {
+            "text": "the LLM 5",
             "file": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "fact": "accepted:llm",
             "question": "q1"
           },
           {
-            "text": "2",
+            "text": "the LLM 5 of 5",
+            "file": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "fact": "labelled:llm",
+            "question": "q1"
+          },
+          {
+            "text": "the simple rule 2",
             "file": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "fact": "accepted:rule",
             "question": "q1"
           },
           {
-            "text": "0.00008",
+            "text": "the simple rule 2 of 5",
+            "file": "docs/product/runs/2026-10-03-tokenmax/records.csv",
+            "fact": "labelled:rule",
+            "question": "q1"
+          },
+          {
+            "text": "Jev spent $0.00008",
             "file": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "fact": "spend:jev",
             "question": "q1"
           },
           {
-            "text": "0.0109",
+            "text": "LLM's $0.0109",
             "file": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "fact": "spend:llm",
             "question": "q1"
           },
           {
-            "text": "25",
+            "text": "25 more",
             "file": "docs/product/runs/2026-10-03-tokenmax/records.csv",
             "fact": "toMinimum",
             "question": "q1"
@@ -189,6 +222,7 @@
         "labelledPaired": 5,
         "verdict": null,
         "computedVerdict": "not enough evidence",
+        "computedRule": 1,
         "reason": null,
         "headline": null,
         "whyNotYet": null,
@@ -237,7 +271,7 @@
         "earlier": null,
         "figures": [
           {
-            "text": "20",
+            "text": "20 or more",
             "file": "docs/product/use-cases/uc12-requirement-evidence-check.md",
             "quote": "20 or more requirement and evidence pairs"
           }
@@ -266,7 +300,7 @@
         "earlier": null,
         "figures": [
           {
-            "text": "20",
+            "text": "20 or more",
             "file": "docs/product/use-cases/uc10-tech-stack-choice.md",
             "quote": "20 or more real project descriptions"
           }

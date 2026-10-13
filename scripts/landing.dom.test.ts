@@ -340,7 +340,8 @@ test("[integration] L12-L14 page dimensions and tap targets", async () => {
           const box = node.getBoundingClientRect();
           return style.visibility !== "hidden" && box.width > 0 && box.height > 0 && (box.width < 24 || box.height < 24);
         }).map((node) => `${node.tagName}#${node.id}.${node.className}`) }));
-      expect(measure.height).toBeLessThan(width === 390 ? 9000 : 6000);
+      // #201 adds the explained verdict to every card: measured 8085 at 390 and 4610 at 1440 on 2026-10-13.
+      expect(measure.height).toBeLessThan(width === 390 ? 8500 : 5000);
       expect(measure.small).toEqual([]);
       expect(measure.overflow).toBe(0);
     } finally { await page.close(); }

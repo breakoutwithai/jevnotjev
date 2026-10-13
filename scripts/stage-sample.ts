@@ -33,6 +33,11 @@ export interface StageCase {
   readonly truth: string;
   readonly arms: Readonly<Record<Letter, { readonly picked: string; readonly cost: number; readonly label: "accept" | "reject"; readonly confidence?: number }>>;
 }
+export function armTotal(cases: readonly StageCase[], arm: Letter): { spend: number; kept: number; cpk: number | null } {
+  const spend = cases.reduce((sum, c) => sum + c.arms[arm].cost, 0);
+  const kept = cases.filter((c) => c.arms[arm].label === "accept").length;
+  return { spend: round(spend, 8), kept, cpk: kept === 0 ? null : round(spend / kept, 8) };
+}
 export interface StageSample {
   readonly meta: {
     readonly note: string;
@@ -140,12 +145,7 @@ export async function buildSample(csv: string): Promise<StageSample> {
     cases.push({ id, prompt: str(a, "case_input"), truth, arms });
   }
 
-  const total = (k: Letter): { spend: number; kept: number; cpk: number | null } => {
-    const spend = cases.reduce((sum, c) => sum + c.arms[k].cost, 0);
-    const kept = cases.filter((c) => c.arms[k].label === "accept").length;
-    return { spend: round(spend, 8), kept, cpk: kept === 0 ? null : round(spend / kept, 8) };
-  };
-  const summary = { A: total("A"), B: total("B"), C: total("C") };
+  const summary = { A: armTotal(cases, "A"), B: armTotal(cases, "B"), C: armTotal(cases, "C") };
   const vs = (other: Letter): { wins: number; losses: number } => ({
     wins: cases.filter((c) => c.arms.C.label === "accept" && c.arms[other].label === "reject").length,
     losses: cases.filter((c) => c.arms.C.label === "reject" && c.arms[other].label === "accept").length,

@@ -172,7 +172,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
 <p>Jev kept <span data-sample="kept-C">88</span> answers and the LLM kept <span data-sample="kept-A">86</span>. Against the LLM, Jev won <span data-sample="wins-A">5</span> cases and lost <span data-sample="losses-A">3</span>; against the rule it won <span data-sample="wins-B">43</span> and lost <span data-sample="losses-B">4</span>. Each answer Jev kept cost <span data-sample="save-vs-a">80</span>% less than one the LLM kept. Below it, <strong>Median seconds per call</strong> shows how long each player took.</p>
 
 <h3>The verdict</h3>
-<p>The verdict is <strong><span data-sample="verdict-word">Use Jev</span></strong>, decided by rule <span data-sample="verdict-rule">3</span>; the page shows that verdict and rule together. The final section gives the why, case results, next step and earlier result before the supporting list and caveat. Walking the rules in order:</p>
+<p>The page shows <strong><span data-sample="verdict-word">Use Jev (rule 3)</span></strong> as its verdict line. Rule <span data-sample="verdict-rule">3</span> fired. The final section gives the why, case results, next step and earlier result before the supporting list and caveat. Walking the rules in order:</p>
 <ol>
   <li><strong>Rule one passes:</strong> Jev and the LLM have <span data-sample="paired">100</span> paired labelled cases, at least <span data-const="MIN_PAIRED">30</span>, and every paired row has a cost.</li>
   <li><strong>Rule two does not fire.</strong> The rule is not within the margin: the lower bound of the rule minus Jev is <span data-sample="rule-lower">-0.49</span>, not above <span data-const="MARGIN_BOUND">-0.10</span>. Jev is not clearly worse: the upper bound of Jev minus the LLM is <span data-sample="jev-upper">0.08</span>, not below <span data-const="MARGIN_BOUND">-0.10</span>. Jev is not dearer: the cost ratio is <span data-sample="cost-ratio">0.197</span>.</li>
@@ -199,6 +199,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
 
 <h2 id="fields">Field glossary</h2>
 <p>Labels on the sample cards and the recorded shop-bot run, plus the workspace fields, in the order you meet them.</p>
+<p>The card rephrase patterns below are separate from the ready packs P1 to P4 in the step labelled "New Scene".</p>
 <dl id="glossary">
   <dt>On the sample run page</dt><dd>The public page at <a href="../">/</a>.</dd>
   <dt>Sample run</dt><dd>The badge in the corner identifies the recorded shop-bot run below the sample cards. The cards also include questions that have not been tested.</dd>
@@ -210,6 +211,9 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>What the cases show:</dt><dd>The current Jev, LLM and rule results, or plainly that no cases have been run.</dd>
   <dt>Next step:</dt><dd>The next set of cases to label, or another way to test the question.</dd>
   <dt>Rephrased for Jev:</dt><dd>A fixed-answer question for a card whose original question does not fit Jev.</dd>
+  <dt>pattern P1</dt><dd>Card rephrase pattern: ask a closed choice and say what each option means, such as met, partly met or not met for a requirement and its evidence.</dd>
+  <dt>pattern P2</dt><dd>Card rephrase pattern: ask one yes or no statement Jev can check on one text, then let code combine the answers.</dd>
+  <dt>pattern P3</dt><dd>Card rephrase pattern: split a score into one fixed-answer check per item, then let code weight the answers into the score.</dd>
   <dt>Earlier run:</dt><dd>The earlier result when the same question has been tested before.</dd>
   <dt>See all <span data-sample="cases">100</span> cases</dt><dd>The summary that opens the complete list of messages; the number follows the recorded run's case count.</dd>
   <dt>Try it: pick a seat</dt><dd>The first action links to an interactive example where you choose an answer.</dd>
@@ -236,8 +240,14 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>Method</dt><dd>Which player a timing row is for.</dd>
   <dt>Median seconds per call</dt><dd>The middle time one call took. The LLM figure includes starting the command that called it.</dd>
   <dt>Use Jev</dt><dd>Verdict: Jev is within the margin of the LLM and clearly cheaper per kept answer (section 4, rule three).</dd>
+  <dt>Use Jev (rule 3)</dt><dd>The recorded sample verdict, including the rule number shown on the page.</dd>
+  <dt>Use Jev (100 messages)</dt><dd>The shop-bot card's result from its latest recorded run.</dd>
   <dt>Don't use Jev</dt><dd>Verdict: a free rule does the job, or Jev is clearly worse or clearly dearer (rule two).</dd>
   <dt>Not enough evidence</dt><dd>Verdict: too few paired labelled cases or missing costs (rule one), or the use-Jev conditions were not all met (rule four).</dd>
+  <dt>Not enough evidence (rule 1)</dt><dd>The CV card has too few paired labelled cases for a verdict comparison.</dd>
+  <dt>Jev probably not</dt><dd>The original question asks for open judgement or writing; the card gives a fixed-answer rephrase to test instead.</dd>
+  <dt>Split two ways</dt><dd>Use a script where a check can settle the answer, and test a fixed-answer Jev question where the evidence is prose.</dd>
+  <dt>Not proven yet</dt><dd>An earlier run did not establish enough evidence for the use-Jev verdict.</dd>
   <dt>Load your own script (CSV)</dt><dd>Choose a results file (one row per case per player) to check it and see its verdict. It is read in your browser.</dd>
 
   <dt>In the workspace</dt><dd>The signed-in tester area, titled "Backstage Pass" on screen (<a href="/backstage/">open it</a>). Six steps, each a button in the row at the top.</dd>

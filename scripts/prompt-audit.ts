@@ -28,7 +28,7 @@
 // evidence commits or a TOUCHED path. `done` and `running` are never flagged, because no claim of
 // absence is made.
 //
-// Exit 2: bad arguments, no prompts in the directory (docs/prompts/* is gitignored, so worktrees have
+// Exit 2: bad arguments, a shallow repository (boundary commits read as roots), no prompts in the directory (docs/prompts/* is gitignored, so worktrees have
 // none), an unresolvable ref, or any failing git command. A git failure is never read as "no commits".
 //
 // The ref is resolved once to a commit SHA; the report's first line names it (`ref: <ref> @ <sha12>`).
@@ -741,6 +741,9 @@ function run(o: Options): number {
   // Only the newline git appends is removed: a repository path may itself end in whitespace.
   const top = gitAt(null)(["rev-parse", "--show-toplevel"]);
   const git = gitAt(top.code === 0 ? top.out.replace(/\n$/, "") : null);
+  // A shallow boundary commit reads as a root commit (diff-tree --root lists every file), which would
+  // credit unchanged paths to attribution and trailer delivery alike: refuse, as for any git failure.
+  if (must(git, ["rev-parse", "--is-shallow-repository"]).trim() === "true") throw new Error("the repository has shallow history: deliveries cannot be read from a boundary commit; run `git fetch --unshallow` first");
   const sha = must(git, ["rev-parse", "--verify", `${o.ref}^{commit}`]).trim();
   const tree = buildTree(must(git, ["ls-tree", "-r", "-z", "--name-only", sha]));
   const lookup = o.noGh ? null : realIssueLookup;

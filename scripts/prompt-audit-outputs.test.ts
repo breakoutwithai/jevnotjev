@@ -644,6 +644,29 @@ describe("attribution ledger", () => {
     expect(renderTable(rows)).toContain("INVALID-STATUS,INVALID-ATTRIBUTION");
   });
 
+  test("[integration] AT18 a shallow clone exits 2 naming the shallow history instead of crediting its boundary commit", () => {
+    withTemp((repo) => {
+      commitFiles(repo, "2026-10-06T12:00:00Z", "feat: a", { "a.ts": "a\n" });
+      commitFiles(repo, "2026-10-07T12:00:00Z", "chore: other only", { "other.txt": "o\n" });
+      const other = head(repo);
+      const base = mkdtempSync(join(tmpdir(), "jnj-prompt-shallow-"));
+      try {
+        const clone = join(base, "clone");
+        const made = Bun.spawnSync(["git", "clone", "-q", "--depth", "1", `file://${repo}`, clone], { stdout: "pipe", stderr: "pipe" });
+        expect(made.exitCode).toBe(0);
+        mkdirSync(join(clone, "docs/prompts"), { recursive: true });
+        writeFileSync(join(clone, "docs/prompts/20261005-old.prompt.md"), promptWith("old", "2026-10-05", [{ repo: REPO, path: "a.ts", kind: "file" }]));
+        writeFileSync(join(base, "ledger.json"), JSON.stringify({ old: [other] }));
+        const run = Bun.spawnSync(["bun", SCRIPT, "--no-gh", "--ref", "HEAD", "--repo", REPO, "--attributions", join(base, "ledger.json")], { cwd: clone, stdout: "pipe", stderr: "pipe" });
+        expect(run.stdout.toString()).not.toContain("DELIVERED-ATTRIBUTED");
+        expect(run.stderr.toString()).toContain("shallow");
+        expect(run.exitCode).toBe(2);
+      } finally {
+        rmSync(base, { recursive: true, force: true });
+      }
+    });
+  });
+
   test("[unit] AT8 parseAttributions rejects every malformed shape loudly", () => {
     const sha = "a".repeat(40);
     expect(parseAttributions(JSON.stringify({ p: [sha] }))).toEqual({ p: [sha] });

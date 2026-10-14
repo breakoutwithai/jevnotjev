@@ -8,6 +8,8 @@
   animation: overture-out 0s linear 1.6s forwards;
 }
 .overture.gone { display: none; }
+/* html.motion is decided once at load; this media query is live, so turning reduced motion on drops the curtain at once. */
+@media (prefers-reduced-motion: reduce) { .motion .overture { display: none; } }
 @keyframes overture-out { to { visibility: hidden; } }
 .curtain {
   position: absolute; top: 0; bottom: 0; width: 50.5%; pointer-events: none;
@@ -50,6 +52,9 @@
   }
   .drape.l { left: 0; clip-path: polygon(0 0, 100% 0, 78% 55%, 40% 100%, 0 100%); }
   .drape.r { right: 0; clip-path: polygon(0 0, 100% 0, 100% 100%, 60% 100%, 22% 55%); }
+}
+/* Looping motion is gated by the live media query as well as html.motion, so it stops when reduced motion is turned on. */
+@media (min-width: 1300px) and (prefers-reduced-motion: no-preference) {
   .motion .drape.l { animation: sway 9s ease-in-out infinite alternate; }
   .motion .drape.r { animation: sway 11s ease-in-out infinite alternate-reverse; }
 }
@@ -85,7 +90,9 @@
   filter: drop-shadow(0 0 4px rgba(255, 214, 120, .9));
 }
 .marquee::before { top: -5px; } .marquee::after { bottom: -5px; }
-.motion .marquee::before, .motion .marquee::after { animation: chase 1.6s steps(2) infinite; }
+@media (prefers-reduced-motion: no-preference) {
+  .motion .marquee::before, .motion .marquee::after { animation: chase 1.6s steps(2) infinite; }
+}
 @keyframes chase { 50% { opacity: .55; } }
 .marquee .kicker { display: block; font: 700 11px var(--sans); letter-spacing: .32em; text-transform: uppercase; color: #e0b04e; }
 .marquee .billing { display: block; margin-top: 3px; font: 800 clamp(22px, 2.2vw, 28px)/1.05 var(--serif); letter-spacing: -.01em; }

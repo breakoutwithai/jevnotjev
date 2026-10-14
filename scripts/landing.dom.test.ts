@@ -367,65 +367,139 @@ async function actionHit(page: Page): Promise<{ covered: boolean; hit: string }>
   });
 }
 
-async function bare(width: number, height: number, motion: "no-preference" | "reduce"): Promise<Page> {
+/**
+ * Opens the page with theatre.js held at the network, so the curtain cleanup (animationend, the fallback timer) cannot
+ * run until release() is called. Everything before it, including the CSS that closes and parts the curtains, is live.
+ */
+async function held(width: number, height: number, motion: "no-preference" | "reduce"): Promise<{ page: Page; release: () => void }> {
   const page = await browser.newPage({ viewport: { width, height }, reducedMotion: motion });
   await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
-  await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "domcontentloaded" });
-  return page;
+  let release = (): void => undefined;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/theatre.js", async (route) => { await gate; await route.continue(); });  await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "commit" });
+  await page.waitForFunction(() => document.getElementById("primaryAction") !== null && document.querySelectorAll(".overture .curtain").length === 2);
+  return { page, release };
+}
+
+/** Overture and curtains that take up space and are not hidden: what a reader could see. */
+async function shownCurtains(page: Page): Promise<number> {
+  return page.evaluate(() => [...document.querySelectorAll(".overture, .overture .curtain")]
+    .filter((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden").length);
+}
+
+/** left and right are each curtain's [left edge, right edge] in viewport pixels. */
+interface CurtainFrame { shown: boolean; left: number[]; right: number[] }
+
+/**
+ * Pauses every animation on the page and seeks the curtain timeline to each fraction of its end time, reading where
+ * both curtains are. Returns null when either curtain has no animation of its own.
+ */
+async function curtainTimeline(page: Page, fractions: number[]): Promise<{ endMs: number; pointer: string[]; frames: CurtainFrame[] } | null> {
+  return page.evaluate((at) => {
+    const overture = document.querySelector(".overture");
+    const cl = document.querySelector(".overture .curtain.cl");
+    const cr = document.querySelector(".overture .curtain.cr");
+    if (!overture || !cl || !cr) return null;
+    const all = document.getAnimations();
+    all.forEach((a) => a.pause());
+    const own = [cl.getAnimations()[0], cr.getAnimations()[0]];
+    if (!own[0] || !own[1]) return null;
+    const endMs = Math.max(...own.map((a) => Number(a?.effect?.getComputedTiming().endTime ?? 0)));
+    const frames = at.map((f) => {
+      all.forEach((a) => { a.currentTime = f * endMs; });
+      const l = cl.getBoundingClientRect(), r = cr.getBoundingClientRect();
+      return { shown: getComputedStyle(overture).visibility !== "hidden", left: [Math.round(l.left), Math.round(l.right)], right: [Math.round(r.left), Math.round(r.right)] };
+    });
+    all.forEach((a) => { a.currentTime = 0; });
+    return { endMs, pointer: [overture, cl, cr].map((node) => getComputedStyle(node).pointerEvents), frames };
+  }, fractions);
 }
 
 const CURTAIN_VIEWPORTS: [number, number][] = [[1280, 900], [390, 844]];
 
-test("[integration] L16 the curtain parts on load by itself and never covers the primary action", async () => {
+test("[integration] L16 the curtain is closed at the start, half open midway and fully parted at the end, never covering the primary action", async () => {
   for (const [width, height] of CURTAIN_VIEWPORTS) {
-    const page = await bare(width, height, "no-preference");
+    const { page, release } = await held(width, height, "no-preference");
     try {
-      // Closed at first paint: both curtains are on the page, animating, and let every pointer through.
-      const early = await page.evaluate(() => {
-        const curtains = [...document.querySelectorAll(".overture .curtain")];
-        const overture = document.querySelector(".overture");
-        return {
-          count: curtains.length,
-          motion: document.documentElement.classList.contains("motion"),
-          shown: overture ? getComputedStyle(overture).display !== "none" : false,
-          pointer: [overture, ...curtains].map((node) => node ? getComputedStyle(node).pointerEvents : "missing"),
-          timing: curtains.map((node) => {
-            const s = getComputedStyle(node);
-            return Math.round((parseFloat(s.animationDuration) + parseFloat(s.animationDelay)) * 1000);
-          }),
-          left: curtains[0]?.getBoundingClientRect().left ?? NaN,
-        };
-      });
-      expect(early.count).toBe(2);
-      expect(early.motion).toBe(true);
-      expect(early.shown).toBe(true);
-      expect(early.pointer).toEqual(["none", "none", "none"]);
-      for (const ms of early.timing) expect(ms >= 1200 && ms <= 1800).toBe(true);
-      expect(early.left).toBeLessThanOrEqual(0);
+      expect(await page.evaluate(() => document.documentElement.classList.contains("motion"))).toBe(true);
+      const line = await curtainTimeline(page, [0, 0.6, 1]);
+      expect(line).not.toBeNull();
+      if (!line) return;
+      expect(line.endMs >= 1200 && line.endMs <= 1800).toBe(true);
+      expect(line.pointer).toEqual(["none", "none", "none"]);
+      const [start, mid, end] = line.frames;
+      const half = width / 2;
+      // Start: the two curtains meet over the middle of the screen.
+      expect(start?.shown).toBe(true);
+      expect(start?.left[0]).toBe(0);
+      expect((start?.left[1] ?? 0) >= half && (start?.right[0] ?? width) <= half).toBe(true);
+      expect(start?.right[1]).toBe(width);
+      // Midway: each has moved off its edge but is still partly on screen.
+      expect((mid?.left[1] ?? 0) > 0 && (mid?.left[1] ?? half) < half).toBe(true);
+      expect((mid?.right[0] ?? width) < width && (mid?.right[0] ?? half) > half).toBe(true);
+      // End: both are fully off the screen.
+      expect((end?.left[1] ?? 1) <= 0 && (end?.right[0] ?? 0) >= width).toBe(true);
+      // Even closed, the curtain lets the primary action take the pointer.
       expect((await actionHit(page)).covered).toBe(true);
-      // Parts without a scroll or a click, then leaves the page.
+      await page.evaluate(() => document.getAnimations().forEach((a) => a.play()));
+      release();
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
       expect(await page.locator(".overture").isVisible()).toBe(false);
       expect(await page.evaluate(() => scrollY)).toBe(0);
       expect(await actionHit(page)).toEqual({ covered: true, hit: "A" });
-    } finally { await page.close(); }
+    } finally { release(); await page.close(); }
   }
 }, 30000);
 
-test("[integration] L17 under reduced motion no closed curtain is ever shown", async () => {
+test("[integration] L16b a curtain whose animation never ends is still taken off the page by the fallback", async () => {
+  const { page, release } = await held(390, 844, "no-preference");
+  try {
+    await page.evaluate(() => document.getAnimations().forEach((a) => { a.pause(); a.currentTime = 0; }));
+    expect(await shownCurtains(page)).toBe(3);
+    release();
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+    expect(await page.evaluate(() => document.getElementById("overture")?.classList.contains("gone"))).toBe(true);
+    expect(await shownCurtains(page)).toBe(0);
+    expect(await actionHit(page)).toEqual({ covered: true, hit: "A" });
+  } finally { release(); await page.close(); }
+}, 15000);
+
+test("[integration] L17 under reduced motion no closed curtain is shown, even before the curtain script loads", async () => {
   for (const [width, height] of CURTAIN_VIEWPORTS) {
-    const page = await bare(width, height, "reduce");
+    const { page, release } = await held(width, height, "reduce");
     try {
-      const state = await page.evaluate(() => ({
+      const before = await page.evaluate(() => ({
         motion: document.documentElement.classList.contains("motion"),
-        curtain: document.documentElement.dataset.curtain,
-        shown: [...document.querySelectorAll(".overture, .overture .curtain")].filter((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden").length,
         centre: document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest(".overture") === null,
       }));
-      expect(state).toEqual({ motion: false, curtain: "open", shown: 0, centre: true });
+      expect(before).toEqual({ motion: false, centre: true });
+      expect(await shownCurtains(page)).toBe(0);
       expect((await actionHit(page)).covered).toBe(true);
-    } finally { await page.close(); }
+      release();
+      await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+      expect(await shownCurtains(page)).toBe(0);
+    } finally { release(); await page.close(); }
   }
+}, 30000);
+
+test("[integration] L19 turning on reduced motion while the page is open stops the marquee and drapes and drops the curtain", async () => {
+  const page = await pageAt(1440, 900, "no-preference");
+  try {
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+    const running = () => page.evaluate(() => ({
+      bulbs: getComputedStyle(document.querySelector(".marquee") ?? document.body, "::before").animationName,
+      drape: getComputedStyle(document.querySelector(".drape.l") ?? document.body).animationName,
+    }));
+    expect(await running()).toEqual({ bulbs: "chase", drape: "sway" });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    expect(await running()).toEqual({ bulbs: "none", drape: "none" });
+  } finally { await page.close(); }
+  const { page: mid, release } = await held(390, 844, "no-preference");
+  try {
+    expect(await shownCurtains(mid)).toBe(3);
+    await mid.emulateMedia({ reducedMotion: "reduce" });
+    expect(await shownCurtains(mid)).toBe(0);
+  } finally { release(); await mid.close(); }
 }, 30000);
 
 for (const motion of MOTIONS) {

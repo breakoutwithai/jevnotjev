@@ -35,7 +35,7 @@ Quoted labels come from the Backstage source; each is followed by the source fil
 
 - [ ] Pick the right answer for each case yourself, before you see the models' answers.
 - Where: the room `Judge the answers` (`site/backstage/index.html:335`). Start with `Calibrate first: 5 practice cases` (`site/backstage/index.html:338`). Then press `Open blind judging and lock retries` (`src/backstage/main.ts:725`) and confirm `Finish retrying and judge this fixed set of answers?` (`site/backstage/index.html:372`).
-- For each case, press the button that carries your answer name (`card?.choices[0]` (`src/backstage/main.ts:692`) for the first answer, and the second answer beside it).
+- For each case, press the button that carries your answer name (`card?.choices[0]` (`src/backstage/main.ts:692`) for the first answer, and the second answer beside it). Then press `Next case` (`site/backstage/index.html:393`) and repeat until the last case.
 - When every case has your pick, press `Finish judging and lock labels` (`site/backstage/index.html:399`) and confirm.
 - **You see:** the question `Show who answered and lock your labels?` (`site/backstage/index.html:411`); after you confirm, `Cost and downloads` (`site/backstage/index.html:430`) shows `Results by comparison` (`src/backstage/main.ts:601`).
 

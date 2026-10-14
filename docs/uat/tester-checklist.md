@@ -1,67 +1,75 @@
 # Tester checklist for one complete Backstage run
 
-Use this to test Jev!Jev on one decision of your own, from question to verdict. Each step says what you see on screen when it worked. When you finish, send us only what "What to send us" lists. You keep your keys, your cases and your answers.
-
-Quoted labels come from the Backstage source; each is followed by the source file and line in brackets so we can keep this page in step with the app. A test (`src/docs/tester-checklist.test.ts`) fails if a label moves or changes.
+Test one decision with two possible answers, from question to verdict. Use synthetic or redacted inputs and keep your keys, cases and answers private. You will run Jev, one LLM and a keyword rule, then judge their answers. This tests a fixed decision, not a chat conversation.
 
 ## Before you start
 
-- Backstage is at https://jevnotjev.breakoutwithai.com/backstage/ and needs a sign-in; we tell you how when we invite you.
-- Bring your own TypeSafe API key for Jev and, for the LLM comparison, your own key for one model provider. Calls are billed to your own accounts.
+- Open https://jevnotjev.breakoutwithai.com/backstage/ and sign in using the invitation instructions. A laptop gives you more room to read; phone use is also worth testing.
+- Bring a TypeSafe API key for Jev (from https://console.typesafe.ai/playground) and a key for one model provider for the LLM comparison. Jev-only mode needs only the TypeSafe key; the optional Question coach and case drafting need a model key. Calls and retries are billed to your own accounts. Time and spend depend on your cases, provider and retries; record what you actually observe.
 - Use made-up or redacted cases only. No names, emails, account numbers or customer data.
-- A full verdict needs 30 cases that you label yourself: `A shared verdict needs 30 paired` (`site/backstage/index.html:90`). Fewer cases still run and end in "not enough evidence".
+- A shared verdict needs at least 30 paired labelled cases, explained in step 4. Reaching 30 does not guarantee a decisive verdict: missing costs, uncertain differences or other evidence limits can still give "not enough evidence".
+- Ready packs P1 to P4 contain 10 cases each: enough to rehearse, below the shared-verdict minimum. P1 labels were approved by a person; P2 to P4 labels were drafted by an agent and need your review. P5 to P8 contain 30 synthetic cases each with no labels. Pick each case yourself to test blind judging. Adding cases or selecting Unsure may leave fewer than 30 eligible pairs.
 
 ## Step 1: Write the decision and acceptance rule
 
 - [ ] Write one question with two possible answers, and the rule you will use to decide which answer is right.
-- Where: the first room, `Your question` (`site/backstage/index.html:42`), under `What do you want to decide?` (`site/backstage/index.html:21`).
-- Fill in `One question` (`site/backstage/index.html:25`), `First answer` (`site/backstage/index.html:47`), `Second answer` (`site/backstage/index.html:52`), `What the first answer means` (`site/backstage/index.html:57`), `What the second answer means` (`site/backstage/index.html:63`) and `Keep an answer when...` (`site/backstage/index.html:71`). Both meanings are required; a run will not start without them.
-- **You see:** your question and both answers filled in, and `Next room` (`site/backstage/index.html:468`) takes you to `Who answers` (`site/backstage/index.html:151`).
+- Where: the first room, `Your question` <!-- source: site/backstage/index.html -->, under `What do you want to decide?` <!-- source: site/backstage/index.html -->.
+- Fill in `One question` <!-- source: site/backstage/index.html -->, `First answer` <!-- source: site/backstage/index.html -->, `Second answer` <!-- source: site/backstage/index.html -->, `What the first answer means` <!-- source: site/backstage/index.html -->, `What the second answer means` <!-- source: site/backstage/index.html --> and `Keep an answer when...` <!-- source: site/backstage/index.html -->. Both meanings are required; a run will not start without them.
+- **You see:** your question and both answers filled in, and `Next room` <!-- source: site/backstage/index.html --> takes you to `Who answers` <!-- source: site/backstage/index.html -->.
 
 ## Step 2: Add your cases
 
-- [ ] Add your cases, one per line, or import a CSV.
-- Where: the room `Your cases` (`site/backstage/index.html:251`). Type into `Cases, one per line` (`site/backstage/index.html:261`), use `Draft starter cases` (`site/backstage/index.html:268`) (it needs a `Model provider` (`site/backstage/index.html:102`) and `Your model key` (`site/backstage/index.html:103`) in the Question coach in the first room), or `Import cases CSV` (`site/backstage/index.html:290`).
-- **You see:** the line under the cases changes from `No cases yet.` (`site/backstage/index.html:297`) to a count of your cases.
+- [ ] Add your cases, one per line, or import a CSV. If using a ready pack, check its case count before running.
+- Where: the room `Your cases` <!-- source: site/backstage/index.html -->. Type into `Cases, one per line` <!-- source: site/backstage/index.html -->, use `Draft starter cases` <!-- source: site/backstage/index.html --> (it needs a `Model provider` <!-- source: site/backstage/index.html --> and `Your model key` <!-- source: site/backstage/index.html --> in the Question coach in the first room), or `Import cases CSV` <!-- source: site/backstage/index.html -->.
+- **You see:** the line under the cases changes from `No cases yet.` <!-- source: site/backstage/index.html --> to a count of your cases.
 
 ## Step 3: Run Jev, an LLM and a rule on every case
 
 - [ ] Choose Jev, one current LLM and a simple keyword rule, then run every case.
-- Where: in `Who answers` (`site/backstage/index.html:151`) paste your `TypeSafe API key` (`site/backstage/index.html:171`), tick `Choose optional` (`site/backstage/index.html:158`) comparisons, tick one model under `Optional models` (`site/backstage/index.html:196`) and enter its key (`A key field appears below for each provider` (`site/backstage/index.html:192`)), and tick `Include a local` (`site/backstage/index.html:199`) keyword rule with words in `Literal keywords, one per line` (`site/backstage/index.html:237`).
-- Then in `Your cases` press `Run all cases` (`site/backstage/index.html:321`).
-- **You see:** `No calls in progress.` (`src/backstage/main.ts:548`) and the run line ending in 0 `have no answer.` (`src/backstage/main.ts:541`). If that number is above 0, some calls failed: press `Retry unfinished calls` (`site/backstage/index.html:324`) once, and if it stays above 0, report a blocker for step 3.
+- Where: in `Who answers` <!-- source: site/backstage/index.html --> paste your `TypeSafe API key` <!-- source: site/backstage/index.html -->, tick `Choose optional comparisons` <!-- source: site/backstage/index.html -->, tick one model under `Optional models` <!-- source: site/backstage/index.html --> and enter its provider key in the field that appears. Tick `Include a local keyword rule` <!-- source: site/backstage/index.html --> and enter words in `Literal keywords, one per line` <!-- source: site/backstage/index.html -->.
+- Then in `Your cases` <!-- source: site/backstage/index.html --> press `Run all cases` <!-- source: site/backstage/index.html -->.
+- **You see:** `No calls in progress.` <!-- source: src/backstage/main.ts --> and the run line ending in 0 `have no answer.` <!-- source: src/backstage/main.ts -->. If that number is above 0, some calls failed: press `Retry unfinished calls` <!-- source: site/backstage/index.html --> once. Retrying may add charges. If missing answers remain, report a blocker for step 3 before locking retries.
 
 ## Step 4: Review the answers blind
 
 - [ ] Pick the right answer for each case yourself, before you see the models' answers.
-- Where: the room `Judge the answers` (`site/backstage/index.html:335`). Start with `Calibrate first: 5 practice cases` (`site/backstage/index.html:338`). Then press `Open blind judging and lock retries` (`src/backstage/main.ts:725`) and confirm `Finish retrying and judge this fixed set of answers?` (`site/backstage/index.html:372`).
-- For each case, press the button that carries your answer name (`card?.choices[0]` (`src/backstage/main.ts:692`) for the first answer, and the second answer beside it). Then press `Next case` (`site/backstage/index.html:393`) and repeat until the last case.
-- When every case has your pick, press `Finish judging and lock labels` (`site/backstage/index.html:399`) and confirm.
-- **You see:** the question `Show who answered and lock your labels?` (`site/backstage/index.html:411`); after you confirm, `Cost and downloads` (`site/backstage/index.html:430`) shows `Results by comparison` (`src/backstage/main.ts:601`).
+- Where: the room `Judge the answers` <!-- source: site/backstage/index.html -->. The section `Calibrate first: 5 practice cases` <!-- source: site/backstage/index.html --> contains five shop examples, separate from your question. The screen recommends practice first, but practice is optional and does not block judging: pick an answer or Unsure, read the reference feedback, then press `Next practice case` <!-- source: site/backstage/index.html -->. These picks do not count toward your run or its 30-case minimum.
+- The button `Open blind judging and lock retries` <!-- source: src/backstage/main.ts --> appears only after your run has stopped and there are answers to judge; completing practice does not unlock it. Finish retry decisions, press it, then confirm `Finish retrying and judge this fixed set of answers?` <!-- source: site/backstage/index.html -->. You cannot retry after this lock.
+- For each run case, press the button with the answer name you chose in step 1. Then press `Next case` <!-- source: site/backstage/index.html --> and repeat. `Unsure` <!-- source: site/backstage/index.html --> records no label for that case and does not count toward the paired minimum; it also replaces any imported label for that case.
+- A paired case counts only when both Jev and the comparison have answered that same case and each answer is labelled accepted or rejected. Rejected answers count too. Missing answers and missing labels do not count. Your human picks and imported labels approved by a person can count. Unreviewed agent labels do not count; make your own picks for this test. The Jev-versus-LLM and Jev-versus-rule paired counts can differ.
+- When you have reviewed your cases, press `Finish judging and lock labels` <!-- source: site/backstage/index.html -->. You may leave cases unlabelled, but they reduce the paired count.
+- **You see:** `Show who answered and lock your labels?` <!-- source: site/backstage/index.html -->; after you confirm, `Cost and downloads` <!-- source: site/backstage/index.html --> shows `Results by comparison` <!-- source: src/backstage/main.ts -->.
+<!-- Behavioral provenance: src/backstage/main.ts renderCard; src/backstage/calibration-view.ts mountCalibration; src/backstage/run.ts #importedCall; src/core/metrics.ts paired; src/labels/starter-packs.ts STARTER_PACKS. -->
 
 ## Step 5: Reach a verdict
 
 - [ ] Open the last room and read the verdict.
-- Where: the room `Verdict` (`site/backstage/index.html:452`).
-- **You see:** one heading per comparison that ends in the verdict word, `pair.verdict.verdict` (`src/backstage/main.ts:651`): `use Jev`, `don't use Jev` or `not enough evidence` (the possible values of `VerdictName` (`src/core/verdict.ts:21`)), with the reason under it.
-- Verdict words: `use Jev`, `don't use Jev`, `not enough evidence`.
-- "not enough evidence" is a finished run, not a failure. It usually means fewer than 30 labelled cases: `30 paired, human-labelled cases` (`site/backstage/index.html:460`).
+- Where: the room `Verdict` <!-- source: site/backstage/index.html -->.
+- **You see:** a heading for each comparison, with its comparison name followed by a verdict word and a reason. A `Jev-only rehearsal` <!-- source: src/backstage/main.ts --> heading means no comparison verdict: it is not a completed three-method run. Return to step 3 with an LLM and rule selected in a new scene.
+- Verdict words: `use Jev` <!-- source: src/core/verdict.ts -->, `don't use Jev` <!-- source: src/core/verdict.ts -->, `not enough evidence` <!-- source: src/core/verdict.ts -->.
+- "not enough evidence" is a finished comparison run, not necessarily a failure. Read its reason: it may ask for more paired labels or identify another evidence limit. Report that outcome as shown.
 
 ## What to send us
 
-- A screenshot of the verdict heading, or the verdict line copied as text.
-- The `Cost / kept` (`src/backstage/main.ts:623`) figures from `Results by comparison`, one per method.
-- Which steps above worked, by step number, and how long the run took.
+Email jev@breakoutwithai.com with only this completion evidence. Use plain text where possible:
+
+- Which steps worked, by step number; where you stopped, if any; browser/device and actual elapsed time.
+- Each comparison name and its verdict heading and reason. If you see Jev-only rehearsal instead, report that as an incomplete comparison test.
+- From `Results by comparison` <!-- source: src/backstage/main.ts -->, copy each method's `Kept / labelled` <!-- source: src/backstage/main.ts --> and `Unlabelled` <!-- source: src/backstage/main.ts --> counts, plus each comparison's `paired labelled cases` <!-- source: src/backstage/main.ts --> and excluded count. Include the method names so we know which numbers belong together.
+- The `Cost / kept` <!-- source: src/backstage/main.ts --> figures, one per method, exactly as shown, including unavailable values.
+- Spend is optional: copy `Answers-only spend` <!-- source: src/backstage/main.ts --> per method and `Total actual attempts` <!-- source: src/backstage/main.ts --> with both known spend and unknown charges. These are different measures; do not add repeated Jev figures from separate comparisons together.
 
 ## Never send
 
-- Any API key, password or account details, including a screenshot that shows a key field.
-- Case text, the private details behind your question, or the models' answers.
-- The downloads `Download records.csv` (`site/backstage/index.html:434`) or `Download run evidence` (`site/backstage/index.html:436`): both hold your case text (`Treat case text` (`site/backstage/index.html:447`)). Keep them for yourself.
+- Any API key, password or account details.
+- Your question, case text, private inputs or the models' answers.
+- Crop screenshots to exclude the question, case text and key fields, including any revealed answers. Prefer copying the safe headings and counts as text.
+- The downloads `Download records.csv` <!-- source: site/backstage/index.html --> or `Download run evidence` <!-- source: site/backstage/index.html -->: both hold your case text. Keep them for yourself.
 
 ## Report a blocker
 
 If a step does not work, or you cannot tell whether it worked:
 
-1. Open a GitHub issue with the template `.github/ISSUE_TEMPLATE/tester-blocker.md` (label `tester-blocker`) at https://github.com/breakoutwithai/jevnotjev/issues/new?template=tester-blocker.md. Give the step number from this page and what you saw. Replace any value from your cases with `<value>`. GitHub issues are public.
-2. For anything private, email `jev@breakoutwithai.com` (`site/backstage/index.html:227`) instead, with the step number. Still no keys, passwords or case text.
+1. Email jev@breakoutwithai.com with the step number and what you saw, with values redacted. Still no keys, passwords, question, case text or model answers.
+2. If you prefer a public report, use the [tester-blocker issue template](https://github.com/breakoutwithai/jevnotjev/issues/new?template=tester-blocker.md). Give the step number and redacted screen text; replace values with &lt;value&gt;. GitHub issues are public. Apply the screenshot restrictions above.
+<!-- Template provenance: .github/ISSUE_TEMPLATE/tester-blocker.md -->

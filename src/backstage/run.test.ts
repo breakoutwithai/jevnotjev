@@ -3,6 +3,7 @@ import {
   BACKSTAGE_BLIND_PICK,
   BACKSTAGE_PICK,
   BackstageRun,
+  cohortVerdict,
   trialTransport,
   CaseImportState,
   checkRunnerHealth,
@@ -19,6 +20,7 @@ import {
 import { getModelEntry, CATALOG_VERSION } from "./catalog.ts";
 import { validate } from "../format/validate.ts";
 import { cohortMetrics } from "../core/metrics.ts";
+import { readDictRows, formatRows } from "../format/csv.ts";
 import { fileSeed } from "../core/calc.ts";
 import { verdict } from "../core/verdict.ts";
 import { checkExport } from "./export-check.ts";
@@ -1485,5 +1487,104 @@ describe("D17 reproducible export", () => {
     const original = run.csv.bind(run);
     run.csv = () => original() + "\n";
     expect(run.evidence().verdicts).toBeNull();
+  });
+});
+
+describe("#209 blind verdict seed", () => {
+  async function variedRun(finalPick: "yes" | "no" = "yes") {
+    const s: Scene = { ...scene(), cases: Array.from({ length: 40 }, (_, i) => ({ id: `c${i + 1}`, input: `Synthetic, \"case\"\n${i + 1}` })) };
+    const run = new BackstageRun(s, "seed-test", { arms: ["jev", "claude-haiku-4-5-20251001"] });
+    await run.start(keys, async (request) => {
+      const n = Number(request.caseId.slice(1));
+      return { ...await success(request), costUsd: request.provider === "jev" ? (n % 7 + 1) * 0.0002 : (n % 11 + 1) * 0.001 };
+    });
+    run.beginLabeling();
+    for (const card of run.pickCards()) {
+      run.pickBlind(card.caseId, "yes", BACKSTAGE_BLIND_PICK, new Date("2026-10-11T09:00:00.000Z"));
+      run.pickFinal(card.caseId, finalPick);
+    }
+    run.reveal();
+    return run;
+  }
+  function changeColumn(csv: string, name: string, value: string) {
+    const parsed = readDictRows(csv);
+    if (!parsed.header) throw new Error("Missing test header");
+    const index = parsed.header.indexOf(name);
+    if (index < 0) throw new Error(`Missing test column ${name}`);
+    return formatRows([parsed.header, ...parsed.rows.map((row) => row.fields.map((field, i) => i === index ? value : field))]);
+  }
+  for (const column of ["label_final", "suggestion_shown"]) {
+    test(`[integration] #209 ${column} never changes 40-case blind metrics or full verdict`, async () => {
+      const run = await variedRun(column === "suggestion_shown" ? "no" : "yes");
+      const pair = run.exports()[0];
+      if (!pair) throw new Error("Missing test pair");
+      const original = validate(pair.csv);
+      expect(original.errors).toEqual([]);
+      expect(original.rows).toHaveLength(80);
+      expect(original.rows.every((row) => row.values.get("label") === "accept")).toBe(true);
+      expect(original.rows.every((row) => row.values.get("label_final") === (column === "suggestion_shown" ? "reject" : "accept"))).toBe(true);
+      expect(original.rows.every((row) => row.values.get("suggestion_shown") === "true")).toBe(true);
+      const context = { mode: "compare", key: { runId: pair.runId, promptVersion: run.manifest.promptVersion, questionId: "decision" }, question: run.manifest.scene.question, answerSet: "yes|no" };
+      const before = await cohortVerdict(pair.csv, context, false);
+      const changed = changeColumn(pair.csv, column, column === "label_final" ? "reject" : "false");
+      expect(changed).not.toBe(pair.csv);
+      const altered = validate(changed);
+      expect(altered.errors).toEqual([]);
+      expect(altered.rows.every((row) => row.values.get("label") === "accept")).toBe(true);
+      expect(altered.rows.every((row) => row.values.get("label_final") === "reject")).toBe(true);
+      expect(altered.rows.every((row) => row.values.get("suggestion_shown") === (column === "suggestion_shown" ? "false" : "true"))).toBe(true);
+      const after = await cohortVerdict(changed, context, false);
+      expect(before.ok).toBe(true);
+      expect(after.ok).toBe(true);
+      if (!before.ok || !after.ok) throw new Error("Invalid synthetic cohort");
+      expect(before.metrics.jevVsLlm?.cases.length).toBe(40);
+      expect(after.metrics).toEqual(before.metrics);
+      expect(after.verdict).toEqual(before.verdict);
+      expect(await cohortVerdict(pair.csv, context, false)).toEqual(before);
+    });
+  }
+  test("[integration] #209 hashed CSV preserves every field except post-suggestion values", async () => {
+    const run = await variedRun();
+    const pair = run.exports()[0];
+    if (!pair) throw new Error("Missing test pair");
+    const context = { mode: "compare", key: { runId: pair.runId, promptVersion: run.manifest.promptVersion, questionId: "decision" }, question: run.manifest.scene.question, answerSet: "yes|no" };
+    const original = readDictRows(pair.csv);
+    if (!original.header) throw new Error("Missing test header");
+    const digest = spyOn(crypto.subtle, "digest");
+    try {
+      const result = await cohortVerdict(pair.csv, context, false);
+      expect(result.ok).toBe(true);
+      expect(digest).toHaveBeenCalledTimes(1);
+      const data = digest.mock.calls[0]?.[1];
+      if (!data) throw new Error("No hashed CSV");
+      const hashed = readDictRows(new TextDecoder().decode(data));
+      expect(hashed.header).toEqual(original.header);
+      expect(hashed.rows).toHaveLength(original.rows.length);
+      for (let r = 0; r < original.rows.length; r++) {
+        for (let c = 0; c < original.header.length; c++) {
+          const name = original.header[c];
+          expect(hashed.rows[r]?.fields[c]).toBe(name === "label_final" || name === "suggestion_shown" ? "" : original.rows[r]?.fields[c]);
+        }
+      }
+      expect(run.exports()[0]?.csv).toBe(pair.csv);
+    } finally {
+      digest.mockRestore();
+    }
+  });
+  test("[integration] #209 blind labels and costs remain discriminating scoring inputs", async () => {
+    const run = await variedRun();
+    const pair = run.exports()[0];
+    if (!pair) throw new Error("Missing test pair");
+    const context = { mode: "compare", key: { runId: pair.runId, promptVersion: run.manifest.promptVersion, questionId: "decision" }, question: run.manifest.scene.question, answerSet: "yes|no" };
+    const before = await cohortVerdict(pair.csv, context, false);
+    const changes: readonly (readonly [string, string])[] = [["label", "reject"], ["cost_usd", "0.01"]];
+    for (const [column, value] of changes) {
+      const after = await cohortVerdict(changeColumn(pair.csv, column, value), context, false);
+      expect(before.ok).toBe(true);
+      expect(after.ok).toBe(true);
+      if (!before.ok || !after.ok) throw new Error("Invalid synthetic control");
+      expect(after.metrics).not.toEqual(before.metrics);
+      expect(after.verdict).not.toEqual(before.verdict);
+    }
   });
 });

@@ -19,7 +19,7 @@ import {
 } from "./catalog.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { requestFingerprint } from "./fingerprint.ts";
-import { LABELLED_AT, LABELLER_HANDLE, isCalendarDate, validate } from "../format/validate.ts";
+import { LABELLED_AT, LABELLER_HANDLE, SUGGESTION_COLUMNS, isCalendarDate, validate } from "../format/validate.ts";
 import type { JevSuggestion } from "../labels/rank.ts";
 import { ARGMAX_TOLERANCE, MASS_TOLERANCE } from "../jev-answer.ts";
 import { SuggestionBook, callsForPick, type Call, type Suggestion } from "../labels/suggest.ts";
@@ -1688,9 +1688,11 @@ export type CohortOutcome =
   | { readonly ok: true; readonly metrics: CohortMetrics; readonly verdict: Verdict | null }
   | { readonly ok: false; readonly errors: readonly string[] };
 /**
- * One comparison's verdict chain: validate -> cohortMetrics -> verdict(metrics, fileSeed(csv)). BackstageRun.report()
+ * One comparison's verdict chain: validate -> cohortMetrics -> verdict(metrics, seed). BackstageRun.report()
  * and the export checker (export-check.ts) both call it, so the verdict they compute cannot drift apart. Header-only
  * records with no answers in the pair (`empty`) are an empty cohort; only a compare run with rows has a verdict.
+ * The seed hashes CSV fields with label_final and suggestion_shown blank: post-suggestion picks are evidence,
+ * never scoring truth. The raw export remains unchanged. Other CSV field values and their order stay in the seed.
  * The verdict calculation is versioned: change CALC_VERSION (contracts.ts) whenever it changes.
  */
 export async function cohortVerdict(csv: string, context: CohortContext, empty: boolean): Promise<CohortOutcome> {
@@ -1700,5 +1702,13 @@ export async function cohortVerdict(csv: string, context: CohortContext, empty: 
   const metrics: CohortMetrics = parsed.rows.length
     ? cohortMetrics(parsed.rows, context.key)
     : { key: { runId, promptVersion, questionId }, question: context.question, answerSet: context.answerSet, cases: 0, arms: [], jevVsLlm: null, jevVsRule: null };
-  return { ok: true, metrics, verdict: context.mode === "compare" && parsed.rows.length ? verdict(metrics, await fileSeed(csv)) : null };
+  let decision: Verdict | null = null;
+  if (context.mode === "compare" && parsed.rows.length) {
+    const records = readDictRows(csv);
+    const header = records.header ?? [];
+    const suggestionIndexes = new Set(header.flatMap((name, index) => SUGGESTION_COLUMNS.includes(name) ? [index] : []));
+    const seedCsv = formatRows([header, ...records.rows.map(({ fields }) => fields.map((value, index) => suggestionIndexes.has(index) ? "" : value))]);
+    decision = verdict(metrics, await fileSeed(seedCsv));
+  }
+  return { ok: true, metrics, verdict: decision };
 }

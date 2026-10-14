@@ -1,0 +1,108 @@
+<!--
+Source map for this page, checked against this tree:
+docs/product/what-is-stored.md:71-102 (inventory and provider map; its old line numbers were rechecked below)
+docs/design/ticket-office.md:53-67 (published wording and open retention decision)
+site/index.html:229 (ticket office promise and request route)
+src/backstage/tickets.ts:74,97-100,123-127 (consent check, SQLite columns and insert)
+src/backstage/server.ts:216-218,299-313,322-327,343,418-458,510,567-571,628-675,677-698,736-739 (state paths, sign-in, cookie ages, relay, ticket write and static serving)
+src/backstage/api-v1.ts:11,68-71,191-212 (HTTP answer routes return data without a server output file)
+src/backstage/trial.ts:46,121-124,213-224,254,329 (trial token lifetime, ledger fields and pruning)
+src/backstage/log.ts:8-16,24-57 (fields written to stdout)
+.deploy/journald@jevnotjev-backstage.conf:1-5 (journal configuration)
+.deploy/nginx-jevnotjev.conf:19,51-59 (static page routing and web access log)
+src/backstage/auth.ts:6,57-94,141-146,155-188,277 (Google sign-in lifetime, operator fields, session fields, cookie and revocation file)
+src/backstage/scene-draft.ts:1-13,57-69,100-104 (draft fields and storage calls)
+src/backstage/main.ts:205-210,307-323,902-913,1012-1018,1152-1175 (keys, run, clear and browser draft/download)
+src/backstage/run.ts:687-692,745-769,1511-1539 (relay, in-memory run and export)
+src/backstage/providers.ts:234-320,521-529 (selected provider destinations, body and credential)
+.deploy/backstage-nginx.conf:6-12,13-19,20-26,27-40,43-49,64-74,100-114 (sign-in and ticket routes, access log exceptions and relay buffering)
+src/backstage/api-tokens.ts:22-27,146-151 (stored token fields and write)
+src/backstage/run.ts:725-729 (funded trial browser request omits a provider key)
+src/backstage/server.ts:514-529 (funded trial inserts server key)
+site/backstage/index.html:150-158 (draft clearing advice)
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Jev!Jev handles data</title>
+<meta name="description" content="What Jev!Jev keeps, what goes to model providers, retention limits and how to request deletion.">
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0; background: #fff; color: #1a1a1a; font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 72ch; margin: 0 auto; padding: 24px 20px 64px; overflow-wrap: break-word; }
+h1 { font-size: 1.9em; line-height: 1.2; margin: 0.4em 0; }
+h2 { font-size: 1.4em; line-height: 1.25; margin: 2em 0 0.5em; padding-top: 0.6em; border-top: 1px solid #ddd; }
+a { color: #0b57d0; }
+code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #f2f2f2; padding: 0 0.2em; border-radius: 3px; }
+table { display: block; overflow-x: auto; border-collapse: collapse; margin: 1em 0; }
+th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
+@media (prefers-color-scheme: dark) {
+  body { background: #161616; color: #e6e6e6; }
+  a { color: #8ab4f8; }
+  code { background: #2a2a2a; }
+  h2 { border-top-color: #333; }
+  th, td { border-color: #444; }
+}
+</style>
+</head>
+<body>
+<main>
+<p><a href="/">Back to Jev!Jev</a></p>
+<h1>How Jev!Jev handles data</h1>
+<p id="data-summary">Backstage does not save your cases, runs or keys to a file or database on our server.</p>
+<p>Use made-up or redacted cases. Requests pass through our server, and its web server may hold them briefly while relaying. A case you run goes to each provider you select. This page describes what the application code does; it cannot promise what a provider or other infrastructure keeps.</p>
+
+<h2>How to get your data deleted</h2>
+<p>To request deletion of a ticket office row, <a href="https://github.com/breakoutwithai/jevnotjev/issues/new">open a GitHub issue</a> quoting your ticket number, as the ticket form instructs. Do not put your email, case text or provider key in a public issue. An operator must handle the request because the code has no self-service deletion route. For a draft, sign out or close the tab. For a signed-in session, sign out to revoke it.</p>
+
+<h2>What we keep</h2>
+<p><strong>Ticket office.</strong> With your consent, the form puts your ticket number, submission time, ticket type, selected show, email, optional website and idea, follow-up choice, consent flag and a code that stops a double submission in a database file on our server. The form promises that these details are never shared or sold; the application code does not send ticket rows to another service.</p>
+<p><strong>Sign-in.</strong> If Backstage sign-in is enabled, an operators file on our server holds approved email addresses, optional display names and password hashes. A signed session cookie contains the email and session details, is a cookie scripts cannot read, and lasts up to 12 hours. Signing out can add the session id and expiry to a file of invalidated sessions on our server. Google sign-in uses a short-lived cookie during sign-in.</p>
+<p><strong>API tokens.</strong> A server file holds each token's id, label, a one-way fingerprint (hash) and creation time. The token itself is not stored there. Backstage server log lines for developer API requests include the token id.</p>
+<p><strong>Logs and trial accounting.</strong></p>
+<ul>
+<li>Backstage event logs go to server logs. They contain sign-in email and IP address, request ids, run provider and model, developer API route and status, and ticket ids or rejection reasons. They do not include case text in the event fields.</li>
+<li>Page, sign-in and ticket office requests are logged by the web server; logging is off for the developer API, Backstage API and the Google sign-in return.</li>
+<li>If a funded trial is available, its database file holds allowances, a keyed hash of your IP address, reservations, cost and day data; it has no case, question, answer or key column.</li>
+</ul>
+
+<h2>What we do not keep</h2>
+<p>Backstage does not write your cases, questions, answers, labels, runs or provider keys to its server files or databases. Your unfinished scene draft, including cases and question text, is saved in this browser tab's storage. It can survive a reload; sign out or close the tab to remove the draft. The active run and keys are held in page memory. Clear keys stops further calls; closing the page loses the run. If you download records or run evidence, the browser saves your own copy.</p>
+<p>The server temporarily reads each submitted case and key to relay a request. The statement above concerns files and databases written by this application; the web server may buffer a request or response briefly.</p>
+
+<h2>What leaves your browser</h2>
+<p>With your own key, the browser sends the case, question, choice definitions and your key through the Backstage server for each model you select. A funded trial, if ever switched on, uses our key instead. The server sends the request to that model's provider. A local keyword rule does not call a provider.</p>
+<table>
+<thead><tr><th>Selected provider</th><th>Destination</th></tr></thead>
+<tbody>
+<tr><td>Jev (TypeSafe)</td><td><code>api.typesafe.ai</code></td></tr>
+<tr><td>Anthropic</td><td><code>api.anthropic.com</code></td></tr>
+<tr><td>Google</td><td><code>generativelanguage.googleapis.com</code></td></tr>
+<tr><td>OpenAI</td><td><code>api.openai.com</code></td></tr>
+<tr><td>xAI</td><td><code>api.x.ai</code></td></tr>
+</tbody>
+</table>
+<p>If you use Google sign-in, sign-in also contacts Google's account services. This code does not tell us how long those services or model providers keep requests.</p>
+
+<h2>How long</h2>
+<ul>
+<li>The scene draft lasts in this tab until you sign out or close the tab. A live run lasts only while the page stays open.</li>
+<li>A sign-in session cookie has a 12-hour maximum age. The temporary Google sign-in cookie lasts 10 minutes. A funded trial cookie lasts 90 days.</li>
+<li>Server settings request a one-day maximum for Backstage event logs and start a new log file each hour.</li>
+<li>Funded trial accounting removes completed reservations and eligible allowances after 90 days, but keeps uncertain spending records for checking.</li>
+<li>The ticket office has no automatic deletion. The form says rows will be deleted by hand 90 days after the event ends; that is a plan, and the code does not carry it out.</li>
+<li>Retention of the web access log and any temporary web server buffering is not set in this repository.</li>
+</ul>
+
+<h2>Not decided yet</h2>
+<ul>
+<li>We have not decided whether case data will be reused for internal testing or what rules would apply. The current server code has no such storage or reuse step.</li>
+<li>We have not verified the form's never shared or sold promise for manual handling and infrastructure outside the application code.</li>
+<li>We have not set a way to request deletion of operator accounts, invalidated session records, logs or trial accounting records, or to confirm a ticket deletion.</li>
+<li>We do not know the retention and deletion policies of model providers or other infrastructure beyond the application code.</li>
+</ul>
+</main>
+</body>
+</html>

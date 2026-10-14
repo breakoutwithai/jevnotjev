@@ -24,6 +24,20 @@
   --cut: #f08470;
   color-scheme: dark;
 }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #12060a;
+    --paper: #24131a;
+    --ink: #f2e9df;
+    --muted: #baa39d;
+    --line: rgba(242, 233, 223, 0.22);
+    --curtain: #94203a;
+    --brass: #e0b04e;
+    --keep: #86cf9f;
+    --cut: #f08470;
+    color-scheme: dark;
+  }
+}
 * {
   box-sizing: border-box;
 }

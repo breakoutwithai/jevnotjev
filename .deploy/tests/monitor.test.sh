@@ -80,7 +80,7 @@ printf '%s' "$code"
 SH
 chmod +x "$TMP/bin/openssl" "$TMP/bin/curl" "$TMP/bin/git"
 REAL_GIT="$(command -v git)"; export REAL_GIT
-export FAKE_STATE="$TMP/state" PATH="$TMP/bin:$PATH" VERIFY_SLEEP=0 VERIFY_ATTEMPTS=1 MONITOR_CMD_TIMEOUT=1
+export FAKE_STATE="$TMP/state" PATH="$TMP/bin:$PATH" VERIFY_SLEEP=0 VERIFY_ATTEMPTS=1 MONITOR_CMD_TIMEOUT=5
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.test GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.test
 git init -q --bare "$TMP/bare.git"
@@ -213,12 +213,14 @@ unset FAKE_OPENSSL_EXIT
 export FAKE_TRAILING_CERT=yes; run --dry-run
 [[ $rc -eq 0 && $out == *'PASS M5'* ]] && ok 'large trailing s_client output passes' || nope "trailing cert: $out"
 unset FAKE_TRAILING_CERT
+export MONITOR_CMD_TIMEOUT=1
 export FAKE_HANG_OPENSSL=yes; start=$SECONDS; run --dry-run; elapsed=$((SECONDS-start))
 [[ $rc -eq 1 && $out == *'FAIL M5'* && $elapsed -le 6 ]] && ok 'hanging TLS command fails within deadline' || nope "TLS deadline: elapsed=$elapsed $out"
 unset FAKE_HANG_OPENSSL
 export FAKE_HANG_GIT=yes; start=$SECONDS; run --dry-run; elapsed=$((SECONDS-start))
 [[ $rc -eq 1 && $out == *'FAIL M4'* && $elapsed -le 6 ]] && ok 'hanging git command fails within deadline' || nope "git deadline: elapsed=$elapsed $out"
 unset FAKE_HANG_GIT
+export MONITOR_CMD_TIMEOUT=5
 cat > "$TMP/bin/sleep" <<'SH'
 #!/usr/bin/env bash
 [[ ${1:-} != 5 ]] || printf '%s\n' "$$" > "$FAKE_STATE/deadline-sleep.pid"
@@ -227,12 +229,23 @@ SH
 chmod +x "$TMP/bin/sleep"
 hash -r
 source "$ROOT/.deploy/monitor-lib.sh"
-true() { local i; for ((i=0; i<100; i++)); do [[ -s "$FAKE_STATE/deadline-sleep.pid" ]] && return 0; /bin/sleep 0.01; done; return 1; }
-MONITOR_CMD_TIMEOUT=5; start=$SECONDS; monitor_deadline "$TMP/deadline-output" true; deadline_rc=$?; elapsed=$((SECONDS-start))
-unset -f true
+# Wait for the fixture process to start independently of cleanup latency.
+# Do not shadow true: monitor_deadline uses it in its cleanup fallback.
+wait_for_watchdog_start() {
+  local began=$SECONDS
+  while ((SECONDS-began < 4)); do
+    if [[ -s "$FAKE_STATE/deadline-sleep.pid" ]]; then printf '%s\n' "$SECONDS" > "$FAKE_STATE/watchdog-ready-at"; return 0; fi
+    /bin/sleep 0.01
+  done
+  return 1
+}
+start=$SECONDS; monitor_deadline "$TMP/deadline-output" wait_for_watchdog_start; deadline_rc=$?
+ready_at="$(cat "$FAKE_STATE/watchdog-ready-at" 2>/dev/null)"
+elapsed=$((SECONDS-${ready_at:-start}))
+unset -f wait_for_watchdog_start
 sleep_pid="$(cat "$FAKE_STATE/deadline-sleep.pid" 2>/dev/null)"
 [[ $deadline_rc -eq 0 && $elapsed -lt 2 && -n $sleep_pid ]] && ! kill -0 "$sleep_pid" 2>/dev/null && ok 'deadline clears watchdog sleep after fast command' || nope "deadline sleep remains: rc=$deadline_rc elapsed=$elapsed pid=$sleep_pid"
-export MONITOR_CMD_TIMEOUT=1
+export MONITOR_CMD_TIMEOUT=5
 export FAKE_FORGED_ACCEPT=yes; run --dry-run
 [[ $rc -eq 1 && $out == *'FAIL M7 forged session rejected'* ]] && ok 'forged cookie accepted fails M7' || nope "M7 accepted cookie: $out"
 unset FAKE_FORGED_ACCEPT

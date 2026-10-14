@@ -106,7 +106,7 @@
     "src/docs/landing-samples.test.ts": 99,
     "src/docs/site-guide.test.ts": 34,
     "src/docs/stack.test.ts": 18,
-    "src/docs/tester-checklist.test.ts": 6,
+    "src/docs/tester-checklist.test.ts": 8,
     "src/evidence/replay.test.ts": 20,
     "src/format/cli.test.ts": 3,
     "src/format/provenance.test.ts": 45,

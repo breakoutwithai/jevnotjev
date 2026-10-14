@@ -4,12 +4,14 @@ import {
   CaseImportState,
   checkRunnerHealth,
   validateSceneKeys,
+  validCases,
+  validSceneChoices,
   trialTransport,
   type PickCard,
 } from "./run.ts";
 import { rankJevOptions, type JevSuggestion } from "../labels/rank.ts";
 import { MODEL_CATALOG, CATALOG_CHECKED_DATE, JEV_ARM_ID } from "./catalog.ts";
-import { copyDecision } from "./copy.ts"; import { applicableDraft, coachPrompt, COACH_PROMPT_VERSION, COACH_REPLY_ERROR, COACH_UNSAFE_MESSAGE, parseCoachReply, type CoachDraft } from "./coach.ts";
+import { copyDecision } from "./copy.ts"; import { applicableDraft, casesPrompt, coachPrompt, COACH_PROMPT_VERSION, COACH_REPLY_ERROR, COACH_UNSAFE_MESSAGE, parseCasesReply, parseCoachReply, type CasesScene, type CoachDraft } from "./coach.ts";
 import { findCredentials } from "./credential-scan.ts";
 import {
   KEY_FIELD_NAMES,
@@ -78,6 +80,7 @@ let renderEpoch = 0;
 let imported: Scene["cases"] | undefined;
 /** Labels that came with the imported cases; held in memory only, so a reload drops them (the cases survive). */
 let importedLabels: readonly ImportedLabel[] = [];
+let casesSceneRevision = 0;
 const imports = new CaseImportState();
 let startup: AbortController | undefined;
 function notice(message: string) {
@@ -290,6 +293,8 @@ function freezeFields(frozen: boolean) {
     const value = element(id); if (value instanceof HTMLFieldSetElement) value.disabled = frozen;
   }
   for (const control of element("coach-drafts").querySelectorAll<HTMLButtonElement>("button")) control.disabled = frozen || control.dataset.applicable !== "true";
+  button("draft-cases").disabled = frozen;
+  button("cases-use-reply").disabled = frozen;
 }
 let starting = false;
 let signingOut = false;
@@ -1233,9 +1238,33 @@ if (linkedPack !== null) {
   history.replaceState(null, "", location.pathname + (query === "" ? "" : "?" + query));
 }
 
-function coachStatus(message: string) { text("coach-status", message); }
+function coachStatus(message: string) { text("coach-status", message); text("cases-status", message); }
 function coachUnsafe(value: unknown): boolean {
   return findCredentials(value, Object.values(enteredKeys()).filter((key): key is string => typeof key === "string" && key.length > 0)).length > 0;
+}
+function appendStarterCases(lines: readonly string[]): boolean {
+  if (run || starting || signingOut) return false;
+  const box = field("cases");
+  const existing = cases();
+  const total = existing.length + lines.length;
+  if (total > 100) { coachStatus(`Adding these would make ${total} cases; the limit is 100.`); return false; }
+  const ids = new Set(existing.map((item) => item.id));
+  let nextId = 1;
+  const added = lines.map((input) => {
+    while (ids.has(`case-${nextId}`)) nextId += 1;
+    const id = `case-${nextId++}`;
+    ids.add(id);
+    return { id, input };
+  });
+  let combined: Scene["cases"];
+  try { combined = validCases([...existing, ...added]); }
+  catch (error) { coachStatus(error instanceof Error ? error.message : "Could not add starter cases."); return false; }
+  const before = box.value;
+  box.value = imported ? importedDisplay(combined) : before.trim() === "" ? lines.join("\n") : before + (before.endsWith("\n") ? "" : "\n") + lines.join("\n");
+  imports.invalidate(); imported = combined;
+  persistDraft();
+  void render();
+  return true;
 }
 function renderCoachDrafts(drafts: readonly CoachDraft[]) {
   const target = element("coach-drafts");
@@ -1251,6 +1280,10 @@ function renderCoachDrafts(drafts: readonly CoachDraft[]) {
     card.append(node("p", `When you would keep an answer: ${draft.keepRule}`));
     card.append(node("p", `Simple keyword rule to compare against: ${draft.ruleToBeat.join(", ")}`));
     card.append(node("p", `Leave out: ${draft.exclusions}`));
+    card.append(node("p", "Starter cases:"));
+    const list = document.createElement("ol");
+    for (const input of draft.cases) list.append(node("li", input));
+    card.append(list);
     const values = applicableDraft(draft);
     const apply = document.createElement("button");
     apply.type = "button";
@@ -1262,9 +1295,24 @@ function renderCoachDrafts(drafts: readonly CoachDraft[]) {
       if (!values || run || starting || signingOut) return;
       if (coachUnsafe(draft)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
       for (const [id, value] of Object.entries(values)) field(id).value = value;
+      const added = field("cases").value.trim() === "";
+      if (added) appendStarterCases(draft.cases);
+      else {
+        coachStatus("Your case box already has cases, so the starter cases were not added.");
+        if (card.querySelectorAll("button").length === 1) {
+          const add = document.createElement("button");
+          add.type = "button"; add.textContent = "Add starter cases"; add.dataset.applicable = "true";
+          add.onclick = () => {
+            if (run || starting || signingOut) return;
+            if (coachUnsafe(draft.cases)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
+            if (appendStarterCases(draft.cases)) coachStatus("Starter cases added. Edit them before running.");
+          };
+          card.append(add);
+        }
+      }
       persistDraft();
       field("question").focus();
-      coachStatus("Draft applied: question, two answers, their meanings, keep rule, exclusions and keyword rule replaced. Cases and labels kept. Edit any scene field before running.");
+      coachStatus(added ? "Draft applied with starter cases. Edit any field before running." : "Draft applied: question, two answers, their meanings, keep rule, exclusions and keyword rule replaced. Cases and labels kept. Edit any scene field before running.");
       void render();
     };
     card.append(apply);
@@ -1327,4 +1375,64 @@ button("coach-draft").onclick = async () => {
     coachStatus(`${parsed.drafts.length} draft${parsed.drafts.length === 1 ? "" : "s"} ready.`);
   } catch (error) { if (!controller.signal.aborted && coachController === controller) coachStatus(error instanceof Error ? error.message : "Could not draft scenes."); }
   finally { if (coachController === controller) coachController = undefined; if (coachController === undefined) trigger.disabled = false; }
+};
+
+function casesSceneValues(): CasesScene {
+  return { question: field("question").value.trim(), choices: [
+    { name: field("choice-a").value.trim(), definition: field("definition-a").value.trim() },
+    { name: field("choice-b").value.trim(), definition: field("definition-b").value.trim() },
+  ] };
+}
+for (const id of ["question", "choice-a", "choice-b", "definition-a", "definition-b"])
+  field(id).addEventListener("input", () => { casesSceneRevision += 1; });
+function casesScene(): CasesScene | null {
+  const scene = casesSceneValues();
+  if (coachUnsafe(scene)) { coachStatus(COACH_UNSAFE_MESSAGE); return null; }
+  if (!scene.question || scene.question.length > 1000 || scene.choices.some((choice) => !choice.definition || choice.definition.length > 1000)) {
+    coachStatus("Write a question and both answer meanings first."); return null;
+  }
+  if (!validSceneChoices(scene.choices)) { coachStatus("Use two different choice names without pipes or line breaks."); return null; }
+  return scene;
+}
+button("cases-copy-prompt").onclick = async () => {
+  const scene = casesScene(); if (!scene) return;
+  try { await navigator.clipboard.writeText(casesPrompt(scene)); coachStatus("Cases prompt copied. Paste the JSON reply below."); }
+  catch { coachStatus("Could not copy the cases prompt."); }
+};
+button("cases-use-reply").onclick = () => {
+  if (run || starting || signingOut) return;
+  const reply = field("cases-reply").value;
+  if (coachUnsafe(reply)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
+  const parsed = parseCasesReply(reply);
+  if (!parsed.ok) { coachStatus(COACH_REPLY_ERROR); return; }
+  if (coachUnsafe(parsed.cases)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
+  if (appendStarterCases(parsed.cases)) coachStatus(`${parsed.cases.length} starter cases added. Edit them before running.`);
+};
+button("draft-cases").onclick = async () => {
+  if (run || starting || signingOut || coachController) return;
+  const scene = casesScene(); if (!scene) return;
+  const revision = casesSceneRevision;
+  const signature = JSON.stringify(scene);
+  const key = field("coach-key").value.trim();
+  const selected = element("coach-provider");
+  if (!(selected instanceof HTMLSelectElement) || !["anthropic", "openai"].includes(selected.value) || !key) { coachStatus("Choose a provider and enter your model key."); return; }
+  const trigger = button("draft-cases");
+  const controller = new AbortController(); coachController = controller; trigger.disabled = true;
+  coachStatus("Drafting starter cases...");
+  try {
+    const response = await fetch("/api/backstage/coach", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ provider: selected.value, key, mode: "cases", scene }), signal: controller.signal });
+    if (controller.signal.aborted) return;
+    const payload: unknown = await response.json();
+    if (revision !== casesSceneRevision || signature !== JSON.stringify(casesSceneValues())) { coachStatus("Scene changed while starter cases were drafted. Nothing was added."); return; }
+    if (typeof payload !== "object" || payload === null) throw new Error(COACH_REPLY_ERROR);
+    if (!response.ok) {
+      const message = Reflect.get(payload, "message");
+      throw new Error(message === COACH_UNSAFE_MESSAGE ? COACH_UNSAFE_MESSAGE : "Could not draft starter cases. Check your key or try again.");
+    }
+    const parsed = parseCasesReply(JSON.stringify({ cases: Reflect.get(payload, "cases") }));
+    if (!parsed.ok) throw new Error(COACH_REPLY_ERROR);
+    if (coachUnsafe(parsed.cases)) throw new Error(COACH_UNSAFE_MESSAGE);
+    if (appendStarterCases(parsed.cases)) coachStatus(`${parsed.cases.length} starter cases added. Edit them before running.`);
+  } catch (error) { if (!controller.signal.aborted) coachStatus(error instanceof Error ? error.message : "Could not draft starter cases."); }
+  finally { if (coachController === controller) coachController = undefined; trigger.disabled = Boolean(run || starting || signingOut); }
 };

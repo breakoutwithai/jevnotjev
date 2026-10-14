@@ -26,7 +26,7 @@ const request: AnswerRequest = {
   provider: "jev",
   key: "secret-test-key",
 };
-const validCoachDraft = { type: "choice", question: "Refund?", answers: [{ name: "Refund", meaning: "When damaged." }, { name: "Decline", meaning: "When intact." }], keepRule: "Keep when I would refund it.", ruleToBeat: ["damaged"], exclusions: "Unknown condition." };
+const validCoachDraft = { type: "choice", question: "Refund?", answers: [{ name: "Refund", meaning: "When damaged." }, { name: "Decline", meaning: "When intact." }], keepRule: "Keep when I would refund it.", ruleToBeat: ["damaged"], exclusions: "Unknown condition.", cases: ["Damaged", "Broken", "Late", "Wrong", "Intact", "Missing part", "Changed mind", "Opened box", "No receipt", "Greeting only"] };
 function coachResponse(provider: "anthropic" | "openai", draft: unknown = validCoachDraft, model = provider === "anthropic" ? "claude-sonnet-5-5" : "gpt-6-luna"): Response {
   const output = JSON.stringify({ drafts: [draft] });
   return provider === "anthropic"
@@ -36,7 +36,7 @@ function coachResponse(provider: "anthropic" | "openai", draft: unknown = validC
 const coachProviders: readonly ("anthropic" | "openai")[] = ["anthropic", "openai"];
 test("[unit] #132 C1 coach pins Anthropic and OpenAI model requests with bounded output", async () => {
   const calls: Array<{ url: string; options: RequestInit }> = [];
-  const draft = { type: "choice", question: "Refund?", answers: [{ name: "Refund", meaning: "When damaged." }, { name: "Decline", meaning: "When intact." }], keepRule: "Keep when I would refund it.", ruleToBeat: ["damaged"], exclusions: "Unknown condition." };
+  const draft = { type: "choice", question: "Refund?", answers: [{ name: "Refund", meaning: "When damaged." }, { name: "Decline", meaning: "When intact." }], keepRule: "Keep when I would refund it.", ruleToBeat: ["damaged"], exclusions: "Unknown condition.", cases: ["Damaged", "Broken", "Late", "Wrong", "Intact", "Missing part", "Changed mind", "Opened box", "No receipt", "Greeting only"] };
   for (const provider of coachProviders) {
     const result = await callCoach(provider, "test-secret-value", "Refund?", async (url, options) => {
       calls.push({ url, options });

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { applicableDraft, coachPrompt, parseCasesReply, parseCoachReply } from "./coach.ts";
+import { applicableDraft, casesPrompt, coachPrompt, parseCasesReply, parseCoachReply } from "./coach.ts";
 
 const draft = {
   type: "choice", question: "Should I refund this order?",
@@ -9,10 +9,10 @@ const draft = {
   cases: ["Damaged item", "Broken package", "Wrong item", "Item missing", "Late delivery", "Changed mind", "Opened item", "No receipt", "Unclear condition", "Unrelated greeting"],
 };
 
-test("[unit] #133 K3 K11 coach.2 requires 5 to 10 distinct one-line starter cases", () => {
+test("[unit] #133 K3 K11 coach.2 requires exactly 10 distinct one-line starter cases", () => {
   expect(coachPrompt("Refund?")).toContain("coach.2");
-  expect(coachPrompt("Refund?")).toContain("10 synthetic");
-  for (const cases of [undefined, draft.cases.slice(0, 4), [...draft.cases, "Extra"],
+  expect(coachPrompt("Refund?")).toContain("exactly 10 synthetic");
+  for (const cases of [undefined, draft.cases.slice(0, 4), draft.cases.slice(0, 9), [...draft.cases, "Extra"],
     [...draft.cases.slice(0, 9), draft.cases[0]], [...draft.cases.slice(0, 9), ""],
     [...draft.cases.slice(0, 9), "line one\nline two"],
     [...draft.cases.slice(0, 9), "tester@example.test"],
@@ -21,6 +21,13 @@ test("[unit] #133 K3 K11 coach.2 requires 5 to 10 distinct one-line starter case
     expect(parseCoachReply(JSON.stringify({ drafts: [candidate] })).ok).toBe(false);
   }
   expect(parseCoachReply(JSON.stringify({ drafts: [draft] })).ok).toBe(true);
+});
+
+test("[unit] #133 K1 cases replies require exactly 10 cases", () => {
+  expect(casesPrompt({ question: "Refund?", choices: [{ name: "Refund", definition: "When damaged." }, { name: "Decline", definition: "When intact." }] })).toContain("Give exactly 10 distinct cases");
+  expect(parseCasesReply(JSON.stringify({ cases: draft.cases.slice(0, 9) }))).toEqual({ ok: false, reason: "Could not read that reply. Nothing was changed." });
+  expect(parseCasesReply(JSON.stringify({ cases: [...draft.cases, "Extra"] }))).toEqual({ ok: false, reason: "Could not read that reply. Nothing was changed." });
+  expect(parseCasesReply(JSON.stringify({ cases: draft.cases }))).toEqual({ ok: true, cases: draft.cases });
 });
 
 test("[unit] #132 C1 coach prompt asks for a bounded JSON decision draft", () => {

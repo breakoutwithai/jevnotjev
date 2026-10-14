@@ -325,7 +325,7 @@ test("[integration] #133 K3 K4 invalid or credential-bearing coach cases change 
   const page = await mount();
   typeInto(page, "question", "Original question");
   typeInto(page, "cases", "Original case");
-  for (const cases of [starterCases.slice(0, 4), [...starterCases, "Extra"],
+  for (const cases of [starterCases.slice(0, 4), starterCases.slice(0, 9), [...starterCases, "Extra"],
     [...starterCases.slice(0, 9), starterCases[0]], [...starterCases.slice(0, 9), ""],
     [...starterCases.slice(0, 9), "Line one\nline two"],
     [...starterCases.slice(0, 9), `sk-ant-${"Ab3".repeat(12)}`], [...starterCases.slice(0, 9), "test-secret-value"]]) {
@@ -366,6 +366,12 @@ test("[integration] #133 K7 cases prompt and paste-back add valid cases; bad JSO
   expect(page.get("coach-status").textContent).toBe("Could not read that reply. Nothing was changed.");
   expect(page.get("cases-status").textContent).toBe("Could not read that reply. Nothing was changed.");
   expect(page.get("cases").value).toBe("");
+  for (const cases of [starterCases.slice(0, 9), [...starterCases, "Extra"]]) {
+    page.get("cases-reply").value = JSON.stringify({ cases });
+    page.get("cases-use-reply").click();
+    expect(page.get("cases-status").textContent).toBe("Could not read that reply. Nothing was changed.");
+    expect(page.get("cases").value).toBe("");
+  }
   page.get("cases-reply").value = JSON.stringify({ cases: starterCases });
   page.get("cases-use-reply").click();
   expect(page.get("cases").value).toBe(starterCases.join("\n"));

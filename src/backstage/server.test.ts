@@ -56,7 +56,7 @@ test("[integration] #133 K5 K6 cases mode scans scene text and returns only synt
   const handler = createHandler({ version: "test", providerFetch: async (_url, options) => {
     calls++;
     expect(String(options.body)).toContain("cases.1");
-    return Response.json({ model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ cases: starterCases.slice(0, 5) }) }] });
+    return Response.json({ model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ cases: starterCases }) }] });
   } });
   const scene = { question: "Refund?", choices: [{ name: "Refund", definition: "When damaged." }, { name: "Decline", definition: "When intact." }] };
   const unsafe = await handler(coachRequest({ provider: "anthropic", key: "test-secret-value", mode: "cases", scene: { ...scene, choices: [{ name: "Refund", definition: "test-secret-value" }, scene.choices[1]] } }));
@@ -64,8 +64,16 @@ test("[integration] #133 K5 K6 cases mode scans scene text and returns only synt
   expect(calls).toBe(0);
   const response = await handler(coachRequest({ provider: "anthropic", key: "test-secret-value", mode: "cases", scene }));
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ cases: starterCases.slice(0, 5) });
+  expect(await response.json()).toEqual({ cases: starterCases });
   expect(calls).toBe(1);
+});
+test("[integration] #133 K1 cases mode refuses nine and eleven cases with the same invalid-reply error", async () => {
+  for (const cases of [starterCases.slice(0, 9), [...starterCases, "Extra"]]) {
+    const handler = createHandler({ version: "test", providerFetch: async () => Response.json({ model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ cases }) }] }) });
+    const response = await handler(coachRequest({ provider: "anthropic", key: "test-secret-value", mode: "cases", scene: { question: "Refund?", choices: [{ name: "Refund", definition: "When damaged." }, { name: "Decline", definition: "When intact." }] } }));
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ code: "coach-failed", message: "Could not read that reply. Nothing was changed." });
+  }
 });
 test("[unit] #133 K4 provider case with a shaped credential is refused", async () => {
   const handler = createHandler({ version: "test", providerFetch: async () => Response.json({ model: "claude-sonnet-5-5", stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify({ drafts: [{ ...coachDraft, cases: [...starterCases.slice(0, 9), `sk-ant-${"Ab3".repeat(12)}`] }] }) }] }) });

@@ -89,8 +89,6 @@ a { color: var(--ink); } p a { line-height: 24px; padding-block: 5px; } button,i
 .brand { font: 800 22px/24px var(--serif); color: var(--ink); text-decoration: none; }
 .sample { display: flex; align-items: center; gap: 8px; color: var(--brass); font: 700 11px var(--sans); text-transform: uppercase; }
 .house-lights { min-height: 30px; padding: 4px 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink-soft); cursor: pointer; font: 600 11px var(--sans); }
-.ticket { display: flex; align-items: center; gap: 8px; padding: 3px 8px; background: #efe2c4; color: #2a1408; font: 700 11px var(--sans); }
-.ticket .admit { margin: 0; font: 800 13px var(--serif); }
 .house-link { display: inline-flex; align-items: center; min-height: 24px; margin-left: auto; }
 main { max-width: 1120px; margin: auto; padding: 0 16px; }
 .act, .samples, .office, .door-area { padding: 30px 0; border-bottom: 1px solid var(--line); }
@@ -157,29 +155,50 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 </style>
 <link rel="stylesheet" href="theatre.css">
 <script>
-/* Decide motion before first paint so the demo starts in the right state. */
+/* Decide motion before first paint so the curtains are in place on load, never flashed, and absent under reduced motion.
+   The overture plays once per tab session: the first page marks sessionStorage, later pages skip it. Storage can throw
+   (private modes, blocked storage); then nothing is known, so the overture plays. */
 (function () {
   var r = document.documentElement;
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  r.classList.add(!reduced && "IntersectionObserver" in window ? "motion" : "static");
+  var motion = !reduced && "IntersectionObserver" in window;
+  r.classList.add(motion ? "motion" : "static");
+  if (!motion) return;
+  var KEY = "jnj-overture", seen = false;
+  try { seen = window.sessionStorage.getItem(KEY) === "seen"; } catch (e) { seen = false; }
+  if (seen) return;
+  try { window.sessionStorage.setItem(KEY, "seen"); } catch (e) { /* unknown next time too: it plays again */ }
+  r.classList.add("overture-play");
 })();
 </script>
 </head>
 <body>
 
+<div class="overture" id="overture" aria-hidden="true"><div class="curtain cl"></div><div class="curtain cr"></div></div>
+<div class="proscenium" aria-hidden="true"><div class="valance"></div><div class="drape l"></div><div class="drape r"></div></div>
+
 <header class="house">
   <a class="brand" href="/" aria-label="Jev!Jev home">Jev!Jev</a>
   <div class="sample" role="note" id="sampleBadge"><span>Sample run</span><button class="house-lights" id="lights" type="button">House lights</button></div>
-  <div class="ticket" role="img" aria-label="Entrance ticket: admit one, row J, seat J-EV"><p class="admit">ADMIT ONE</p><span>Row J</span><span>Seat J-EV</span></div>
+  <div class="ticket" role="img" aria-label="Entrance ticket: admit one, row J, seat J-EV"><div class="main"><p class="admit">ADMIT ONE</p><span>Row J</span><span>Seat J-EV</span></div><span class="stub">No. 0042</span></div>
   <a class="house-link" href="#tickets">Go to the ticket office</a>
 </header>
 <main>
+<div class="marquee-band"><p class="marquee" aria-hidden="true"><span class="kicker">Tonight &middot; Jev!Jev presents</span><span class="billing">To Jev or not to Jev <em>in four acts</em></span></p></div>
 <section class="act" id="act1" aria-labelledby="t1"><div class="stage">
   <h1 id="t1">Jev picks one answer from a fixed list. It does not write text.</h1>
   <p id="heroResult"></p><p id="heroWhy"></p>
   <a id="primaryAction" href="little-shop/">Try it: pick a seat</a>
   <p class="hero-note">Not for you if you want a chatbot or a writer. <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/docs/product/use-cases/when-not-to-use-jev.md">When not to use Jev</a></p>
   <p class="hero-guide"><a href="guide/">First time here? The guide walks this sample run field by field.</a></p>
+  <a class="poster" href="little-shop/" aria-label="Little Shop of Horrors: take your seat">
+    <span class="p-kicker">Preview</span>
+    <span class="p-who">Whodunnit?</span>
+    <span class="p-title">Little Shop of Horrors</span>
+    <span class="p-rule" aria-hidden="true"></span>
+    <span class="p-seats">120 seats. You decide who is right.</span>
+    <span class="p-cta">Take your seat</span>
+  </a>
 </div></section>
 <section class="samples" aria-label="Sample questions"><h2>Sample questions</h2>
   <nav class="tk-stages" aria-label="Stages"><a href="#stage-show">Tested <span data-count="show"></span></a><a href="#stage-rehearsal">Small test (under 30 cases) <span data-count="rehearsal"></span></a><a href="#stage-script-reading">Idea only, not tested <span data-count="script-reading"></span></a></nav>

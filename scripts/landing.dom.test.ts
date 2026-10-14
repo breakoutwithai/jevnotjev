@@ -374,7 +374,7 @@ async function actionHit(page: Page): Promise<{ covered: boolean; hit: string }>
 /*
  * One control of the curtain timeline, shared by every curtain test. No curtain test waits on the wall clock:
  * - held() freezes the page's timers with a paused fake clock (theatre.js's fallback fires only on clock.runFor) and
- *   holds theatre.js at the network (no cleanup runs until release()).
+ *   holds theatre.js at the network (no cleanup runs until release()); onHeld() always releases and closes the page.
  * - seize() proves the CSS animations advance on their own, then pauses them and rewinds to the start, so a slow load
  *   cannot let the overture finish before a test reads it.
  * - seek() moves the paused timeline to a fraction of its end and reads what a viewer would see.
@@ -393,23 +393,45 @@ function installCurtainAccessor(names: string[]): void {
 
 const FAKE_START = Date.UTC(2026, 0, 1);
 
-async function held(width: number, height: number, motion: "no-preference" | "reduce"): Promise<{ page: Page; release: () => Promise<void> }> {
+/**
+ * A held page. release() only opens the network gate for theatre.js (never waits, safe to call twice, so cleanup can
+ * always run); ready() then waits for theatre.js to record the curtain state, so a script that fails to initialise
+ * fails the test step that awaited it rather than its cleanup.
+ */
+interface Held { page: Page; release: () => void; ready: () => Promise<void> }
+
+async function held(width: number, height: number, motion: "no-preference" | "reduce"): Promise<Held> {
   const page = await browser.newPage({ viewport: { width, height }, reducedMotion: motion });
-  // A fixed fake start, then pause one second after it: pauseAt only moves forward, so neither may depend on today's date.
-  await page.clock.install({ time: FAKE_START });
-  await page.clock.pauseAt(FAKE_START + 1000);
-  await page.addInitScript(installCurtainAccessor, CURTAIN_ANIMATIONS);
-  await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
   let open = (): void => undefined;
   const gate = new Promise<void>((resolve) => { open = resolve; });
-  await page.route("**/theatre.js", async (route) => { await gate; await route.continue(); });
-  await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "commit" });
-  await page.waitForFunction(() => document.getElementById("primaryAction") !== null && document.querySelectorAll(".overture .curtain").length === 2);
-  const release = async (): Promise<void> => {
+  try {
+    // One call installs the fake clock and pauses it at a fixed instant, so no wall-clock gap between an install and a
+    // later pause can put the pause target in the past, and nothing depends on today's date.
+    await page.clock.pauseAt(FAKE_START);
+    await page.addInitScript(installCurtainAccessor, CURTAIN_ANIMATIONS);
+    await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
+    await page.route("**/theatre.js", async (route) => { await gate; await route.continue(); });
+    await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "commit" });
+    await page.waitForFunction(() => document.getElementById("primaryAction") !== null && document.querySelectorAll(".overture .curtain").length === 2);
+  } catch (error) {
     open();
-    await page.waitForFunction(() => document.documentElement.dataset.curtain !== undefined);
+    await page.close();
+    throw error;
+  }
+  const ready = async (): Promise<void> => {
+    await page.waitForFunction(() => document.documentElement.dataset.curtain !== undefined, undefined, { timeout: 5000 });
   };
-  return { page, release };
+  return { page, release: open, ready };
+}
+
+/** Runs a curtain test body on a held page, then always releases the gate and closes the page. */
+async function onHeld(width: number, height: number, motion: "no-preference" | "reduce", body: (stage: Held) => Promise<void>): Promise<void> {
+  const stage = await held(width, height, motion);
+  try {
+    await body(stage);
+  } finally {
+    try { stage.release(); } finally { await stage.page.close(); }
+  }
 }
 
 /** Proves the curtain animations run by themselves (none paused, the part clock moving), then pauses and rewinds them. */
@@ -504,8 +526,7 @@ function playsItself(states: string[]): boolean {
 
 test("[integration] L16 the curtain plays by itself from the side margins, moving outward midway, gone at the end, opened by animationend", async () => {
   for (const [width, height] of CURTAIN_VIEWPORTS) {
-    const { page, release } = await held(width, height, "no-preference");
-    try {
+    await onHeld(width, height, "no-preference", async ({ page, release, ready }) => {
       expect(await page.evaluate(() => document.documentElement.classList.contains("motion"))).toBe(true);
       const line = await seize(page);
       expect(playsItself(line.states)).toBe(true);
@@ -536,24 +557,25 @@ test("[integration] L16 the curtain plays by itself from the side margins, movin
       const end = await seek(page, 0.999, line.endMs);
       expect(end.map((c) => c.onScreen)).toEqual([0, 0]);
       await seek(page, 0, line.endMs);
-      await release();
+      release();
+      await ready();
       expect(await page.evaluate(() => document.documentElement.dataset.curtain)).toBe("parting");
       expect(await finishCurtain(page)).toBe(true);
       expect(await page.evaluate(() => document.getElementById("overture")?.classList.contains("gone"))).toBe(true);
       expect(await shownCurtains(page)).toBe(0);
       expect(await page.evaluate(() => scrollY)).toBe(0);
       expect(await actionHit(page)).toEqual({ covered: true, hit: "A" });
-    } finally { await release(); await page.close(); }
+    });
   }
 }, 30000);
 
 test("[integration] L16b a curtain whose animation never ends is taken off the page by the fallback timer", async () => {
-  const { page, release } = await held(390, 844, "no-preference");
-  try {
+  await onHeld(390, 844, "no-preference", async ({ page, release, ready }) => {
     const line = await seize(page);
     expect(playsItself(line.states)).toBe(true);
     expect(await shownCurtains(page)).toBe(2);
-    await release();
+    release();
+    await ready();
     // The fallback waits 1.8s: past the 1.3s part, with margin.
     await page.clock.runFor(1700);
     expect(await page.evaluate(() => document.documentElement.dataset.curtain)).toBe("parting");
@@ -562,13 +584,12 @@ test("[integration] L16b a curtain whose animation never ends is taken off the p
     expect(await page.evaluate(() => document.getElementById("overture")?.classList.contains("gone"))).toBe(true);
     expect(await shownCurtains(page)).toBe(0);
     expect(await actionHit(page)).toEqual({ covered: true, hit: "A" });
-  } finally { await release(); await page.close(); }
+  });
 }, 15000);
 
 test("[integration] L17 under reduced motion no closed curtain is shown, even before the curtain script loads", async () => {
   for (const [width, height] of CURTAIN_VIEWPORTS) {
-    const { page, release } = await held(width, height, "reduce");
-    try {
+    await onHeld(width, height, "reduce", async ({ page, release, ready }) => {
       const before = await page.evaluate(() => ({
         motion: document.documentElement.classList.contains("motion"),
         animations: (window.jnjCurtain?.() ?? []).filter(Boolean).length,
@@ -576,10 +597,11 @@ test("[integration] L17 under reduced motion no closed curtain is shown, even be
       expect(before).toEqual({ motion: false, animations: 0 });
       expect(await shownCurtains(page)).toBe(0);
       expect((await actionHit(page)).covered).toBe(true);
-      await release();
+      release();
+      await ready();
       expect(await page.evaluate(() => document.documentElement.dataset.curtain)).toBe("open");
       expect(await shownCurtains(page)).toBe(0);
-    } finally { await release(); await page.close(); }
+    });
   }
 }, 30000);
 
@@ -594,14 +616,13 @@ test("[integration] L19 turning on reduced motion while the page is open stops t
     await page.emulateMedia({ reducedMotion: "reduce" });
     expect(await running()).toEqual({ bulbs: "none", drape: "none" });
   } finally { await page.close(); }
-  const { page: mid, release } = await held(390, 844, "no-preference");
-  try {
+  await onHeld(390, 844, "no-preference", async ({ page: mid }) => {
     const line = await seize(mid);
     expect(playsItself(line.states)).toBe(true);
     expect(await shownCurtains(mid)).toBe(2);
     await mid.emulateMedia({ reducedMotion: "reduce" });
     expect(await shownCurtains(mid)).toBe(0);
-  } finally { await release(); await mid.close(); }
+  });
 }, 30000);
 
 for (const motion of MOTIONS) {
@@ -645,8 +666,7 @@ async function curtainOverlaps(page: Page): Promise<{ curtain: string; target: s
 
 test("[integration] L22 at the first frame and 40% through, neither curtain overlaps the headline or the primary action, and both still paint", async () => {
   for (const [width, height] of [[1440, 900], [390, 844]] satisfies [number, number][]) {
-    const { page, release } = await held(width, height, "no-preference");
-    try {
+    await onHeld(width, height, "no-preference", async ({ page }) => {
       const line = await seize(page);
       expect(playsItself(line.states)).toBe(true);
       for (const fraction of [0, 0.4]) {
@@ -659,7 +679,7 @@ test("[integration] L22 at the first frame and 40% through, neither curtain over
           expect({ width, fraction, x, pixel, red: isCurtainRed(pixel) }).toEqual({ width, fraction, x, pixel, red: true });
         }
       }
-    } finally { await release(); await page.close(); }
+    });
   }
 }, 30000);
 

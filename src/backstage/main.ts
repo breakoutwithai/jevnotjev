@@ -1326,5 +1326,5 @@ button("coach-draft").onclick = async () => {
     renderCoachDrafts(parsed.drafts);
     coachStatus(`${parsed.drafts.length} draft${parsed.drafts.length === 1 ? "" : "s"} ready.`);
   } catch (error) { if (!controller.signal.aborted && coachController === controller) coachStatus(error instanceof Error ? error.message : "Could not draft scenes."); }
-  finally { if (coachController === controller) { coachController = undefined; trigger.disabled = false; } }
+  finally { if (coachController === controller) coachController = undefined; if (coachController === undefined) trigger.disabled = false; }
 };

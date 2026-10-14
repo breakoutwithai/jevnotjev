@@ -608,6 +608,7 @@ test("[integration] #132 Clear keys aborts an in-flight coach request", async ()
   expect(aborted).toBe(true);
   expect(page.get("coach-key").value).toBe("");
   expect(page.get("coach-drafts").children).toHaveLength(0);
+  expect(page.get("coach-draft").disabled).toBe(false);
 });
 test("[integration] #132 C10 model markup is displayed as text", async () => {
   const page = await mount();

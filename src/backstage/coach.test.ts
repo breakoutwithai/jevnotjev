@@ -98,3 +98,11 @@ test("[unit] #133 O1 maximum case text survives JSON escaping", () => {
   const escapedDrafts = JSON.stringify({ drafts: Array(3).fill({ ...draft, cases }) }).replaceAll("a", "\\u0061");
   expect(parseCoachReply(escapedDrafts).ok).toBe(true);
 });
+
+test("[unit] #133 the guide's pasted cases example is accepted by the cases parser", async () => {
+  const guide = await Bun.file("site/guide/index.html").text();
+  const entry = guide.match(/<dt>Paste your model's cases JSON reply<\/dt><dd>(.*?)<\/dd>/)?.[1] ?? "";
+  const example = entry.match(/<code>(\{"cases".*?\})<\/code>/)?.[1] ?? "";
+  expect(entry).toContain("exactly ten");
+  expect(parseCasesReply(example).ok).toBe(true);
+});

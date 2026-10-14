@@ -34,21 +34,16 @@ class FakeElement {
   addEventListener(_name: string, _handler: () => void): void {}
   querySelector(selector: string): FakeElement | null {
     if (selector === ".tk-submit") return submit;
-    if (selector === "input[name=kind]:checked") return showKind;
     return null;
   }
   querySelectorAll(_selector: string): FakeElement[] { return []; }
 }
 const submit = new FakeElement("button");
-const showKind = new FakeElement("input");
-showKind.value = "show";
 
 async function renderedOffice(data: { posters: Poster[] } = committed): Promise<FakeElement> {
   const wrap = new FakeElement("div");
   const form = new FakeElement("form");
-  const select = new FakeElement("select");
-  const ids = new Map<string, FakeElement>([["tkForm", form], ["tkShow", select], ["tkPosters", wrap]]);
-  for (const id of ["tkShowField", "tkWebsiteField", "tkIdeaField", "tkChosen"]) ids.set(id, new FakeElement("div"));
+  const ids = new Map<string, FakeElement>([["tkForm", form], ["tkPosters", wrap]]);
   const document = {
     getElementById: (id: string) => ids.get(id) ?? null,
     createElement: (tag: string) => new FakeElement(tag),

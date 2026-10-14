@@ -595,7 +595,7 @@ describe("in-product first-use guide (D18)", () => {
   const ACCESS_STATEMENTS = [
     'its title on screen is "Backstage Pass"',
     "The workspace and its sample cases file need you to sign in.",
-    'press "Open the ticket office", then choose "Go backstage with my own decision"',
+    'press "Open the ticket office", then fill in "Bring your own decision"',
     "A person reads each request and replies by email",
     "the reply explains how to sign in",
     "The request alone does not open the workspace.",
@@ -697,11 +697,12 @@ describe("in-product first-use guide (D18)", () => {
     expect(guide).toContain('press "Open the ticket office" at the foot of the sample run page, then <strong>Load your own script (CSV)</strong>');
   });
 
-  test("[unit] D18-SWARM-C04-ACCESS the access path opens the form with the named radio choice", async () => {
+  test("[unit] D18-SWARM-C04-ACCESS the access path opens the form with the named heading", async () => {
     const stage = read(STAGE);
     expect(await accessProblems(read(GUIDE))).toEqual([]);
     expect(stage).toMatch(/<button id="officeOpen"[^>]*>Open the ticket office<\/button>/);
-    expect(stage).toMatch(/<label><input type="radio" name="kind" value="backstage"> Go backstage with my own decision<\/label>/);
+    const formHeading = "Bring your own decision";
+    expect(stage).toContain(`<h3 id="tkTitle">${formHeading}</h3>`);
     expect(read(OFFICE)).toContain('window.location.hash === "#tkForm"');
     expect(await accessProblems(mutate(read(GUIDE), 'href="../#tkForm"', 'href="../#tickets"'))).toContain("no form-opening link");
   });
@@ -1061,7 +1062,7 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
     ["Ticket office", STAGE, "markup"],
     ["Open the ticket office", STAGE, "markup"],
     ["Get another ticket", OFFICE, "script"],
-    ["Go backstage with my own decision", STAGE, "markup"],
+    ["Bring your own decision", STAGE, "markup"],
     ["GO TO THE TICKET OFFICE", STAGE, "markup"],
     ["IN REPERTOIRE", STAGE, "markup"],
     ["Spotlight", STAGE, "script"],

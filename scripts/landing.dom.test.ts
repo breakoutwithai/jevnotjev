@@ -21,6 +21,7 @@ const ACTION_VIEWPORTS: [number, number][] = [[390, 844], [1280, 900], [1440, 90
 const MOTIONS: ("no-preference" | "reduce")[] = ["no-preference", "reduce"];
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
+const posted: unknown[] = [];
 
 beforeAll(async () => {
   const found = resolveChromium(null, process.env.UAT_CHROMIUM_PATH, chromium.executablePath(), existsSync);
@@ -30,6 +31,7 @@ beforeAll(async () => {
     if (pathname === "/api/tickets/ranking") return Response.json({ ids: [], counts: {} });
     if (pathname === "/api/tickets" && request.method === "POST") {
       const body: unknown = await request.json();
+      posted.push(body);
       const kind = typeof body === "object" && body !== null && Reflect.get(body, "kind") === "backstage" ? "backstage" : "show";
       return Response.json({ ticket: "T1", kind, show: kind === "show" ? FIRST_SHOW : null });
     }
@@ -143,21 +145,111 @@ test("[integration] L10-L11 office panel button and deep links", async () => {
     await page.locator("#officeOpen").click();
     expect(await page.locator("#officeOpen").getAttribute("aria-expanded")).toBe("true");
     for (const selector of ["#officePanel", "#tkForm", "#dropzone"]) expect(await page.locator(selector).isVisible()).toBe(true);
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe("tkEmail");
   } finally { await page.close(); }
   for (const hash of ["#tkForm", "#csv"]) {
     const deep = await pageAt(390, 844, "reduce", hash);
     try {
       expect(await deep.locator("#officePanel").isVisible()).toBe(true);
-      if (hash === "#tkForm") await deep.waitForFunction(() => document.activeElement?.getAttribute("name") === "kind");
+      if (hash === "#tkForm") await deep.waitForFunction(() => document.activeElement?.id === "tkEmail");
     } finally { await deep.close(); }
   }
 }, 15000);
 
-test("[integration] T-reopen issued ticket can be followed by a fresh form", async () => {
+test("[integration] NS1 watching needs no email; the office only takes a request to test your own decision", async () => {
+  const page = await pageAt(390, 844);
+  const posts: string[] = [];
+  page.on("request", (request) => { if (request.method() === "POST") posts.push(request.url()); });
+  try {
+    expect(await page.locator('#tkForm input[name="kind"][value="show"]').count()).toBe(0);
+    expect(await page.locator("#tkShow").count()).toBe(0);
+    expect(await page.locator('#tkForm input[name="kind"]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute("value")))).toEqual(["backstage"]);
+    expect(await page.locator("#tkForm").innerText()).not.toMatch(/watch a show/i);
+    expect(await page.locator(".office-lede").innerText()).toContain("Watching the recorded shows is free and needs nothing");
+    expect(await page.locator('input[type="email"]').evaluateAll((nodes) => nodes.filter((node) => !node.closest("#officePanel")).length)).toBe(0);
+    expect(await page.locator("#officePanel").isVisible()).toBe(false);
+    const withWatch = posters.posters.filter((p) => p.watch);
+    expect(withWatch.length).toBeGreaterThan(0);
+    for (const p of withWatch) {
+      const link = page.locator(`.tk-poster[data-id="${p.id}"] a.tk-primary`);
+      expect(await link.innerText()).toBe("Watch now");
+      expect(await link.isVisible()).toBe(true);
+      expect(await link.getAttribute("href")).toBe(p.watch);
+    }
+    await page.locator("#officeOpen").click();
+    await page.locator("#tkForm .tk-submit").click();
+    expect(await page.locator("#tkEmailErr").isVisible()).toBe(true);
+    expect(await page.locator("#tkConsentErr").isVisible()).toBe(true);
+    await page.locator("#tkEmail").fill("person@example.com");
+    await page.locator("#tkForm .tk-submit").click();
+    expect(await page.locator("#tkEmailErr").isVisible()).toBe(false);
+    expect(await page.locator("#tkConsentErr").isVisible()).toBe(true);
+    expect(posts).toEqual([]);
+  } finally { await page.close(); }
+  for (const p of posters.posters.filter((item) => item.watch)) {
+    const target = await pageAt(390, 844);
+    try {
+      const expected = new URL(p.watch ?? "", `http://127.0.0.1:${server.port}/`);
+      await target.locator(`.tk-poster[data-id="${p.id}"] a.tk-primary`).click();
+      await target.waitForURL(expected.href, { timeout: 5000 });
+      const visibleEmail = () => target.locator('input[type="email"]').evaluateAll((nodes) => nodes.filter((node) => node.getClientRects().length > 0).length);
+      if (expected.hash) {
+        const shown = target.locator(expected.hash);
+        await shown.waitFor({ state: "visible" });
+        expect(await shown.evaluate((node) => { const box = node.getBoundingClientRect(); return box.top < innerHeight && box.bottom > 0; })).toBe(true);
+        expect((await shown.innerText()).trim().length).toBeGreaterThan(0);
+        expect(await target.locator("#officePanel").isVisible()).toBe(false);
+      } else {
+        const heading = target.locator("h1");
+        await heading.waitFor({ state: "visible" });
+        expect((await heading.innerText()).trim().length).toBeGreaterThan(0);
+        expect(await target.locator("#officePanel").count()).toBe(0);
+      }
+      expect(await visibleEmail()).toBe(0);
+    } finally { await target.close(); }
+  }
+  for (const path of ["little-shop/", "replay/"]) {
+    const target = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    try {
+      const response = await target.goto(`http://127.0.0.1:${server.port}/${path}`, { waitUntil: "domcontentloaded" });
+      expect(response?.status()).toBe(200);
+      expect(await target.locator('input[type="email"], input[type="password"], form').count()).toBe(0);
+    } finally { await target.close(); }
+  }
+}, 30000);
+
+test("[integration] NS2 a sent request posts kind backstage, no show, and exactly the fields given", async () => {
+  const page = await pageAt(390, 844);
+  try {
+    posted.length = 0;
+    await page.locator("#officeOpen").click();
+    await page.locator("#tkEmail").fill("Person@Example.com");
+    await page.locator("#tkWebsite").fill("https://shop.example.com");
+    await page.locator("#tkIdea").fill("Can my shop bot answer this message?");
+    await page.locator("#tkConsent").check();
+    await page.locator("#tkFollow").check();
+    await page.locator("#tkForm .tk-submit").click();
+    await page.locator("#tkIssued").waitFor({ state: "visible" });
+    expect(posted).toHaveLength(1);
+    const body = posted[0];
+    expect(typeof body === "object" && body !== null).toBe(true);
+    const field = (name: string): unknown => typeof body === "object" && body !== null ? Reflect.get(body, name) : undefined;
+    expect(field("kind")).toBe("backstage");
+    expect(field("show")).toBeNull();
+    expect(field("email")).toBe("Person@Example.com");
+    expect(field("website")).toBe("https://shop.example.com");
+    expect(field("idea")).toBe("Can my shop bot answer this message?");
+    expect(field("consent")).toBe(true);
+    expect(field("follow_up")).toBe(true);
+    expect(field("nickname")).toBe("");
+    expect(field("request_key")).toMatch(/^[0-9a-f]{32}$/);
+  } finally { await page.close(); }
+}, 15000);
+
+test("[integration] T-reopen issued request can be followed by a fresh form", async () => {
   const page = await pageAt(390, 844);
   try {
     await page.locator("#officeOpen").click();
-    await page.locator("#tkShow").selectOption(FIRST_SHOW ?? "");
     await page.locator("#tkEmail").fill("person@example.com");
     await page.locator("#tkConsent").check();
     await page.locator("#tkForm .tk-submit").click();
@@ -176,17 +268,15 @@ test("[integration] T-reopen issued ticket can be followed by a fresh form", asy
     expect(await page.locator("#tkForm").isVisible()).toBe(true);
     expect(await page.locator("#tkIssued").isVisible()).toBe(false);
     expect(await page.locator("#tkEmail").inputValue()).toBe("");
-    expect(await page.locator("#tkShow").inputValue()).toBe("");
     expect(await page.locator("#tkConsent").isChecked()).toBe(false);
-    expect(await page.evaluate(() => document.activeElement?.getAttribute("name"))).toBe("kind");
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe("tkEmail");
   } finally { await page.close(); }
 }, 15000);
 
-test("[integration] T-reopen-backstage after a backstage request the reopened form is a working show form", async () => {
+test("[integration] T-reopen-backstage after a request the reopened form is a working request form", async () => {
   const page = await pageAt(390, 844);
   try {
     await page.locator("#officeOpen").click();
-    await page.locator('input[name="kind"][value="backstage"]').check();
     await page.locator("#tkEmail").fill("person@example.com");
     await page.locator("#tkConsent").check();
     await page.locator("#tkForm .tk-submit").click();
@@ -201,20 +291,19 @@ test("[integration] T-reopen-backstage after a backstage request the reopened fo
     expect(await page.locator("#tkForm").isVisible()).toBe(true);
     expect(await page.locator("#tkEmail").inputValue()).toBe("");
     expect(await page.locator("#tkConsent").isChecked()).toBe(false);
-    expect(await page.locator('input[name="kind"][value="show"]').isChecked()).toBe(true);
-    expect(await page.locator("#tkShowField").isVisible()).toBe(true);
-    expect(await page.locator("#tkWebsiteField").isVisible()).toBe(false);
-    expect(await page.locator("#tkForm .tk-submit").innerText()).toBe("Get my ticket");
+    expect(await page.locator("#tkWebsiteField").isVisible()).toBe(true);
+    expect(await page.locator("#tkIdeaField").isVisible()).toBe(true);
+    expect(await page.locator("#tkForm .tk-submit").innerText()).toBe("Send my request");
   } finally { await page.close(); }
 }, 15000);
 
-test("[integration] T-catalogue failed catalogue offers backstage", async () => {
+test("[integration] T-catalogue failed catalogue still takes a request", async () => {
   const errors: string[] = [];
   const page = await pageAt(390, 844, "reduce", "", true, errors);
   try {
-    await page.waitForFunction(() => document.querySelector<HTMLInputElement>('input[value="show"]')?.disabled);
-    expect(await page.locator('input[value="backstage"]').isChecked()).toBe(true);
-    expect(await page.locator('input[value="show"]').isDisabled()).toBe(true);
+    await page.waitForFunction(() => (document.getElementById("tkPosters")?.textContent ?? "").includes("did not load"));
+    await page.locator("#officeOpen").click();
+    expect(await page.locator("#tkForm .tk-submit").isEnabled()).toBe(true);
     expect(await page.locator("#tkPosters").innerText()).toContain("The show list did not load");
     expect(await page.locator(".tk-stages").isVisible()).toBe(false);
     expect(errors).toEqual([]);

@@ -127,17 +127,16 @@ test("[integration] #135 house lights remain visible and clickable at phone and 
   }
 }, 10000);
 
-test("[integration] #137 picker options equal show posters and other stages have no ticket button", async () => {
+test("[integration] #137 no show picker or ticket button; every card opens its show, evidence or idea directly", async () => {
   const page = await pageAt(390, 844, "reduce");
   try {
     await page.waitForFunction(() => document.querySelectorAll("#tkPosters .tk-poster").length > 0);
     const shows = POSTERS.posters.filter((poster) => poster.stage === "show");
     const firstShow = shows[0];
     if (!firstShow) throw new Error("posters.json contains no show");
-    const options = await page.locator("#tkShow option").evaluateAll((nodes) => nodes.slice(1).map((node) => node.getAttribute("value")));
-    expect(options).toEqual(shows.map((poster) => poster.id));
+    expect(await page.locator("#tkShow").count()).toBe(0);
     expect(await page.locator("#tkPosters .tk-poster").first().getAttribute("data-id")).toBe(firstShow.id);
-    for (const poster of POSTERS.posters.filter((item) => item.stage !== "show")) {
+    for (const poster of POSTERS.posters) {
       const card = page.locator(`.tk-poster[data-id="${poster.id}"]`);
       expect(await card.count()).toBe(1);
       expect(await card.locator(".tk-pick").count()).toBe(0);

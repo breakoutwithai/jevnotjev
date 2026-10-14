@@ -128,7 +128,7 @@ test("[integration] L9 cases disclosure and confidence ordered spotlights", asyn
       expect(await spots.nth(i).locator(".monologue b").textContent()).toBe(i === 0 ? "Spotlight" : "Next miss");
     }
     expect(await page.locator("#allCases .monologue").count()).toBe(0);
-    await page.locator("#allCases").evaluate((node) => { (node as HTMLDetailsElement).open = true; });
+    await page.locator("#allCases").evaluate((node) => { if (node instanceof HTMLDetailsElement) node.open = true; });
     expect(await page.locator(".case.row .conf").first().evaluate((node) => getComputedStyle(node).height)).toBe("4px");
     expect(await page.locator(".case.wrong .conf i").first().evaluate((node) => getComputedStyle(node).backgroundColor)).toBe("rgb(178, 56, 42)");
     expect(await page.locator("#tally").innerText()).not.toContain("heard");
@@ -344,8 +344,8 @@ test("[integration] L12-L14 page dimensions and tap targets", async () => {
           const box = node.getBoundingClientRect();
           return style.visibility !== "hidden" && box.width > 0 && box.height > 0 && (box.width < 24 || box.height < 24);
         }).map((node) => `${node.tagName}#${node.id}.${node.className}`) }));
-      // #201 adds the explained verdict to every card: measured 8085 at 390 and 4610 at 1440 on 2026-10-13.
-      expect(measure.height).toBeLessThan(width === 390 ? 8500 : 5000);
+      // Issue #203's limits: under 8,000 px at 390 and under 5,000 px at 1440.
+      expect(measure.height).toBeLessThan(width === 390 ? 8000 : 5000);
       expect(measure.small).toEqual([]);
       expect(measure.overflow).toBe(0);
     } finally { await page.close(); }
@@ -413,10 +413,14 @@ async function held(width: number, height: number, motion: "no-preference" | "re
 }
 
 /** Proves the curtain animations run by themselves (none paused, the part clock moving), then pauses and rewinds them. */
-async function seize(page: Page): Promise<{ states: string[]; advanced: boolean; endMs: number }> {
+async function seize(page: Page): Promise<{ states: string[]; delays: number[]; advanced: boolean; endMs: number }> {
   const first = await page.evaluate(() => {
     const anims = window.jnjCurtain?.() ?? [];
-    return { states: anims.map((a) => a ? a.playState : "missing"), t: Number(anims[1]?.currentTime ?? -1) };
+    return {
+      states: anims.map((a) => a ? a.playState : "missing"),
+      delays: anims.slice(1).map((a) => Number(a?.effect?.getTiming().delay ?? -1)),
+      t: Number(anims[1]?.currentTime ?? -1),
+    };
   });
   // The part animation either moves on from where it was, or has already played through: never stuck.
   const advanced = await page.waitForFunction((t) => {
@@ -429,7 +433,7 @@ async function seize(page: Page): Promise<{ states: string[]; advanced: boolean;
     return Math.max(0, ...anims.slice(1).map((a) => Number(a?.effect?.getComputedTiming().endTime ?? 0)));
   });
   await seek(page, 0, endMs);
-  return { states: first.states, advanced, endMs };
+  return { states: first.states, delays: first.delays, advanced, endMs };
 }
 
 /**
@@ -498,7 +502,7 @@ function playsItself(states: string[]): boolean {
   return states.length === 3 && states.every((s) => s === "running" || s === "finished");
 }
 
-test("[integration] L16 the curtain plays by itself, closed at the start, half open midway, parted at the end, opened by animationend", async () => {
+test("[integration] L16 the curtain plays by itself, already parting at the first frame, half open midway, parted at the end, opened by animationend", async () => {
   for (const [width, height] of CURTAIN_VIEWPORTS) {
     const { page, release } = await held(width, height, "no-preference");
     try {
@@ -506,14 +510,20 @@ test("[integration] L16 the curtain plays by itself, closed at the start, half o
       const line = await seize(page);
       expect(playsItself(line.states)).toBe(true);
       expect(line.advanced).toBe(true);
-      expect(line.endMs >= 1200 && line.endMs <= 1800).toBe(true);
+      // No hold before parting: both parts start moving at 0 and are done in 1.0 to 1.5s.
+      expect(line.delays).toEqual([0, 0]);
+      expect(line.endMs >= 1000 && line.endMs <= 1500).toBe(true);
       const half = width / 2;
-      // Start: both curtains fully opaque, visible, together covering the screen, and letting every pointer through.
+      // First frame: both curtains opaque, visible, full height, letting every pointer through, each covering most of
+      // its half, with a gap between them so the page shows from the first frame.
       const start = await seek(page, 0, line.endMs);
-      for (const c of start) expect({ opacity: c.opacity, visible: c.visible, fullHeight: c.fullHeight, pointer: c.pointer }).toEqual({ opacity: 1, visible: true, fullHeight: true, pointer: "none" });
-      expect(start[0]?.left).toBe(0);
-      expect(start[1]?.right).toBe(width);
-      expect((start[0]?.onScreen ?? 0) + (start[1]?.onScreen ?? 0)).toBeGreaterThanOrEqual(width);
+      for (const c of start) {
+        expect({ opacity: c.opacity, visible: c.visible, fullHeight: c.fullHeight, pointer: c.pointer }).toEqual({ opacity: 1, visible: true, fullHeight: true, pointer: "none" });
+        expect(c.onScreen > half * 0.7 && c.onScreen < half).toBe(true);
+      }
+      expect(start[0]?.left).toBeLessThanOrEqual(0);
+      expect(start[1]?.right).toBeGreaterThanOrEqual(width);
+      expect((start[1]?.left ?? 0) - (start[0]?.right ?? 0)).toBeGreaterThan(0);
       // And it is painted: the centre of each curtain is opaque curtain red, not the page behind it.
       for (const x of [width / 4, (3 * width) / 4]) {
         const pixel = await paintedAt(page, x, height / 2);
@@ -549,9 +559,10 @@ test("[integration] L16b a curtain whose animation never ends is taken off the p
     expect(playsItself(line.states)).toBe(true);
     expect(await shownCurtains(page)).toBe(2);
     await release();
-    await page.clock.runFor(1500);
+    // The fallback waits 1.8s: past the 1.3s part, with margin.
+    await page.clock.runFor(1700);
     expect(await page.evaluate(() => document.documentElement.dataset.curtain)).toBe("parting");
-    await page.clock.runFor(600);
+    await page.clock.runFor(200);
     expect(await page.evaluate(() => document.documentElement.dataset.curtain)).toBe("open");
     expect(await page.evaluate(() => document.getElementById("overture")?.classList.contains("gone"))).toBe(true);
     expect(await shownCurtains(page)).toBe(0);
@@ -622,3 +633,51 @@ for (const motion of MOTIONS) {
     }
   }, 30000);
 }
+
+test("[integration] L20 the Little Shop poster has one short accessible name, shared by no other link", async () => {
+  const page = await pageAt(390, 844);
+  try {
+    const name = "Little Shop of Horrors: take your seat";
+    expect(await page.locator("a.poster").getAttribute("aria-label")).toBe(name);
+    expect(await page.getByRole("link", { name, exact: true }).count()).toBe(1);
+    const names = await page.locator("a[href]:visible").evaluateAll((links) => links.map((link) => link.getAttribute("aria-label") || link.textContent?.trim() || ""));
+    expect(names.filter((n, i) => names.indexOf(n) !== i)).toEqual([]);
+  } finally { await page.close(); }
+});
+
+/** The same tab's first and second visit: the overture plays on the first only. */
+test("[integration] L21 the overture plays once per tab session, and a page whose storage throws still renders", async () => {
+  const page = await pageAt(390, 844, "no-preference");
+  try {
+    expect(await page.evaluate(() => document.documentElement.classList.contains("overture-play"))).toBe(true);
+    await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "domcontentloaded" });
+    const again = await page.evaluate(() => ({
+      motion: document.documentElement.classList.contains("motion"),
+      play: document.documentElement.classList.contains("overture-play"),
+      curtain: document.documentElement.dataset.curtain,
+    }));
+    expect(again).toEqual({ motion: true, play: false, curtain: "open" });
+    expect(await shownCurtains(page)).toBe(0);
+    expect((await actionHit(page)).covered).toBe(true);
+  } finally { await page.close(); }
+
+  const blocked = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: "no-preference" });
+  const errors: string[] = [];
+  blocked.on("pageerror", (error) => errors.push(error.message));
+  try {
+    await blocked.addInitScript(() => {
+      Object.defineProperty(window, "sessionStorage", { configurable: true, get() { throw new DOMException("storage blocked", "SecurityError"); } });
+    });
+    await blocked.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
+    await blocked.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "domcontentloaded" });
+    await blocked.waitForFunction(() => document.querySelectorAll("#tkPosters .tk-poster").length > 0);
+    expect(await blocked.evaluate(() => {
+      try { window.sessionStorage.getItem("x"); return "storage readable"; } catch { return "storage throws"; }
+    })).toBe("storage throws");
+    // Unknown whether it was seen: play it, once, and never break the page.
+    expect(await blocked.evaluate(() => document.documentElement.classList.contains("overture-play"))).toBe(true);
+    expect(await blocked.locator("#t1").isVisible()).toBe(true);
+    await blocked.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+    expect(errors).toEqual([]);
+  } finally { await blocked.close(); }
+}, 30000);

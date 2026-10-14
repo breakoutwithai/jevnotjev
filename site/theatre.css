@@ -1,15 +1,18 @@
 /* Theatre frame over the result-first page: an opening curtain, the valance and drapes, the marquee, the ticket and
    the Little Shop poster. Motion only under html.motion (set before first paint when prefers-reduced-motion is off). */
 
-/* ---------- Overture: the curtains part once on load. Never a gate: no pointer ever lands on them. ---------- */
+/* ---------- Overture: the curtains part once per tab session. Never a gate: no pointer ever lands on them. ----------
+   html.overture-play is set before first paint, with html.motion, only on the first page of a tab session. The parts
+   start already ajar and move from 0s, so the page shows from the first frame; the overture hides itself at 1.3s, the
+   parts' end, even without theatre.js. */
 .overture { display: none; }
-.motion .overture {
+.motion.overture-play .overture {
   display: block; position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none;
-  animation: overture-out 0s linear 1.6s forwards;
+  animation: overture-out 0s linear 1.3s forwards;
 }
-.overture.gone { display: none; }
+.motion.overture-play .overture.gone { display: none; }
 /* html.motion is decided once at load; this media query is live, so turning reduced motion on drops the curtain at once. */
-@media (prefers-reduced-motion: reduce) { .motion .overture { display: none; } }
+@media (prefers-reduced-motion: reduce) { .motion.overture-play .overture { display: none; } }
 @keyframes overture-out { to { visibility: hidden; } }
 .curtain {
   position: absolute; top: 0; bottom: 0; width: 50.5%; pointer-events: none;
@@ -19,7 +22,7 @@
       var(--curtain-lo) 0, var(--curtain) 22px, var(--curtain-hi) 38px, var(--curtain) 54px, var(--curtain-lo) 76px);
   box-shadow: 0 0 80px rgba(0, 0, 0, .45);
   will-change: transform;
-  animation: part-l 1.3s cubic-bezier(.6, 0, .2, 1) .25s both;
+  animation: part-l 1.3s cubic-bezier(.45, 0, .2, 1) both;
 }
 .curtain.cl { left: 0; }
 .curtain.cr { right: 0; animation-name: part-r; }
@@ -28,8 +31,8 @@
   background: repeating-linear-gradient(90deg, var(--brass) 0 3px, transparent 3px 9px);
   opacity: .55;
 }
-@keyframes part-l { from { transform: none; } to { transform: translateX(-102%); } }
-@keyframes part-r { from { transform: none; } to { transform: translateX(102%); } }
+@keyframes part-l { from { transform: translateX(-10%); } to { transform: translateX(-102%); } }
+@keyframes part-r { from { transform: translateX(10%); } to { transform: translateX(102%); } }
 
 /* ---------- House furniture: valance across the top, drapes in the side margins on wide screens ---------- */
 .proscenium { position: absolute; inset: 0 0 auto 0; height: 100vh; pointer-events: none; z-index: 0; overflow: hidden; }
@@ -138,6 +141,16 @@
   .poster { gap: 4px; padding: 10px 14px; margin-top: 18px; }
   .poster .p-who, .poster .p-rule { display: none; }
   .poster .p-title { font-size: 22px; }
+  /* Phone spacing, so the framed page stays under issue #203's 8,000 px at 390: tighter section padding, card gaps and
+     paragraph margins, and section titles on one line. No copy is removed. */
+  #act1 { padding: 24px 0 18px; }
+  .samples, .office, .door-area { padding: 18px 0; }
+  .tk-posters { gap: 8px; }
+  .tk-poster { gap: 4px; padding: 10px 12px; }
+  h2 { font-size: 24px; }
+  #act5 .stage > p { margin: 8px 0; }
+  .repertoire { margin-top: 14px; }
+  .repertoire li { margin-bottom: 6px; }
 }
 
 /* ---------- Stage-door demo ---------- */

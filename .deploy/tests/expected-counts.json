@@ -38,7 +38,7 @@
     "scripts/result-view.test.ts": 46,
     "scripts/shows/build-posters.test.ts": 19,
     "scripts/shows/ticket-office.dom.test.ts": 5,
-    "scripts/landing.dom.test.ts": 22,
+    "scripts/landing.dom.test.ts": 24,
     "scripts/site-content.test.ts": 9,
     "scripts/stage-door.test.ts": 6,
     "scripts/stage-sample.test.ts": 11,

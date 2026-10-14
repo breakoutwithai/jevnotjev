@@ -93,13 +93,14 @@ Each answer call goes to the Backstage server (`run.ts:687`), which calls the pr
 
 | Provider | URL | Key sent as | Line |
 |---|---|---|---|
-| Jev (TypeSafe) | `https://api.typesafe.ai/v1/systemone` | `Authorization: Bearer` | `providers.ts:244-246` |
-| Anthropic | `https://api.anthropic.com/v1/messages` | `x-api-key` | `providers.ts:263-267` |
-| Google | `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent` | Not read for this doc | `providers.ts:284` |
-| OpenAI | `https://api.openai.com/v1/responses` | Not read for this doc | `providers.ts:306` |
-| xAI | `https://api.x.ai/v1/responses` | Not read for this doc | `providers.ts:307` |
+| Jev (TypeSafe) | `https://api.typesafe.ai/v1/systemone` | `Authorization: Bearer` | `providers.ts:284-287` |
+| Anthropic | `https://api.anthropic.com/v1/messages` | `x-api-key` | `providers.ts:303-309` |
+| Google | `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent` | `x-goog-api-key` | `providers.ts:324-327` |
+| OpenAI | `https://api.openai.com/v1/responses` | `Authorization: Bearer` | `providers.ts:345-350` |
+| xAI | `https://api.x.ai/v1/responses` | `Authorization: Bearer` | `providers.ts:345-350` |
+| Question coach (Anthropic or OpenAI) | `https://api.anthropic.com/v1/messages` or `https://api.openai.com/v1/responses` | `x-api-key` or `Authorization: Bearer`, using the tester's coach key | `main.ts:1293-1308`, `server.ts:463-480`, `providers.ts:22-36` |
 
-The case text, question and choice definitions go to each provider you select. Google sign-in calls `accounts.google.com` and `oauth2.googleapis.com` when enabled (`server.ts:334`, `server.ts:362-366`).
+The case text, question and choice definitions go to each answer provider you select. The question coach sends only the typed question and coach key through the Backstage server to the chosen coach provider; it sends no other scene fields. The call uses the tester's key, so any charge goes to the tester's account. The server does not write the coach question, key or reply to its files or databases (`main.ts:1308`, `server.ts:463-480`, `providers.ts:22-36`, `log.ts:8-16`, `log.ts:58-61`). Google sign-in calls `accounts.google.com` and `oauth2.googleapis.com` when enabled (`server.ts:337`, `server.ts:362-369`).
 
 ## 4. Keys
 

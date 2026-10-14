@@ -1,25 +1,25 @@
 <!--
 Source map for this page, checked against this tree:
-docs/product/what-is-stored.md:71-102 (inventory and provider map; its old line numbers were rechecked below)
+docs/product/what-is-stored.md:71-104 (inventory and provider map)
 docs/design/ticket-office.md:51-65 (published wording and open retention decision)
 site/index.html:221 (ticket office promise and request route)
 src/backstage/tickets.ts:74,97-100,123-127 (consent check, SQLite columns and insert)
-src/backstage/server.ts:216-218,299-313,322-327,343,418-458,510,567-571,628-675,677-698,736-739 (state paths, sign-in, cookie ages, relay, ticket write and static serving)
+src/backstage/server.ts:219-223,299-316,320-346,419-480,530-534,667-698,700-718,749-764 (state paths, sign-in, cookie ages, answer and coach relay, ticket write and static serving)
 src/backstage/api-v1.ts:11,68-71,191-212 (HTTP answer routes return data without a server output file)
 src/backstage/trial.ts:46,121-124,213-224,254,329 (trial token lifetime, ledger fields and pruning)
-src/backstage/log.ts:8-16,24-57 (fields written to stdout)
+src/backstage/log.ts:8-16,24-64 (fields written to stdout, including coach event metadata)
 .deploy/journald@jevnotjev-backstage.conf:1-5 (journal configuration)
 .deploy/nginx-jevnotjev.conf:19,51-59 (static page routing and web access log)
 src/backstage/auth.ts:6,57-94,141-146,155-188,277 (Google sign-in lifetime, operator fields, session fields, cookie and revocation file)
 src/backstage/scene-draft.ts:1-13,57-69,100-104 (draft fields and storage calls)
-src/backstage/main.ts:205-210,307-323,902-913,1012-1018,1152-1175 (keys, run, clear and browser draft/download)
+src/backstage/main.ts:206-214,307-323,906-917,928-935,1002-1024,1151-1184,1293-1308 (keys, run, clear, browser draft/download and coach request)
 src/backstage/run.ts:687-692,745-769,1511-1539 (relay, in-memory run and export)
-src/backstage/providers.ts:234-320,521-529 (selected provider destinations, body and credential)
-.deploy/backstage-nginx.conf:6-12,13-19,20-26,27-40,43-49,64-74,100-114 (sign-in and ticket routes, access log exceptions and relay buffering)
+src/backstage/providers.ts:22-36,276-363 (coach and selected answer provider destinations, body and credential)
+.deploy/backstage-nginx.conf:6-40,43-49,64-74,100-114 (sign-in and ticket routes, access log exceptions and relay buffering)
 src/backstage/api-tokens.ts:22-27,146-151 (stored token fields and write)
 src/backstage/run.ts:725-729 (funded trial browser request omits a provider key)
-src/backstage/server.ts:514-529 (funded trial inserts server key)
-site/backstage/index.html:150-158 (draft clearing advice)
+src/backstage/server.ts:537-553 (funded trial inserts server key)
+site/backstage/index.html:68-82,168-174 (coach fields and draft clearing advice)
 -->
 <!doctype html>
 <html lang="en">
@@ -69,11 +69,12 @@ th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-a
 </ul>
 
 <h2>What we do not keep</h2>
-<p>Backstage does not write your cases, questions, answers, labels, runs or provider keys to its server files or databases. Your unfinished scene draft, including cases and question text, is saved in this browser tab's storage. It can survive a reload; sign out or close the tab to remove the draft. The active run and keys are held in page memory. Clear keys stops further calls; closing the page loses the run. If you download records or run evidence, the browser saves your own copy.</p>
+<p>Backstage does not write your cases, questions, answers, labels, runs, provider keys or coach key to its server files or databases. Your unfinished scene draft, including cases and question text, is saved in this browser tab's storage. It can survive a reload; sign out or close the tab to remove the draft. The active run and keys, including the coach key, are held in page memory. Clear keys stops further calls and clears the coach key too; signing out clears it as well. Closing the page loses the run. If you download records or run evidence, the browser saves your own copy.</p>
 <p>The server temporarily reads each submitted case and key to relay a request. The statement above concerns files and databases written by this application; the web server may buffer a request or response briefly.</p>
 
 <h2>What leaves your browser</h2>
 <p>With your own key, the browser sends the case, question, choice definitions and your key through the Backstage server for each model you select. A funded trial, if ever switched on, uses our key instead. The server sends the request to that model's provider. A local keyword rule does not call a provider.</p>
+<p>If you use the question coach, your browser sends the question you type and your coach key through our server to Anthropic or OpenAI, whichever you choose. It sends nothing else from your scene. The provider call uses your key, so any charge goes to your account. Our server does not save the coach question, key or reply to a file or database.</p>
 <table>
 <thead><tr><th>Selected provider</th><th>Destination</th></tr></thead>
 <tbody>

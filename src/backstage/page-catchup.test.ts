@@ -1,17 +1,17 @@
 import { expect, test } from "bun:test";
 import { parseCases } from "./run.ts";
 
-/** Problems with the Act I credentials note in a page; empty when a user sees it before the first field. */
+/** Problems with the credentials note beside the question; empty when it precedes the first field. */
 function sceneNoteProblems(markup: string): string[] {
   const page = markup.replace(/<!--[\s\S]*?-->/g, "");
   const problems: string[] = [];
-  const legend = page.indexOf("Your decision");
+  const heading = page.indexOf('id="topic-heading"');
   const question = page.indexOf('id="question"');
   const note = [...page.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)].find((m) =>
     /\bid="scene-safety"/.test(m[1] ?? ""),
   );
   if (!note) return ["missing"];
-  if ((note.index ?? -1) < legend) problems.push("above the legend");
+  if ((note.index ?? -1) < heading) problems.push("above the heading");
   if ((note.index ?? Infinity) > question) problems.push("after the first field");
   const attrs = ` ${note[1] ?? ""}`;
   if (/\shidden(\s|=|$)|display:\s*none|\bsr-only\b/.test(attrs))

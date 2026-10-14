@@ -55,36 +55,36 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <li><strong>Write the cases.</strong> Paste them into <strong>Cases, one per line</strong>, or use <strong>Import cases CSV</strong> with the columns <code>case_id,case_input</code> (<a href="/backstage/sample-cases.csv">sample cases file</a>, signed in). The workspace takes 1 to 100 cases of up to 8,000 characters each.</li>
   <li><strong>Plan for at least <span data-const="MIN_PAIRED">30</span> cases you will label.</strong> A verdict needs <span data-const="MIN_PAIRED">30</span> paired, labelled cases (section 4). Mix easy, hard and ambiguous cases.</li>
   <li><strong>Synthetic or redacted text only.</strong> Each case is sent to every provider you select. No real names, emails, account or order numbers.</li>
-  <li><strong>Or start from a ready pack.</strong> In the step labelled "New Scene", packs P1 to P4 come with 10 labelled cases and P5 to P8 with 30 cases for you to label.</li>
+  <li><strong>Or start from a ready pack.</strong> In the step labelled "Your question" ("New Scene"), packs P1 to P4 come with 10 labelled cases and P5 to P8 with 30 cases for you to label.</li>
 </ul>
 <p>A case file can carry labels too: add a <code>label</code> column (one of your two answers), then <code>label_source</code>, <code>labelled_by</code> and <code>labelled_at</code>. A label with no <code>label_source</code> is stored as <code>agent</code> and is never counted; one marked <code>human</code> is stored as <code>human_reviewed</code>.</p>
 
 <h2 id="label">2. Label acceptance</h2>
-<p>Labelling is you deciding, case by case, what the right answer is. An answer that matches your label is kept (the file says <code>accept</code>); one that does not is rejected (<code>reject</code>). Kept and rejected answers both count: each labelled answer is in its player's accept rate (kept out of labelled) and in the paired comparison the verdict uses, and every answer's cost is in its player's spend. Cost per kept answer divides that whole spend by the kept answers only, so rejected answers make each kept one dearer: one kept and one rejected answer at $1 each cost $2 per kept answer.</p>
+<p>Labelling is you deciding, case by case, what the right answer is. An answer that matches your label is kept (the file says <code>accept</code>); one that does not is rejected (<code>reject</code>). Kept and rejected answers both count: each labelled answer is in its answerer's accept rate (kept out of labelled) and in the paired comparison the verdict uses, and every answer's cost is in its answerer's spend. Cost per kept answer divides that whole spend by the kept answers only, so rejected answers make each kept one dearer: one kept and one rejected answer at $1 each cost $2 per kept answer.</p>
 <ol>
-  <li><strong>Write the rule first.</strong> In the step labelled "New Scene", fill <strong>Keep an answer when...</strong> with the test you will apply to every answer, and <strong>Leave out...</strong> with cases this test does not cover. For the sample shop bot the rule was: <em>answer</em> when the fact sheet covers everything asked; <em>hand_off</em> when it needs live stock, a booking, a policy not on the sheet, a safety judgement or a complaint.</li>
-  <li><strong>Calibrate.</strong> The step labelled "Rehearsals" starts with 5 practice cases whose reference labels a person approved. Your agreement shows at the end.</li>
-  <li><strong>Settle retries, then open judging.</strong> Once the run has stopped, retry any unfinished calls in the step labelled "Learning Lines" first (<strong>Retry unfinished calls</strong>). Then click <strong>Open blind judging and lock retries</strong> (<strong>Open judging and lock retries</strong> in a Jev-only run). From that click on, retries are refused and the set of answers is fixed.</li>
-  <li><strong>Pick blind.</strong> For each case, choose one of your two named answers (the buttons carry the names you gave as First answer and Second answer) or <strong>Unsure</strong>, before any answer is shown. That first pick is the label every player is scored against.</li>
+  <li><strong>Write the rule first.</strong> In the step labelled "Your question" ("New Scene"), fill <strong>Keep an answer when...</strong> with the test you will apply to every answer, and <strong>Leave out...</strong> with cases this test does not cover. For the sample shop bot the rule was: <em>answer</em> when the fact sheet covers everything asked; <em>hand_off</em> when it needs live stock, a booking, a policy not on the sheet, a safety judgement or a complaint.</li>
+  <li><strong>Calibrate.</strong> The step labelled "Judge the answers" ("Rehearsals") starts with 5 practice cases whose reference labels a person approved. Your agreement shows at the end.</li>
+  <li><strong>Settle retries, then open judging.</strong> Once the run has stopped, retry any unfinished calls in the step labelled "Your cases" ("Learning Lines") first (<strong>Retry unfinished calls</strong>). Then click <strong>Open blind judging and lock retries</strong> (<strong>Open judging and lock retries</strong> in a Jev-only run). From that click on, retries are refused and the set of answers is fixed.</li>
+  <li><strong>Pick blind.</strong> For each case, choose one of your two named answers (the buttons carry the names you gave as First answer and Second answer) or <strong>Unsure</strong>, before any answer is shown. That first pick is the label every answerer is scored against.</li>
   <li><strong>Then keep or change.</strong> After your pick, Jev's options for the case appear ranked by Jev's probability for each; if Jev returned no probabilities, its choice comes first and the rest are marked unranked. If the run has no Jev answer for the case, you see "No suggestion yet" and can only keep your blind pick; with a TypeSafe key entered, <strong>Ask Jev with your key (one paid call)</strong> makes one Jev call billed to your TypeSafe account at Jev's list price ($<span data-const="BACKSTAGE_JEV_INPUT_USD_PER_MTOK">0.042</span> per million input tokens, output free), and its cost counts in Total actual attempts. A change is recorded beside your blind pick, never instead of it.</li>
   <li><strong>Unsure means unlabelled.</strong> An unsure case is never guessed. Its answers are left out of the accept rates and the verdict's pairing (shown as unlabelled and excluded), but what they cost still counts in spend and so in the cost per kept answer the tables show.</li>
   <li><strong>Imported labels.</strong> A case you do not pick keeps its imported <code>human_reviewed</code> label and is scored on it. Any pick you make on the case, Unsure included, replaces the imported label for that case.</li>
-  <li><strong>Finish judging and lock labels.</strong> This reveals the players and unlocks results and downloads. Labels are locked after it.</li>
+  <li><strong>Finish judging and lock labels.</strong> This reveals the answerers and unlocks results and downloads. Labels are locked after it.</li>
 </ol>
 <p>Where a label came from is recorded with it: <code>human</code> (a person picked it in the workspace), <code>human_reviewed</code> (a person approved it but did not pick it there, such as an approved AI draft) or <code>agent</code> (an AI made it and nobody reviewed it). <code>agent</code> labels are never counted as truth. The <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/docs/product/labelling-card.md">label card</a> is the one-page version.</p>
 
 <h2 id="costs">3. Enter costs</h2>
 <p>In the workspace, costs are entered for you: each answer's cost is worked out from the token usage the provider returns and a dated list price. You enter costs by hand only in your own results file (below). In the workspace you see three things:</p>
 <ul>
-  <li><strong>Before the run:</strong> the step labelled "Learning Lines" shows an estimate, such as "up to N paid calls", from dated list prices, about 1 to 4 bytes of your text per input token and each model's output cap. Your invoice may differ.</li>
-  <li><strong>After the run:</strong> the step labelled "Dress Rehearsal" shows <strong>Answers-only spend</strong> and <strong>Cost / kept</strong> per player, and <strong>Total actual attempts</strong>, which also counts failed and retried calls.</li>
+  <li><strong>Before the run:</strong> the step labelled "Your cases" ("Learning Lines") shows an estimate, such as "up to N paid calls", from dated list prices, about 1 to 4 bytes of your text per input token and each model's output cap. Your invoice may differ.</li>
+  <li><strong>After the run:</strong> the step labelled "Cost and downloads" ("Dress Rehearsal") shows <strong>Answers-only spend</strong> and <strong>Cost / kept</strong> per answerer, and <strong>Total actual attempts</strong>, which also counts failed and retried calls.</li>
   <li><strong>A simple rule costs $0.</strong> It runs locally and makes no API call.</li>
 </ul>
 <p id="format-name"><code>jnj-record/1</code> is a format name, not a file name: <code>jnj-record</code> is the results-record format and the number after the slash is its version, so <code>jnj-record/1.1</code> and <code>jnj-record/1.2</code> are later minor versions of the same format.</p>
 <p>Bringing your own results file (<strong>Load your own script (CSV)</strong> on the sample run page, format <code>jnj-record/1</code>) means you enter the cost yourself, one <code>cost_usd</code> cell per row:</p>
 <ul>
   <li>The cost of that one call in US dollars, as a plain number (<code>0.00003242</code>, not "about a cent"). Use <code>0</code> for a rule.</li>
-  <li>Leave it empty if you do not know it. The file stays valid, but that player's spend shows as incomplete, and a missing cost on a paired Jev or LLM row makes the verdict "not enough evidence".</li>
+  <li>Leave it empty if you do not know it. The file stays valid, but that answerer's spend shows as incomplete, and a missing cost on a paired Jev or LLM row makes the verdict "not enough evidence".</li>
   <li>Optionally add <code>price_table_date</code> (<code>YYYY-MM-DD</code>), the date of the price list you used.</li>
 </ul>
 <p>Every column a results file can carry, in header order. The columns up to <code>latency_ms</code> are required in every file. The rest may be left out of the header, with conditions: a labelled row in a jnj-record/1.1 or jnj-record/1.2 file must fill <code>labelled_by</code>, <code>labelled_at</code> and <code>label_blind</code>, and a jnj-record/1 file leaves them empty; <code>label_final</code> and <code>suggestion_shown</code> need jnj-record/1.1 or jnj-record/1.2; <code>outcome</code> and the <code>decisions</code> answerer need jnj-record/1.2. The full rules are in the <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/format/README.md">format reference</a>.</p>
@@ -116,7 +116,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>suggestion_shown</dt><dd><code>true</code> when Jev's ranked suggestion was shown before the final pick, <code>false</code> when none was available.</dd>
 </dl>
 <p>The command line fills <code>cost_usd</code> for you from its price table dated <span data-const="PRICE_TABLE_DATE">2026-10-08</span>: Jev at $<span data-const="JEV_INPUT_USD_PER_MTOK">0.042</span> per million input tokens, output free.</p>
-<p><strong>Cost per kept answer</strong> is a player's total spend divided by its kept answers. It is undefined when a player kept nothing, never zero.</p>
+<p><strong>Cost per kept answer</strong> is an answerer's total spend divided by its kept answers. It is undefined when an answerer kept nothing, never zero.</p>
 
 <h2 id="verdict">4. Read the verdict</h2>
 <p>The verdict compares Jev with the LLM on <em>paired</em> cases: cases where both have a labelled answer. Cases missing either label are left out. It also compares Jev with the rule on accept rate only, because a rule costs nothing. The rules below run in order and the first that matches wins. The screen says which rule fired, by the number below, and why.</p>
@@ -134,7 +134,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <li><strong>Rule 3: Use Jev</strong> when all of these hold: the lower bound of Jev minus the LLM is above <span data-const="MARGIN_BOUND">-0.10</span> (Jev is within <span data-const="MARGIN_POINTS">10</span> points of the LLM); the cost ratio is <span data-const="CHEAPER">0.8</span> or less (at least <span data-const="CHEAPER_PERCENT">20</span>% cheaper per kept answer); and the cost ratio's upper bound is below one.</li>
   <li><strong>Rule 4: Not enough evidence</strong> otherwise. The screen names every condition of the use-Jev rule that was not met. It gives no count of extra cases here.</li>
 </ol>
-<p>"Not enough evidence" is a finding, not a failure: the cases did not show a difference either way within the margin. If only one of Jev and the LLM kept nothing, the order above matters: the two accept-rate conditions of "don't use Jev" are checked first, so Jev keeping nothing while the LLM kept nearly everything is "don't use Jev" (Jev clearly worse). Only when neither of those fires is a one-sided zero "not enough evidence", with the labels to check named. Two cost guards sit at the same point, after those two accept-rate conditions and before "Jev is clearly dearer": when Jev and the LLM both cost $0 per kept answer there is no cost ratio, and when the costs are too large to add up or divide the ratio is not finite. Either gives "not enough evidence", reported as rule one. The same rules run in the workspace (the step labelled "Opening Night"), on the sample run page when you load your own file, and in <code>bun run decide verdict &lt;file&gt; --question &lt;id&gt;</code>.</p>
+<p>"Not enough evidence" is a finding, not a failure: the cases did not show a difference either way within the margin. If only one of Jev and the LLM kept nothing, the order above matters: the two accept-rate conditions of "don't use Jev" are checked first, so Jev keeping nothing while the LLM kept nearly everything is "don't use Jev" (Jev clearly worse). Only when neither of those fires is a one-sided zero "not enough evidence", with the labels to check named. Two cost guards sit at the same point, after those two accept-rate conditions and before "Jev is clearly dearer": when Jev and the LLM both cost $0 per kept answer there is no cost ratio, and when the costs are too large to add up or divide the ratio is not finite. Either gives "not enough evidence", reported as rule one. The same rules run in the workspace (the step labelled "Verdict" ("Opening Night")), on the sample run page when you load your own file, and in <code>bun run decide verdict &lt;file&gt; --question &lt;id&gt;</code>.</p>
 
 <h2 id="example">5. Worked example: the sample run</h2>
 <p>Open the <a href="../">sample run page</a> and scroll. Below the sample cards, the shop-bot sections show a recorded run, flagged <strong>Sample run</strong> in the corner: <span data-sample="cases">100</span> made-up messages to a ski shop's bot, and one decision, "can the bot answer this from its fact sheet, or must it hand off to staff?" The first forty were used in the earlier run; five AI persona writers wrote the next sixty before the answerers ran.</p>
@@ -150,15 +150,15 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <li>The list headed "IN REPERTOIRE" at the end names UC1 to UC10: other decisions Jev could be tested on, each with its question. They are not run on this page.</li>
 </ul>
 
-<h3>The question and the three players</h3>
-<p><strong>A, What you do now</strong> is an LLM answering each message from the fact sheet. <strong>B, A simple rule</strong> is a keyword list that sends stock, booking, policy and safety words to staff. <strong>C, Jev decides</strong> picks answer or hand off, with a confidence. The second answer's name is <code>hand_off</code>, as the workspace and the results file write it; the sample run page prints it as "hand off". The coloured bar under each player shows how often it picked each answer.</p>
+<h3>The question and the three answerers</h3>
+<p><strong>A, What you do now</strong> is an LLM answering each message from the fact sheet. <strong>B, A simple rule</strong> is a keyword list that sends stock, booking, policy and safety words to staff. <strong>C, Jev decides</strong> picks answer or hand off, with a confidence. The second answer's name is <code>hand_off</code>, as the workspace and the results file write it; the sample run page prints it as "hand off". The coloured bar under each answerer shows how often it picked each answer.</p>
 
 <h3>The labels</h3>
-<p>Every message has one label, the right answer: <span data-sample="truth-answer">33</span> answer and <span data-sample="truth-hand_off">67</span> hand off. Three AI labellers who never saw any player's answer drafted them from the fact sheet, and a person reviewed and approved them, so they are <code>human_reviewed</code>, not blind picks. The acceptance rule is the one quoted under <a href="#label">Label acceptance</a>.</p>
+<p>Every message has one label, the right answer: <span data-sample="truth-answer">33</span> answer and <span data-sample="truth-hand_off">67</span> hand off. Three AI labellers who never saw any answerer's answer drafted them from the fact sheet, and a person reviewed and approved them, so they are <code>human_reviewed</code>, not blind picks. The acceptance rule is the one quoted under <a href="#label">Label acceptance</a>.</p>
 
 <h3>The cases table</h3>
-<p>Each row is one message. <strong>Case</strong> is its id, <strong>Message</strong> its text, and the small <strong>label</strong> tag after the text is the right answer. Under <strong>A now</strong>, <strong>B rule</strong> and <strong>C Jev</strong> each player's pick is marked kept if it matches the label, rejected if not. <strong>Jev said</strong> repeats Jev's pick with its confidence and a bar.</p>
-<p>Jev's mistakes come first, highest confidence first. The box marked "Spotlight" is <span data-sample="spot-id">m44</span>, a message asking which counter to visit in the morning. The fact sheet does not settle everything it asks, so the label is hand off. Jev said answer with <span data-sample="spot-confidence">0.88</span> confidence, so its answer was rejected. A high confidence on a rejected answer is why confidence is the model's own score, not measured accuracy. <strong>Kept so far</strong> gives each player's total kept answers across all cases.</p>
+<p>Each row is one message. <strong>Case</strong> is its id, <strong>Message</strong> its text, and the small <strong>label</strong> tag after the text is the right answer. Under <strong>A now</strong>, <strong>B rule</strong> and <strong>C Jev</strong> each answerer's pick is marked kept if it matches the label, rejected if not. <strong>Jev said</strong> repeats Jev's pick with its confidence and a bar.</p>
+<p>Jev's mistakes come first, highest confidence first. The box marked "Spotlight" is <span data-sample="spot-id">m44</span>, a message asking which counter to visit in the morning. The fact sheet does not settle everything it asks, so the label is hand off. Jev said answer with <span data-sample="spot-confidence">0.88</span> confidence, so its answer was rejected. A high confidence on a rejected answer is why confidence is the model's own score, not measured accuracy. <strong>Kept so far</strong> gives each answerer's total kept answers across all cases.</p>
 
 <h3>The cost table</h3>
 <table>
@@ -169,7 +169,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
     <tr><td>C, Jev decides</td><td><span data-sample="spend-C">$0.0033</span></td><td><span data-sample="kept-C">88</span>/<span data-sample="cases">100</span></td><td><span data-sample="cpk-C">$0.000037</span></td></tr>
   </tbody>
 </table>
-<p>Jev kept <span data-sample="kept-C">88</span> answers and the LLM kept <span data-sample="kept-A">86</span>. Against the LLM, Jev won <span data-sample="wins-A">5</span> cases and lost <span data-sample="losses-A">3</span>; against the rule it won <span data-sample="wins-B">43</span> and lost <span data-sample="losses-B">4</span>. Each answer Jev kept cost <span data-sample="save-vs-a">80</span>% less than one the LLM kept. Below it, <strong>Median seconds per call</strong> shows how long each player took.</p>
+<p>Jev kept <span data-sample="kept-C">88</span> answers and the LLM kept <span data-sample="kept-A">86</span>. Against the LLM, Jev won <span data-sample="wins-A">5</span> cases and lost <span data-sample="losses-A">3</span>; against the rule it won <span data-sample="wins-B">43</span> and lost <span data-sample="losses-B">4</span>. Each answer Jev kept cost <span data-sample="save-vs-a">80</span>% less than one the LLM kept. Below it, <strong>Median seconds per call</strong> shows how long each answerer took.</p>
 
 <h3>The verdict</h3>
 <p>The page shows <strong><span data-sample="verdict-word">Use Jev (rule 3)</span></strong> as its verdict line. Rule <span data-sample="verdict-rule">3</span> fired. The final section gives the why, case results, next step and earlier result before the supporting list and caveat. Walking the rules in order:</p>
@@ -191,7 +191,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <li><strong>List prices, not invoices.</strong> Costs are returned token usage times a dated list price. Your invoice may differ, prices change after the table date, and failed calls can still be charged.</li>
   <li><strong>Small samples rarely decide.</strong> The verdict needs at least <span data-const="MIN_PAIRED">30</span> paired labelled cases, and at <span data-const="MIN_PAIRED">30</span> the published simulation finds "not enough evidence" the most common result. See the <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/docs/decision/verdict-rules.md">verdict rules</a>.</li>
   <li><strong>Labels decide everything.</strong> The verdict is only as good as your labels. <code>agent</code> labels never count; the sample run's labels are AI drafts a person approved, not blind human picks.</li>
-  <li><strong>Three players only.</strong> The verdict reads the LLM, the rule and Jev. An optional fourth arm in the command line (the OpenAI Decisions API) is recorded but not judged.</li>
+  <li><strong>Three answerers only.</strong> The verdict reads the LLM, the rule and Jev. An optional fourth arm in the command line (the OpenAI Decisions API) is recorded but not judged.</li>
   <li><strong>Several models, several verdicts.</strong> When the workspace compares Jev with more than one LLM, each pair gets its own uncorrected verdict and no overall winner is picked.</li>
   <li><strong>Size limits.</strong> The workspace takes 1 to 100 cases of up to 8,000 characters each; the sample run page reads a results file up to <span data-const="MAX_FILE_MB">5</span> MB.</li>
   <li><strong>Confidence is not accuracy.</strong> Jev's confidence is the model's own score; the sample's case marked "Spotlight" was rejected at <span data-sample="spot-confidence">0.88</span>.</li>
@@ -199,7 +199,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
 
 <h2 id="fields">Field glossary</h2>
 <p>Labels on the sample cards and the recorded shop-bot run, plus the workspace fields, in the order you meet them.</p>
-<p>The card rephrase patterns below are separate from the ready packs P1 to P4 in the step labelled "New Scene".</p>
+<p>The card rephrase patterns below are separate from the ready packs P1 to P4 in the step labelled "Your question" ("New Scene").</p>
 <dl id="glossary">
   <dt>On the sample run page</dt><dd>The public page at <a href="../">/</a>.</dd>
   <dt>Sample run</dt><dd>The badge in the corner identifies the recorded shop-bot run below the sample cards. The cards also include questions that have not been tested.</dd>
@@ -233,11 +233,11 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>Jev said</dt><dd>Jev's pick and its confidence from 0 to 1, drawn as a bar. A red bar means the pick was rejected.</dd>
   <dt>Spotlight</dt><dd>Jev's most confident mistake, explained in one line.</dd>
   <dt>Next miss</dt><dd>Jev's next most confident mistake, explained in one line.</dd>
-  <dt>Kept so far</dt><dd>Total kept answers per player across all cases.</dd>
-  <dt>Spend</dt><dd>What the player's calls cost in total, in US dollars, at list prices.</dd>
-  <dt>Kept answers</dt><dd>How many of the player's answers were kept, out of all cases.</dd>
-  <dt>Cost per kept answer</dt><dd>Spend divided by kept answers; "undefined (0 kept)" when a player kept nothing.</dd>
-  <dt>Method</dt><dd>Which player a timing row is for.</dd>
+  <dt>Kept so far</dt><dd>Total kept answers per answerer across all cases.</dd>
+  <dt>Spend</dt><dd>What the answerer's calls cost in total, in US dollars, at list prices.</dd>
+  <dt>Kept answers</dt><dd>How many of the answerer's answers were kept, out of all cases.</dd>
+  <dt>Cost per kept answer</dt><dd>Spend divided by kept answers; "undefined (0 kept)" when an answerer kept nothing.</dd>
+  <dt>Method</dt><dd>Which answerer a timing row is for.</dd>
   <dt>Median seconds per call</dt><dd>The middle time one call took. The LLM figure includes starting the command that called it.</dd>
   <dt>Use Jev</dt><dd>Verdict: Jev is within the margin of the LLM and clearly cheaper per kept answer (section 4, rule three).</dd>
   <dt>Use Jev (rule 3)</dt><dd>The recorded sample verdict, including the rule number shown on the page.</dd>
@@ -248,29 +248,29 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>Jev probably not</dt><dd>The original question asks for open judgement or writing; the card gives a fixed-answer rephrase to test instead.</dd>
   <dt>Split two ways</dt><dd>Use a script where a check can settle the answer, and test a fixed-answer Jev question where the evidence is prose.</dd>
   <dt>Not proven yet</dt><dd>An earlier run did not establish enough evidence for the use-Jev verdict.</dd>
-  <dt>Load your own script (CSV)</dt><dd>Choose a results file (one row per case per player) to check it and see its verdict. It is read in your browser.</dd>
+  <dt>Load your own script (CSV)</dt><dd>Choose a results file (one row per case per answerer) to check it and see its verdict. It is read in your browser.</dd>
 
   <dt>In the workspace</dt><dd>The signed-in tester area, titled "Backstage Pass" on screen (<a href="/backstage/">open it</a>). Six steps, each a button in the row at the top.</dd>
-  <dt>House Lights</dt><dd>The header button that switches the workspace between light and dark.</dd>
-  <dt>Edit as a new scene</dt><dd>In the step labelled "New Scene": discards the current run and unlocks the question's fields, keeping what you typed, so you can edit and run again under a new identity. With a run on the page it first asks you to confirm, so download your records and evidence before you do. Off while a run is starting or running.</dd>
-  <dt>Catalog checked</dt><dd>In the step labelled "Casting", with a date: when the model list and its prices were last checked against the providers' documentation. Whether your account can use a model is checked only when you run.</dd>
-  <dt>Prefer the Playground?</dt><dd>In the step labelled "Learning Lines": a link to TypeSafe's own Playground, where you can try a case by hand instead of running it here.</dd>
+  <dt>Theme</dt><dd>The header button that switches the workspace between light and dark.</dd>
+  <dt>Edit the question</dt><dd>In the step labelled "Your question" ("New Scene"): discards the current run and unlocks the question's fields, keeping what you typed, so you can edit and run again under a new identity. With a run on the page it first asks you to confirm, so download your records and evidence before you do. Off while a run is starting or running.</dd>
+  <dt>Catalog checked</dt><dd>In the step labelled "Who answers" ("Casting"), with a date: when the model list and its prices were last checked against the providers' documentation. Whether your account can use a model is checked only when you run.</dd>
+  <dt>Prefer the Playground?</dt><dd>In the step labelled "Your cases" ("Learning Lines"): a link to TypeSafe's own Playground, where you can try a case by hand instead of running it here.</dd>
   <dt>Copy own-key CLI</dt><dd>Copies a command that sends your first case to Jev from your own terminal. It reads your key from TYPESAFE_API_KEY in your shell; no key is copied.</dd>
-  <dt>Try one small Jev query</dt><dd>One Jev call on your first case, paid by us, when a funded trial is on. Otherwise it stays off and the line under it says no funded trial is configured. A browser cookie and network limits prevent repeats.</dd>
-  <dt>Run first case</dt><dd>Sends only your first case to every player you selected, so you can check your keys and the cost. The setup then counts as run: to run every case, download its records and evidence, use "Edit as a new scene", then <strong>Run all cases</strong>.</dd>
-  <dt>Leave a stage note</dt><dd>The footer link that opens a new issue on the project's GitHub, for feedback or a problem.</dd>
-  <dt>ADMIT ONE / WORK IN PROGRESS</dt><dd>The caption above the "Backstage Pass" title. Not a control: it marks the workspace as unfinished ("A little rough. A real rehearsal."), but runs still make real calls billed to your keys.</dd>
-  <dt>Clear keys</dt><dd>In the step labelled "Casting": empties every key field and stops the current run or runner check, so no further calls start. Calls already sent may still be charged. Sign out also clears keys.</dd>
-  <dt>Unmapped usage stays unknown</dt><dd>In the step labelled "Casting", after Catalog checked: when a reply has no token counts, reports cached tokens, or the model has no price, that call's cost is recorded as unknown, not estimated.</dd>
-  <dt>Copy first case for Playground</dt><dd>In the step labelled "Learning Lines": copies your question, the answer meanings and your first case, to paste into TypeSafe's Playground. It refuses when the question or cases contain a provider key currently entered in the step labelled "Casting"; a key typed into a case after Clear keys is not caught.</dd>
-  <dt>Stop</dt><dd>In the step labelled "Learning Lines", on while a run is starting or running: no new calls start and completed answers are kept. A call already in flight may still be charged; <strong>Retry unfinished calls</strong> sends the rest as a new paid attempt.</dd>
-  <dt>Calibrate first</dt><dd>The heading at the top of the step labelled "Rehearsals": practice cases with reference labels a person approved, picked before your own. Each reference label shows after your pick and your agreement shows at the end; these picks are never exported as a run's labels.</dd>
-  <dt>New Scene: Question</dt><dd>Room 1: write the question, its two answers and your acceptance rule.</dd>
-  <dt>Casting: Models and keys</dt><dd>Room 2: choose Jev alone or add comparisons, and paste your keys.</dd>
-  <dt>Learning Lines: Test cases</dt><dd>Room 3: enter or import cases, see the cost estimate and run the calls.</dd>
-  <dt>Rehearsals: Judge answers</dt><dd>Room 4: calibrate, then pick the right answer for each case blind.</dd>
-  <dt>Dress Rehearsal: Cost and downloads</dt><dd>Room 5: kept answers, spend and cost per kept answer per player, plus records.csv and the run evidence.</dd>
-  <dt>Opening Night: Result</dt><dd>Room 6: the verdict for each comparison, with its reason.</dd>
+  <dt>Try one small Jev query</dt><dd>One Jev call on your first case, paid by us, when a funded trial is on. When no funded trial is configured, this control is hidden. A browser cookie and network limits prevent repeats.</dd>
+  <dt>Run first case</dt><dd>Sends only your first case to every answerer you selected, so you can check your keys and the cost. The setup then counts as run: to run every case, download its records and evidence, use "Edit the question", then <strong>Run all cases</strong>.</dd>
+  <dt>Send feedback</dt><dd>The footer link that opens a new issue on the project's GitHub, for feedback or a problem.</dd>
+  <dt>Jev!Jev / Backstage Pass</dt><dd>The small workspace mark below your question.</dd>
+  <dt>Clear keys</dt><dd>In the step labelled "Who answers" ("Casting"): empties every key field and stops the current run or runner check, so no further calls start. Calls already sent may still be charged. Sign out also clears keys.</dd>
+  <dt>Unmapped usage stays unknown</dt><dd>In the step labelled "Who answers" ("Casting"), after Catalog checked: when a reply has no token counts, reports cached tokens, or the model has no price, that call's cost is recorded as unknown, not estimated.</dd>
+  <dt>Copy first case for Playground</dt><dd>In the step labelled "Your cases" ("Learning Lines"): copies your question, the answer meanings and your first case, to paste into TypeSafe's Playground. It refuses when the question or cases contain a provider key currently entered in the step labelled "Who answers" ("Casting"); a key typed into a case after Clear keys is not caught.</dd>
+  <dt>Stop</dt><dd>In the step labelled "Your cases" ("Learning Lines"), on while a run is starting or running: no new calls start and completed answers are kept. A call already in flight may still be charged; <strong>Retry unfinished calls</strong> sends the rest as a new paid attempt.</dd>
+  <dt>Calibrate first</dt><dd>The heading at the top of the step labelled "Judge the answers" ("Rehearsals"): practice cases with reference labels a person approved, picked before your own. Each reference label shows after your pick and your agreement shows at the end; these picks are never exported as a run's labels.</dd>
+  <dt>Your question: New Scene</dt><dd>Room 1: write the question, its two answers and your acceptance rule.</dd>
+  <dt>Who answers: Casting</dt><dd>Room 2: choose Jev alone or add comparisons, and paste your keys.</dd>
+  <dt>Your cases: Learning Lines</dt><dd>Room 3: enter or import cases, see the cost estimate and run the calls.</dd>
+  <dt>Judge the answers: Rehearsals</dt><dd>Room 4: calibrate, then pick the right answer for each case blind.</dd>
+  <dt>Cost and downloads: Dress Rehearsal</dt><dd>Room 5: kept answers, spend and cost per kept answer per answerer, plus records.csv and the run evidence.</dd>
+  <dt>Verdict: Opening Night</dt><dd>Room 6: the verdict for each comparison, with its reason.</dd>
   <dt>What do you want to decide?</dt><dd>Describe your decision in plain words. The question coach uses this to suggest drafts.</dd>
   <dt>Model provider</dt><dd>Choose Anthropic or OpenAI when you want the question coach to draft with your own model key.</dd>
   <dt>Your model key</dt><dd>An Anthropic or OpenAI API key. It goes through this site to that provider for one call, is billed to your account, and is not stored. Clear keys empties this field.</dd>
@@ -293,7 +293,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>OpenAI API key</dt><dd>Appears when you tick an OpenAI model: your own key for it, billed to your OpenAI account.</dd>
   <dt>Google API key</dt><dd>Appears when you tick a Google model: your own key for it, billed to your Google account.</dd>
   <dt>xAI API key</dt><dd>Appears when you tick an xAI model: your own key for it, billed to your xAI account.</dd>
-  <dt>Include a local keyword rule</dt><dd>Adds player B, a free keyword rule, to the comparison.</dd>
+  <dt>Include a local keyword rule</dt><dd>Adds answerer B, a free keyword rule, to the comparison.</dd>
   <dt>Literal keywords, one per line</dt><dd>The rule's keywords. Case-insensitive; any match selects the first answer, otherwise the second.</dd>
   <dt>Cases, one per line</dt><dd>Your test cases typed or pasted, one case per line.</dd>
   <dt>Import cases CSV</dt><dd>Load cases from a CSV whose first two columns are case_id,case_input; use it for cases that span lines.</dd>
@@ -307,8 +307,8 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>Unsure</dt><dd>You cannot decide; the case is unlabelled, overriding any imported label. Its answers stay out of accept rates and pairing, but their cost still counts in spend.</dd>
   <dt>Download records.csv</dt><dd>Successful answers with label and cost, in the jnj-record format: one row per answer per comparison. With several LLMs, Jev's and the rule's answers repeat under each comparison's run_id, so do not sum spend across comparisons.</dd>
   <dt>Download run evidence</dt><dd>The full run record, including failed and uncertain attempts.</dd>
-  <dt>Model</dt><dd>Which player gave the answer.</dd>
-  <dt>Answer</dt><dd>The answer that player picked.</dd>
+  <dt>Model</dt><dd>Which answerer gave the answer.</dd>
+  <dt>Answer</dt><dd>The answer that answerer picked.</dd>
   <dt>Returned confidence</dt><dd>The confidence the model returned with its answer, or "Not returned".</dd>
   <dt>Player</dt><dd>Jev, the LLM or the rule, in one comparison.</dd>
   <dt>Kept / labelled</dt><dd>Kept answers out of the answers you labelled.</dd>
@@ -316,9 +316,9 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>Answers-only spend</dt><dd>The cost of the answers in the comparison, not counting failed attempts.</dd>
   <dt>Cost / kept</dt><dd>Answers-only spend divided by kept answers; a reason instead of a number when nothing was kept or a cost is missing.</dd>
   <dt>Total actual attempts</dt><dd>Everything the run spent, failed calls included, with how many charges are unknown.</dd>
-  <dt>paired labelled cases</dt><dd>Cases where both Jev and the other player have a labelled answer; the rest are counted as excluded.</dd>
-  <dt>Jev-only wins</dt><dd>Paired cases where Jev's answer was kept and the other player's was rejected.</dd>
-  <dt>other-only wins</dt><dd>Paired cases where the other player's answer was kept and Jev's was rejected.</dd>
+  <dt>paired labelled cases</dt><dd>Cases where both Jev and the other answerer have a labelled answer; the rest are counted as excluded.</dd>
+  <dt>Jev-only wins</dt><dd>Paired cases where Jev's answer was kept and the other answerer's was rejected.</dd>
+  <dt>other-only wins</dt><dd>Paired cases where the other answerer's answer was kept and Jev's was rejected.</dd>
   <dt>Per-pair, uncorrected comparison</dt><dd>Each LLM is compared with Jev on its own; nothing adjusts for running several comparisons at once.</dd>
 </dl>
 </main>

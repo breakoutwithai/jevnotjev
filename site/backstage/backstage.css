@@ -64,43 +64,23 @@ header span {
 }
 main {
   max-width: 980px;
-  margin: 25px auto;
+  margin: 12px auto;
   padding: 0 24px;
 }
 .ticket {
-  display: flex;
-  justify-content: space-between;
-  max-width: 650px;
-  background: var(--paper);
-  padding: 22px 0 22px 30px;
-  border: 1px solid var(--brass);
-  box-shadow: 4px 5px 0 var(--line);
-  transform: rotate(-0.6deg);
+  font: 600 11px var(--sans);
+  color: var(--muted);
+  margin: 6px 0 14px;
 }
-.stub {
-  border-left: 2px dashed var(--brass);
-  writing-mode: vertical-rl;
-  padding: 0 20px;
-  font: 700 11px var(--sans);
-  letter-spacing: 0.18em;
-}
-.eyebrow {
-  font: 700 10px var(--sans);
-  letter-spacing: 0.19em;
-  color: var(--brass);
-  margin: 0 0 12px;
-}
+:root[data-room]:not([data-room="0"]) .topic-entry { display: none; }
 h1 {
-  font-size: clamp(40px, 7vw, 66px);
+  font-size: clamp(30px, 5vw, 48px);
   line-height: 1.05;
   margin: 0;
   font-weight: 700;
 }
-h1 em {
-  font-weight: 400;
-}
 h2 {
-  font-size: clamp(32px, 5vw, 46px);
+  font-size: clamp(25px, 4vw, 35px);
   line-height: 1.1;
   margin: 0 0 12px;
 }
@@ -109,17 +89,9 @@ h3 {
   margin: 0 0 8px;
 }
 .direction {
-  font-style: italic;
   color: var(--muted);
-  font-size: 20px;
-  margin: 12px 0 24px;
-}
-.ticket .direction {
-  margin: 8px 0 0;
-}
-.intro {
-  font-size: 20px;
-  margin: 28px 0;
+  font-size: 16px;
+  margin: 8px 0 12px;
 }
 nav {
   display: grid;
@@ -180,7 +152,7 @@ h2 .job {
   top: 12px;
 }
 nav button {
-  padding: 10px 6px;
+  padding: 6px 4px;
   color: var(--muted);
   background: transparent;
   border: 1px solid var(--line);
@@ -188,7 +160,9 @@ nav button {
 }
 nav span {
   display: block;
-  margin-top: 5px;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 700;
 }
 nav .job {
   display: block;
@@ -203,14 +177,14 @@ nav [aria-current="step"] {
 }
 .room-line {
   font: 600 14px var(--sans);
-  margin: 22px 0 6px;
+  margin: 10px 0 4px;
 }
 #notice {
-  min-height: 25px;
   font: 13px var(--sans);
   color: var(--muted);
-  margin: 6px 0 22px;
+  margin: 4px 0;
 }
+#notice:empty { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .reason:empty {
   display: none;
 }
@@ -229,7 +203,7 @@ nav [aria-current="step"] {
 }
 section {
   border-top: 2px solid var(--brass);
-  padding: 30px 0;
+  padding: 14px 0;
   min-height: 420px;
 }
 [hidden] {
@@ -406,28 +380,14 @@ footer {
   header {
     padding: 16px 18px;
   }
-  header span {
-    display: none;
-  }
   nav {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(108px, 1fr));
+    overflow-x: auto;
   }
   .columns,
   .cast {
     grid-template-columns: 1fr;
     gap: 0;
-  }
-  .ticket {
-    padding-left: 18px;
-  }
-  .stub {
-    padding: 0 10px;
-  }
-  .ticket .eyebrow {
-    font-size: 8px;
-  }
-  .ticket .direction {
-    font-size: 17px;
   }
   section {
     padding-top: 24px;

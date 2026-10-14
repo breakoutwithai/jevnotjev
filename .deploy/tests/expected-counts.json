@@ -73,7 +73,7 @@
     "src/backstage/page-ux.test.ts": 10,
     "src/backstage/page.test.ts": 7,
     "src/backstage/providers.test.ts": 23,
-    "src/backstage/privacy.test.ts": 11,
+    "src/backstage/privacy.test.ts": 12,
     "src/backstage/run-gate.test.ts": 6,
     "src/backstage/export-check.test.ts": 28,
     "src/backstage/run.test.ts": 76,

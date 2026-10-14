@@ -155,3 +155,12 @@ test("[unit] #128 scene draft directions name sign-out and closing the tab, neve
   expect(page).toMatch(/draft[^.]*sign out or close the tab/i);
   expect(page).not.toMatch(/draft[^.]*clear action/i);
 });
+
+test("[unit] #128 trial network value is described as a keyed hash of the full IP", async () => {
+  const page = await Bun.file(privacyPath).text();
+  const trial = await Bun.file("src/backstage/trial.ts").text();
+  expect(trial).toContain('this.#hash("network:" + clientAddress)');
+  expect(trial).toContain('createHmac("sha256", this.#secret)');
+  expect(page).toContain("a keyed hash of your IP address");
+  expect(page).not.toMatch(/coarse network/i);
+});

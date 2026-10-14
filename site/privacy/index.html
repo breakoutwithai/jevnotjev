@@ -65,7 +65,7 @@ th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-a
 <ul>
 <li>Backstage event logs go to server logs. They contain sign-in email and IP address, request ids, run provider and model, developer API route and status, and ticket ids or rejection reasons. They do not include case text in the event fields.</li>
 <li>Page, sign-in and ticket office requests are logged by the web server; logging is off for the developer API, Backstage API and the Google sign-in return.</li>
-<li>If a funded trial is available, its database file holds allowances, a coarse network label, reservations, cost and day data; it has no case, question, answer or key column.</li>
+<li>If a funded trial is available, its database file holds allowances, a keyed hash of your IP address, reservations, cost and day data; it has no case, question, answer or key column.</li>
 </ul>
 
 <h2>What we do not keep</h2>

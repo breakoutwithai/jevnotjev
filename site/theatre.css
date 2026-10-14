@@ -1,4 +1,138 @@
-/* Stage door demo beside the compact run. */
+/* Theatre frame over the result-first page: an opening curtain, the valance and drapes, the marquee, the ticket and
+   the Little Shop poster. Motion only under html.motion (set before first paint when prefers-reduced-motion is off). */
+
+/* ---------- Overture: the curtains part once on load. Never a gate: no pointer ever lands on them. ---------- */
+.overture { display: none; }
+.motion .overture {
+  display: block; position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none;
+  animation: overture-out 0s linear 1.6s forwards;
+}
+.overture.gone { display: none; }
+@keyframes overture-out { to { visibility: hidden; } }
+.curtain {
+  position: absolute; top: 0; bottom: 0; width: 50.5%; pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, .28), transparent 16%, transparent 82%, rgba(0, 0, 0, .35)),
+    repeating-linear-gradient(90deg,
+      var(--curtain-lo) 0, var(--curtain) 22px, var(--curtain-hi) 38px, var(--curtain) 54px, var(--curtain-lo) 76px);
+  box-shadow: 0 0 80px rgba(0, 0, 0, .45);
+  will-change: transform;
+  animation: part-l 1.3s cubic-bezier(.6, 0, .2, 1) .25s both;
+}
+.curtain.cl { left: 0; }
+.curtain.cr { right: 0; animation-name: part-r; }
+.curtain::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 26px;
+  background: repeating-linear-gradient(90deg, var(--brass) 0 3px, transparent 3px 9px);
+  opacity: .55;
+}
+@keyframes part-l { from { transform: none; } to { transform: translateX(-102%); } }
+@keyframes part-r { from { transform: none; } to { transform: translateX(102%); } }
+
+/* ---------- House furniture: valance across the top, drapes in the side margins on wide screens ---------- */
+.proscenium { position: absolute; inset: 0 0 auto 0; height: 100vh; pointer-events: none; z-index: 0; overflow: hidden; }
+.valance {
+  position: absolute; top: 0; left: 0; right: 0; height: 26px;
+  background:
+    radial-gradient(ellipse 60px 34px at 60px 0, var(--curtain-hi), transparent 70%) 0 0 / 120px 26px repeat-x,
+    linear-gradient(var(--curtain-lo), var(--curtain));
+  /* Each scallop is wider than its 120px tile so the swags join along the top edge. */
+  -webkit-mask: radial-gradient(ellipse 64px 30px at 60px -6px, #000 98%, transparent) 0 0 / 120px 26px repeat-x;
+          mask: radial-gradient(ellipse 64px 30px at 60px -6px, #000 98%, transparent) 0 0 / 120px 26px repeat-x;
+}
+.drape { display: none; }
+@media (min-width: 1300px) {
+  .drape {
+    display: block; position: absolute; top: 0; bottom: 0; width: min(150px, calc((100% - 1140px) / 2));
+    background: repeating-linear-gradient(90deg,
+      var(--curtain-lo) 0, var(--curtain) 14px, var(--curtain-hi) 24px, var(--curtain) 34px, var(--curtain-lo) 48px);
+    transform-origin: top center;
+  }
+  .drape.l { left: 0; clip-path: polygon(0 0, 100% 0, 78% 55%, 40% 100%, 0 100%); }
+  .drape.r { right: 0; clip-path: polygon(0 0, 100% 0, 100% 100%, 60% 100%, 22% 55%); }
+  .motion .drape.l { animation: sway 9s ease-in-out infinite alternate; }
+  .motion .drape.r { animation: sway 11s ease-in-out infinite alternate-reverse; }
+}
+@keyframes sway { from { transform: skewX(0deg); } to { transform: skewX(.8deg); } }
+.house { position: relative; z-index: 1; padding-top: 32px; }
+
+/* ---------- Entrance ticket in the house bar ---------- */
+.ticket {
+  position: relative; display: inline-grid; grid-template-columns: auto auto; align-items: stretch;
+  color: #2a1408; background: #efe2c4; font: 700 11px var(--sans);
+  box-shadow: 0 4px 12px var(--shadow); transform: rotate(-1.5deg);
+  -webkit-mask: radial-gradient(circle 6px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
+                radial-gradient(circle 6px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+          mask: radial-gradient(circle 6px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
+                radial-gradient(circle 6px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+}
+.ticket .main { display: flex; align-items: center; gap: 8px; padding: 5px 10px 5px 14px; border-right: 2px dashed rgba(42, 20, 8, .35); }
+.ticket .admit { margin: 0; font: 800 16px/1 var(--serif); letter-spacing: .02em; }
+.ticket .stub { display: flex; align-items: center; padding: 5px 12px 5px 8px; font-size: 10px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
+
+/* ---------- Marquee: a lit title strip with bulbs on the border ---------- */
+.marquee-band { display: flex; justify-content: center; padding: 14px 0 0; }
+.marquee {
+  --bulb: #ffe6a6;
+  position: relative; margin: 0; padding: 10px 28px 9px; text-align: center; max-width: min(640px, 100%);
+  background: #1a0508; color: #f6e7c8;
+  border: 3px solid #b8892a;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .35), inset 0 0 0 5px #1a0508, inset 0 0 0 7px #6e4f14;
+}
+.marquee::before, .marquee::after {
+  content: ""; position: absolute; left: 10px; right: 10px; height: 8px;
+  background: radial-gradient(circle 3.5px, var(--bulb) 96%, transparent) 0 0 / 18px 8px repeat-x;
+  filter: drop-shadow(0 0 4px rgba(255, 214, 120, .9));
+}
+.marquee::before { top: -5px; } .marquee::after { bottom: -5px; }
+.motion .marquee::before, .motion .marquee::after { animation: chase 1.6s steps(2) infinite; }
+@keyframes chase { 50% { opacity: .55; } }
+.marquee .kicker { display: block; font: 700 11px var(--sans); letter-spacing: .32em; text-transform: uppercase; color: #e0b04e; }
+.marquee .billing { display: block; margin-top: 3px; font: 800 clamp(22px, 2.2vw, 28px)/1.05 var(--serif); letter-spacing: -.01em; }
+.marquee .billing em { font-weight: 500; color: #e0b04e; }
+
+/* ---------- Little Shop of Horrors preview poster beside the hero (below the primary action on a phone) ---------- */
+.poster {
+  display: flex; flex-direction: column; gap: 6px; width: min(440px, 100%); margin: 22px 0 6px;
+  text-decoration: none; color: #1a0508; background: #e9d9b4; font-family: var(--sans);
+  border: 8px solid #1a0508; padding: 14px 18px; transform: rotate(1deg);
+  box-shadow: inset 0 0 0 4px #e9d9b4, inset 0 0 0 6px #b8892a, 0 12px 30px rgba(0, 0, 0, .35);
+}
+.poster:focus-visible { outline: 3px solid var(--brass); outline-offset: 4px; }
+.poster .p-kicker { font-size: 11px; font-weight: 700; letter-spacing: .32em; text-transform: uppercase; color: #8a2233; }
+.poster .p-who { font: italic 20px/1 var(--serif); }
+.poster .p-title { font: 800 26px/.95 var(--serif); color: #5a0f1c; }
+.poster .p-rule { height: 2px; background: #1a0508; margin: 2px 0; }
+.poster .p-seats { font-size: 14px; line-height: 1.4; font-weight: 600; }
+.poster .p-cta {
+  align-self: flex-start; margin-top: 4px; font-size: 12px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase;
+  color: #f6e7c8; background: #1a0508; padding: 9px 14px;
+}
+.poster:hover .p-cta { background: #5a0f1c; }
+@media (min-width: 900px) {
+  #act1 .stage { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 0 44px; align-items: start; }
+  #act1 .stage > * { grid-column: 1; }
+  #act1 .stage > h1 { grid-column: 1 / -1; }
+  #act1 .stage > .poster { grid-column: 2; grid-row: 2 / span 5; width: 300px; margin: 4px 0 0; padding: 18px 20px; gap: 7px; transform: rotate(2deg); }
+  .poster .p-who { font-size: 22px; }
+  .poster .p-title { font-size: 32px; }
+}
+@media (max-width: 720px) {
+  .house { padding-top: 22px; }
+  .valance {
+    height: 16px; background-size: 120px 16px, auto;
+    -webkit-mask: radial-gradient(ellipse 64px 20px at 60px -5px, #000 98%, transparent) 0 0 / 120px 16px repeat-x;
+            mask: radial-gradient(ellipse 64px 20px at 60px -5px, #000 98%, transparent) 0 0 / 120px 16px repeat-x;
+  }
+  .marquee-band { padding-top: 12px; }
+  .marquee { padding: 8px 16px 7px; }
+  .marquee .kicker { font-size: 10px; letter-spacing: .24em; }
+  .marquee .billing { font-size: 20px; }
+  .poster { gap: 4px; padding: 10px 14px; margin-top: 18px; }
+  .poster .p-who, .poster .p-rule { display: none; }
+  .poster .p-title { font-size: 22px; }
+}
+
 /* ---------- Stage-door demo ---------- */
 .door-demo { margin: 40px 0 0; max-width: 980px; border-top: 2px solid var(--cut); padding-top: 18px; scroll-margin-top: 72px; }
 @media (max-width: 720px) { .door-demo { scroll-margin-top: 120px; } }

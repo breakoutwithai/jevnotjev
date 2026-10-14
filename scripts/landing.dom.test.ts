@@ -103,7 +103,7 @@ test("[integration] L6-L8 links, cards and removed elements", async () => {
       if (/\d+ of \d+/.test(figure)) expect(figure.match(/\b(Jev|LLM|simple rule)\b[^\d]*\d+ of \d+/gi)).toHaveLength(1);
     }
     expect(await page.locator("#tkPosters").innerText()).not.toMatch(/Fit check: .* \/ /);
-    expect(await page.locator("#askForm, #askInput, .overture, #runway").count()).toBe(0);
+    expect(await page.locator("#askForm, #askInput, #runway").count()).toBe(0);
   } finally { await page.close(); }
 });
 
@@ -357,3 +357,98 @@ test("[integration] L15 cards use plain stage labels first", async () => {
     }
   } finally { await page.close(); }
 });
+
+/** Centre of the primary action, and whether the topmost element there is the action itself. */
+async function actionHit(page: Page): Promise<{ covered: boolean; hit: string }> {
+  return page.locator("#primaryAction").evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return { covered: hit === node || node.contains(hit), hit: hit ? hit.tagName : "none" };
+  });
+}
+
+async function bare(width: number, height: number, motion: "no-preference" | "reduce"): Promise<Page> {
+  const page = await browser.newPage({ viewport: { width, height }, reducedMotion: motion });
+  await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
+  await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "domcontentloaded" });
+  return page;
+}
+
+const CURTAIN_VIEWPORTS: [number, number][] = [[1280, 900], [390, 844]];
+
+test("[integration] L16 the curtain parts on load by itself and never covers the primary action", async () => {
+  for (const [width, height] of CURTAIN_VIEWPORTS) {
+    const page = await bare(width, height, "no-preference");
+    try {
+      // Closed at first paint: both curtains are on the page, animating, and let every pointer through.
+      const early = await page.evaluate(() => {
+        const curtains = [...document.querySelectorAll(".overture .curtain")];
+        const overture = document.querySelector(".overture");
+        return {
+          count: curtains.length,
+          motion: document.documentElement.classList.contains("motion"),
+          shown: overture ? getComputedStyle(overture).display !== "none" : false,
+          pointer: [overture, ...curtains].map((node) => node ? getComputedStyle(node).pointerEvents : "missing"),
+          timing: curtains.map((node) => {
+            const s = getComputedStyle(node);
+            return Math.round((parseFloat(s.animationDuration) + parseFloat(s.animationDelay)) * 1000);
+          }),
+          left: curtains[0]?.getBoundingClientRect().left ?? NaN,
+        };
+      });
+      expect(early.count).toBe(2);
+      expect(early.motion).toBe(true);
+      expect(early.shown).toBe(true);
+      expect(early.pointer).toEqual(["none", "none", "none"]);
+      for (const ms of early.timing) expect(ms >= 1200 && ms <= 1800).toBe(true);
+      expect(early.left).toBeLessThanOrEqual(0);
+      expect((await actionHit(page)).covered).toBe(true);
+      // Parts without a scroll or a click, then leaves the page.
+      await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+      expect(await page.locator(".overture").isVisible()).toBe(false);
+      expect(await page.evaluate(() => scrollY)).toBe(0);
+      expect(await actionHit(page)).toEqual({ covered: true, hit: "A" });
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+test("[integration] L17 under reduced motion no closed curtain is ever shown", async () => {
+  for (const [width, height] of CURTAIN_VIEWPORTS) {
+    const page = await bare(width, height, "reduce");
+    try {
+      const state = await page.evaluate(() => ({
+        motion: document.documentElement.classList.contains("motion"),
+        curtain: document.documentElement.dataset.curtain,
+        shown: [...document.querySelectorAll(".overture, .overture .curtain")].filter((node) => node.getClientRects().length > 0 && getComputedStyle(node).visibility !== "hidden").length,
+        centre: document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest(".overture") === null,
+      }));
+      expect(state).toEqual({ motion: false, curtain: "open", shown: 0, centre: true });
+      expect((await actionHit(page)).covered).toBe(true);
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+for (const motion of MOTIONS) {
+  test(`[integration] L18 the theatre frame stays: valance, marquee, ADMIT ONE ticket and the Little Shop poster (${motion})`, async () => {
+    for (const [width, height] of ACTION_VIEWPORTS) {
+      const page = await pageAt(width, height, motion);
+      try {
+        await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+        for (const selector of [".valance", ".marquee", ".ticket .admit", ".ticket .stub", "a.poster"]) expect(await page.locator(selector).first().isVisible()).toBe(true);
+        expect(await page.locator(".valance").evaluate((node) => getComputedStyle(node).pointerEvents)).toBe("none");
+        expect(await page.locator(".marquee").innerText()).toMatch(/Jev!Jev presents[\s\S]*To Jev or not to Jev/i);
+        expect(await page.locator(".ticket .admit").innerText()).toBe("ADMIT ONE");
+        const poster = page.locator("a.poster");
+        expect(await poster.innerText()).toContain("Little Shop of Horrors");
+        expect(new URL(await poster.getAttribute("href") ?? "", page.url()).pathname).toBe("/little-shop/");
+        // The marquee bills the show above the hero; on a phone the poster never sits above the primary action.
+        const order = await page.evaluate(() => {
+          const box = (selector: string) => document.querySelector(selector)?.getBoundingClientRect() ?? null;
+          const marquee = box(".marquee"), t1 = box("#t1"), action = box("#primaryAction"), poster = box("a.poster");
+          return { marqueeAbove: Boolean(marquee && t1 && marquee.bottom <= t1.top), posterBelow: Boolean(poster && action && (innerWidth >= 900 || poster.top >= action.bottom)) };
+        });
+        expect(order).toEqual({ marqueeAbove: true, posterBelow: true });
+      } finally { await page.close(); }
+    }
+  }, 30000);
+}

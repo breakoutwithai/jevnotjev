@@ -183,7 +183,7 @@ function bounded(value: string, limit: number, name: string): string {
 const CASE_HEADER = "case_id,case_input";
 const CASE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/;
-function validCases(cases: Scene["cases"]): Scene["cases"] {
+export function validCases(cases: Scene["cases"]): Scene["cases"] {
   if (cases.length < 1 || cases.length > 100)
     throw new Error(`Add between 1 and 100 cases (found ${cases.length}).`);
   const ids = new Set<string>();
@@ -423,6 +423,19 @@ export function parseCaseImport(csv: string, now: Date = new Date()): CaseImport
   );
   return Object.freeze({ cases, labels: Object.freeze(labels) });
 }
+/** Choice names and definitions accepted by a run and by starter-case drafting. */
+export function validSceneChoices(value: unknown): value is Scene["choices"] {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const valid = value.every((item: unknown) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item) ||
+        !("name" in item) || !("definition" in item) ||
+        typeof item.name !== "string" || typeof item.definition !== "string") return false;
+    return item.name.length > 0 && item.name.length <= 64 && item.name === item.name.trim() &&
+      !/[|\x00-\x1f\x7f]/.test(item.name) && item.definition.trim().length > 0 &&
+      item.definition.length <= 1000 && !CONTROL.test(item.definition);
+  });
+  return valid && value[0].name !== value[1].name;
+}
 function freezeScene(s: Scene): Scene {
   const choices: Scene["choices"] = [
     Object.freeze({
@@ -434,15 +447,8 @@ function freezeScene(s: Scene): Scene {
       definition: bounded(s.choices[1].definition, 1000, "Definition"),
     }),
   ];
-  if (
-    choices[0].name === choices[1].name ||
-    choices.some(
-      (c) => /[|\x00-\x1f\x7f]/.test(c.name) || c.name !== c.name.trim(),
-    )
-  )
-    throw new Error(
-      "Use two different choice names without pipes or line breaks.",
-    );
+  if (!validSceneChoices(choices))
+    throw new Error("Use two different choice names without pipes or line breaks.");
   if (
     !choices.some((c) => c.name === s.matchChoice) ||
     !choices.some((c) => c.name === s.otherwiseChoice)

@@ -8,6 +8,15 @@ import { TOKEN_LIFETIME_MS } from "./trial.ts";
 const privacyPath = "site/privacy/index.html";
 const summary = "Backstage does not save your cases, runs or keys to a file or database on our server.";
 
+test("[unit] #133 starter-case privacy disclosure matches the scene fields sent by the browser", async () => {
+  const page = await Bun.file(privacyPath).text();
+  const main = await Bun.file("src/backstage/main.ts").text();
+  expect(page).toMatch(/Draft starter cases[^<]*scene question and both answer names and their meanings[^<]*coach key[^<]*through our server to Anthropic or OpenAI[^<]*server does not save them or the reply/i);
+  expect(main).toContain('mode: "cases", scene');
+  expect(main).toContain('{ name: field("choice-a").value.trim(), definition: field("definition-a").value.trim() }');
+  expect(main).toContain('{ name: field("choice-b").value.trim(), definition: field("definition-b").value.trim() }');
+});
+
 test("[unit] #128 privacy page exists with valid source paths and plain punctuation", async () => {
   expect(existsSync(privacyPath)).toBe(true);
   if (!existsSync(privacyPath)) return;

@@ -111,7 +111,7 @@ describe("Backstage in-page confirm panels", () => {
 
   test("[unit] I88 reveal wording differs for compare and solo runs", async () => {
     const compare = confirmPanel("reveal", await stoppedRun(true));
-    expect(compare.title).toBe("Reveal the players and lock your labels?");
+    expect(compare.title).toBe("Show who answered and lock your labels?");
     expect(compare.message).toContain("leave answers unlabelled");
     expect(compare.message).toContain("Unfinished calls remain missing");
     const solo = confirmPanel("reveal", await stoppedRun(false));
@@ -123,7 +123,7 @@ describe("Backstage in-page confirm panels", () => {
 
   test("[unit] I88 new-scene wording keeps the download-first warning", async () => {
     const panel = confirmPanel("new-scene", await stoppedRun(false));
-    expect(panel.title).toBe("Start a new scene?");
+    expect(panel.title).toBe("Start a new question?");
     expect(panel.message).toContain("Download your records and evidence first");
     expect(panel.message).toContain("clears the current run");
   });

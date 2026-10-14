@@ -6,7 +6,11 @@ import { resolveChromium } from "./uat/happy-path-lib.ts";
 import posters from "../site/shows/posters.json";
 
 declare global {
-  interface Window { JNJ: { cases: { id: string; prompt: string; truth: string; arms: { C: { picked: string; confidence?: number } } }[] } }
+  interface Window {
+    JNJ: { cases: { id: string; prompt: string; truth: string; arms: { C: { picked: string; confidence?: number } } }[] };
+    /** Test-only accessor for the overture's animations, installed by held()'s init script. */
+    jnjCurtain?: () => (CSSAnimation | null)[];
+  }
 }
 
 const SITE = process.env.LANDING_TEST_SITE ?? join(import.meta.dir, "..", "site");
@@ -105,7 +109,7 @@ test("[integration] L6-L8 links, cards and removed elements", async () => {
       if (/\d+ of \d+/.test(figure)) expect(figure.match(/\b(Jev|LLM|simple rule)\b[^\d]*\d+ of \d+/gi)).toHaveLength(1);
     }
     expect(await page.locator("#tkPosters").innerText()).not.toMatch(/Fit check: .* \/ /);
-    expect(await page.locator("#askForm, #askInput, .overture, #runway").count()).toBe(0);
+    expect(await page.locator("#askForm, #askInput, #runway").count()).toBe(0);
   } finally { await page.close(); }
 });
 
@@ -126,7 +130,7 @@ test("[integration] L9 cases disclosure and confidence ordered spotlights", asyn
       expect(await spots.nth(i).locator(".monologue b").textContent()).toBe(i === 0 ? "Spotlight" : "Next miss");
     }
     expect(await page.locator("#allCases .monologue").count()).toBe(0);
-    await page.locator("#allCases").evaluate((node) => { (node as HTMLDetailsElement).open = true; });
+    await page.locator("#allCases").evaluate((node) => { if (node instanceof HTMLDetailsElement) node.open = true; });
     expect(await page.locator(".case.row .conf").first().evaluate((node) => getComputedStyle(node).height)).toBe("4px");
     expect(await page.locator(".case.wrong .conf i").first().evaluate((node) => getComputedStyle(node).backgroundColor)).toBe("rgb(178, 56, 42)");
     expect(await page.locator("#tally").innerText()).not.toContain("heard");
@@ -429,8 +433,8 @@ test("[integration] L12-L14 page dimensions and tap targets", async () => {
           const box = node.getBoundingClientRect();
           return style.visibility !== "hidden" && box.width > 0 && box.height > 0 && (box.width < 24 || box.height < 24);
         }).map((node) => `${node.tagName}#${node.id}.${node.className}`) }));
-      // #201 adds the explained verdict to every card: measured 8085 at 390 and 4610 at 1440 on 2026-10-13.
-      expect(measure.height).toBeLessThan(width === 390 ? 8500 : 5000);
+      // Issue #203's limits: under 8,000 px at 390 and under 5,000 px at 1440.
+      expect(measure.height).toBeLessThan(width === 390 ? 8000 : 5000);
       expect(measure.small).toEqual([]);
       expect(measure.overflow).toBe(0);
     } finally { await page.close(); }
@@ -446,3 +450,372 @@ test("[integration] L15 cards use plain stage labels first", async () => {
     }
   } finally { await page.close(); }
 });
+
+/** Centre of the primary action, and whether the topmost element there is the action itself. */
+async function actionHit(page: Page): Promise<{ covered: boolean; hit: string }> {
+  return page.locator("#primaryAction").evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return { covered: hit === node || node.contains(hit), hit: hit ? hit.tagName : "none" };
+  });
+}
+
+/*
+ * One control of the curtain timeline, shared by every curtain test. No curtain test waits on the wall clock:
+ * - held() freezes the page's timers with a paused fake clock (theatre.js's fallback fires only on clock.runFor) and
+ *   holds theatre.js at the network (no cleanup runs until release()); onHeld() always releases and closes the page.
+ * - seize() proves the CSS animations advance on their own, then pauses them and rewinds to the start, so a slow load
+ *   cannot let the overture finish before a test reads it.
+ * - seek() moves the paused timeline to a fraction of its end and reads what a viewer would see.
+ * - finishCurtain() ends the animations, so with the clock paused only the animationend listener can open the curtain.
+ */
+const CURTAIN_ANIMATIONS = ["overture-out", "part-l", "part-r"];
+
+/** Installed before any page script: the overture's own animations in CURTAIN_ANIMATIONS order, null for a missing one. */
+function installCurtainAccessor(names: string[]): void {
+  window.jnjCurtain = () => {
+    const overture = document.querySelector(".overture");
+    const all = overture ? overture.getAnimations({ subtree: true }) : [];
+    return names.map((name) => all.find((a): a is CSSAnimation => a instanceof CSSAnimation && a.animationName === name) ?? null);
+  };
+}
+
+const FAKE_START = Date.UTC(2026, 0, 1);
+
+/**
+ * A held page. release() only opens the network gate for theatre.js (never waits, safe to call twice, so cleanup can
+ * always run); ready() then waits for theatre.js to record the curtain state, so a script that fails to initialise
+ * fails the test step that awaited it rather than its cleanup.
+ */
+interface Held { page: Page; release: () => void; ready: () => Promise<void> }
+
+async function held(width: number, height: number, motion: "no-preference" | "reduce"): Promise<Held> {
+  const page = await browser.newPage({ viewport: { width, height }, reducedMotion: motion });
+  let open = (): void => undefined;
+  const gate = new Promise<void>((resolve) => { open = resolve; });
+  try {
+    // One call installs the fake clock and pauses it at a fixed instant, so no wall-clock gap between an install and a
+    // later pause can put the pause target in the past, and nothing depends on today's date.
+    await page.clock.pauseAt(FAKE_START);
+    await page.addInitScript(installCurtainAccessor, CURTAIN_ANIMATIONS);
+    await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
+    await page.route("**/theatre.js", async (route) => { await gate; await route.continue(); });
+    await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "commit" });
+    await page.waitForFunction(() => document.getElementById("primaryAction") !== null && document.querySelectorAll(".overture .curtain").length === 2);
+  } catch (error) {
+    open();
+    await page.close();
+    throw error;
+  }
+  const ready = async (): Promise<void> => {
+    await page.waitForFunction(() => document.documentElement.dataset.curtain !== undefined, undefined, { timeout: 5000 });
+  };
+  return { page, release: open, ready };
+}
+
+/** Runs a curtain test body on a held page, then always releases the gate and closes the page. */
+async function onHeld(width: number, height: number, motion: "no-preference" | "reduce", body: (stage: Held) => Promise<void>): Promise<void> {
+  const stage = await held(width, height, motion);
+  try {
+    await body(stage);
+  } finally {
+    try { stage.release(); } finally { await stage.page.close(); }
+  }
+}
+
+/** Proves the curtain animations run by themselves (none paused, the part clock moving), then pauses and rewinds them. */
+async function seize(page: Page): Promise<{ states: string[]; delays: number[]; advanced: boolean; endMs: number }> {
+  const first = await page.evaluate(() => {
+    const anims = window.jnjCurtain?.() ?? [];
+    return {
+      states: anims.map((a) => a ? a.playState : "missing"),
+      delays: anims.slice(1).map((a) => Number(a?.effect?.getTiming().delay ?? -1)),
+      t: Number(anims[1]?.currentTime ?? -1),
+    };
+  });
+  // The part animation either moves on from where it was, or has already played through: never stuck.
+  const advanced = await page.waitForFunction((t) => {
+    const part = window.jnjCurtain?.()[1];
+    return Boolean(part) && (part?.playState === "finished" || Number(part?.currentTime ?? -1) > t);
+  }, first.t, { timeout: 1000 }).then(() => true, () => false);
+  const endMs = await page.evaluate(() => {
+    const anims = window.jnjCurtain?.() ?? [];
+    anims.forEach((a) => a?.pause());
+    return Math.max(0, ...anims.slice(1).map((a) => Number(a?.effect?.getComputedTiming().endTime ?? 0)));
+  });
+  await seek(page, 0, endMs);
+  return { states: first.states, delays: first.delays, advanced, endMs };
+}
+
+/**
+ * What a viewer sees of one curtain: on-screen width, whether it spans the full viewport height, effective opacity
+ * (all ancestors), visibility and pointer.
+ */
+interface CurtainView { left: number; right: number; onScreen: number; fullHeight: boolean; opacity: number; visible: boolean; pointer: string }
+
+/** Reads both curtains without moving the timeline. */
+async function viewCurtains(page: Page): Promise<CurtainView[]> {
+  return page.evaluate(() => [...document.querySelectorAll(".overture .curtain")].map((node) => {
+    let opacity = 1;
+    for (let el: Element | null = node; el; el = el.parentElement) opacity *= Number(getComputedStyle(el).opacity);
+    const box = node.getBoundingClientRect();
+    const onScreen = node.getClientRects().length > 0 && box.height > 0 ? Math.max(0, Math.min(box.right, innerWidth) - Math.max(box.left, 0)) : 0;
+    const style = getComputedStyle(node);
+    return { left: Math.round(box.left), right: Math.round(box.right), onScreen: Math.round(onScreen), fullHeight: box.top <= 0 && box.bottom >= innerHeight, opacity, visible: style.visibility === "visible", pointer: style.pointerEvents };
+  }));
+}
+
+/** The painted RGBA of one viewport pixel, read from a 1x1 screenshot decoded in the page (no image file kept). */
+async function paintedAt(page: Page, x: number, y: number): Promise<number[]> {
+  const png = await page.screenshot({ clip: { x: Math.round(x), y: Math.round(y), width: 1, height: 1 } });
+  return page.evaluate(async (b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const ctx = new OffscreenCanvas(1, 1).getContext("2d");
+    ctx?.drawImage(bitmap, 0, 0);
+    return [...(ctx?.getImageData(0, 0, 1, 1).data ?? [])];
+  }, png.toString("base64"));
+}
+
+/** Opaque curtain red (between --curtain-lo #3e0710 and --curtain-hi #a3263a), never the light page background. */
+function isCurtainRed([r = 0, g = 255, b = 255, a = 0]: number[]): boolean {
+  return a === 255 && r >= 50 && g < 60 && r > 2 * g && r > 1.4 * b;
+}
+
+/** Curtains a viewer could see: on screen, not hidden, not transparent. */
+async function shownCurtains(page: Page): Promise<number> {
+  return (await viewCurtains(page)).filter((c) => c.onScreen > 0 && c.visible && c.opacity > 0).length;
+}
+
+/**
+ * Moves the paused curtain timeline to a fraction of its end and reads both curtains. A part animation never goes back
+ * into its delay: seeking from the active phase to the before phase dispatches a real animationend (elapsedTime 0), which
+ * theatre.js would take as the curtain having parted. Its first active frame looks the same as the delay (fill: both).
+ */
+async function seek(page: Page, fraction: number, endMs: number): Promise<CurtainView[]> {
+  await page.evaluate((ms) => {
+    (window.jnjCurtain?.() ?? []).forEach((a) => {
+      if (a) a.currentTime = a.animationName === "overture-out" ? ms : Math.max(ms, Number(a.effect?.getTiming().delay ?? 0));
+    });
+  }, fraction * endMs);
+  return viewCurtains(page);
+}
+
+/** Ends the curtain animations and reports whether the curtain then opened (the fake clock stays paused). */
+async function finishCurtain(page: Page): Promise<boolean> {
+  await page.evaluate(() => { (window.jnjCurtain?.() ?? []).forEach((a) => a?.finish()); });
+  return page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 1000 }).then(() => true, () => false);
+}
+
+const CURTAIN_VIEWPORTS: [number, number][] = [[1280, 900], [390, 844]];
+/** Every curtain animation found and playing by itself: running, or already played through on a slow load. */
+function playsItself(states: string[]): boolean {
+  return states.length === 3 && states.every((s) => s === "running" || s === "finished");
+}
+
+test("[integration] L16 the curtain plays by itself from the side margins, moving outward midway, gone at the end, opened by animationend", async () => {
+  for (const [width, height] of CURTAIN_VIEWPORTS) {
+    await onHeld(width, height, "no-preference", async ({ page, release, ready }) => {
+      expect(await page.evaluate(() => document.documentElement.classList.contains("motion"))).toBe(true);
+      const line = await seize(page);
+      expect(playsItself(line.states)).toBe(true);
+      expect(line.advanced).toBe(true);
+      // No hold before parting: both parts start moving at 0 and are done in 1.0 to 1.5s.
+      expect(line.delays).toEqual([0, 0]);
+      expect(line.endMs >= 1000 && line.endMs <= 1500).toBe(true);
+      const half = width / 2;
+      // First frame: both curtains opaque, visible, full height, letting every pointer through, each on its own edge in
+      // the side margin, with the page between them. L22 owns "never over the headline or the primary action".
+      const start = await seek(page, 0, line.endMs);
+      for (const c of start) {
+        expect({ opacity: c.opacity, visible: c.visible, fullHeight: c.fullHeight, pointer: c.pointer }).toEqual({ opacity: 1, visible: true, fullHeight: true, pointer: "none" });
+        expect(c.onScreen > 0 && c.onScreen < half).toBe(true);
+      }
+      expect(start[0]?.left).toBe(0);
+      expect(start[1]?.right).toBe(width);
+      expect((start[1]?.left ?? 0) - (start[0]?.right ?? 0)).toBeGreaterThan(0);
+      expect((await actionHit(page)).covered).toBe(true);
+      // 40% through: each still visible, opaque and full height, on screen, and further out than at the start.
+      const mid = await seek(page, 0.4, line.endMs);
+      mid.forEach((c, i) => {
+        expect({ opacity: c.opacity, visible: c.visible, fullHeight: c.fullHeight }).toEqual({ opacity: 1, visible: true, fullHeight: true });
+        expect(c.onScreen > 0 && c.onScreen < (start[i]?.onScreen ?? 0)).toBe(true);
+      });
+      // End: neither covers any of the screen. Read just short of the end: seeking onto it queues the real animationend,
+      // which must stay unfired until finishCurtain() so the event path is what this test proves.
+      const end = await seek(page, 0.999, line.endMs);
+      expect(end.map((c) => c.onScreen)).toEqual([0, 0]);
+      await seek(page, 0, line.endMs);
+      release();
+      await ready();
+      expect(await page.evaluate(() => document.documentElement.dataset.curtain)).toBe("parting");
+      expect(await finishCurtain(page)).toBe(true);
+      expect(await page.evaluate(() => document.getElementById("overture")?.classList.contains("gone"))).toBe(true);
+      expect(await shownCurtains(page)).toBe(0);
+      expect(await page.evaluate(() => scrollY)).toBe(0);
+      expect(await actionHit(page)).toEqual({ covered: true, hit: "A" });
+    });
+  }
+}, 30000);
+
+test("[integration] L16b a curtain whose animation never ends is taken off the page by the fallback timer", async () => {
+  await onHeld(390, 844, "no-preference", async ({ page, release, ready }) => {
+    const line = await seize(page);
+    expect(playsItself(line.states)).toBe(true);
+    expect(await shownCurtains(page)).toBe(2);
+    release();
+    await ready();
+    // The fallback waits 1.8s: past the 1.3s part, with margin.
+    await page.clock.runFor(1700);
+    expect(await page.evaluate(() => document.documentElement.dataset.curtain)).toBe("parting");
+    await page.clock.runFor(200);
+    expect(await page.evaluate(() => document.documentElement.dataset.curtain)).toBe("open");
+    expect(await page.evaluate(() => document.getElementById("overture")?.classList.contains("gone"))).toBe(true);
+    expect(await shownCurtains(page)).toBe(0);
+    expect(await actionHit(page)).toEqual({ covered: true, hit: "A" });
+  });
+}, 15000);
+
+test("[integration] L17 under reduced motion no closed curtain is shown, even before the curtain script loads", async () => {
+  for (const [width, height] of CURTAIN_VIEWPORTS) {
+    await onHeld(width, height, "reduce", async ({ page, release, ready }) => {
+      const before = await page.evaluate(() => ({
+        motion: document.documentElement.classList.contains("motion"),
+        animations: (window.jnjCurtain?.() ?? []).filter(Boolean).length,
+      }));
+      expect(before).toEqual({ motion: false, animations: 0 });
+      expect(await shownCurtains(page)).toBe(0);
+      expect((await actionHit(page)).covered).toBe(true);
+      release();
+      await ready();
+      expect(await page.evaluate(() => document.documentElement.dataset.curtain)).toBe("open");
+      expect(await shownCurtains(page)).toBe(0);
+    });
+  }
+}, 30000);
+
+test("[integration] L19 turning on reduced motion while the page is open stops the marquee and drapes and drops the curtain", async () => {
+  const page = await pageAt(1440, 900, "no-preference");
+  try {
+    const running = () => page.evaluate(() => ({
+      bulbs: getComputedStyle(document.querySelector(".marquee") ?? document.body, "::before").animationName,
+      drape: getComputedStyle(document.querySelector(".drape.l") ?? document.body).animationName,
+    }));
+    expect(await running()).toEqual({ bulbs: "chase", drape: "sway" });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    expect(await running()).toEqual({ bulbs: "none", drape: "none" });
+  } finally { await page.close(); }
+  await onHeld(390, 844, "no-preference", async ({ page: mid }) => {
+    const line = await seize(mid);
+    expect(playsItself(line.states)).toBe(true);
+    expect(await shownCurtains(mid)).toBe(2);
+    await mid.emulateMedia({ reducedMotion: "reduce" });
+    expect(await shownCurtains(mid)).toBe(0);
+  });
+}, 30000);
+
+for (const motion of MOTIONS) {
+  test(`[integration] L18 the theatre frame stays: valance, marquee, ADMIT ONE ticket and the Little Shop poster (${motion})`, async () => {
+    for (const [width, height] of ACTION_VIEWPORTS) {
+      const page = await pageAt(width, height, motion);
+      try {
+        await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+        for (const selector of [".valance", ".marquee", ".ticket .admit", ".ticket .stub", "a.poster"]) expect(await page.locator(selector).first().isVisible()).toBe(true);
+        expect(await page.locator(".valance").evaluate((node) => getComputedStyle(node).pointerEvents)).toBe("none");
+        expect(await page.locator(".marquee").innerText()).toMatch(/Jev!Jev presents[\s\S]*To Jev or not to Jev/i);
+        expect(await page.locator(".ticket .admit").innerText()).toBe("ADMIT ONE");
+        const poster = page.locator("a.poster");
+        expect(await poster.innerText()).toContain("Little Shop of Horrors");
+        expect(new URL(await poster.getAttribute("href") ?? "", page.url()).pathname).toBe("/little-shop/");
+        // The marquee bills the show above the hero; on a phone the poster never sits above the primary action.
+        const order = await page.evaluate(() => {
+          const box = (selector: string) => document.querySelector(selector)?.getBoundingClientRect() ?? null;
+          const marquee = box(".marquee"), t1 = box("#t1"), action = box("#primaryAction"), poster = box("a.poster");
+          return { marqueeAbove: Boolean(marquee && t1 && marquee.bottom <= t1.top), posterBelow: Boolean(poster && action && (innerWidth >= 900 || poster.top >= action.bottom)) };
+        });
+        expect(order).toEqual({ marqueeAbove: true, posterBelow: true });
+      } finally { await page.close(); }
+    }
+  }, 30000);
+}
+
+/** Overlap of each curtain with the headline and the primary action, in viewport pixels. */
+async function curtainOverlaps(page: Page): Promise<{ curtain: string; target: string; overlap: number }[]> {
+  return page.evaluate(() => {
+    const curtains = [...document.querySelectorAll(".overture .curtain")];
+    const targets = ["#t1", "#primaryAction"];
+    return curtains.flatMap((curtain) => targets.map((target) => {
+      const a = curtain.getBoundingClientRect(), b = document.querySelector(target)?.getBoundingClientRect();
+      const w = b ? Math.min(a.right, b.right) - Math.max(a.left, b.left) : 0;
+      const h = b ? Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) : 0;
+      return { curtain: curtain.className, target, overlap: w > 0 && h > 0 ? Math.round(w * h) : 0 };
+    }));
+  });
+}
+
+test("[integration] L22 at the first frame and 40% through, neither curtain overlaps the headline or the primary action, and both still paint", async () => {
+  for (const [width, height] of [[1440, 900], [390, 844]] satisfies [number, number][]) {
+    await onHeld(width, height, "no-preference", async ({ page }) => {
+      const line = await seize(page);
+      expect(playsItself(line.states)).toBe(true);
+      for (const fraction of [0, 0.4]) {
+        const view = await seek(page, fraction, line.endMs);
+        expect({ width, fraction, overlaps: (await curtainOverlaps(page)).filter((o) => o.overlap > 0) }).toEqual({ width, fraction, overlaps: [] });
+        for (const c of view) {
+          expect({ width, fraction, onScreen: c.onScreen > 0, visible: c.visible, opacity: c.opacity }).toEqual({ width, fraction, onScreen: true, visible: true, opacity: 1 });
+          const x = (Math.max(c.left, 0) + Math.min(c.right, width)) / 2;
+          const pixel = await paintedAt(page, Math.min(width - 1, x), height / 2);
+          expect({ width, fraction, x, pixel, red: isCurtainRed(pixel) }).toEqual({ width, fraction, x, pixel, red: true });
+        }
+      }
+    });
+  }
+}, 30000);
+
+test("[integration] L20 the Little Shop poster has one short accessible name, shared by no other link", async () => {
+  const page = await pageAt(390, 844);
+  try {
+    const name = "Little Shop of Horrors: take your seat";
+    expect(await page.locator("a.poster").getAttribute("aria-label")).toBe(name);
+    expect(await page.getByRole("link", { name, exact: true }).count()).toBe(1);
+    const names = await page.locator("a[href]:visible").evaluateAll((links) => links.map((link) => link.getAttribute("aria-label") || link.textContent?.trim() || ""));
+    expect(names.filter((n, i) => names.indexOf(n) !== i)).toEqual([]);
+  } finally { await page.close(); }
+});
+
+/** The same tab's first and second visit: the overture plays on the first only. */
+test("[integration] L21 the overture plays once per tab session, and a page whose storage throws still renders", async () => {
+  const page = await pageAt(390, 844, "no-preference");
+  try {
+    expect(await page.evaluate(() => document.documentElement.classList.contains("overture-play"))).toBe(true);
+    await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "domcontentloaded" });
+    const again = await page.evaluate(() => ({
+      motion: document.documentElement.classList.contains("motion"),
+      play: document.documentElement.classList.contains("overture-play"),
+      curtain: document.documentElement.dataset.curtain,
+    }));
+    expect(again).toEqual({ motion: true, play: false, curtain: "open" });
+    expect(await shownCurtains(page)).toBe(0);
+    expect((await actionHit(page)).covered).toBe(true);
+  } finally { await page.close(); }
+
+  const blocked = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: "no-preference" });
+  const errors: string[] = [];
+  blocked.on("pageerror", (error) => errors.push(error.message));
+  try {
+    await blocked.addInitScript(() => {
+      Object.defineProperty(window, "sessionStorage", { configurable: true, get() { throw new DOMException("storage blocked", "SecurityError"); } });
+    });
+    await blocked.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
+    await blocked.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "domcontentloaded" });
+    await blocked.waitForFunction(() => document.querySelectorAll("#tkPosters .tk-poster").length > 0);
+    expect(await blocked.evaluate(() => {
+      try { window.sessionStorage.getItem("x"); return "storage readable"; } catch { return "storage throws"; }
+    })).toBe("storage throws");
+    // Unknown whether it was seen: play it, once, and never break the page.
+    expect(await blocked.evaluate(() => document.documentElement.classList.contains("overture-play"))).toBe(true);
+    expect(await blocked.locator("#t1").isVisible()).toBe(true);
+    await blocked.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+    expect(errors).toEqual([]);
+  } finally { await blocked.close(); }
+}, 30000);

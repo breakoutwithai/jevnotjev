@@ -37,7 +37,7 @@ function draft(value: unknown): value is CoachDraft {
   if (!record(value) || !bounded(value.question, 1000) || !bounded(value.keepRule, 2000) ||
       !bounded(value.exclusions, 2000, true) || !Array.isArray(value.ruleToBeat) ||
       value.ruleToBeat.length < 1 || value.ruleToBeat.length > 20 ||
-      !value.ruleToBeat.every((item: unknown) => bounded(item, 64) && item === item.trim() && !item.includes("\n"))) return false;
+      !value.ruleToBeat.every((item: unknown) => bounded(item, 64) && item === item.trim() && !/[\r\n]/.test(item))) return false;
   if (value.type === "choice" || value.type === "score") {
     const list: unknown = value.type === "choice" ? value.answers : value.levels;
     return Array.isArray(list) && list.length >= 2 && list.length <= 8 &&

@@ -323,6 +323,7 @@ test("[integration] #132 C2 C3 applying a Choice replaces editable fields and ma
   page.get("coach-use-reply").click();
   const before = page.requests.length;
   coachApply(page).click();
+  await tick();
   expect(page.requests).toHaveLength(before);
   expect(["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "exclusions", "keywords"].map((id) => page.get(id).value))
     .toEqual(["Should I refund?", "Refund", "Decline", "When the item is damaged.", "When it is intact.", "Keep when I would refund the order.", "Unknown condition.", "damaged"]);
@@ -548,6 +549,48 @@ test("[integration] #132 entering any key removes an older scene draft that cont
     typeInto(page, id, "exact-secret-value");
     expect([...page.store.items.values()].every((value) => !value.includes("exact-secret-value"))).toBe(true);
   }
+});
+test("[integration] #132 imported case ids are scanned before a scene draft is saved", async () => {
+  const page = await mount();
+  typeInto(page, "coach-key", "case-secret");
+  await importCsv(page, "case_id,case_input\ncase-secret,safe input\n");
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toBeNull();
+});
+test("[integration] #132 entering a Jev key clears an older draft containing it", async () => {
+  const page = await mount();
+  typeInto(page, "question", "Use jev-secret-value?");
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toContain("jev-secret-value");
+  typeInto(page, "jev-key", "jev-secret-value");
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toBeNull();
+});
+test("[integration] #132 failed removal keeps the clear-failed draft status", async () => {
+  class RemovalFails extends FakeStorage {
+    override removeItem(_key: string) { throw new Error("storage removal failed"); }
+  }
+  const page = await mount(undefined, undefined, new RemovalFails());
+  typeInto(page, "question", "Use exact-secret-value?");
+  typeInto(page, "coach-key", "exact-secret-value");
+  expect(page.get("draft-status").textContent).toBe("Could not remove the saved scene from this tab. Close the tab to clear it.");
+});
+test("[integration] #132 pasted coach reply supersedes a pending fetched draft", async () => {
+  let finish: ((drafts: unknown) => void) | undefined;
+  let signal: AbortSignal | undefined;
+  const page = await mount(undefined, undefined, undefined, undefined, "", (_question, pendingSignal) => {
+    signal = pendingSignal;
+    return new Promise<unknown>((resolve) => { finish = resolve; });
+  });
+  page.get("coach-provider").value = "anthropic";
+  page.get("coach-key").value = "coach-secret-value";
+  page.get("coach-question").value = "Refund?";
+  page.get("coach-draft").click();
+  await tick();
+  const pasted = { ...coachDraft, question: "Pasted decision?" };
+  page.get("coach-reply").value = JSON.stringify({ drafts: [pasted] });
+  page.get("coach-use-reply").click();
+  expect(signal?.aborted).toBe(true);
+  finish?.([{ ...coachDraft, question: "Old fetched decision?" }]);
+  await tick();
+  expect(page.get("coach-drafts").children[0]?.children[1]?.textContent).toBe("Pasted decision?");
 });
 test("[integration] #132 Clear keys aborts an in-flight coach request", async () => {
   let aborted = false;

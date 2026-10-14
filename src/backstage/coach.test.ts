@@ -21,6 +21,9 @@ test("[unit] #132 coach accepts no exclusions", () => {
   expect(parseCoachReply(JSON.stringify({ drafts: [{ ...draft, exclusions: "" }] })).ok).toBe(true);
   expect(coachPrompt("Refund?")).toContain("Use an empty string for exclusions when nothing is left out.");
 });
+test("[unit] #132 keyword containing a carriage return is rejected", () => {
+  expect(parseCoachReply(JSON.stringify({ drafts: [{ ...draft, ruleToBeat: ["damaged\rintact"] }] })).ok).toBe(false);
+});
 
 test("[unit] #132 C1 two questions yield distinct complete drafts", () => {
   const other = { ...draft, question: "Should I replace this order?", keepRule: "Keep when I would replace it." };

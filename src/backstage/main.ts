@@ -1064,7 +1064,7 @@ function readImportFile(file: Blob): ReturnType<CaseImportState["readImport"]> {
 }
 field("include-rule").addEventListener("change", () => void render());
 field("compare").addEventListener("change", () => void render());
-field("jev-key").addEventListener("input", () => void render());
+field("jev-key").addEventListener("input", () => { persistDraft(); void render(); });
 button("theme").onclick = () => {
   document.documentElement.dataset.theme =
     document.documentElement.dataset.theme === "dark" ? "light" : "dark";
@@ -1156,9 +1156,8 @@ function showDraftStatus(status: DraftStatus) {
 function persistDraft() {
   // Once sign-out starts nothing may recreate the draft it removed.
   if (signingOut) return;
-  if (coachUnsafe(SCENE_DRAFT_FIELDS.map((name) => field(name).value))) {
-    removeDraft();
-    showDraftStatus("save-failed");
+  if (coachUnsafe({ fields: SCENE_DRAFT_FIELDS.map((name) => field(name).value), imported })) {
+    showDraftStatus(removeDraft() ? "save-failed" : "clear-failed");
     return;
   }
   showDraftStatus(
@@ -1166,7 +1165,9 @@ function persistDraft() {
   );
 }
 function removeDraft() {
-  if (!clearSceneDraft(draftStorage())) showDraftStatus("clear-failed");
+  const cleared = clearSceneDraft(draftStorage());
+  if (!cleared) showDraftStatus("clear-failed");
+  return cleared;
 }
 function draftStorage(): DraftStorage | undefined {
   try {
@@ -1287,6 +1288,9 @@ button("coach-use-reply").onclick = () => {
   const parsed = parseCoachReply(reply);
   if (!parsed.ok) { coachStatus(COACH_REPLY_ERROR); return; }
   if (coachUnsafe(parsed.drafts)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
+  coachController?.abort();
+  coachController = undefined;
+  button("coach-draft").disabled = false;
   renderCoachDrafts(parsed.drafts);
   coachStatus(`${parsed.drafts.length} draft${parsed.drafts.length === 1 ? "" : "s"} ready.`);
 };
@@ -1308,6 +1312,7 @@ button("coach-draft").onclick = async () => {
     const response = await fetch("/api/backstage/coach", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ provider: selected.value, key, question }), signal: controller.signal });
     if (controller.signal.aborted) return;
     const payload: unknown = await response.json();
+    if (controller.signal.aborted || coachController !== controller) return;
     if (typeof payload !== "object" || payload === null) throw new Error("Could not draft scenes.");
     if (!response.ok) {
       const message = Reflect.get(payload, "message");
@@ -1317,8 +1322,9 @@ button("coach-draft").onclick = async () => {
     const parsed = parseCoachReply(JSON.stringify({ drafts: Reflect.get(payload, "drafts") }));
     if (!parsed.ok) throw new Error(COACH_REPLY_ERROR);
     if (coachUnsafe(parsed.drafts)) throw new Error(COACH_UNSAFE_MESSAGE);
+    if (controller.signal.aborted || coachController !== controller) return;
     renderCoachDrafts(parsed.drafts);
     coachStatus(`${parsed.drafts.length} draft${parsed.drafts.length === 1 ? "" : "s"} ready.`);
-  } catch (error) { if (!controller.signal.aborted) coachStatus(error instanceof Error ? error.message : "Could not draft scenes."); }
-  finally { if (coachController === controller) coachController = undefined; trigger.disabled = false; }
+  } catch (error) { if (!controller.signal.aborted && coachController === controller) coachStatus(error instanceof Error ? error.message : "Could not draft scenes."); }
+  finally { if (coachController === controller) { coachController = undefined; trigger.disabled = false; } }
 };

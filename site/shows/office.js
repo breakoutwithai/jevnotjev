@@ -44,6 +44,7 @@
     var open = $("officePanel").hidden;
     $("officePanel").hidden = !open;
     $("officeOpen").setAttribute("aria-expanded", open ? "true" : "false");
+    if (open && !form.hidden) $("tkEmail").focus();
   });
   function openHash() {
     if (window.location.hash !== "#tkForm" && window.location.hash !== "#csv") return;

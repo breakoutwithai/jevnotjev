@@ -12,7 +12,7 @@
     <script type="module" src="./app.js"></script>
   </head>
   <body>
-    <a id="skip-link" class="skip-link" href="#scene-title">Skip to the current step</a>
+    <a id="skip-link" class="skip-link" href="#scene-title">Skip to workspace</a>
     <header>
       <a href="/">Jev!Jev</a>
       <div class="header-actions"><button id="theme" type="button">Theme</button><button id="sign-out" class="secondary" type="button">Sign out</button></div>
@@ -26,20 +26,13 @@
         <p id="question-hint" class="fine">Not sure how to word it? Use the <a href="#question-coach">Question coach below.</a></p>
       </div>
       <button id="start-pack" type="button" hidden>Start</button>
-      <nav aria-label="Backstage rooms" id="rooms">
-        <button data-room="0" aria-current="step">
-          1 <span>Your question</span> <small class="job">New Scene</small></button
-        ><button data-room="1">2 <span>Who answers</span> <small class="job">Casting</small></button
-        ><button data-room="2">3 <span>Your cases</span> <small class="job">Learning Lines</small></button
-        ><button data-room="3">4 <span>Judge the answers</span> <small class="job">Rehearsals</small></button
-        ><button data-room="4">5 <span>Cost and downloads</span> <small class="job">Dress Rehearsal</small></button
-        ><button data-room="5">6 <span>Verdict</span> <small class="job">Opening Night</small></button>
-      </nav>
+      <nav aria-label="Workspace" id="rooms"><button data-room="0" aria-current="step">Setup and run</button><button data-room="3">Review answers</button><button data-room="4">Results and downloads</button></nav>
       <div class="ticket"><span>Jev!Jev / Backstage Pass</span></div>
       <p id="room-line" class="room-line">State your question and define the two answers.</p>
       <p id="notice" role="status" aria-live="polite"></p>
+      <div class="setup-workspace">
       <section data-panel="0" aria-labelledby="scene-title">
-        <h2 id="scene-title" tabindex="-1">Your question <span class="job">New Scene</span></h2>
+        <h2 id="scene-title" tabindex="-1">Your question</h2>
         <fieldset id="scene-fields">
           <legend class="sr-only">Your decision</legend>
           <div class="columns">
@@ -68,11 +61,11 @@
             </label>
           </div>
           <label
-            >Keep an answer when...<textarea
+            >Judging rule (required)<textarea
               id="acceptance"
               maxlength="2000"
               rows="3"
-              placeholder="Write the rule you will use when judging each answer."
+              placeholder="Example: Choose yes only when the message explicitly asks for a refund; otherwise choose no."
             ></textarea>
           </label>
           <label
@@ -85,18 +78,19 @@
             ></textarea>
           </label>
         </fieldset>
-        <aside id="before-you-start" class="before-you-start" aria-labelledby="before-you-start-title">
+        <details><summary>What this test can tell you</summary><aside id="before-you-start" class="before-you-start" aria-labelledby="before-you-start-title">
           <h3 id="before-you-start-title">Before you start</h3>
           <p>This tests AI answers to one business question. It is not a chatbot. Bring your own Jev key; calls are billed to your own provider accounts. A shared verdict needs 30 paired, human-labelled cases. Use synthetic or redacted data only. <a href="/guide/">Read the first-use guide.</a></p>
         </aside>
-        <div id="starter-packs">
+        </details>
+        <details id="starter-packs"><summary>Use a ready-made example</summary>
           <p class="fine">
             Or start from a ready pack: P1 to P4 come with 10 labelled cases, P5 to P8 with 30 cases for you to label.
             <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/docs/product/labelling-card.md" target="_blank" rel="noopener">Label card</a>
           </p>
           <div class="actions" id="starter-pack-buttons"></div>
-        </div>
-        <div id="question-coach" class="before-you-start" aria-labelledby="coach-title">
+        </details>
+        <details><summary>Get help drafting your question</summary><div id="question-coach" class="before-you-start" aria-labelledby="coach-title">
           <h3 id="coach-title">Question coach</h3>
           <label>What do you want to decide?<textarea id="coach-question" maxlength="1000" rows="3"></textarea></label>
           <label for="coach-provider">Model provider</label><select id="coach-provider"><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option></select>
@@ -113,6 +107,7 @@
           <div id="coach-drafts"></div>
         </div>
 
+        </details>
         <button id="new-scene" class="secondary" type="button">
           Edit the question
         </button>
@@ -148,7 +143,7 @@
         <p id="draft-status" class="fine" role="status"></p>
       </section>
       <section data-panel="1" aria-labelledby="casting-title" hidden>
-        <h2 id="casting-title" tabindex="-1">Who answers <span class="job">Casting</span></h2>
+        <h2 id="casting-title" tabindex="-1">Who answers</h2>
         <p class="direction">
           Jev answers with your key, and you can choose other providers to compare their answers.
         </p>
@@ -203,7 +198,7 @@
             <div id="provider-keys"></div>
           </div>
         </div>
-        <aside class="trust-sign" aria-label="Keys and privacy">
+        <details><summary>Keys, privacy and direct-provider alternatives</summary><aside class="trust-sign" aria-label="Keys and privacy">
           <strong>Your keys. Your call.</strong>
           <p>
             Your request goes through this server to the provider you select.
@@ -228,6 +223,7 @@
           </p>
           <p><a href="/privacy/">How we handle data</a></p>
         </aside>
+        </details>
         <button id="clear-keys" class="secondary" type="button">
           Clear keys
         </button>
@@ -248,7 +244,7 @@
         <p class="fine" id="catalog-note"></p>
       </section>
       <section data-panel="2" aria-labelledby="lines-title" hidden>
-        <h2 id="lines-title" tabindex="-1">Your cases <span class="job">Learning Lines</span></h2>
+        <h2 id="lines-title" tabindex="-1">Your cases</h2>
         <p class="direction">Jev tries each case you provide so you can see how it handles your real decision.</p>
         <fieldset id="case-fields">
           <legend class="sr-only">Your cases</legend>
@@ -264,7 +260,7 @@
               placeholder="Paste your own test cases here. Each line is one case."
             ></textarea>
           </label>
-          <div class="actions">
+          <details><summary>Draft or paste starter cases</summary><div class="actions">
             <button id="draft-cases" type="button">Draft starter cases</button>
             <button id="cases-copy-prompt" type="button" class="secondary">Copy cases prompt</button>
           </div>
@@ -274,8 +270,8 @@
             to your provider account.
           </p>
           <label>Paste your model's cases JSON reply<textarea id="cases-reply" rows="4"></textarea></label>
-          <button id="cases-use-reply" type="button" class="secondary">Use these cases</button>
-          <p id="cases-status" role="status"></p>
+          <p id="cases-mutation-preview" class="fine"></p><div class="actions"><button id="cases-use-reply" type="button" class="secondary">Add cases</button><button id="cases-replace" type="button" class="secondary">Replace cases</button></div><div id="confirm-replace" class="confirm-panel" role="alertdialog" aria-labelledby="confirm-replace-title" aria-describedby="confirm-replace-message" tabindex="-1" hidden><p id="confirm-replace-title">Replace existing cases?</p><p id="confirm-replace-message"></p><div class="actions"><button id="confirm-replace-yes" type="button">Replace cases</button><button id="confirm-replace-no" class="secondary" type="button">Cancel</button></div></div>
+          <p id="cases-status" role="status"></p></details><details><summary>Import cases from a CSV</summary>
           <p class="fine">
             1 to 100 cases, up to 8,000 characters each. For multiline cases,
             import a CSV whose first two columns are case_id,case_input.
@@ -292,7 +288,7 @@
               id="import-cases"
               accept=".csv,text/csv"
           /></label>
-          <a href="./sample-cases.csv" download>Download a sample cases file</a>
+          <a href="./sample-cases.csv" download>Download a sample cases file</a></details>
         </fieldset>
         <p id="run-preview">No cases yet.</p>
         <p id="estimate-basis" class="fine">
@@ -305,36 +301,38 @@
             >Prefer the Playground?</a
           >
         </p>
-        <div class="actions">
+        <details><summary>Run directly in Playground or CLI</summary><div class="actions">
           <button id="copy-case" type="button" class="secondary">
             Copy first case for Playground</button
           ><button id="copy-cli" type="button" class="secondary">
             Copy own-key CLI
           </button>
         </div>
+        </details>
         <button id="run-trial" type="button" class="secondary" disabled hidden>
           Try one small Jev query
         </button>
         <p id="trial-status" class="fine" hidden></p>
         <div class="actions">
-          <button id="run-one" aria-describedby="run-reason">Run first case</button
+          <button id="run-one" class="secondary" aria-describedby="run-reason">Try first case</button
           ><button id="run-all" aria-describedby="run-reason">Run all cases</button
           ><button id="stop" class="secondary" disabled>Stop</button
           ><button id="retry" class="secondary" disabled>
             Retry unfinished calls
           </button>
         </div>
-        <p id="run-reason" class="fine reason"></p>
+        <p id="run-reason" class="fine reason" role="status" aria-live="polite"></p><button id="fix-run" type="button" class="secondary" hidden>Fix missing input</button><button id="review-run" type="button" hidden>Review your answers</button>
         <p class="fine">
           Stop keeps completed answers. An in-flight call may still be charged.
           Retry is a new paid attempt; previous attempts stay in your evidence.
         </p>
         <div id="progress" aria-live="polite"></div>
       </section>
+      </div>
       <section data-panel="3" aria-labelledby="rehearsal-title" hidden>
-        <h2 id="rehearsal-title" tabindex="-1">Judge the answers <span class="job">Rehearsals</span></h2>
+        <h2 id="rehearsal-title" tabindex="-1">Judge the answers</h2>
         <p class="direction">Jev waits while you pick the right answer for each case before seeing its answer.</p>
-        <section id="calibration" aria-labelledby="calibration-title">
+        <details><summary>Optional: practise blind judging</summary><section id="calibration" aria-labelledby="calibration-title">
           <h3 id="calibration-title">Calibrate first: 5 practice cases</h3>
           <p class="fine">
             Pick each practice case before you pick your own. Each reference
@@ -351,12 +349,13 @@
           <button id="calibration-next" type="button" class="secondary" hidden>Next practice case</button>
           <p id="calibration-result" tabindex="-1" aria-live="polite"></p>
         </section>
+        </details>
         <p id="judging-direction" class="direction">
           Pick the right answer for each case first. Jev's answer appears after you pick.
         </p>
         <p id="rubric"></p>
         <p id="leave-out"></p>
-        <div id="blind-card">
+        <div id="blind-card" tabindex="-1">
           <p>Run your cases first. Cases to pick appear here when the run stops.</p>
         </div>
         <div
@@ -387,7 +386,7 @@
           ><button id="pick-second" class="cut" type="button">Second choice</button
           ><button id="pick-unsure" class="secondary" type="button">Unsure</button>
         </div>
-        <div id="suggestion" aria-live="polite"></div>
+        <div id="suggestion" tabindex="-1" aria-live="polite"></div>
         <div class="actions">
           <button id="previous-card" class="secondary">Previous case</button
           ><button id="next-card" class="secondary">Next case</button>
@@ -427,7 +426,7 @@
         </p>
       </section>
       <section data-panel="4" aria-labelledby="dress-title" hidden>
-        <h2 id="dress-title" tabindex="-1">Cost and downloads <span class="job">Dress Rehearsal</span></h2>
+        <h2 id="dress-title" tabindex="-1">Cost and downloads</h2>
         <p class="direction">Jev shows answers you would keep and estimated costs so you can download the records and evidence.</p>
         <div id="metrics"><p>No run yet.</p></div>
         <div class="actions">
@@ -449,7 +448,7 @@
         </p>
       </section>
       <section data-panel="5" aria-labelledby="opening-title" hidden>
-        <h2 id="opening-title" tabindex="-1">Verdict <span class="job">Opening Night</span></h2>
+        <h2 id="opening-title" tabindex="-1">Verdict</h2>
         <p class="direction">Jev compares its answers with your labels and says whether to use it.</p>
         <div id="verdict">
           <p>No run yet. The verdict follows your actual answers and labels.</p>
@@ -463,7 +462,7 @@
           </p>
         </aside>
       </section>
-      <footer>
+      <footer hidden>
         <button id="back" class="secondary">Back</button
         ><span id="room-count">1 / 6</span><button id="next">Next room</button>
       </footer>

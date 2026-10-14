@@ -1,4 +1,4 @@
-/** Human-run fresh-clone Backstage walk. Provider calls occur only after --run-all in a non-dry run. */
+/** Human-run fresh-clone Backstage walk. Provider calls occur only in a non-dry run; --dry-run skips keys and calls. */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
@@ -9,7 +9,7 @@ import { chromium, type Page } from "playwright-core";
 import { loadExample } from "../uc13/arms.ts";
 import { MODEL_CATALOG } from "../../src/backstage/catalog.ts";
 import { validate } from "../../src/format/validate.ts";
-import { buildReport, casesCsv, checkEvidence, checkRecords, envValue, fitKeywords, pinError, pollUntil, readOpeningNight, redact, reportDirName, resolveChromium, ruleKeywords, runCompleteState, runStartState, describeRunReason, scanForSecrets, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
+import { buildReport, casesCsv, checkEvidence, checkRecords, envValue, fitKeywords, pinError, pollUntil, readOpeningNight, redact, reportDirName, resolveChromium, ruleKeywords, runCompleteState, runStartState, describeRunReason, scanForSecrets, uc13Scene, WORKSPACE_SELECTORS, type Arm, type ReportInput } from "./happy-path-lib.ts";
 
 const usage = "Usage: bun scripts/uat/backstage-happy-path.ts --out <dir> [--base <url>] [--clone-sha <sha>] [--example <dir>] [--key-env <file>] [--jev-key-name <NAME>] [--llm-key-name <NAME>] [--llm-model <id>] [--chromium <path>] [--pause-for-labels] [--headed] [--dry-run]\nChromium: --chromium, else UAT_CHROMIUM_PATH, else Playwright's cache (bunx playwright-core install chromium).";
 interface Options { base: string; out: string; cloneSha: string | null; example: string; keyEnv: string | null; jevKeyName: string; llmKeyName: string; llmModel: string; chromium: string | null; pause: boolean; headed: boolean; dryRun: boolean }
@@ -142,9 +142,9 @@ async function main(): Promise<number> {
     page = await browser.newPage({ acceptDownloads: true });
     page.setDefaultTimeout(15000);
     const p = page;
-    await record("New Scene", "open", async () => { await p.goto(new URL("/backstage/", options.base).toString()); await p.locator("#question").waitFor(); });
+    await record("Setup and run", "open", async () => { await p.goto(new URL("/backstage/", options.base).toString()); await p.locator("#question").waitFor(); await p.locator(WORKSPACE_SELECTORS.setup).click(); });
     const scene = uc13Scene(example.factSheet);
-    await record("New Scene", "set decision", async () => {
+    await record("Setup and run", "set decision", async () => {
       await p.locator("#question").fill(scene.question);
       await p.locator("#choice-a").fill(scene.choiceA);
       await p.locator("#choice-b").fill(scene.choiceB);
@@ -152,8 +152,8 @@ async function main(): Promise<number> {
       await p.locator("#definition-b").fill(scene.definitionB);
       await p.locator("#acceptance").fill(scene.acceptance);
     });
-    await record("Casting", "open", async () => { await p.locator("#next").click(); await p.waitForTimeout(400); });
-    await record("Casting", "select players", async () => {
+    await record("Setup and run", "comparisons visible", async () => { await p.locator("#compare").waitFor({ state: "visible" }); });
+    await record("Setup and run", "select players", async () => {
       await p.locator("#compare").check();
       await p.locator("#llm-player").waitFor({ state: "visible" });
       await p.locator(`#model-options [id="arm-${options.llmModel}"]`).check();
@@ -162,7 +162,7 @@ async function main(): Promise<number> {
       await p.locator("#keywords").fill(keywords.kept.join("\n"));
       return `rule: ${keywords.kept.length} literals (Backstage cap 20); redundant under substring match: ${keywords.redundant.join(", ") || "none"}; left out of rule.md: ${keywords.dropped.join(", ") || "none"}`;
     });
-    await record("Casting", "provider keys", async () => {
+    await record("Setup and run", "provider keys", async () => {
       if (options.dryRun) return;
       const jev = secrets.get(JEV_ROLE);
       const llm = secrets.get(LLM_ROLE);
@@ -170,15 +170,15 @@ async function main(): Promise<number> {
       await p.locator('#jev-key[type="password"]').fill(jev);
       await p.locator(`#${llmProvider}-key[type="password"]`).fill(llm);
     });
-    await record("Learning Lines", "open", async () => { await p.locator("#next").click(); await p.waitForTimeout(400); });
-    await record("Learning Lines", "import 40 cases", async () => {
+    await record("Setup and run", "cases visible", async () => { await p.locator("#cases").waitFor({ state: "visible" }); });
+    await record("Setup and run", "import 40 cases", async () => {
       await p.locator("#import-cases").setInputFiles(csvPath);
       await p.getByText("Imported 40 cases", { exact: false }).waitFor();
       const preview = await p.locator("#run-preview").innerText();
       if (!preview.includes("40 cases")) throw new Error(`Run preview did not show 40 cases: ${preview}`);
     });
     if (!options.dryRun) {
-      await record("Learning Lines", "run all", async () => {
+      await record("Setup and run", "run all", async () => {
         // A blocked run only writes its reason to #run-reason and #notice; surface it instead of waiting out the timeout.
         const reason = (await p.locator("#run-reason").innerText()).trim();
         if (reason) throw new Error(`Run not startable: ${describeRunReason(reason)}`);
@@ -193,35 +193,35 @@ async function main(): Promise<number> {
         }
         runStarted = true;
       });
-      await record("Learning Lines", "complete all arms", async () => {
+      await record("Setup and run", "complete all arms", async () => {
         if (!runStarted) throw new Error("skipped: the run did not start");
         const paidCells = caseIds.length * 2;
         await pollUntil(async () => runCompleteState(await p.locator("#run-preview").innerText(), await p.locator("#progress").innerText(), paidCells), 600000, 2000, sleep);
       });
-      await record("Rehearsals", "open", async () => { await p.locator("#next").click(); await p.waitForTimeout(400); });
-      await record("Rehearsals", "open judging", async () => { await p.getByRole("button", { name: /Open .*judging/ }).click(); await p.locator("#confirm-judging-yes").click(); await p.locator("#blind-card").waitFor(); });
-      if (options.pause) await record("Rehearsals", "person labels", async () => { console.log(clean("Judging is open. Label in the headed browser, then press Enter here.")); const input = createInterface({ input: process.stdin, output: process.stdout }); try { await input.question(""); } finally { input.close(); } });
-      await record("Rehearsals", "reveal", async () => {
+      await record("Review answers", "open", async () => { await p.locator(WORKSPACE_SELECTORS.review).click(); });
+      await record("Review answers", "open judging", async () => { await p.getByRole("button", { name: /Open .*judging/ }).click(); await p.locator("#confirm-judging-yes").click(); await p.locator("#blind-card").waitFor(); });
+      if (options.pause) await record("Review answers", "person labels", async () => { console.log(clean("Judging is open. Label in the headed browser, then press Enter here.")); const input = createInterface({ input: process.stdin, output: process.stdout }); try { await input.question(""); } finally { input.close(); } });
+      await record("Review answers", "reveal", async () => {
         await p.locator("#reveal").click();
         const confirm = p.locator("#confirm-reveal-yes");
         if (!(await confirm.isVisible())) throw new Error((await p.locator("#reveal-reason").innerText()) || "Reveal confirmation was unavailable");
         await confirm.click();
       });
-      await record("Dress Rehearsal", "open", async () => { await p.locator('#rooms button[data-room="4"]').click(); });
-      await record("Dress Rehearsal", "download-csv", async () => {
+      await record("Results and downloads", "open", async () => { await p.locator(WORKSPACE_SELECTORS.results).click(); });
+      await record("Results and downloads", "download-csv", async () => {
         const [download] = await Promise.all([p.waitForEvent("download"), p.locator("#download-csv").click()]);
         await download.saveAs(join(reportDir, "records.csv"));
         recordsCsv = await readFile(join(reportDir, "records.csv"), "utf8");
       });
-      await record("Dress Rehearsal", "download-evidence", async () => {
+      await record("Results and downloads", "download-evidence", async () => {
         const [download] = await Promise.all([p.waitForEvent("download"), p.locator("#download-evidence").click()]);
         await download.saveAs(join(reportDir, "evidence.json"));
         evidenceJson = await readFile(join(reportDir, "evidence.json"), "utf8");
         const problems = checkEvidence(evidenceJson, recordsCsv, options.pause);
         if (problems.length) throw new Error(problems.slice(0, 3).join("; "));
       });
-      await record("Opening Night", "verdict", async () => {
-        await p.locator('#rooms button[data-room="5"]').click();
+      await record("Results and downloads", "verdict", async () => {
+        await p.locator(WORKSPACE_SELECTORS.results).click();
         await p.locator("#verdict h3").waitFor();
         verdictText = await p.locator("#verdict").innerText();
         const parsed = readOpeningNight(verdictText);

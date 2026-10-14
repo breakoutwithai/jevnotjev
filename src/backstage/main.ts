@@ -83,8 +83,14 @@ let importedLabels: readonly ImportedLabel[] = [];
 let casesSceneRevision = 0;
 const imports = new CaseImportState();
 let startup: AbortController | undefined;
+let validationNotice: { field: string; message: string } | undefined;
 function notice(message: string) {
+  validationNotice = undefined;
   text("notice", message);
+}
+function clearValidationNotice(id: string) {
+  if (validationNotice?.field === id && element("notice").textContent === validationNotice.message)
+    notice("");
 }
 // Stable ids of the buttons that open each confirm panel; focus returns there on Cancel.
 const confirmOpener: Record<ConfirmStep, string> = {
@@ -142,9 +148,9 @@ function showRoom(next: number, moveFocus = true) {
   document.documentElement.dataset.room = String(room);
   if (room !== 0) element("start-pack").hidden = true;
   for (const panel of document.querySelectorAll<HTMLElement>("[data-panel]"))
-    panel.hidden = panel.dataset.panel !== String(room);
+    panel.hidden = room <= 2 ? Number(panel.dataset.panel) > 2 : room >= 4 ? Number(panel.dataset.panel) < 4 : panel.dataset.panel !== "3";
   for (const item of document.querySelectorAll<HTMLElement>("[data-room]")) {
-    if (item.dataset.room === String(room))
+    if (item.dataset.room === String(room <= 2 ? 0 : room >= 4 ? 4 : 3))
       item.setAttribute("aria-current", "step");
     else item.removeAttribute("aria-current");
   }
@@ -272,7 +278,7 @@ function mountCatalog() {
     input.type = "password";
     input.autocomplete = "off";
     input.spellcheck = false;
-    input.addEventListener("input", () => { persistDraft(); void render(); });
+    input.addEventListener("input", () => { input.removeAttribute("aria-invalid"); clearValidationNotice(input.id); persistDraft(); void render(); });
     label.append(input);
     article.append(
       label,
@@ -316,19 +322,22 @@ async function start(firstOnly: boolean, retry = false, funded = false) {
   }
   // A pending confirmation must not outlive a run start.
   if (openConfirmStep) closeConfirm(openConfirmStep, false);
+  replacement = undefined;
+  element("confirm-replace").hidden = true;
   starting = true;
   const controller = new AbortController();
   startup = controller;
   try {
     activeKeys = keys();
     let current = run;
-    if (!retry) {
+    const continuing = !retry && !!current && !funded;
+    if (!retry && !continuing) {
       if (current)
         throw new Error(
-          "This scene is already frozen. Retry unfinished calls or edit as a new scene.",
+          "This scene is already frozen. Retry unfinished calls or edit as a new question.",
         );
       // Capture and validate before the first asynchronous operation: Run authorizes these exact inputs.
-      const candidate = scene(firstOnly);
+      const candidate = scene(funded ? true : false);
       const selectedMode = mode();
       validateSceneKeys(candidate, enteredKeys(), selectedMode, houseKey, !funded);
       current = new BackstageRun(
@@ -344,7 +353,7 @@ async function start(firstOnly: boolean, retry = false, funded = false) {
     void render();
     await checkRunnerHealth(BACKSTAGE_BUILD_VERSION, controller.signal);
     if (controller.signal.aborted) return;
-    if (!retry) {
+    if (!retry && !continuing) {
       run = current;
       cardIndex = 0;
     }
@@ -352,20 +361,26 @@ async function start(firstOnly: boolean, retry = false, funded = false) {
     notice(
       funded
         ? "Running one funded Jev query. The allowance stays consumed after a dispatched call."
-        : "Rehearsing. Calls use your provider accounts.",
+        : "Running selected cases. Calls use your provider accounts.",
     );
     const refresh = () => {
       if (run === current) void render();
     };
     if (funded) await current.startTrial(trialTransport(), refresh);
+    else if (continuing) await current.continueRemaining(() => activeKeys, undefined, refresh, houseKey);
     else if (retry) await current.retry(() => activeKeys, undefined, refresh, houseKey);
-    else await current.start(() => activeKeys, undefined, refresh, houseKey);
-    if (run === current)
-      notice(
-        current.manifest.mode === "compare"
-          ? "Calls stopped. Decide whether to retry unfinished calls, then open blind judging in Rehearsals."
-          : "Calls stopped. Each Jev answer shows here once you pick its case blind in Rehearsals. Retry unfinished calls or open judging in Rehearsals to label and export.",
-      );
+    else await current.start(() => activeKeys, undefined, refresh, houseKey, firstOnly);
+    if (run === current) {
+      const remaining = current.remainingCaseIds.length;
+      if (remaining > 0) {
+        const outcome = current.retryable === 0 ? "First case complete." : "Trial stopped with unfinished calls.";
+        notice(outcome + " " + remaining + " cases not yet attempted. Run remaining cases, or review this trial. Retry applies only to failed calls and is a new paid attempt.");
+      } else {
+        notice(current.retryable > 0
+          ? "Calls stopped. Retry failed calls explicitly, or review your answers. Retrying is a new paid attempt."
+          : "Calls complete. Review your answers before revealing results.");
+      }
+    }
   } catch (error) {
     notice(error instanceof Error ? error.message : "Could not start the run.");
   } finally {
@@ -426,15 +441,66 @@ function table(headers: string[], rows: string[][]): HTMLElement {
 // Why Run cannot start now; empty when it can. Read live, so a click never trusts a stale render.
 function runReason(): string {
   if (starting || run?.running) return "Calls are in progress.";
-  if (run)
-    return "This scene already ran. Retry unfinished calls, or edit as a new scene to run again.";
+  if (run) {
+    if (run.labeling) return "Judging has started; remaining calls and retries are locked. Start a new question to run again.";
+    if (run.funded) return "Funded trials cannot continue or retry. Use your own key in a new question.";
+    if (run.remainingCaseIds.length > 0) return setupProblem()?.message ?? "";
+    return "No untouched calls remain. Retry failed calls explicitly, or review your answers.";
+  }
   if (imports.pending) return "Wait for the case import to finish.";
+  const problem = setupProblem();
+  if (problem) return problem.message;
   return runBlockers({
     caseCount: cases().length,
     armIds: selectedArms(),
     keys: keys(),
     houseJev: houseKey,
   }).join(" ");
+}
+function setupProblem(): { field: string; message: string } | undefined {
+  const required: readonly (readonly [string, string, number])[] = [
+    ["question", "One question", 1000],
+    ["definition-a", "What the first answer means", 1000],
+    ["definition-b", "What the second answer means", 1000],
+    ["acceptance", "Judging rule", 2000],
+  ];
+  for (const [id, label, limit] of required) {
+    const value = field(id).value.trim();
+    if (!value || value.length > limit || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value))
+      return { field: id, message: label + " is required (maximum " + limit + " characters, no control characters)." };
+  }
+  if (!validSceneChoices(scene(false).choices))
+    return { field: "choice-a", message: "Use two different answer names, without pipes or line breaks." };
+  try { validCases(cases()); }
+  catch (error) {
+    return { field: "cases", message: error instanceof Error ? error.message : "Check your cases." };
+  }
+  for (const provider of providers) {
+    if (!selectedArms().some((id) => MODEL_CATALOG.some((m) => m.id === id && m.provider === provider))) continue;
+    if (provider === "jev" && houseKey && !field("jev-key").value.trim()) continue;
+    const value = field(provider + "-key").value.trim();
+    if (!/^[\x21-\x7e]{8,512}$/.test(value))
+      return { field: provider + "-key", message: "Add a valid " + KEY_FIELD_NAMES[provider] + " (8–512 printable characters, no spaces)." };
+  }
+  if (selectedArms().includes("rule") && !field("keywords").value.trim())
+    return { field: "keywords", message: "Add literal keywords for the local rule." };
+  return undefined;
+}
+function fixRunProblem() {
+  const problem = setupProblem();
+  if (!problem) return;
+  showRoom(0, false);
+  const target = field(problem.field);
+  target.setAttribute("aria-invalid", "true");
+  target.setAttribute("aria-describedby", "run-reason");
+  let parent = target.parentElement;
+  while (parent) {
+    if (parent instanceof HTMLDetailsElement) parent.open = true;
+    parent = parent.parentElement;
+  }
+  target.focus();
+  notice(problem.message);
+  validationNotice = problem;
 }
 function revealReason(): string {
   const current = run;
@@ -461,7 +527,7 @@ function downloadReasons(): { csv: string; evidence: string } {
   const judging = !current.revealed && current.cards().length > 0;
   if (!judging) return { csv: "", evidence: "" };
   // Evidence holds every answer, so it waits for the reveal in both modes.
-  const reason = "Finish judging in Rehearsals to unlock downloads.";
+  const reason = "Finish judging in Review answers to unlock downloads.";
   return { csv: reason, evidence: reason };
 }
 function previewText(arms: readonly string[]): string {
@@ -521,12 +587,19 @@ async function render() {
   button("run-trial").disabled =
     !trialAvailable || starting || !!current || imports.pending;
   gate(["run-one", "run-all"], "run-reason", runReason());
+  if (current) button("run-one").setAttribute("aria-disabled", "true");
+  const remaining=current?.remainingCaseIds.length ?? 0;
+  button("run-all").textContent=current ? `Run remaining ${remaining} cases` : `Run all ${cases().length || ""} cases`.replace("  ", " ");
+  button("fix-run").hidden=(!!current && (current.labeling || current.funded || current.remainingCaseIds.length === 0)) || !setupProblem();
+  button("fix-run").textContent=setupProblem() ? `Fix ${setupProblem()?.field === "acceptance" ? "Judging rule" : "missing input"}` : "Fix missing input";
+  button("review-run").hidden=!current || current.running || starting || current.cards().length === 0 || current.labeling;
+  renderCaseMutation();
   button("stop").disabled = !running && !starting;
   button("retry").disabled =
     starting ||
     !current ||
     running ||
-    current.pending === 0 ||
+    current.retryable === 0 ||
     current.labeling ||
     current.funded;
   button("new-scene").disabled = running || starting;
@@ -538,7 +611,7 @@ async function render() {
   text(
     "run-preview",
     current
-      ? `${current.manifest.scene.cases.length} frozen cases. ${current.completed} of ${current.total} selected case/model cells processed; ${current.pending} have no answer.`
+      ? `${current.manifest.scene.cases.length} frozen cases. ${current.attempts.filter((a) => a.ok).length} completed calls; ${current.retryable} failed or stopped calls; ${current.remainingCaseIds.length} cases not yet attempted. ${current.pending} selected calls have no answer. ${current.remainingCaseIds.length ? "Remaining: " + estimateRange(estimateSpend({...current.manifest.scene,cases:current.manifest.scene.cases.filter((c)=>current.remainingCaseIds.includes(c.id))}, current.manifest.arms)) + "." : ""}`
       : previewText(arms),
   );
   const progress = element("progress");
@@ -552,7 +625,7 @@ async function render() {
       progress.append(
         node(
           "p",
-          `${current.pending} selected calls have no answer. Failed attempts: ${money(extra.knownUsd)} known spend, ${extra.unknown} with unknown charges. ${comparison ? "Provider details stay hidden until results are revealed; Jev's ranking for a case shows after you pick it." : "Each Jev answer and its returned confidence appear below once you pick its case blind in Rehearsals."}`,
+          `${current.pending} selected calls have no answer. Failed attempts: ${money(extra.knownUsd)} known spend, ${extra.unknown} with unknown charges. ${comparison ? "Provider details stay hidden until results are revealed; Jev's ranking for a case shows after you pick it." : "Each Jev answer and its returned confidence appear below once you pick its case blind in Review answers."}`,
         ),
       );
     }
@@ -581,15 +654,15 @@ async function render() {
     element("metrics").replaceChildren(
       node(
         "p",
-        "Finish your labels in Rehearsals, then reveal results. Revealing locks this labeling pass.",
+        "Finish your labels in Review answers, then reveal results. Revealing locks this labeling pass.",
       ),
     );
     element("verdict").replaceChildren(
       node(
         "p",
         comparison
-          ? "Results stay hidden until you reveal them in Rehearsals."
-          : "Jev answers appear in Learning Lines as you pick each case blind. Finish judging in Rehearsals to unlock the summary and downloads; labels are optional.",
+          ? "Results stay hidden until you reveal them in Review answers."
+          : "Jev answers appear in Setup and run as you pick each case blind. Finish judging in Review answers to unlock the summary and downloads; labels are optional.",
       ),
     );
     return;
@@ -659,7 +732,7 @@ async function render() {
         node(
           "h3",
           report.metrics.arms.length
-            ? "Jev-only rehearsal"
+            ? "Jev-only test"
             : "No successful answers",
         ),
         node(
@@ -830,12 +903,14 @@ function pickBlind(choice: string | null) {
   if (!current || !card || card.picked || current.running || !current.labeling || current.revealed) return;
   current.pickBlind(card.caseId, choice, BACKSTAGE_BLIND_PICK);
   void render();
+  element("suggestion").focus();
 }
 function finalPick(caseId: string, choice: string) {
   const current = run;
   if (!current || current.running || !current.labeling || current.revealed) return;
   current.pickFinal(caseId, choice);
   void render();
+  element("suggestion").focus();
 }
 function download(name: string, content: string, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }));
@@ -855,17 +930,24 @@ function runClicked(firstOnly: boolean) {
   const reason = runReason();
   if (reason) {
     notice(reason);
+    if (!run || (!run.labeling && !run.funded && run.remainingCaseIds.length > 0)) fixRunProblem();
     return;
   }
+  if (firstOnly && run) { notice("The first case already ran. Run remaining cases or explicitly retry failed calls."); return; }
   void start(firstOnly);
 }
 button("run-one").onclick = () => runClicked(true);
 button("run-all").onclick = () => runClicked(false);
+button("fix-run").onclick = fixRunProblem;
+button("review-run").onclick = () => { showRoom(3); document.getElementById("open-judging")?.focus(); };
 element("skip-link").addEventListener("click", (event) => {
   event.preventDefault();
   element(ROOM_TITLES[room] ?? "scene-title").focus();
 });
-button("retry").onclick = () => void start(false, true);
+button("retry").onclick = () => {
+  if (setupProblem()) { fixRunProblem(); return; }
+  void start(false, true);
+};
 button("stop").onclick = () => {
   startup?.abort();
   run?.stop();
@@ -986,6 +1068,8 @@ for (const step of CONFIRM_STEPS) {
   });
 }
 function clearScene() {
+  replacement = undefined;
+  element("confirm-replace").hidden = true;
   startup?.abort();
   imports.invalidate();
   run?.stop();
@@ -1007,10 +1091,12 @@ button("pick-unsure").onclick = () => pickBlind(null);
 button("previous-card").onclick = () => {
   cardIndex--;
   renderCard();
+  element("blind-card").focus();
 };
 button("next-card").onclick = () => {
   cardIndex++;
   renderCard();
+  element("blind-card").focus();
 };
 button("download-csv").onclick = () => {
   const reason = downloadReasons().csv;
@@ -1414,6 +1500,59 @@ button("cases-copy-prompt").onclick = async () => {
   try { await navigator.clipboard.writeText(casesPrompt(scene)); coachStatus("Cases prompt copied. Paste the JSON reply below."); }
   catch { coachStatus("Could not copy the cases prompt."); }
 };
+let replacement: readonly string[] | undefined;
+function renderCaseMutation() {
+  const parsed = parseCasesReply(field("cases-reply").value);
+  const count = parsed.ok ? parsed.cases.length : 0;
+  button("cases-use-reply").textContent = count ? "Add " + count + " cases" : "Add cases";
+  button("cases-replace").textContent = count ? "Replace with " + count + " cases" : "Replace cases";
+  text("cases-mutation-preview", count
+    ? "Add: " + (cases().length + count) + " total. Replace: " + count + " total. Repeated inputs are kept."
+    : "Paste valid cases JSON to choose Add or Replace.");
+}
+let casesReplyRevision = 0;
+field("cases-reply").addEventListener("input", () => { casesReplyRevision += 1; renderCaseMutation(); });
+button("cases-replace").onclick = () => {
+  if (run || starting || signingOut) return;
+  const parsed = parseCasesReply(field("cases-reply").value);
+  if (!parsed.ok) { coachStatus(COACH_REPLY_ERROR); return; }
+  if (coachUnsafe(parsed.cases)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
+  replacement = parsed.cases;
+  text("confirm-replace-message", "This replaces " + cases().length + " cases and removes all imported labels. Download your source file first. Nothing changes until you confirm.");
+  element("confirm-replace").hidden = false;
+  element("confirm-replace").focus();
+};
+function cancelReplacement() {
+  replacement = undefined;
+  element("confirm-replace").hidden = true;
+  button("cases-replace").focus();
+}
+button("confirm-replace-no").onclick = cancelReplacement;
+element("confirm-replace").addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  cancelReplacement();
+});
+button("confirm-replace-yes").onclick = () => {
+  if (!replacement || run || starting || signingOut) return;
+  // Recheck keys changed while the confirmation was open.
+  if (coachUnsafe(replacement)) { coachStatus(COACH_UNSAFE_MESSAGE); cancelReplacement(); return; }
+  field("cases").value = replacement.join("\n");
+  imported = undefined;
+  importedLabels = [];
+  imports.invalidate();
+  replacement = undefined;
+  element("confirm-replace").hidden = true;
+  persistDraft();
+  coachStatus("Cases replaced; imported labels removed.");
+  void render();
+};
+for (const id of ["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "cases", "jev-key", "keywords"])
+  field(id).addEventListener("input", () => {
+    field(id).removeAttribute("aria-invalid");
+    clearValidationNotice(id);
+    void render();
+  });
 button("cases-use-reply").onclick = () => {
   if (run || starting || signingOut) return;
   const reply = field("cases-reply").value;
@@ -1421,12 +1560,14 @@ button("cases-use-reply").onclick = () => {
   const parsed = parseCasesReply(reply);
   if (!parsed.ok) { coachStatus(COACH_REPLY_ERROR); return; }
   if (coachUnsafe(parsed.cases)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
-  if (appendStarterCases(parsed.cases)) coachStatus(`${parsed.cases.length} starter cases added. Edit them before running.`);
+  if (appendStarterCases(parsed.cases)) { const duplicates=cases().length-new Set(cases().map((c)=>c.input)).size; coachStatus(`${parsed.cases.length} cases added; ${cases().length} total. ${duplicates} duplicate inputs retained.`); }
 };
 button("draft-cases").onclick = async () => {
   if (run || starting || signingOut || coachController) return;
   const scene = casesScene(); if (!scene) return;
   const revision = casesSceneRevision;
+  const replyRevision = casesReplyRevision;
+  const replyValue = field("cases-reply").value;
   const signature = JSON.stringify(scene);
   const key = field("coach-key").value.trim();
   const selected = element("coach-provider");
@@ -1438,6 +1579,11 @@ button("draft-cases").onclick = async () => {
     const response = await fetch("/api/backstage/coach", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ provider: selected.value, key, mode: "cases", scene }), signal: controller.signal });
     if (controller.signal.aborted) return;
     const payload: unknown = await response.json();
+    if (controller.signal.aborted || coachController !== controller) return;
+    if (replyRevision !== casesReplyRevision || replyValue !== field("cases-reply").value) {
+      coachStatus("Cases reply changed while drafting. Your pasted reply was kept.");
+      return;
+    }
     if (revision !== casesSceneRevision || signature !== JSON.stringify(casesSceneValues())) { coachStatus("Scene changed while starter cases were drafted. Nothing was added."); return; }
     if (typeof payload !== "object" || payload === null) throw new Error(COACH_REPLY_ERROR);
     if (!response.ok) {
@@ -1446,8 +1592,10 @@ button("draft-cases").onclick = async () => {
     }
     const parsed = parseCasesReply(JSON.stringify({ cases: Reflect.get(payload, "cases") }));
     if (!parsed.ok) throw new Error(COACH_REPLY_ERROR);
-    if (coachUnsafe(parsed.cases)) throw new Error(COACH_UNSAFE_MESSAGE);
-    if (appendStarterCases(parsed.cases)) coachStatus(`${parsed.cases.length} starter cases added. Edit them before running.`);
+    if (coachUnsafe(parsed.cases) || findCredentials(parsed.cases, [key]).length > 0) throw new Error(COACH_UNSAFE_MESSAGE);
+    field("cases-reply").value = JSON.stringify({ cases: parsed.cases });
+    renderCaseMutation();
+    coachStatus("10 starter cases ready. Choose Add or Replace before changing your cases.");
   } catch (error) { if (!controller.signal.aborted) coachStatus(error instanceof Error ? error.message : "Could not draft starter cases."); }
   finally { if (coachController === controller) coachController = undefined; trigger.disabled = Boolean(run || starting || signingOut); }
 };

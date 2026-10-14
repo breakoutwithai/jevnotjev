@@ -10,7 +10,7 @@ import { readDictRows } from "../../src/format/csv.ts";
 import { validate } from "../../src/format/validate.ts";
 import { CRITERIA, formatRecords, loadExample, record, type RecordRow } from "../uc13/arms.ts";
 import { fileSeed } from "../../src/core/calc.ts";
-import { REASON_PATTERNS, CONDITION_VERDICTS, buildReport, casesCsv, checkEvidence, checkRecords, envValue, expectedVerdict, fitKeywords, pinError, pollUntil, readOpeningNight, redact, reportDirName, resolveChromium, ruleKeywords, runCompleteState, runStartState, describeRunReason, RUN_REASONS, APP_CONTRACT, scanForSecrets, seedOf, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
+import { REASON_PATTERNS, CONDITION_VERDICTS, buildReport, casesCsv, checkEvidence, checkRecords, envValue, expectedVerdict, fitKeywords, pinError, pollUntil, readOpeningNight, redact, reportDirName, resolveChromium, ruleKeywords, runCompleteState, runStartState, describeRunReason, RUN_REASONS, APP_CONTRACT, WORKSPACE_SELECTORS, scanForSecrets, seedOf, uc13Scene, type Arm, type ReportInput } from "./happy-path-lib.ts";
 
 const EXAMPLE = fileURLToPath(new URL("../../examples/uc13-shop-bot/", import.meta.url));
 const example = await loadExample(EXAMPLE);
@@ -211,6 +211,7 @@ describe("#134 report", () => {
 // Every selector the driver resolves and every page-level method it calls must be listed here, so a new
 // interaction cannot reach a judging control without this test being edited in the same diff.
 const DRIVER_SELECTORS: readonly string[] = [
+  '"#cases"',
   '"#blind-card"', '"#compare"', '"#confirm-judging-yes"', '"#confirm-reveal-yes"', '"#import-cases"', '"#include-rule"',
   '"#keywords"', '"#llm-player"', '"#next"', '"#notice"', '"#progress"', '"#question"', '"#reveal"', '"#reveal-reason"',
   '"#rule-fields"', '"#run-all"', '"#run-preview"', '"#run-reason"', '"#verdict h3"', '"#verdict"', "'#jev-key[type=\"password\"]'",
@@ -230,7 +231,8 @@ function driverSurfaceProblems(source: string): readonly string[] {
   // spaced selector is a problem rather than invisible.
   const locatorCalls = source.match(/\blocator\s*\(/g)?.length ?? 0;
   const literalLocators = [...source.matchAll(new RegExp(String.raw`\.locator\(` + LITERAL + String.raw`\)`, "g"))].map((m) => m[1] ?? "");
-  if (literalLocators.length !== locatorCalls) problems.push(`${locatorCalls - literalLocators.length} locator call(s) not in literal form`);
+  const workspaceLocators = source.match(/\.locator\(WORKSPACE_SELECTORS\.(?:setup|review|results)\)/g)?.length ?? 0;
+  if (literalLocators.length + workspaceLocators !== locatorCalls) problems.push(`${locatorCalls - literalLocators.length - workspaceLocators} locator call(s) not in literal or frozen workspace form`);
   for (const selector of literalLocators) if (!DRIVER_SELECTORS.includes(selector)) problems.push(`selector ${selector}`);
   const getByCalls = source.match(/\bgetBy\w*\s*\(/g)?.length ?? 0;
   const getBys = DRIVER_ROLE_AND_TEXT.reduce((n, call) => n + source.split(call).length - 1, 0);
@@ -249,6 +251,7 @@ test("[unit] #134 the allowlist guard fails on every pick-click shape seen in re
   const source = await Bun.file(new URL("./backstage-happy-path.ts", import.meta.url)).text();
   for (const mutation of [
     'await p.locator("#pick-actions button").click();',
+    'await p.locator(WORKSPACE_SELECTORS.pick).click();',
     'await p.locator( "#pick-first").click();',
     'const pick = "#pick-first"; await p.locator(pick).click();',
     'await p.locator("#pick-actions").locator("button").click();',
@@ -448,4 +451,40 @@ describe("#143 driver contract with Backstage", () => {
     expect(runStartState("Calls in progress...")).toEqual({ done: "started" });
     expect(runStartState("")).toBeNull();
   });
+});
+
+describe("#222 simplified run driver contract", () => {
+  test("[unit] #222 frozen-run blockers are recognized while unknown runtime failures remain unclassified", () => {
+    for (const reason of [
+      "Judging has started; remaining calls and retries are locked. Start a new question to run again.",
+      "Funded trials cannot continue or retry. Use your own key in a new question.",
+      "No untouched calls remain. Retry failed calls explicitly, or review your answers.",
+    ]) expect(describeRunReason(reason)).toBe(`blocked: ${reason}`);
+    expect(describeRunReason("Calls are in progress.")).toBe("in-progress: Calls are in progress.");
+    expect(describeRunReason("Runner version mismatch. Reload before running.")).toBe("unclassified: Runner version mismatch. Reload before running.");
+    expect(describeRunReason("Unknown provider failure.")).toBe("unclassified: Unknown provider failure.");
+  });
+  test("[unit] #222 completion requires all frozen calls, no failed or untouched calls and stopped progress", () => {
+    const complete = "30 frozen cases. 60 completed calls; 0 failed or stopped calls; 0 cases not yet attempted. 0 selected calls have no answer.";
+    expect(runCompleteState(complete, "No calls in progress.", 60)).toEqual({ done: "complete" });
+    for (const partial of [complete.replace("60 completed", "2 completed"), complete.replace("0 failed", "1 failed"), complete.replace("0 cases", "29 cases"), complete.replace("0 selected", "1 selected")])
+      expect(runCompleteState(partial, "No calls in progress.", 60)).toBeNull();
+    expect(runCompleteState(complete, "Calls in progress...", 60)).toBeNull();
+    expect(runCompleteState("unknown new progress text", "No calls in progress.", 60)).toBeNull();
+  });
+});
+
+test("[integration] #222 driver uses visible three-view navigation and cannot invoke hidden six-room controls", () => {
+  const root = join(import.meta.dir, "..", "..");
+  const driver = readFileSync(join(root, "scripts/uat/backstage-happy-path.ts"), "utf8");
+  const page = readFileSync(join(root, "site/backstage/index.html"), "utf8");
+  expect(WORKSPACE_SELECTORS).toEqual({ setup: '#rooms button[data-room="0"]', review: '#rooms button[data-room="3"]', results: '#rooms button[data-room="4"]' });
+  const nav = page.match(/<nav[^>]*id="rooms"[^>]*>([\s\S]*?)<\/nav>/)?.[1] ?? "";
+  for (const [view, room] of [["setup", "0"], ["review", "3"], ["results", "4"]]) {
+    expect(driver).toContain(`p.locator(WORKSPACE_SELECTORS.${view})`);
+    expect(nav).toContain(`data-room="${room}"`);
+  }
+  expect(driver).not.toMatch(/locator\(["']#next["']\)|data-room=["']5["']/);
+  expect(driver).toContain("if (options.dryRun) return;");
+  expect(driver).toContain("if (!options.dryRun)");
 });

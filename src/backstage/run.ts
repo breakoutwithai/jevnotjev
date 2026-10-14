@@ -363,7 +363,7 @@ export function importedLabelSummary(labels: readonly ImportedLabel[]): string {
     return count > 0 ? [`${count} ${source}`] : [];
   });
   const agentNote = labels.some((l) => l.source === "agent") ? " An agent label is never counted as truth." : "";
-  return `Labels on ${labels.length}: ${counts.join(", ")}.${agentNote} Your pick in Rehearsals replaces an imported label.`;
+  return `Labels on ${labels.length}: ${counts.join(", ")}.${agentNote} Your pick in Review answers replaces an imported label.`;
 }
 /**
  * The D11 case import with an optional label column (labelling loop M3). Without label_source a label is agent, never

@@ -365,6 +365,7 @@ export const RUN_REASONS: Readonly<Record<string, "in-progress" | "blocked">> = 
   "Judging has started; remaining calls and retries are locked. Start a new question to run again.": "blocked",
   "Funded trials cannot continue or retry. Use your own key in a new question.": "blocked",
   "No untouched calls remain. Retry failed calls explicitly, or review your answers.": "blocked",
+  "All selected calls have answers. Review your answers.": "blocked",
   "This scene already ran. Retry unfinished calls, or edit as a new scene to run again.": "blocked",
   "Wait for the case import to finish.": "blocked",
   "Run your cases and open judging first.": "blocked",

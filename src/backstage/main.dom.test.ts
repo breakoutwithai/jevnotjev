@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { CATALOG_VERSION } from "./catalog.ts";
 import { PROTOCOL_VERSION, type AnswerRequest } from "./contracts.ts";
-import { getModelEntry } from "./catalog.ts";
 import { inputFingerprint, runScene } from "./run.ts";
 import { SCENE_DRAFT_KEY } from "./scene-draft.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";

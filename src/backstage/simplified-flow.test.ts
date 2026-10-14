@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { answerYes, mount, tick } from "./dom-fixture.ts";
-import { inputFingerprint } from "./run.ts";
 import type { AnswerRequest } from "./contracts.ts";
 
 function fill(
@@ -92,8 +91,14 @@ test("[integration] C1 first trial retains full frozen scene and continuing call
   expect(calls.map((r) => r.caseId)).toEqual(["case-1"]);
   expect(page.get("run-preview").textContent).toContain("1 completed calls");
   expect(page.get("run-all").textContent).toContain("remaining 2 cases");
+  expect(page.get("run-one").getAttribute("aria-describedby")).toBe("run-one-reason");
+  expect(page.get("run-one-reason").textContent).toContain("first case already ran");
   expect(page.get("notice").textContent).toContain("First case complete.");
   expect(page.get("notice").textContent).toContain("Run remaining cases");
+  page.get("run-one").click();
+  await tick();
+  expect(calls).toHaveLength(1);
+  expect(page.get("notice").textContent).not.toContain("retry failed");
   const runId = calls[0]?.runId;
   page.get("run-all").click();
   for (let i = 0; i < 10; i++) await tick();
@@ -101,6 +106,8 @@ test("[integration] C1 first trial retains full frozen scene and continuing call
   expect(calls.every((r) => r.runId === runId)).toBe(true);
   expect(page.get("run-preview").textContent).toContain("3 completed calls");
   expect(page.get("question").disabled).toBe(true);
+  expect(page.get("run-all").textContent).not.toContain("remaining 0");
+  expect(page.get("run-reason").textContent).not.toContain("Retry failed");
   page.get("run-all").click();
   await tick();
   expect(calls).toHaveLength(3);
@@ -144,6 +151,7 @@ test("[integration] C1 multiarm continuation never retries failed trials; explic
   page.get("run-all").click();
   for (let i = 0; i < 10; i++) await tick();
   expect(calls).toHaveLength(6);
+  expect(page.get("run-reason").textContent).toContain("Retry failed");
   expect(calls.filter((r) => r.caseId === "case-1")).toHaveLength(2);
   page.get("retry").click();
   for (let i = 0; i < 10; i++) await tick();
@@ -175,6 +183,11 @@ test("[integration] C1 required question meanings keys and keywords recover at n
     page.get("run-all").click();
     await tick();
     expect(page.document.activeElement).toBe(page.get(id));
+    if (id === "jev-key") {
+      expect(page.get(id).getAttribute("aria-describedby")).toBe("jev-key-source run-reason");
+      fill(page, id, "synthetic-key-only");
+      expect(page.get(id).getAttribute("aria-describedby")).toBe("jev-key-source");
+    }
     expect(
       page.requests.filter((r) => r.input === "/api/backstage/answer"),
     ).toHaveLength(0);
@@ -346,8 +359,44 @@ test("[integration] C1 correcting run fields preserves the unrelated imported-la
   ];
   input.dispatchEvent(new Event("change"));
   for (let i = 0; i < 5; i++) await tick();
+  expect(page.get("notice").textContent).toContain("Your pick in Review answers");
+  expect(page.get("notice").textContent).not.toContain("Rehearsals");
   fill(page, "cases", "Edited case");
   expect(page.get("notice").textContent).toContain("dropped 1 imported labels");
   fill(page, "acceptance", "Updated judging rule");
   expect(page.get("notice").textContent).toContain("dropped 1 imported labels");
+});
+
+
+test("[integration] C1 unchanged blocker text is not rewritten while the operator types", async () => {
+  const page = await mount();
+  const reason = page.get("run-reason");
+  let value = reason.textContent;
+  let writes = 0;
+  Object.defineProperty(reason, "textContent", { get: () => value, set: (next: string) => { writes++; value = next; }, configurable: true });
+  fill(page, "definition-a", "Another meaning");
+  expect(writes).toBe(0);
+  fill(page, "question", "Refund request?");
+  expect(writes).toBe(1);
+});
+
+test("[integration] C1 pending import keeps its operational reason and does not focus unrelated setup errors", async () => {
+  const { FakeInput } = await import("./dom-fixture.ts");
+  const page = await mount();
+  setup(page);
+  fill(page, "cases", "");
+  let finish: ((bytes: ArrayBuffer) => void) | undefined;
+  const file = new File(["synthetic"], "synthetic.csv");
+  Object.defineProperty(file, "arrayBuffer", { value: () => new Promise<ArrayBuffer>(resolve => { finish = resolve; }) });
+  const input = page.get("import-cases");
+  if (!(input instanceof FakeInput)) throw Error("Expected file input");
+  input.files = [file];
+  input.dispatchEvent(new Event("change"));
+  page.get("run-all").focus();
+  page.get("run-all").click();
+  expect(page.get("notice").textContent).toBe("Wait for the case import to finish.");
+  expect(page.document.activeElement).toBe(page.get("run-all"));
+  expect(page.requests.filter(r => r.input === "/api/backstage/answer")).toHaveLength(0);
+  finish?.(new TextEncoder().encode("case_id,case_input\nexample,Refund please\n").buffer);
+  for (let i = 0; i < 5; i++) await tick();
 });

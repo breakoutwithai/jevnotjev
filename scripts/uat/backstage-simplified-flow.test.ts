@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
@@ -105,6 +105,7 @@ describe("offline captured replay validator (fixtures are not UI replay evidence
   test("[integration] C2 rejects overflow or old navigation in actual DOM snapshots", async () => {
     const f = fixture(); const item = f.replay.widths[1]; if (!item) throw Error("Missing fixture viewport"); f.replace(item.dom, { setup: { ...dom(390), scrollWidth: 800 }, results: dom(390, true) }); expect((await validateReplay(f.directory, { head: HEAD, widths: [1280, 390] })).ok).toBe(false);
     f.replace(item.dom, { setup: { ...dom(390), text: "Learning Lines" }, results: dom(390, true) }); expect((await validateReplay(f.directory, { head: HEAD, widths: [1280, 390] })).ok).toBe(false);
+    f.replace(item.dom, { setup: dom(390), results: { ...dom(390, true), text: dom(390, true).text + " Your pick in Rehearsals replaces an imported label." } }); expect((await validateReplay(f.directory, { head: HEAD, widths: [1280, 390] })).ok).toBe(false);
   });
   test("[integration] C2 rejects screenshot replacement and stale screenshot timestamps", async () => {
     const f = fixture(); const item = f.replay.widths[0]; if (!item) throw Error("Missing fixture viewport"); writeFileSync(join(f.directory, item.screenshot.file), png(390)); expect((await validateReplay(f.directory, { head: HEAD, widths: [1280, 390] })).ok).toBe(false);

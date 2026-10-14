@@ -1,4 +1,13 @@
 import { expect, test } from "bun:test";
+function closedDisclosureBefore(html: string, position: number): boolean {
+  const stack: boolean[] = [];
+  for (const match of html.slice(0, position).matchAll(/<details\b[^>]*>|<\/details>/g)) {
+    if (match[0].startsWith("</")) stack.pop();
+    else stack.push(!/\sopen(?:\s|>|=)/.test(match[0]));
+  }
+  return stack.some(Boolean);
+}
+
 import { createHash } from "node:crypto";
 import { PURPOSE_SENTENCE } from "./purpose.ts";
 import { renderSignInPage } from "./sign-in-page.ts";
@@ -38,7 +47,9 @@ test("[smoke] UX-C01 Run buttons point at a reachable reason and the estimate ba
   const html = await page();
   for (const id of ["run-one", "run-all"]) {
     const tag = openTag(html, id);
-    expect(tag).toContain('aria-describedby="run-reason"');
+    const reason = id === "run-one" ? "run-one-reason" : "run-reason";
+    expect(tag).toContain(`aria-describedby="${reason}"`);
+    expect(openTag(html, reason)).toBeTruthy();
     expect(tag).not.toMatch(/\sdisabled(\s|>|=)/);
   }
   expect(openTag(html, "run-reason")).toBeTruthy();
@@ -71,7 +82,7 @@ test("[smoke] W5 every pre-existing Backstage id survives", async () => {
   const html = await page();
   const oldIds = [...html.matchAll(/id="([^"]+)"/g)]
     .map((match) => match[0])
-    .filter((id) => !["topic-heading","start-pack","question-hint","cases-mutation-preview","cases-replace","confirm-replace","confirm-replace-title","confirm-replace-message","confirm-replace-yes","confirm-replace-no","fix-run","review-run"].some((added) => id === 'id="' + added + '"'))
+    .filter((id) => !["topic-heading","start-pack","question-hint","cases-mutation-preview","cases-replace","confirm-replace","confirm-replace-title","confirm-replace-message","confirm-replace-yes","confirm-replace-no","fix-run","review-run","run-one-reason"].some((added) => id === 'id="' + added + '"'))
     .sort();
   const digest = (ids: readonly string[]) => createHash("sha256").update(ids.join("\n") + "\n").digest("hex");
   expect(digest(oldIds)).toBe("5143692d364687a22ce0f9219673fb8ad72e129931ec7e61f4a93d7600e8e1b2");
@@ -122,6 +133,8 @@ test("[smoke] UX-C04 room 1 opens with a Before you start box naming every requi
   expect(room.indexOf('id="before-you-start"')).toBeGreaterThan(-1);
   expect(room.indexOf('id="before-you-start"')).toBeGreaterThan(room.indexOf('id="scene-fields"'));
   expect(openTag(box, "before-you-start")).not.toMatch(/\shidden(\s|>|=)/);
+  expect(closedDisclosureBefore(room, room.indexOf('id="before-you-start"'))).toBe(false);
+  expect(closedDisclosureBefore(`<details>${room}</details>`, room.indexOf('id="before-you-start"') + 9)).toBe(true);
   const shown = flat(box);
   for (const required of ["Before you start", "your own Jev key", "billed to your own provider accounts", "30 paired, human-labelled cases", "synthetic or redacted data only", PURPOSE_SENTENCE])
     expect(shown).toContain(required);

@@ -57,14 +57,14 @@ describe("FLOW.md metric table", () => {
   });
 
   test.each<[string, string, number, string]>([
-    ["Backstage spend per arm", "src/backstage/main.ts", 695, "Answers-only spend"],
-    ["Backstage kept", "src/backstage/main.ts", 693, "Kept / labelled"],
-    ["Backstage cost per kept", "src/backstage/main.ts", 696, "Cost / kept"],
-    ["Backstage unlabelled", "src/backstage/main.ts", 694, "Unlabelled"],
-    ["Backstage failed attempts", "src/backstage/main.ts", 628, "Failed attempts:"],
-    ["Backstage total attempts", "src/backstage/main.ts", 678, "Total actual attempts"],
-    ["Backstage excluded", "src/backstage/main.ts", 715, "excluded. Jev-only wins"],
-    ["Backstage confidence", "src/backstage/main.ts", 407, "Returned confidence"],
+    ["Backstage spend per arm", "src/backstage/main.ts", 706, "Answers-only spend"],
+    ["Backstage kept", "src/backstage/main.ts", 704, "Kept / labelled"],
+    ["Backstage cost per kept", "src/backstage/main.ts", 707, "Cost / kept"],
+    ["Backstage unlabelled", "src/backstage/main.ts", 705, "Unlabelled"],
+    ["Backstage failed attempts", "src/backstage/main.ts", 639, "Failed attempts:"],
+    ["Backstage total attempts", "src/backstage/main.ts", 689, "Total actual attempts"],
+    ["Backstage excluded", "src/backstage/main.ts", 726, "excluded. Jev-only wins"],
+    ["Backstage confidence", "src/backstage/main.ts", 412, "Returned confidence"],
     ["latency recorded", "src/backstage/records.ts", 63, "latency_ms"],
     ["tokens recorded", "src/backstage/records.ts", 60, "tokens_in"],
     ["label source recorded", "src/backstage/records.ts", 59, "label_source"],

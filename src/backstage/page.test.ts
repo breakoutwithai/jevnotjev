@@ -1,4 +1,13 @@
 import { expect, test } from "bun:test";
+function closedDisclosureBefore(html: string, position: number): boolean {
+  const stack: boolean[] = [];
+  for (const match of html.slice(0, position).matchAll(/<details\b[^>]*>|<\/details>/g)) {
+    if (match[0].startsWith("</")) stack.pop();
+    else stack.push(!/\sopen(?:\s|>|=)/.test(match[0]));
+  }
+  return stack.some(Boolean);
+}
+
 
 test("[smoke] A2 header sign-out stays separate from Theme without warning markup", async () => {
   const page = await Bun.file("site/backstage/index.html").text();
@@ -64,9 +73,11 @@ test("[smoke] JF1 Jev-only is the initial cast and comparisons require opt-in", 
 
 test("[smoke] JF5 privacy and copy guidance precede billable run controls", async () => {
   const page = await Bun.file("site/backstage/index.html").text();
-  expect(page.indexOf('class="trust-sign"')).toBeLessThan(
+  expect(page.indexOf('<aside class="trust-sign"')).toBeLessThan(
     page.indexOf('id="run-one"'),
   );
+  expect(closedDisclosureBefore(page, page.indexOf('<aside class="trust-sign"'))).toBe(false);
+  expect(closedDisclosureBefore(`<details>${page}</details>`, page.indexOf('<aside class="trust-sign"') + 9)).toBe(true);
   expect(page).toContain("mailto:jev@breakoutwithai.com");
   expect(page).toContain('id="copy-case"');
   expect(page).toContain('id="copy-cli"');

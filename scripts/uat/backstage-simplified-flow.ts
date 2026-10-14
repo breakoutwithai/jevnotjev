@@ -120,7 +120,7 @@ export async function validateReplay(directory: string, options: ReplayOptions):
       const dom = widthSchema.parse(json(item.dom));
       for (const snapshot of [dom.setup, dom.results]) {
         if (snapshot.viewportWidth !== item.width || snapshot.scrollWidth > item.width) throw new ReplayError("Viewport mismatch or horizontal overflow");
-        if (/Learning Lines|Casting|Dress Rehearsal|Opening Night|New Scene/.test(snapshot.text)) throw new ReplayError("Old theatre workflow remains visible");
+        if (/Learning Lines|Casting|Rehearsals|Dress Rehearsal|Opening Night|New Scene/.test(snapshot.text)) throw new ReplayError("Old theatre workflow remains visible");
       }
       for (const label of ["Setup and run", "Review answers", "Results and downloads"]) {
         if (!dom.setup.buttons.includes(label)) throw new ReplayError("Simplified navigation missing");

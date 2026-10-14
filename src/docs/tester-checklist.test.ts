@@ -81,6 +81,10 @@ describe("tester checklist", () => {
     const send = section(doc, "## What to send us");
     for (const words of ["jev@breakoutwithai.com", "step number", "Kept / labelled", "Unlabelled", "paired labelled cases", "Cost / kept", "comparison", "verdict", "Total actual attempts", "known", "unknown", "optional", "Jev-only test"])
       expect(send).toContain(words);
+    expect(stepBody(4)).toContain("Optional: practise blind judging");
+    expect(stepBody(4)).toContain("collapsed");
+    expect(read("site/guide/index.html")).toContain("optional collapsed disclosure");
+    expect(read("site/backstage/index.html")).toContain("If you choose to practise");
     expect(safeEvidence(send)).toBe(true);
     for (const unsafe of ["Send your API key", "Include case text", "Copy question text", "Attach raw exports", "Send models answers"])
       expect(safeEvidence(`${send}\n${unsafe}`)).toBe(false);

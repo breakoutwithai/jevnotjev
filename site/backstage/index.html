@@ -78,7 +78,7 @@
             ></textarea>
           </label>
         </fieldset>
-        <details><summary>What this test can tell you</summary><aside id="before-you-start" class="before-you-start" aria-labelledby="before-you-start-title">
+        <details open><summary>What this test can tell you</summary><aside id="before-you-start" class="before-you-start" aria-labelledby="before-you-start-title">
           <h3 id="before-you-start-title">Before you start</h3>
           <p>This tests AI answers to one business question. It is not a chatbot. Bring your own Jev key; calls are billed to your own provider accounts. A shared verdict needs 30 paired, human-labelled cases. Use synthetic or redacted data only. <a href="/guide/">Read the first-use guide.</a></p>
         </aside>
@@ -198,7 +198,7 @@
             <div id="provider-keys"></div>
           </div>
         </div>
-        <details><summary>Keys, privacy and direct-provider alternatives</summary><aside class="trust-sign" aria-label="Keys and privacy">
+        <details open><summary>Keys, privacy and direct-provider alternatives</summary><aside class="trust-sign" aria-label="Keys and privacy">
           <strong>Your keys. Your call.</strong>
           <p>
             Your request goes through this server to the provider you select.
@@ -314,13 +314,14 @@
         </button>
         <p id="trial-status" class="fine" hidden></p>
         <div class="actions">
-          <button id="run-one" class="secondary" aria-describedby="run-reason">Try first case</button
+          <button id="run-one" class="secondary" aria-describedby="run-one-reason">Try first case</button
           ><button id="run-all" aria-describedby="run-reason">Run all cases</button
           ><button id="stop" class="secondary" disabled>Stop</button
           ><button id="retry" class="secondary" disabled>
             Retry unfinished calls
           </button>
         </div>
+        <p id="run-one-reason" class="fine reason" hidden></p>
         <p id="run-reason" class="fine reason" role="status" aria-live="polite"></p><button id="fix-run" type="button" class="secondary" hidden>Fix missing input</button><button id="review-run" type="button" hidden>Review your answers</button>
         <p class="fine">
           Stop keeps completed answers. An in-flight call may still be charged.
@@ -335,7 +336,7 @@
         <details><summary>Optional: practise blind judging</summary><section id="calibration" aria-labelledby="calibration-title">
           <h3 id="calibration-title">Calibrate first: 5 practice cases</h3>
           <p class="fine">
-            Pick each practice case before you pick your own. Each reference
+            If you choose to practise, pick each practice case before judging your own. Each reference
             label was drafted by AI and approved by a person (human_reviewed).
             <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/docs/product/labelling-card.md" target="_blank" rel="noopener">Label card</a>
           </p>

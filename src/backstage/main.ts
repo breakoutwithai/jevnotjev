@@ -66,7 +66,8 @@ function button(id: string): HTMLButtonElement {
   return value;
 }
 function text(id: string, value: string) {
-  element(id).textContent = value;
+  const target = element(id);
+  if (target.textContent !== value) target.textContent = value;
 }
 function node(tag: string, content: string): HTMLElement {
   const e = document.createElement(tag);
@@ -89,6 +90,10 @@ function notice(message: string) {
   text("notice", message);
 }
 function clearValidationNotice(id: string) {
+  const target = field(id);
+  const descriptions = (target.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(token => token && token !== "run-reason");
+  if (descriptions.length) target.setAttribute("aria-describedby", descriptions.join(" "));
+  else target.removeAttribute("aria-describedby");
   if (validationNotice?.field === id && element("notice").textContent === validationNotice.message)
     notice("");
 }
@@ -445,7 +450,9 @@ function runReason(): string {
     if (run.labeling) return "Judging has started; remaining calls and retries are locked. Start a new question to run again.";
     if (run.funded) return "Funded trials cannot continue or retry. Use your own key in a new question.";
     if (run.remainingCaseIds.length > 0) return setupProblem()?.message ?? "";
-    return "No untouched calls remain. Retry failed calls explicitly, or review your answers.";
+    return run.retryable > 0
+      ? "No untouched calls remain. Retry failed calls explicitly, or review your answers."
+      : "All selected calls have answers. Review your answers.";
   }
   if (imports.pending) return "Wait for the case import to finish.";
   const problem = setupProblem();
@@ -492,7 +499,9 @@ function fixRunProblem() {
   showRoom(0, false);
   const target = field(problem.field);
   target.setAttribute("aria-invalid", "true");
-  target.setAttribute("aria-describedby", "run-reason");
+  const descriptions = new Set((target.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean));
+  descriptions.add("run-reason");
+  target.setAttribute("aria-describedby", [...descriptions].join(" "));
   let parent = target.parentElement;
   while (parent) {
     if (parent instanceof HTMLDetailsElement) parent.open = true;
@@ -586,10 +595,12 @@ async function render() {
     text("house-key-note", "Local test key in use. Leave this blank or paste your own.");
   button("run-trial").disabled =
     !trialAvailable || starting || !!current || imports.pending;
-  gate(["run-one", "run-all"], "run-reason", runReason());
-  if (current) button("run-one").setAttribute("aria-disabled", "true");
+  const reason = runReason();
+  gate(["run-all"], "run-reason", reason);
+  gate(["run-one"], "run-one-reason", current ? "The first case already ran. Start a new question for another first-case trial." : reason);
+  element("run-one-reason").hidden = !current;
   const remaining=current?.remainingCaseIds.length ?? 0;
-  button("run-all").textContent=current ? `Run remaining ${remaining} cases` : `Run all ${cases().length || ""} cases`.replace("  ", " ");
+  button("run-all").textContent=current ? (remaining ? `Run remaining ${remaining} cases` : "All cases attempted") : `Run all ${cases().length || ""} cases`.replace("  ", " ");
   button("fix-run").hidden=(!!current && (current.labeling || current.funded || current.remainingCaseIds.length === 0)) || !setupProblem();
   button("fix-run").textContent=setupProblem() ? `Fix ${setupProblem()?.field === "acceptance" ? "Judging rule" : "missing input"}` : "Fix missing input";
   button("review-run").hidden=!current || current.running || starting || current.cards().length === 0 || current.labeling;
@@ -930,10 +941,10 @@ function runClicked(firstOnly: boolean) {
   const reason = runReason();
   if (reason) {
     notice(reason);
-    if (!run || (!run.labeling && !run.funded && run.remainingCaseIds.length > 0)) fixRunProblem();
+    if (reason === setupProblem()?.message) fixRunProblem();
     return;
   }
-  if (firstOnly && run) { notice("The first case already ran. Run remaining cases or explicitly retry failed calls."); return; }
+  if (firstOnly && run) { notice("The first case already ran. Run remaining cases or review your answers." + (run.retryable > 0 ? " Explicitly retry failed calls if you choose." : "")); return; }
   void start(firstOnly);
 }
 button("run-one").onclick = () => runClicked(true);

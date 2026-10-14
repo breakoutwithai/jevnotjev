@@ -213,9 +213,9 @@ describe("#134 report", () => {
 const DRIVER_SELECTORS: readonly string[] = [
   '"#cases"',
   '"#blind-card"', '"#compare"', '"#confirm-judging-yes"', '"#confirm-reveal-yes"', '"#import-cases"', '"#include-rule"',
-  '"#keywords"', '"#llm-player"', '"#next"', '"#notice"', '"#progress"', '"#question"', '"#reveal"', '"#reveal-reason"',
+  '"#keywords"', '"#llm-player"', '"#notice"', '"#progress"', '"#question"', '"#reveal"', '"#reveal-reason"',
   '"#rule-fields"', '"#run-all"', '"#run-preview"', '"#run-reason"', '"#verdict h3"', '"#verdict"', "'#jev-key[type=\"password\"]'",
-  "'#rooms button[data-room=\"4\"]'", "'#rooms button[data-room=\"5\"]'","`#${llmProvider}-key[type=\"password\"]`",
+  "`#${llmProvider}-key[type=\"password\"]`",
   "`#model-options [id=\"arm-${options.llmModel}\"]`", '"#choice-a"', '"#choice-b"', '"#definition-a"', '"#definition-b"',
   '"#acceptance"', '"#download-csv"', '"#download-evidence"',
 ];
@@ -250,6 +250,8 @@ test("[unit] #134 driver interacts only through allowlisted selectors (agents ne
 test("[unit] #134 the allowlist guard fails on every pick-click shape seen in review", async () => {
   const source = await Bun.file(new URL("./backstage-happy-path.ts", import.meta.url)).text();
   for (const mutation of [
+    'await p.locator("#next").click();',
+    `await p.locator('#rooms button[data-room="5"]').click();`,
     'await p.locator("#pick-actions button").click();',
     'await p.locator(WORKSPACE_SELECTORS.pick).click();',
     'await p.locator( "#pick-first").click();',

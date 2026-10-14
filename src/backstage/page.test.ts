@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 
-test("[smoke] A2 header sign-out stays separate from House Lights without warning markup", async () => {
+test("[smoke] A2 header sign-out stays separate from Theme without warning markup", async () => {
   const page = await Bun.file("site/backstage/index.html").text();
   const header = page.match(/<header>([\s\S]*?)<\/header>/)?.[1] ?? "";
   expect(header).toMatch(/<button\b[^>]*\bid="sign-out"[^>]*\btype="button"[^>]*>Sign out<\/button>/);
-  expect(header).toMatch(/<button\b[^>]*\bid="theme"[^>]*>House Lights<\/button>/);
+  expect(header).toMatch(/<button\b[^>]*\bid="theme"[^>]*>Theme<\/button>/);
   expect((header.match(/id="sign-out"/g) ?? []).length).toBe(1);
   expect((header.match(/id="theme"/g) ?? []).length).toBe(1);
   expect(page).not.toContain('id="signed-out"');

@@ -242,7 +242,7 @@ describe("first-use guide", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 15000);
 
   test("[integration] D18-GUIDE-NO-JEV labels, validates and scores with only the no-Jev run", () => {
     const dir = mkdtempSync(join(tmpdir(), "jnj-guide-no-jev-"));

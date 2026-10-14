@@ -4,7 +4,7 @@ docs/product/what-is-stored.md:71-104 (inventory and provider map)
 docs/design/ticket-office.md:53-67 (published wording and open retention decision)
 site/index.html:229 (ticket office promise and request route)
 src/backstage/tickets.ts:74,97-100,123-127 (consent check, SQLite columns and insert)
-src/backstage/server.ts:219-223,299-316,320-346,419-480,530-534,667-698,700-718,749-764 (state paths, sign-in, cookie ages, answer and coach relay, ticket write and static serving)
+src/backstage/server.ts:219-223,299-316,320-346,419-501,530-534,667-698,700-718,749-764 (state paths, sign-in, cookie ages, answer and coach and cases relay, ticket write and static serving)
 src/backstage/api-v1.ts:11,68-71,191-212 (HTTP answer routes return data without a server output file)
 src/backstage/trial.ts:46,121-124,213-224,254,329 (trial token lifetime, ledger fields and pruning)
 src/backstage/log.ts:8-16,24-64 (fields written to stdout, including coach event metadata)
@@ -12,9 +12,9 @@ src/backstage/log.ts:8-16,24-64 (fields written to stdout, including coach event
 .deploy/nginx-jevnotjev.conf:19,51-59 (static page routing and web access log)
 src/backstage/auth.ts:6,57-94,141-146,155-188,277 (Google sign-in lifetime, operator fields, session fields, cookie and revocation file)
 src/backstage/scene-draft.ts:1-13,57-69,100-104 (draft fields and storage calls)
-src/backstage/main.ts:206-214,307-323,906-917,928-935,1002-1024,1151-1184,1293-1308 (keys, run, clear, browser draft/download and coach request)
+src/backstage/main.ts:206-214,307-323,906-917,928-935,1002-1024,1151-1184,1345-1360,1380-1384,1411-1423 (keys, run, clear, browser draft/download and coach and cases requests)
 src/backstage/run.ts:687-692,745-769,1511-1539 (relay, in-memory run and export)
-src/backstage/providers.ts:22-36,276-363 (coach and selected answer provider destinations, body and credential)
+src/backstage/providers.ts:23-40,58-61,276-363 (coach and cases and selected answer provider destinations, body and credential)
 .deploy/backstage-nginx.conf:6-40,43-49,64-74,100-114 (sign-in and ticket routes, access log exceptions and relay buffering)
 src/backstage/api-tokens.ts:22-27,146-151 (stored token fields and write)
 src/backstage/run.ts:725-729 (funded trial browser request omits a provider key)
@@ -75,6 +75,7 @@ th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-a
 <h2>What leaves your browser</h2>
 <p>With your own key, the browser sends the case, question, choice definitions and your key through the Backstage server for each model you select. A funded trial, if ever switched on, uses our key instead. The server sends the request to that model's provider. A local keyword rule does not call a provider.</p>
 <p>If you use the question coach, your browser sends the question you type and your coach key through our server to Anthropic or OpenAI, whichever you choose. It sends nothing else from your scene. The provider call uses your key, so any charge goes to your account. Our server does not save the coach question, key or reply to a file or database.</p>
+<p>Draft starter cases sends the scene question and both answer names and their meanings, with your coach key, through our server to Anthropic or OpenAI, whichever you choose. Our server does not save them or the reply to a file or database.</p>
 <table>
 <thead><tr><th>Selected provider</th><th>Destination</th></tr></thead>
 <tbody>

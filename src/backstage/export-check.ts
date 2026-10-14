@@ -15,6 +15,9 @@
  * read from the export; they name fields and positions.
  */
 import { isDeepStrictEqual } from "node:util";
+import { scan } from "./credential-scan.ts";
+export { CREDENTIAL_PATTERNS, MAX_EXPORT_DEPTH, MAX_EXPORT_NODES, findCredentials } from "./credential-scan.ts";
+export type { CredentialPattern } from "./credential-scan.ts";
 import { CALC_VERSION, PROTOCOL_VERSION, type Scene } from "./contracts.ts";
 import { JEV_ARM_ID } from "./catalog.ts";
 import { cohortVerdict, runScene } from "./run.ts";
@@ -33,10 +36,6 @@ import {
 } from "./records.ts";
 import { formatRows, readDictRows } from "../format/csv.ts";
 import type { Verdict, VerdictName } from "../core/verdict.ts";
-
-import { scan } from "./credential-scan.ts";
-export { CREDENTIAL_PATTERNS, MAX_EXPORT_DEPTH, MAX_EXPORT_NODES, findCredentials } from "./credential-scan.ts";
-export type { CredentialPattern } from "./credential-scan.ts";
 
 export interface VerdictCheck {
   readonly armId: string;

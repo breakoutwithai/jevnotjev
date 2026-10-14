@@ -1,16 +1,38 @@
 import { expect, test } from "bun:test";
-import { applicableDraft, coachPrompt, parseCoachReply } from "./coach.ts";
+import { applicableDraft, casesPrompt, coachPrompt, parseCasesReply, parseCoachReply } from "./coach.ts";
 
 const draft = {
   type: "choice", question: "Should I refund this order?",
   answers: [{ name: "Refund", meaning: "When the order qualifies for a refund." }, { name: "Decline", meaning: "When it does not qualify." }],
   keepRule: "Keep when I would make the same refund call.",
   ruleToBeat: ["refund", "damaged"], exclusions: "Orders without enough information.",
+  cases: ["Damaged item", "Broken package", "Wrong item", "Item missing", "Late delivery", "Changed mind", "Opened item", "No receipt", "Unclear condition", "Unrelated greeting"],
 };
+
+test("[unit] #133 K3 K11 coach.2 requires exactly 10 distinct one-line starter cases", () => {
+  expect(coachPrompt("Refund?")).toContain("coach.2");
+  expect(coachPrompt("Refund?")).toContain("exactly 10 synthetic");
+  for (const cases of [undefined, draft.cases.slice(0, 4), draft.cases.slice(0, 9), [...draft.cases, "Extra"],
+    [...draft.cases.slice(0, 9), draft.cases[0]], [...draft.cases.slice(0, 9), ""],
+    [...draft.cases.slice(0, 9), "line one\nline two"],
+    [...draft.cases.slice(0, 9), "tester@example.test"],
+    [...draft.cases.slice(0, 9), "Account 123456789012"]]) {
+    const candidate = cases === undefined ? { ...draft, cases: undefined } : { ...draft, cases };
+    expect(parseCoachReply(JSON.stringify({ drafts: [candidate] })).ok).toBe(false);
+  }
+  expect(parseCoachReply(JSON.stringify({ drafts: [draft] })).ok).toBe(true);
+});
+
+test("[unit] #133 K1 cases replies require exactly 10 cases", () => {
+  expect(casesPrompt({ question: "Refund?", choices: [{ name: "Refund", definition: "When damaged." }, { name: "Decline", definition: "When intact." }] })).toContain("Give exactly 10 distinct cases");
+  expect(parseCasesReply(JSON.stringify({ cases: draft.cases.slice(0, 9) }))).toEqual({ ok: false, reason: "Could not read that reply. Nothing was changed." });
+  expect(parseCasesReply(JSON.stringify({ cases: [...draft.cases, "Extra"] }))).toEqual({ ok: false, reason: "Could not read that reply. Nothing was changed." });
+  expect(parseCasesReply(JSON.stringify({ cases: draft.cases }))).toEqual({ ok: true, cases: draft.cases });
+});
 
 test("[unit] #132 C1 coach prompt asks for a bounded JSON decision draft", () => {
   const prompt = coachPrompt("Should I refund this order?");
-  expect(prompt).toContain("coach.1");
+  expect(prompt).toContain("coach.2");
   expect(prompt).toContain("Should I refund this order?");
   expect(prompt).toContain("no-match");
   expect(prompt).toContain("JSON only");
@@ -68,4 +90,19 @@ test("[unit] #132 C1 valid reply has an answer meaning and keep rule", () => {
     expect(parsed.drafts).toHaveLength(1);
     expect(parsed.drafts[0]?.keepRule).toBe(draft.keepRule);
   }
+});
+test("[unit] #133 O1 maximum case text survives JSON escaping", () => {
+  const cases = Array.from({ length: 10 }, (_item, index) => "a".repeat(7999) + index);
+  const escapedCases = JSON.stringify({ cases }).replaceAll("a", "\\u0061");
+  expect(parseCasesReply(escapedCases).ok).toBe(true);
+  const escapedDrafts = JSON.stringify({ drafts: Array(3).fill({ ...draft, cases }) }).replaceAll("a", "\\u0061");
+  expect(parseCoachReply(escapedDrafts).ok).toBe(true);
+});
+
+test("[unit] #133 the guide's pasted cases example is accepted by the cases parser", async () => {
+  const guide = await Bun.file("site/guide/index.html").text();
+  const entry = guide.match(/<dt>Paste your model's cases JSON reply<\/dt><dd>(.*?)<\/dd>/)?.[1] ?? "";
+  const example = entry.match(/<code>(\{"cases".*?\})<\/code>/)?.[1] ?? "";
+  expect(entry).toContain("exactly ten");
+  expect(parseCasesReply(example).ok).toBe(true);
 });

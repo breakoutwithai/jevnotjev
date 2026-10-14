@@ -51,7 +51,7 @@ export function confirmBlocked(
 ): string | null {
   if (state.starting || state.running)
     return step === "new-scene"
-      ? "Stop the run before starting a new scene. Nothing was cleared."
+      ? "Stop the run before starting a new question. Nothing was cleared."
       : "Let the calls stop before locking this run. Nothing was locked.";
   if (step === "judging" && state.labeling)
     return "Judging is already open for this run.";
@@ -75,7 +75,7 @@ function wording(
   if (step === "reveal")
     return mode === "compare"
       ? {
-          title: "Reveal the players and lock your labels?",
+          title: "Show who answered and lock your labels?",
           detail:
             "You can leave answers unlabelled. Unfinished calls remain missing.",
         }
@@ -85,7 +85,7 @@ function wording(
             "Labels and retries will lock. You can leave answers unlabelled. Unfinished calls remain missing.",
         };
   return {
-    title: "Start a new scene?",
+    title: "Start a new question?",
     detail:
       "Download your records and evidence first; this clears the current run.",
   };

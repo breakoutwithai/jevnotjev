@@ -67,7 +67,7 @@ function button(id: string): HTMLButtonElement {
 }
 function text(id: string, value: string) {
   const target = element(id);
-  if (target.textContent !== value) target.textContent = value;
+  if (target.textContent !== value) target.textContent = value; // Identical status notices are deduplicated by design; assistive-technology announcements are not measured.
 }
 function node(tag: string, content: string): HTMLElement {
   const e = document.createElement(tag);
@@ -597,7 +597,7 @@ async function render() {
     !trialAvailable || starting || !!current || imports.pending;
   const reason = runReason();
   gate(["run-all"], "run-reason", reason);
-  gate(["run-one"], "run-one-reason", current ? "The first case already ran. Start a new question for another first-case trial." : reason);
+  gate(["run-one"], "run-one-reason", starting || current?.running ? reason : current ? "The first case already ran. Start a new question for another first-case trial." : reason);
   element("run-one-reason").hidden = !current;
   const remaining=current?.remainingCaseIds.length ?? 0;
   button("run-all").textContent=current ? (remaining ? `Run remaining ${remaining} cases` : "All cases attempted") : `Run all ${cases().length || ""} cases`.replace("  ", " ");
@@ -938,13 +938,14 @@ button("next").onclick = () => showRoom(room + 1);
 button("start-pack").onclick = () => showRoom(1);
 function runClicked(firstOnly: boolean) {
   if (signingOut) return;
+  if (starting || run?.running) { notice("Calls are in progress."); return; }
+  if (firstOnly && run) { notice("The first case already ran. Start a new question for another first-case trial."); return; }
   const reason = runReason();
   if (reason) {
     notice(reason);
     if (reason === setupProblem()?.message) fixRunProblem();
     return;
   }
-  if (firstOnly && run) { notice("The first case already ran. Run remaining cases or review your answers." + (run.retryable > 0 ? " Explicitly retry failed calls if you choose." : "")); return; }
   void start(firstOnly);
 }
 button("run-one").onclick = () => runClicked(true);

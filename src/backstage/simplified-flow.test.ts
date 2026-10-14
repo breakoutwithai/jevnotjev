@@ -87,6 +87,9 @@ test("[integration] C1 first trial retains full frozen scene and continuing call
   });
   setup(page);
   page.get("run-one").click();
+  expect(page.get("run-one-reason").textContent).toBe("Calls are in progress.");
+  page.get("run-one").click();
+  expect(page.get("notice").textContent).toBe("Calls are in progress.");
   for (let i = 0; i < 10; i++) await tick();
   expect(calls.map((r) => r.caseId)).toEqual(["case-1"]);
   expect(page.get("run-preview").textContent).toContain("1 completed calls");
@@ -99,6 +102,14 @@ test("[integration] C1 first trial retains full frozen scene and continuing call
   await tick();
   expect(calls).toHaveLength(1);
   expect(page.get("notice").textContent).not.toContain("retry failed");
+  page.get("clear-keys").click();
+  page.get("run-one").focus();
+  page.get("run-one").click();
+  await tick();
+  expect(page.document.activeElement).toBe(page.get("run-one"));
+  expect(page.get("notice").textContent).toBe("The first case already ran. Start a new question for another first-case trial.");
+  expect(calls).toHaveLength(1);
+  fill(page, "jev-key", "synthetic-key-only");
   const runId = calls[0]?.runId;
   page.get("run-all").click();
   for (let i = 0; i < 10; i++) await tick();
@@ -106,8 +117,8 @@ test("[integration] C1 first trial retains full frozen scene and continuing call
   expect(calls.every((r) => r.runId === runId)).toBe(true);
   expect(page.get("run-preview").textContent).toContain("3 completed calls");
   expect(page.get("question").disabled).toBe(true);
-  expect(page.get("run-all").textContent).not.toContain("remaining 0");
-  expect(page.get("run-reason").textContent).not.toContain("Retry failed");
+  expect(page.get("run-all").textContent).toBe("All cases attempted");
+  expect(page.get("run-reason").textContent).toBe("All selected calls have answers. Review your answers.");
   page.get("run-all").click();
   await tick();
   expect(calls).toHaveLength(3);
@@ -120,6 +131,10 @@ test("[integration] C1 first trial retains full frozen scene and continuing call
   expect(trial.get("run-reason").textContent).toContain("Judging has started");
   trial.get("clear-keys").click();
   expect(trial.get("fix-run").hidden).toBe(true);
+  trial.get("run-one").focus();
+  trial.get("run-one").click();
+  expect(trial.document.activeElement).toBe(trial.get("run-one"));
+  expect(trial.get("notice").textContent).toBe("The first case already ran. Start a new question for another first-case trial.");
   trial.get("run-all").click();
   await tick();
   expect(

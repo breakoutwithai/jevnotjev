@@ -391,17 +391,21 @@ function installCurtainAccessor(names: string[]): void {
   };
 }
 
+const FAKE_START = Date.UTC(2026, 0, 1);
+
 async function held(width: number, height: number, motion: "no-preference" | "reduce"): Promise<{ page: Page; release: () => Promise<void> }> {
   const page = await browser.newPage({ viewport: { width, height }, reducedMotion: motion });
-  await page.clock.install();
-  await page.clock.pauseAt(new Date("2026-10-14T12:00:00Z"));
+  // A fixed fake start, then pause one second after it: pauseAt only moves forward, so neither may depend on today's date.
+  await page.clock.install({ time: FAKE_START });
+  await page.clock.pauseAt(FAKE_START + 1000);
   await page.addInitScript(installCurtainAccessor, CURTAIN_ANIMATIONS);
   await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
   let open = (): void => undefined;
   const gate = new Promise<void>((resolve) => { open = resolve; });
   await page.route("**/theatre.js", async (route) => { await gate; await route.continue(); });
   await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "commit" });
-  await page.waitForFunction(() => document.getElementById("primaryAction") !== null && document.querySelectorAll(".overture .curtain").length === 2);  const release = async (): Promise<void> => {
+  await page.waitForFunction(() => document.getElementById("primaryAction") !== null && document.querySelectorAll(".overture .curtain").length === 2);
+  const release = async (): Promise<void> => {
     open();
     await page.waitForFunction(() => document.documentElement.dataset.curtain !== undefined);
   };
@@ -428,8 +432,11 @@ async function seize(page: Page): Promise<{ states: string[]; advanced: boolean;
   return { states: first.states, advanced, endMs };
 }
 
-/** What a viewer sees of one curtain: on-screen width, effective opacity (all ancestors), visibility and pointer. */
-interface CurtainView { left: number; right: number; onScreen: number; opacity: number; visible: boolean; pointer: string }
+/**
+ * What a viewer sees of one curtain: on-screen width, whether it spans the full viewport height, effective opacity
+ * (all ancestors), visibility and pointer.
+ */
+interface CurtainView { left: number; right: number; onScreen: number; fullHeight: boolean; opacity: number; visible: boolean; pointer: string }
 
 /** Reads both curtains without moving the timeline. */
 async function viewCurtains(page: Page): Promise<CurtainView[]> {
@@ -439,8 +446,25 @@ async function viewCurtains(page: Page): Promise<CurtainView[]> {
     const box = node.getBoundingClientRect();
     const onScreen = node.getClientRects().length > 0 && box.height > 0 ? Math.max(0, Math.min(box.right, innerWidth) - Math.max(box.left, 0)) : 0;
     const style = getComputedStyle(node);
-    return { left: Math.round(box.left), right: Math.round(box.right), onScreen: Math.round(onScreen), opacity, visible: style.visibility === "visible", pointer: style.pointerEvents };
+    return { left: Math.round(box.left), right: Math.round(box.right), onScreen: Math.round(onScreen), fullHeight: box.top <= 0 && box.bottom >= innerHeight, opacity, visible: style.visibility === "visible", pointer: style.pointerEvents };
   }));
+}
+
+/** The painted RGBA of one viewport pixel, read from a 1x1 screenshot decoded in the page (no image file kept). */
+async function paintedAt(page: Page, x: number, y: number): Promise<number[]> {
+  const png = await page.screenshot({ clip: { x: Math.round(x), y: Math.round(y), width: 1, height: 1 } });
+  return page.evaluate(async (b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const ctx = new OffscreenCanvas(1, 1).getContext("2d");
+    ctx?.drawImage(bitmap, 0, 0);
+    return [...(ctx?.getImageData(0, 0, 1, 1).data ?? [])];
+  }, png.toString("base64"));
+}
+
+/** Opaque curtain red (between --curtain-lo #3e0710 and --curtain-hi #a3263a), never the light page background. */
+function isCurtainRed([r = 0, g = 255, b = 255, a = 0]: number[]): boolean {
+  return a === 255 && r >= 50 && g < 60 && r > 2 * g && r > 1.4 * b;
 }
 
 /** Curtains a viewer could see: on screen, not hidden, not transparent. */
@@ -486,15 +510,20 @@ test("[integration] L16 the curtain plays by itself, closed at the start, half o
       const half = width / 2;
       // Start: both curtains fully opaque, visible, together covering the screen, and letting every pointer through.
       const start = await seek(page, 0, line.endMs);
-      for (const c of start) expect({ opacity: c.opacity, visible: c.visible, pointer: c.pointer }).toEqual({ opacity: 1, visible: true, pointer: "none" });
+      for (const c of start) expect({ opacity: c.opacity, visible: c.visible, fullHeight: c.fullHeight, pointer: c.pointer }).toEqual({ opacity: 1, visible: true, fullHeight: true, pointer: "none" });
       expect(start[0]?.left).toBe(0);
       expect(start[1]?.right).toBe(width);
       expect((start[0]?.onScreen ?? 0) + (start[1]?.onScreen ?? 0)).toBeGreaterThanOrEqual(width);
+      // And it is painted: the centre of each curtain is opaque curtain red, not the page behind it.
+      for (const x of [width / 4, (3 * width) / 4]) {
+        const pixel = await paintedAt(page, x, height / 2);
+        expect({ x, pixel, red: isCurtainRed(pixel) }).toEqual({ x, pixel, red: true });
+      }
       expect((await actionHit(page)).covered).toBe(true);
-      // Midway: each still visible and opaque, partly on screen, each covering less than half.
+      // Midway: each still visible, opaque and full height, partly on screen, each covering less than half.
       const mid = await seek(page, 0.6, line.endMs);
       for (const c of mid) {
-        expect({ opacity: c.opacity, visible: c.visible }).toEqual({ opacity: 1, visible: true });
+        expect({ opacity: c.opacity, visible: c.visible, fullHeight: c.fullHeight }).toEqual({ opacity: 1, visible: true, fullHeight: true });
         expect(c.onScreen > 0 && c.onScreen < half).toBe(true);
       }
       // End: neither covers any of the screen. Read just short of the end: seeking onto it queues the real animationend,

@@ -2,8 +2,9 @@ import { expect, test } from "bun:test";
 import { CATALOG_VERSION } from "./catalog.ts";
 import { PROTOCOL_VERSION, type AnswerRequest } from "./contracts.ts";
 import { getModelEntry } from "./catalog.ts";
-import { inputFingerprint } from "./run.ts";
+import { inputFingerprint, runScene } from "./run.ts";
 import { SCENE_DRAFT_KEY } from "./scene-draft.ts";
+import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 
 class FakeNode extends EventTarget {
   children: FakeNode[] = [];
@@ -40,11 +41,19 @@ class FakeElement extends FakeNode {
   attributeText(): string { return [...this.attributes.values(), this.value].join("\n"); }
   focus() { if (this.owner) this.owner.activeElement = this; }
   click() { this.onclick?.(); this.dispatchEvent(new Event("click")); }
+  querySelectorAll(selector: string): FakeElement[] {
+    if (selector !== "button") throw new Error(`Unexpected selector: ${selector}`);
+    const found: FakeElement[] = [];
+    const walk = (node: FakeNode) => { for (const child of node.children) { if (child instanceof FakeElement && child.tagName === "BUTTON") found.push(child); walk(child); } };
+    walk(this);
+    return found;
+  }
 }
 class FakeInput extends FakeElement { files: File[] | null = null; }
 class FakeTextArea extends FakeElement {}
 class FakeButton extends FakeElement {}
 class FakeFieldSet extends FakeElement {}
+class FakeSelect extends FakeElement {}
 
 class FakeDocument {
   readonly documentElement = new FakeElement("HTML");
@@ -56,6 +65,7 @@ class FakeDocument {
       : upper === "TEXTAREA" ? new FakeTextArea(upper)
       : upper === "BUTTON" ? new FakeButton(upper)
       : upper === "FIELDSET" ? new FakeFieldSet(upper)
+      : upper === "SELECT" ? new FakeSelect(upper)
       : new FakeElement(upper);
     element.owner = this;
     this.elements.push(element);
@@ -71,6 +81,7 @@ class FakeDocument {
     return root === undefined ? "" : walk(root);
   }
   querySelectorAll(selector: string): FakeElement[] {
+    if (selector === "img") return this.elements.filter((element) => element.tagName === "IMG");
     if (selector === "[data-panel]") return this.elements.filter((element) => element.dataset.panel !== undefined);
     if (selector === "[data-room]") return this.elements.filter((element) => element.dataset.room !== undefined);
     if (selector === "[data-arm]:checked") return this.elements.filter((element) => element.dataset.arm !== undefined && element.checked);
@@ -124,10 +135,11 @@ class FakeStorage {
   setItem(key: string, value: string) { this.items.set(key, value); }
   removeItem(key: string) { this.items.delete(key); }
 }
-async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage(), answer?: (request: AnswerRequest) => Promise<unknown>, search = "") {
+async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage(), answer?: (request: AnswerRequest) => Promise<unknown>, search = "", coach?: (question: string, signal: AbortSignal | undefined) => unknown | Promise<unknown>) {
   const document = documentFromMarkup(await Bun.file("site/backstage/index.html").text());
   const urls: string[] = [];
   const requests: Array<{ input: string; init: RequestInit | undefined }> = [];
+  const copied: string[] = [];
   const replacements: string[] = [];
   const historyCalls: unknown[][] = [];
   const location = { search, pathname: "/backstage/", origin: "https://example.test", replace: (url: string) => replacements.push(url) };
@@ -137,13 +149,14 @@ async function mount(health = new Response(JSON.stringify({ trial: { available: 
     document, window, location,
     sessionStorage: store,
     history: { replaceState: (...args: unknown[]) => historyCalls.push(args) },
-    navigator: { clipboard: { writeText: async (_value: string) => {} } },
+    navigator: { clipboard: { writeText: async (value: string) => { copied.push(value); } } },
     matchMedia: (_query: string) => ({ matches: false }),
     XMLHttpRequest: class { constructor() { throw new Error("No XMLHttpRequest may be constructed"); } },
     HTMLInputElement: FakeInput,
     HTMLTextAreaElement: FakeTextArea,
     HTMLButtonElement: FakeButton,
     HTMLFieldSetElement: FakeFieldSet,
+    HTMLSelectElement: FakeSelect,
     BACKSTAGE_BUILD_VERSION: "so6-test",
     fetch: async (input: string, init?: RequestInit) => {
       urls.push(input);
@@ -156,6 +169,12 @@ async function mount(health = new Response(JSON.stringify({ trial: { available: 
         const request: AnswerRequest = JSON.parse(init.body);
         return new Response(JSON.stringify(await answer(request)), { status: 200, headers: { "content-type": "application/json" } });
       }
+      if (input === "/api/backstage/coach" && coach && typeof init?.body === "string") {
+        const data: unknown = JSON.parse(init.body);
+        const question = typeof data === "object" && data !== null && "question" in data && typeof data.question === "string" ? data.question : "";
+        const reply = await coach(question, init.signal ?? undefined);
+        return reply instanceof Response ? reply : Response.json({ drafts: reply, promptVersion: "coach.1", model: "claude-sonnet-5-5" });
+      }
       if (input !== "/api/backstage/health") throw new Error(`Unexpected fetch: ${input}`);
       return health.clone();
     },
@@ -166,7 +185,7 @@ async function mount(health = new Response(JSON.stringify({ trial: { available: 
     if (!found) throw new Error(`Missing markup element: ${id}`);
     return found;
   };
-  return { document, get, urls, requests, replacements, historyCalls, window, store };
+  return { document, get, urls, requests, replacements, historyCalls, window, store, copied };
 }
 
 const keyIds = ["jev-key", "anthropic-key", "openai-key", "google-key", "xai-key"];
@@ -262,6 +281,355 @@ test("[integration] A2 other health errors leave expiry message absent", async (
 });
 
 const sceneIds = ["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "exclusions", "keywords", "cases"];
+const coachDraft = { type: "choice", question: "Should I refund?", answers: [{ name: "Refund", meaning: "When the item is damaged." }, { name: "Decline", meaning: "When it is intact." }], keepRule: "Keep when I would refund the order.", ruleToBeat: ["damaged"], exclusions: "Unknown condition." };
+function coachApply(page: Awaited<ReturnType<typeof mount>>, index = 0): FakeElement {
+  const card = page.get("coach-drafts").children[index];
+  const candidate = card?.children.at(-1);
+  if (!(candidate instanceof FakeElement)) throw new Error("Missing Apply button");
+  return candidate;
+}
+test("[integration] #132 C1 coach uses two typed questions and renders complete drafts", async () => {
+  const page = await mount(undefined, undefined, undefined, undefined, "", (question) => [{ ...coachDraft, question }]);
+  page.get("coach-provider").value = "anthropic";
+  page.get("coach-key").value = "test-secret-value";
+  for (const question of ["Should I refund?", "Should I replace?"]) {
+    page.get("coach-question").value = question;
+    page.get("coach-draft").click();
+    await tick();
+    const card = page.get("coach-drafts").children[0];
+    expect(card?.children[1]?.textContent).toBe(question);
+    expect(card?.children[2]?.textContent).toContain("When the item is damaged.");
+    expect(card?.children[4]?.textContent).toContain(coachDraft.keepRule);
+  }
+  expect(page.requests.filter((item) => item.input === "/api/backstage/coach")).toHaveLength(2);
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toBeNull();
+});
+test("[integration] #132 copy coach prompt contains the question but no key or network call", async () => {
+  const page = await mount();
+  page.get("coach-question").value = "Should I refund?";
+  page.get("coach-key").value = "test-secret-value";
+  page.get("coach-copy-prompt").click();
+  await tick();
+  expect(page.copied).toHaveLength(1);
+  expect(page.copied[0]).toContain("coach.1");
+  expect(page.copied[0]).toContain("Should I refund?");
+  expect(page.copied[0]).not.toContain("test-secret-value");
+  expect(page.requests.filter((item) => item.input === "/api/backstage/coach")).toHaveLength(0);
+});
+test("[integration] #132 C2 C3 applying a Choice replaces editable fields and makes no provider call", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYes);
+  for (const id of sceneIds) typeInto(page, id, "old value");
+  page.get("coach-reply").value = JSON.stringify({ drafts: [coachDraft] });
+  page.get("coach-use-reply").click();
+  const before = page.requests.length;
+  coachApply(page).click();
+  await tick();
+  expect(page.requests).toHaveLength(before);
+  expect(["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "exclusions", "keywords"].map((id) => page.get(id).value))
+    .toEqual(["Should I refund?", "Refund", "Decline", "When the item is damaged.", "When it is intact.", "Keep when I would refund the order.", "Unknown condition.", "damaged"]);
+  expect(page.document.activeElement).toBe(page.get("question"));
+  typeInto(page, "cases", "damaged item");
+  expect(runScene({ question: page.get("question").value, choices: [{ name: page.get("choice-a").value, definition: page.get("definition-a").value }, { name: page.get("choice-b").value, definition: page.get("definition-b").value }], acceptance: page.get("acceptance").value, exclusions: page.get("exclusions").value, keywords: [page.get("keywords").value], matchChoice: page.get("choice-a").value, otherwiseChoice: page.get("choice-b").value, cases: [{ id: "case-1", input: page.get("cases").value }] }, ["jev", "rule"]).question).toBe("Should I refund?");
+  for (const id of ["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "exclusions", "keywords"]) {
+    typeInto(page, id, `${page.get(id).value} edited`);
+    expect(page.get(id).value.endsWith(" edited")).toBe(true);
+  }
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toContain("Should I refund? edited");
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).not.toContain("coach-key");
+  typeInto(page, "coach-key", "coach-real-secret-value");
+  expect([...page.store.items.values()].every((value) => !value.includes("coach-real-secret-value"))).toBe(true);
+  typeInto(page, "jev-key", "test-secret-value");
+  page.get("run-one").click();
+  await Bun.sleep(30);
+  expect(page.get("scene-fields").disabled).toBe(true);
+  expect(page.get("notice").textContent).not.toContain("required");
+});
+test("[integration] #132 Apply preserves imported CSV and starter pack cases and labels", async () => {
+  const { spyOn } = await import("bun:test");
+  const { validate } = await import("../format/validate.ts");
+  const blobs: Blob[] = [];
+  const created = spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+    if (blob instanceof Blob) blobs.push(blob);
+    return "blob:test";
+  });
+  const revoked = spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  const sources: readonly ("csv" | "pack")[] = ["csv", "pack"];
+  try {
+    for (const source of sources) {
+      const sent: AnswerRequest[] = [];
+      const page = await mount(undefined, undefined, undefined, async (request) => { sent.push(request); return { ...(await answerYes(request)), output: request.choices[0].name }; });
+      if (source === "csv") {
+        await importCsv(page, 'case_id,case_input,label,label_source,labelled_by,labelled_at\nrow-a,"line one\nline two",Refund,human_reviewed,operator,2026-10-13\n');
+      } else page.get("starter-p1").click();
+      const summary = page.get("notice").textContent;
+      expect(summary).toContain("human_reviewed");
+      const draft = source === "csv" ? coachDraft : { ...coachDraft, answers: [{ name: "hand_off", meaning: "When facts are missing." }, { name: "answer", meaning: "When facts suffice." }] };
+      page.get("coach-reply").value = JSON.stringify({ drafts: [draft] });
+      page.get("coach-use-reply").click();
+      coachApply(page).click();
+      expect(page.get("notice").textContent).toBe(summary);
+      const stored: unknown = JSON.parse(page.store.getItem(SCENE_DRAFT_KEY) ?? "null");
+      expect(typeof stored === "object" && stored !== null && Array.isArray(Reflect.get(stored, "imported"))).toBe(true);
+      typeInto(page, "jev-key", "jev-secret-value");
+      page.get("run-all").click();
+      await until(() => page.document.getElementById("open-judging") !== null);
+      expect(sent[0]?.caseId).toBe(source === "csv" ? "row-a" : "m03");
+      if (source === "csv") expect(sent[0]?.input).toBe("line one\nline two");
+      await openJudging(page);
+      page.get("reveal").click();
+      page.get("confirm-reveal-yes").click();
+      await tick();
+      page.get("download-csv").click();
+      const csv = await blobs.at(-1)?.text();
+      if (csv === undefined) throw new Error("no CSV downloaded");
+      const parsed = validate(csv);
+      expect(parsed.errors).toEqual([]);
+      expect(parsed.rows.map(({ values }) => values.get("label_source"))).toEqual(Array(source === "csv" ? 1 : 10).fill("human_reviewed"));
+    }
+  } finally {
+    created.mockRestore();
+    revoked.mockRestore();
+  }
+});
+test("[integration] #132 pasted and fetched decoded drafts reject escaped credentials", async () => {
+  const key = 'secret"with\\backslash';
+  const shaped = `sk-proj-${"Ab3".repeat(12)}`;
+  const page = await mount(undefined, undefined, undefined, undefined, "", (question) => {
+    const draft = { ...coachDraft, question: question.includes("shape") ? `Refund ${shaped}?` : `Refund ${key}?` };
+    const body = JSON.stringify({ drafts: [draft], promptVersion: "coach.1", model: "claude-sonnet-5-5" });
+    return new Response(question.includes("shape") ? body.replaceAll("-", "\\u002d") : body, { headers: { "content-type": "application/json" } });
+  });
+  page.get("coach-key").value = key;
+  for (const question of [`Refund ${key}?`, `Refund ${shaped}?`]) {
+    page.get("coach-reply").value = JSON.stringify({ drafts: [{ ...coachDraft, question }] }).replaceAll("-", "\\u002d");
+    page.get("coach-use-reply").click();
+    expect(page.get("coach-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+    expect(page.get("coach-drafts").children).toHaveLength(0);
+  }
+  page.get("coach-provider").value = "anthropic";
+  for (const question of ["Refund?", "Refund shape?"]) {
+    page.get("coach-question").value = question;
+    page.get("coach-draft").click();
+    await tick();
+    expect(page.get("coach-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+    expect(page.get("coach-drafts").children).toHaveLength(0);
+  }
+});
+test("[integration] #132 Apply rechecks keys entered after draft rendering", async () => {
+  const page = await mount();
+  page.get("coach-reply").value = JSON.stringify({ drafts: [coachDraft] });
+  page.get("coach-use-reply").click();
+  const before = page.get("question").value;
+  page.get("coach-key").value = coachDraft.question;
+  coachApply(page).click();
+  expect(page.get("question").value).toBe(before);
+  expect(page.get("coach-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+});
+test("[integration] #132 C5 unsupported drafts and frozen scenes cannot apply", async () => {
+  const page = await mount();
+  const score = { ...coachDraft, type: "score", levels: coachDraft.answers };
+  const noul = { ...coachDraft, type: "noul", statement: "This qualifies.", answers: [{ name: "True", meaning: "When it qualifies." }, { name: "False", meaning: "When it does not." }] };
+  const three = { ...coachDraft, answers: [...coachDraft.answers, { name: "Escalate", meaning: "When unsure." }] };
+  page.get("coach-reply").value = JSON.stringify({ drafts: [score, noul, three] });
+  page.get("coach-use-reply").click();
+  expect(page.get("coach-drafts").children[2]?.children[0]?.textContent).toBe("3 answers (choice)");
+  for (let index = 0; index < 3; index++) {
+    expect(coachApply(page, index).disabled).toBe(true);
+    expect(page.get("coach-drafts").children[index]?.children.some((child) => child.textContent.includes("This shape is not supported yet."))).toBe(true);
+  }
+  page.get("coach-reply").value = JSON.stringify({ drafts: [coachDraft] });
+  page.get("coach-use-reply").click();
+  typeInto(page, "question", "Already edited");
+  typeInto(page, "definition-a", "First");
+  typeInto(page, "definition-b", "Second");
+  typeInto(page, "acceptance", "Keep first");
+  typeInto(page, "cases", "sample");
+  typeInto(page, "jev-key", "test-secret-value");
+  page.get("run-one").click();
+  expect(coachApply(page).disabled).toBe(true);
+  coachApply(page).click();
+  expect(page.get("question").value).toBe("Already edited");
+  await Bun.sleep(50);
+});
+test("[integration] #132 C6 invalid paste never changes any scene field", async () => {
+  const page = await mount();
+  const ids = sceneIds.slice(0, 8);
+  ids.forEach((id, index) => typeInto(page, id, `original ${index}`));
+  const original = ids.map((id) => page.get(id).value);
+  const invalid = ["bad json", JSON.stringify({ drafts: [] }), JSON.stringify({ drafts: Array(4).fill(coachDraft) }), JSON.stringify({ drafts: [coachDraft, { ...coachDraft, keepRule: "" }] }), JSON.stringify({ drafts: [{ ...coachDraft, question: "x".repeat(1001) }] })];
+  for (const reply of invalid) {
+    page.get("coach-reply").value = reply;
+    page.get("coach-use-reply").click();
+    expect(page.get("coach-status").textContent).toBe("Could not read that reply. Nothing was changed.");
+    expect(ids.map((id) => page.get(id).value)).toEqual(original);
+  }
+});
+test("[integration] #132 C4 C12 coach blocks keys in question and Clear keys blanks coach key", async () => {
+  const page = await mount();
+  page.get("coach-provider").value = "anthropic";
+  page.get("coach-key").value = "test-secret-value";
+  for (const question of ["test-secret-value", `sk-ant-${"Ab3".repeat(12)}`, `Bearer ${"Ab3".repeat(10)}`]) {
+    page.get("coach-question").value = question;
+    page.get("coach-draft").click();
+    expect(page.get("coach-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  }
+  expect(page.requests.filter((item) => item.input === "/api/backstage/coach")).toHaveLength(0);
+  page.get("coach-reply").value = JSON.stringify({ drafts: [{ ...coachDraft, question: "test-secret-value" }] });
+  page.get("coach-use-reply").click();
+  expect(page.get("coach-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  expect(page.get("coach-drafts").children).toHaveLength(0);
+  page.get("clear-keys").click();
+  expect(page.get("coach-key").value).toBe("");
+});
+test("[integration] #132 Casting keys block coach copy and Coach key blocks scene run", async () => {
+  const page = await mount();
+  page.get("anthropic-key").value = "casting-real-secret-value";
+  page.get("coach-question").value = "Use casting-real-secret-value?";
+  page.get("coach-copy-prompt").click();
+  await tick();
+  expect(page.copied).toHaveLength(0);
+  expect(page.get("coach-status").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  fillScene(page);
+  typeInto(page, "cases", "sample");
+  page.get("coach-key").value = "coach-real-secret-value";
+  typeInto(page, "acceptance", "Keep coach-real-secret-value");
+  page.get("run-one").click();
+  await tick();
+  expect(page.get("notice").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  expect(page.requests.filter((item) => item.input === "/api/backstage/answer")).toHaveLength(0);
+  expect([...page.store.items.values()].every((value) => !value.includes("coach-real-secret-value"))).toBe(true);
+});
+test("[integration] #132 funded run also rejects a Coach key in the scene", async () => {
+  const page = await mount();
+  fillScene(page);
+  typeInto(page, "jev-key", "");
+  typeInto(page, "cases", "sample");
+  page.get("coach-key").value = "coach-real-secret-value";
+  typeInto(page, "question", "Use coach-real-secret-value?");
+  page.get("run-trial").click();
+  await tick();
+  expect(page.get("notice").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  expect(page.requests.some((request) => request.input.startsWith("/api/backstage/trial/"))).toBe(false);
+});
+test("[integration] #132 funded trial ignores unused key syntax but still scans the scene", async () => {
+  const clean = await mount();
+  fillScene(clean);
+  typeInto(clean, "jev-key", "bad");
+  typeInto(clean, "cases", "sample");
+  clean.get("run-trial").click();
+  await until(() => clean.requests.some((request) => request.input === "/api/backstage/trial/mint"));
+  await until(() => clean.get("notice").textContent.includes("Calls stopped."));
+
+  const unsafe = await mount();
+  fillScene(unsafe);
+  typeInto(unsafe, "jev-key", "bad");
+  typeInto(unsafe, "anthropic-key", "anthropic-secret-value");
+  typeInto(unsafe, "question", "Use anthropic-secret-value?");
+  typeInto(unsafe, "cases", "sample");
+  unsafe.get("run-trial").click();
+  await tick();
+  expect(unsafe.get("notice").textContent).toBe("A provider key appears in the scene. Remove it before running.");
+  expect(unsafe.requests.some((request) => request.input === "/api/backstage/trial/mint")).toBe(false);
+});
+test("[integration] #132 Coach key is never included in an answer request", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYes);
+  fillScene(page);
+  typeInto(page, "cases", "sample");
+  page.get("coach-key").value = "coach-real-secret-value";
+  await runFirstCase(page);
+  const sent = page.requests.filter((request) => request.input === "/api/backstage/answer");
+  expect(sent).toHaveLength(1);
+  expect(JSON.stringify(sent)).not.toContain("coach-real-secret-value");
+});
+test("[integration] #132 entering any key removes an older scene draft that contains its value", async () => {
+  for (const id of ["anthropic-key", "coach-key"]) {
+    const page = await mount();
+    typeInto(page, "question", "Use exact-secret-value?");
+    expect(page.store.getItem(SCENE_DRAFT_KEY)).toContain("exact-secret-value");
+    typeInto(page, id, "exact-secret-value");
+    expect([...page.store.items.values()].every((value) => !value.includes("exact-secret-value"))).toBe(true);
+  }
+});
+test("[integration] #132 imported case ids are scanned before a scene draft is saved", async () => {
+  const page = await mount();
+  typeInto(page, "coach-key", "case-secret");
+  await importCsv(page, "case_id,case_input\ncase-secret,safe input\n");
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toBeNull();
+});
+test("[integration] #132 entering a Jev key clears an older draft containing it", async () => {
+  const page = await mount();
+  typeInto(page, "question", "Use jev-secret-value?");
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toContain("jev-secret-value");
+  typeInto(page, "jev-key", "jev-secret-value");
+  expect(page.store.getItem(SCENE_DRAFT_KEY)).toBeNull();
+});
+test("[integration] #132 failed removal keeps the clear-failed draft status", async () => {
+  class RemovalFails extends FakeStorage {
+    override removeItem(_key: string) { throw new Error("storage removal failed"); }
+  }
+  const page = await mount(undefined, undefined, new RemovalFails());
+  typeInto(page, "question", "Use exact-secret-value?");
+  typeInto(page, "coach-key", "exact-secret-value");
+  expect(page.get("draft-status").textContent).toBe("Could not remove the saved scene from this tab. Close the tab to clear it.");
+});
+test("[integration] #132 pasted coach reply supersedes a pending fetched draft", async () => {
+  let finish: ((drafts: unknown) => void) | undefined;
+  let signal: AbortSignal | undefined;
+  const page = await mount(undefined, undefined, undefined, undefined, "", (_question, pendingSignal) => {
+    signal = pendingSignal;
+    return new Promise<unknown>((resolve) => { finish = resolve; });
+  });
+  page.get("coach-provider").value = "anthropic";
+  page.get("coach-key").value = "coach-secret-value";
+  page.get("coach-question").value = "Refund?";
+  page.get("coach-draft").click();
+  await tick();
+  const pasted = { ...coachDraft, question: "Pasted decision?" };
+  page.get("coach-reply").value = JSON.stringify({ drafts: [pasted] });
+  page.get("coach-use-reply").click();
+  expect(signal?.aborted).toBe(true);
+  finish?.([{ ...coachDraft, question: "Old fetched decision?" }]);
+  await tick();
+  expect(page.get("coach-drafts").children[0]?.children[1]?.textContent).toBe("Pasted decision?");
+});
+test("[integration] #132 Clear keys aborts an in-flight coach request", async () => {
+  let aborted = false;
+  const page = await mount(undefined, undefined, undefined, undefined, "", async (_question, signal) => {
+    await new Promise<void>((_resolve, reject) => signal?.addEventListener("abort", () => { aborted = true; reject(new Error("aborted")); }));
+    return [coachDraft];
+  });
+  page.get("coach-provider").value = "anthropic";
+  page.get("coach-key").value = "coach-real-secret-value";
+  page.get("coach-question").value = "Refund?";
+  page.get("coach-draft").click();
+  await tick();
+  page.get("clear-keys").click();
+  await tick();
+  expect(aborted).toBe(true);
+  expect(page.get("coach-key").value).toBe("");
+  expect(page.get("coach-drafts").children).toHaveLength(0);
+  expect(page.get("coach-draft").disabled).toBe(false);
+});
+test("[integration] #132 C10 model markup is displayed as text", async () => {
+  const page = await mount();
+  const attack = "<img src=x onerror=alert(1)>";
+  page.get("coach-reply").value = JSON.stringify({ drafts: [{ ...coachDraft, question: attack }] });
+  page.get("coach-use-reply").click();
+  expect(page.get("coach-drafts").children[0]?.children[1]?.textContent).toBe(attack);
+  expect(page.get("coach-drafts").querySelectorAll("button")).toHaveLength(1);
+  expect(page.document.querySelectorAll("img")).toHaveLength(0);
+});
+test("[integration] #132 C7 existing saved scene and two-choice fingerprint stay unchanged", async () => {
+  const store = new FakeStorage();
+  store.setItem(SCENE_DRAFT_KEY, JSON.stringify({ fields: { question: "Keep?", "choice-a": "keep", "choice-b": "cut", "definition-a": "Suitable", "definition-b": "Unsuitable", acceptance: "Keep suitable answers", exclusions: "", keywords: "suitable", cases: "Example" }, imported: null }));
+  const page = await mount(undefined, undefined, store);
+  expect(["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "exclusions", "keywords", "cases"].map((id) => page.get(id).value))
+    .toEqual(["Keep?", "keep", "cut", "Suitable", "Unsuitable", "Keep suitable answers", "", "suitable", "Example"]);
+  expect(page.get("coach-question").value).toBe("");
+  expect(page.get("coach-key").value).toBe("");
+  expect(await inputFingerprint({ question: "Keep?", choices: [{ name: "keep", definition: "Suitable" }, { name: "cut", definition: "Unsuitable" }], input: "Example", provider: "jev", modelId: "jev-1.13.0", armId: "jev", promptVersion: PROMPT_TEMPLATE_VERSION, catalogVersion: CATALOG_VERSION }))
+    .toBe("df51f1711d153b642d1c180c89599e0a98d74fddead5994582f84a36a3cd3931");
+});
 function typeInto(page: Awaited<ReturnType<typeof mount>>, id: string, value: string) {
   page.get(id).value = value;
   page.get(id).dispatchEvent(new Event("input"));

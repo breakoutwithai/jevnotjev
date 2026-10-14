@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { CATALOG_VERSION } from "./catalog.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { credentialFingerprint, signSession } from "./auth.ts";
-import { createEventLogger } from "./log.ts";
+import { createEventLogger, type CoachLog } from "./log.ts";
 import { LoginLimiter } from "./auth.ts";
 
 test("[unit] L0 default sink handles stdout errors and clock failures", () => {
@@ -23,6 +23,23 @@ test("[unit] L0 default sink handles stdout errors and clock failures", () => {
     expect(process.stdout.listeners("error")).toHaveLength(before.length + added.length);
     expect(() => process.stdout.emit("error", new Error("EPIPE"))).not.toThrow();
   } finally { for (const listener of added) process.stdout.removeListener("error", listener); }
+});
+
+test("[unit] #132 coach log writes only contracted fields", () => {
+  const lines: string[] = [];
+  const logger = createEventLogger(() => 0, (line) => lines.push(line));
+  const fields: CoachLog & { key: string; question: string } = {
+    event: "coach.request", rid: "request-1", provider: "anthropic", model: "test-model",
+    key: "SECRET-KEY", question: "PRIVATE-QUESTION",
+  };
+  logger.coach(fields);
+  expect(lines).toHaveLength(1);
+  expect(JSON.parse(lines[0] ?? "")).toEqual({
+    ts: "1970-01-01T00:00:00.000Z", event: "coach.request", rid: "request-1",
+    provider: "anthropic", model: "test-model",
+  });
+  expect(lines[0]).not.toContain("SECRET-KEY");
+  expect(lines[0]).not.toContain("PRIVATE-QUESTION");
 });
 
 test("[integration] L1 password failure emits one bounded JSON line", async () => {

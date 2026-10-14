@@ -6,7 +6,7 @@ Read-only inspection on 2026-10-03 confirmed Linux x86_64, `/usr/local/bin/bun`,
 
 ## Sign-in gate
 
-The repo nginx snippet uses `auth_request` for `/backstage/` and `/api/backstage/`. An anonymous page request redirects to `/backstage/sign-in`; an anonymous API request returns 401 JSON without a Basic challenge. The exact ungated nginx locations are `/backstage/sign-in`, `/api/auth/password`, `/api/auth/sign-out`, `/api/auth/google`, and `/api/auth/google/callback`; `/_backstage_session` is an internal nginx location. The HTTP API prefix `/api/v1/` (`docs/api.md`) has no `auth_request` and no Basic gate: the server checks the bearer token and answers 401 itself. Its read and send timeouts are 110 s, past the API's 100 s request deadline; its body cap is 64k like the server's; it writes no access log line and adds no CORS header. It also sets `X-Backstage-Gate: session`, which the server applies only to `/backstage/` and `/api/backstage/`: the prefix forwards the raw URI, and Bun resolves `/api/v1/..\backstage/` to `/api/backstage/`, so the header keeps that hop gated. The snippet overwrites `X-Backstage-Gate` with `session` on both gated routes, and the Bun service enforces the session when it receives that header. `BACKSTAGE_CURL_CONFIG` remains a private mode-0600 curl config on the workstation, with `user = "email:password"` for one operator in `operators.json`. The deploy mints a temporary session from it for protected probes. Co-tenant probes do not use it.
+The repo nginx snippet uses `auth_request` for `/backstage/` and `/api/backstage/`. An anonymous page request redirects to `/backstage/sign-in`; an anonymous API request returns 401 JSON without a Basic challenge. The exact ungated nginx locations are `/backstage/sign-in`, `/api/auth/password`, `/api/auth/link`, `/api/auth/link/request`, `/api/auth/sign-out`, `/api/auth/google`, and `/api/auth/google/callback`; `/_backstage_session` is an internal nginx location. The HTTP API prefix `/api/v1/` (`docs/api.md`) has no `auth_request` and no Basic gate: the server checks the bearer token and answers 401 itself. Its read and send timeouts are 110 s, past the API's 100 s request deadline; its body cap is 64k like the server's; it writes no access log line and adds no CORS header. It also sets `X-Backstage-Gate: session`, which the server applies only to `/backstage/` and `/api/backstage/`: the prefix forwards the raw URI, and Bun resolves `/api/v1/..\backstage/` to `/api/backstage/`, so the header keeps that hop gated. The snippet overwrites `X-Backstage-Gate` with `session` on both gated routes, and the Bun service enforces the session when it receives that header. `BACKSTAGE_CURL_CONFIG` remains a private mode-0600 curl config on the workstation, with `user = "email:password"` for one operator in `operators.json`. The deploy mints a temporary session from it for protected probes. Co-tenant probes do not use it.
 
 Roll out in this order so a gate remains active throughout:
 
@@ -19,7 +19,7 @@ If step 3 is rolled back, the previous Basic snippet comes back and sends no ses
 
 Operator steps, with exact values:
 
-1. Confirm the Google Cloud OAuth client's registered origins are `https://jevnotjev.breakoutwithai.com`, `http://localhost:8787`, and `http://127.0.0.1:8787`, with the corresponding callback redirect URIs below. Confirm the consent screen is External for non-Workspace accounts. Whether an External screen in Testing limits users or session length is unverified.
+1. Confirm the Google Cloud OAuth client's registered origins are `https://jevnotjev.breakoutwithai.com`, `http://localhost:8787`, and `http://127.0.0.1:8787`, with the corresponding callback redirect URIs below. Confirm the consent screen is External for non-Workspace accounts. Set the consent screen to In production before lead sign-in is offered to any Google user.
 2. In an interactive root session on the host, write `/etc/jevnotjev-backstage/auth.env`, root-owned mode 0600, with `BACKSTAGE_SESSION_SECRET=` followed by 64 hex characters from `openssl rand -hex 32`, `BACKSTAGE_GOOGLE_CLIENT_ID`, `BACKSTAGE_GOOGLE_CLIENT_SECRET`, and `BACKSTAGE_TRUST_PROXY=loopback`. Keep the secret stable; rotation signs everyone out.
 3. On the workstation, run `bun scripts/backstage-operator-password.ts <email>` for each password tester (`doorman` and `lutfiya`), give each printed password once, and assemble the rows into one JSON array. A Google-only tester has an `email` row without a password hash. On the host, run `install -o jevnotjev-backstage -g jevnotjev-backstage -m 0600 operators.json /var/lib/jevnotjev-backstage/operators.json`.
 4. Update `BACKSTAGE_CURL_CONFIG` so its `user` line has one operators-file email and its new password. Export its absolute path. Keep the password out of shell arguments, repository files, and deploy output.
@@ -29,6 +29,36 @@ Operator steps, with exact values:
 8. Afterward the htpasswd is unused. Deleting `/etc/jevnotjev-backstage/htpasswd` is optional and separate.
 
 The registered Google redirect URI is `https://jevnotjev.breakoutwithai.com/api/auth/google/callback`; local development also uses `http://localhost:8787/api/auth/google/callback` and `http://127.0.0.1:8787/api/auth/google/callback`. Google origins are the matching site origins.
+
+## Lead sign-in (magic link)
+
+A ticket office email opens Backstage after proof of control by a single-use email link or a Google account with the same verified email. New leads need no `operators.json` row. Existing operator rows still work. Google sign-in for leads goes live as soon as this release is promoted, before mail is configured. The link lasts 15 minutes; opening it shows a confirmation page with a masked address, and pressing its button consumes it. The sign-in session uses the existing session secret and cookie. BYOK remains the signed-in person's own Jev key.
+
+Operator steps:
+
+1. Choose the Gmail (or Google Workspace) account that sends the links and turn on 2-Step Verification for it. Choose the sender address with the operator's word; `Jev!Jev <jev@breakoutwithai.com>` is an example and must not be assumed approved.
+2. In that account's Google Account security settings, create an app password for this service. If the sender address differs from the account address, add it in Gmail under **Settings > Accounts > Send mail as** and complete Google's verification, or Gmail rewrites the From header to the account address.
+3. After the PR is merged and separately authorized for deployment, promote the new Backstage release with mail settings still unset, following **Build and promote** below. Ticket responses remain Google-only during this step; the service has the new routes before nginx exposes them.
+4. Install the updated `.deploy/backstage-nginx.conf` snippet using `.deploy/ship.sh --setup --module backstage --dry-run` and then the setup command after reviewing its plan. Its exact public routes are `/api/auth/link` and `/api/auth/link/request`; `/api/auth/link` has `access_log off` because its URL contains the token.
+5. Set the Google OAuth consent screen to **In production** rather than **Testing** so any Google user with a ticket email can sign in. Keep Google's verified-email check enabled.
+6. In `/etc/jevnotjev-backstage/auth.env`, add `BACKSTAGE_MAIL_SMTP_USER` (the Gmail account address), `BACKSTAGE_MAIL_SMTP_PASS` (the app password) and `BACKSTAGE_MAIL_FROM` (the account address or its verified send-as alias, with an optional display name). Optionally set `BACKSTAGE_MAIL_DAILY_LIMIT` (default 200) and `BACKSTAGE_MAIL_DOMAIN_DAILY_LIMIT` (default 50) to positive integers. The domain cap applies to domains other than the built-in public webmail list. Keep this root-owned file mode 0600, as loaded by `.deploy/backstage.service:16`. Do not put the app password in the repository or an argument list. Restart only `jevnotjev-backstage` so it reads the new environment. If any of the three mail settings is absent, no link is minted; the ticket response and sign-in page direct the person to Google with the ticket email.
+7. Verify with your own ticket email: submit a ticket, request a link on `/backstage/sign-in` if needed, open the received link, check the masked address, press **Sign in to Backstage**, and confirm the browser lands on `/backstage/`. Check sign-out and a second use of the same link. Check the message arrived from the chosen sender address, and watch the sending account's inbox for bounce notices after enabling delivery. Do not paste the token into logs or an issue.
+
+The ticket and lead tables share the mode-0600 SQLite file at `BACKSTAGE_TICKETS_PATH` (or `tickets.sqlite` under `STATE_DIRECTORY`). To delete a lead, open that file with `sqlite3` as an authorized operator and run the following transaction, replacing the example address with the normalized target email. It removes every ticket row for that email, the verification row, and all link digests; the next request with that person's existing session is denied.
+
+To see who signed in today, inspect the Backstage auth journal; event lines include email and network address. Keep these lines in the protected journal.
+
+```sh
+journalctl --namespace=jevnotjev-backstage -u jevnotjev-backstage --since today --output=cat | grep -E '"event":"(signin.password.ok|signin.google.ok|link.ok|link.denied)"'
+```
+
+```sql
+BEGIN;
+DELETE FROM sign_in_links WHERE email = 'lead@example.com';
+DELETE FROM verified_leads WHERE email = 'lead@example.com';
+DELETE FROM tickets WHERE lower(trim(email)) = 'lead@example.com';
+COMMIT;
+```
 
 ## One-time setup after authorization
 
@@ -50,7 +80,7 @@ Run the status probe, then read the dry run's plan and vhost diff before applyin
 
 Re-running on a configured host changes nothing and exits 0. If setup is abandoned, restore the saved vhost and snippet, run `nginx -t`, and reload. After `backstage-setup.sh` succeeds, `ship.sh --setup --module backstage` closes with a Backstage-scoped live gate verification, without SHA, release tag, or public-path checks; it exits 6 when that fails (`docs/DEPLOY.md` "Live verify").
 
-The sign-in gate is the private tester boundary. Never put tester BYOK keys into deployment configuration or shell arguments. The dedicated funded key belongs only in the protected external configuration described below.
+The sign-in gate is the lead tier boundary. Never put BYOK keys into deployment configuration or shell arguments. The dedicated funded key belongs only in the protected external configuration described below; the operator dropped the funded trial, so do not set `BACKSTAGE_TRIAL_KEY`.
 
 Sign-out clears the in-page session and tester keys, POSTs to `/api/auth/sign-out` to revoke the session cookie, then navigates to `/backstage/sign-in?signed-out=1`. It sends no wrong Basic password and creates no nginx auth failure. The prior behavior is superseded by the Google sign-in design in `docs/design/backstage-google-sign-in.md`.
 
@@ -131,7 +161,7 @@ Lines already written to the default journal before this change stay under the h
 
 ## Funded trial configuration (disabled until provisioned)
 
-M1 BYOK works without funding. M2 remains behind the tester sign-in gate on both page and API; no-provider-key trial does not mean public unauthenticated access. Public exposure requires a separate abuse review and deployment authorization. Support one Bun process only; SQLite accounting does not replace the shared process admission limiter or make replicas supported.
+M1 BYOK works without funding. M2 funded trial routes are session-gated on both page and API and stay off unless `BACKSTAGE_TRIAL_KEY` is set. The operator dropped the funded trial: do not set it. Public exposure requires a separate abuse review and deployment authorization. Support one Bun process only; SQLite accounting does not replace the shared process admission limiter or make replicas supported.
 
 The unit loads optional `/etc/jevnotjev-backstage/auth.env` and `/etc/jevnotjev-backstage/trial.env` via systemd. An operator must provision the trial file as root-owned mode 0600 inside the root-owned `/etc/jevnotjev-backstage` directory. Systemd reads both files before dropping to the service user. Never place funded credentials or signing secrets in per-release `runtime.env`: the deploy helper deliberately makes release artifacts readable and must never copy or change permissions on the protected file. Deployment does not provision funding.
 

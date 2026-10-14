@@ -596,8 +596,8 @@ describe("in-product first-use guide (D18)", () => {
     'its title on screen is "Backstage Pass"',
     "The workspace and its sample cases file need you to sign in.",
     'press "Open the ticket office", then choose "Go backstage with my own decision"',
-    "A person reads each request and replies by email",
-    "the reply explains how to sign in",
+    "The email you put in the form can unlock the workspace after you verify it",
+    "single-use email sign-in link",
     "The request alone does not open the workspace.",
   ];
 
@@ -616,7 +616,7 @@ describe("in-product first-use guide (D18)", () => {
   test("[unit] D18-SWARM-C02 before section 1 the guide says Backstage and its sample cases file need sign-in, and how to get access", async () => {
     expect(await accessProblems(read(GUIDE))).toEqual([]);
     // The access path the guide describes is the one the ticket office states.
-    expect(read("site/shows/office.js")).toContain("the reply explains how to sign in to Backstage; the request alone does not open it");
+    expect(read("site/shows/office.js")).toContain("Your ticket email can open Backstage after you verify it with the link or Google");
     const reversed = mutate(read(GUIDE), "The request alone does not open the workspace.", "The request alone opens the workspace.");
     expect(await accessProblems(reversed)).toEqual(["missing: The request alone does not open the workspace."]);
     const open = mutate(read(GUIDE), "need you to sign in.", "are open without signing in.");

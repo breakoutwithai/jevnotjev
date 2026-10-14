@@ -73,12 +73,15 @@ without_optional="${session/proxy_read_timeout 40s;/}"
     && ok "both gated routes and /api/v1/ overwrite the session gate header" || nope "gated route lacks the session gate header"
 [[ "$snippet" == *'absolute_redirect off;'* ]] && ok "sign-in redirect is relative" || nope "sign-in redirect can become absolute"
 [[ "$(printf '%s\n' '# auth_basic off;' "$session" | backstage_snippet_auth)" == session ]] && ok "commented Basic directive has no effect" || nope "comment changed session classification"
-for route in /backstage/sign-in /api/auth/password /api/auth/sign-out /api/auth/google /api/auth/google/callback; do
+for route in /backstage/sign-in /api/auth/password /api/auth/sign-out /api/auth/google /api/auth/google/callback /api/auth/link /api/auth/link/request; do
     block="$(printf '%s\n' "$snippet" | sed -n "\\|^location = ${route} {|,/^}/p")"
     [[ "$block" == *"proxy_pass http://127.0.0.1:3456${route};"* && "$block" == *'proxy_set_header Host $host;'* && "$block" == *'proxy_set_header X-Backstage-Client-IP $remote_addr;'* ]] \
         && ok "exact ${route} normalises target and forwards trusted headers" || nope "unsafe ${route} proxy location"
-    if [[ "$route" == /api/auth/google/callback ]]; then
-        [[ "$block" == *'access_log off;'* ]] && ok "OAuth callback omits code from access log" || nope "OAuth callback logs code"
+    if [[ "$route" == /api/auth/google/callback || "$route" == /api/auth/link ]]; then
+        [[ "$block" == *'access_log off;'* ]] && ok "${route} omits the secret query from access log" || nope "${route} logs secret query"
+        if [[ "$route" == /api/auth/link ]]; then
+            [[ "$block" == *'error_log /dev/null;'* ]] && ok "${route} omits token-bearing request lines from error log" || nope "${route} logs token-bearing errors"
+        fi
     else
         [[ "$block" != *'access_log off;'* ]] && ok "${route} keeps access log" || nope "${route} disables access log"
     fi
@@ -121,10 +124,10 @@ while IFS= read -r block; do
     [[ "$(printf '%s' "$block" | tr '\036' '\n' | grep -c '^[[:space:]]*proxy_set_header X-Backstage-Route "";$')" == 1 ]] && cleared=$((cleared+1)) \
         || nope "${block%% \{*} proxies to Backstage without clearing X-Backstage-Route"
 done < <(printf '%s\n' "$snippet" | sed 's/#.*//' | awk '/^location / { if (b != "") print b; b = $0; next } b != "" { b = b "\036" $0 } END { if (b != "") print b }')
-[[ "$proxied" -eq 10 && "$cleared" -eq "$proxied" ]] && ok "all ${proxied} other Backstage proxy locations clear X-Backstage-Route" || nope "${cleared} of ${proxied} other proxy locations clear X-Backstage-Route (want 10 of 10)"
-# Every other location is what fae0400 shipped plus the route-mark clear: the change is additive.
-without_v1="$(awk '/^# HTTP API v1/ { skip=1 } skip && /^}/ { skip=0; next } !skip' .deploy/backstage-nginx.conf | grep -v '^    proxy_set_header X-Backstage-Route "";$')"
-[[ "$without_v1" == "$(git show fae0400:.deploy/backstage-nginx.conf)" ]] && ok "no other snippet location changed since fae0400 beyond the route-mark clear" || nope "the snippet differs from fae0400 outside the /api/v1/ block and the route-mark clear"
+[[ "$proxied" -eq 12 && "$cleared" -eq "$proxied" ]] && ok "all ${proxied} other Backstage proxy locations clear X-Backstage-Route" || nope "${cleared} of ${proxied} other proxy locations clear X-Backstage-Route (want 12 of 12)"
+# Every other location is what fae0400 shipped plus the route-mark clear and lead link locations.
+without_v1="$(awk '/^# HTTP API v1/ || /^location = \/api\/auth\/link(\/request)? \{/ { skip=1 } skip && /^}/ { skip=0; next } !skip' .deploy/backstage-nginx.conf | grep -v '^    proxy_set_header X-Backstage-Route "";$')"
+[[ "$without_v1" == "$(git show fae0400:.deploy/backstage-nginx.conf)" ]] && ok "no other snippet location changed since fae0400 beyond approved additions" || nope "the snippet differs from fae0400 outside approved additions"
 
 if [[ ! -f "$CONF" ]]; then
     nope "missing committed vhost at ${CONF}"

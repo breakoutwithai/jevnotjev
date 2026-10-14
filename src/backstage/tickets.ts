@@ -41,6 +41,7 @@ export const RATE_WINDOW_MS = 10 * 60_000;
 const ATOM = "[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+";
 export const HOSTNAME = /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/;
 const EMAIL = new RegExp(`^(?=.{1,64}@)${ATOM}(?:\\.${ATOM})*@(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$`);
+export function validTicketEmail(value: string): boolean { return value.length <= 254 && EMAIL.test(value); }
 const REQUEST_KEY = /^[A-Za-z0-9_-]{16,64}$/;
 export const MAX_LIMITED_ADDRESSES = 10_000;
 
@@ -75,7 +76,7 @@ export function checkTicket(body: unknown, shows: ReadonlySet<string>): TicketCh
   const kind = field(body, "kind");
   if (kind !== "show" && kind !== "backstage") return { ok: false, reason: "bad-kind" };
   const email = optionalText(field(body, "email"));
-  if (!email || email.length > 254 || !EMAIL.test(email)) return { ok: false, reason: "bad-email" };
+  if (!email || !validTicketEmail(email)) return { ok: false, reason: "bad-email" };
   const site = optionalText(field(body, "website"));
   if (site === false || (site !== null && !website(site))) return { ok: false, reason: "bad-website" };
   const idea = optionalText(field(body, "idea"));

@@ -5,9 +5,14 @@ docs/design/ticket-office.md:53-67 (published wording and open retention decisio
 site/index.html:229 (ticket office promise and request route)
 src/backstage/tickets.ts:74,97-100,123-127 (consent check, SQLite columns and insert)
 src/backstage/server.ts:219-223,299-316,320-346,419-501,530-534,667-698,700-718,749-764 (state paths, sign-in, cookie ages, answer and coach and cases relay, ticket write and static serving)
+src/backstage/server.ts:187-194,213-220,304-330,347-388,428-461,486-495,627,761-808 (state, auth logs, links, cookies, tickets and static serving)
+src/backstage/leads.ts:6,19,24-51,53-101 (link storage, expiry, use and verified leads)
+src/backstage/mailer.ts:25-40 (Gmail SMTP delivery)
+docs/backstage-deploy.md:47-61 (operator deletion route)
 src/backstage/api-v1.ts:11,68-71,191-212 (HTTP answer routes return data without a server output file)
 src/backstage/trial.ts:46,121-124,213-224,254,329 (trial token lifetime, ledger fields and pruning)
 src/backstage/log.ts:8-16,24-64 (fields written to stdout, including coach event metadata)
+src/backstage/log.ts:3-18,23-59 (auth fields, including email and network address, written to stdout)
 .deploy/journald@jevnotjev-backstage.conf:1-5 (journal configuration)
 .deploy/nginx-jevnotjev.conf:19,51-59 (static page routing and web access log)
 src/backstage/auth.ts:6,57-94,141-146,155-188,277 (Google sign-in lifetime, operator fields, session fields, cookie and revocation file)
@@ -16,10 +21,14 @@ src/backstage/main.ts:206-214,307-323,906-917,928-935,1002-1024,1151-1184,1345-1
 src/backstage/run.ts:687-692,745-769,1511-1539 (relay, in-memory run and export)
 src/backstage/providers.ts:23-40,58-61,276-363 (coach and cases and selected answer provider destinations, body and credential)
 .deploy/backstage-nginx.conf:6-40,43-49,64-74,100-114 (sign-in and ticket routes, access log exceptions and relay buffering)
+src/backstage/providers.ts:234-320,521-529 (selected provider destinations, body and credential)
+.deploy/backstage-nginx.conf:20-29,51-58,81-92,117-132 (link access and error logs disabled, API access logs and relay buffering)
 src/backstage/api-tokens.ts:22-27,146-151 (stored token fields and write)
 src/backstage/run.ts:725-729 (funded trial browser request omits a provider key)
 src/backstage/server.ts:537-553 (funded trial inserts server key)
 site/backstage/index.html:68-82,168-174 (coach fields and draft clearing advice)
+src/backstage/server.ts:627,643-678 (funded trial cookie and server relay)
+site/backstage/index.html:150-158 (draft clearing advice)
 -->
 <!doctype html>
 <html lang="en">
@@ -55,16 +64,17 @@ th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-a
 <p>Use made-up or redacted cases. Requests pass through our server, and its web server may hold them briefly while relaying. A case you run goes to each provider you select. This page describes what the application code does; it cannot promise what a provider or other infrastructure keeps.</p>
 
 <h2>How to get your data deleted</h2>
-<p>To request deletion of a ticket office row, <a href="https://github.com/breakoutwithai/jevnotjev/issues/new">open a GitHub issue</a> quoting your ticket number, as the ticket form instructs. Do not put your email, case text or provider key in a public issue. An operator must handle the request because the code has no self-service deletion route. For a draft, sign out or close the tab. For a signed-in session, sign out to revoke it.</p>
+<p>To request deletion of a ticket office row and its lead sign-in records, <a href="https://github.com/breakoutwithai/jevnotjev/issues/new">open a GitHub issue</a> quoting your ticket number, as the ticket form instructs. Do not put your email, link token, case text or provider key in a public issue. An operator must handle the request because the code has no self-service deletion route. For a draft, sign out or close the tab. For a signed-in session, sign out to revoke it.</p>
 
 <h2>What we keep</h2>
-<p><strong>Ticket office.</strong> With your consent, the form puts your ticket number, submission time, ticket type, selected show, email, optional website and idea, follow-up choice, consent flag and a code that stops a double submission in a database file on our server. The form promises that these details are never shared or sold; the application code does not send ticket rows to another service.</p>
+<p><strong>Ticket office.</strong> With your consent, the form puts your ticket number, submission time, ticket type, selected show, email, optional website and idea, follow-up choice, consent flag and a code that stops a double submission in a database file on our server. The form promises that these details are never shared or sold; the application code does not send complete ticket rows to another service. When mail is configured, it sends your email address to Google (Gmail) for sign-in link delivery.</p>
 <p><strong>Sign-in.</strong> If Backstage sign-in is enabled, an operators file on our server holds approved email addresses, optional display names and password hashes. A signed session cookie contains the email and session details, is a cookie scripts cannot read, and lasts up to 12 hours. Signing out can add the session id and expiry to a file of invalidated sessions on our server. Google sign-in uses a short-lived cookie during sign-in.</p>
+<p><strong>Lead email sign-in.</strong> When you request an email link, we keep your email and a SHA-256 digest of the link token, when it was created and expires, and whether it was used. After you confirm a link or sign in with Google, we keep a verified-lead record with your email, method, time and a random session credential generation. The raw link token is sent in the link, not stored in the database. We send your email address to Google (Gmail) to deliver a link when mail is configured.</p>
 <p><strong>API tokens.</strong> A server file holds each token's id, label, a one-way fingerprint (hash) and creation time. The token itself is not stored there. Backstage server log lines for developer API requests include the token id.</p>
 <p><strong>Logs and trial accounting.</strong></p>
 <ul>
-<li>Backstage event logs go to server logs. They contain sign-in email and IP address, request ids, run provider and model, developer API route and status, and ticket ids or rejection reasons. They do not include case text in the event fields.</li>
-<li>Page, sign-in and ticket office requests are logged by the web server; logging is off for the developer API, Backstage API and the Google sign-in return.</li>
+<li>Backstage event logs go to server logs. Auth event lines carry email and network address, including for link delivery and confirmation. Other events contain request ids, run provider and model, developer API route and status, and ticket ids or rejection reasons. They do not include case text in the event fields.</li>
+<li>Page, some sign-in and ticket office requests are logged by the web server; access logging is off for the email link confirmation, developer API, Backstage API and Google sign-in return. Error logging is off for the email link confirmation because its address contains the token.</li>
 <li>If a funded trial is available, its database file holds allowances, a keyed hash of your IP address, reservations, cost and day data; it has no case, question, answer or key column.</li>
 </ul>
 
@@ -87,11 +97,13 @@ th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-a
 </tbody>
 </table>
 <p>If you use Google sign-in, sign-in also contacts Google's account services. This code does not tell us how long those services or model providers keep requests.</p>
+<p>If you request an email sign-in link, we send your email address to Google (Gmail) for delivery.</p>
 
 <h2>How long</h2>
 <ul>
 <li>The scene draft lasts in this tab until you sign out or close the tab. A live run lasts only while the page stays open.</li>
 <li>A sign-in session cookie has a 12-hour maximum age. The temporary Google sign-in cookie lasts 10 minutes. A funded trial cookie lasts 90 days.</li>
+<li>An email sign-in link expires after 15 minutes and works once. Link and verified-lead rows have no automatic deletion schedule.</li>
 <li>Server settings request a one-day maximum for Backstage event logs and start a new log file each hour.</li>
 <li>Funded trial accounting removes completed reservations and eligible allowances after 90 days, but keeps uncertain spending records for checking.</li>
 <li>The ticket office has no automatic deletion. The form says rows will be deleted by hand 90 days after the event ends; that is a plan, and the code does not carry it out.</li>

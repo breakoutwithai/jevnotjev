@@ -2,9 +2,10 @@
    the Little Shop poster. Motion only under html.motion (set before first paint when prefers-reduced-motion is off). */
 
 /* ---------- Overture: the curtains part once per tab session. Never a gate: no pointer ever lands on them. ----------
-   html.overture-play is set before first paint, with html.motion, only on the first page of a tab session. The parts
-   start already ajar and move from 0s, so the page shows from the first frame; the overture hides itself at 1.3s, the
-   parts' end, even without theatre.js. */
+   html.overture-play is set before first paint, with html.motion, only on the first page of a tab session. Each part
+   starts in the side margin, ending 4px short of the house bar and the content column (1120px wide), and draws
+   outward from 0s, so it never covers the headline or the primary action. On a phone the margin is 16px, so each part
+   is a 12px strip. The overture hides itself at 1.3s, the parts' end, even without theatre.js. */
 .overture { display: none; }
 .motion.overture-play .overture {
   display: block; position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none;
@@ -15,12 +16,12 @@
 @media (prefers-reduced-motion: reduce) { .motion.overture-play .overture { display: none; } }
 @keyframes overture-out { to { visibility: hidden; } }
 .curtain {
-  position: absolute; top: 0; bottom: 0; width: 50.5%; pointer-events: none;
+  position: absolute; top: 0; bottom: 0; width: max(12px, calc((100% - 1120px) / 2 - 4px)); pointer-events: none;
   background:
     linear-gradient(180deg, rgba(0, 0, 0, .28), transparent 16%, transparent 82%, rgba(0, 0, 0, .35)),
     repeating-linear-gradient(90deg,
       var(--curtain-lo) 0, var(--curtain) 22px, var(--curtain-hi) 38px, var(--curtain) 54px, var(--curtain-lo) 76px);
-  box-shadow: 0 0 80px rgba(0, 0, 0, .45);
+  box-shadow: 0 0 14px rgba(0, 0, 0, .35);
   will-change: transform;
   animation: part-l 1.3s cubic-bezier(.45, 0, .2, 1) both;
 }
@@ -31,8 +32,8 @@
   background: repeating-linear-gradient(90deg, var(--brass) 0 3px, transparent 3px 9px);
   opacity: .55;
 }
-@keyframes part-l { from { transform: translateX(-10%); } to { transform: translateX(-102%); } }
-@keyframes part-r { from { transform: translateX(10%); } to { transform: translateX(102%); } }
+@keyframes part-l { from { transform: none; } to { transform: translateX(-102%); } }
+@keyframes part-r { from { transform: none; } to { transform: translateX(102%); } }
 
 /* ---------- House furniture: valance across the top, drapes in the side margins on wide screens ---------- */
 .proscenium { position: absolute; inset: 0 0 auto 0; height: 100vh; pointer-events: none; z-index: 0; overflow: hidden; }

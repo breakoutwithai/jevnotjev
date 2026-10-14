@@ -502,7 +502,7 @@ function playsItself(states: string[]): boolean {
   return states.length === 3 && states.every((s) => s === "running" || s === "finished");
 }
 
-test("[integration] L16 the curtain plays by itself, already parting at the first frame, half open midway, parted at the end, opened by animationend", async () => {
+test("[integration] L16 the curtain plays by itself from the side margins, moving outward midway, gone at the end, opened by animationend", async () => {
   for (const [width, height] of CURTAIN_VIEWPORTS) {
     const { page, release } = await held(width, height, "no-preference");
     try {
@@ -514,28 +514,23 @@ test("[integration] L16 the curtain plays by itself, already parting at the firs
       expect(line.delays).toEqual([0, 0]);
       expect(line.endMs >= 1000 && line.endMs <= 1500).toBe(true);
       const half = width / 2;
-      // First frame: both curtains opaque, visible, full height, letting every pointer through, each covering most of
-      // its half, with a gap between them so the page shows from the first frame.
+      // First frame: both curtains opaque, visible, full height, letting every pointer through, each on its own edge in
+      // the side margin, with the page between them. L22 owns "never over the headline or the primary action".
       const start = await seek(page, 0, line.endMs);
       for (const c of start) {
         expect({ opacity: c.opacity, visible: c.visible, fullHeight: c.fullHeight, pointer: c.pointer }).toEqual({ opacity: 1, visible: true, fullHeight: true, pointer: "none" });
-        expect(c.onScreen > half * 0.7 && c.onScreen < half).toBe(true);
-      }
-      expect(start[0]?.left).toBeLessThanOrEqual(0);
-      expect(start[1]?.right).toBeGreaterThanOrEqual(width);
-      expect((start[1]?.left ?? 0) - (start[0]?.right ?? 0)).toBeGreaterThan(0);
-      // And it is painted: the centre of each curtain is opaque curtain red, not the page behind it.
-      for (const x of [width / 4, (3 * width) / 4]) {
-        const pixel = await paintedAt(page, x, height / 2);
-        expect({ x, pixel, red: isCurtainRed(pixel) }).toEqual({ x, pixel, red: true });
-      }
-      expect((await actionHit(page)).covered).toBe(true);
-      // Midway: each still visible, opaque and full height, partly on screen, each covering less than half.
-      const mid = await seek(page, 0.6, line.endMs);
-      for (const c of mid) {
-        expect({ opacity: c.opacity, visible: c.visible, fullHeight: c.fullHeight }).toEqual({ opacity: 1, visible: true, fullHeight: true });
         expect(c.onScreen > 0 && c.onScreen < half).toBe(true);
       }
+      expect(start[0]?.left).toBe(0);
+      expect(start[1]?.right).toBe(width);
+      expect((start[1]?.left ?? 0) - (start[0]?.right ?? 0)).toBeGreaterThan(0);
+      expect((await actionHit(page)).covered).toBe(true);
+      // 40% through: each still visible, opaque and full height, on screen, and further out than at the start.
+      const mid = await seek(page, 0.4, line.endMs);
+      mid.forEach((c, i) => {
+        expect({ opacity: c.opacity, visible: c.visible, fullHeight: c.fullHeight }).toEqual({ opacity: 1, visible: true, fullHeight: true });
+        expect(c.onScreen > 0 && c.onScreen < (start[i]?.onScreen ?? 0)).toBe(true);
+      });
       // End: neither covers any of the screen. Read just short of the end: seeking onto it queues the real animationend,
       // which must stay unfired until finishCurtain() so the event path is what this test proves.
       const end = await seek(page, 0.999, line.endMs);
@@ -633,6 +628,40 @@ for (const motion of MOTIONS) {
     }
   }, 30000);
 }
+
+/** Overlap of each curtain with the headline and the primary action, in viewport pixels. */
+async function curtainOverlaps(page: Page): Promise<{ curtain: string; target: string; overlap: number }[]> {
+  return page.evaluate(() => {
+    const curtains = [...document.querySelectorAll(".overture .curtain")];
+    const targets = ["#t1", "#primaryAction"];
+    return curtains.flatMap((curtain) => targets.map((target) => {
+      const a = curtain.getBoundingClientRect(), b = document.querySelector(target)?.getBoundingClientRect();
+      const w = b ? Math.min(a.right, b.right) - Math.max(a.left, b.left) : 0;
+      const h = b ? Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) : 0;
+      return { curtain: curtain.className, target, overlap: w > 0 && h > 0 ? Math.round(w * h) : 0 };
+    }));
+  });
+}
+
+test("[integration] L22 at the first frame and 40% through, neither curtain overlaps the headline or the primary action, and both still paint", async () => {
+  for (const [width, height] of [[1440, 900], [390, 844]] satisfies [number, number][]) {
+    const { page, release } = await held(width, height, "no-preference");
+    try {
+      const line = await seize(page);
+      expect(playsItself(line.states)).toBe(true);
+      for (const fraction of [0, 0.4]) {
+        const view = await seek(page, fraction, line.endMs);
+        expect({ width, fraction, overlaps: (await curtainOverlaps(page)).filter((o) => o.overlap > 0) }).toEqual({ width, fraction, overlaps: [] });
+        for (const c of view) {
+          expect({ width, fraction, onScreen: c.onScreen > 0, visible: c.visible, opacity: c.opacity }).toEqual({ width, fraction, onScreen: true, visible: true, opacity: 1 });
+          const x = (Math.max(c.left, 0) + Math.min(c.right, width)) / 2;
+          const pixel = await paintedAt(page, Math.min(width - 1, x), height / 2);
+          expect({ width, fraction, x, pixel, red: isCurtainRed(pixel) }).toEqual({ width, fraction, x, pixel, red: true });
+        }
+      }
+    } finally { await release(); await page.close(); }
+  }
+}, 30000);
 
 test("[integration] L20 the Little Shop poster has one short accessible name, shared by no other link", async () => {
   const page = await pageAt(390, 844);

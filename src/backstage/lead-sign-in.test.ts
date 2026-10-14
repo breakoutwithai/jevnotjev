@@ -88,6 +88,32 @@ test("[integration] lead G4 operator Google remains allowed", async () => { cons
 test("[integration] lead I1 invalid CR LF or quote email never reaches mail", async () => { const x = setup(); try { for (const email of ["bad\r\nBcc:evil@example.com", 'bad"@example.com']) await x.request(email); expect(x.sends).toHaveLength(0); expect(x.rows()).toBe(0); } finally { x.close(); } });
 test("[integration] lead I2 configured origin wins over forged Host", async () => { const x = setup(); try { await x.ticket(); expect(JSON.stringify(x.sends)).toContain(ORIGIN); expect(JSON.stringify(x.sends)).not.toContain("evil.example"); } finally { x.close(); } });
 
+test("[integration] lead I2 configured origin wins over forged request URL", async () => {
+  const x = setup();
+  try {
+    const r = await x.handler(new Request("http://evil.example/api/tickets", {
+      method: "POST",
+      headers: { origin: ORIGIN, "content-type": "application/json", host: "evil.example" },
+      body: JSON.stringify({ kind: "backstage", email: EMAIL, consent: true, nickname: "", request_key: KEY }),
+    }), { remoteAddress: "203.0.113.1" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(r.status).toBe(200);
+    expect(x.sends).toHaveLength(1);
+    expect(x.sends[0]?.text).toContain(`${ORIGIN}/api/auth/link?t=`);
+    expect(x.sends[0]?.text).not.toContain("evil.example");
+  } finally { x.close(); }
+});
+
+test("[integration] lead C1 confirmation escapes the masked email", async () => {
+  const x = setup();
+  try {
+    await x.ticket("&lead@example.com");
+    const r = await x.handler(new Request(`${ORIGIN}/api/auth/link?t=${x.token()}`));
+    expect(r.status).toBe(200);
+    expect(await r.text()).toContain("Signing in as &amp;***@example.com");
+  } finally { x.close(); }
+});
+
 test("[integration] lead B1 prior requests cannot change a ticket response by lead status", async () => {
   const responses: string[] = [];
   for (const known of [false, true]) {

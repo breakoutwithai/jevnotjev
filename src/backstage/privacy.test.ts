@@ -103,7 +103,7 @@ function badCitations(page: string): string[] {
 test("[unit] #128 every privacy source citation resolves to existing lines", async () => {
   const page = await Bun.file(privacyPath).text();
   expect(badCitations(page)).toEqual([]);
-  expect(badCitations(page.replace("site/index.html:229", "site/index.html:999999"))).toContain("site/index.html:999999");
+  expect(badCitations(page.replace("site/index.html:194,229", "site/index.html:194,999999"))).toContain("site/index.html:999999");
   expect(badCitations(page.replace("journald@jevnotjev-backstage.conf:1-5", "journald@jevnotjev-backstage.conf:1-999999"))).toContain(".deploy/journald@jevnotjev-backstage.conf:1-999999");
 });
 
@@ -191,4 +191,13 @@ test("[unit] #128 lead sign-in disclosure names records, mail provider, expiry a
   expect(page).toContain("We send your email address to Google (Gmail) to deliver a link when mail is configured.");
   expect(page).toContain("An email sign-in link expires after 15 minutes and works once.");
   expect(page).toContain("Link and verified-lead rows have no automatic deletion schedule.");
+});
+
+test("[unit] #212 privacy quotes the ticket form's no-sale statement", async () => {
+  const page = await Bun.file(privacyPath).text();
+  const form = await Bun.file("site/index.html").text();
+  const promise = "We do not sell your details.";
+  expect(page.toLowerCase()).not.toContain("never shared");
+  expect(page).toContain(`The form says, "${promise}"`);
+  expect(form).toContain(promise);
 });

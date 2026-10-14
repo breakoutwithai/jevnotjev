@@ -6,7 +6,7 @@ import { cookie, cookieName, credentialFingerprint, GoogleStates, inspectSession
 import { createEventLogger } from "./log.ts";
 import type { AuthEvent, GoogleDeniedReason, LinkDeniedReason, SessionRejectedReason, RunEvent } from "./log.ts";
 import type { Provider } from "./contracts.ts";
-import { renderSignInPage } from "./sign-in-page.ts";
+import { escapeHtml, renderSignInPage } from "./sign-in-page.ts";
 import { ApiTokenStore, apiTokensPath, isInside } from "./api-tokens.ts";
 import { API_V1_LIMITS, API_V1_PREFIX, createApiV1 } from "./api-v1.ts";
 import type { RunDeps } from "../decide/run.ts";
@@ -374,7 +374,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         const token = url.searchParams.get("t") ?? "";
         const safe = /^[A-Za-z0-9_-]{43}$/.test(token) ? token : "";
         const address = safe ? leads?.pendingEmail(safe, clock()) : null;
-        const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Confirm sign-in | Backstage</title></head><body><main><h1>Confirm sign-in</h1><p>This link works once and expires 15 minutes after it was sent.</p>${address ? `<p>Signing in as ${maskedEmail(address)}</p>` : ""}<form action="/api/auth/link" method="post"><input type="hidden" name="t" value="${safe}"><button type="submit">Sign in to Backstage</button></form></main></body></html>`;
+        const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Confirm sign-in | Backstage</title></head><body><main><h1>Confirm sign-in</h1><p>This link works once and expires 15 minutes after it was sent.</p>${address ? `<p>Signing in as ${escapeHtml(maskedEmail(address))}</p>` : ""}<form action="/api/auth/link" method="post"><input type="hidden" name="t" value="${safe}"><button type="submit">Sign in to Backstage</button></form></main></body></html>`;
         return new Response(html, { headers: { ...HEADERS, "content-type": "text/html; charset=utf-8" } });
       }
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);

@@ -9,6 +9,7 @@ import { join } from "node:path";
 const ROOT = join(import.meta.dir, "..", "..");
 const DOC = "docs/uat/tester-checklist.md";
 const TEMPLATE = ".github/ISSUE_TEMPLATE/tester-blocker.md";
+const CITATION = /`([^`]+)` \(`([^`:]+):(\d+)`\)/g;
 
 function read(path: string): string {
   return readFileSync(join(ROOT, path), "utf8");
@@ -22,19 +23,19 @@ function section(text: string, heading: string): string {
   return next < 0 ? rest : rest.slice(0, next);
 }
 
-/** Every "`label` (`path:line`)" pair in the doc. */
+/** Every "`label` (`path:line`)" pair in the text. */
 function citations(text: string): { label: string; path: string; line: number }[] {
-  const out: { label: string; path: string; line: number }[] = [];
-  for (const m of text.matchAll(/`([^`]+)` \(`([^`:]+):(\d+)`\)/g)) {
-    out.push({ label: m[1] ?? "", path: m[2] ?? "", line: Number(m[3]) });
-  }
-  return out;
+  return [...text.matchAll(CITATION)].map((m) => ({ label: m[1] ?? "", path: m[2] ?? "", line: Number(m[3]) }));
 }
 
 const doc = existsSync(join(ROOT, DOC)) ? read(DOC) : "";
 
+function stepBody(n: number): string {
+  return section(doc, doc.match(new RegExp(`^## Step ${n}: .+$`, "m"))?.[0] ?? `## Step ${n}`);
+}
+
 describe("tester checklist", () => {
-  test("has five steps in the order of the run", () => {
+  test("[unit] D20 has five steps in the order of the run", () => {
     const titles = [...doc.matchAll(/^## Step (\d): (.+)$/gm)].map((m) => `${m[1]} ${m[2]}`);
     expect(titles).toHaveLength(5);
     const words = ["decision", "cases", "jev, an llm and a rule", "review", "verdict"];
@@ -44,17 +45,20 @@ describe("tester checklist", () => {
     });
   });
 
-  test("every step says what the tester sees, with a cited label", () => {
+  test("[unit] D20 every step says where to act and what the tester sees, each with a cited label", () => {
     for (const n of [1, 2, 3, 4, 5]) {
-      const body = section(doc, doc.match(new RegExp(`^## Step ${n}: .+$`, "m"))?.[0] ?? `## Step ${n}`);
-      const seen = body.split("\n").filter((line) => line.startsWith("- **You see:**"));
-      expect(seen.length).toBeGreaterThan(0);
-      expect(seen.some((line) => citations(line).length > 0)).toBe(true);
+      const lines = stepBody(n).split("\n");
+      for (const prefix of ["- Where:", "- **You see:**"]) {
+        const cited = lines.filter((line) => line.startsWith(prefix)).some((line) => citations(line).length > 0);
+        expect({ step: n, prefix, cited }).toEqual({ step: n, prefix, cited: true });
+      }
     }
   });
 
-  test("every quoted label exists at the line it cites", () => {
+  test("[unit] D20 every citation is well formed and its label exists at the line it cites", () => {
+    const opened = doc.match(/` \(`/g)?.length ?? 0;
     const cited = citations(doc);
+    expect(cited.length).toBe(opened);
     expect(cited.length).toBeGreaterThanOrEqual(15);
     for (const c of cited) {
       const lines = read(c.path).split("\n");
@@ -65,25 +69,26 @@ describe("tester checklist", () => {
     }
   });
 
-  test("names exactly the verdicts the code can return", () => {
+  test("[unit] D20 names exactly the verdicts the code can return", () => {
     const source = read("src/core/verdict.ts").split("\n").find((line) => line.startsWith("export type VerdictName")) ?? "";
-    const names = [...source.matchAll(/"([^"]+)"/g)].map((m) => m[1] ?? "");
+    const names = [...source.matchAll(/"([^"]+)"/g)].map((m) => m[1] ?? "").sort();
     expect(names).toHaveLength(3);
-    const verdicts = section(doc, "## Step 5: Reach a verdict");
-    for (const name of names) expect(verdicts).toContain(`\`${name}\``);
+    const listed = stepBody(5).split("\n").find((line) => line.startsWith("- Verdict words:")) ?? "";
+    const words = [...listed.matchAll(/`([^`]+)`/g)].map((m) => m[1] ?? "").sort();
+    expect(words).toEqual(names);
   });
 
-  test("asks only for the verdict line and cost figures, never secrets or cases", () => {
+  test("[unit] D20 asks only for the verdict line and cost figures, never secrets, cases or downloads", () => {
     const send = section(doc, "## What to send us");
     const never = section(doc, "## Never send");
     expect(send).toContain("Cost / kept");
     expect(send.toLowerCase()).toContain("verdict");
-    expect(send).not.toMatch(/\bkeys?\b|password|case text|account/i);
-    for (const word of ["key", "password", "case text", "account details", "records.csv", "run evidence"])
+    expect(send).not.toMatch(/\bkeys?\b|password|account|case text|\bcases?\b|answers?\b|download|records\.csv|evidence file/i);
+    for (const word of ["key", "password", "case text", "account details", "answers", "records.csv", "run evidence"])
       expect(never.toLowerCase()).toContain(word);
   });
 
-  test("blocker reports go to a labelled issue template or email, with no secrets", () => {
+  test("[unit] D20 blocker reports go to a labelled issue template or email, with no secrets", () => {
     const blocker = section(doc, "## Report a blocker");
     expect(blocker).toContain("tester-blocker");
     expect(blocker.toLowerCase()).toContain("step number");

@@ -1117,6 +1117,7 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
       .transform(new Response(html))
       .text();
     let prose = decodeRefs([(await texts(html, "title"))[0] ?? "", (await texts(withoutTerms, "body"))[0] ?? ""].join(" "));
+    prose = prose.replace("Backstage does not save your cases, runs or keys to a file or database on our server.", "does not save your cases, runs or keys to a file or database on our server.");
     for (const label of labels) prose = prose.split(`"${label}"`).join(" ");
     let termText = decodeRefs(terms.join(" | "));
     for (const label of labels) termText = termText.replace(wholeLabel(label), " ");

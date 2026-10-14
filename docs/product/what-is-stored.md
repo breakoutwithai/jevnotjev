@@ -73,7 +73,7 @@ Tools:
 ### In the browser
 
 - **Page memory (the run).** The run object holds the manifest, attempts, answers, labels and costs (`run.ts:745-766`). It is gone when the tab closes. Nothing writes it to `localStorage`; a grep for `localStorage` over `src` and `scripts` (non-test `.ts`) finds no use.
-- **`sessionStorage` (the scene draft).** Key `backstage-scene-draft` (`scene-draft.ts:15`) holds only these text fields: question, choice names and definitions, acceptance, exclusions, keywords, cases (`scene-draft.ts:2-12`). The file states no key field is ever listed (`scene-draft.ts:1`). The page reads and writes it through `sessionStorage` only (`main.ts:1162-1167`). It is cleared by the clear action (`main.ts:930`, `main.ts:1159-1161`). Per-tab: it lasts until the tab closes. If storage fails, the page says a reload will lose the scene (`scene-draft.ts:42-43`).
+- **`sessionStorage` (the scene draft).** Key `backstage-scene-draft` (`scene-draft.ts:15`) holds only these text fields: question, choice names and definitions, acceptance, exclusions, keywords, cases (`scene-draft.ts:2-12`). The file states no key field is ever listed (`scene-draft.ts:1`). The page reads and writes it through `sessionStorage` only (`main.ts:1162-1167`). Signing out calls `removeDraft()` (`main.ts:924-935`, `main.ts:1159-1161`); closing the tab removes its per-tab storage. If storage fails, the page says a reload will lose the scene (`scene-draft.ts:42-43`).
 - **Provider key fields.** Password-type inputs with autocomplete off (`main.ts:259-260`), read on demand into a plain object (`main.ts:205-210`). The key is not written to any storage. "Clear keys" blanks every field, drops the active keys and stops the run (`main.ts:902-907`).
 - **Downloads.** `records.csv` and `backstage-evidence.json` are created as in-memory Blobs and saved by the browser (`main.ts:824-828`, `main.ts:998-1020`). Backstage keeps no copy.
 
@@ -81,7 +81,7 @@ Tools:
 
 - **Answer relay.** The page POSTs each request, including the user's key, to `/api/backstage/answer` (`run.ts:687-692`). The server forwards it to the provider (see section 3). Whether the server holds the request body beyond the call: Not determined from the code (the request handler, `server.ts:418` onward, was read only in part).
 - **Logs.** One JSON line per event on stdout, for the journal: auth events (email, IP, request id), run events (`run.start`, `run.done`, `run.error` with provider and model only), API requests (route, method, status, token id), ticket events (ids and counts) (`log.ts:3-16`, `log.ts:21-58`). The API log type is documented as "Never a token, a key or a body" (`log.ts:12`).
-- **Trial ledger (SQLite, only when `BACKSTAGE_TRIAL_KEY` is set).** Tables `settings`, `allowances`, `reservations`, `counters` (`trial.ts:121-124`; enabled at `server.ts:105`; path from `BACKSTAGE_TRIAL_LEDGER_PATH`, `server.ts:107`). Columns hold ids, a network bucket, state, amounts and days. There is no column for the question, input, key or answer. A reservation left pending at restart is marked `held-unknown` (`trial.ts:126-128`). The browser holds a trial cookie, `HttpOnly`, `SameSite=Strict`, path `/api/backstage/trial`, 90 days (`server.ts:510`, `trial.ts:46`).
+- **Trial ledger (SQLite, only when `BACKSTAGE_TRIAL_KEY` is set).** Tables `settings`, `allowances`, `reservations`, `counters` (`trial.ts:121-124`; enabled at `server.ts:105`; path from `BACKSTAGE_TRIAL_LEDGER_PATH`, `server.ts:107`). Columns hold ids, a network value that is an HMAC of the full client IP (`trial.ts:243`), state, amounts and days. There is no column for the question, input, key or answer. A reservation left pending at restart is marked `held-unknown` (`trial.ts:126-128`). The browser holds a trial cookie, `HttpOnly`, `SameSite=Strict`, path `/api/backstage/trial`, 90 days (`server.ts:510`, `trial.ts:46`).
 - **Ticket office (SQLite).** Table `tickets`: id, time, kind, show, email, website, idea, consent flag, follow-up flag, request key, request hash (`tickets.ts:97-100`). Rows are written only with consent (`tickets.ts:7`). File mode 0600 (`tickets.ts:95`). Location: `BACKSTAGE_TICKETS_PATH`, else `tickets.sqlite` under `STATE_DIRECTORY` (`server.ts:736`). Retention: stated on the page, not in code (`tickets.ts:7` points to `docs/design/ticket-office.md`); Not determined from the code.
 - **API tokens (JSON file).** For `/api/v1`. The file holds an id, label, creation time and the SHA-256 of each token, never the token (`api-tokens.ts:2-3`, `api-tokens.ts:22`, `api-tokens.ts:47-49`). Written with mode 0600 in a 0700 directory (`api-tokens.ts:138-153`). Path from `apiTokensPath` (`api-tokens.ts:32`, `server.ts:735`).
 - **Sign-in (when enabled).** Operators file `operators.json`, path `BACKSTAGE_OPERATORS_PATH` or under `STATE_DIRECTORY` (`server.ts:739`). Revoked sessions file `revoked-sessions.json`, mode 0600 (`auth.ts:155`, `auth.ts:188`). Session cookie `HttpOnly`, `SameSite=Lax`, `Secure` on non-local origins (`auth.ts:143-146`), 43200 seconds (`server.ts:313`). Google sign-in cookie lasts 600 seconds (`server.ts:343`).
@@ -93,13 +93,14 @@ Each answer call goes to the Backstage server (`run.ts:687`), which calls the pr
 
 | Provider | URL | Key sent as | Line |
 |---|---|---|---|
-| Jev (TypeSafe) | `https://api.typesafe.ai/v1/systemone` | `Authorization: Bearer` | `providers.ts:244-246` |
-| Anthropic | `https://api.anthropic.com/v1/messages` | `x-api-key` | `providers.ts:263-267` |
-| Google | `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent` | Not read for this doc | `providers.ts:284` |
-| OpenAI | `https://api.openai.com/v1/responses` | Not read for this doc | `providers.ts:306` |
-| xAI | `https://api.x.ai/v1/responses` | Not read for this doc | `providers.ts:307` |
+| Jev (TypeSafe) | `https://api.typesafe.ai/v1/systemone` | `Authorization: Bearer` | `providers.ts:284-287` |
+| Anthropic | `https://api.anthropic.com/v1/messages` | `x-api-key` | `providers.ts:303-309` |
+| Google | `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent` | `x-goog-api-key` | `providers.ts:324-327` |
+| OpenAI | `https://api.openai.com/v1/responses` | `Authorization: Bearer` | `providers.ts:345-350` |
+| xAI | `https://api.x.ai/v1/responses` | `Authorization: Bearer` | `providers.ts:345-350` |
+| Question coach (Anthropic or OpenAI) | `https://api.anthropic.com/v1/messages` or `https://api.openai.com/v1/responses` | `x-api-key` or `Authorization: Bearer`, using the tester's coach key | `main.ts:1293-1308`, `server.ts:463-480`, `providers.ts:22-36` |
 
-The case text, question and choice definitions go to each provider you select. Google sign-in calls `accounts.google.com` and `oauth2.googleapis.com` when enabled (`server.ts:334`, `server.ts:362-366`).
+The case text, question and choice definitions go to each answer provider you select. The question coach sends only the typed question and coach key through the Backstage server to the chosen coach provider; it sends no other scene fields. The call uses the tester's key, so any charge goes to the tester's account. The server does not write the coach question, key or reply to its files or databases (`main.ts:1308`, `server.ts:463-480`, `providers.ts:22-36`, `log.ts:8-16`, `log.ts:58-61`). Google sign-in calls `accounts.google.com` and `oauth2.googleapis.com` when enabled (`server.ts:337`, `server.ts:362-369`).
 
 ## 4. Keys
 
@@ -113,8 +114,8 @@ The case text, question and choice definitions go to each provider you select. G
 ## 5. What is NOT stored
 
 - No provider key from the dedicated key fields in the export, the ledger, the logs or the token file (sections 1, 2 and 4). The export refuses a run whose text contains a supplied key (`run.ts:1515-1516`).
-- The scene draft is the exception: the dedicated key fields are never stored, but scene text is stored verbatim per tab. `saveSceneDraft()` writes whatever the nine text fields hold to `sessionStorage` (`scene-draft.ts:57-70`), on each edit (`main.ts:1152-1157`), before any run starts and so before the key guard at `run.ts:1187-1198` can see it. A key pasted into a scene text field by mistake is therefore kept in that tab's `sessionStorage` until the tab closes or the draft is cleared.
+- The scene draft is the exception: the dedicated key fields are never stored, but scene text is stored verbatim per tab. `saveSceneDraft()` writes whatever the nine text fields hold to `sessionStorage` (`scene-draft.ts:57-70`), on each edit (`main.ts:1152-1157`), before any run starts and so before the key guard at `run.ts:1187-1198` can see it. A key pasted into a scene text field by mistake is therefore kept in that tab's `sessionStorage` until sign-out removes the draft (`main.ts:924-935`, `main.ts:1159-1161`) or the tab closes.
 - No database or account for your runs: the run exists in page memory until you download it.
 - The trial ledger has no column for questions, inputs, or answers (`trial.ts:121-124`).
 - API tokens are stored only as hashes (`api-tokens.ts:47-49`).
-- Not determined from the code: whether the answer relay keeps any request body in memory after the call returns; the retention period of ticket rows.
+- Not determined from the code: whether the answer relay keeps any request body in memory after the call returns. The ticket form states a plan to delete rows by hand 90 days after the event ends (`site/index.html:229`), with no automatic deletion in the code.

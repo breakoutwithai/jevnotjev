@@ -271,6 +271,10 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>Rehearsals: Judge answers</dt><dd>Room 4: calibrate, then pick the right answer for each case blind.</dd>
   <dt>Dress Rehearsal: Cost and downloads</dt><dd>Room 5: kept answers, spend and cost per kept answer per player, plus records.csv and the run evidence.</dd>
   <dt>Opening Night: Result</dt><dd>Room 6: the verdict for each comparison, with its reason.</dd>
+  <dt>What do you want to decide?</dt><dd>Describe your decision in plain words. The question coach uses this to suggest drafts.</dd>
+  <dt>Model provider</dt><dd>Choose Anthropic or OpenAI when you want the question coach to draft with your own model key.</dd>
+  <dt>Your model key</dt><dd>An Anthropic or OpenAI API key. It goes through this site to that provider for one call, is billed to your account, and is not stored. Clear keys empties this field.</dd>
+  <dt>Paste your model's JSON reply</dt><dd>Paste the JSON reply from your own chat tool after copying the coach prompt, then choose Use this reply to see the drafts.</dd>
   <dt>One question</dt><dd>The decision every case is asked about, in one sentence.</dd>
   <dt>First answer</dt><dd>The name of the first allowed answer (for example yes).</dd>
   <dt>Second answer</dt><dd>The name of the second allowed answer (for example no).</dd>
@@ -314,7 +318,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
 </dl>
 </main>
 <footer>
-<p>Demo service. Use made-up or redacted data only. We accept no responsibility for real data loaded or entered here.</p>
+<p>Demo service. Use made-up or redacted data only. Backstage does not save your cases, runs or keys to a file or database on our server. We accept no responsibility for real data loaded or entered here. <a href="/privacy/">How we handle data</a></p>
 </footer>
 </body>
 </html>

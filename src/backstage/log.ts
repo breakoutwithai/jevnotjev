@@ -11,6 +11,7 @@ export type AuthLog = { event: PlainAuthEvent; email: string; ip: string; rid: s
 /** One line per /api/v1 request: the route, the status and the token id. Never a token, a key or a body. */
 export interface ApiLog { event: "api.request"; rid: string; route: string; method: string; status: number; token: string | null }
 export interface RunLog { event: RunEvent; rid: string; provider: Provider; model: string }
+export interface CoachLog { event: "coach.request"; rid: string; provider: "anthropic" | "openai"; model: string }
 /** Ticket office events carry ids and counts only, never an email, website or idea. */
 export type TicketLog = { event: "ticket.issued"; rid: string; ticket: string; kind: "show" | "backstage"; show: string | null } |
   { event: "ticket.rejected"; rid: string; reason: string };
@@ -48,6 +49,13 @@ export function createEventLogger(clock: () => number, sink?: (line: string) => 
       });
     },
     run(fields: RunLog): void {
+      write(() => {
+        const ts = new Date(clock()).toISOString();
+        const { event, rid, provider, model } = fields;
+        return { ts, event, rid, provider, model };
+      });
+    },
+    coach(fields: CoachLog): void {
       write(() => {
         const ts = new Date(clock()).toISOString();
         const { event, rid, provider, model } = fields;

@@ -94,7 +94,7 @@ function badCitations(page: string): string[] {
 test("[unit] #128 every privacy source citation resolves to existing lines", async () => {
   const page = await Bun.file(privacyPath).text();
   expect(badCitations(page)).toEqual([]);
-  expect(badCitations(page.replace("site/index.html:229", "site/index.html:999999"))).toContain("site/index.html:999999");
+  expect(badCitations(page.replace("site/index.html:221", "site/index.html:999999"))).toContain("site/index.html:999999");
   expect(badCitations(page.replace("journald@jevnotjev-backstage.conf:1-5", "journald@jevnotjev-backstage.conf:1-999999"))).toContain(".deploy/journald@jevnotjev-backstage.conf:1-999999");
 });
 

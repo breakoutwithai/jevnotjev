@@ -1,8 +1,8 @@
 <!--
 Source map for this page, checked against this tree:
 docs/product/what-is-stored.md:71-102 (inventory and provider map; its old line numbers were rechecked below)
-docs/design/ticket-office.md:53-67 (published wording and open retention decision)
-site/index.html:229 (ticket office promise and request route)
+docs/design/ticket-office.md:51-65 (published wording and open retention decision)
+site/index.html:221 (ticket office promise and request route)
 src/backstage/tickets.ts:74,97-100,123-127 (consent check, SQLite columns and insert)
 src/backstage/server.ts:216-218,299-313,322-327,343,418-458,510,567-571,628-675,677-698,736-739 (state paths, sign-in, cookie ages, relay, ticket write and static serving)
 src/backstage/api-v1.ts:11,68-71,191-212 (HTTP answer routes return data without a server output file)
@@ -58,7 +58,7 @@ th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-a
 <p>To request deletion of a ticket office row, <a href="https://github.com/breakoutwithai/jevnotjev/issues/new">open a GitHub issue</a> quoting your ticket number, as the ticket form instructs. Do not put your email, case text or provider key in a public issue. An operator must handle the request because the code has no self-service deletion route. For a draft, sign out or close the tab. For a signed-in session, sign out to revoke it.</p>
 
 <h2>What we keep</h2>
-<p><strong>Ticket office.</strong> With your consent, the form puts your ticket number, submission time, ticket type, selected show, email, optional website and idea, follow-up choice, consent flag and a code that stops a double submission in a database file on our server. The form promises that these details are never shared or sold; the application code does not send ticket rows to another service.</p>
+<p><strong>Ticket office.</strong> Watching the recorded shows needs no form and asks for no email. If you ask us to test your own decision, with your consent the form puts your ticket number, submission time, ticket type, email, optional website and idea, follow-up choice, consent flag and a code that stops a double submission in a database file on our server. Any show ticket issued before the form changed also holds the selected show. The form promises that these details are never shared or sold; the application code does not send ticket rows to another service.</p>
 <p><strong>Sign-in.</strong> If Backstage sign-in is enabled, an operators file on our server holds approved email addresses, optional display names and password hashes. A signed session cookie contains the email and session details, is a cookie scripts cannot read, and lasts up to 12 hours. Signing out can add the session id and expiry to a file of invalidated sessions on our server. Google sign-in uses a short-lived cookie during sign-in.</p>
 <p><strong>API tokens.</strong> A server file holds each token's id, label, a one-way fingerprint (hash) and creation time. The token itself is not stored there. Backstage server log lines for developer API requests include the token id.</p>
 <p><strong>Logs and trial accounting.</strong></p>

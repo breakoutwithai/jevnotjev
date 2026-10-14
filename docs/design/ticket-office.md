@@ -1,20 +1,18 @@
 # Ticket office
 
-The main page's front door and lead capture. A visitor gets a ticket to watch a show, or a backstage ticket to bring a decision of their own. Built from prompt `jnj-ticket-office` (docs/prompts, local). Every decision below names the source that set it: an operator answer (2026-10-07) or a cluster from the simulated persona swarm on the mock (`.persona-swarm/ux-localhost-2026-10-07/`, git-excluded, SIMULATED: hypotheses, never user feedback).
+The main page's front door and lead capture. Watching a show needs no ticket and no email: each poster links straight to its show (operator, 2026-10-14: "remove the friction we want to deliver value before asking for signup - the gating is only to protect spend"). The form takes one kind of request, a backstage ticket to bring a decision of their own, because a person replies and Backstage access is what protects spend. Built from prompt `jnj-ticket-office` (docs/prompts, local). Every decision below names the source that set it: an operator answer (2026-10-07) or a cluster from the simulated persona swarm on the mock (`.persona-swarm/ux-localhost-2026-10-07/`, git-excluded, SIMULATED: hypotheses, never user feedback).
 
 ## Fields
 
 | Ticket | Field | Required | Source |
 |---|---|---|---|
-| Show | email | yes | operator: "min is email address"; swarm: 8 of 8 personas would give email truthfully |
-| Show | show (picker) | yes, preset by the poster's button | swarm c01 (8 of 8): the picker started on the wrong show |
-| Backstage | email | yes | as above |
-| Backstage | website | no | operator: "optimal is website"; swarm c05 (8 of 8): no reason fitted a show ticket, so it is asked only backstage, with a reason that fits ("where this decision runs, so we can read the workflow before we reply") |
+| Backstage | email | yes | operator: "min is email address"; swarm: 8 of 8 personas would give email truthfully |
+| Backstage | website | no | operator: "optimal is website"; swarm c05 (8 of 8): asked with a reason that fits ("where this decision runs, so we can read the workflow before we reply") |
 | Backstage | one-line decision | no | swarm: only the persona with a real decision wanted it (b1, variant C); examples include a non-developer case (m1 stalled on "decision") |
-| Both | keep my email for this ticket (checkbox) | yes, unticked by default | operator: unticked opt-in box; no row is stored without it |
-| Both | follow-up (checkbox) | no, unticked by default | swarm c03 (8 of 8): one box gating the ticket and agreeing to follow-up read as bundled consent |
+| Backstage | keep my email so we can reply (checkbox) | yes, unticked by default | operator: unticked opt-in box; no row is stored without it |
+| Backstage | follow-up (checkbox) | no, unticked by default | swarm c03 (8 of 8): one box gating the request and agreeing to follow-up read as bundled consent |
 
-Variant chosen: A for show tickets (7 of 8 personas), a C-style form for backstage only. T1 counts data inputs with `required`: email is the only one; the keep-my-email box is enforced by the page and the server, and its label says it is needed for a ticket.
+The show ticket kind (email plus a show picker) was removed from the page on 2026-10-14; the server still accepts `kind: "show"` from older pages, so its rows and validation are unchanged. Variant chosen: a C-style form for backstage only. T1 counts data inputs with `required`: email is the only one; the keep-my-email box is enforced by the page and the server, and its label says it is needed for a ticket.
 
 ## Posters
 
@@ -35,14 +33,14 @@ popularity = tickets / most tickets on any item            0 when no item has a 
 score      = 0.5 * recency + 0.5 * popularity
 ```
 
-Ties go to the newer item, then the id in alphabetical order; at most 10 kept (`src/shows/posters.ts` `rankPosters`). Date is the run folder's date, else the date the use-case doc was first committed. The page renders the generated order (latest first, no tickets yet) and reorders from `GET /api/tickets/ranking`, which applies the same function to the store's show-ticket counts. A 14-day half-life was picked so one ticket can lift an item a few days older; a span-scaled recency was rejected because it ties any two-item case.
+Ties go to the newer item, then the id in alphabetical order; at most 10 kept (`src/shows/posters.ts` `rankPosters`). Date is the run folder's date, else the date the use-case doc was first committed. The page renders the generated order (latest first, no tickets yet) and reorders from `GET /api/tickets/ranking`, which applies the same function to the store's show-ticket counts. The page no longer issues show tickets, so those counts only change if an older page posts one; with no show rows every popularity is 0 and the order is newest first. A 14-day half-life was picked so one ticket can lift an item a few days older; a span-scaled recency was rejected because it ties any two-item case.
 
 ## Flow and layout
 
-- Two entry buttons and the privacy line sit above the posters (swarm c06, 7 of 8); the form follows them, posters after.
-- A poster's ticket button sets the kind and the show, moves focus to the form, and the form names the chosen show (c01).
+- Posters sit above the office and each links straight to its show, evidence or idea; nothing on the way asks for an email. The office lede says watching needs nothing and the form is only for testing your own decision.
+- Opening the form (button or `#tkForm`) moves focus to the email field.
 - Errors appear beside each field; focus moves to the first (c03, a1 stalled at s05).
-- Confirmation (c02, 8 of 8): the heading states the outcome with the ticket id and receives focus; one line says no email is sent and the ticket is this page; a show ticket links straight to the show; a backstage ticket says a person reads each request and access is granted by hand, with no reply time promised.
+- Confirmation (c02, 8 of 8): the heading states the outcome with the ticket id and receives focus; one line says the number is not emailed; the next says a person reads each request and access is granted by hand, with no reply time promised.
 - The anti-persona line ("not for a chatbot, a writer or a ranking") is moved up and set at body size (x1 nearly missed it; told within one screen).
 - Honeypot field sits in an `inert`, `aria-hidden` wrapper (c07).
 
@@ -52,7 +50,7 @@ Ties go to the newer item, then the id in alphabetical order; at most 10 kept (`
 - A missing or malformed `site/shows/posters.json` (bad date, duplicate or empty id) is a 503 outage for ranking and new show tickets; backstage requests and retries do not need it. The file is a Backstage drift path in `.deploy/ship.sh`, so a poster change ships a Backstage release.
 - `POST /api/tickets` on the Backstage server, public (outside `/api/backstage/` and `/backstage/`, so no sign-in route is opened); `GET /api/tickets/ranking` returns ids in rank order. Same-origin JSON only, 4 KB body cap, honeypot, 5 requests per address per 10 minutes, email and URL validation, show id must be a current poster.
 - Rows live only in SQLite at `BACKSTAGE_TICKETS_PATH` or `$STATE_DIRECTORY/tickets.sqlite` (operator: SQLite in the Backstage state dir, no third party). Logs record `ticket.issued` with ticket id, kind and show, or `ticket.rejected` with a reason; never an email, website or idea (test T5).
-- Privacy line on the page: what is kept (email, website and idea if given, show, follow-up choice), why (to hold the ticket and, only if ticked, follow up), where (our own server, never shared or sold), how long (prompt default, operator decision open: until the challenge ends plus 90 days), and deletion on request.
+- Privacy line on the page: what is kept (email, website and idea if given, follow-up choice), why (to reply to the request and, only if ticked, follow up), where (our own server, never shared or sold), how long (prompt default, operator decision open: until the challenge ends plus 90 days), and deletion on request.
 - Backstage access is not granted by a ticket (prompt default, operator decision open): the operator adds an approved request to `operators.json` by hand.
 
 ## Known limits (follow-up)

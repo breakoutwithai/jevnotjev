@@ -103,11 +103,12 @@ function badCitations(page: string): string[] {
 test("[unit] #128 every privacy source citation resolves to existing lines", async () => {
   const page = await Bun.file(privacyPath).text();
   expect(badCitations(page)).toEqual([]);
-  expect(badCitations(page.replace("site/index.html:229", "site/index.html:999999"))).toContain("site/index.html:999999");
+  expect(badCitations(page.replace("site/index.html:194,229", "site/index.html:194,999999"))).toContain("site/index.html:999999");
   expect(badCitations(page.replace("journald@jevnotjev-backstage.conf:1-5", "journald@jevnotjev-backstage.conf:1-999999"))).toContain(".deploy/journald@jevnotjev-backstage.conf:1-999999");
 });
 
-const allowedWriters = new Set(["tickets.ts", "trial.ts", "auth.ts", "api-tokens.ts"]);
+// leads.ts writes link digests and verified lead generations, disclosed on /privacy/.
+const allowedWriters = new Set(["tickets.ts", "trial.ts", "auth.ts", "api-tokens.ts", "leads.ts"]);
 const writer = /\b(?:writeFile(?:Sync)?|Bun\.write|appendFile(?:Sync)?|new Database|createWriteStream|openSync)\b|\.writer\s*\(/;
 function unexpectedWriters(sources: ReadonlyMap<string, string>): string[] {
   return [...sources].filter(([name, source]) => !allowedWriters.has(name) && writer.test(source)).map(([name]) => name);
@@ -148,6 +149,16 @@ test("[unit] #128 ticket retention names the 90-day manual plan and absent autom
   expect(retentionLine(page.replace("deleted by hand 90 days", "deleted by hand later"))).not.toMatch(/90 days after the event ends/);
 });
 
+test("[unit] #128 lead sign-in storage, delivery, logs and deletion are disclosed", async () => {
+  const page = await Bun.file(privacyPath).text();
+  for (const detail of ["SHA-256 digest", "when it was created and expires", "whether it was used", "verified-lead record", "email, method, time", "Google (Gmail)", "email and network address", "15 minutes and works once", "lead sign-in records"]) {
+    expect(page).toContain(detail);
+  }
+  expect(page).toContain("no automatic deletion schedule");
+  expect(page).toContain("open a GitHub issue");
+  expect(page.replace("verified-lead record", "account")).not.toContain("verified-lead record");
+});
+
 test("[unit] #128 Google and trial cookie durations match their constants and server settings", async () => {
   const page = await Bun.file(privacyPath).text();
   const server = await Bun.file("src/backstage/server.ts").text();
@@ -172,4 +183,21 @@ test("[unit] #128 trial network value is described as a keyed hash of the full I
   expect(trial).toContain('createHmac("sha256", this.#secret)');
   expect(page).toContain("a keyed hash of your IP address");
   expect(page).not.toMatch(/coarse network/i);
+});
+
+test("[unit] #128 lead sign-in disclosure names records, mail provider, expiry and retention", async () => {
+  const page = await Bun.file(privacyPath).text();
+  expect(page).toContain("verified-lead record with your email, method, time and a random session credential generation");
+  expect(page).toContain("We send your email address to Google (Gmail) to deliver a link when mail is configured.");
+  expect(page).toContain("An email sign-in link expires after 15 minutes and works once.");
+  expect(page).toContain("Link and verified-lead rows have no automatic deletion schedule.");
+});
+
+test("[unit] #212 privacy quotes the ticket form's no-sale statement", async () => {
+  const page = await Bun.file(privacyPath).text();
+  const form = await Bun.file("site/index.html").text();
+  const promise = "We do not sell your details.";
+  expect(page.toLowerCase()).not.toContain("never shared");
+  expect(page).toContain(`The form says, "${promise}"`);
+  expect(form).toContain(promise);
 });

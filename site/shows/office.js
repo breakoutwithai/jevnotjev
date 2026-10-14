@@ -259,6 +259,8 @@
     h.tabIndex = -1;
     box.appendChild(h);
     box.appendChild(el("p", "", "Your ticket is this page and its number; we do not email tickets. Quote the number if you ask us to delete your details."));
+    var signIn = t.signIn === "email-link" ? "If this email has a ticket, check your inbox for a sign-in link, or sign in with Google using the same email." : "Sign in with Google using the same email.";
+    box.appendChild(el("p", "", signIn));
     if (t.kind === "show" && p) {
       var go = el("p", "tk-links");
       if (p.watch) { var w = el("a", "", "Watch it now"); w.href = p.watch; go.appendChild(w); }
@@ -267,7 +269,7 @@
       go.appendChild(ev);
       box.appendChild(go);
     } else {
-      box.appendChild(el("p", "", "A person reads each backstage request and replies to your email address. If your decision suits a test, the reply explains how to sign in to Backstage; the request alone does not open it."));
+      box.appendChild(el("p", "", "Your ticket email can open Backstage after you verify it with the link or Google. Bring your own Jev key to run a test."));
     }
     var another = el("button", "tk-submit", "Get another ticket");
     another.type = "button";

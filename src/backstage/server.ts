@@ -4,9 +4,9 @@ import { isIP } from "node:net";
 import { randomBytes, randomUUID } from "node:crypto";
 import { cookie, cookieName, credentialFingerprint, GoogleStates, inspectSession, isSameOrigin, LoginLimiter, normalizeEmail, OperatorStore, parseCookie, RevokedSessions, sanitizeNextPath, SESSION_TTL_MS, signInLocation, signSession, validateGoogleProfile, verifyPasswordHash } from "./auth.ts";
 import { createEventLogger } from "./log.ts";
-import type { AuthEvent, GoogleDeniedReason, SessionRejectedReason, RunEvent } from "./log.ts";
+import type { AuthEvent, GoogleDeniedReason, LinkDeniedReason, SessionRejectedReason, RunEvent } from "./log.ts";
 import type { Provider } from "./contracts.ts";
-import { renderSignInPage } from "./sign-in-page.ts";
+import { escapeHtml, renderSignInPage } from "./sign-in-page.ts";
 import { ApiTokenStore, apiTokensPath, isInside } from "./api-tokens.ts";
 import { API_V1_LIMITS, API_V1_PREFIX, createApiV1 } from "./api-v1.ts";
 import type { RunDeps } from "../decide/run.ts";
@@ -21,7 +21,9 @@ import {
 } from "./providers.ts";
 import type { ProviderFetch } from "./providers.ts";
 import { openTrial, validTrialInput } from "./trial.ts";
-import { checkTicket, MAX_TICKET_BODY, TicketLimiter, TicketStore } from "./tickets.ts";
+import { checkTicket, MAX_TICKET_BODY, TicketLimiter, TicketStore, validTicketEmail } from "./tickets.ts";
+import { abuseKey, LeadStore } from "./leads.ts";
+import { mailConfigured, sendSignInLink, type MailConfig } from "./mailer.ts";
 import { rankPosters, type Poster } from "../shows/posters.ts";
 import { COACH_PROMPT_VERSION, COACH_UNSAFE_MESSAGE } from "./coach.ts";
 import { findCredentials } from "./credential-scan.ts";
@@ -78,6 +80,7 @@ export interface ServerOptions {
   readonly log?: (line: string) => void;
   /** Ticket office lead store; without a path the ticket routes answer 503. */
   readonly tickets?: { readonly path?: string | undefined };
+  readonly mail?: MailConfig;
   /** /api/v1 bearer-token state file (src/backstage/api-tokens.ts); without one, or inside staticRoot, every /api/v1 route answers 401. */
   readonly api?: {
     readonly tokensPath?: string | undefined;
@@ -144,6 +147,22 @@ function clientAddress(request: Request, context: RequestContext | undefined, tr
   const address = trustProxy && loopback ? request.headers.get("x-backstage-client-ip") : socket;
   return address && isIP(address) ? address : null;
 }
+function linkAddressKey(address: string): string {
+  if (isIP(address) !== 6) return address;
+  const expanded = address.split("::");
+  const left = (expanded[0] ?? "").split(":").filter(Boolean);
+  const right = (expanded[1] ?? "").split(":").filter(Boolean);
+  const groups = expanded.length === 2 ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right] : left;
+  return groups.slice(0, 4).map((group) => group.toLowerCase().padStart(4, "0")).join(":");
+}
+function isStrictSameOrigin(request: Request, origin: string): boolean {
+  return (request.headers.has("origin") || request.headers.has("sec-fetch-site")) && isSameOrigin(request, origin) &&
+    (request.headers.get("origin") === null || request.headers.get("origin") === origin);
+}
+function maskedEmail(email: string): string {
+  const at = email.lastIndexOf("@");
+  return `${email.slice(0, 1)}***${email.slice(at)}`;
+}
 function json(value: unknown, status = 200): Response {
   const payload =
     status >= 400 &&
@@ -170,6 +189,13 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   const houseJevKey = options.houseJevKey || undefined;
   if (houseJevKey) assertHouseKeyOrigin(origin);
   const operators = new OperatorStore(options.auth?.operatorsPath);
+  const ticketStore = options.tickets?.path ? new TicketStore(options.tickets.path) : null;
+  const leads = options.tickets?.path ? new LeadStore(options.tickets.path) : null;
+  const mailReady = Boolean(leads && mailConfigured(options.mail) && secret.length >= 32);
+  const mailDailyLimit = options.mail?.dailyLimit ?? 200;
+  const mailDomainDailyLimit = options.mail?.domainDailyLimit ?? 50;
+  if (!Number.isInteger(mailDailyLimit) || mailDailyLimit < 1) throw new Error("BACKSTAGE_MAIL_DAILY_LIMIT must be a positive integer.");
+  if (!Number.isInteger(mailDomainDailyLimit) || mailDomainDailyLimit < 1) throw new Error("BACKSTAGE_MAIL_DOMAIN_DAILY_LIMIT must be a positive integer.");
   const limiter = new LoginLimiter(clock);
   const states = new GoogleStates(clock, secret);
   const revoked = new RevokedSessions(clock, options.auth?.operatorsPath);
@@ -189,8 +215,10 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     if (!checked.ok) { emit("session.rejected", checked.reason === "expired" ? operators.get(checked.email)?.email ?? "unknown" : "unknown", checked.reason); return null; }
     const session = checked.session;
     const row = operators.get(session.email);
-    if (!row || revoked.has(session.sid, session.iat) || session.cred !== credentialFingerprint(row.password_hash ?? "google")) {
-      emit("session.rejected", row?.email ?? "unknown", "revoked");
+    const leadCredential = (session.auth === "link" || (session.auth === "google" && !row)) ? leads?.verifiedCredential(session.email) ?? null : null;
+    const credential = session.auth === "link" ? leadCredential : session.auth === "password" ? row?.password_hash ?? null : row ? row.password_hash ?? "google" : leadCredential;
+    if (credential === null || revoked.has(session.sid, session.iat) || session.cred !== credentialFingerprint(credential)) {
+      emit("session.rejected", row?.email ?? (leadCredential ? session.email : "unknown"), "revoked");
       return null;
     }
     return session;
@@ -219,8 +247,39 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   );
   const root = resolve(options.staticRoot ?? "site"),
     trialCookieName = "backstage_trial";
-  const ticketStore = options.tickets?.path ? new TicketStore(options.tickets.path) : null;
   const ticketLimiter = new TicketLimiter(clock);
+  const linkAddressLimiter = new TicketLimiter(clock);
+  const linkRecipients = new Map<string, number[]>();
+  const linkDomains = new Map<string, number[]>();
+  const linkGlobal: number[] = [];
+  const linkBudget = (email: string, charge: boolean): boolean => {
+    const now = clock();
+    const key = abuseKey(email);
+    const take = (bucket: number[], windowMs: number, limit: number): boolean => {
+      while (bucket.length && (bucket[0] ?? 0) <= now - windowMs) bucket.shift();
+      const allowed = bucket.length < limit;
+      if (allowed && charge) bucket.push(now);
+      return allowed;
+    };
+    const bucket = (buckets: Map<string, number[]>, name: string, windowMs: number): number[] | null => {
+      const existing = buckets.get(name);
+      if (existing) return existing;
+      if (buckets.size >= 10_000) {
+        for (const [stored, times] of buckets) if ((times.at(-1) ?? 0) <= now - windowMs) buckets.delete(stored);
+        if (buckets.size >= 10_000) return null;
+      }
+      const created: number[] = [];
+      if (charge) buckets.set(name, created);
+      return created;
+    };
+    const recipient = bucket(linkRecipients, key.mailbox, 60 * 60_000);
+    const domain = key.domainLimited ? bucket(linkDomains, key.domain, 24 * 60 * 60_000) : null;
+    const recipientAllowed = recipient !== null && take(recipient, 60 * 60_000, 3);
+    const domainAllowed = !key.domainLimited || (domain !== null && take(domain, 24 * 60 * 60_000, mailDomainDailyLimit));
+    const globalAllowed = take(linkGlobal, 24 * 60 * 60_000, mailDailyLimit);
+    return recipientAllowed && domainAllowed && globalAllowed;
+  };
+  const admitLink = (email: string, ip: string): boolean => linkAddressLimiter.allow(linkAddressKey(ip)) && linkBudget(email, false);
   const tokensPath = options.api?.tokensPath;
   const api = createApiV1({
     tokens: new ApiTokenStore(tokensPath !== undefined && tokensPath !== "" && !isInside(tokensPath, root) ? tokensPath : null),
@@ -246,12 +305,33 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   ): Promise<Response> => {
     const rid = randomUUID();
     const ip = clientAddress(request, context, options.trustProxy) ?? "unknown";
-    const emitAuth = (event: AuthEvent, email: string, reason?: GoogleDeniedReason | SessionRejectedReason): void => {
+    const emitAuth = (event: AuthEvent, email: string, reason?: GoogleDeniedReason | SessionRejectedReason | LinkDeniedReason): void => {
       if (event === "session.rejected") {
         logger.auth({ event, email, ip, rid, reason: reason === "expired" || reason === "revoked" ? reason : "bad-signature" });
       } else if (event === "signin.google.denied") {
         logger.auth({ event, email, ip, rid, reason: reason === "not-allowlisted" || reason === "unverified-email" || reason === "bad-state" || reason === "invalid-token" ? reason : "provider-error" });
+      } else if (event === "link.denied") {
+        logger.auth({ event, email, ip, rid, reason: reason === "not-lead" || reason === "invalid-email" || reason === "rate-limited" || reason === "mail-off" || reason === "send-failed" || reason === "invalid-link" || reason === "origin-rejected" ? reason : "store-error" });
       } else logger.auth({ event, email, ip, rid });
+    };
+    const sendLink = async (email: string): Promise<void> => {
+      if (!mailReady || !leads || !options.mail) { emitAuth("link.denied", email, "mail-off"); return; }
+      if (!linkBudget(email, false)) { emitAuth("link.denied", email, "rate-limited"); return; }
+      if (!leads.hasTicket(email)) { emitAuth("link.denied", email, "not-lead"); return; }
+      let token: string | null;
+      try { token = leads.mint(email, clock(), mailDailyLimit, mailDomainDailyLimit); }
+      catch { emitAuth("link.denied", email, "store-error"); return; }
+      if (!token) { emitAuth("link.denied", email, "rate-limited"); return; }
+      // Admission, mint and charge are synchronous before the mailer yields.
+      if (!linkBudget(email, true)) { emitAuth("link.denied", email, "rate-limited"); return; }
+      const sent = await sendSignInLink(options.mail, email, `${origin}/api/auth/link?t=${token}`);
+      if (!sent) { emitAuth("link.denied", email, "send-failed"); return; }
+      try { if (!leads.activate(token)) throw new Error("Link activation failed"); }
+      catch { emitAuth("link.denied", email, "store-error"); return; }
+      emitAuth("link.sent", email);
+    };
+    const scheduleLink = (email: string): void => {
+      setTimeout(() => { void sendLink(email).catch(() => { emitAuth("link.denied", email, "store-error"); }); }, 0);
     };
     const emitRun = (event: RunEvent, provider: Provider, armId: string): void => {
       const entry = getModelEntry(armId);
@@ -273,7 +353,44 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     if (gatedPrefix && pathname.slice(0, gatedPrefix.length) !== gatedPrefix) return json({ error: "Not found." }, 404);
     if (pathname === "/backstage/sign-in" && request.method === "GET") {
       const message = url.searchParams.get("signed-out") === "1" ? "signed-out" : url.searchParams.get("error");
-      return renderSignInPage(sanitizeNextPath(url.searchParams.get("next")), message, googleReady, HEADERS["content-security-policy"]);
+      return renderSignInPage(sanitizeNextPath(url.searchParams.get("next")), message, googleReady, HEADERS["content-security-policy"], mailReady);
+    }
+    if (pathname === "/api/auth/link/request") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!isStrictSameOrigin(request, origin)) { emitAuth("link.denied", "unknown", "origin-rejected"); return json({ error: "Forbidden." }, 403); }
+      if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/x-www-form-urlencoded") return json({ error: "Form required." }, 415);
+      const response = () => redirect("/backstage/sign-in?error=link-requested");
+      let email = "";
+      try { email = new URLSearchParams(await boundedText(new Response(request.body), 4096, AbortSignal.timeout(5000))).get("email") ?? ""; }
+      catch { return response(); }
+      if (!validTicketEmail(email)) { emitAuth("link.denied", "unknown", "invalid-email"); return response(); }
+      email = normalizeEmail(email);
+      if (!admitLink(email, ip)) { emitAuth("link.denied", email, "rate-limited"); return response(); }
+      scheduleLink(email);
+      return response();
+    }
+    if (pathname === "/api/auth/link") {
+      if (request.method === "GET") {
+        const token = url.searchParams.get("t") ?? "";
+        const safe = /^[A-Za-z0-9_-]{43}$/.test(token) ? token : "";
+        const address = safe ? leads?.pendingEmail(safe, clock()) : null;
+        const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Confirm sign-in | Backstage</title></head><body><main><h1>Confirm sign-in</h1><p>This link works once and expires 15 minutes after it was sent.</p>${address ? `<p>Signing in as ${escapeHtml(maskedEmail(address))}</p>` : ""}<form action="/api/auth/link" method="post"><input type="hidden" name="t" value="${safe}"><button type="submit">Sign in to Backstage</button></form></main></body></html>`;
+        return new Response(html, { headers: { ...HEADERS, "content-type": "text/html; charset=utf-8" } });
+      }
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (!isStrictSameOrigin(request, origin)) { emitAuth("link.denied", "unknown", "origin-rejected"); return json({ error: "Forbidden." }, 403); }
+      if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/x-www-form-urlencoded") return json({ error: "Form required." }, 415);
+      let token = "";
+      try { token = new URLSearchParams(await boundedText(new Response(request.body), 4096, AbortSignal.timeout(5000))).get("t") ?? ""; }
+      catch { /* Invalid links share the ordinary error. */ }
+      const email = leads?.consume(token, clock());
+      if (!email || !leads?.hasTicket(email) || secret.length < 32) { emitAuth("link.denied", "unknown", "invalid-link"); return json({ error: "This sign-in link is invalid or expired." }, 400); }
+      const generation = leads.verify(email, "link", clock());
+      const session = signSession({ email, auth: "link", iat: clock(), exp: clock() + SESSION_TTL_MS, sid: randomBytes(24).toString("base64url"), cred: credentialFingerprint(generation) }, secret);
+      const response = redirect("/backstage/");
+      response.headers.append("set-cookie", cookie(origin, "session", session, 43200));
+      emitAuth("link.ok", email);
+      return response;
     }
     if (pathname === "/api/auth/session") return request.method === "GET" ? (sessionFrom(request, emitAuth) ? new Response(null, { status: 204, headers: HEADERS }) : Response.json({ code: "unauthenticated", signIn: secret.length >= 32 ? "ready" : "unconfigured" }, { status: 401, headers: HEADERS })) : json({ error: "Method not allowed." }, 405);
     if (pathname === "/api/auth/password") {
@@ -328,7 +445,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       }
       const response = redirect("/backstage/sign-in?signed-out=1");
       response.headers.append("set-cookie", cookie(origin, "session", "", 0));
-      emitAuth("signout", session ? operators.get(session.email)?.email ?? "unknown" : "unknown");
+      emitAuth("signout", session ? operators.get(session.email)?.email ?? (leads?.isVerifiedLead(session.email) ? session.email : "unknown") : "unknown");
       return response;
     }
     if (pathname === "/api/auth/google") {
@@ -370,15 +487,15 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         const info = await doFetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokenData.id_token)}`, { signal: AbortSignal.timeout(10_000) });
         if (!info.ok) throw new Error("Tokeninfo failed");
         const profile: unknown = await info.json();
-        const checked = validateGoogleProfile(profile, options.auth.googleClientId, operators);
+        const checked = validateGoogleProfile(profile, options.auth.googleClientId, operators, (email) => leads?.hasTicket(email) ?? false);
         if (!checked.ok) { emitAuth("signin.google.denied", checked.email, checked.reason); responseError.headers.append("set-cookie", clear); return responseError; }
         const row = operators.get(checked.email);
-        if (!row) { emitAuth("signin.google.denied", "unknown", "not-allowlisted"); responseError.headers.append("set-cookie", clear); return responseError; }
-        const session = signSession({ email: checked.email, auth: "google", iat: clock(), exp: clock() + SESSION_TTL_MS, sid: randomBytes(24).toString("base64url"), cred: credentialFingerprint(row.password_hash ?? "google") }, secret);
+        const generation = row ? null : leads?.verify(checked.email, "google", clock()) ?? null;
+        const session = signSession({ email: checked.email, auth: "google", iat: clock(), exp: clock() + SESSION_TTL_MS, sid: randomBytes(24).toString("base64url"), cred: credentialFingerprint(row ? row.password_hash ?? "google" : generation ?? "") }, secret);
         const response = redirect(next);
         response.headers.append("set-cookie", clear);
         response.headers.append("set-cookie", cookie(origin, "session", session, 43200));
-        emitAuth("signin.google.ok", row.email);
+        emitAuth("signin.google.ok", checked.email);
         return response;
       } catch { emitAuth("signin.google.denied", "unknown", "provider-error"); responseError.headers.append("set-cookie", clear); return responseError; }
     }
@@ -716,7 +833,8 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       catch { return reject("store-error", 503); }
       if (issued.status === "conflict") return reject("request-key-reused", 409);
       logger.ticket({ event: "ticket.issued", rid, ticket: issued.id, kind: issued.kind, show: issued.show });
-      return json({ ticket: issued.id, kind: issued.kind, show: issued.show, replay: issued.status === "replay" });
+      if (issued.status === "issued" && validTicketEmail(checked.ticket.email) && admitLink(checked.ticket.email, ip)) scheduleLink(checked.ticket.email);
+      return json({ ticket: issued.id, kind: issued.kind, show: issued.show, replay: issued.status === "replay", signIn: mailReady ? "email-link" : "google" });
     }
     if (pathname.startsWith("/api/"))
       return json({ error: "Not found." }, 404);
@@ -750,6 +868,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     close() {
       if (trial.available) trial.ledger.close();
       ticketStore?.close();
+      leads?.close();
     },
   });
 }
@@ -778,6 +897,7 @@ if (import.meta.main) {
     requireSession: process.env.BACKSTAGE_REQUIRE_SESSION === "1",
     api: { tokensPath: apiTokensPath(process.env) },
     tickets: { path: process.env.BACKSTAGE_TICKETS_PATH ?? (process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, "tickets.sqlite") : undefined) },
+    mail: { smtpUser: process.env.BACKSTAGE_MAIL_SMTP_USER, smtpPass: process.env.BACKSTAGE_MAIL_SMTP_PASS, from: process.env.BACKSTAGE_MAIL_FROM, dailyLimit: process.env.BACKSTAGE_MAIL_DAILY_LIMIT === undefined ? undefined : Number(process.env.BACKSTAGE_MAIL_DAILY_LIMIT), domainDailyLimit: process.env.BACKSTAGE_MAIL_DOMAIN_DAILY_LIMIT === undefined ? undefined : Number(process.env.BACKSTAGE_MAIL_DOMAIN_DAILY_LIMIT) },
     auth: {
       sessionSecret: process.env.BACKSTAGE_SESSION_SECRET,
       operatorsPath: process.env.BACKSTAGE_OPERATORS_PATH ?? (process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, "operators.json") : undefined),

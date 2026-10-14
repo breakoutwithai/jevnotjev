@@ -169,13 +169,15 @@ backstage_snippet_auth() {
     function allow(loc, statement) { permitted[loc, statement] = 1; required[loc]++ }
     BEGIN {
         allow("redirect", "return 308 /backstage/")
-        split("sign_in password sign_out google callback", public_routes, " ")
+        n_public = split("sign_in password sign_out google callback link link_request", public_routes, " ")
         path["sign_in"] = "/backstage/sign-in"
         path["password"] = "/api/auth/password"
         path["sign_out"] = "/api/auth/sign-out"
         path["google"] = "/api/auth/google"
         path["callback"] = "/api/auth/google/callback"
-        for (p = 1; p <= 5; p++) {
+        path["link"] = "/api/auth/link"
+        path["link_request"] = "/api/auth/link/request"
+        for (p = 1; p <= n_public; p++) {
             loc = public_routes[p]
             allow(loc, "proxy_pass http://127.0.0.1:3456" path[loc])
             allow(loc, "proxy_set_header Host $host")
@@ -183,6 +185,8 @@ backstage_snippet_auth() {
             allow(loc, "client_max_body_size 16k")
         }
         allow("callback", "access_log off")
+        allow("link", "access_log off")
+        allow("link", "error_log /dev/null")
         # Ticket office (docs/design/ticket-office.md): public, optional; when present exactly these statements.
         allow("tickets", "proxy_pass http://127.0.0.1:3456/api/tickets")
         allow("tickets", "proxy_set_header Host $host")
@@ -206,7 +210,7 @@ backstage_snippet_auth() {
         # location that proxies to 3456. All clears present, or none (an install from before the mark); /api/v1 needs all.
         allow("api_v1", "proxy_set_header X-Backstage-Route api-v1")
         route_clear = "proxy_set_header X-Backstage-Route \"\""
-        n_clear_locs = split("sign_in password sign_out google callback tickets tickets_ranking session_check page api", clear_locs, " ")
+        n_clear_locs = split("sign_in password sign_out google callback link link_request tickets tickets_ranking session_check page api", clear_locs, " ")
         for (c = 1; c <= n_clear_locs; c++) clear_ok[clear_locs[c]] = 1
         allow("session_check", "internal")
         allow("session_check", "proxy_pass http://127.0.0.1:3456/api/auth/session")
@@ -279,6 +283,8 @@ backstage_snippet_auth() {
                     else if (h == "location = /api/auth/sign-out") { cur = "sign_out"; seen[cur]++ }
                     else if (h == "location = /api/auth/google") { cur = "google"; seen[cur]++ }
                     else if (h == "location = /api/auth/google/callback") { cur = "callback"; seen[cur]++ }
+                    else if (h == "location = /api/auth/link") { cur = "link"; seen[cur]++ }
+                    else if (h == "location = /api/auth/link/request") { cur = "link_request"; seen[cur]++ }
                     else if (h == "location = /api/tickets") { cur = "tickets"; seen[cur]++ }
                     else if (h == "location = /api/tickets/ranking") { cur = "tickets_ranking"; seen[cur]++ }
                     else if (h == "location ^~ /api/v1/") { cur = "api_v1"; seen[cur]++ }
@@ -338,14 +344,14 @@ backstage_snippet_auth() {
                 if (!(key in permitted) || statements[key] != 1) { print "unknown"; exit }
                 observed[loc]++
             }
-            clear_want = 8 + (seen["tickets"] == 1) + (seen["tickets_ranking"] == 1)
+            clear_want = 8 + (seen["tickets"] == 1) + (seen["tickets_ranking"] == 1) + (seen["link"] == 1) + (seen["link_request"] == 1)
             if (cleared != clear_want && (cleared != 0 || seen["api_v1"] == 1)) { print "unknown"; exit }
             for (i = 1; i <= 12; i++) {
                 loc = locations[i]
                 if (loc != "page" && loc != "api" && loc != "session_check" && observed[loc] != required[loc]) { print "unknown"; exit }
             }
-            for (k = 1; k <= 3; k++) {
-                loc = (k == 1 ? "tickets" : k == 2 ? "tickets_ranking" : "api_v1")
+            for (k = 1; k <= 5; k++) {
+                loc = (k == 1 ? "tickets" : k == 2 ? "tickets_ranking" : k == 3 ? "api_v1" : k == 4 ? "link" : "link_request")
                 if (seen[loc] > 1 || (seen[loc] == 1 && observed[loc] != required[loc])) { print "unknown"; exit }
             }
             if (!statements["session_check", "internal"] ||

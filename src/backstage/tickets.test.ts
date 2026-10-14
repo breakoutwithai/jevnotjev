@@ -64,13 +64,13 @@ describe("ticket office endpoint", () => {
     expect(store.count()).toBe(0);
   });
 
-  test("[integration] T5 seeded email absent from log output", async () => {
+  test("[integration] T5 ticket events omit email while auth events may record it", async () => {
     const { handler, logs } = setup();
     await handler(...ask(valid));
     await handler(...ask({ ...valid, consent: false }, "203.0.113.12"));
     expect(logs.length).toBeGreaterThanOrEqual(2);
     expect(logs.some((line) => line.includes("ticket.issued"))).toBe(true);
-    expect(logs.filter((line) => line.includes(SEEDED) || line.includes("shop.example")).length).toBe(0);
+    expect(logs.filter((line) => line.includes('"event":"ticket.') && (line.includes(SEEDED) || line.includes("shop.example"))).length).toBe(0);
   });
 
   test("[integration] backstage ticket needs no show and keeps the idea; ranking counts tickets", async () => {

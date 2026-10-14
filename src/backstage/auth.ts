@@ -91,7 +91,7 @@ export class OperatorStore {
   }
 }
 
-export interface Session { readonly email: string; readonly auth: "password" | "google"; readonly iat: number; readonly exp: number; readonly sid: string; readonly cred: string }
+export interface Session { readonly email: string; readonly auth: "password" | "google" | "link"; readonly iat: number; readonly exp: number; readonly sid: string; readonly cred: string }
 
 // Ported from groit apps/booth/server.js:1336-1355 at bb29d8cc; sid and cred add revocation.
 export function signSession(session: Session, secret: string): string {
@@ -112,7 +112,7 @@ export function inspectSession(value: string, secret: string, now: number): Sess
       !("email" in data) || typeof data.email !== "string" || !data.email ||
       !("sid" in data) || typeof data.sid !== "string" || !data.sid ||
       !("cred" in data) || typeof data.cred !== "string" || !/^[a-f0-9]{16}$/.test(data.cred) ||
-      !("auth" in data) || (data.auth !== "google" && data.auth !== "password") ||
+      !("auth" in data) || (data.auth !== "google" && data.auth !== "password" && data.auth !== "link") ||
       !("iat" in data) || typeof data.iat !== "number" ||
       !("exp" in data) || typeof data.exp !== "number" || !Number.isFinite(data.exp)) return { ok: false, reason: "bad-signature" };
     if (data.exp <= now) return { ok: false, reason: "expired", email: data.email };
@@ -292,7 +292,7 @@ export class GoogleStates {
 }
 
 // Ported from groit apps/booth/server.js:1767-1774 at bb29d8cc.
-export function validateGoogleProfile(value: unknown, clientId: string, operators: OperatorStore): { ok: true; email: string } | { ok: false; reason: "invalid-token" | "unverified-email" | "not-allowlisted"; email: string } {
+export function validateGoogleProfile(value: unknown, clientId: string, operators: OperatorStore, isLead: (email: string) => boolean = () => false): { ok: true; email: string } | { ok: false; reason: "invalid-token" | "unverified-email" | "not-allowlisted"; email: string } {
   if (typeof value !== "object" || value === null || Array.isArray(value) ||
     !("email" in value) || typeof value.email !== "string" || !value.email ||
     !("aud" in value) || value.aud !== clientId ||
@@ -300,5 +300,5 @@ export function validateGoogleProfile(value: unknown, clientId: string, operator
   const email = normalizeEmail(value.email);
   const row = operators.get(email);
   if (!("email_verified" in value) || (value.email_verified !== true && value.email_verified !== "true")) return { ok: false, reason: "unverified-email", email: "unknown" };
-  return row ? { ok: true, email: row.email } : { ok: false, reason: "not-allowlisted", email: "unknown" };
+  return row || isLead(email) ? { ok: true, email: row?.email ?? email } : { ok: false, reason: "not-allowlisted", email: "unknown" };
 }

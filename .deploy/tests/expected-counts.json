@@ -103,7 +103,7 @@
     "src/docs/flow-metrics.test.ts": 26,
     "src/docs/guide.test.ts": 8,
     "src/docs/labelling-card.test.ts": 4,
-    "src/docs/landing-samples.test.ts": 101,
+    "src/docs/landing-samples.test.ts": 102,
     "src/docs/site-guide.test.ts": 34,
     "src/docs/stack.test.ts": 18,
     "src/docs/tester-checklist.test.ts": 8,

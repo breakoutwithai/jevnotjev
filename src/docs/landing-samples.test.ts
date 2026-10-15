@@ -48,10 +48,10 @@ const DOC_METRICS = ["docCases", "docAnswers"] as const;
 type Metric = (typeof ARM_METRICS)[number] | (typeof RUN_METRICS)[number] | (typeof CONSTANT_METRICS)[number] | (typeof DOC_METRICS)[number];
 const METRICS: readonly string[] = [...ARM_METRICS, ...RUN_METRICS, ...CONSTANT_METRICS, ...DOC_METRICS];
 type Format = "int" | "rule" | "pointLimit" | "messageRun" | "pointsBehind" | "tiedTo" | "armCount" | "armScore" | "armModelCount" | "armModelScore"
-  | "armSpent4" | "armSpent5" | "armSpendOf4" | "armSpendOf5" | "modelWas" | "modelAs" | "keptAsMany" | "keptOnThese"
+  | "armSpent4" | "armSpent5" | "armSpendOf4" | "armSpendOf5" | "modelWas" | "modelAs" | "keptOnThese"
   | "costShareOf" | "costShare" | "tiedEach" | "spendShareOf" | "answers";
 const FORMATS: readonly Format[] = ["int", "rule", "pointLimit", "messageRun", "pointsBehind", "tiedTo", "armCount", "armScore", "armModelCount", "armModelScore",
-  "armSpent4", "armSpent5", "armSpendOf4", "armSpendOf5", "modelWas", "modelAs", "keptAsMany", "keptOnThese", "costShareOf", "costShare", "tiedEach", "spendShareOf", "answers"];
+  "armSpent4", "armSpent5", "armSpendOf4", "armSpendOf5", "modelWas", "modelAs", "keptOnThese", "costShareOf", "costShare", "tiedEach", "spendShareOf", "answers"];
 interface Figure {
   part: Part;
   display: string;
@@ -302,13 +302,10 @@ function slots(entry: Figure): Slot[] | string {
   }
   if (a || !pair || pair[0] === pair[1]) return `${entry.format} requires two distinct declared arms`;
   const [first, second] = pair;
-  if (["keptAsMany", "keptOnThese"].includes(entry.format)) {
-    if (entry.format === "keptOnThese") {
-      if (first !== "jev") return "keptOnThese subject must be jev";
-      if (second !== "llm") return "keptOnThese comparison must be llm";
-      return [slot("accepted", first), slot("accepted", second), slot("paired")];
-    }
-    return [slot("accepted", first), slot("accepted", second)];
+  if (entry.format === "keptOnThese") {
+    if (first !== "jev") return "keptOnThese subject must be jev";
+    if (second !== "llm") return "keptOnThese comparison must be llm";
+    return [slot("accepted", first), slot("accepted", second), slot("paired")];
   }
   if (first === "rule" || second === "rule") return `${entry.format} requires Jev and LLM`;
   if (entry.format === "tiedEach") return [slot("acceptedEach")];
@@ -348,8 +345,6 @@ function render(entry: Figure, values: readonly (number | string)[]): string[] {
     case "armSpendOf4": case "armSpendOf5": return n !== null ? a.map((name) => `${name}'s $${n.toFixed(entry.format === "armSpendOf4" ? 4 : 5)}`) : [];
     case "modelWas": return short ? a.map((name) => `${name} was ${short}`) : [];
     case "modelAs": return short ? a.map((name) => `Claude ${short} as ${name}`) : [];
-    case "keptAsMany": return typeof v === "number" && typeof w === "number" && Number.isInteger(v) && Number.isInteger(w) && v >= w
-      ? pairs.map(([left, right]) => `${left} kept as many right answers as ${right} (${v} against ${w})`) : [];
     case "keptOnThese": return values.length === 3 && typeof v === "number" && typeof w === "number" && typeof x === "number"
       && Number.isInteger(v) && Number.isInteger(w) && Number.isInteger(x) && x > 0
       && v >= 0 && v <= x && w >= 0 && w <= x && pair?.[0] === "jev" && pair[1] === "llm"
@@ -518,7 +513,7 @@ const mutations: readonly Mutation[] = [
   ["R12 one hundred", "Stage", "undeclared figure \"one hundred\"", (s) => { if (s.explained) s.explained.next += " one hundred"; }],
   ["R13 Stage backward arms", "Stage", "not on the page", (s) => { if (s.explained) s.explained.cases = "Jev beat it: 88 of 100 for the LLM (Claude Haiku 5.5), 86 of 100 for Jev, the simple rule 49 of 100."; }],
   ["R14 uc13 backward arms", "uc13", "not on the page", (s) => { if (s.explained) s.explained.cases = "Jev beat it: 88 for the LLM (Haiku 5.5), 86 for Jev; simple rule 49, of 100."; }],
-  ["R15 reversed kept arms", "Stage", "value 88 but", (s) => { const from = "Jev kept as many right answers as the LLM (88 against 86)"; const to = "the LLM kept as many right answers as Jev (88 against 86)"; change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, arms: ["llm", "jev"] }); }],
+  ["R15 reversed kept arms", "Stage", "keptOnThese subject must be jev", (s) => { const from = "Jev kept 88 right answers and the LLM 86 on these 100"; const to = "the LLM kept 88 right answers and Jev 86 on these 100"; change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, arms: ["llm", "jev"] }); }],
   ["R16 backward single arm", "Stage", "armScore writes as", (s) => { const from = "Jev 88 of 100"; const to = "88 of 100 for the LLM"; change(s, "cases", from, to); Object.assign(chosen(s, "cases", from), { display: to, arm: "llm", values: [88, 100] }); }],
   ["R17 cross sample doc", "Stage", "does not match sample Stage", (s) => { if (!s.explained?.figures) return; s.explained.next += " Score it 0 / 1 / 2."; s.explained.figures.push({ part: "next", display: "0 / 1 / 2", format: "answers", values: ["0 / 1 / 2"], source: "docs/product/use-cases/uc9-website-slop-roast.md", row: "S6" }); }],
   ["R18 wrong answer row", "uc9", "value 0 / 1 / 2 but", (s) => { chosen(s, "rephrase", "0 / 1 / 2").row = "S1"; }],
@@ -527,8 +522,8 @@ const mutations: readonly Mutation[] = [
   ["R21 word beside exemption", "uc9", "undeclared figure \"three\"", (s) => change(s, "rephrase", "Ask one check at a time", "Ask one check at a time, three times")],
   ["ported arm swap without arms", "Stage", "requires one declared arm", (s) => { const f = chosen(s, "cases", "Jev 88 of 100"); delete f.arm; }],
   ["ported arm swap with declared arms", "Stage", "value 88 but", (s) => { chosen(s, "cases", "Jev 88 of 100").arm = "llm"; }],
-  ["ported 88 against 83", "Stage", "value 83 but", (s) => { const from = "Jev kept as many right answers as the LLM (88 against 86)"; const to = from.replace("86)", "83)"); change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, values: [88, 83] }); }],
-  ["ported 88 against 9", "Stage", "value 9 but", (s) => { const from = "Jev kept as many right answers as the LLM (88 against 86)"; const to = from.replace("86)", "9)"); change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, values: [88, 9] }); }],
+  ["ported 88 against 83", "Stage", "value 83 but", (s) => { const from = "Jev kept 88 right answers and the LLM 86 on these 100"; const to = from.replace("86 on", "83 on"); change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, values: [88, 83, 100] }); }],
+  ["ported 88 against 9", "Stage", "value 9 but", (s) => { const from = "Jev kept 88 right answers and the LLM 86 on these 100"; const to = from.replace("86 on", "9 on"); change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, values: [88, 9, 100] }); }],
   ["ported cost ratio as points", "Stage", "cannot name a metric", (s) => { const f = chosen(s, "why", "no more than about 4 points behind"); f.metric = "costRatio"; }],
   ["ported positive point estimate", "Stage", "value 0.02 but", (s) => { const from = "no more than about 4 points behind"; const to = "at least about 2 points ahead"; change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, values: [0.02] }); }],
   ["ported 49 of 300", "Stage", "value 300 but", (s) => { const from = "the simple rule 49 of 100"; const to = "the simple rule 49 of 300"; change(s, "cases", from, to); Object.assign(chosen(s, "cases", from), { display: to, values: [49, 300] }); }],
@@ -575,9 +570,16 @@ test("[unit] #201-3 control: added valid arm score", async () => {
 test("[unit] #201-3 control: unmodified uc13 figures check clean", async () => {
   expect(await checkFigures([sampleBy("uc13")])).toEqual([]);
 });
+// A relation word for two accepted counts reads as a general claim; unequal counts are stated bare (keptOnThese).
+const RELATION_CLAIM = /same\s+accuracy|at\s+least\s+as\s+accurate|as\s+many\s+right\s+answers/i;
 test("[unit] #201-3 landing copy has no general accuracy claim", () => {
   for (const copy of Object.values(LANDING_COPY)) {
-    expect(JSON.stringify(copy)).not.toMatch(/same\s+accuracy|at\s+least\s+as\s+accurate/i);
+    expect(JSON.stringify(copy)).not.toMatch(RELATION_CLAIM);
+  }
+});
+test("[unit] #201-3 the relation guard rejects every earlier unequal-count wording", () => {
+  for (const old of ["Jev kept as many right answers as the LLM (88 against 86)", "Same accuracy as the LLM (88 against 86 of 100)", "At least as accurate as the LLM (88/100 vs 86/100)"]) {
+    expect(old).toMatch(RELATION_CLAIM);
   }
 });
 const rendererCases: { name?: string; format: Format; values: (number | string)[]; expected: string[]; metric?: Metric; arm?: FigureArm; arms?: [FigureArm, FigureArm] }[] = [

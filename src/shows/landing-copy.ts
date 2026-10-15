@@ -7,7 +7,7 @@ export type FigureMetric = "accepted" | "labelled" | "spend" | "model" | "paired
   | "costRatio" | "spendRatio" | "minPaired" | "margin" | "docCases" | "docAnswers";
 export type FigureFormat = "int" | "rule" | "pointLimit" | "messageRun" | "pointsBehind" | "tiedTo" | "armCount" | "armScore"
   | "armModelCount" | "armModelScore" | "armSpent4" | "armSpent5" | "armSpendOf4" | "armSpendOf5" | "modelWas" | "modelAs"
-  | "keptAsMany" | "keptOnThese" | "costShareOf" | "costShare" | "tiedEach" | "spendShareOf" | "answers";
+  | "keptOnThese" | "costShareOf" | "costShare" | "tiedEach" | "spendShareOf" | "answers";
 export interface LandingFigure {
   readonly part: FigurePart;
   readonly display: string;
@@ -43,15 +43,14 @@ const q1 = (opt: Opt = {}): Opt => ({ ...opt, question: "q1" });
 export const LANDING_COPY: Readonly<Record<LandingSampleId, ExplainedCopy>> = {
   stage: {
     verdict: "Use Jev (rule 3)",
-    why: "On 100 shop messages Jev kept as many right answers as the LLM (88 against 86), and even at the cautious end of the range it is no more than about 4 points behind, inside the 10-point limit. Each kept answer cost Jev about a fifth of what it cost the LLM.",
+    why: "Jev kept 88 right answers and the LLM 86 on these 100 shop messages, and even at the cautious end of the range it is no more than about 4 points behind, inside the 10-point limit. Each kept answer cost Jev about a fifth of what it cost the LLM.",
     cases: "Jev 88 of 100, the LLM (Claude Haiku 5.5) 86 of 100, the simple rule 49 of 100. Jev spent $0.0033 against the LLM's $0.0163.",
     next: "Try it on your own decision: write 30 or more cases, label them, and load the results.",
     earlier: "On the first 40 of these messages Jev and the LLM tied, 38 each, and 40 was too few to prove it: the verdict was Not proven yet. That run used Claude Haiku 4.5 as the LLM, which is why its cost gap (Jev about 1/79th of the LLM) differs from this run.",
     rephrase: null,
     figures: [
       f("verdict", "rule 3", "rule", [3], R100),
-      f("why", "100", "int", [100], R100, { metric: "paired" }),
-      f("why", "Jev kept as many right answers as the LLM (88 against 86)", "keptAsMany", [88, 86], R100, jL),
+      f("why", "Jev kept 88 right answers and the LLM 86 on these 100", "keptOnThese", [88, 86, 100], R100, jL),
       f("why", "no more than about 4 points behind", "pointsBehind", [-0.04266031343755382], R100),
       f("why", "inside the 10-point limit", "pointLimit", [-0.04266031343755382, 0.1], R100),
       f("why", "cost Jev about a fifth of what it cost the LLM", "costShareOf", [0.19745918526106973], R100, jL),

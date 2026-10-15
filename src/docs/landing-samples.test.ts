@@ -688,11 +688,19 @@ async function visiblePart(scope: Locator, selector: string, expected: string | 
   const element = scope.locator(selector);
   const count = await element.count();
   if (count !== 1) { problems.push(`${selector} missing in ${name} (found ${count})`); return; }
-  if (!await element.isVisible()) problems.push(`${selector} hidden in ${name}`);
-  if (await element.evaluate((node) => Boolean(node.closest("details")))) problems.push(`${selector} inside details in ${name}`);
+  // #231: a part may sit behind one disclosure (a details element); opening it must show the part.
+  const holder = await element.evaluate((node) => {
+    const details = node.closest("details");
+    if (!details) return "none";
+    if (details.parentElement?.closest("details")) return "nested";
+    details.open = true;
+    return "opened";
+  });
+  if (holder === "nested") problems.push(`${selector} behind more than one disclosure in ${name}`);
+  if (!await element.isVisible()) problems.push(`${selector} hidden in ${name}${holder === "opened" ? " with its disclosure open" : ""}`);
   if (expected !== null && !((await element.innerText()).includes(expected))) problems.push(`${selector} text does not contain explained copy in ${name}`);
 }
-test("[integration] #201-5 the page shows each explained part visibly at 1440 and 390", async () => {
+test("[integration] #201-5 the page shows each explained part, in view or behind one disclosure, at 1440 and 390", async () => {
   const loaded = loadSamples();
   const problems = [...loaded.problems];
   const posters = loaded.samples.filter((sample) => sample.id !== "Stage");
@@ -723,7 +731,8 @@ test("[integration] #201-5 the page shows each explained part visibly at 1440 an
       const stageParts: [string, string | null][] = [["#verdictWhy", stage?.explained?.why ?? null], ["#verdictCases", stage?.explained?.cases ?? null], ["#verdictNext", stage?.explained?.next ?? null], ["#verdictEarlier", stage?.explained?.earlier ?? null]];
       for (const [selector, value] of stageParts) await visiblePart(page.locator("body"), selector, value, "Stage", problems);
       const stageOrder = await page.locator(["#t5", ...stageParts.map(([selector]) => selector)].join(", ")).evaluateAll((nodes) => nodes.map((node) => node.id));
-      if (stageOrder.join(",") !== ["t5", "verdictWhy", "verdictCases", "verdictNext", "verdictEarlier"].join(",")) problems.push(`${width}: Stage explained parts out of DOM order after #t5`);
+      // #231: the verdict's reason and next step stay in view; the cases and the earlier run follow behind a click.
+      if (stageOrder.join(",") !== ["t5", "verdictWhy", "verdictNext", "verdictCases", "verdictEarlier"].join(",")) problems.push(`${width}: Stage explained parts out of DOM order after #t5`);
     } finally { await page.close(); }
   }
   requireClean(problems);

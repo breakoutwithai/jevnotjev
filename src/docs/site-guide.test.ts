@@ -1151,7 +1151,7 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
     // A script label that survives only in a script comment is not rendered.
     const commented = new Map(pages());
     const line = "Understudies wait in the wings; the stage manager keeps tabs on the subs.";
-    commented.set(STAGE, mutate(read(STAGE), ` ${line}"`, `" /* ${line} */`));
+    commented.set(STAGE, mutate(read(STAGE), `"${line}"`, `"" /* ${line} */`));
     expect(labelProblems(guide, commented)).toEqual([`not on ${STAGE}: ${line}`]);
   });
 });

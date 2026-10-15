@@ -251,7 +251,63 @@ test("[unit] RELEASE-CHECK-LIMITS passes when a line of text sits under a headin
   expect(limitsTextFailure("# Limits\r\n\r\nIt cannot judge audio.\r\n")).toBeUndefined();
 });
 
+test("[integration] RELEASE-CHECK-GUIDE-HOME a guide step gets an empty temp HOME, not the real one", async () => {
+  const realHome = process.env.HOME ?? "";
+  expect(realHome).not.toBe("");
+  const probe = `test -d "$HOME" && test "$HOME" != '${realHome}' && test -z "$(ls -A "$HOME")"`;
+  const checks = await runGuide(craftedGuide({ question: probe }));
+  expect(checks.map((check) => `${check.state} ${check.name}`), JSON.stringify(checks)).toEqual(SAFE_GUIDE_STEPS.map((id) => `PASS guide ${id}`));
+});
+
+test("[integration] RELEASE-CHECK-GUIDE-RUN a failing intermediate command fails the step, including inside a pipe", async () => {
+  const masked = await runGuide(craftedGuide({ rule: "false; printf done" }));
+  expect(masked[2]).toMatchObject({ name: "guide rule", state: "FAIL" });
+  const piped = await runGuide(craftedGuide({ rule: "false | cat" }));
+  expect(piped[2]).toMatchObject({ name: "guide rule", state: "FAIL" });
+});
+
+test("[integration] RELEASE-CHECK-GUIDE-RUN reads quoted --arms lists and ignores a commented --arms line", async () => {
+  const body = "echo '{\"cases\":2,\"calls\":2,\"costUsd\":0.1}'";
+  for (const list of ["--arms 'jev,rule'", "--arms \"jev,rule\"", "--arms='jev,rule'", "--arms=\"jev,rule\""]) {
+    const checks = await runGuide(craftedGuide({ estimate: `: ${list}\n${body}` }));
+    expect(checks.at(-1), list).toEqual({ name: "guide estimate", state: "PASS" });
+  }
+  const commented = await runGuide(craftedGuide({ estimate: `# --arms jev,llm\n   # --arms=jev,llm,rule\n: --arms jev,rule\n${body}` }));
+  expect(commented.at(-1)).toEqual({ name: "guide estimate", state: "PASS" });
+});
+
+test("[unit] RELEASE-CHECK-ARGS rejects a --url carrying a query or fragment", () => {
+  for (const url of ["http://host/?x=1", "http://host/#frag", "http://host/app?x=1#f", "http://host/?"]) {
+    expect(() => argsOf(["--url", url]), url).toThrow("usage:");
+  }
+});
+
+test("[unit] RELEASE-CHECK-LIMITS tells headings from text by markdown rules", () => {
+  const none = "docs/LIMITS.md has no text beyond headings";
+  expect(limitsTextFailure("Limits\n======\n")).toBe(none);
+  expect(limitsTextFailure("Limits\n------\n")).toBe(none);
+  expect(limitsTextFailure("# A\n## B\n")).toBe(none);
+  expect(limitsTextFailure("   ## B ##\n")).toBe(none);
+  expect(limitsTextFailure("#\n")).toBe(none);
+  expect(limitsTextFailure("#tag is a literal paragraph")).toBeUndefined();
+  expect(limitsTextFailure("# Limits\n\nThe verdict needs 30 pairs.")).toBeUndefined();
+  expect(limitsTextFailure("Limits\n======\n\nIt cannot judge audio.\n")).toBeUndefined();
+  expect(limitsTextFailure("    # indented code, not a heading")).toBeUndefined();
+});
+
 const candidate = "0123456789abcdef0123456789abcdef01234567";
+
+test("[integration] RELEASE-CHECK-SERVED requests the sub-path of a base URL and refuses a query or fragment base", async () => {
+  const server = Bun.serve({ port: 0, fetch: (request) => (new URL(request.url).pathname === "/app/DEPLOYED_SHA" && new URL(request.url).search === "" ? new Response(candidate) : new Response("wrong path", { status: 404 })) });
+  try {
+    await assertServedSha(`http://127.0.0.1:${server.port}/app/`, candidate);
+    await assertServedSha(`http://127.0.0.1:${server.port}/app//`, candidate);
+    await expect(assertServedSha(`http://127.0.0.1:${server.port}/?x=1`, candidate)).rejects.toThrow("served URL must not carry a query or fragment");
+    await expect(assertServedSha(`http://127.0.0.1:${server.port}/app#frag`, candidate)).rejects.toThrow("served URL must not carry a query or fragment");
+  } finally {
+    await server.stop(true);
+  }
+});
 
 async function servedCase(body: string, status = 200): Promise<Error | undefined> {
   const server = Bun.serve({ port: 0, fetch: (request) => (new URL(request.url).pathname === "/x/DEPLOYED_SHA" ? new Response(body, { status }) : new Response("wrong path", { status: 418 })) });

@@ -9,7 +9,7 @@ bun scripts/release-check.ts --repo https://github.com/breakoutwithai/jevnotjev.
 - `--repo` is the public repository URL. The public code must hold the candidate: with a local path, a commit or tag that exists only on this machine would pass. Without `--repo` the script clones this checkout, which is for development only.
 - `--ref` is the commit or tag to check. The script clones the repository into a temporary directory, checks that ref out, and prints `candidate: <40-hex sha>` once the ref resolves. Pass the tag to prove the tag target.
 - `--url` is the public app. Without it the served-version item is reported as `NOT RUN`.
-- The clone and its files are deleted when the check ends. The environment handed to every step is `PATH` and `HOME`, plus a fixture file and a fake key for the recorded run only, so no real provider key reaches any step and no paid call is made.
+- The clone and its files are deleted when the check ends. The environment handed to every step is `PATH` and `HOME`, plus a fixture file and a fake key for the recorded run only. For the guide steps `HOME` is a fresh empty temporary directory, so no real provider key and none of the operator's files are in the environment. Network access is not blocked.
 - A bad flag prints `FAIL arguments` and then every item as `NOT RUN`.
 
 ## Results and exit codes
@@ -50,11 +50,13 @@ A `NOT RUN` is not a pass. A release candidate is clear only on exit 0.
 | `served sha` | The public static site serves the candidate commit. | `GET <url>/DEPLOYED_SHA` |
 | `limits text` | The candidate commit holds a `docs/LIMITS.md` with text beyond its headings. | `git show <candidate sha>:docs/LIMITS.md` |
 
-Only the guide steps `prepare`, `question`, `rule`, `cases` and `estimate` run. The guard fails closed: it refuses any of those steps that could call a provider or the network, and reports that step as `FAIL`. Refused are any `decide` or `cli.ts` token not followed by `estimate`, `claude` anywhere, `curl`, `wget`, `nc`, `bunx`, `npx`, `bun add`, `fetch(`, `node:http`, `node:https`, `node:net`, `node:tls` and `_API_KEY`. The steps that run the arms (`without-jev`, `with-jev`) can spend money and are never run here.
+Only the guide steps `prepare`, `question`, `rule`, `cases` and `estimate` run, each with `bash -e -o pipefail`, so a failing command anywhere in a step, including inside a pipe, fails the step.
 
-`served sha` checks the static site's `/DEPLOYED_SHA` only. The trimmed body must be exactly 40 hex characters equal to the candidate sha (case-insensitive); a short prefix fails. A non-2xx answer, a timeout after 10 seconds, a network error or an HTML page served with status 200 all fail. It does not check the backend or any other module of the stack.
+What is and is not prevented: a pattern guard catches the known provider and network commands in the guide text and reports that step as `FAIL`. It is not a sandbox. The steps still have network access, and a step written to evade the patterns would run. What the script does guarantee is that no provider key is in the environment and `HOME` is an empty temporary directory. The patterns refuse any `decide` or `cli.ts` token not followed by `estimate`, `claude` anywhere, `curl`, `wget`, `nc`, `bunx`, `npx`, `bun add`, `fetch(`, `node:http`, `node:https`, `node:net`, `node:tls` and `_API_KEY`. The steps that run the arms (`without-jev`, `with-jev`) can spend money and are never run here.
 
-`limits text` reads the file from the candidate commit, not from the working files. It fails when `docs/LIMITS.md` is absent from the commit or when every non-blank line is a heading.
+`served sha` checks the static site's `/DEPLOYED_SHA` only. `--url` may carry a path (`https://host/app/` requests `/app/DEPLOYED_SHA`) but not a query or fragment; either is a usage error. The trimmed body must be exactly 40 hex characters equal to the candidate sha (case-insensitive); a short prefix fails. A non-2xx answer, a timeout after 10 seconds, a network error or an HTML page served with status 200 all fail. It does not check the backend or any other module of the stack.
+
+`limits text` reads the file from the candidate commit, not from the working files. It fails when `docs/LIMITS.md` is absent from the commit or when every non-blank line is a heading. A heading is a line of `#` to `######` (up to three leading spaces) followed by a space or the end of the line, or a line followed by a `===` or `---` underline. `#tag` is text.
 
 ## Manual items
 

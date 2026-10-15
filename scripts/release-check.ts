@@ -1,7 +1,7 @@
 // Exercise the decide CLI and stdio MCP server from a clean clone of a commit.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { readDictRows } from "../src/format/csv.ts";
@@ -31,8 +31,8 @@ export function summarizeChecks(checks: readonly Check[]): { readonly line: stri
 // Guide steps that touch no provider, network or key. Every other step in docs/GUIDE.md can spend money.
 export const SAFE_GUIDE_STEPS: readonly string[] = ["prepare", "question", "rule", "cases", "estimate"];
 
-// Fails closed: the only decide invocation allowed is `estimate`, which prices a run and calls no provider.
-// Anything that names the CLI differently, a provider binary, a network tool or a key is refused wherever it appears.
+// A tripwire for the known provider and network commands, not a sandbox: a step written to evade it still runs.
+// What bounds a step is the environment it gets: PATH and an empty temp HOME, no provider key.
 const UNSAFE_GUIDE_PATTERNS: readonly RegExp[] = [
   /\bdecide\b(?!\s+estimate\b)/, /\bcli\.ts\b(?!\s+estimate\b)/, /\bclaude\b/, /\b(?:curl|wget|nc|bunx|npx)\b/, /\bbun\s+add\b/,
   /\bfetch\s*\(/, /node:(?:https?|net|tls)/, /_API_KEY/,
@@ -66,12 +66,19 @@ export function guideSafeScripts(text: string): readonly GuideStep[] {
 // Returns the failure reason, or undefined when at least one line is text rather than a heading.
 export function limitsTextFailure(text: string | undefined): string | undefined {
   if (text === undefined) return "docs/LIMITS.md missing";
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "");
-  return lines.every((line) => line.startsWith("#")) ? "docs/LIMITS.md has no text beyond headings" : undefined;
+  const lines = text.split(/\r?\n/);
+  const blank = (line: string | undefined): boolean => line === undefined || line.trim() === "";
+  const atx = (line: string): boolean => /^ {0,3}#{1,6}(\s|$)/.test(line);
+  const underline = (line: string | undefined): boolean => line !== undefined && /^ {0,3}(=+|-+)\s*$/.test(line);
+  const hasText = lines.some((line, index) => !blank(line) && !atx(line) && !underline(line) && !underline(lines[index + 1]));
+  return hasText ? undefined : "docs/LIMITS.md has no text beyond headings";
 }
 
 export async function assertServedSha(baseUrl: string, candidateSha: string, timeoutMs = 10_000): Promise<void> {
-  const url = `${baseUrl.replace(/\/+$/, "")}/DEPLOYED_SHA`;
+  const base = new URL(baseUrl);
+  if (base.search !== "" || base.hash !== "") throw new Error("served URL must not carry a query or fragment");
+  base.pathname = `${base.pathname.replace(/\/+$/, "")}/DEPLOYED_SHA`;
+  const url = base.href;
   let response: Response;
   try {
     response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
@@ -161,7 +168,7 @@ export function argsOf(argv: readonly string[]): Options {
     if (flag === "--repo") repo = value;
     else if (flag === "--ref") ref = value;
     else {
-      if (!URL.canParse(value) || !/^https?:$/.test(new URL(value).protocol)) throw new Error(usage);
+      if (!URL.canParse(value) || !/^https?:$/.test(new URL(value).protocol) || value.includes("?") || value.includes("#")) throw new Error(usage);
       url = value;
     }
   }
@@ -264,12 +271,12 @@ const CLI_ITEMS: readonly string[] = [
 ];
 const MCP_ITEMS: readonly string[] = ["mcp tools/list", "mcp validate", "mcp verdict"];
 
-// Every item the script reports, in run order. An item that never ran is still printed, as NOT RUN.
+// Every item the script reports, in run order. An item that never ran is still printed, marked NOT RUN.
 export const RELEASE_ITEMS: readonly string[] = [
   "fresh clone", "frozen install", ...SAFE_GUIDE_STEPS.map((id) => `guide ${id}`), ...CLI_ITEMS, ...MCP_ITEMS, "served sha", "limits text",
 ];
 
-// NOT RUN lines for every item that has no result yet, naming the first failure as the reason.
+// NOT RUN lines for every item that has no result yet, naming the first failure in the reason.
 export function notRunChecks(reported: readonly Check[], items: readonly string[]): readonly Check[] {
   const seen = new Set(reported.map((check) => check.name));
   const firstFail = reported.find((check) => check.state === "FAIL");
@@ -286,7 +293,19 @@ export async function attempt(name: string, fn: () => void | Promise<void>, emit
   }
 }
 
-export async function guideChecks(clone: string, add: Add, emit: (check: Check) => void): Promise<void> {
+// The --arms list of the first command line that is not a comment, in either form and with optional quotes.
+function armsOfScript(script: string): readonly string[] {
+  for (const line of script.split("\n")) {
+    if (line.trimStart().startsWith("#")) continue;
+    const found = line.match(/--arms(?:\s+|=)(?:"([^"]*)"|'([^']*)'|(\S+))/);
+    const list = found?.[1] ?? found?.[2] ?? found?.[3];
+    if (list !== undefined) return list.split(",");
+  }
+  return [];
+}
+
+// Every step runs with an empty temp HOME created under `work`, so it sees none of the operator's files or credentials.
+export async function guideChecks(clone: string, add: Add, emit: (check: Check) => void, work = dirname(clone)): Promise<void> {
   let steps: readonly GuideStep[];
   try {
     steps = guideSafeScripts(readFileSync(join(clone, "docs/GUIDE.md"), "utf8"));
@@ -295,19 +314,24 @@ export async function guideChecks(clone: string, add: Add, emit: (check: Check) 
     for (const id of SAFE_GUIDE_STEPS) emit({ name: `guide ${id}`, state: "FAIL", reason });
     return;
   }
-  for (const step of steps) {
-    await add(`guide ${step.id}`, () => {
-      const result = command(["bash", "-c", step.script], clone, {}, `guide ${step.id}`, 60_000);
-      expectCode(result, 0);
-      if (step.id !== "estimate") return;
-      const ids = readFileSync(join(clone, "guide-work/cases.jsonl"), "utf8").trim().split("\n").map((line) => field(parsed(line), "id"));
-      const caseIds = ids.filter((id): id is string => typeof id === "string");
-      requireValue(caseIds.length === ids.length && caseIds.length > 0, "guide-work/cases.jsonl has a case without an id");
-      // The local rule arm makes no provider call (run.ts), so only the other arms count toward `calls`.
-      const arms = (step.script.match(/--arms(?:\s+|=)(\S+)/)?.[1]?.split(",") ?? []).filter((arm) => arm !== "rule");
-      requireValue(arms.length > 0, "guide estimate has no provider arm in its --arms list");
-      assertReleaseOutput("estimate", parsed(result.stdout), { caseIds, arms });
-    });
+  const home = mkdtempSync(join(work, "guide-home-"));
+  try {
+    for (const step of steps) {
+      await add(`guide ${step.id}`, () => {
+        const result = command(["bash", "-e", "-o", "pipefail", "-c", step.script], clone, { HOME: home }, `guide ${step.id}`, 60_000);
+        expectCode(result, 0);
+        if (step.id !== "estimate") return;
+        const ids = readFileSync(join(clone, "guide-work/cases.jsonl"), "utf8").trim().split("\n").map((line) => field(parsed(line), "id"));
+        const caseIds = ids.filter((id): id is string => typeof id === "string");
+        requireValue(caseIds.length === ids.length && caseIds.length > 0, "guide-work/cases.jsonl has a case without an id");
+        // The local rule arm makes no provider call (run.ts), so only the other arms count toward `calls`.
+        const arms = armsOfScript(step.script).filter((arm) => arm !== "rule");
+        requireValue(arms.length > 0, "guide estimate has no provider arm in its --arms list");
+        assertReleaseOutput("estimate", parsed(result.stdout), { caseIds, arms });
+      });
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
   }
 }
 
@@ -354,7 +378,7 @@ export async function runReleaseCheck(argv: readonly string[]): Promise<number> 
     console.log(`candidate: ${candidateSha}`);
     await add("frozen install", () => expectCode(command(["bun", "install", "--frozen-lockfile"], clone, {}, "frozen install", 120_000), 0));
     if (checks.at(-1)?.state !== "PASS") return finish();
-    await guideChecks(clone, add, emit);
+    await guideChecks(clone, add, emit, work);
     let input: Inputs | undefined;
     try {
       input = prepareInputs(clone, work);

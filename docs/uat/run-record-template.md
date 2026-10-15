@@ -26,16 +26,18 @@ Variants: guided means the host may type; unguided means the tester only has the
 - Date of run: ___
 - Variant (guided, unguided or hybrid): ___
 - Browser and device type: ___
-- Minutes to signed in (N): ___
+- Minutes to signed in (N, or not reached): ___
 - Elapsed minutes (N): ___
-- Furthest step reached (1 to 5): ___
+- Furthest step reached (0 to 5, 0 means stopped before step 1): ___
 - Stuck points by step (N per step 1 to 5): ___
 - Assists (N, each with step number and reason): ___
 - Questions about a field (N): ___
 - Cases entered (N): ___
 - Paired labelled cases per comparison (N): ___
 - Labels set (N of N): ___
-- Verdict shown (use Jev, don't use Jev, not enough evidence, Jev-only rehearsal, or none): ___
+- Verdict, Jev versus LLM (use Jev, don't use Jev, not enough evidence, or none): ___
+- Verdict, Jev versus rule (use Jev, don't use Jev, not enough evidence, or none): ___
+- Jev-only rehearsal shown (yes or no): ___
 - Errors seen (screen text, with anything the tester typed replaced by [value]): ___
 - Exports downloaded (0 to 2, the files stay with the tester): ___
 

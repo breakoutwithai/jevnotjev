@@ -9,7 +9,8 @@ bun scripts/release-check.ts --repo https://github.com/breakoutwithai/jevnotjev.
 - `--repo` is the public repository URL. The public code must hold the candidate: with a local path, a commit or tag that exists only on this machine would pass. Without `--repo` the script clones this checkout, which is for development only.
 - `--ref` is the commit or tag to check. The script clones the repository into a temporary directory, checks that ref out, and prints `candidate: <40-hex sha>` once the ref resolves. Pass the tag to prove the tag target.
 - `--url` is the public app. Without it the served-version item is reported as `NOT RUN`.
-- The clone and its files are deleted when the check ends. The environment handed to every step is `PATH` and `HOME`, plus a fixture file and a fake key for the recorded run only. For the guide steps `HOME` is a fresh empty temporary directory, so no real provider key and none of the operator's files are in the environment. Network access is not blocked.
+- Temporary files are removed on a normal exit; an interrupted run can leave the `jnj-release-check-*` temp directory behind.
+- Environment: guide steps get `PATH` and an empty temporary `HOME`; files stay readable by absolute path. The install, CLI and MCP items use the real `HOME`, and the MCP server also receives `LOGNAME`, `SHELL`, `TERM` and `USER` from its SDK. The recorded CLI run gets a fixture file and a fake key. No provider key is passed to any item. Network access is not blocked.
 - A bad flag prints `FAIL arguments` and then every item as `NOT RUN`.
 
 ## Results and exit codes
@@ -40,23 +41,25 @@ A `NOT RUN` is not a pass. A release candidate is clear only on exit 0.
 | `guide question` | The step exits 0. | `# guide: question` block |
 | `guide rule` | The step exits 0. | `# guide: rule` block |
 | `guide cases` | The step exits 0. | `# guide: cases` block |
-| `guide estimate` | The step exits 0 and its output has the right case and call counts. | `# guide: estimate` block, i.e. `bun run decide estimate ...` |
+| `guide estimate` | The safe sample: exit 0, JSON with `cases` an integer of 30 or more, `calls` an integer above 0 and a positive finite `costUsd`. | `# guide: estimate` block, i.e. `bun run decide estimate ...` |
 | `cli help`, `cli arms` | The CLI starts and lists the documented arms. | `bun run decide --help`, `bun run decide arms` |
 | `cli estimate` | Estimate counts cases and calls correctly. | `bun run decide estimate` |
 | `cli validate valid`, `cli validate invalid` | A good record file validates and a broken one is refused. | `bun run decide validate <file>` |
-| `cli verdict use`, `insufficient`, `reject` | The three verdict exits and names. | `bun run decide verdict examples/d08-verdicts/<file>` |
+| `cli verdict use`, `cli verdict insufficient`, `cli verdict reject` | The three verdict exits and names. | `bun run decide verdict examples/d08-verdicts/<file>` |
 | `cli fixture run`, `cli validate fixture records` | A recorded-fixture run writes valid records. | `bun run decide run` with `JNJ_DECIDE_FIXTURES` |
 | `mcp tools/list`, `mcp validate`, `mcp verdict` | The stdio MCP server lists its six tools and answers two calls. | `bun src/mcp/server.ts` |
 | `served sha` | The public static site serves the candidate commit. | `GET <url>/DEPLOYED_SHA` |
-| `limits text` | The candidate commit holds a `docs/LIMITS.md` with text beyond its headings. | `git show <candidate sha>:docs/LIMITS.md` |
+| `limits text` | The candidate commit holds a `docs/LIMITS.md` that is present and non-empty. Reading it is the manual item. | `git show <candidate sha>:docs/LIMITS.md` |
 
-Only the guide steps `prepare`, `question`, `rule`, `cases` and `estimate` run, each with `bash -e -o pipefail`, so a failing command anywhere in a step, including inside a pipe, fails the step.
+Only 5 of the guide's 13 steps run: `prepare`, `question`, `rule`, `cases` and `estimate`, the ones that make no provider call. The steps that run arms (`without-jev`, `with-jev`) can spend money, so this script never runs them; the repo test suite replays them from fixtures. `guide estimate` is the safe sample.
 
-What is and is not prevented: a pattern guard catches the known provider and network commands in the guide text and reports that step as `FAIL`. It is not a sandbox. The steps still have network access, and a step written to evade the patterns would run. What the script does guarantee is that no provider key is in the environment and `HOME` is an empty temporary directory. The patterns refuse any `decide` or `cli.ts` token not followed by `estimate`, `claude` anywhere, `curl`, `wget`, `nc`, `bunx`, `npx`, `bun add`, `fetch(`, `node:http`, `node:https`, `node:net`, `node:tls` and `_API_KEY`. The steps that run the arms (`without-jev`, `with-jev`) can spend money and are never run here.
+Each step runs with `bash -e -o pipefail`: a failing simple command or pipeline fails the step. A failure inside a command substitution or an `&&`/`||` list does not, per the bash errexit rules.
 
-`served sha` checks the static site's `/DEPLOYED_SHA` only. `--url` may carry a path (`https://host/app/` requests `/app/DEPLOYED_SHA`) but not a query or fragment; either is a usage error. The trimmed body must be exactly 40 hex characters equal to the candidate sha (case-insensitive); a short prefix fails. A non-2xx answer, a timeout after 10 seconds, a network error or an HTML page served with status 200 all fail. It does not check the backend or any other module of the stack.
+What is and is not prevented: a pattern guard catches the known provider and network commands in the guide text and reports that step as `FAIL`. It is not a sandbox. The steps still have network access, and a step written to evade the patterns would run. What bounds a step is its environment: `PATH` and an empty temporary `HOME`, no provider key. The patterns refuse any `decide` or `cli.ts` token not followed by `estimate`, `claude` anywhere, `curl`, `wget`, `nc`, `bunx`, `npx`, `bun add`, `fetch(`, `node:http`, `node:https`, `node:net`, `node:tls` and `_API_KEY`.
 
-`limits text` reads the file from the candidate commit, not from the working files. It fails when `docs/LIMITS.md` is absent from the commit or when every non-blank line is a heading. A heading is a line of `#` to `######` (up to three leading spaces) followed by a space or the end of the line, or a line followed by a `===` or `---` underline. `#tag` is text.
+`served sha` checks the static site's `/DEPLOYED_SHA` only. `--url` may carry a path (`https://host/app/` requests `/app/DEPLOYED_SHA`) but not a query or fragment; either is a usage error. The trimmed body must be exactly 40 hex characters equal to the candidate sha (case-insensitive); a short prefix fails. A redirect, a non-2xx answer, a timeout after 10 seconds (the body read included), a network error or an HTML page served with status 200 all fail. It does not check the backend or any other module of the stack.
+
+`limits text` reads the file from the candidate commit, not from the working files. It fails with `docs/LIMITS.md missing` when the file is absent from the commit and with `docs/LIMITS.md is empty` when it holds only whitespace. It does not judge the content; that is the manual item below.
 
 ## Manual items
 

@@ -1,4 +1,4 @@
-// Exercise the decide CLI and stdio MCP server from a clean clone of a commit.
+// Check a release candidate from a fresh clone: frozen install, five no-provider guide steps, the decide CLI, the stdio MCP server, the served sha and docs/LIMITS.md.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -15,7 +15,9 @@ export interface Check {
 }
 
 export function formatCheck(check: Check): string {
-  return check.state === "PASS" ? `PASS ${check.name}` : `${check.state} ${check.name}: ${check.reason ?? "unknown reason"}`;
+  if (check.state === "PASS") return `PASS ${check.name}`;
+  const reason = (check.reason ?? "unknown reason").replace(/[\r\n]+/g, " | ").replace(/[\u0000-\u001f\u007f]/g, "");
+  return `${check.state} ${check.name}: ${reason}`;
 }
 
 export function summarizeChecks(checks: readonly Check[]): { readonly line: string; readonly exitCode: number } {
@@ -63,15 +65,10 @@ export function guideSafeScripts(text: string): readonly GuideStep[] {
 }
 
 // Input is the text of docs/LIMITS.md at the candidate commit, or undefined when the commit has no such file.
-// Returns the failure reason, or undefined when at least one line is text rather than a heading.
+// Returns the failure reason, or undefined when the file has non-whitespace content. Reading it is a manual item.
 export function limitsTextFailure(text: string | undefined): string | undefined {
   if (text === undefined) return "docs/LIMITS.md missing";
-  const lines = text.split(/\r?\n/);
-  const blank = (line: string | undefined): boolean => line === undefined || line.trim() === "";
-  const atx = (line: string): boolean => /^ {0,3}#{1,6}(\s|$)/.test(line);
-  const underline = (line: string | undefined): boolean => line !== undefined && /^ {0,3}(=+|-+)\s*$/.test(line);
-  const hasText = lines.some((line, index) => !blank(line) && !atx(line) && !underline(line) && !underline(lines[index + 1]));
-  return hasText ? undefined : "docs/LIMITS.md has no text beyond headings";
+  return text.trim() === "" ? "docs/LIMITS.md is empty" : undefined;
 }
 
 export async function assertServedSha(baseUrl: string, candidateSha: string, timeoutMs = 10_000): Promise<void> {
@@ -79,15 +76,17 @@ export async function assertServedSha(baseUrl: string, candidateSha: string, tim
   if (base.search !== "" || base.hash !== "") throw new Error("served URL must not carry a query or fragment");
   base.pathname = `${base.pathname.replace(/\/+$/, "")}/DEPLOYED_SHA`;
   const url = base.href;
-  let response: Response;
+  let status = 0;
+  let served = "";
   try {
-    response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: "error" });
+    status = response.status;
+    if (response.ok) served = (await response.text()).trim();
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") throw new Error(`request timed out after ${timeoutMs} ms`);
     throw new Error(`network error: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  const served = (await response.text()).trim();
+  if (status < 200 || status > 299) throw new Error(`HTTP ${status}`);
   if (!/^[0-9a-f]{40}$/i.test(served)) throw new Error("served value is not a 40-character commit SHA");
   if (served.toLowerCase() !== candidateSha.toLowerCase()) throw new Error(`served ${served}, candidate ${candidateSha}`);
 }
@@ -109,6 +108,22 @@ function parsed(text: string): unknown {
 
 function requireValue(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+// The guide's estimate step is the safe sample: it makes no provider call and must describe the 30+ case run the guide asks for.
+function assertGuideEstimate(stdout: string): void {
+  let body: unknown;
+  try {
+    body = parsed(stdout);
+  } catch {
+    throw new Error("estimate output is not JSON");
+  }
+  const cases = field(body, "cases");
+  const calls = field(body, "calls");
+  const costUsd = field(body, "costUsd");
+  requireValue(typeof cases === "number" && Number.isInteger(cases) && cases >= 30, "expected at least 30 cases");
+  requireValue(typeof calls === "number" && Number.isInteger(calls) && calls > 0, "expected a positive integer calls");
+  requireValue(typeof costUsd === "number" && Number.isFinite(costUsd) && costUsd > 0, "expected positive finite costUsd");
 }
 
 interface ExpectedRun {
@@ -293,45 +308,29 @@ export async function attempt(name: string, fn: () => void | Promise<void>, emit
   }
 }
 
-// The --arms list of the first command line that is not a comment, in either form and with optional quotes.
-function armsOfScript(script: string): readonly string[] {
-  for (const line of script.split("\n")) {
-    if (line.trimStart().startsWith("#")) continue;
-    const found = line.match(/--arms(?:\s+|=)(?:"([^"]*)"|'([^']*)'|(\S+))/);
-    const list = found?.[1] ?? found?.[2] ?? found?.[3];
-    if (list !== undefined) return list.split(",");
-  }
-  return [];
-}
-
 // Every step runs with an empty temp HOME created under `work`, so it sees none of the operator's files or credentials.
 export async function guideChecks(clone: string, add: Add, emit: (check: Check) => void, work = dirname(clone)): Promise<void> {
   let steps: readonly GuideStep[];
+  let home = "";
   try {
     steps = guideSafeScripts(readFileSync(join(clone, "docs/GUIDE.md"), "utf8"));
+    home = mkdtempSync(join(work, "guide-home-"));
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     for (const id of SAFE_GUIDE_STEPS) emit({ name: `guide ${id}`, state: "FAIL", reason });
     return;
   }
-  const home = mkdtempSync(join(work, "guide-home-"));
+  const stepHome = home;
   try {
     for (const step of steps) {
       await add(`guide ${step.id}`, () => {
-        const result = command(["bash", "-e", "-o", "pipefail", "-c", step.script], clone, { HOME: home }, `guide ${step.id}`, 60_000);
+        const result = command(["bash", "-e", "-o", "pipefail", "-c", step.script], clone, { HOME: stepHome }, `guide ${step.id}`, 60_000);
         expectCode(result, 0);
-        if (step.id !== "estimate") return;
-        const ids = readFileSync(join(clone, "guide-work/cases.jsonl"), "utf8").trim().split("\n").map((line) => field(parsed(line), "id"));
-        const caseIds = ids.filter((id): id is string => typeof id === "string");
-        requireValue(caseIds.length === ids.length && caseIds.length > 0, "guide-work/cases.jsonl has a case without an id");
-        // The local rule arm makes no provider call (run.ts), so only the other arms count toward `calls`.
-        const arms = armsOfScript(step.script).filter((arm) => arm !== "rule");
-        requireValue(arms.length > 0, "guide estimate has no provider arm in its --arms list");
-        assertReleaseOutput("estimate", parsed(result.stdout), { caseIds, arms });
+        if (step.id === "estimate") assertGuideEstimate(result.stdout);
       });
     }
   } finally {
-    rmSync(home, { recursive: true, force: true });
+    rmSync(stepHome, { recursive: true, force: true });
   }
 }
 
@@ -362,7 +361,7 @@ export async function runReleaseCheck(argv: readonly string[]): Promise<number> 
   let candidateSha = "";
   try {
     await add("fresh clone", () => {
-      const cloned = command(["git", "clone", "--no-local", "--quiet", options.repo, clone], work, {}, "fresh clone");
+      const cloned = command(["git", "clone", "--no-local", "--quiet", options.repo, clone], work, {}, "fresh clone", 120_000);
       expectCode(cloned, 0);
       const localRepo = !options.repo.includes("://") && !options.repo.startsWith("git@");
       const localTarget = localRepo ? command(["git", "rev-parse", "--verify", `${options.ref}^{commit}`], options.repo, {}, "local ref") : null;

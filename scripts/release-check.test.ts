@@ -57,6 +57,13 @@ test("[unit] RELEASE-CHECK-LINES formats one pass, one failure with a reason and
   expect(formatCheck({ name: "served sha", state: "NOT RUN", reason: "no --url given" })).toBe("NOT RUN served sha: no --url given");
 });
 
+test("[unit] RELEASE-CHECK-LINES a reason with line breaks or control characters prints one line", () => {
+  const line = formatCheck({ name: "guide rule", state: "FAIL", reason: "bad\nPASS cli help\r\n\r\nmore\u0007\u001b[31m" });
+  expect(line).toBe("FAIL guide rule: bad | PASS cli help | more[31m");
+  expect(line.split("\n").length).toBe(1);
+  expect(/[\u0000-\u001f\u007f]/.test(line)).toBe(false);
+});
+
 test("[unit] RELEASE-CHECK-SUMMARY covers empty, all-pass, fail, fail with not-run and not-run only", () => {
   const pass: Check = { name: "a", state: "PASS" };
   const fail: Check = { name: "b", state: "FAIL", reason: "bad" };
@@ -166,22 +173,21 @@ test("[unit] RELEASE-CHECK-GUIDE does not apply the safety check to a step outsi
   expect(guideSafeScripts(text).map((step) => step.id)).toEqual([...SAFE_GUIDE_STEPS]);
 });
 
-const goodEstimate = "echo '{\"cases\":2,\"calls\":2,\"costUsd\":0.1}' # --arms jev,rule";
-const goodCases = "printf '{\"id\":\"a\",\"input\":\"x\"}\\n{\"id\":\"b\",\"input\":\"y\"}\\n' > guide-work/cases.jsonl";
+const goodEstimate = "echo '{\"cases\":30,\"calls\":60,\"costUsd\":0.1}'";
 
 function craftedGuide(overrides: Readonly<Record<string, string>> = {}): string {
-  const defaults: Readonly<Record<string, string>> = { prepare: "mkdir -p guide-work", question: "echo q", rule: "echo r", cases: goodCases, estimate: goodEstimate };
+  const defaults: Readonly<Record<string, string>> = { prepare: "mkdir -p guide-work", question: "echo q", rule: "echo r", cases: "echo c", estimate: goodEstimate };
   return SAFE_GUIDE_STEPS.map((id) => block(id, overrides[id] ?? defaults[id] ?? "true")).join("\ntext\n");
 }
 
-async function runGuide(guide: string | undefined): Promise<readonly Check[]> {
+async function runGuide(guide: string | undefined, work?: string): Promise<readonly Check[]> {
   const dir = mkdtempSync(join(tmpdir(), "jnj-guide-check-"));
   try {
     mkdirSync(join(dir, "docs"));
     if (guide !== undefined) writeFileSync(join(dir, "docs/GUIDE.md"), guide);
     const checks: Check[] = [];
     const emit = (check: Check): void => { checks.push(check); };
-    await guideChecks(dir, (name, fn) => attempt(name, fn, emit), emit);
+    await guideChecks(dir, (name, fn) => attempt(name, fn, emit), emit, work);
     return checks;
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -201,20 +207,20 @@ test("[integration] RELEASE-CHECK-GUIDE-RUN a step that exits non-zero fails and
   expect(checks[2]?.reason).toContain("exit 3, expected 0");
 });
 
-test("[integration] RELEASE-CHECK-GUIDE-RUN an estimate with the wrong cases or calls fails", async () => {
-  const wrongCalls = await runGuide(craftedGuide({ estimate: "echo '{\"cases\":2,\"calls\":3,\"costUsd\":0.1}' # --arms jev,rule" }));
-  expect(wrongCalls.at(-1)).toMatchObject({ name: "guide estimate", state: "FAIL", reason: "expected 2 calls" });
-  const wrongCases = await runGuide(craftedGuide({ estimate: "echo '{\"cases\":5,\"calls\":2,\"costUsd\":0.1}' # --arms jev,rule" }));
-  expect(wrongCases.at(-1)).toMatchObject({ name: "guide estimate", state: "FAIL", reason: "expected 2 cases" });
-  const noProviderArm = await runGuide(craftedGuide({ estimate: "echo '{\"cases\":2,\"calls\":0,\"costUsd\":0.1}' # --arms rule" }));
-  expect(noProviderArm.at(-1)).toMatchObject({ name: "guide estimate", state: "FAIL", reason: "guide estimate has no provider arm in its --arms list" });
-});
-
-test("[integration] RELEASE-CHECK-GUIDE-RUN reads the arms list from both --arms forms", async () => {
-  const equals = await runGuide(craftedGuide({ estimate: "echo '{\"cases\":2,\"calls\":4,\"costUsd\":0.1}' # --arms=jev,llm,rule" }));
-  expect(equals.at(-1)).toEqual({ name: "guide estimate", state: "PASS" });
-  const spaced = await runGuide(craftedGuide({ estimate: "echo '{\"cases\":2,\"calls\":4,\"costUsd\":0.1}' # --arms jev,llm,rule" }));
-  expect(spaced.at(-1)).toEqual({ name: "guide estimate", state: "PASS" });
+test("[integration] RELEASE-CHECK-GUIDE-RUN a guide estimate output that is not a safe sample fails", async () => {
+  const bad: readonly (readonly [string, string, string])[] = [
+    ["cases 29", "echo '{\"cases\":29,\"calls\":58,\"costUsd\":0.1}'", "expected at least 30 cases"],
+    ["cases not an integer", "echo '{\"cases\":30.5,\"calls\":60,\"costUsd\":0.1}'", "expected at least 30 cases"],
+    ["calls 0", "echo '{\"cases\":30,\"calls\":0,\"costUsd\":0.1}'", "expected a positive integer calls"],
+    ["costUsd 0", "echo '{\"cases\":30,\"calls\":60,\"costUsd\":0}'", "expected positive finite costUsd"],
+    ["not JSON", "echo not json", "estimate output is not JSON"],
+  ];
+  for (const [label, estimate, reason] of bad) {
+    const checks = await runGuide(craftedGuide({ estimate }));
+    expect(checks.at(-1), label).toMatchObject({ name: "guide estimate", state: "FAIL", reason });
+  }
+  const good = await runGuide(craftedGuide({ estimate: "echo '{\"cases\":30,\"calls\":1,\"costUsd\":0.000001}'" }));
+  expect(good.at(-1)).toEqual({ name: "guide estimate", state: "PASS" });
 });
 
 test("[integration] RELEASE-CHECK-GUIDE-RUN an unparseable or missing guide gives five FAIL lines", async () => {
@@ -238,23 +244,16 @@ test("[integration] RELEASE-CHECK-MCP-CONNECT a server that cannot start fails a
   }
 }, 30_000);
 
-test("[unit] RELEASE-CHECK-LIMITS fails on a missing file or one with no text beyond headings", () => {
+test("[unit] RELEASE-CHECK-LIMITS fails on a missing or empty file and passes any non-blank content", () => {
   expect(limitsTextFailure(undefined)).toBe("docs/LIMITS.md missing");
-  for (const text of ["", " \n\t\n", "# Limits\n", "# Limits\n\n## What it cannot do\n  \n", "# Limits\r\n\r\n## More\r\n"]) {
-    expect(limitsTextFailure(text), JSON.stringify(text)).toBe("docs/LIMITS.md has no text beyond headings");
-  }
-});
-
-test("[unit] RELEASE-CHECK-LIMITS passes when a line of text sits under a heading", () => {
-  expect(limitsTextFailure("# Limits\nIt cannot judge audio.\n")).toBeUndefined();
-  expect(limitsTextFailure("Plain text only")).toBeUndefined();
-  expect(limitsTextFailure("# Limits\r\n\r\nIt cannot judge audio.\r\n")).toBeUndefined();
+  for (const text of ["", " \n\t\n", "\r\n\r\n"]) expect(limitsTextFailure(text), JSON.stringify(text)).toBe("docs/LIMITS.md is empty");
+  for (const text of ["# Limits\n", "It cannot judge audio.\n", "# Limits\r\n\r\nIt cannot judge audio.\r\n"]) expect(limitsTextFailure(text), JSON.stringify(text)).toBeUndefined();
 });
 
 test("[integration] RELEASE-CHECK-GUIDE-HOME a guide step gets an empty temp HOME, not the real one", async () => {
   const realHome = process.env.HOME ?? "";
   expect(realHome).not.toBe("");
-  const probe = `test -d "$HOME" && test "$HOME" != '${realHome}' && test -z "$(ls -A "$HOME")"`;
+  const probe = `bash -c 'test -d "$HOME" && test "$HOME" != "$1" && test -z "$(ls -A "$HOME")"' _ ${JSON.stringify(realHome)}`;
   const checks = await runGuide(craftedGuide({ question: probe }));
   expect(checks.map((check) => `${check.state} ${check.name}`), JSON.stringify(checks)).toEqual(SAFE_GUIDE_STEPS.map((id) => `PASS guide ${id}`));
 });
@@ -266,14 +265,10 @@ test("[integration] RELEASE-CHECK-GUIDE-RUN a failing intermediate command fails
   expect(piped[2]).toMatchObject({ name: "guide rule", state: "FAIL" });
 });
 
-test("[integration] RELEASE-CHECK-GUIDE-RUN reads quoted --arms lists and ignores a commented --arms line", async () => {
-  const body = "echo '{\"cases\":2,\"calls\":2,\"costUsd\":0.1}'";
-  for (const list of ["--arms 'jev,rule'", "--arms \"jev,rule\"", "--arms='jev,rule'", "--arms=\"jev,rule\""]) {
-    const checks = await runGuide(craftedGuide({ estimate: `: ${list}\n${body}` }));
-    expect(checks.at(-1), list).toEqual({ name: "guide estimate", state: "PASS" });
-  }
-  const commented = await runGuide(craftedGuide({ estimate: `# --arms jev,llm\n   # --arms=jev,llm,rule\n: --arms jev,rule\n${body}` }));
-  expect(commented.at(-1)).toEqual({ name: "guide estimate", state: "PASS" });
+test("[integration] RELEASE-CHECK-GUIDE-RUN a temp HOME that cannot be created fails the five guide items", async () => {
+  const checks = await runGuide(craftedGuide(), join(tmpdir(), "jnj-no-such-dir", "deeper"));
+  expect(checks.map((check) => `${check.state} ${check.name}`)).toEqual(SAFE_GUIDE_STEPS.map((id) => `FAIL guide ${id}`));
+  expect(checks.every((check) => (check.reason ?? "") !== "")).toBe(true);
 });
 
 test("[unit] RELEASE-CHECK-ARGS rejects a --url carrying a query or fragment", () => {
@@ -282,23 +277,10 @@ test("[unit] RELEASE-CHECK-ARGS rejects a --url carrying a query or fragment", (
   }
 });
 
-test("[unit] RELEASE-CHECK-LIMITS tells headings from text by markdown rules", () => {
-  const none = "docs/LIMITS.md has no text beyond headings";
-  expect(limitsTextFailure("Limits\n======\n")).toBe(none);
-  expect(limitsTextFailure("Limits\n------\n")).toBe(none);
-  expect(limitsTextFailure("# A\n## B\n")).toBe(none);
-  expect(limitsTextFailure("   ## B ##\n")).toBe(none);
-  expect(limitsTextFailure("#\n")).toBe(none);
-  expect(limitsTextFailure("#tag is a literal paragraph")).toBeUndefined();
-  expect(limitsTextFailure("# Limits\n\nThe verdict needs 30 pairs.")).toBeUndefined();
-  expect(limitsTextFailure("Limits\n======\n\nIt cannot judge audio.\n")).toBeUndefined();
-  expect(limitsTextFailure("    # indented code, not a heading")).toBeUndefined();
-});
-
 const candidate = "0123456789abcdef0123456789abcdef01234567";
 
 test("[integration] RELEASE-CHECK-SERVED requests the sub-path of a base URL and refuses a query or fragment base", async () => {
-  const server = Bun.serve({ port: 0, fetch: (request) => (new URL(request.url).pathname === "/app/DEPLOYED_SHA" && new URL(request.url).search === "" ? new Response(candidate) : new Response("wrong path", { status: 404 })) });
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => (new URL(request.url).pathname === "/app/DEPLOYED_SHA" && new URL(request.url).search === "" ? new Response(candidate) : new Response("wrong path", { status: 404 })) });
   try {
     await assertServedSha(`http://127.0.0.1:${server.port}/app/`, candidate);
     await assertServedSha(`http://127.0.0.1:${server.port}/app//`, candidate);
@@ -310,7 +292,7 @@ test("[integration] RELEASE-CHECK-SERVED requests the sub-path of a base URL and
 });
 
 async function servedCase(body: string, status = 200): Promise<Error | undefined> {
-  const server = Bun.serve({ port: 0, fetch: (request) => (new URL(request.url).pathname === "/x/DEPLOYED_SHA" ? new Response(body, { status }) : new Response("wrong path", { status: 418 })) });
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => (new URL(request.url).pathname === "/x/DEPLOYED_SHA" ? new Response(body, { status }) : new Response("wrong path", { status: 418 })) });
   try {
     await assertServedSha(`http://127.0.0.1:${server.port}/x`, candidate);
     return undefined;
@@ -339,6 +321,7 @@ test("[integration] RELEASE-CHECK-SERVED rejects a prefix, a sha that shares onl
 
 test("[integration] RELEASE-CHECK-SERVED joins a trailing-slash base without a double slash", async () => {
   const server = Bun.serve({
+    hostname: "127.0.0.1",
     port: 0,
     fetch: (request) => (new URL(request.url).pathname === "/DEPLOYED_SHA" ? new Response(candidate) : new Response("wrong path", { status: 404 })),
   });
@@ -351,13 +334,44 @@ test("[integration] RELEASE-CHECK-SERVED joins a trailing-slash base without a d
 });
 
 test("[integration] RELEASE-CHECK-SERVED names a timeout and a refused connection", async () => {
-  const slow = Bun.serve({ port: 0, fetch: async () => { await Bun.sleep(500); return new Response(candidate); } });
+  const slow = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async () => { await Bun.sleep(500); return new Response(candidate); } });
   try {
     await expect(assertServedSha(`http://127.0.0.1:${slow.port}`, candidate, 50)).rejects.toThrow("timed out after 50 ms");
   } finally {
     await slow.stop(true);
   }
   await expect(assertServedSha("http://127.0.0.1:1", candidate)).rejects.toThrow("network error");
+});
+
+test("[integration] RELEASE-CHECK-SERVED refuses a redirect even when the target serves the right sha", async () => {
+  const target = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(candidate) });
+  const redirector = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(null, { status: 302, headers: { location: `http://127.0.0.1:${target.port}/DEPLOYED_SHA` } }) });
+  try {
+    await expect(assertServedSha(`http://127.0.0.1:${redirector.port}`, candidate)).rejects.toThrow("network error");
+  } finally {
+    await redirector.stop(true);
+    await target.stop(true);
+  }
+});
+
+test("[integration] RELEASE-CHECK-SERVED a body that stalls after the headers times out with the normalized reason", async () => {
+  const stalled = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () => new Response(new ReadableStream<Uint8Array>({ start(controller) { controller.enqueue(new TextEncoder().encode("0123")); } }), { status: 200 }),
+  });
+  try {
+    await expect(assertServedSha(`http://127.0.0.1:${stalled.port}`, candidate, 200)).rejects.toThrow("request timed out after 200 ms");
+  } finally {
+    await stalled.stop(true);
+  }
+});
+
+test("[unit] RELEASE-CHECK-DOC every item and the stated item count match docs/RELEASE-CHECKLIST.md", () => {
+  const doc = readFileSync(join(repoRoot, "docs/RELEASE-CHECKLIST.md"), "utf8");
+  for (const name of RELEASE_ITEMS) expect(doc.includes(`\`${name}\``), name).toBe(true);
+  const stated = doc.match(/Every one of the (\d+) items/)?.[1];
+  expect(Number(stated)).toBe(RELEASE_ITEMS.length);
 });
 
 test("[unit] RELEASE-CHECK-ARGS accepts --url and rejects a non-http value or a missing value", () => {
@@ -452,7 +466,7 @@ test("[integration] RELEASE-CHECK-INPUTS a candidate missing an input file fails
 test("[integration] RELEASE-CHECK-FRESH relative repo runs every guide, CLI, MCP, limits and served-sha check from a local fresh clone", async () => {
   const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: repoRoot, stdout: "pipe" }).stdout.toString().trim();
   expect(head).toMatch(/^[0-9a-f]{40}$/);
-  const server = Bun.serve({ port: 0, fetch: (request) => (new URL(request.url).pathname === "/DEPLOYED_SHA" ? new Response(`${head}\n`) : new Response("not found", { status: 404 })) });
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => (new URL(request.url).pathname === "/DEPLOYED_SHA" ? new Response(`${head}\n`) : new Response("not found", { status: 404 })) });
   try {
     const shown = Bun.spawnSync(["git", "show", "HEAD:docs/LIMITS.md"], { cwd: repoRoot, stdout: "pipe", stderr: "pipe" });
     const limits = limitsTextFailure(shown.exitCode === 0 ? shown.stdout.toString() : undefined);

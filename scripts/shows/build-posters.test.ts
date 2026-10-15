@@ -71,13 +71,13 @@ describe("ticket office form", () => {
 describe("posters", () => {
   test("[unit] S6 unequal accepted counts have no general accuracy relation in committed or built posters", async () => {
     for (const posters of [committed.posters, await buildPosters(ROOT)]) {
-      for (const poster of posters) {
+      const unequal = posters.filter((poster) => {
         const jev = poster.run?.methods.find((method) => method.arm === "jev");
         const llm = poster.run?.methods.find((method) => method.arm === "llm");
-        if (jev && llm && jev.accepted !== llm.accepted) {
-          expect(JSON.stringify(poster)).not.toMatch(/same accuracy|at least as accurate/i);
-        }
-      }
+        return jev !== undefined && llm !== undefined && jev.accepted !== llm.accepted;
+      });
+      expect(unequal.length).toBeGreaterThan(0);
+      for (const poster of unequal) expect(JSON.stringify(poster)).not.toMatch(/same\s+accuracy|at least as accurate/i);
     }
   });
 

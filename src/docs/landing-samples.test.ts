@@ -577,7 +577,7 @@ test("[unit] #201-3 control: unmodified uc13 figures check clean", async () => {
 });
 test("[unit] #201-3 landing copy has no general accuracy claim", () => {
   for (const copy of Object.values(LANDING_COPY)) {
-    expect(JSON.stringify(copy)).not.toMatch(/same\s+accuracy/i);
+    expect(JSON.stringify(copy)).not.toMatch(/same\s+accuracy|at\s+least\s+as\s+accurate/i);
   }
 });
 const rendererCases: { name?: string; format: Format; values: (number | string)[]; expected: string[]; metric?: Metric; arm?: FigureArm; arms?: [FigureArm, FigureArm] }[] = [

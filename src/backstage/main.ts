@@ -487,7 +487,7 @@ function setupProblem(): { field: string; message: string } | undefined {
     if (provider === "jev" && houseKey && !field("jev-key").value.trim()) continue;
     const value = field(provider + "-key").value.trim();
     if (!/^[\x21-\x7e]{8,512}$/.test(value))
-      return { field: provider + "-key", message: "Add a valid " + KEY_FIELD_NAMES[provider] + " (8–512 printable characters, no spaces)." };
+      return { field: provider + "-key", message: "Add a valid " + KEY_FIELD_NAMES[provider] + " (8-512 printable characters, no spaces)." };
   }
   if (selectedArms().includes("rule") && !field("keywords").value.trim())
     return { field: "keywords", message: "Add literal keywords for the local rule." };

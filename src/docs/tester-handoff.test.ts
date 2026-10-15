@@ -32,7 +32,7 @@ describe("outside tester handoff", () => {
     for (const phrase of ["cells processed", "have no answer", "No calls in progress."])
       expect(ui).toContain(phrase);
   });
-  test("[integration] D21 linked product documents exist and live paths map to source files", () => {
+  test("[integration] D21 linked product documents and destination source files exist", () => {
     const links = [...doc.matchAll(/\]\(([^)]+)\)/g)].map(match => match[1] ?? "");
     const expected = new Map([
       ["https://jevnotjev.breakoutwithai.com/backstage/", "site/backstage/index.html"],
@@ -69,6 +69,15 @@ describe("outside tester handoff", () => {
     expect(boundary).toContain("provider key pass through our server");
     expect(boundary).toContain("does not save it");
     expect(privacy).toContain("your key through the Backstage server");
+    expect(boundary).toContain("Backstage does not save cases, questions, answers, runs or provider keys");
+    expect(boundary).not.toContain("The application does not save");
+    const access = section("Get access before starting");
+    for (const phrase of ["email", "optional website and idea", "database", "private case text", "provider keys"])
+      expect(access).toContain(phrase);
+    expect(privacy).toContain("email, optional website and idea");
+    expect(privacy).toContain("database file on our server");
+    for (const phrase of ["question coach", "starter cases", "Anthropic or OpenAI"])
+      expect(boundary).toContain(phrase);
   });
   test("[integration] D21 feedback is optional and blocker evidence excludes secrets and raw inputs", () => {
     const feedback = section("If you get stuck or want to share feedback");

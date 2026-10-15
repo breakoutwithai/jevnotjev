@@ -69,6 +69,18 @@ describe("ticket office form", () => {
 });
 
 describe("posters", () => {
+  test("[unit] S6 unequal accepted counts have no general accuracy relation in committed or built posters", async () => {
+    for (const posters of [committed.posters, await buildPosters(ROOT)]) {
+      for (const poster of posters) {
+        const jev = poster.run?.methods.find((method) => method.arm === "jev");
+        const llm = poster.run?.methods.find((method) => method.arm === "llm");
+        if (jev && llm && jev.accepted !== llm.accepted) {
+          expect(JSON.stringify(poster)).not.toMatch(/same accuracy|at least as accurate/i);
+        }
+      }
+    }
+  });
+
   test("[integration] S6 earlier UC13 run still derives its historical headline and projection", async () => {
     const run = await summariseRun(ROOT, "2026-10-01-uc13-shop-bot");
     expect(run?.headline).toBe("Same accuracy as the LLM (38/40 each) at 1/79th of the cost");
@@ -85,7 +97,7 @@ describe("posters", () => {
     expect(measured?.map((child) => child.className)).toEqual(["tk-verdict", "tk-why", "tk-cases", "tk-next", "tk-earlier"]);
     expect(measured?.map((child) => child.textContent)).toEqual([
       "Use Jev (100 messages)",
-      "Why: Same accuracy as the LLM (88 against 86 of 100) at about a fifth of the cost per kept answer.",
+      "Why: Jev kept 88 right answers and the LLM 86 on these 100 synthetic messages, at about a fifth of the cost per kept answer.",
       "What the cases show: Jev 88, LLM (Haiku 5.5) 86, simple rule 49, of 100.",
       "Next step: Open the 100-message run, or try your own decision.",
       "Earlier run: 40 messages: tied 38 to 38, Not proven yet (LLM was Haiku 4.5).",

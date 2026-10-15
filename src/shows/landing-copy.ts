@@ -7,7 +7,7 @@ export type FigureMetric = "accepted" | "labelled" | "spend" | "model" | "paired
   | "costRatio" | "spendRatio" | "minPaired" | "margin" | "docCases" | "docAnswers";
 export type FigureFormat = "int" | "rule" | "pointLimit" | "messageRun" | "pointsBehind" | "tiedTo" | "armCount" | "armScore"
   | "armModelCount" | "armModelScore" | "armSpent4" | "armSpent5" | "armSpendOf4" | "armSpendOf5" | "modelWas" | "modelAs"
-  | "keptAsMany" | "sameAccuracy" | "costShareOf" | "costShare" | "tiedEach" | "spendShareOf" | "answers";
+  | "keptAsMany" | "keptOnThese" | "costShareOf" | "costShare" | "tiedEach" | "spendShareOf" | "answers";
 export interface LandingFigure {
   readonly part: FigurePart;
   readonly display: string;
@@ -70,14 +70,14 @@ export const LANDING_COPY: Readonly<Record<LandingSampleId, ExplainedCopy>> = {
   },
   uc13: {
     verdict: "Use Jev (100 messages)",
-    why: "Same accuracy as the LLM (88 against 86 of 100) at about a fifth of the cost per kept answer.",
+    why: "Jev kept 88 right answers and the LLM 86 on these 100 synthetic messages, at about a fifth of the cost per kept answer.",
     cases: "Jev 88, LLM (Haiku 5.5) 86, simple rule 49, of 100.",
     next: "Open the 100-message run, or try your own decision.",
     earlier: "40 messages: tied 38 to 38, Not proven yet (LLM was Haiku 4.5).",
     rephrase: null,
     figures: [
       f("verdict", "100", "int", [100], R100, { metric: "paired" }),
-      f("why", "Same accuracy as the LLM (88 against 86 of 100)", "sameAccuracy", [88, 86, 100, -0.04266031343755382], R100, jL),
+      f("why", "Jev kept 88 right answers and the LLM 86 on these 100", "keptOnThese", [88, 86, 100], R100, jL),
       f("why", "at about a fifth of the cost per kept answer", "costShare", [0.19745918526106973], R100, jL),
       f("cases", "Jev 88", "armCount", [88], R100, jev),
       f("cases", "LLM (Haiku 5.5) 86", "armModelCount", ["claude-haiku-5-5", 86], R100, llm),

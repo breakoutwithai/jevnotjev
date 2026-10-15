@@ -6,6 +6,7 @@ import { fileSeed } from "../core/calc.ts";
 import { armsInFile, groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
 import { MARGIN, MIN_PAIRED, verdict } from "../core/verdict.ts";
 import { truthLabel, validate } from "../format/validate.ts";
+import { LANDING_COPY } from "../shows/landing-copy.ts";
 import { resolveChromium } from "../../scripts/uat/happy-path-lib.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -47,10 +48,10 @@ const DOC_METRICS = ["docCases", "docAnswers"] as const;
 type Metric = (typeof ARM_METRICS)[number] | (typeof RUN_METRICS)[number] | (typeof CONSTANT_METRICS)[number] | (typeof DOC_METRICS)[number];
 const METRICS: readonly string[] = [...ARM_METRICS, ...RUN_METRICS, ...CONSTANT_METRICS, ...DOC_METRICS];
 type Format = "int" | "rule" | "pointLimit" | "messageRun" | "pointsBehind" | "tiedTo" | "armCount" | "armScore" | "armModelCount" | "armModelScore"
-  | "armSpent4" | "armSpent5" | "armSpendOf4" | "armSpendOf5" | "modelWas" | "modelAs" | "keptAsMany" | "sameAccuracy"
+  | "armSpent4" | "armSpent5" | "armSpendOf4" | "armSpendOf5" | "modelWas" | "modelAs" | "keptAsMany" | "keptOnThese"
   | "costShareOf" | "costShare" | "tiedEach" | "spendShareOf" | "answers";
 const FORMATS: readonly Format[] = ["int", "rule", "pointLimit", "messageRun", "pointsBehind", "tiedTo", "armCount", "armScore", "armModelCount", "armModelScore",
-  "armSpent4", "armSpent5", "armSpendOf4", "armSpendOf5", "modelWas", "modelAs", "keptAsMany", "sameAccuracy", "costShareOf", "costShare", "tiedEach", "spendShareOf", "answers"];
+  "armSpent4", "armSpent5", "armSpendOf4", "armSpendOf5", "modelWas", "modelAs", "keptAsMany", "keptOnThese", "costShareOf", "costShare", "tiedEach", "spendShareOf", "answers"];
 interface Figure {
   part: Part;
   display: string;
@@ -301,11 +302,11 @@ function slots(entry: Figure): Slot[] | string {
   }
   if (a || !pair || pair[0] === pair[1]) return `${entry.format} requires two distinct declared arms`;
   const [first, second] = pair;
-  if (["keptAsMany", "sameAccuracy"].includes(entry.format)) {
-    if (entry.format === "sameAccuracy") {
-      if (first !== "jev") return "sameAccuracy subject must be jev";
-      if (second !== "llm") return "sameAccuracy comparison must be llm";
-      return [slot("accepted", first), slot("accepted", second), slot("paired"), slot("lowerBound")];
+  if (["keptAsMany", "keptOnThese"].includes(entry.format)) {
+    if (entry.format === "keptOnThese") {
+      if (first !== "jev") return "keptOnThese subject must be jev";
+      if (second !== "llm") return "keptOnThese comparison must be llm";
+      return [slot("accepted", first), slot("accepted", second), slot("paired")];
     }
     return [slot("accepted", first), slot("accepted", second)];
   }
@@ -321,7 +322,7 @@ function model(value: number | string): string | null {
   return match ? `${(match[1] ?? "").charAt(0).toUpperCase()}${(match[1] ?? "").slice(1)} ${match[2]}.${match[3]}` : null;
 }
 function render(entry: Figure, values: readonly (number | string)[]): string[] {
-  const [v, w, x, lowerBound] = values;
+  const [v, w, x] = values;
   const a = entry.arm ? labels[entry.arm] : [];
   const pair = entry.arms;
   const pairs = pair ? labels[pair[0]].flatMap((left) => labels[pair[1]].map((right) => [left, right])) : [];
@@ -349,10 +350,10 @@ function render(entry: Figure, values: readonly (number | string)[]): string[] {
     case "modelAs": return short ? a.map((name) => `Claude ${short} as ${name}`) : [];
     case "keptAsMany": return typeof v === "number" && typeof w === "number" && Number.isInteger(v) && Number.isInteger(w) && v >= w
       ? pairs.map(([left, right]) => `${left} kept as many right answers as ${right} (${v} against ${w})`) : [];
-    case "sameAccuracy": return values.length === 4 && typeof v === "number" && typeof w === "number" && typeof x === "number" && typeof lowerBound === "number"
+    case "keptOnThese": return values.length === 3 && typeof v === "number" && typeof w === "number" && typeof x === "number"
       && Number.isInteger(v) && Number.isInteger(w) && Number.isInteger(x) && x > 0
-      && lowerBound > -MARGIN && Math.abs(v - w) / x < MARGIN && pair?.[0] === "jev" && pair[1] === "llm"
-      ? labels[pair[1]].map((name) => `Same accuracy as ${name} (${v} against ${w} of ${x})`) : [];
+      && v >= 0 && v <= x && w >= 0 && w <= x && pair?.[0] === "jev" && pair[1] === "llm"
+      ? pairs.map(([left, right]) => `${left} kept ${v} right answers and ${right} ${w} on these ${x}`) : [];
     case "costShareOf": { const word = n && n > 0 && n < 1 ? UNIT_FRACTIONS[Math.round(1 / n)] : undefined;
       return word ? pairs.map(([left, right]) => `cost ${left} about ${word} of what it cost ${right}`) : []; }
     case "costShare": return n !== null && n < 1 && frac ? [`at about ${frac} of the cost per kept answer`] : [];
@@ -552,8 +553,10 @@ const mutations: readonly Mutation[] = [
   ["R5 at most 30, display too", "uc11", "int writes as", (s) => { change(s, "why", "at least 30", "at most 30"); chosen(s, "why", "at least 30").display = "at most 30"; }],
   ["R5 20 or fewer", "uc12", "not on the page", (s) => change(s, "next", "20 or more", "20 or fewer")],
   ["R5 20 or fewer, display too", "uc12", "int writes as", (s) => { change(s, "next", "20 or more", "20 or fewer"); chosen(s, "next", "20 or more").display = "20 or fewer"; }],
-  ["R6 wide observed gap", "uc13", "value 95 but", (s) => { const from = "Same accuracy as the LLM (88 against 86 of 100)"; const to = "Same accuracy as the LLM (95 against 40 of 100)"; change(s, "why", from, to); Object.assign(chosen(s, "why", from), { display: to, values: [95, 40, 100, -0.04266031343755382] }); }],
-  ["R6 missing lower bound", "uc13", "sameAccuracy needs 4 values, got 3", (s) => { chosen(s, "why", "Same accuracy as the LLM (88 against 86 of 100)").values.pop(); }],
+  ["R6 swapped counts in display", "uc13", "keptOnThese writes as", (s) => { const from = "Jev kept 88 right answers and the LLM 86 on these 100"; const to = "Jev kept 86 right answers and the LLM 88 on these 100"; change(s, "why", from, to); chosen(s, "why", from).display = to; }],
+  ["R6 swapped counts in values", "uc13", "value 86 but", (s) => { chosen(s, "why", "Jev kept 88 right answers and the LLM 86 on these 100").values = [86, 88, 100]; }],
+  ["R6 missing paired count", "uc13", "keptOnThese needs 3 values, got 2", (s) => { chosen(s, "why", "Jev kept 88 right answers and the LLM 86 on these 100").values.pop(); }],
+  ["R6 typed count outside display", "uc13", "undeclared figure \"88\"", (s) => { if (s.explained) s.explained.why += " Jev kept 88."; }],
 ];
 for (const [name, id, expected, mutate] of mutations) test(`[unit] #201-3 mutation: ${name}`, async () => {
   const sample = sampleBy(id);
@@ -572,15 +575,19 @@ test("[unit] #201-3 control: added valid arm score", async () => {
 test("[unit] #201-3 control: unmodified uc13 figures check clean", async () => {
   expect(await checkFigures([sampleBy("uc13")])).toEqual([]);
 });
+test("[unit] #201-3 landing copy has no general accuracy claim", () => {
+  for (const copy of Object.values(LANDING_COPY)) {
+    expect(JSON.stringify(copy)).not.toMatch(/same\s+accuracy/i);
+  }
+});
 const rendererCases: { name?: string; format: Format; values: (number | string)[]; expected: string[]; metric?: Metric; arm?: FigureArm; arms?: [FigureArm, FigureArm] }[] = [
-    { name: "R6 observed 88 against 86", format: "sameAccuracy", values: [88, 86, 100, -0.0427], arms: ["jev", "llm"], expected: ["Same accuracy as the LLM (88 against 86 of 100)", "Same accuracy as LLM (88 against 86 of 100)"] },
-    { name: "R6 wide 95 against 40", format: "sameAccuracy", values: [95, 40, 100, 0.4], arms: ["jev", "llm"], expected: [] },
-    { name: "R6 symmetric 86 against 88", format: "sameAccuracy", values: [86, 88, 100, -0.0427], arms: ["jev", "llm"], expected: ["Same accuracy as the LLM (86 against 88 of 100)", "Same accuracy as LLM (86 against 88 of 100)"] },
-    { name: "R6 lower bound outside", format: "sameAccuracy", values: [88, 86, 100, -0.12], arms: ["jev", "llm"], expected: [] },
-    { name: "R6 gap exactly margin", format: "sameAccuracy", values: [88, 78, 100, -0.01], arms: ["jev", "llm"], expected: [] },
-    { name: "R6 zero paired cases", format: "sameAccuracy", values: [0, 0, 0, 0], arms: ["jev", "llm"], expected: [] },
-    { name: "R6 fractional accepted count", format: "sameAccuracy", values: [88.5, 86, 100, -0.0427], arms: ["jev", "llm"], expected: [] },
-    { name: "R6 wrong comparison arm", format: "sameAccuracy", values: [88, 86, 100, -0.0427], arms: ["jev", "rule"], expected: [] },
+    { name: "R6 observed 88 and 86", format: "keptOnThese", values: [88, 86, 100], arms: ["jev", "llm"], expected: ["Jev kept 88 right answers and the LLM 86 on these 100", "Jev kept 88 right answers and LLM 86 on these 100"] },
+    { name: "R6 equal 38 and 38", format: "keptOnThese", values: [38, 38, 40], arms: ["jev", "llm"], expected: ["Jev kept 38 right answers and the LLM 38 on these 40", "Jev kept 38 right answers and LLM 38 on these 40"] },
+    { name: "R6 zero paired cases", format: "keptOnThese", values: [0, 0, 0], arms: ["jev", "llm"], expected: [] },
+    { name: "R6 fractional accepted count", format: "keptOnThese", values: [88.5, 86, 100], arms: ["jev", "llm"], expected: [] },
+    { name: "R6 count above paired", format: "keptOnThese", values: [101, 86, 100], arms: ["jev", "llm"], expected: [] },
+    { name: "R6 wrong comparison arm", format: "keptOnThese", values: [88, 86, 100], arms: ["jev", "rule"], expected: [] },
+    { name: "R6 reversed arms", format: "keptOnThese", values: [88, 86, 100], arms: ["llm", "jev"], expected: [] },
     { format: "pointsBehind", values: [-0.04266031343755382], expected: ["no more than about 4 points behind"] },
     { format: "pointsBehind", values: [0.02], expected: ["at least about 2 points ahead"] },
     { format: "pointsBehind", values: [-0.0427], expected: ["no more than about 4 points behind"] },
@@ -614,13 +621,13 @@ for (const [index, item] of rendererCases.entries()) test(`[unit] #201-3 each na
       ...(item.metric ? { metric: item.metric } : {}), ...(item.arm ? { arm: item.arm } : {}), ...(item.arms ? { arms: item.arms } : {}) };
     expect(render(entry, item.values)).toEqual(item.expected);
   });
-test("[unit] #201-3 sameAccuracy requires Jev and LLM source slots", () => {
-  const entry: Figure = { part: "why", display: "", format: "sameAccuracy", values: [88, 86, 100, -0.0427], source: RECORDS, arms: ["jev", "llm"] };
-  expect(slots(entry)).toEqual([slot("accepted", "jev"), slot("accepted", "llm"), slot("paired"), slot("lowerBound")]);
+test("[unit] #201-3 keptOnThese requires Jev and LLM source slots", () => {
+  const entry: Figure = { part: "why", display: "", format: "keptOnThese", values: [88, 86, 100], source: RECORDS, arms: ["jev", "llm"] };
+  expect(slots(entry)).toEqual([slot("accepted", "jev"), slot("accepted", "llm"), slot("paired")]);
   entry.arms = ["jev", "rule"];
-  expect(slots(entry)).toBe("sameAccuracy comparison must be llm");
+  expect(slots(entry)).toBe("keptOnThese comparison must be llm");
   entry.arms = ["llm", "jev"];
-  expect(slots(entry)).toBe("sameAccuracy subject must be jev");
+  expect(slots(entry)).toBe("keptOnThese subject must be jev");
 });
 test("[unit] #201-3 mutation: wrong question or unnamed cohort", async () => {
   const good = sampleBy("uc11");

@@ -211,12 +211,61 @@ function checkCost(page: PageReport, side: ExportSide): CheckResult {
   return result("cost-per-accepted", problems, `${compared} arm costs equal across ${done.size} pairs`);
 }
 
-/** True when a NaN sits anywhere in the value (objects and arrays, recursively). Infinity is allowed: it is a real cost-ratio bound. */
-function holdsNaN(value: unknown): boolean {
-  if (typeof value === "number") return Number.isNaN(value);
-  if (Array.isArray(value)) return value.some((item) => holdsNaN(item));
-  if (isRecord(value)) return Object.values(value).some((item) => holdsNaN(item));
+/**
+ * The only places a page verdict may hold +Infinity while the export holds null (JSON writes Infinity as null): the
+ * cost-ratio bounds, kept for Jev at 0 accepted with the LLM above 0 (src/core/verdict.ts VerdictNumbers, src/core/calc.ts).
+ */
+const INFINITY_PATHS: readonly string[] = ["numbers.costRatio.ratio", "numbers.costRatio.lower", "numbers.costRatio.upper"];
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null) return false;
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+/** A key whose page value is undefined is absent: JSON drops it too. */
+const definedKeys = (obj: Record<string, unknown>): string[] => Object.keys(obj).filter((k) => obj[k] !== undefined);
+
+/**
+ * Exact comparison of a page value with the exported one, no JSON round trip (which turns every Infinity and NaN into
+ * null). Finite numbers by Object.is; NaN and -Infinity never match; +Infinity matches null only at INFINITY_PATHS;
+ * null, strings and booleans strictly; arrays and plain objects element- and key-wise (same key set); anything else
+ * (functions, Dates, Maps) is a mismatch.
+ */
+function sameAsExported(page: unknown, exported: unknown, path: readonly string[]): boolean {
+  if (typeof page === "number") {
+    if (typeof exported === "number") return Number.isFinite(page) && Object.is(page, exported);
+    return page === Infinity && exported === null && INFINITY_PATHS.includes(path.join("."));
+  }
+  if (page === null || typeof page === "string" || typeof page === "boolean") return page === exported;
+  if (Array.isArray(page)) {
+    return Array.isArray(exported) && exported.length === page.length && page.every((item, i) => sameAsExported(item, exported[i], [...path, String(i)]));
+  }
+  if (isPlainObject(page)) {
+    if (!isPlainObject(exported)) return false;
+    const pageKeys = definedKeys(page);
+    const exportKeys = definedKeys(exported);
+    return pageKeys.length === exportKeys.length && pageKeys.every((k) => exportKeys.includes(k) && sameAsExported(page[k], exported[k], [...path, k]));
+  }
   return false;
+}
+
+/** Where sameAsExported first fails: fixed field names and indices of the page object, never values. */
+function differencePath(page: unknown, exported: unknown, path: readonly string[]): readonly string[] {
+  if (Array.isArray(page) && Array.isArray(exported) && page.length === exported.length) {
+    const i = page.findIndex((item, n) => !sameAsExported(item, exported[n], [...path, String(n)]));
+    return i < 0 ? path : differencePath(page[i], exported[i], [...path, String(i)]);
+  }
+  if (isPlainObject(page) && isPlainObject(exported)) {
+    const pageKeys = definedKeys(page);
+    const exportKeys = definedKeys(exported);
+    for (const k of pageKeys) {
+      if (!exportKeys.includes(k)) return [...path, k];
+      if (!sameAsExported(page[k], exported[k], [...path, k])) return differencePath(page[k], exported[k], [...path, k]);
+    }
+    const missing = exportKeys.find((k) => !pageKeys.includes(k));
+    return missing === undefined ? path : [...path, missing];
+  }
+  return path;
 }
 
 function checkVerdict(page: PageReport, data: unknown): CheckResult {
@@ -249,12 +298,10 @@ function checkVerdict(page: PageReport, data: unknown): CheckResult {
     if (!entries.has(key)) continue;
     const exported = entries.get(key);
     if (pair.verdict !== null || exported !== null) present += 1;
-    // NaN also becomes null on the wire, so the round trip below would hide it: the page would show NaN against a null export.
-    if (holdsNaN(pair.verdict)) problems.push(`page pairs[${i}]: the verdict holds NaN`);
-    // The export went through JSON, which turns an Infinity in a verdict (a cost-ratio bound) into null: compare the page
-    // verdict after the same round trip, as src/backstage/export-check.ts does.
-    const wire: unknown = JSON.parse(JSON.stringify(pair.verdict));
-    if (!isDeepStrictEqual(wire, exported)) problems.push(`page pairs[${i}] verdict differs from its export verdict`);
+    if (!sameAsExported(pair.verdict, exported, [])) {
+      const at = differencePath(pair.verdict, exported, []);
+      problems.push(`page pairs[${i}]: verdict differs from export verdicts at ${at.length ? at.join(".") : "the verdict"}`);
+    }
   }
   const nonNull = page.pairs.filter((p) => p.verdict !== null).length;
   if (nonNull === 0) problems.push("no pair has a verdict (a compare run must have at least one)");

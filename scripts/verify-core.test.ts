@@ -380,7 +380,7 @@ describe("verifyCore defects found in review of PR #226", () => {
     expect(exported).toContain('"addN": null');
     const results = await verifyCore(p, exported);
     expect(failing(results)).toEqual(["verdict"]);
-    expect(byId(results, "verdict").detail).toContain("pairs[0]: the verdict holds NaN");
+    expect(byId(results, "verdict").detail).toContain("pairs[0]: verdict differs from export verdicts at addN");
   });
 
   test("[unit] row 31: NaN nested in verdict.numbers (costRatio.upper) against an exported null fails verdict", async () => {
@@ -394,7 +394,57 @@ describe("verifyCore defects found in review of PR #226", () => {
     expect(exported).toContain('"upper": null');
     const results = await verifyCore(p, exported);
     expect(byId(results, "verdict").ok).toBe(false);
-    expect(byId(results, "verdict").detail).toContain("pairs[0]: the verdict holds NaN");
+    expect(byId(results, "verdict").detail).toContain("pairs[0]: verdict differs from export verdicts at numbers.costRatio.upper");
+  });
+
+  /** A page and an export that both carry `change` applied to the first verdict; JSON turns Infinity into null in the export. */
+  function bothWith(change: (v: PageVerdict) => PageVerdict): { page: PageReport; exported: string } {
+    const p = withPair(freshPage(), 0, (pair) => {
+      if (!pair.verdict) throw new Error("sample pair has no verdict");
+      return { ...pair, verdict: change(pair.verdict) };
+    });
+    const e = freshExport();
+    e.verdicts = (e.verdicts ?? []).map((entry, i) => (i === 0 && entry.verdict ? { ...entry, verdict: change(entry.verdict) } : entry));
+    return { page: p, exported: text(e) };
+  }
+
+  test("[unit] row 32: Infinity in a page verdict (addN) against an exported null fails verdict only", async () => {
+    const { page: p, exported } = bothWith((v) => ({ ...v, addN: Infinity }));
+    expect(exported).toContain('"addN": null');
+    const results = await verifyCore(p, exported);
+    expect(failing(results)).toEqual(["verdict"]);
+    expect(byId(results, "verdict").detail).toContain("pairs[0]: verdict differs from export verdicts at addN");
+  });
+
+  test("[unit] row 33: Infinity in numbers.jevAccepted against an exported null fails verdict", async () => {
+    const { page: p, exported } = bothWith((v) => ({ ...v, numbers: { ...v.numbers, jevAccepted: Infinity } }));
+    expect(exported).toContain('"jevAccepted": null');
+    const results = await verifyCore(p, exported);
+    expect(byId(results, "verdict").ok).toBe(false);
+    expect(byId(results, "verdict").detail).toContain("at numbers.jevAccepted");
+  });
+
+  test("[unit] row 34: -Infinity in costRatio.upper against an exported null fails verdict", async () => {
+    const { exported } = bothWith((v) => withUpper(v, Infinity));
+    expect(exported).toContain('"upper": null');
+    const minus = withPair(freshPage(), 0, (pair) => {
+      if (!pair.verdict) throw new Error("sample pair has no verdict");
+      return { ...pair, verdict: withUpper(pair.verdict, -Infinity) };
+    });
+    const results = await verifyCore(minus, exported);
+    expect(byId(results, "verdict").ok).toBe(false);
+    expect(byId(results, "verdict").detail).toContain("at numbers.costRatio.upper");
+  });
+
+  test("[unit] row 35: an extra key on a page verdict that the export lacks fails verdict", async () => {
+    const p = withPair(freshPage(), 0, (pair) => {
+      if (!pair.verdict) throw new Error("sample pair has no verdict");
+      const widened = { ...pair.verdict, extra: 1 };
+      return { ...pair, verdict: widened };
+    });
+    const results = await verifyCore(p, text(freshExport()));
+    expect(failing(results)).toEqual(["verdict"]);
+    expect(byId(results, "verdict").detail).toContain("pairs[0]: verdict differs from export verdicts at extra");
   });
 });
 

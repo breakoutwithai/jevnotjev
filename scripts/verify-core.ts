@@ -42,15 +42,23 @@ function str(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 const pairKey = (armId: string, runId: string): string => JSON.stringify([armId, runId]);
-const pairName = (key: string): string => {
-  const parsed: unknown = JSON.parse(key);
-  return Array.isArray(parsed) ? `${String(parsed[0])}/${String(parsed[1])}` : key;
-};
+/**
+ * Output never quotes a string read from the export (the contract in src/backstage/export-check.ts): pairs are named by
+ * position, and an arm is named only when it is one of the fixed three.
+ */
+const armLabel = (arm: string): string => (METHODS.includes(arm) ? arm : "an unexpected arm");
+const hasRepeat = (list: readonly string[]): boolean => new Set(list).size !== list.length;
+const COUNTS_LINE = /^compared=\d+ states=\d+ mismatches=\d+ excluded=\d+$/;
+type MathRunner = typeof mathCheck;
 
 /** What one export comparison yields when pushed through the app's own verdict chain. */
 interface ExportPair {
+  /** Position in the export's comparisons list. */
+  readonly index: number;
   readonly armId: string;
   readonly runId: string;
+  /** Every arm the comparison yielded, repeats kept (the map below keeps only the last of a repeated arm). */
+  readonly arms: readonly string[];
   readonly costs: ReadonlyMap<string, CostPerAccepted>;
 }
 interface ExportSide {
@@ -98,7 +106,13 @@ async function readExportSide(data: unknown): Promise<ExportSide> {
         defects.push(`comparisons[${i}] records fail validation (${outcome.errors.length} error(s))`);
         continue;
       }
-      pairs.push({ armId, runId, costs: new Map(outcome.metrics.arms.map((a) => [a.arm, a.costPerAccepted])) });
+      pairs.push({
+        index: i,
+        armId,
+        runId,
+        arms: outcome.metrics.arms.map((a) => a.arm),
+        costs: new Map(outcome.metrics.arms.map((a) => [a.arm, a.costPerAccepted])),
+      });
     } catch (error) {
       defects.push(`comparisons[${i}] could not be recomputed (${error instanceof Error ? error.name : "unknown error"})`);
     }
@@ -106,33 +120,36 @@ async function readExportSide(data: unknown): Promise<ExportSide> {
   return { fatal: null, pairs, defects };
 }
 
-function names(set: ReadonlySet<string>): string {
-  return [...set].sort().join(",") || "none";
-}
-function methodGap(side: string, seen: ReadonlySet<string>): string[] {
+/** Each of jev, llm and rule exactly once, nothing else. `where` is a positional name like `page pairs[0]`. */
+function armProblems(where: string, arms: readonly string[]): string[] {
   const out: string[] = [];
-  for (const arm of METHODS) if (!seen.has(arm)) out.push(`${side} is missing ${arm}`);
-  for (const arm of seen) if (!METHODS.includes(arm)) out.push(`${side} has extra ${arm}`);
+  const seen = new Set(arms);
+  if (hasRepeat(arms)) out.push(`${where} repeats an arm`);
+  for (const arm of METHODS) if (!seen.has(arm)) out.push(`${where} is missing ${arm}`);
+  if ([...seen].some((arm) => !METHODS.includes(arm))) out.push(`${where} has an unexpected arm`);
   return out;
 }
 
-/** Pair keys of a list, and which keys appear more than once. */
-function keyCounts(keys: readonly string[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const k of keys) counts.set(k, (counts.get(k) ?? 0) + 1);
-  return counts;
+/** A pair key with its position in the list it was read from (`exportLabel` names that list). */
+interface Keyed {
+  readonly key: string;
+  readonly index: number;
 }
-function matchProblems(pageKeys: readonly string[], exportKeys: readonly string[], exportLabel: string): string[] {
+function matchProblems(pageKeys: readonly string[], exportEntries: readonly Keyed[], exportLabel: string): string[] {
   const out: string[] = [];
-  const p = keyCounts(pageKeys);
-  const e = keyCounts(exportKeys);
-  for (const [k, n] of p) {
-    if (n > 1) out.push(`page repeats pair ${pairName(k)}`);
-    if (!e.has(k)) out.push(`page pair ${pairName(k)} is not in the export ${exportLabel}`);
+  const exportSet = new Set(exportEntries.map((e) => e.key));
+  const pageSet = new Set(pageKeys);
+  const pageSeen = new Set<string>();
+  for (const [i, k] of pageKeys.entries()) {
+    if (pageSeen.has(k)) out.push(`page pairs[${i}] repeats an earlier pair`);
+    pageSeen.add(k);
+    if (!exportSet.has(k)) out.push(`page pairs[${i}] is not in the export ${exportLabel}`);
   }
-  for (const [k, n] of e) {
-    if (n > 1) out.push(`export ${exportLabel} repeat pair ${pairName(k)}`);
-    if (!p.has(k)) out.push(`export ${exportLabel} pair ${pairName(k)} is not on the page`);
+  const exportSeen = new Set<string>();
+  for (const e of exportEntries) {
+    if (exportSeen.has(e.key)) out.push(`export ${exportLabel}[${e.index}] repeats an earlier pair`);
+    exportSeen.add(e.key);
+    if (!pageSet.has(e.key)) out.push(`export ${exportLabel}[${e.index}] is not on the page`);
   }
   return out;
 }
@@ -145,50 +162,53 @@ function failed(id: CheckId, error: unknown): CheckResult {
 }
 
 function checkThreeMethods(page: PageReport, side: ExportSide): CheckResult {
-  const pageArms = new Set<string>();
-  for (const pair of page.pairs) for (const a of pair.metrics.arms) pageArms.add(a.arm);
-  const exportArms = new Set<string>();
-  for (const pair of side.pairs) for (const arm of pair.costs.keys()) exportArms.add(arm);
-  const problems = [...methodGap("page", pageArms)];
+  // The rule joins every pair (src/backstage/records.ts), so every pair is checked, not the union across pairs.
+  const problems: string[] = [];
+  if (page.pairs.length === 0) problems.push("page has no pairs");
+  for (const [i, pair] of page.pairs.entries()) problems.push(...armProblems(`page pairs[${i}]`, pair.metrics.arms.map((a) => a.arm)));
   if (side.fatal !== null) problems.push(`export side unreadable: ${side.fatal}`);
   else {
-    problems.push(...methodGap("export", exportArms));
+    if (side.pairs.length === 0) problems.push("export has no readable comparisons");
+    for (const pair of side.pairs) problems.push(...armProblems(`export comparisons[${pair.index}]`, pair.arms));
     problems.push(...side.defects.map((d) => `export side: ${d}`));
   }
-  return result("three-methods", problems, `page ${names(pageArms)}; export ${names(exportArms)}`);
+  return result("three-methods", problems, `${page.pairs.length} page pairs and ${side.pairs.length} export comparisons each have jev, llm and rule once`);
 }
 
 function checkCost(page: PageReport, side: ExportSide): CheckResult {
   if (side.fatal !== null) return { id: "cost-per-accepted", ok: false, detail: `export side unreadable: ${side.fatal}` };
   const problems = side.defects.map((d) => `export side: ${d}`);
-  const pagePairs = new Map(page.pairs.map((p) => [pairKey(p.armId, p.runId), p]));
+  const pageKeys = page.pairs.map((p) => pairKey(p.armId, p.runId));
   const exportPairs = new Map(side.pairs.map((p) => [pairKey(p.armId, p.runId), p]));
-  problems.push(
-    ...matchProblems(
-      page.pairs.map((p) => pairKey(p.armId, p.runId)),
-      side.pairs.map((p) => pairKey(p.armId, p.runId)),
-      "comparisons",
-    ),
-  );
+  problems.push(...matchProblems(pageKeys, side.pairs.map((p) => ({ key: pairKey(p.armId, p.runId), index: p.index })), "comparisons"));
   let compared = 0;
-  for (const [key, pagePair] of pagePairs) {
+  const done = new Set<string>();
+  for (const [i, pagePair] of page.pairs.entries()) {
+    const key = pageKeys[i] ?? "";
+    if (done.has(key)) continue;
+    done.add(key);
     const exportPair = exportPairs.get(key);
     if (!exportPair) continue;
+    const pageArms = pagePair.metrics.arms.map((a) => a.arm);
+    // A repeated arm would overwrite itself in the maps below, so compare nothing for a pair that has one.
+    if (hasRepeat(pageArms)) problems.push(`page pairs[${i}] repeats an arm`);
+    if (hasRepeat(exportPair.arms)) problems.push(`export comparisons[${exportPair.index}] repeats an arm`);
+    if (hasRepeat(pageArms) || hasRepeat(exportPair.arms)) continue;
     const pageCosts = new Map<string, CostPerAccepted>(pagePair.metrics.arms.map((a) => [a.arm, a.costPerAccepted]));
     for (const arm of new Set([...pageCosts.keys(), ...exportPair.costs.keys()])) {
       const a = pageCosts.get(arm);
       const b = exportPair.costs.get(arm);
       if (a === undefined || b === undefined) {
-        problems.push(`pair ${pairName(key)}: arm ${arm} is only on the ${a === undefined ? "export" : "page"} side`);
+        problems.push(`page pairs[${i}]: arm ${armLabel(arm)} is only on the ${a === undefined ? "export" : "page"} side`);
         continue;
       }
       compared += 1;
       if (!isDeepStrictEqual(a, b))
-        problems.push(`pair ${pairName(key)}: arm ${arm}: page ${describeCostPerAccepted(a)} vs export ${describeCostPerAccepted(b)}`);
+        problems.push(`page pairs[${i}]: arm ${armLabel(arm)}: page ${describeCostPerAccepted(a)} vs export ${describeCostPerAccepted(b)}`);
     }
   }
   if (compared === 0 && problems.length === 0) problems.push("no arm cost was compared");
-  return result("cost-per-accepted", problems, `${compared} arm costs equal across ${pagePairs.size} pairs`);
+  return result("cost-per-accepted", problems, `${compared} arm costs equal across ${done.size} pairs`);
 }
 
 function checkVerdict(page: PageReport, data: unknown): CheckResult {
@@ -196,7 +216,7 @@ function checkVerdict(page: PageReport, data: unknown): CheckResult {
   const verdicts = data.verdicts;
   if (!Array.isArray(verdicts)) return { id: "verdict", ok: false, detail: "export verdicts is not an array (null means report() was not run first)" };
   const entries = new Map<string, unknown>();
-  const keys: string[] = [];
+  const keys: Keyed[] = [];
   const problems: string[] = [];
   for (const [i, v] of verdicts.entries()) {
     const armId = isRecord(v) ? str(v.armId) : null;
@@ -205,7 +225,7 @@ function checkVerdict(page: PageReport, data: unknown): CheckResult {
       problems.push(`export verdicts[${i}] lacks armId, runId or verdict`);
       continue;
     }
-    keys.push(pairKey(armId, runId));
+    keys.push({ key: pairKey(armId, runId), index: i });
     entries.set(pairKey(armId, runId), v.verdict);
   }
   problems.push(
@@ -216,38 +236,41 @@ function checkVerdict(page: PageReport, data: unknown): CheckResult {
     ),
   );
   let present = 0;
-  for (const pair of page.pairs) {
+  for (const [i, pair] of page.pairs.entries()) {
     const key = pairKey(pair.armId, pair.runId);
     if (!entries.has(key)) continue;
     const exported = entries.get(key);
     if (pair.verdict !== null || exported !== null) present += 1;
-    if (!isDeepStrictEqual(pair.verdict, exported))
-      problems.push(`pair ${pairName(key)}: page verdict ${pair.verdict ? pair.verdict.verdict : "none"} differs from export ${isRecord(exported) ? String(exported.verdict) : "none"}`);
+    // The export went through JSON, which turns an Infinity in a verdict (a cost-ratio bound) into null: compare the page
+    // verdict after the same round trip, as src/backstage/export-check.ts does.
+    const wire: unknown = JSON.parse(JSON.stringify(pair.verdict));
+    if (!isDeepStrictEqual(wire, exported)) problems.push(`page pairs[${i}] verdict differs from its export verdict`);
   }
   const nonNull = page.pairs.filter((p) => p.verdict !== null).length;
   if (nonNull === 0) problems.push("no pair has a verdict (a compare run must have at least one)");
   return result("verdict", problems, `${page.pairs.length} pair verdicts equal, ${present} present`);
 }
 
-function checkHandMath(data: unknown): CheckResult {
+function checkHandMath(data: unknown, mathRunner: MathRunner): CheckResult {
   const records = isRecord(data) ? data.records : undefined;
   if (typeof records !== "string") return { id: "hand-math", ok: false, detail: "export records is missing or not text" };
   const dir = mkdtempSync(join(tmpdir(), "verify-core-"));
   try {
     const file = join(dir, "records.csv");
     writeFileSync(file, records);
-    const run = mathCheck([file]);
-    const summary = run.out.split("\n").find((l) => /compared=\d+/.test(l) && /mismatches=\d+/.test(l));
-    if (run.code === EXIT_CODES.ok) return { id: "hand-math", ok: true, detail: summary?.trim() ?? "exit ok" };
+    const run = mathRunner([file]);
+    // Only the exit-code name and a counts line of the fixed shape are printed: math-check's err text can quote the records.
+    const summary = run.out.split("\n").map((l) => l.trim()).find((l) => COUNTS_LINE.test(l));
+    if (run.code === EXIT_CODES.ok) return { id: "hand-math", ok: true, detail: summary ?? "exit ok" };
     const name = Object.entries(EXIT_CODES).find(([, code]) => code === run.code)?.[0] ?? `code ${run.code}`;
-    return { id: "hand-math", ok: false, detail: `math-check ${name}: ${summary?.trim() ?? (run.err.trim() || "no output")}` };
+    return { id: "hand-math", ok: false, detail: `math-check ${name}${summary ? `: ${summary}` : ""}` };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
 /** Every check, always all five in this order, never throws on bad input (a defect is a FAIL with a detail). */
-export async function verifyCore(page: PageReport, exportText: string): Promise<CheckResult[]> {
+export async function verifyCore(page: PageReport, exportText: string, mathRunner: MathRunner = mathCheck): Promise<CheckResult[]> {
   let data: unknown = null;
   let parseError: string | null = null;
   try {
@@ -278,15 +301,20 @@ export async function verifyCore(page: PageReport, exportText: string): Promise<
   await run("three-methods", () => checkThreeMethods(page, side));
   await run("cost-per-accepted", () => checkCost(page, side));
   await run("verdict", () => checkVerdict(page, data));
-  await run("hand-math", () => checkHandMath(data));
+  await run("hand-math", () => checkHandMath(data, mathRunner));
   return IDS.map((id) => out.find((r) => r.id === id) ?? failed(id, null));
+}
+
+/** All five ids exactly once, in order, each ok; five ok results sharing one id are not a pass. */
+function allPassed(results: readonly CheckResult[]): boolean {
+  return results.length === IDS.length && IDS.every((id, i) => results[i]?.id === id) && results.every((r) => r.ok);
 }
 
 /** One line per check: `PASS <id>: <detail>` or `FAIL <id>: <detail>`, then `verify-core: PASS (5/5)` or `verify-core: FAIL (k/5)`. */
 export function render(results: readonly CheckResult[]): string {
   const lines = results.map((r) => `${r.ok ? "PASS" : "FAIL"} ${r.id}: ${r.detail}`);
   const passed = results.filter((r) => r.ok).length;
-  const all = results.length === IDS.length && passed === results.length;
+  const all = allPassed(results);
   lines.push(`verify-core: ${all ? "PASS" : "FAIL"} (${passed}/${IDS.length})`);
   return lines.join("\n") + "\n";
 }
@@ -299,7 +327,7 @@ export async function main(): Promise<number> {
   const exportText = JSON.stringify(run.evidence(), null, 2);
   const results = await verifyCore(page, exportText);
   console.log(render(results).trimEnd());
-  return results.length === IDS.length && results.every((r) => r.ok) ? 0 : 1;
+  return allPassed(results) ? 0 : 1;
 }
 
 if (import.meta.main) process.exitCode = await main();

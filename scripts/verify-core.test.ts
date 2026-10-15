@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { sampleRun } from "./d17-sample-export.ts";
-import { parseCsv, toCsv } from "./math-check.ts";
+import { EXIT_CODES, parseCsv, toCsv } from "./math-check.ts";
 import { main, render, verifyCore, type CheckId, type CheckResult, type PageReport } from "./verify-core.ts";
 import type { BackstageRun } from "../src/backstage/run.ts";
 
@@ -217,12 +217,167 @@ describe("verifyCore on the real sample", () => {
   });
 });
 
+type PageVerdict = NonNullable<PageReport["pairs"][number]["verdict"]>;
+/** A verdict with its cost-ratio upper bound replaced; the sample has a cost ratio, so a missing one is a test defect. */
+function withUpper(v: PageVerdict, upper: number): PageVerdict {
+  const ratio = v.numbers.costRatio;
+  if (!ratio) throw new Error("sample verdict has no cost ratio");
+  return { ...v, numbers: { ...v.numbers, costRatio: { ...ratio, upper } } };
+}
+/** Built at run time so the file holds no key-shaped literal. */
+const planted = (): string => "sk-ant-api03-" + "x".repeat(90);
+
+describe("verifyCore defects found in review of PR #226", () => {
+  test("[unit] row 18: Infinity on the page and null in the export (what JSON does) still passes verdict", async () => {
+    const p = withPair(freshPage(), 0, (pair) => {
+      if (!pair.verdict) throw new Error("sample pair has no verdict");
+      return { ...pair, verdict: withUpper(pair.verdict, Infinity) };
+    });
+    const e = freshExport();
+    e.verdicts = (e.verdicts ?? []).map((entry, i) => (i === 0 && entry.verdict ? { ...entry, verdict: withUpper(entry.verdict, Infinity) } : entry));
+    const exported = text(e);
+    expect(exported).toContain('"upper": null');
+    expect(byId(await verifyCore(p, exported), "verdict").ok).toBe(true);
+  });
+
+  test("[unit] row 19: Infinity on the page against a finite exported number fails verdict", async () => {
+    const p = withPair(freshPage(), 0, (pair) => {
+      if (!pair.verdict) throw new Error("sample pair has no verdict");
+      return { ...pair, verdict: withUpper(pair.verdict, Infinity) };
+    });
+    expect(byId(await verifyCore(p, text(freshExport())), "verdict").ok).toBe(false);
+  });
+
+  test("[unit] row 20a: a credential-shaped armId on an export comparison is never printed", async () => {
+    const key = planted();
+    const a = freshExport();
+    a.comparisons = a.comparisons.map((c, i) => (i === 0 ? { ...c, armId: key } : c));
+    const ra = await verifyCore(freshPage(), text(a));
+    expect(byId(ra, "cost-per-accepted").ok).toBe(false);
+    expect(render(ra)).not.toContain(key);
+  });
+
+  test("[unit] row 20b: a credential-shaped armId on an export verdict is never printed", async () => {
+    const key = planted();
+    const b = freshExport();
+    b.verdicts = (b.verdicts ?? []).map((v, i) => (i === 0 ? { ...v, armId: key } : v));
+    const rb = await verifyCore(freshPage(), text(b));
+    expect(byId(rb, "verdict").ok).toBe(false);
+    expect(render(rb)).not.toContain(key);
+  });
+
+  test("[unit] row 20c: a credential-shaped case_id in the export records is never printed", async () => {
+    const key = planted();
+    const c = freshExport();
+    c.records = c.records.replaceAll(",c01,", `,${key},`);
+    expect(c.records).toContain(key);
+    const rc = await verifyCore(freshPage(), text(c));
+    expect(failing(rc).length).toBeGreaterThan(0);
+    expect(render(rc)).not.toContain(key);
+  });
+
+  test("[unit] row 21: hand-math never prints the runner's err text, only the exit name and the counts line", async () => {
+    const key = planted();
+    const leak = (): { code: number; out: string; err: string } => ({ code: EXIT_CODES.mismatch, out: `${key}\n`, err: key });
+    const bad = byId(await verifyCore(freshPage(), text(freshExport()), leak), "hand-math");
+    expect(bad.ok).toBe(false);
+    expect(bad.detail).toContain("mismatch");
+    expect(bad.detail).not.toContain(key);
+    const counts = (): { code: number; out: string; err: string } => ({
+      code: EXIT_CODES.mismatch,
+      out: "compared=4 states=2 mismatches=1 excluded=0\n",
+      err: key,
+    });
+    const withCounts = byId(await verifyCore(freshPage(), text(freshExport()), counts), "hand-math");
+    expect(withCounts.detail).toContain("compared=4 states=2 mismatches=1 excluded=0");
+    expect(withCounts.detail).not.toContain(key);
+  });
+
+  test("[unit] row 22: a repeated arm inside a page pair fails three-methods and cost-per-accepted", async () => {
+    const p = withPair(freshPage(), 0, (pair) => {
+      const jev = pair.metrics.arms.find((a) => a.arm === "jev");
+      if (!jev) throw new Error("sample pair has no jev");
+      const wrong = { ...jev, costPerAccepted: { kind: "value" as const, usd: 999 } };
+      return { ...pair, metrics: { ...pair.metrics, arms: [wrong, ...pair.metrics.arms] } };
+    });
+    const results = await verifyCore(p, text(freshExport()));
+    expect(byId(results, "three-methods").ok).toBe(false);
+    expect(byId(results, "cost-per-accepted").ok).toBe(false);
+  });
+
+  test("[unit] row 23: no verdict on either side fails verdict", async () => {
+    const p = withPair(freshPage(), 0, (pair) => ({ ...pair, verdict: null }));
+    const e = freshExport();
+    e.verdicts = (e.verdicts ?? []).map((v, i) => (i === 0 ? { ...v, verdict: null } : v));
+    expect(byId(await verifyCore(p, text(e)), "verdict").ok).toBe(false);
+  });
+
+  test("[unit] row 24: five ok results all named export-check render FAIL", () => {
+    const same: CheckResult[] = [1, 2, 3, 4, 5].map(() => ({ id: "export-check", ok: true, detail: "x" }));
+    expect(render(same).trimEnd().split("\n").at(-1)?.startsWith("verify-core: FAIL")).toBe(true);
+  });
+
+  test("[unit] row 25: in a multi-pair run, a pair without rule fails three-methods", async () => {
+    const p = freshPage();
+    const first = p.pairs[0];
+    if (!first) throw new Error("no pair");
+    const second = { ...first, armId: "second-arm", metrics: { ...first.metrics, arms: first.metrics.arms.filter((a) => a.arm !== "rule") } };
+    const e = freshExport();
+    const c = e.comparisons[0];
+    const v = e.verdicts?.[0];
+    if (!c || !v) throw new Error("no comparison or verdict");
+    e.comparisons = [c, { ...c, armId: "second-arm" }];
+    e.verdicts = [v, { ...v, armId: "second-arm" }];
+    const results = await verifyCore({ ...p, pairs: [first, second] }, text(e));
+    const three = byId(results, "three-methods");
+    expect(three.ok).toBe(false);
+    expect(three.detail).toContain("pairs[1]");
+  });
+
+  test("[unit] row 26: verdicts = [] and an extra export verdict entry both fail verdict", async () => {
+    const none = freshExport();
+    none.verdicts = [];
+    expect(byId(await verifyCore(freshPage(), text(none)), "verdict").ok).toBe(false);
+    const extra = freshExport();
+    const v = extra.verdicts?.[0];
+    if (!v) throw new Error("no verdict");
+    extra.verdicts = [v, { ...v, armId: "ghost-arm" }];
+    expect(byId(await verifyCore(freshPage(), text(extra)), "verdict").ok).toBe(false);
+  });
+
+  test("[unit] row 27: a math-check exit of nothingCompared fails hand-math", async () => {
+    const stub = (): { code: number; out: string; err: string } => ({ code: EXIT_CODES.nothingCompared, out: "compared=0 states=0 mismatches=0 excluded=0\n", err: "" });
+    const hand = byId(await verifyCore(freshPage(), text(freshExport()), stub), "hand-math");
+    expect(hand.ok).toBe(false);
+    expect(hand.detail).toContain("nothingCompared");
+  });
+
+  test("[unit] row 28: a repeated page pair fails cost-per-accepted", async () => {
+    const p = freshPage();
+    const first = p.pairs[0];
+    if (!first) throw new Error("no pair");
+    const results = await verifyCore({ ...p, pairs: [first, first] }, text(freshExport()));
+    expect(byId(results, "cost-per-accepted").ok).toBe(false);
+    expect(byId(results, "cost-per-accepted").detail).toContain("pairs[1]");
+  });
+
+  test("[unit] row 29: a comparison whose records fail validation fails three-methods and cost-per-accepted", async () => {
+    const e = freshExport();
+    e.comparisons = e.comparisons.map((c, i) => (i === 0 ? { ...c, csv: "not,a,record\nx,y,z\n" } : c));
+    const results = await verifyCore(freshPage(), text(e));
+    for (const id of ["three-methods", "cost-per-accepted"] as const) {
+      expect(byId(results, id).ok).toBe(false);
+      expect(byId(results, id).detail).toContain("comparisons[0]");
+    }
+  });
+});
+
 describe("render and main", () => {
   afterEach(() => {
     process.exitCode = 0;
   });
 
-  test("[unit] render prints one line per check and a FAIL summary with the count", () => {
+  test("[unit] row 17: render prints one line per check and a FAIL summary with the count", () => {
     const out = render([
       { id: "export-check", ok: true, detail: "fine" },
       { id: "three-methods", ok: false, detail: "bad" },

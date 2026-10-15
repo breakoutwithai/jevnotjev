@@ -88,11 +88,12 @@
     var update = function () {
       if (done) return;
       var next = Math.max(progress, Math.min(1, Math.max(ov.scrollTop, window.scrollY) / distance));
-      if (next >= 1) { open(); return; }
       if (next === progress) return;
+      // Past the fade (or open in one go) the playbill is hidden; focus on Skip or the poster would fall to the page, so
+      // do what Skip does. Without focus on the curtain the page stays where it is.
+      if (next >= FADED && ov.contains(document.activeElement)) { toResults(); return; }
+      if (next >= 1) { open(); return; }
       setCurtain(next);
-      // The faded playbill is hidden; focus on Skip or the poster would fall to the page, so do what Skip does.
-      if (next >= FADED && ov.contains(document.activeElement)) toResults();
     };
     var onCurtain = function (node) {
       return ov.contains(node) || (badge !== null && badge.contains(node));

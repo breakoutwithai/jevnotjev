@@ -1264,6 +1264,39 @@ test("[integration] V16 a case label is escaped where it becomes a class name: a
   } finally { await page.close(); }
 }, 20000);
 
+test("[integration] V17 a scroll that opens the curtain in one go with focus on Skip moves focus to the results heading; the same scroll without focus on the curtain leaves the page at scrollY 0", async () => {
+  for (const [width, height] of CLOSED_VIEWPORTS) for (const how of ["wheel", "scrollTop"]) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe("skipOverture");
+      const distance = await runway(page);
+      if (how === "wheel") {
+        await page.mouse.move(width / 2, height / 2 + 50);
+        await page.mouse.wheel(0, distance + 400);
+      } else {
+        await page.evaluate((top) => { document.getElementById("overture")?.scrollTo({ top, behavior: "instant" }); }, distance + 400);
+      }
+      await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+      await page.waitForTimeout(200);
+      const after = await page.evaluate(() => ({ focus: document.activeElement?.id || document.activeElement?.tagName || "", top: document.getElementById("resultsTitle")?.getBoundingClientRect().top ?? NaN }));
+      expect({ width, how, focus: after.focus, inView: after.top >= -1 && after.top < height }).toEqual({ width, how, focus: "resultsTitle", inView: true });
+    } finally { await page.close(); }
+  }
+  for (const [width, height] of CLOSED_VIEWPORTS) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      const distance = await runway(page);
+      await page.mouse.move(width / 2, height / 2 + 50);
+      await page.mouse.wheel(0, distance + 400);
+      await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+      await page.waitForTimeout(200);
+      const after = await page.evaluate(() => ({ focus: document.activeElement?.id || document.activeElement?.tagName || "", y: scrollY }));
+      expect({ width, unfocused: true, ...after }).toEqual({ width, unfocused: true, focus: "BODY", y: 0 });
+    } finally { await page.close(); }
+  }
+}, 40000);
+
 test("[integration] L23 scrolling parts the curtain in step with the scroll, and the result bars grow with it", async () => {
   for (const [width, height] of CURTAIN_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");

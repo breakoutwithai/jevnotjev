@@ -114,7 +114,7 @@ export async function validateReplay(directory: string, options: ReplayOptions):
       return value;
     }
     const widths = replay.widths.map(item => item.width);
-    if (new Set(widths).size !== widths.length || widths.length !== options.widths.length || options.widths.some(width => !widths.includes(width))) throw new ReplayError("Required viewport evidence missing or duplicated");
+    if (options.widths.length === 0 || new Set(widths).size !== widths.length || widths.length !== options.widths.length || options.widths.some(width => !widths.includes(width))) throw new ReplayError("Required viewport evidence missing or duplicated");
     for (const item of replay.widths) {
       inWindow(item.recordedAt);
       const dom = widthSchema.parse(json(item.dom));
@@ -133,7 +133,8 @@ export async function validateReplay(directory: string, options: ReplayOptions):
       if (imageWidth !== item.width && imageWidth !== dom.setup.clientWidth) throw new ReplayError("Screenshot viewport mismatch");
     }
     const missing = missingSchema.parse(json(replay.missingRule)); inWindow(missing.recordedAt);
-    if (!missing.dom.text.includes("Judging rule")) throw new ReplayError("Missing-rule reason absent");
+    // The validation message from setupProblem(), not the permanent "Judging rule (required)" field label.
+    if (!missing.dom.text.includes("Judging rule is required")) throw new ReplayError("Missing-rule reason absent");
     const ledger = ledgerSchema.parse(json(replay.ledger));
     if (ledger.version !== options.head) throw new ReplayError("Stub ledger version mismatch");
     const exported: unknown = json(replay.runExport);

@@ -477,7 +477,7 @@ function setupProblem(): { field: string; message: string } | undefined {
       return { field: id, message: label + " is required (maximum " + limit + " characters, no control characters)." };
   }
   if (!validSceneChoices(scene(false).choices))
-    return { field: "choice-a", message: "Use two different answer names, without pipes or line breaks." };
+    return choiceProblem();
   try { validCases(cases()); }
   catch (error) {
     return { field: "cases", message: error instanceof Error ? error.message : "Check your cases." };
@@ -491,7 +491,7 @@ function setupProblem(): { field: string; message: string } | undefined {
   }
   if (selectedArms().includes("rule") && !field("keywords").value.trim())
     return { field: "keywords", message: "Add literal keywords for the local rule." };
-  return undefined;
+  return ruleLimitProblem();
 }
 function fixRunProblem() {
   const problem = setupProblem();
@@ -1145,6 +1145,7 @@ field("import-cases").addEventListener("change", async () => {
   const input = field("import-cases");
   if (!(input instanceof HTMLInputElement) || starting || run) return;
   imports.invalidate();
+  dropReplacement();
   const file = input.files?.[0];
   if (!file) {
     void render();
@@ -1523,7 +1524,7 @@ function renderCaseMutation() {
     : "Paste valid cases JSON to choose Add or Replace.");
 }
 let casesReplyRevision = 0;
-field("cases-reply").addEventListener("input", () => { casesReplyRevision += 1; renderCaseMutation(); });
+field("cases-reply").addEventListener("input", () => { casesReplyRevision += 1; dropReplacement(); renderCaseMutation(); });
 button("cases-replace").onclick = () => {
   if (run || starting || signingOut) return;
   const parsed = parseCasesReply(field("cases-reply").value);
@@ -1534,11 +1535,33 @@ button("cases-replace").onclick = () => {
   element("confirm-replace").hidden = false;
   element("confirm-replace").focus();
 };
-function cancelReplacement() {
+/** Names the answer field that is invalid: the second when the first is a valid name (empty, bad or duplicate second). */
+function choiceProblem(): { field: string; message: string } {
+  const first = field("choice-a").value.trim();
+  const validFirst = first.length > 0 && first.length <= 64 && !/[|\x00-\x1f\x7f]/.test(first);
+  return { field: validFirst ? "choice-b" : "choice-a", message: "Use two different answer names, without pipes or line breaks." };
+}
+/** The scene limits run.ts enforces on keywords and exclusions, checked before Run so recovery names the field. */
+function ruleLimitProblem(): { field: string; message: string } | undefined {
+  const keywords = scene(false).keywords;
+  if (keywords.length > 20)
+    return { field: "keywords", message: "Literal keywords, one per line: use at most 20 keywords." };
+  if (keywords.some((k) => k.length > 200 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(k)))
+    return { field: "keywords", message: "Literal keywords, one per line: each keyword is at most 200 characters, no control characters." };
+  if (field("exclusions").value.trim().length > 2000)
+    return { field: "exclusions", message: "Leave out... is limited to 2000 characters." };
+  return undefined;
+}
+/** Drops an open replacement whose snapshot a case edit or import has made stale; keeps focus where the operator is typing. */
+function dropReplacement() {
   replacement = undefined;
   element("confirm-replace").hidden = true;
+}
+function cancelReplacement() {
+  dropReplacement();
   button("cases-replace").focus();
 }
+field("cases").addEventListener("input", dropReplacement);
 button("confirm-replace-no").onclick = cancelReplacement;
 element("confirm-replace").addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
@@ -1555,11 +1578,12 @@ button("confirm-replace-yes").onclick = () => {
   imports.invalidate();
   replacement = undefined;
   element("confirm-replace").hidden = true;
+  field("cases").focus();
   persistDraft();
   coachStatus("Cases replaced; imported labels removed.");
   void render();
 };
-for (const id of ["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "cases", "jev-key", "keywords"])
+for (const id of ["question", "choice-a", "choice-b", "definition-a", "definition-b", "acceptance", "cases", "jev-key", "keywords", "exclusions"])
   field(id).addEventListener("input", () => {
     field(id).removeAttribute("aria-invalid");
     clearValidationNotice(id);

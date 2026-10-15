@@ -190,6 +190,71 @@ test("[integration] C1 malformed JSON cannot add or replace existing case text",
   expect(page.get("cases").value).toBe(original);
 });
 
+const replyJson = JSON.stringify({
+  cases: Array.from({ length: 10 }, (_, i) => "Replacement case " + i),
+});
+
+test("[integration] #222 F4 editing the case reply cancels an open replacement so Confirm cannot apply a stale snapshot", async () => {
+  const page = await mount();
+  setup(page);
+  const original = page.get("cases").value;
+  fill(page, "cases-reply", replyJson);
+  page.get("cases-replace").click();
+  expect(page.get("confirm-replace").hidden).toBe(false);
+  fill(page, "cases-reply", JSON.stringify({ cases: Array.from({ length: 10 }, (_, i) => "Newer case " + i) }));
+  expect(page.get("confirm-replace").hidden).toBe(true);
+  expect(page.document.activeElement).not.toBe(page.get("cases-replace"));
+  page.get("confirm-replace-yes").click();
+  expect(page.get("cases").value).toBe(original);
+});
+
+test("[integration] #222 F4 editing cases or importing while Replace is open cancels it and keeps cases and imported labels", async () => {
+  const { FakeInput } = await import("./dom-fixture.ts");
+  const edited = await mount();
+  setup(edited);
+  fill(edited, "cases-reply", replyJson);
+  edited.get("cases-replace").click();
+  fill(edited, "cases", "Edited case");
+  expect(edited.get("confirm-replace").hidden).toBe(true);
+  edited.get("confirm-replace-yes").click();
+  expect(edited.get("cases").value).toBe("Edited case");
+
+  const page = await mount();
+  setup(page);
+  fill(page, "cases-reply", replyJson);
+  page.get("cases-replace").click();
+  expect(page.get("confirm-replace").hidden).toBe(false);
+  const input = page.get("import-cases");
+  if (!(input instanceof FakeInput)) throw Error("Expected file input");
+  input.files = [
+    new File(
+      [
+        "case_id,case_input,label,label_source,labelled_by,labelled_at\noriginal,Refund please,yes,human_reviewed,operator,2026-10-14\n",
+      ],
+      "synthetic.csv",
+    ),
+  ];
+  input.dispatchEvent(new Event("change"));
+  expect(page.get("confirm-replace").hidden).toBe(true);
+  for (let i = 0; i < 5; i++) await tick();
+  page.get("confirm-replace-yes").click();
+  expect(page.get("cases").value).toBe("Refund please");
+  expect(page.get("cases-status").textContent).not.toContain("Cases replaced");
+  fill(page, "cases", "Edited case");
+  expect(page.get("notice").textContent).toContain("dropped 1 imported labels");
+});
+
+test("[integration] #222 F4 a confirmed replacement moves focus to the cases field", async () => {
+  const page = await mount();
+  setup(page);
+  fill(page, "cases-reply", replyJson);
+  page.get("cases-replace").click();
+  page.get("confirm-replace-yes").click();
+  expect(page.get("confirm-replace").hidden).toBe(true);
+  expect(page.get("cases").value.split("\n")).toHaveLength(10);
+  expect(page.document.activeElement).toBe(page.get("cases"));
+});
+
 test("[integration] C1 required question meanings keys and keywords recover at named fields without paid dispatch", async () => {
   for (const id of ["question", "definition-a", "definition-b", "jev-key"]) {
     const page = await mount();
@@ -219,6 +284,56 @@ test("[integration] C1 required question meanings keys and keywords recover at n
   expect(
     page.requests.filter((r) => r.input === "/api/backstage/answer"),
   ).toHaveLength(0);
+});
+
+test("[integration] #222 F2 keyword and exclusion limits block Run at the named field without paid dispatch", async () => {
+  const cases: readonly (readonly [string, string, string])[] = [
+    ["keywords", Array.from({ length: 21 }, (_, i) => "keyword" + i).join("\n"), "Literal keywords"],
+    ["keywords", "k".repeat(201), "Literal keywords"],
+    ["exclusions", "x".repeat(2001), "Leave out"],
+  ];
+  for (const [id, value, label] of cases) {
+    const page = await mount();
+    setup(page);
+    page.get("compare").checked = true;
+    page.get("compare").dispatchEvent(new Event("change"));
+    page.get("include-rule").checked = true;
+    page.get("include-rule").dispatchEvent(new Event("change"));
+    fill(page, "keywords", "refund");
+    fill(page, id, value);
+    expect(page.get("run-reason").textContent).toContain(label);
+    expect(page.get("fix-run").hidden).toBe(false);
+    page.get("run-all").click();
+    await tick();
+    expect(page.document.activeElement).toBe(page.get(id));
+    expect(page.get(id).getAttribute("aria-invalid")).toBe("true");
+    expect(
+      page.requests.filter((r) => r.input === "/api/backstage/answer"),
+    ).toHaveLength(0);
+  }
+});
+
+test("[integration] #222 F3 an invalid second answer name recovers at the second name, not the valid first", async () => {
+  for (const value of ["", "n|o", "yes"]) {
+    const page = await mount();
+    setup(page);
+    fill(page, "choice-b", value);
+    page.get("run-all").click();
+    await tick();
+    expect(page.document.activeElement).toBe(page.get("choice-b"));
+    expect(page.get("choice-b").getAttribute("aria-invalid")).toBe("true");
+    expect(page.get("choice-a").getAttribute("aria-invalid")).toBeNull();
+    expect(
+      page.requests.filter((r) => r.input === "/api/backstage/answer"),
+    ).toHaveLength(0);
+  }
+  const page = await mount();
+  setup(page);
+  fill(page, "choice-a", "");
+  page.get("run-all").click();
+  await tick();
+  expect(page.document.activeElement).toBe(page.get("choice-a"));
+  expect(page.get("choice-b").getAttribute("aria-invalid")).toBeNull();
 });
 
 test("[integration] C1 cancel replacement preserves imported human labels while confirmed replacement clears them", async () => {

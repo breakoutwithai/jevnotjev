@@ -1230,7 +1230,7 @@ export class BackstageRun {
     if (
       this.manifest.arms.includes("rule")
     )
-      for (const c of selectedCases)
+      for (const c of scene.cases)
         if (!this.#answers.some((a) => a.caseId === c.id && a.armId === "rule")) this.#answers.push({
           id: crypto.randomUUID(),
           attemptId: null,

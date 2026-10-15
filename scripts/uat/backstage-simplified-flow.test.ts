@@ -33,6 +33,10 @@ function dom(width: number, results = false) {
   return { viewportWidth: width, scrollWidth: width, text: results ? "Results and downloads 30 paired labelled cases" : "Setup and run Judging rule (required)",
     labels: ["Judging rule (required)"], buttons: results ? ["Download records.csv", "Download run evidence"] : ["Setup and run", "Review answers", "Results and downloads", "Try first case", "Run all 30 cases"] };
 }
+function missingDom() {
+  const base = dom(1280);
+  return { ...base, text: base.text + " Judging rule is required (maximum 2000 characters, no control characters)." };
+}
 function fixture(useNonBlind = false) {
   const data = useNonBlind ? nonBlind : { runText, records, ledger };
   const directory = mkdtempSync(join(root, "run-")); const recordedAt = new Date().toISOString();
@@ -40,7 +44,7 @@ function fixture(useNonBlind = false) {
   function json(file: string, data: unknown) { return artifact(file, Buffer.from(JSON.stringify(data))); }
   const replay = { schema: "backstage-simplified-flow/1", head: HEAD, buildSha: HEAD, startedAt, finishedAt: new Date(Date.now() + 1000).toISOString(),
     widths: [1280, 390].map(width => ({ width, recordedAt, dom: json(`${width}-dom.json`, { setup: dom(width), results: dom(width, true) }), screenshot: artifact(`${width}.png`, png(width)) })),
-    missingRule: json("missing-rule.json", { recordedAt: missingRecordedAt, activeElement: "acceptance", requestCount: 0, dom: dom(1280) }),
+    missingRule: json("missing-rule.json", { recordedAt: missingRecordedAt, activeElement: "acceptance", requestCount: 0, dom: missingDom() }),
     ledger: json("ledger.json", data.ledger), records: artifact("records.csv", Buffer.from(data.records)), runExport: artifact("run-evidence.json", Buffer.from(data.runText)),
   };
   function save() { writeFileSync(join(directory, "replay.json"), JSON.stringify(replay)); }
@@ -117,5 +121,17 @@ describe("offline captured replay validator (fixtures are not UI replay evidence
   });
   test("[integration] C2 rejects a ledger attempt whose output differs from the downloaded answer", async () => {
     const f = fixture(); f.replace(f.replay.ledger, { ...ledger, ledger: ledger.ledger.map((item, i) => i === 0 ? { ...item, output: "no" } : item) }); expect((await validateReplay(f.directory, { head: HEAD, widths: [1280, 390] })).ok).toBe(false);
+  }, 20000);
+  test("[integration] #222 F7 refuses empty required widths instead of passing every viewport check vacuously", async () => {
+    const f = fixture(); f.replay.widths = []; f.save();
+    const result = await validateReplay(f.directory, { head: HEAD, widths: [] });
+    expect(result.ok).toBe(false);
+    expect(result.problems).toEqual(["Required viewport evidence missing or duplicated"]);
+  }, 20000);
+  test("[integration] #222 F8 the permanent judging rule label alone is not missing-rule validation evidence", async () => {
+    const f = fixture(); f.replace(f.replay.missingRule, { recordedAt: missingRecordedAt, activeElement: "acceptance", requestCount: 0, dom: dom(1280) });
+    const result = await validateReplay(f.directory, { head: HEAD, widths: [1280, 390] });
+    expect(result.ok).toBe(false);
+    expect(result.problems).toEqual(["Missing-rule reason absent"]);
   }, 20000);
 });

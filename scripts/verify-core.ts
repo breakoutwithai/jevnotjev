@@ -262,8 +262,8 @@ function differencePath(page: unknown, exported: unknown, path: readonly string[
       if (!exportKeys.includes(k)) return [...path, k];
       if (!sameAsExported(page[k], exported[k], [...path, k])) return differencePath(page[k], exported[k], [...path, k]);
     }
-    const missing = exportKeys.find((k) => !pageKeys.includes(k));
-    return missing === undefined ? path : [...path, missing];
+    // A key only the export has is export-derived text: name the fact, never the key (it may be credential-shaped).
+    return exportKeys.some((k) => !pageKeys.includes(k)) ? [...path, "(extra export key)"] : path;
   }
   return path;
 }

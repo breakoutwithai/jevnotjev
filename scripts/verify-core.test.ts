@@ -446,6 +446,20 @@ describe("verifyCore defects found in review of PR #226", () => {
     expect(failing(results)).toEqual(["verdict"]);
     expect(byId(results, "verdict").detail).toContain("pairs[0]: verdict differs from export verdicts at extra");
   });
+
+  test("[unit] row 36: a credential-shaped extra key in the export verdict is never printed", async () => {
+    const planted = "sk-ant-api03-" + "x".repeat(90);
+    const e = freshExport();
+    Object.assign(firstVerdict(e), { [planted]: 1 });
+    const exported = text(e);
+    expect(exported).toContain(planted);
+    const results = await verifyCore(freshPage(), exported);
+    const verdict = byId(results, "verdict");
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toContain("(extra export key)");
+    expect(verdict.detail).not.toContain(planted);
+    expect(render(results)).not.toContain(planted);
+  });
 });
 
 describe("render and main", () => {

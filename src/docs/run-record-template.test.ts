@@ -202,6 +202,44 @@ describe("outside-run record template", () => {
     for (const line of ["- Case text: [ ]", "- Case text: (fill in)", "* Their cases"])
       expect(loose(doc.replace("\n## Friction\n", `\n${line}\n\n## Friction\n`))).toEqual([line]);
   });
+  test("[unit] every list item in the whole template is on the exact allowlist, wherever it sits", () => {
+    // A list item in any section, inside a blockquote or not, is either an allowed field or one of these exact lines.
+    const FIXED_ITEMS = [
+      "- [ ] Session agreed: the tester agreed to run Jev!Jev while we record counts.",
+      "- [ ] Made-up or redacted cases only: no real names, emails, account numbers or customer data.",
+      "- [ ] Session notes stay private: they are kept outside this repo and not shared.",
+      "- [ ] Optional permission: cite what they found without their name.",
+      "- [ ] Optional permission: quote them by name.",
+      "- [ ] Optional permission: link their own post.",
+      "- [ ] Optional permission: screen recording.",
+      "- [ ] They can withdraw at any time and everything we hold is deleted (see Delete on withdrawal).",
+      "- What did you expect Jev to do?",
+      "- Where did you hesitate?",
+      "- Would you act on this verdict?",
+      "- What would you tell another builder?",
+      "- Keys of any kind, passwords, or account details.",
+      "- Contact details such as email or phone.",
+      "- The tester's question text, their case text or the model answers.",
+      "- The downloads records.csv and run evidence: both hold case text.",
+      "- Screenshots that show any of the above.",
+      "1. Delete the session notes.",
+      "2. Delete any copy of the exports they sent, the screens and any screen recording.",
+      "3. Delete their emails and messages about the run, including the completion evidence they sent.",
+      "4. Remove any quote or claim that cites them, including a named or unnamed mention.",
+      "5. Record only the date and the count of files deleted. Keep nothing else.",
+    ];
+    const expected = [...FIXED_ITEMS, ...ALLOWED_FIELDS.map(label => `- ${label}: ___`)].sort();
+    const items = (text: string): string[] =>
+      text.split("\n").filter(line => /^\s*(?:>\s*)*(?:[-*+]|\d+[.)])(?:\s|$)/.test(line)).sort();
+    expect(items(doc)).toEqual(expected);
+    const planted: [string, string][] = [
+      ["## Consent\n", "## Consent\n\n- API key: (fill in)\n"],
+      ["## Run\n", "## Run\n\n- What is your API key?\n"],
+      ["## Consent\n", "## Consent\n\n> - [x] Optional permission: screen recording.\n"],
+      ["## Never record\n", "## Never record\n\n- Case text: [ ]\n"],
+    ];
+    for (const [at, replacement] of planted) expect(items(doc.replace(at, replacement))).not.toEqual(expected);
+  });
   test("[unit] verdict words match the tester checklist", () => {
     for (const word of ["use Jev", "don't use Jev", "not enough evidence"]) expect(checklist).toContain(word);
   });

@@ -530,3 +530,67 @@ test("[integration] C1 pending import keeps its operational reason and does not 
   finish?.(new TextEncoder().encode("case_id,case_input\nexample,Refund please\n").buffer);
   for (let i = 0; i < 5; i++) await tick();
 });
+
+test("[integration] #222 G1 keyword limits do not block a run once the rule arm is turned off", async () => {
+  const page = await mount(undefined, undefined, undefined, answerYes);
+  setup(page);
+  page.get("compare").checked = true;
+  page.get("compare").dispatchEvent(new Event("change"));
+  page.get("include-rule").checked = true;
+  page.get("include-rule").dispatchEvent(new Event("change"));
+  fill(page, "keywords", Array.from({ length: 21 }, (_, i) => "keyword" + i).join("\n"));
+  expect(page.get("run-reason").textContent).toContain("Literal keywords");
+  page.get("include-rule").checked = false;
+  page.get("include-rule").dispatchEvent(new Event("change"));
+  fill(page, "acceptance", "Choose the meaning matching the request");
+  expect(page.get("run-reason").textContent).toBe("");
+  expect(page.get("fix-run").hidden).toBe(true);
+  page.get("run-all").click();
+  for (let i = 0; i < 10; i++) await tick();
+  expect(
+    page.requests.filter((r) => r.input === "/api/backstage/answer").length,
+  ).toBeGreaterThan(0);
+});
+
+test("[integration] #222 G2 Add while Replace is open makes Confirm apply nothing and say Replace must be chosen again", async () => {
+  const page = await mount();
+  setup(page);
+  fill(page, "cases-reply", replyJson);
+  page.get("cases-replace").click();
+  expect(page.get("confirm-replace").hidden).toBe(false);
+  page.get("cases-use-reply").click();
+  const added = page.get("cases").value;
+  expect(added.split("\n")).toHaveLength(13);
+  page.get("confirm-replace-yes").click();
+  expect(page.get("cases").value).toBe(added);
+  expect(page.get("confirm-replace").hidden).toBe(true);
+  expect(page.get("cases-status").textContent).toContain("choose Replace again");
+});
+
+test("[integration] #222 G2 a starter pack loaded while Replace is open survives Confirm with its labels", async () => {
+  const page = await mount();
+  setup(page);
+  fill(page, "cases-reply", replyJson);
+  page.get("cases-replace").click();
+  page.get("starter-p1").click();
+  const pack = page.get("cases").value;
+  expect(pack.split("\n")).toHaveLength(10);
+  page.get("confirm-replace-yes").click();
+  expect(page.get("cases").value).toBe(pack);
+  expect(page.get("cases-status").textContent).not.toContain("Cases replaced");
+  fill(page, "cases", "Edited case");
+  expect(page.get("notice").textContent).toContain("dropped 10 imported labels");
+});
+
+test("[integration] #222 G2 a cases reply changed in code while Replace is open applies nothing on Confirm", async () => {
+  const page = await mount();
+  setup(page);
+  const original = page.get("cases").value;
+  fill(page, "cases-reply", replyJson);
+  page.get("cases-replace").click();
+  page.get("cases-reply").value = JSON.stringify({ cases: Array.from({ length: 10 }, (_, i) => "Drafted case " + i) });
+  page.get("confirm-replace-yes").click();
+  expect(page.get("cases").value).toBe(original);
+  expect(page.get("confirm-replace").hidden).toBe(true);
+  expect(page.get("cases-status").textContent).toContain("choose Replace again");
+});

@@ -1531,6 +1531,7 @@ button("cases-replace").onclick = () => {
   if (!parsed.ok) { coachStatus(COACH_REPLY_ERROR); return; }
   if (coachUnsafe(parsed.cases)) { coachStatus(COACH_UNSAFE_MESSAGE); return; }
   replacement = parsed.cases;
+  replacementSnapshot = currentCaseState();
   text("confirm-replace-message", "This replaces " + cases().length + " cases and removes all imported labels. Download your source file first. Nothing changes until you confirm.");
   element("confirm-replace").hidden = false;
   element("confirm-replace").focus();
@@ -1543,7 +1544,8 @@ function choiceProblem(): { field: string; message: string } {
 }
 /** The scene limits run.ts enforces on keywords and exclusions, checked before Run so recovery names the field. */
 function ruleLimitProblem(): { field: string; message: string } | undefined {
-  const keywords = scene(false).keywords;
+  // run.ts drops keywords when the rule arm is off, so their limits only apply with the rule selected.
+  const keywords = selectedArms().includes("rule") ? scene(false).keywords : [];
   if (keywords.length > 20)
     return { field: "keywords", message: "Literal keywords, one per line: use at most 20 keywords." };
   if (keywords.some((k) => k.length > 200 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(k)))
@@ -1555,7 +1557,18 @@ function ruleLimitProblem(): { field: string; message: string } | undefined {
 /** Drops an open replacement whose snapshot a case edit or import has made stale; keeps focus where the operator is typing. */
 function dropReplacement() {
   replacement = undefined;
+  replacementSnapshot = undefined;
   element("confirm-replace").hidden = true;
+}
+/** What Replace was confirmed against: any path that changes cases, imported labels or the reply makes it stale. */
+let replacementSnapshot: { cases: string; imported: typeof imported; labels: typeof importedLabels; reply: string } | undefined;
+function currentCaseState() {
+  return { cases: field("cases").value, imported, labels: importedLabels, reply: field("cases-reply").value };
+}
+function replacementStale(): boolean {
+  const now = currentCaseState();
+  const then = replacementSnapshot;
+  return !then || then.cases !== now.cases || then.imported !== now.imported || then.labels !== now.labels || then.reply !== now.reply;
 }
 function cancelReplacement() {
   dropReplacement();
@@ -1572,12 +1585,16 @@ button("confirm-replace-yes").onclick = () => {
   if (!replacement || run || starting || signingOut) return;
   // Recheck keys changed while the confirmation was open.
   if (coachUnsafe(replacement)) { coachStatus(COACH_UNSAFE_MESSAGE); cancelReplacement(); return; }
+  if (replacementStale()) {
+    cancelReplacement();
+    coachStatus("Your cases changed while Replace was open, so nothing was replaced. To replace them, choose Replace again.");
+    return;
+  }
   field("cases").value = replacement.join("\n");
   imported = undefined;
   importedLabels = [];
   imports.invalidate();
-  replacement = undefined;
-  element("confirm-replace").hidden = true;
+  dropReplacement();
   field("cases").focus();
   persistDraft();
   coachStatus("Cases replaced; imported labels removed.");

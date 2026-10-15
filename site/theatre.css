@@ -1,39 +1,158 @@
-/* Theatre frame over the result-first page: an opening curtain, the valance and drapes, the marquee, the ticket and
-   the Little Shop poster. Motion only under html.motion (set before first paint when prefers-reduced-motion is off). */
+/* Theatre frame over the result-first page: the opening curtain with its playbill (marquee, ticket, scroll cue, Skip
+   the overture and the Little Shop poster), the valance and drapes, and in the page the marquee band, the house-bar
+   ticket and the Little Shop poster. Motion only under html.motion (set before first paint when reduced motion is off). */
 
-/* ---------- Overture: the curtains part once per tab session. Never a gate: no pointer ever lands on them. ----------
-   html.overture-play is set before first paint, with html.motion, only on the first page of a tab session. Each part
-   starts in the side margin, ending 4px short of the house bar and the content column (1120px wide), and draws
-   outward from 0s, so it never covers the headline or the primary action. On a phone the margin is 16px, so each part
-   is a 12px strip. The overture hides itself at 1.3s, the parts' end, even without theatre.js. */
+/* ---------- Opening curtain ----------
+   html.overture-play is set before first paint, with html.motion, only on the first page of a tab session. Then the
+   curtain closes over the whole page and carries the October 6 playbill (96f5b14). The curtain is its own scroller
+   over the page: a wheel or a swipe over it scrolls it, natively, through a runway (--runway, set by
+   theatre.js to 0.7 of the screen height) while its stage stays put (sticky), so the page under it never moves and the
+   result bars grow in place. theatre.js sets the root's --reveal from 0 to 1 over that runway, and the playbill fades
+   and lifts as it parts, gone by 0.36 (sooner than 96f5b14's 0.56) so it never ghosts over the bars. Skip the overture,
+   focus outside the curtain's controls or a #hash opens it at once; once open the whole overture is display:none,
+   the page is where it was, and it never comes back. Without overture-play (reduced motion, a later page, no script, or
+   theatre.js missing) there is no curtain. */
 .overture { display: none; }
 .motion.overture-play .overture {
-  display: block; position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none;
-  animation: overture-out 0s linear 1.3s forwards;
+  display: block; position: fixed; inset: 0; z-index: 50; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: none;
 }
+.motion.overture-play .overture::-webkit-scrollbar { display: none; }
+.overture-stage { position: sticky; top: 0; height: 100%; overflow: hidden; }
+/* The runway: scroll room under the stage; 2px over so the end of the scroll always reaches a full reveal. */
+.overture::after { content: ""; display: block; height: calc(var(--runway, 70vh) + 2px); }
 .motion.overture-play .overture.gone { display: none; }
 /* html.motion is decided once at load; this media query is live, so turning reduced motion on drops the curtain at once. */
 @media (prefers-reduced-motion: reduce) { .motion.overture-play .overture { display: none; } }
-@keyframes overture-out { to { visibility: hidden; } }
 .curtain {
-  position: absolute; top: 0; bottom: 0; width: max(12px, calc((100% - 1120px) / 2 - 4px)); pointer-events: none;
+  position: absolute; top: 0; bottom: 0; width: 50.5%; pointer-events: auto;
   background:
     linear-gradient(180deg, rgba(0, 0, 0, .28), transparent 16%, transparent 82%, rgba(0, 0, 0, .35)),
     repeating-linear-gradient(90deg,
       var(--curtain-lo) 0, var(--curtain) 22px, var(--curtain-hi) 38px, var(--curtain) 54px, var(--curtain-lo) 76px);
-  box-shadow: 0 0 14px rgba(0, 0, 0, .35);
+  box-shadow: 0 0 80px rgba(0, 0, 0, .45);
   will-change: transform;
-  animation: part-l 1.3s cubic-bezier(.45, 0, .2, 1) both;
 }
-.curtain.cl { left: 0; }
-.curtain.cr { right: 0; animation-name: part-r; }
+.curtain.cl { left: 0; transform: translateX(calc(var(--reveal, 0) * -102%)); }
+.curtain.cr { right: 0; transform: translateX(calc(var(--reveal, 0) * 102%)); }
 .curtain::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 26px;
   background: repeating-linear-gradient(90deg, var(--brass) 0 3px, transparent 3px 9px);
   opacity: .55;
 }
-@keyframes part-l { from { transform: none; } to { transform: translateX(-102%); } }
-@keyframes part-r { from { transform: none; } to { transform: translateX(102%); } }
+
+/* The playbill on the closed curtain. It fades and lifts as the curtain parts; theatre.js marks it faded (hidden from
+   the pointer and from focus) once it is no longer readable, so it never sits over the result bars. */
+.playbill {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 26px; padding: 70px 16px 40px; pointer-events: none;
+  opacity: calc(1 - var(--reveal, 0) * 2.8);
+  transform: translateY(calc(var(--reveal, 0) * -40px));
+}
+.playbill > * { pointer-events: auto; }
+.overture.faded .playbill { visibility: hidden; }
+.overture .marquee { padding: 16px 30px 14px; max-width: min(640px, 92vw); box-shadow: 0 10px 40px rgba(0, 0, 0, .5), inset 0 0 0 6px #1a0508, inset 0 0 0 8px #6e4f14; }
+.overture .marquee .kicker { font-size: 11px; letter-spacing: .32em; }
+.overture .marquee .billing { margin-top: 6px; font: 800 clamp(26px, 4.4vw, 46px)/1 var(--serif); }
+.overture .ticket {
+  position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 96px;
+  width: min(440px, 88vw); color: #2a1408; background: #efe2c4; font-family: var(--sans);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .45);
+  transform: rotate(-2.5deg);
+  -webkit-mask: radial-gradient(circle 9px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
+                radial-gradient(circle 9px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+          mask: radial-gradient(circle 9px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
+                radial-gradient(circle 9px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+}
+.overture .ticket .main { padding: 16px 18px 14px 24px; border-right: 2px dashed rgba(42, 20, 8, .35); }
+.overture .ticket .admit { margin: 0; font: 800 34px/1 var(--serif); letter-spacing: .02em; }
+.overture .ticket .show { margin: 4px 0 10px; font: italic 16px/1.45 var(--serif); }
+.overture .ticket dl { display: grid; grid-template-columns: repeat(3, auto); gap: 0 16px; margin: 0; justify-content: start; }
+.overture .ticket dt { font-size: 9px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; opacity: .7; }
+.overture .ticket dd { margin: 0; font-weight: 800; font-size: 15px; }
+.overture .ticket .fine { margin: 10px 0 0; font-size: 10px; line-height: 1.35; opacity: .75; }
+.overture .ticket .stub { display: flex; align-items: center; justify-content: center; padding: 10px 6px; }
+.overture .ticket .stub span { writing-mode: vertical-rl; transform: rotate(180deg); font-weight: 800; font-size: 13px; letter-spacing: .28em; text-transform: uppercase; }
+.overture-actions { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.cue-scroll { margin: 0; font: 12px var(--sans); letter-spacing: .22em; text-transform: uppercase; color: #f6e7c8; text-shadow: 0 1px 6px rgba(0, 0, 0, .6); }
+.cue-scroll::after { content: ""; display: block; width: 1px; height: 26px; margin: 8px auto 0; background: #f6e7c8; transform-origin: top; }
+@media (prefers-reduced-motion: no-preference) { .motion .cue-scroll::after { animation: drip 1.8s ease-in-out infinite; } }
+@keyframes drip { 0% { transform: scaleY(0); } 60% { transform: scaleY(1); } 100% { transform: scaleY(1); opacity: 0; } }
+.skip {
+  min-height: 40px; padding: 10px 16px; border: 1px solid #e0b04e; background: rgba(20, 4, 8, .72); color: #f6e7c8; cursor: pointer;
+  font: 700 12px var(--sans); letter-spacing: .16em; text-transform: uppercase;
+}
+.skip:hover { background: #e0b04e; color: #1a0508; }
+.skip:focus-visible { outline: 2px solid #ffe6a6; outline-offset: 3px; }
+.overture .poster {
+  pointer-events: auto; display: flex; flex-direction: column; gap: 6px; width: min(440px, 88vw); margin: 0;
+  text-decoration: none; color: #1a0508; background: #e9d9b4; font-family: var(--sans);
+  border: 8px solid #1a0508; padding: 16px 20px; transform: rotate(1.5deg);
+  box-shadow: inset 0 0 0 4px #e9d9b4, inset 0 0 0 6px #b8892a, 0 18px 40px rgba(0, 0, 0, .55);
+}
+.overture .poster:focus-visible { outline: 3px solid #ffe6a6; outline-offset: 4px; }
+.overture .poster .p-who { font: italic 20px/1 var(--serif); }
+.overture .poster .p-title { font: 800 28px/.95 var(--serif); color: #5a0f1c; }
+.overture .poster .p-rule { margin: 4px 0; }
+.overture .poster .p-blurb, .overture .poster .p-seats { font-size: 14px; line-height: 1.45; }
+.overture .poster .p-cta { padding: 10px 14px; }
+/* Wide screens: the poster hangs on the right curtain; the playbill moves left to make room (96f5b14). */
+@media (min-width: 1100px) and (min-height: 640px) {
+  .playbill { padding-right: calc(320px + max(28px, 5vw) + 24px); }
+  .overture .poster {
+    position: absolute; right: max(28px, 5vw); top: 50%; width: 320px; min-height: 440px; padding: 30px 28px; gap: 10px;
+    transform: translateY(-50%) rotate(2deg);
+  }
+  .overture .poster .p-who { font-size: 26px; }
+  .overture .poster .p-title { font-size: 44px; }
+  .overture .poster .p-cta { margin-top: auto; padding: 12px 16px; }
+}
+/* Short or narrow screens: a compact poster under Skip, without the blurb. */
+@media (max-width: 1099px), (max-height: 639px) { .overture .poster .p-blurb { display: none; } }
+/* A phone on its side: no room on the curtain; the poster in the page carries the preview. */
+@media (max-height: 520px) { .overture .poster { display: none; } }
+@media (max-width: 720px) {
+  .playbill { gap: 20px; }
+  .overture .ticket { grid-template-columns: minmax(0, 1fr) 54px; }
+  .overture .ticket .admit { font-size: 28px; }
+}
+/* Short portrait screens (a phone with its toolbars, down to 560px tall): the same playbill, compressed to fit under
+   the sample chip and above the bottom edge. Tighter gaps and padding, a smaller billing, the ticket without its fine
+   print, the scroll cue without its drip, and the poster as the in-page phone poster (no byline or rule). */
+@media (max-width: 720px) and (max-height: 760px) and (min-height: 521px) {
+  .playbill { gap: 10px; padding: 74px 16px 8px; }
+  .overture .marquee { padding: 10px 16px 9px; }
+  .overture .marquee .kicker { font-size: 10px; letter-spacing: .24em; }
+  .overture .marquee .billing { margin-top: 4px; font-size: 22px; }
+  .overture .ticket .main { padding: 10px 14px 10px 20px; }
+  .overture .ticket .admit { font-size: 24px; }
+  .overture .ticket .show { margin: 2px 0 6px; font-size: 14px; }
+  .overture .ticket .fine { display: none; }
+  .overture-actions { gap: 8px; }
+  .cue-scroll::after { display: none; }
+  .overture .poster { gap: 4px; padding: 10px 14px; }
+  .overture .poster .p-who, .overture .poster .p-rule { display: none; }
+  .overture .poster .p-title { font-size: 22px; }
+  .overture .poster .p-cta { padding: 8px 12px; }
+}
+
+/* The sample chip and House lights sit top right on the closed curtain, above it, as in the October 6 references; once
+   the curtain starts to part they return to the house bar, under the curtain, so they never sit over the page's text.
+   While the chip is lifted, a hidden copy (.sample-ghost, added by theatre.js) holds its place in the house bar, so its
+   return moves nothing. */
+.sample-ghost { display: none; }
+.motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) .sample-ghost { display: flex; visibility: hidden; }
+.motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) .house { z-index: auto; }
+.motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) #sampleBadge {
+  position: fixed; top: 14px; right: 16px; z-index: 60; gap: 10px; padding: 3px 10px;
+  background: var(--bg); border: 1px solid var(--brass); letter-spacing: .14em;
+}
+.motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) #lights {
+  min-height: 24px; padding: 0 0 0 10px; border: 0; border-left: 1px solid var(--line); background: none;
+  letter-spacing: .1em; text-transform: uppercase;
+}
+@media (max-width: 720px) {
+  .motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) #sampleBadge { top: 34px; font-size: 10px; }
+}
 
 /* ---------- House furniture: valance across the top, drapes in the side margins on wide screens ---------- */
 .proscenium { position: absolute; inset: 0 0 auto 0; height: 100vh; pointer-events: none; z-index: 0; overflow: hidden; }
@@ -63,10 +182,10 @@
   .motion .drape.r { animation: sway 11s ease-in-out infinite alternate-reverse; }
 }
 @keyframes sway { from { transform: skewX(0deg); } to { transform: skewX(.8deg); } }
-.house { position: relative; z-index: 1; padding-top: 32px; }
+.house { position: relative; z-index: 1; }
 
 /* ---------- Entrance ticket in the house bar ---------- */
-.ticket {
+.house .ticket {
   position: relative; display: inline-grid; grid-template-columns: auto auto; align-items: stretch;
   color: #2a1408; background: #efe2c4; font: 700 11px var(--sans);
   box-shadow: 0 4px 12px var(--shadow); transform: rotate(-1.5deg);
@@ -75,9 +194,9 @@
           mask: radial-gradient(circle 6px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
                 radial-gradient(circle 6px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
 }
-.ticket .main { display: flex; align-items: center; gap: 8px; padding: 5px 10px 5px 14px; border-right: 2px dashed rgba(42, 20, 8, .35); }
-.ticket .admit { margin: 0; font: 800 16px/1 var(--serif); letter-spacing: .02em; }
-.ticket .stub { display: flex; align-items: center; padding: 5px 12px 5px 8px; font-size: 10px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
+.house .ticket .main { display: flex; align-items: center; gap: 8px; padding: 5px 10px 5px 14px; border-right: 2px dashed rgba(42, 20, 8, .35); }
+.house .ticket .admit { margin: 0; font: 800 16px/1 var(--serif); letter-spacing: .02em; }
+.house .ticket .stub { display: flex; align-items: center; padding: 5px 12px 5px 8px; font-size: 10px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
 
 /* ---------- Marquee: a lit title strip with bulbs on the border ---------- */
 .marquee-band { display: flex; justify-content: center; padding: 14px 0 0; }
@@ -98,18 +217,19 @@
   .motion .marquee::before, .motion .marquee::after { animation: chase 1.6s steps(2) infinite; }
 }
 @keyframes chase { 50% { opacity: .55; } }
-.marquee .kicker { display: block; font: 700 11px var(--sans); letter-spacing: .32em; text-transform: uppercase; color: #e0b04e; }
-.marquee .billing { display: block; margin-top: 3px; font: 800 clamp(22px, 2.2vw, 28px)/1.05 var(--serif); letter-spacing: -.01em; }
+.marquee .kicker { display: block; margin: 0; font: 700 11px var(--sans); letter-spacing: .32em; text-transform: uppercase; color: #e0b04e; }
+/* In the page the billing is the page's h1 (#t1); on the curtain it is a decorative copy. */
+.marquee .billing { display: block; max-width: none; margin: 3px 0 0; font: 800 clamp(22px, 2.2vw, 28px)/1.05 var(--serif); letter-spacing: -.01em; }
 .marquee .billing em { font-weight: 500; color: #e0b04e; }
 
-/* ---------- Little Shop of Horrors preview poster beside the hero (below the primary action on a phone) ---------- */
+/* ---------- Little Shop of Horrors preview poster: shared look; in the page left of the result bars (below them on a phone) ---------- */
 .poster {
   display: flex; flex-direction: column; gap: 6px; width: min(440px, 100%); margin: 22px 0 6px;
   text-decoration: none; color: #1a0508; background: #e9d9b4; font-family: var(--sans);
   border: 8px solid #1a0508; padding: 14px 18px; transform: rotate(1deg);
   box-shadow: inset 0 0 0 4px #e9d9b4, inset 0 0 0 6px #b8892a, 0 12px 30px rgba(0, 0, 0, .35);
 }
-.poster:focus-visible { outline: 3px solid var(--brass); outline-offset: 4px; }
+.results .poster:focus-visible { outline: 3px solid var(--brass); outline-offset: 4px; }
 .poster .p-kicker { font-size: 11px; font-weight: 700; letter-spacing: .32em; text-transform: uppercase; color: #8a2233; }
 .poster .p-who { font: italic 20px/1 var(--serif); }
 .poster .p-title { font: 800 26px/.95 var(--serif); color: #5a0f1c; }
@@ -120,16 +240,17 @@
   color: #f6e7c8; background: #1a0508; padding: 9px 14px;
 }
 .poster:hover .p-cta { background: #5a0f1c; }
+/* Wide screens: the poster takes the left column and the result bars the right, so the bars sit under the curtain's
+   seam and their coloured fill shows in the gap from early in the reveal (#231). DOM order is unchanged. */
 @media (min-width: 900px) {
-  #act1 .stage { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 0 44px; align-items: start; }
-  #act1 .stage > * { grid-column: 1; }
-  #act1 .stage > h1 { grid-column: 1 / -1; }
-  #act1 .stage > .poster { grid-column: 2; grid-row: 2 / span 5; width: 300px; margin: 4px 0 0; padding: 18px 20px; gap: 7px; transform: rotate(2deg); }
-  .poster .p-who { font-size: 22px; }
-  .poster .p-title { font-size: 32px; }
+  .results { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0 44px; align-items: start; }
+  .results > .results-main { grid-column: 2; grid-row: 1; }
+  .results > .poster { grid-column: 1; grid-row: 1; }
+  .results > .poster { width: 300px; margin: 4px 0 0; padding: 18px 20px; gap: 7px; transform: rotate(2deg); }
+  .results .poster .p-who { font-size: 22px; }
+  .results .poster .p-title { font-size: 32px; }
 }
 @media (max-width: 720px) {
-  .house { padding-top: 22px; }
   .valance {
     height: 16px; background-size: 120px 16px, auto;
     -webkit-mask: radial-gradient(ellipse 64px 20px at 60px -5px, #000 98%, transparent) 0 0 / 120px 16px repeat-x;
@@ -139,12 +260,11 @@
   .marquee { padding: 8px 16px 7px; }
   .marquee .kicker { font-size: 10px; letter-spacing: .24em; }
   .marquee .billing { font-size: 20px; }
-  .poster { gap: 4px; padding: 10px 14px; margin-top: 18px; }
-  .poster .p-who, .poster .p-rule { display: none; }
-  .poster .p-title { font-size: 22px; }
+  .results .poster { gap: 4px; padding: 10px 14px; margin-top: 18px; }
+  .results .poster .p-who, .results .poster .p-rule { display: none; }
+  .results .poster .p-title { font-size: 22px; }
   /* Phone spacing, so the framed page stays under issue #203's 8,000 px at 390: tighter section padding, card gaps and
      paragraph margins, and section titles on one line. No copy is removed. */
-  #act1 { padding: 24px 0 18px; }
   .samples, .office, .door-area { padding: 18px 0; }
   .tk-posters { gap: 8px; }
   .tk-poster { gap: 4px; padding: 10px 12px; }

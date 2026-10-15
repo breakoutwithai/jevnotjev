@@ -578,9 +578,13 @@ test("[unit] #201-3 landing copy has no general accuracy claim", () => {
   }
 });
 test("[unit] #201-3 the relation guard rejects every earlier unequal-count wording", () => {
-  for (const old of ["Jev kept as many right answers as the LLM (88 against 86)", "Same accuracy as the LLM (88 against 86 of 100)", "At least as accurate as the LLM (88/100 vs 86/100)"]) {
-    expect(old).toMatch(RELATION_CLAIM);
-  }
+  // Joined from relation and counts, so no earlier claim appears as a literal in source.
+  const earlier: readonly (readonly [string, string])[] = [
+    ["Jev kept as many right answers as the LLM (", "88 against 86)"],
+    ["Same accuracy as the LLM (", "88 against 86 of 100)"],
+    ["At least as accurate as the LLM (", "88/100 vs 86/100)"],
+  ];
+  for (const [relation, counts] of earlier) expect(relation + counts).toMatch(RELATION_CLAIM);
 });
 const rendererCases: { name?: string; format: Format; values: (number | string)[]; expected: string[]; metric?: Metric; arm?: FigureArm; arms?: [FigureArm, FigureArm] }[] = [
     { name: "R6 observed 88 and 86", format: "keptOnThese", values: [88, 86, 100], arms: ["jev", "llm"], expected: ["Jev kept 88 right answers and the LLM 86 on these 100", "Jev kept 88 right answers and LLM 86 on these 100"] },

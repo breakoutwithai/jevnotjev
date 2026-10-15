@@ -59,8 +59,8 @@ describe("tester checklist", () => {
   test("[unit] D20 practice timing, pack sizes and paired labels match the implementation", () => {
     const before = section(doc, "## Before you start");
     expect(before).toContain("P1 to P4 contain 10");
-    expect(before).toContain("P5 to P8 contain 30");
-    expect(STARTER_PACKS.map(p => p.cases.length)).toEqual([10, 10, 10, 10, 30, 30, 30, 30]);
+    expect(before).toContain("P5 to P10 contain 30");
+    expect(STARTER_PACKS.map(p => p.cases.length)).toEqual([10, 10, 10, 10, 30, 30, 30, 30, 30, 30]);
     const review = stepBody(4);
     for (const words of ["shop", "optional", "do not count", "appears only after", "Unsure", "does not count", "accepted or rejected", "both Jev and the comparison", "Unreviewed agent labels do not count"])
       expect(review).toContain(words);

@@ -18,7 +18,7 @@ test("[unit] PL1 a valid pack id in the query selects that pack, in any case or 
 });
 
 test("[unit] PL2 an unknown, empty, repeated-wrong or missing pack id selects nothing", () => {
-  for (const search of ["", "?", "?pack=", "?pack=p9", "?pack=p0", "?pack=p55", "?pack=__proto__", "?pack=constructor", "?pack=p5%00", "?other=p5"])
+  for (const search of ["", "?", "?pack=", "?pack=p11", "?pack=p0", "?pack=p55", "?pack=__proto__", "?pack=constructor", "?pack=p5%00", "?other=p5"])
     expect([search, packFromSearch(search)]).toEqual([search, null]);
 });
 

@@ -8,7 +8,7 @@ import { STARTER_PACKS, starterPackCsv, starterPackScene } from "./starter-packs
 
 const NEW_IDS = ["p5", "p6", "p7", "p8"];
 const NEW_PACKS = STARTER_PACKS.filter((p) => NEW_IDS.includes(p.id));
-const OLD_PACKS = STARTER_PACKS.filter((p) => !NEW_IDS.includes(p.id));
+const OLD_PACKS = STARTER_PACKS.filter((p) => ["p1", "p2", "p3", "p4"].includes(p.id));
 
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 // Captured from origin/main (aa73ae9) before P5 to P8 and the optional label were added.
@@ -32,8 +32,8 @@ describe("persona packs P5 to P8", () => {
   // The loops below are vacuous over an empty list: fail every test here unless the four packs exist.
   beforeEach(() => expect(NEW_PACKS.length).toBe(4));
 
-  test("[unit] PP1 eight packs, P1 to P8 in order", () => {
-    expect(STARTER_PACKS.map((p) => p.id)).toEqual(["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"]);
+  test("[unit] PP1 ten packs, P1 to P10 in order", () => {
+    expect(STARTER_PACKS.map((p) => p.id)).toEqual(["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10"]);
     expect(NEW_PACKS.map((p) => p.title)).toEqual([
       "P5 Video check: keep watching or quiz",
       "P6 Morning headline: print it or spike it",

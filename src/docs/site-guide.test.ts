@@ -377,7 +377,7 @@ const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
   ["takes 1 to 100 cases of up to 8,000 characters each", "Backstage case limits, quoted from its page"],
   ["(section 4)", "cross-reference"],
   ["(section 4, rule three)", "cross-reference"],
-  ["P1 to P4 come with 10 labelled cases and P5 to P8 with 30 cases", "starter packs, quoted from New Scene"],
+  ["P1 to P4 come with 10 labelled cases and P5 to P10 with 30 cases", "starter packs, quoted from New Scene"],
   ["ready packs P1 to P4", "different from the card rephrase patterns"],
   ["pattern P1", "card rephrase pattern"],
   ["pattern P2", "card rephrase pattern"],

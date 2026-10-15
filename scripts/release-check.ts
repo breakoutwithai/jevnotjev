@@ -6,20 +6,83 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { readDictRows } from "../src/format/csv.ts";
 
+export type CheckState = "PASS" | "FAIL" | "NOT RUN";
+
 export interface Check {
   readonly name: string;
-  readonly ok: boolean;
+  readonly state: CheckState;
   readonly reason?: string;
 }
 
 export function formatCheck(check: Check): string {
-  return check.ok ? `PASS ${check.name}` : `FAIL ${check.name}: ${check.reason ?? "unknown failure"}`;
+  return check.state === "PASS" ? `PASS ${check.name}` : `${check.state} ${check.name}: ${check.reason ?? "unknown reason"}`;
 }
 
 export function summarizeChecks(checks: readonly Check[]): { readonly line: string; readonly exitCode: number } {
-  const passed = checks.filter((check) => check.ok).length;
-  const ok = checks.length > 0 && passed === checks.length;
-  return { line: `release-check: ${ok ? "PASS" : "FAIL"} ${ok ? passed : checks.length - passed}/${checks.length}`, exitCode: ok ? 0 : 1 };
+  const total = checks.length;
+  const failed = checks.filter((check) => check.state === "FAIL").length;
+  const notRun = checks.filter((check) => check.state === "NOT RUN").length;
+  if (total === 0) return { line: "release-check: FAIL 0/0", exitCode: 1 };
+  if (failed > 0) return { line: `release-check: FAIL ${failed}/${total}${notRun > 0 ? `, ${notRun} not run` : ""}`, exitCode: 1 };
+  if (notRun > 0) return { line: `release-check: NOT RUN ${notRun}/${total}`, exitCode: 2 };
+  return { line: `release-check: PASS ${total}/${total}`, exitCode: 0 };
+}
+
+// Guide steps that touch no provider, network or key. Every other step in docs/GUIDE.md can spend money.
+export const SAFE_GUIDE_STEPS: readonly string[] = ["prepare", "question", "rule", "cases", "estimate"];
+
+// Fails closed: the only decide invocation allowed is `estimate`, which prices a run and calls no provider.
+// Anything that names the CLI differently, a provider binary, a network tool or a key is refused wherever it appears.
+const UNSAFE_GUIDE_PATTERNS: readonly RegExp[] = [
+  /\bdecide\b(?!\s+estimate\b)/, /\bcli\.ts\b(?!\s+estimate\b)/, /\bclaude\b/, /\b(?:curl|wget|nc|bunx|npx)\b/, /\bbun\s+add\b/,
+  /\bfetch\s*\(/, /node:(?:https?|net|tls)/, /_API_KEY/,
+];
+
+export interface GuideStep {
+  readonly id: string;
+  readonly script: string;
+}
+
+export function guideSafeScripts(text: string): readonly GuideStep[] {
+  const blocks = [...text.replace(/\r\n?/g, "\n").matchAll(/```sh\n([\s\S]*?)\n```/g)].map((match): GuideStep => {
+    const lines = (match[1] ?? "").split("\n");
+    const id = (lines[0] ?? "").match(/^# guide: ([a-z-]+)$/)?.[1] ?? "";
+    return { id, script: lines.slice(1).join("\n") };
+  });
+  return SAFE_GUIDE_STEPS.map((id) => {
+    const found = blocks.filter((entry) => entry.id === id);
+    const step = found[0];
+    if (step === undefined) throw new Error(`guide step ${id} missing`);
+    if (found.length > 1) throw new Error(`guide step ${id} duplicated`);
+    for (const pattern of UNSAFE_GUIDE_PATTERNS) {
+      const hit = step.script.match(pattern);
+      if (hit !== null) throw new Error(`guide step ${id} is not safe: ${hit[0].trim()}`);
+    }
+    return step;
+  });
+}
+
+// Input is the text of docs/LIMITS.md at the candidate commit, or undefined when the commit has no such file.
+// Returns the failure reason, or undefined when at least one line is text rather than a heading.
+export function limitsTextFailure(text: string | undefined): string | undefined {
+  if (text === undefined) return "docs/LIMITS.md missing";
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== "");
+  return lines.every((line) => line.startsWith("#")) ? "docs/LIMITS.md has no text beyond headings" : undefined;
+}
+
+export async function assertServedSha(baseUrl: string, candidateSha: string, timeoutMs = 10_000): Promise<void> {
+  const url = `${baseUrl.replace(/\/+$/, "")}/DEPLOYED_SHA`;
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError") throw new Error(`request timed out after ${timeoutMs} ms`);
+    throw new Error(`network error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const served = (await response.text()).trim();
+  if (!/^[0-9a-f]{40}$/i.test(served)) throw new Error("served value is not a 40-character commit SHA");
+  if (served.toLowerCase() !== candidateSha.toLowerCase()) throw new Error(`served ${served}, candidate ${candidateSha}`);
 }
 
 function record(value: unknown): value is { readonly [key: string]: unknown } {
@@ -80,20 +143,30 @@ export function assertReleaseOutput(name: "arms" | "estimate" | "verdict" | "fix
   }
 }
 
-function argsOf(argv: readonly string[]): { repo: string; ref: string } {
+export interface Options {
+  readonly repo: string;
+  readonly ref: string;
+  readonly url?: string;
+}
+
+export function argsOf(argv: readonly string[]): Options {
+  const usage = "usage: bun scripts/release-check.ts [--ref <git ref>] [--repo <path or URL>] [--url <http(s) base URL>]";
   let repo = join(import.meta.dir, "..");
   let ref = "HEAD";
+  let url: string | undefined;
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
     const value = argv[i + 1];
-    if ((flag !== "--repo" && flag !== "--ref") || value === undefined || value === "" || value.startsWith("-")) {
-      throw new Error("usage: bun scripts/release-check.ts [--ref <git ref>] [--repo <path or URL>]");
-    }
+    if ((flag !== "--repo" && flag !== "--ref" && flag !== "--url") || value === undefined || value === "" || value.startsWith("-")) throw new Error(usage);
     if (flag === "--repo") repo = value;
-    else ref = value;
+    else if (flag === "--ref") ref = value;
+    else {
+      if (!URL.canParse(value) || !/^https?:$/.test(new URL(value).protocol)) throw new Error(usage);
+      url = value;
+    }
   }
   const localRepo = !repo.includes("://") && !repo.startsWith("git@");
-  return { repo: localRepo ? resolve(repo) : repo, ref };
+  return { repo: localRepo ? resolve(repo) : repo, ref, ...(url === undefined ? {} : { url }) };
 }
 
 interface CommandResult {
@@ -117,7 +190,16 @@ function expectBody(result: CommandResult, code: number): unknown {
   return parsed(result.stdout);
 }
 
-function prepareInputs(clone: string, work: string): { questions: string; cases: string; fixtures: string; records: string; invalid: string; expectedRun: ExpectedRun } {
+interface Inputs {
+  readonly questions: string;
+  readonly cases: string;
+  readonly fixtures: string;
+  readonly records: string;
+  readonly invalid: string;
+  readonly expectedRun: ExpectedRun;
+}
+
+function prepareInputs(clone: string, work: string): Inputs {
   const questions = join(work, "questions.json");
   const cases = join(work, "cases.jsonl");
   const fixtures = join(work, "fixtures.json");
@@ -142,11 +224,17 @@ function prepareInputs(clone: string, work: string): { questions: string; cases:
   return { questions, cases, fixtures, records, invalid, expectedRun: { caseIds, arms: ["jev"] } };
 }
 
-async function mcpChecks(clone: string, add: (name: string, fn: () => Promise<void>) => Promise<void>): Promise<void> {
+export async function mcpChecks(clone: string, add: (name: string, fn: () => Promise<void>) => Promise<void>, emit: (check: Check) => void): Promise<void> {
   const transport = new StdioClientTransport({ command: "bun", args: ["src/mcp/server.ts"], cwd: clone, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" }, stderr: "pipe" });
   const client = new Client({ name: "release-check", version: "0.1.0" });
   try {
-    await client.connect(transport);
+    try {
+      await client.connect(transport);
+    } catch (error) {
+      const reason = `connect failed: ${error instanceof Error ? error.message : String(error)}`;
+      for (const name of MCP_ITEMS) emit({ name, state: "FAIL", reason });
+      return;
+    }
     await add("mcp tools/list", async () => {
       const listed = await client.listTools();
       requireValue(listed.tools.map((tool) => tool.name).sort().join(",") === "arms,ask,estimate,run,validate,verdict", "six tool names differ");
@@ -164,27 +252,81 @@ async function mcpChecks(clone: string, add: (name: string, fn: () => Promise<vo
       });
     }
   } finally {
-    await client.close();
+    await client.close().catch(() => undefined);
+  }
+}
+
+export type Add = (name: string, fn: () => void | Promise<void>) => Promise<void>;
+
+const CLI_ITEMS: readonly string[] = [
+  "cli help", "cli arms", "cli estimate", "cli validate valid", "cli validate invalid",
+  "cli verdict use", "cli verdict insufficient", "cli verdict reject", "cli fixture run", "cli validate fixture records",
+];
+const MCP_ITEMS: readonly string[] = ["mcp tools/list", "mcp validate", "mcp verdict"];
+
+// Every item the script reports, in run order. An item that never ran is still printed, as NOT RUN.
+export const RELEASE_ITEMS: readonly string[] = [
+  "fresh clone", "frozen install", ...SAFE_GUIDE_STEPS.map((id) => `guide ${id}`), ...CLI_ITEMS, ...MCP_ITEMS, "served sha", "limits text",
+];
+
+// NOT RUN lines for every item that has no result yet, naming the first failure as the reason.
+export function notRunChecks(reported: readonly Check[], items: readonly string[]): readonly Check[] {
+  const seen = new Set(reported.map((check) => check.name));
+  const firstFail = reported.find((check) => check.state === "FAIL");
+  const reason = firstFail === undefined ? "not reached" : `not reached after ${firstFail.name}`;
+  return items.filter((name) => !seen.has(name)).map((name): Check => ({ name, state: "NOT RUN", reason }));
+}
+
+export async function attempt(name: string, fn: () => void | Promise<void>, emit: (check: Check) => void): Promise<void> {
+  try {
+    await fn();
+    emit({ name, state: "PASS" });
+  } catch (error) {
+    emit({ name, state: "FAIL", reason: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+export async function guideChecks(clone: string, add: Add, emit: (check: Check) => void): Promise<void> {
+  let steps: readonly GuideStep[];
+  try {
+    steps = guideSafeScripts(readFileSync(join(clone, "docs/GUIDE.md"), "utf8"));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    for (const id of SAFE_GUIDE_STEPS) emit({ name: `guide ${id}`, state: "FAIL", reason });
+    return;
+  }
+  for (const step of steps) {
+    await add(`guide ${step.id}`, () => {
+      const result = command(["bash", "-c", step.script], clone, {}, `guide ${step.id}`, 60_000);
+      expectCode(result, 0);
+      if (step.id !== "estimate") return;
+      const ids = readFileSync(join(clone, "guide-work/cases.jsonl"), "utf8").trim().split("\n").map((line) => field(parsed(line), "id"));
+      const caseIds = ids.filter((id): id is string => typeof id === "string");
+      requireValue(caseIds.length === ids.length && caseIds.length > 0, "guide-work/cases.jsonl has a case without an id");
+      // The local rule arm makes no provider call (run.ts), so only the other arms count toward `calls`.
+      const arms = (step.script.match(/--arms(?:\s+|=)(\S+)/)?.[1]?.split(",") ?? []).filter((arm) => arm !== "rule");
+      requireValue(arms.length > 0, "guide estimate has no provider arm in its --arms list");
+      assertReleaseOutput("estimate", parsed(result.stdout), { caseIds, arms });
+    });
   }
 }
 
 export async function runReleaseCheck(argv: readonly string[]): Promise<number> {
+  const started = Date.now();
   const checks: Check[] = [];
-  const add = async (name: string, fn: () => void | Promise<void>): Promise<void> => {
-    try {
-      await fn();
-      checks.push({ name, ok: true });
-    } catch (error) {
-      checks.push({ name, ok: false, reason: error instanceof Error ? error.message : String(error) });
-    }
-    console.log(formatCheck(checks[checks.length - 1] ?? { name, ok: false }));
+  const emit = (check: Check): void => {
+    checks.push(check);
+    console.log(formatCheck(check));
   };
+  const add: Add = (name, fn) => attempt(name, fn, emit);
   const finish = (): number => {
+    for (const check of notRunChecks(checks, RELEASE_ITEMS)) emit(check);
     const summary = summarizeChecks(checks);
+    console.log(`elapsed: ${((Date.now() - started) / 1000).toFixed(1)} s`);
     console.log(summary.line);
     return summary.exitCode;
   };
-  let options: { repo: string; ref: string };
+  let options: Options;
   try {
     options = argsOf(argv);
   } catch (error) {
@@ -193,6 +335,7 @@ export async function runReleaseCheck(argv: readonly string[]): Promise<number> 
   }
   const work = mkdtempSync(join(tmpdir(), "jnj-release-check-"));
   const clone = join(work, "clone");
+  let candidateSha = "";
   try {
     await add("fresh clone", () => {
       const cloned = command(["git", "clone", "--no-local", "--quiet", options.repo, clone], work, {}, "fresh clone");
@@ -205,65 +348,85 @@ export async function runReleaseCheck(argv: readonly string[]): Promise<number> 
       expectCode(target, 0);
       const checkedOut = command(["git", "checkout", "--quiet", "--detach", target.stdout.trim()], clone, {}, "checkout");
       expectCode(checkedOut, 0);
+      candidateSha = target.stdout.trim();
     });
-    if (!checks.at(-1)?.ok) return finish();
+    if (checks.at(-1)?.state !== "PASS") return finish();
+    console.log(`candidate: ${candidateSha}`);
     await add("frozen install", () => expectCode(command(["bun", "install", "--frozen-lockfile"], clone, {}, "frozen install", 120_000), 0));
-    if (!checks.at(-1)?.ok) return finish();
-    const input = prepareInputs(clone, work);
-    const cli = (parts: readonly string[], env: Readonly<Record<string, string>> = {}): CommandResult => command(["bun", "run", "decide", ...parts], clone, env, `cli ${parts[0] ?? "unknown"}`);
-    await add("cli help", () => {
-      const result = cli(["--help"]);
-      expectCode(result, 0);
-      requireValue(result.stdout.includes("Usage:"), "usage missing");
-    });
-    await add("cli arms", () => {
-      const body = expectBody(cli(["arms"]), 0);
-      assertReleaseOutput("arms", body);
-    });
-    await add("cli estimate", () => {
-      const body = expectBody(cli(["estimate", "--questions", input.questions, "--cases", input.cases, "--arms", input.expectedRun.arms.join(",")]), 0);
-      assertReleaseOutput("estimate", body, input.expectedRun);
-    });
-    await add("cli validate valid", () => {
-      const body = expectBody(cli(["validate", "examples/d08-verdicts/r3-use-jev.csv"]), 0);
-      requireValue(field(body, "valid") === true, "valid result missing");
-    });
-    await add("cli validate invalid", () => {
-      const body = expectBody(cli(["validate", input.invalid]), 1);
-      requireValue(field(body, "valid") === false, "invalid result missing");
-    });
-    const verdicts: readonly { name: string; file: string; code: number; verdict: string }[] = [
-      { name: "use", file: "r3-use-jev.csv", code: 0, verdict: "use Jev" },
-      { name: "insufficient", file: "r1-29-paired.csv", code: 4, verdict: "not enough evidence" },
-      { name: "reject", file: "r2-jev-worse.csv", code: 3, verdict: "don't use Jev" },
-    ];
-    for (const { name, file, code, verdict } of verdicts) {
-      await add(`cli verdict ${name}`, () => {
-        const body = expectBody(cli(["verdict", `examples/d08-verdicts/${file}`]), code);
-        requireValue(field(body, "exit_code") === code, "verdict exit_code differs");
-        assertReleaseOutput("verdict", body, verdict);
-      });
-    }
-    await add("cli fixture run", () => {
-      const body = expectBody(cli(["run", "--questions", input.questions, "--cases", input.cases, "--arms", input.expectedRun.arms.join(","), "--out", input.records], {
-        JNJ_DECIDE_FIXTURES: input.fixtures, JEV_API_KEY: "fixture-only",
-      }), 0);
-      const records = readFileSync(input.records, "utf8");
-      assertReleaseOutput("fixture run", body, input.expectedRun, records);
-    });
-    await add("cli validate fixture records", () => {
-      const body = expectBody(cli(["validate", input.records]), 0);
-      requireValue(field(body, "valid") === true, "fixture records invalid");
-    });
+    if (checks.at(-1)?.state !== "PASS") return finish();
+    await guideChecks(clone, add, emit);
+    let input: Inputs | undefined;
     try {
-      await mcpChecks(clone, add);
+      input = prepareInputs(clone, work);
     } catch (error) {
-      await add("mcp connect", () => { throw error; });
+      const reason = `cli inputs: ${error instanceof Error ? error.message : String(error)}`;
+      for (const name of CLI_ITEMS) emit({ name, state: "FAIL", reason });
     }
+    if (input !== undefined) await cliChecks(clone, input, add);
+    await mcpChecks(clone, add, emit);
+    if (options.url === undefined) {
+      emit({ name: "served sha", state: "NOT RUN", reason: "no --url given" });
+    } else {
+      const url = options.url;
+      await add("served sha", () => assertServedSha(url, candidateSha));
+    }
+    await add("limits text", () => {
+      const shown = command(["git", "show", `${candidateSha}:docs/LIMITS.md`], clone, {}, "limits text");
+      const failure = limitsTextFailure(shown.code === 0 ? shown.stdout : undefined);
+      if (failure !== undefined) throw new Error(failure);
+    });
     return finish();
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+async function cliChecks(clone: string, input: Inputs, add: Add): Promise<void> {
+  const cli = (parts: readonly string[], env: Readonly<Record<string, string>> = {}): CommandResult => command(["bun", "run", "decide", ...parts], clone, env, `cli ${parts[0] ?? "unknown"}`);
+  await add("cli help", () => {
+    const result = cli(["--help"]);
+    expectCode(result, 0);
+    requireValue(result.stdout.includes("Usage:"), "usage missing");
+  });
+  await add("cli arms", () => {
+    const body = expectBody(cli(["arms"]), 0);
+    assertReleaseOutput("arms", body);
+  });
+  await add("cli estimate", () => {
+    const body = expectBody(cli(["estimate", "--questions", input.questions, "--cases", input.cases, "--arms", input.expectedRun.arms.join(",")]), 0);
+    assertReleaseOutput("estimate", body, input.expectedRun);
+  });
+  await add("cli validate valid", () => {
+    const body = expectBody(cli(["validate", "examples/d08-verdicts/r3-use-jev.csv"]), 0);
+    requireValue(field(body, "valid") === true, "valid result missing");
+  });
+  await add("cli validate invalid", () => {
+    const body = expectBody(cli(["validate", input.invalid]), 1);
+    requireValue(field(body, "valid") === false, "invalid result missing");
+  });
+  const verdicts: readonly { name: string; file: string; code: number; verdict: string }[] = [
+    { name: "use", file: "r3-use-jev.csv", code: 0, verdict: "use Jev" },
+    { name: "insufficient", file: "r1-29-paired.csv", code: 4, verdict: "not enough evidence" },
+    { name: "reject", file: "r2-jev-worse.csv", code: 3, verdict: "don't use Jev" },
+  ];
+  for (const { name, file, code, verdict } of verdicts) {
+    await add(`cli verdict ${name}`, () => {
+      const body = expectBody(cli(["verdict", `examples/d08-verdicts/${file}`]), code);
+      requireValue(field(body, "exit_code") === code, "verdict exit_code differs");
+      assertReleaseOutput("verdict", body, verdict);
+    });
+  }
+  await add("cli fixture run", () => {
+    const body = expectBody(cli(["run", "--questions", input.questions, "--cases", input.cases, "--arms", input.expectedRun.arms.join(","), "--out", input.records], {
+      JNJ_DECIDE_FIXTURES: input.fixtures, JEV_API_KEY: "fixture-only",
+    }), 0);
+    const records = readFileSync(input.records, "utf8");
+    assertReleaseOutput("fixture run", body, input.expectedRun, records);
+  });
+  await add("cli validate fixture records", () => {
+    const body = expectBody(cli(["validate", input.records]), 0);
+    requireValue(field(body, "valid") === true, "fixture records invalid");
+  });
 }
 
 if (import.meta.main) runReleaseCheck(process.argv.slice(2)).then((code) => process.exit(code)).catch((error: unknown) => {

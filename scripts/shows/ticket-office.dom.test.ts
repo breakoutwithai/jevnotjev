@@ -43,15 +43,23 @@ async function pageAt(width: number, height: number, reducedMotion: "reduce" | "
   return page;
 }
 
-test("[integration] #136 plain first screen and ticket-office link are visible and clickable", async () => {
+test("[integration] #136 the ticket-office link is on the plain first screen without motion; with motion it is reached after Skip; it is clickable and jumps to the office", async () => {
   for (const [width, height] of VIEWPORTS) for (const motion of MOTIONS) {
     const page = await pageAt(width, height, motion);
     try {
-      expect(await page.locator("#t1").innerText()).toBe("Jev picks one answer from a fixed list. It does not write text.");
+      expect(await page.locator("#t1").innerText()).toBe("To Jev or not to Jev in four acts");
       const jump = page.getByRole("link", { name: "Go to the ticket office" });
       expect(await jump.isVisible()).toBe(true);
-      expect(await jump.evaluate((node) => { const box = node.getBoundingClientRect(); return box.top >= 0 && box.top < innerHeight; })).toBe(true);
       if (CAPTURE && motion === "no-preference") { mkdirSync(CAPTURE, { recursive: true }); await page.screenshot({ path: join(CAPTURE, `first-${width}.png`) }); }
+      // #231: with motion the first screen is the closed curtain (the October 6 playbill); the link sits under it, so
+      // skip the overture first and bring the link into view. Without motion it is on the first screen as before.
+      if (motion === "no-preference") {
+        await page.locator("#skipOverture").click();
+        await jump.scrollIntoViewIfNeeded();
+      } else {
+        // Without motion there is no curtain: the link is on the first screen as loaded, with no scrolling.
+        expect(await jump.evaluate((node) => { const box = node.getBoundingClientRect(); return box.top >= 0 && box.top < innerHeight; })).toBe(true);
+      }
       await page.evaluate(() => { document.documentElement.style.scrollBehavior = "auto"; });
       await jump.click();
       expect(new URL(page.url()).hash).toBe("#tickets");
@@ -64,12 +72,14 @@ test("[integration] #136 plain first screen and ticket-office link are visible a
   }
 }, 20000);
 
-test("[integration] #136 first screen explains the fixed-answer decision", async () => {
+test("[integration] #136 the title is in the page and the fixed-answer explanation sits in About this sample", async () => {
   for (const [width, height] of VIEWPORTS) for (const motion of MOTIONS) {
     const page = await pageAt(width, height, motion);
     try {
-      expect(await page.locator("#t1").innerText()).toBe("Jev picks one answer from a fixed list. It does not write text.");
-      expect(await page.locator("#t1").isVisible()).toBe(true);
+      expect(await page.locator("#t1").innerText()).toBe("To Jev or not to Jev in four acts");
+      const what = page.locator("#aboutSample .hero-what");
+      expect(await what.textContent()).toBe("Jev picks one answer from a fixed list. It does not write text.");
+      expect(await what.evaluate((node) => node.closest("details")?.id ?? "")).toBe("aboutSample");
     } finally { await page.close(); }
   }
 }, 20000);

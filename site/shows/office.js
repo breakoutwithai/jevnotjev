@@ -75,12 +75,7 @@
     card.setAttribute("data-id", p.id);
     card.appendChild(el("p", "tk-badge", st.name + " · " + st.sub));
     card.appendChild(el("h3", "", p.title));
-    card.appendChild(el("p", "tk-verdict", p.verdictLine));
-    card.appendChild(el("p", "tk-why", "Why: " + p.explained.why));
-    card.appendChild(el("p", "tk-cases", "What the cases show: " + p.explained.cases));
-    card.appendChild(el("p", "tk-next", "Next step: " + p.explained.next));
-    if (p.explained.rephrase) card.appendChild(el("p", "tk-rephrase", "Rephrased for Jev: " + p.explained.rephrase));
-    if (p.explained.earlier) card.appendChild(el("p", "tk-earlier", "Earlier run: " + p.explained.earlier));
+    /* In view: badge, title, one figure and the card's action. The explained verdict leads the card's disclosure. */
     if (p.run) {
       var r = p.run;
       var counted = r.methods.some(function (m) { return m.labelled > 0; });
@@ -95,6 +90,12 @@
     card.appendChild(primary);
     var more = el("details", "tk-more");
     more.appendChild(el("summary", "", "More about " + p.title));
+    more.appendChild(el("p", "tk-verdict", p.verdictLine));
+    more.appendChild(el("p", "tk-why", "Why: " + p.explained.why));
+    more.appendChild(el("p", "tk-cases", "What the cases show: " + p.explained.cases));
+    more.appendChild(el("p", "tk-next", "Next step: " + p.explained.next));
+    if (p.explained.rephrase) more.appendChild(el("p", "tk-rephrase", "Rephrased for Jev: " + p.explained.rephrase));
+    if (p.explained.earlier) more.appendChild(el("p", "tk-earlier", "Earlier run: " + p.explained.earlier));
     if (p.run) {
       if (r.cohorts > 1 && r.question) more.appendChild(el("p", "tk-scope", "One question: " + r.question));
       if (r.methods.some(function (m) { return m.labelled > 0; })) {

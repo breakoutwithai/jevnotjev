@@ -89,7 +89,7 @@ A labeller picks the right answer for a case blind, then sees Jev's options for 
 | `label_final` | `accept` / `reject` / empty: the final pick's call on this answer, made after the suggestion step | reported beside `label`, never instead of it; needs a `label`, `label_blind` `true` and `label_source` `human` |
 | `suggestion_shown` | `true` / `false` / empty | `true` when Jev's ranked suggestion for the case was shown before the final pick, `false` when none was available; present exactly when `label_final` is |
 
-- Both columns are optional: a file without them validates unchanged, and every summary, metric and verdict reads `label` only.
+- Both columns are optional: a file without them validates unchanged. Every summary and metric uses `label` as truth; final picks never replace blind labels. Backstage calculation `verdict/2` also blanks `label_final` and `suggestion_shown` values before seeding its bootstrap, so changing those values leaves its verdict unchanged. The standalone file loader and CLI retain their raw-file seed: changing file text can change their bootstrap interval bounds even when scored labels and metrics are unchanged.
 - A final pick without a blind pick is an error (`line <n>: label_final: 'accept' is not of type 'null'`), as is one without its flag (`line <n>: suggestion_shown: None is not of type 'string'`) or on a row whose `label_blind` is not `true` (`line <n>: label_blind: 'true' was expected`) or whose `label_source` is not `human` (`line <n>: label_source: 'human' was expected`).
 - An unsure blind pick is no label: the case's rows stay unlabelled and carry no final pick.
 - With no suggestion for the case, the final pick can only keep the blind pick, and `suggestion_shown` is `false`.

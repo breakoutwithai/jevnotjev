@@ -1,5 +1,5 @@
 {
-  "minFiles": 124,
+  "minFiles": 125,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -29,7 +29,7 @@
     "scripts/deploy-checklist.test.ts": 16,
     "scripts/gate.test.ts": 14,
     "scripts/hand-check.test.ts": 24,
-    "scripts/landing.dom.test.ts": 27,
+    "scripts/landing.dom.test.ts": 55,
     "scripts/little-shop-seating.test.ts": 14,
     "scripts/math-check.test.ts": 28,
     "scripts/prompt-audit-outputs.test.ts": 63,
@@ -79,7 +79,7 @@
     "src/backstage/privacy.test.ts": 13,
     "src/backstage/providers.test.ts": 26,
     "src/backstage/run-gate.test.ts": 6,
-    "src/backstage/run.test.ts": 77,
+    "src/backstage/run.test.ts": 81,
     "src/backstage/scene-draft.test.ts": 8,
     "src/backstage/server.test.ts": 35,
     "src/backstage/signout.test.ts": 7,
@@ -109,6 +109,7 @@
     "src/docs/site-guide.test.ts": 35,
     "src/docs/stack.test.ts": 18,
     "src/docs/tester-checklist.test.ts": 8,
+    "src/docs/tester-handoff.test.ts": 6,
     "src/evidence/replay.test.ts": 20,
     "src/format/cli.test.ts": 3,
     "src/format/provenance.test.ts": 45,

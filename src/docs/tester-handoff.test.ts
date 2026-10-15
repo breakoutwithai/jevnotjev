@@ -18,9 +18,10 @@ describe("outside tester handoff", () => {
   test("[integration] D21 task gives an observable complete run and honest time allowance", () => {
     for (const phrase of ["two possible answers", "first case", "run all cases", "judge", "verdict"])
       expect(section("Your task")).toContain(phrase);
-    expect(section("Time and what to bring")).toContain("60 minutes");
+    expect(section("Time and what to bring")).toContain("Expected time: 60 minutes.");
     expect(section("Time and what to bring")).toContain("not a measured completion time");
     expect(section("Time and what to bring")).toContain("optional");
+    expect(doc.slice(0, doc.indexOf("\n## "))).toContain("Sharing results is optional");
   });
   test("[integration] D21 first-case completion is observable without exposing the blind answer", () => {
     const task = section("Your task");
@@ -37,7 +38,7 @@ describe("outside tester handoff", () => {
       ["https://jevnotjev.breakoutwithai.com/backstage/", "site/backstage/index.html"],
       ["https://jevnotjev.breakoutwithai.com/guide/", "site/guide/index.html"],
       ["https://jevnotjev.breakoutwithai.com/privacy/", "site/privacy/index.html"],
-      ["tester-checklist.md", "docs/uat/tester-checklist.md"],
+      ["https://github.com/breakoutwithai/jevnotjev/blob/main/docs/uat/tester-checklist.md", "docs/uat/tester-checklist.md"],
     ]);
     for (const [url, source] of expected) {
       expect(links).toContain(url);
@@ -65,9 +66,14 @@ describe("outside tester handoff", () => {
     const privacy = readFileSync(join(root, "site/privacy/index.html"), "utf8");
     expect(privacy).toContain("sign out or close the tab");
     expect(privacy).toContain("What leaves your browser");
+    expect(boundary).toContain("provider key pass through our server");
+    expect(boundary).toContain("does not save it");
+    expect(privacy).toContain("your key through the Backstage server");
   });
   test("[integration] D21 feedback is optional and blocker evidence excludes secrets and raw inputs", () => {
     const feedback = section("If you get stuck or want to share feedback");
+    expect(feedback).toContain("Sharing results is optional");
+    expect(doc).not.toMatch(/(?:must|required to|have to) (?:share|send|report)/i);
     for (const phrase of ["optional", "jev@breakoutwithai.com", "step", "browser", "public", "keys", "passwords", "question", "case text", "answers", "raw exports", "Crop"])
       expect(feedback).toContain(phrase);
     expect(feedback.indexOf("jev@breakoutwithai.com")).toBeLessThan(feedback.indexOf("public"));

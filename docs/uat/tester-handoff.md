@@ -1,10 +1,10 @@
 # Try one decision in Jev!Jev
 
-Use this handoff to try one small decision test and identify where the instructions or interface become unclear. You can decline or stop at any point. Sharing feedback or results is optional.
+Use this handoff to try one small decision test and identify where the instructions or interface become unclear. You can decline or stop at any point. Sharing results is optional, and so is feedback.
 
 ## Your task
 
-Test one question with two possible answers using made-up cases. Follow the [tester checklist](tester-checklist.md) for the detailed steps and observable results. The [live guide](https://jevnotjev.breakoutwithai.com/guide/) explains the workspace.
+Test one question with two possible answers using made-up cases. Follow the [tester checklist](https://github.com/breakoutwithai/jevnotjev/blob/main/docs/uat/tester-checklist.md) for the detailed steps and observable results. The [live guide](https://jevnotjev.breakoutwithai.com/guide/) explains the workspace.
 
 1. Write your question, both answer meanings and the rule you will use to judge answers. If you need a synthetic example: “Does this message explicitly ask for a refund or money back?” Answer yes for explicit refund requests, including conditional requests; answer no for policy questions, exchanges, complaints without a request and statements declining a refund.
 2. Add synthetic cases, check the case count and select Jev. For a comparison verdict, also select one model and the local keyword rule. These are optional for a first-case rehearsal.
@@ -14,7 +14,7 @@ Test one question with two possible answers using made-up cases. Follow the [tes
 
 ## Time and what to bring
 
-Allow about 60 minutes as a suggested planning budget, not a measured completion time or promise. You may choose only the first-case rehearsal; the full comparison is optional. Note the time you actually spend if you choose to give feedback.
+Expected time: 60 minutes. This is a planning estimate, not a measured completion time: no outside tester has timed a full run yet. You may choose only the first-case rehearsal; the full comparison is optional. Note the time you actually spend if you choose to give feedback.
 
 Bring a browser, one binary decision and synthetic or redacted cases. Bring your own TypeSafe API key for Jev from the [TypeSafe Playground](https://console.typesafe.ai/playground). A model comparison, question coaching or model-generated starter cases additionally needs a model provider key. The local keyword rule needs no provider key.
 
@@ -28,7 +28,7 @@ If you have not received access instructions, ask the maintainer before setting 
 
 ## Keep your data private
 
-Use synthetic or redacted data only: no real names, emails, account numbers, personal data or customer data. Your cases, question and definitions pass through our server to each selected model provider. The local keyword rule makes no provider call. Providers and infrastructure may retain data under their own policies.
+Use synthetic or redacted data only: no real names, emails, account numbers, personal data or customer data. Your cases, question, definitions and provider key pass through our server to each selected model provider; the server reads the key in memory to relay the call and does not save it. The local keyword rule makes no provider call. Providers and infrastructure may retain data under their own policies.
 
 The application does not save cases, questions, answers, runs or provider keys to server files or databases. That does not mean nothing is recorded: account/session details, operational logs and other data described in [How we handle data](https://jevnotjev.breakoutwithai.com/privacy/) can be kept. The web server may buffer requests briefly, and provider retention is not guaranteed by this application.
 
@@ -36,7 +36,7 @@ The unfinished question and cases are saved in this browser tab's storage and ca
 
 ## If you get stuck or want to share feedback
 
-Feedback and result sharing are optional. You can stop without sending anything. If you choose to report a blocker, email jev@breakoutwithai.com with the checklist step or task you attempted, what you expected, the redacted message you saw, and your browser/device. This does not require completing the test.
+Sharing results is optional, and so is feedback. You can stop without sending anything. If you choose to report a blocker, email jev@breakoutwithai.com with the checklist step or task you attempted, what you expected, the redacted message you saw, and your browser/device. This does not require completing the test.
 
 For a public report, the [tester-blocker template](https://github.com/breakoutwithai/jevnotjev/issues/new?template=tester-blocker.md) asks for the same safe details. GitHub issues are public.
 

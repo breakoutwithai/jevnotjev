@@ -21,6 +21,13 @@
 /* The runway: scroll room under the stage; 2px over so the end of the scroll always reaches a full reveal. */
 .overture::after { content: ""; display: block; height: calc(var(--runway, 70vh) + 2px); }
 .motion.overture-play .overture.gone { display: none; }
+/* While the curtain is up the page itself does not scroll: every scroll goes to the curtain's runway (theatre.js
+   routes a wheel or swipe off the curtain and the scroll keys to it), so the page is still at its first screen when the
+   curtain opens. */
+.motion.overture-play:not([data-curtain="open"]) { overflow: hidden; }
+/* Once the playbill has faded, the page in the gap takes the pointer (the result bars, About this sample); only the
+   two curtain panels still do. */
+.motion.overture-play .overture.faded, .overture.faded .overture-stage { pointer-events: none; }
 /* html.motion is decided once at load; this media query is live, so turning reduced motion on drops the curtain at once. */
 @media (prefers-reduced-motion: reduce) { .motion.overture-play .overture { display: none; } }
 .curtain {
@@ -108,8 +115,33 @@
 }
 /* Short or narrow screens: a compact poster under Skip, without the blurb. */
 @media (max-width: 1099px), (max-height: 639px) { .overture .poster .p-blurb { display: none; } }
-/* A phone on its side: no room on the curtain; the poster in the page carries the preview. */
-@media (max-height: 520px) { .overture .poster { display: none; } }
+/* A very short narrow screen: no room on the curtain; the poster in the page carries the preview. */
+@media (max-width: 720px) and (max-height: 520px) { .overture .poster { display: none; } }
+/* Short screens wider than a phone held upright (a phone on its side, a small laptop window): the playbill in two
+   columns, marquee, ticket and Skip on the left, the poster on the right, compressed by height so everything sits
+   under the sample chip and above the bottom edge. */
+@media (min-width: 721px) and (max-height: 639px) {
+  .playbill {
+    display: grid; grid-template-columns: minmax(0, 420px) 260px; align-content: center; justify-content: center;
+    justify-items: center; gap: 8px 40px; padding: 54px 24px 10px;
+  }
+  .playbill > .marquee { grid-column: 1; grid-row: 1; max-width: 100%; }
+  .playbill > .ticket { grid-column: 1; grid-row: 2; width: min(400px, 100%); }
+  .playbill > .overture-actions { grid-column: 1; grid-row: 3; }
+  .overture .poster { grid-column: 2; grid-row: 1 / span 3; align-self: center; width: 260px; gap: 4px; padding: 12px 16px; }
+  .overture .marquee { padding: 10px 18px 9px; }
+  .overture .marquee .kicker { font-size: 10px; letter-spacing: .24em; }
+  .overture .marquee .billing { margin-top: 4px; font-size: 24px; }
+  .overture .ticket .main { padding: 10px 14px 10px 20px; }
+  .overture .ticket .admit { font-size: 24px; }
+  .overture .ticket .show { margin: 2px 0 6px; font-size: 14px; }
+  .overture .ticket .fine { display: none; }
+  .overture-actions { flex-direction: row; gap: 16px; }
+  .cue-scroll::after { display: none; }
+  .overture .poster .p-who, .overture .poster .p-rule { display: none; }
+  .overture .poster .p-title { font-size: 24px; }
+  .overture .poster .p-cta { padding: 8px 12px; }
+}
 @media (max-width: 720px) {
   .playbill { gap: 20px; }
   .overture .ticket { grid-template-columns: minmax(0, 1fr) 54px; }

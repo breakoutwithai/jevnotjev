@@ -370,6 +370,32 @@ describe("verifyCore defects found in review of PR #226", () => {
       expect(byId(results, id).detail).toContain("comparisons[0]");
     }
   });
+
+  test("[unit] row 30: NaN in a page verdict (addN) against an exported null fails verdict only", async () => {
+    const p = withPair(freshPage(), 0, (pair) => {
+      if (!pair.verdict) throw new Error("sample pair has no verdict");
+      return { ...pair, verdict: { ...pair.verdict, addN: NaN } };
+    });
+    const exported = text(freshExport());
+    expect(exported).toContain('"addN": null');
+    const results = await verifyCore(p, exported);
+    expect(failing(results)).toEqual(["verdict"]);
+    expect(byId(results, "verdict").detail).toContain("pairs[0]: the verdict holds NaN");
+  });
+
+  test("[unit] row 31: NaN nested in verdict.numbers (costRatio.upper) against an exported null fails verdict", async () => {
+    const p = withPair(freshPage(), 0, (pair) => {
+      if (!pair.verdict) throw new Error("sample pair has no verdict");
+      return { ...pair, verdict: withUpper(pair.verdict, NaN) };
+    });
+    const e = freshExport();
+    e.verdicts = (e.verdicts ?? []).map((entry, i) => (i === 0 && entry.verdict ? { ...entry, verdict: withUpper(entry.verdict, NaN) } : entry));
+    const exported = text(e);
+    expect(exported).toContain('"upper": null');
+    const results = await verifyCore(p, exported);
+    expect(byId(results, "verdict").ok).toBe(false);
+    expect(byId(results, "verdict").detail).toContain("pairs[0]: the verdict holds NaN");
+  });
 });
 
 describe("render and main", () => {

@@ -211,6 +211,14 @@ function checkCost(page: PageReport, side: ExportSide): CheckResult {
   return result("cost-per-accepted", problems, `${compared} arm costs equal across ${done.size} pairs`);
 }
 
+/** True when a NaN sits anywhere in the value (objects and arrays, recursively). Infinity is allowed: it is a real cost-ratio bound. */
+function holdsNaN(value: unknown): boolean {
+  if (typeof value === "number") return Number.isNaN(value);
+  if (Array.isArray(value)) return value.some((item) => holdsNaN(item));
+  if (isRecord(value)) return Object.values(value).some((item) => holdsNaN(item));
+  return false;
+}
+
 function checkVerdict(page: PageReport, data: unknown): CheckResult {
   if (!isRecord(data)) return { id: "verdict", ok: false, detail: "the export is not a JSON object" };
   const verdicts = data.verdicts;
@@ -241,6 +249,8 @@ function checkVerdict(page: PageReport, data: unknown): CheckResult {
     if (!entries.has(key)) continue;
     const exported = entries.get(key);
     if (pair.verdict !== null || exported !== null) present += 1;
+    // NaN also becomes null on the wire, so the round trip below would hide it: the page would show NaN against a null export.
+    if (holdsNaN(pair.verdict)) problems.push(`page pairs[${i}]: the verdict holds NaN`);
     // The export went through JSON, which turns an Infinity in a verdict (a cost-ratio bound) into null: compare the page
     // verdict after the same round trip, as src/backstage/export-check.ts does.
     const wire: unknown = JSON.parse(JSON.stringify(pair.verdict));

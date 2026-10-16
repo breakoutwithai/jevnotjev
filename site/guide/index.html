@@ -3,40 +3,48 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Jev!Jev: first-use guide</title>
-<meta name="description" content="How to prepare test cases, label acceptance, enter costs and read the verdict in Jev!Jev, with the sample run worked through and the tool's limitations.">
-<style>
-:root { color-scheme: light dark; }
-body { margin: 0; background: #fff; color: #1a1a1a; font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-main { max-width: 72ch; margin: 0 auto; padding: 24px 20px 64px; overflow-wrap: break-word; }
-h1 { font-size: 1.9em; line-height: 1.2; margin: 0.4em 0; }
-h2 { font-size: 1.4em; line-height: 1.25; margin: 2em 0 0.5em; padding-top: 0.6em; border-top: 1px solid #ddd; }
-h3 { font-size: 1.1em; margin: 1.5em 0 0.4em; }
-a { color: #0b57d0; }
-code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #f2f2f2; padding: 0 0.2em; border-radius: 3px; }
-table { display: block; overflow-x: auto; border-collapse: collapse; margin: 1em 0; }
-th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
-dt { font-weight: 600; margin-top: 0.8em; }
-dd { margin: 0 0 0 1.2em; }
-footer { margin-top: 3em; color: #555; font-size: 0.9em; }
-@media (prefers-color-scheme: dark) {
-  body { background: #161616; color: #e6e6e6; }
-  a { color: #8ab4f8; }
-  code { background: #2a2a2a; }
-  h2 { border-top-color: #333; }
-  th, td { border-color: #444; }
-  footer { color: #aaa; }
-}
-</style>
+<title>How to use Jev!Jev | Your visitor playbill</title>
+<meta name="description" content="Watch a public sample or run your own invited Backstage test. A simple visual guide to Jev!Jev, from setup to judging, results and downloads.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,500;0,700;0,800;1,500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="guide.css">
 </head>
 <body>
+<a class="skip-link" href="#choose">Skip to your starting point</a>
+<header class="site-header"><a href="/">Jev!Jev</a><a href="#fields">Field glossary</a></header>
 <main>
+<section class="welcome" aria-labelledby="guide-title">
+<p class="eyebrow">The visitor's playbill</p>
+<h1 id="guide-title">One decision.<br>See how it plays.</h1>
+<p class="lede">Your guide to using this site: watch a recorded test, or bring a decision of your own.</p>
+</section>
+<section id="choose" tabindex="-1" class="entry-paths" aria-label="Choose your starting point">
+<article class="entry"><p class="eyebrow">Take a seat</p><h2>Watch a sample</h2><p>See the same cases answered by an LLM, a simple rule and Jev. Follow the labels, costs and recorded verdict.</p><a class="button" href="/replay/?run=uc13-100">Watch the public replay <span aria-hidden="true">&rarr;</span></a><p class="condition">No account. No API key. No calls to pay for.</p></article>
+<article class="entry"><p class="eyebrow">Bring your own decision</p><h2>Run your own test</h2><p>Use made-up or redacted cases. Backstage needs an invited sign-in and your own TypeSafe key; selected provider calls are billed to you.</p><a class="button" href="/backstage/">Open Backstage <span aria-hidden="true">&rarr;</span></a><p class="condition">Need an invitation? <a href="/#tkForm">Ask at the ticket office</a>; a person replies with access instructions.</p></article>
+</section>
+<section class="walkthrough" aria-labelledby="walkthrough-title">
+<div class="section-heading"><p class="eyebrow">Your Backstage test in three acts</p><h2 id="walkthrough-title">From question to evidence</h2><p>The names below match the tabs in Backstage.</p></div>
+<ol class="acts">
+<li><div class="act-copy"><p class="eyebrow">Act I</p><h3>Setup and run</h3><p>Write one question, two answers and your judging rule. Add safe cases, choose who answers and check the paid-call estimate.</p><p>Choose <strong>Try first case</strong>, then <strong>Run remaining cases</strong>. Finish retries before opening judging.</p></div>
+<figure class="miniature"><figcaption>Controls to look for</figcaption><div class="mini-tabs">Setup and run</div><div class="mini-field">One question</div><div class="answer-pair"><span>First answer</span><span>Second answer</span></div><div class="mini-field">Judging rule (required)</div><span class="mini-action">Try first case</span></figure></li>
+<li><div class="act-copy"><p class="eyebrow">Act II</p><h3>Review answers</h3><p>Open judging and lock retries. Pick the right answer for each case before seeing suggestions; choose <strong>Unsure</strong> when you cannot decide.</p><p>Your blind pick stays recorded if you change your mind. Finish judging and lock labels to reveal results.</p></div>
+<figure class="miniature"><figcaption>Your pick comes first</figcaption><div class="mini-tabs">Review answers</div><div class="case-lines" aria-hidden="true"><i></i><i></i></div><div class="answer-pair"><span>First choice</span><span>Second choice</span></div><span class="mini-action secondary">Unsure</span></figure></li>
+<li><div class="act-copy"><p class="eyebrow">Act III</p><h3>Results and downloads</h3><p>Read the verdict and its reason for each LLM comparison. <strong>Not enough evidence</strong> is a valid result; a comparison needs at least <span data-const="MIN_PAIRED">30</span> paired, labelled cases.</p><p>Check costs, then download records and run evidence. Results describe this test set only.</p></div>
+<figure class="miniature"><figcaption>Keep the evidence</figcaption><div class="mini-tabs">Results and downloads</div><div class="mini-field">Verdict + reason</div><div class="mini-field">Answers-only spend &middot; Cost / kept</div><span class="mini-action">Download records.csv</span><span class="mini-download">Download run evidence</span></figure></li>
+</ol>
+</section>
+<aside class="destinations" aria-label="More places on this site"><h2>Elsewhere in the theatre</h2><p><a href="/little-shop/">Little Shop</a> &middot; choose an interactive example. <a href="/replay/">Replays</a> &middot; inspect recorded answers.</p><p><a href="/tm/">TokenMax</a> &middot; a separate journey for mapping Claude Code and Codex usage. <a href="/maps/">Shared maps board</a> &middot; if unavailable, return later.</p></aside>
+<p class="docs-note">Building with Jev itself? API and model documentation belong to <a href="https://docs.typesafe.ai/introduction">TypeSafe's official docs</a>. This playbill explains Jev!Jev's screens.</p>
+<details id="reference" class="reference"><summary>Field guide: controls, costs and verdict rules</summary><div class="reference-body">
+<p id="jev-intro">Jev is TypeSafe's model for typed decisions; this tool calls it as <span data-const="JEV_PIN">jev-1.13.0</span>. Jev!Jev tests one decision from your workflow on your own cases; it is not a cross-task benchmark of Jev.</p>
+
 <p><a href="../">Back to the sample run</a></p>
 <p>First-use guide</p>
-<h1>How to test one decision with Jev!Jev</h1>
-<p id="jev-intro">Jev is TypeSafe's model for typed decisions; this tool calls it as <span data-const="JEV_PIN">jev-1.13.0</span>. Jev!Jev tests one decision from your workflow on your own cases; it is not a cross-task benchmark of Jev.</p>
+
+
 <p>Jev!Jev compares three ways of making one workflow decision on the same test cases: what you do now (an LLM), a simple rule, and Jev. Jev picks one answer from a fixed list for each text; it does not write text. You judge every answer, the tool adds up what each one cost, and a fixed rule gives one of three verdicts.</p>
-<p>Read sections 1 to 4 once, then walk the sample run with section 5 open beside it. Every field you will see is in the <a href="#fields">field glossary</a> at the end. Words in double quotes are labels exactly as the product shows them on screen. On the command line instead of the browser? The <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/docs/GUIDE.md">command-line guide</a> runs the same steps with <code>bun run decide</code>.</p>
+<p>Read sections 1 to 4 once, then walk the sample run with section 5 open beside it. Every field you will see is in the <a href="#fields">field glossary</a> at the end. Words in double quotes are labels exactly as the product shows them on screen.</p>
 <ol>
   <li><a href="#prepare">Prepare test cases</a></li>
   <li><a href="#label">Label acceptance</a></li>
@@ -115,7 +123,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>label_final</dt><dd><code>accept</code> or <code>reject</code> from your final pick, made after the blind pick: the blind pick kept or changed, with or without Jev's suggestion shown. Reported beside label, never instead of it.</dd>
   <dt>suggestion_shown</dt><dd><code>true</code> when Jev's ranked suggestion was shown before the final pick, <code>false</code> when none was available.</dd>
 </dl>
-<p>The command line fills <code>cost_usd</code> for you from its price table dated <span data-const="PRICE_TABLE_DATE">2026-10-08</span>: Jev at $<span data-const="JEV_INPUT_USD_PER_MTOK">0.042</span> per million input tokens, output free.</p>
+<p>Backstage fills <code>cost_usd</code> from returned token usage and its model catalog, checked <span data-const="BACKSTAGE_CATALOG_CHECKED_DATE">2026-10-04</span>: Jev at $<span data-const="BACKSTAGE_JEV_INPUT_USD_PER_MTOK">0.042</span> per million input tokens, output free. Missing usage or prices stay unknown; these list-price calculations are not your invoice.</p>
 <p><strong>Cost per kept answer</strong> is an answerer's total spend divided by its kept answers. It is undefined when an answerer kept nothing, never zero.</p>
 
 <h2 id="verdict">4. Read the verdict</h2>
@@ -134,7 +142,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <li><strong>Rule 3: Use Jev</strong> when all of these hold: the lower bound of Jev minus the LLM is above <span data-const="MARGIN_BOUND">-0.10</span> (Jev is within <span data-const="MARGIN_POINTS">10</span> points of the LLM); the cost ratio is <span data-const="CHEAPER">0.8</span> or less (at least <span data-const="CHEAPER_PERCENT">20</span>% cheaper per kept answer); and the cost ratio's upper bound is below one.</li>
   <li><strong>Rule 4: Not enough evidence</strong> otherwise. The screen names every condition of the use-Jev rule that was not met. It gives no count of extra cases here.</li>
 </ol>
-<p>"Not enough evidence" is a finding, not a failure: the cases did not show a difference either way within the margin. If only one of Jev and the LLM kept nothing, the order above matters: the two accept-rate conditions of "don't use Jev" are checked first, so Jev keeping nothing while the LLM kept nearly everything is "don't use Jev" (Jev clearly worse). Only when neither of those fires is a one-sided zero "not enough evidence", with the labels to check named. Two cost guards sit at the same point, after those two accept-rate conditions and before "Jev is clearly dearer": when Jev and the LLM both cost $0 per kept answer there is no cost ratio, and when the costs are too large to add up or divide the ratio is not finite. Either gives "not enough evidence", reported as rule one. The same rules run in the workspace (the step labelled "Results and downloads"), on the sample run page when you load your own file, and in <code>bun run decide verdict &lt;file&gt; --question &lt;id&gt;</code>.</p>
+<p>"Not enough evidence" is a finding, not a failure: the cases did not show a difference either way within the margin. If only one of Jev and the LLM kept nothing, the order above matters: the two accept-rate conditions of "don't use Jev" are checked first, so Jev keeping nothing while the LLM kept nearly everything is "don't use Jev" (Jev clearly worse). Only when neither of those fires is a one-sided zero "not enough evidence", with the labels to check named. Two cost guards sit at the same point, after those two accept-rate conditions and before "Jev is clearly dearer": when Jev and the LLM both cost $0 per kept answer there is no cost ratio, and when the costs are too large to add up or divide the ratio is not finite. Either gives "not enough evidence", reported as rule one. The same rules run in the workspace (the step labelled "Results and downloads") and on the sample run page when you load your own file.</p>
 
 <h2 id="example">5. Worked example: the sample run</h2>
 <p>Open the <a href="../">sample run page</a> and scroll. Below the sample cards, the shop-bot sections show a recorded run, flagged <strong>Sample run</strong> in the corner: <span data-sample="cases">100</span> made-up messages to a ski shop's bot, and one decision, "can the bot answer this from its fact sheet, or must it hand off to staff?" The first forty were used in the earlier run; five AI persona writers wrote the next sixty before the answerers ran.</p>
@@ -191,7 +199,7 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <li><strong>List prices, not invoices.</strong> Costs are returned token usage times a dated list price. Your invoice may differ, prices change after the table date, and failed calls can still be charged.</li>
   <li><strong>Small samples rarely decide.</strong> The verdict needs at least <span data-const="MIN_PAIRED">30</span> paired labelled cases, and at <span data-const="MIN_PAIRED">30</span> the published simulation finds "not enough evidence" the most common result. See the <a href="https://github.com/breakoutwithai/jevnotjev/blob/main/docs/decision/verdict-rules.md">verdict rules</a>.</li>
   <li><strong>Labels decide everything.</strong> The verdict is only as good as your labels. <code>agent</code> labels never count; the sample run's labels are AI drafts a person approved, not blind human picks.</li>
-  <li><strong>Three answerers only.</strong> The verdict reads the LLM, the rule and Jev. An optional fourth arm in the command line (the OpenAI Decisions API) is recorded but not judged.</li>
+  <li><strong>Three answerers only.</strong> The verdict reads the LLM, the rule and Jev. An imported results file may contain an optional <code>decisions</code> answerer; it is recorded but not judged.</li>
   <li><strong>Several models, several verdicts.</strong> When the workspace compares Jev with more than one LLM, each pair gets its own uncorrected verdict and no overall winner is picked.</li>
   <li><strong>Size limits.</strong> The workspace takes 1 to 100 cases of up to 8,000 characters each; the sample run page reads a results file up to <span data-const="MAX_FILE_MB">5</span> MB.</li>
   <li><strong>Confidence is not accuracy.</strong> Jev's confidence is the model's own score; the sample's case marked "Spotlight" was rejected at <span data-sample="spot-confidence">0.88</span>.</li>
@@ -255,7 +263,6 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>Edit the question</dt><dd>In the step labelled "Setup and run": discards the current run and unlocks the question's fields, keeping what you typed, so you can edit and run again under a new identity. With a run on the page it first asks you to confirm, so download your records and evidence before you do. Off while a run is starting or running.</dd>
   <dt>Catalog checked</dt><dd>In the step labelled "Setup and run", with a date: when the model list and its prices were last checked against the providers' documentation. Whether your account can use a model is checked only when you run.</dd>
   <dt>Prefer the Playground?</dt><dd>In the step labelled "Setup and run": a link to TypeSafe's own Playground, where you can try a case by hand instead of running it here.</dd>
-  <dt>Copy own-key CLI</dt><dd>Copies a command that sends your first case to Jev from your own terminal. It reads your key from TYPESAFE_API_KEY in your shell; no key is copied.</dd>
   <dt>Try one small Jev query</dt><dd>One Jev call on your first case, paid by us, when a funded trial is on. When no funded trial is configured, this control is hidden. A browser cookie and network limits prevent repeats.</dd>
   <dt>Send feedback</dt><dd>The footer link that opens a new issue on the project's GitHub, for feedback or a problem.</dd>
   <dt>Jev!Jev / Backstage Pass</dt><dd>The small workspace mark below your question.</dd>
@@ -320,9 +327,12 @@ footer { margin-top: 3em; color: #555; font-size: 0.9em; }
   <dt>other-only wins</dt><dd>Paired cases where the other answerer's answer was kept and Jev's was rejected.</dd>
   <dt>Per-pair, uncorrected comparison</dt><dd>Each LLM is compared with Jev on its own; nothing adjusts for running several comparisons at once.</dd>
 </dl>
+
+</div></details>
 </main>
 <footer>
 <p>Demo service. Use made-up or redacted data only. Backstage does not save your cases, runs or keys to a file or database on our server. We accept no responsibility for real data loaded or entered here. <a href="/privacy/">How we handle data</a></p>
 </footer>
+<script src="guide.js"></script>
 </body>
 </html>

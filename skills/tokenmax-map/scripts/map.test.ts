@@ -1,6 +1,6 @@
 // [unit] tokenmax-map parser. Synthetic lines in the record shapes observed in real local history on 2026-10-16.
 import { describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type CapOccurrence, CODEX_META_TYPE, classifyClaudeNotice, groupEpisodes, main, parseArgs, parseClaudeLine, projectOf, renderPrivate, scanClaude, scanCodex, scanShare, summarise } from "./map.ts";
@@ -151,9 +151,11 @@ describe("[integration] scan and report", () => {
     expect(await main(argv)).toBe(0);
     const priv = readFileSync(join(out, "private-report.md"), "utf8");
     const share = readFileSync(join(out, "share-draft.md"), "utf8");
+    // The evidence index may name a source file (a Claude file is named after its session); nothing else in the report may.
+    const privOutsideIndex = priv.replace(/## Evidence index[\s\S]*?(?=\n## )/, "");
     for (const banned of ["SECRET", "acme", "s-1", "cx-a", "/home/"]) {
       expect(share.includes(banned)).toBe(false);
-      expect(priv.includes(banned)).toBe(false);
+      expect(privOutsideIndex.includes(banned)).toBe(false);
     }
     expect(priv.includes("| alpha |")).toBe(true);
     expect(share.includes("DRAFT - NOT APPROVED FOR SHARING")).toBe(true);
@@ -288,5 +290,70 @@ describe("[integration] review #241: records", () => {
   test("[integration] the coverage table reports files that could not be read", async () => {
     const s = summarise(await scanClaude(claudeFixture(), FROM, TO), null);
     expect(renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: false, sources: ["Claude Code"] })).toContain("| Source | Files | Unreadable | Lines |");
+  });
+});
+
+describe("[integration] review #241 round 2", () => {
+  const CAP = { limit_id: "codex", primary: { used_percent: 100, window_minutes: 10080, resets_at: 1760900000 }, secondary: null, rate_limit_reached_type: null };
+  const sessionFile = (id: string, totals: Array<[string, number, number]>, withCap = false): string =>
+    [JSON.stringify({ timestamp: "2026-10-14T08:00:00Z", type: CODEX_META_TYPE, payload: { id } }), ...totals.map(([ts, i, o], k) => tc(ts, tot(i, o), withCap && k === 0 ? CAP : undefined))].join("\n");
+
+  test("[integration] the same Codex session id in two files counts once; the file with the later total wins; its caps are not doubled", async () => {
+    const root = mkdtempSync(join(tmpdir(), "tmx-codex-dup-"));
+    const day = join(root, "2026", "10", "14");
+    mkdirSync(day, { recursive: true });
+    writeFileSync(join(day, "rollout-copy.jsonl"), sessionFile("cx-dup", [["2026-10-14T08:01:00Z", 100, 10]], true));
+    writeFileSync(join(day, "rollout-full.jsonl"), sessionFile("cx-dup", [["2026-10-14T08:01:00Z", 100, 10], ["2026-10-14T08:02:00Z", 300, 30]], true));
+    const st = await scanCodex(root, FROM, TO);
+    const s = summarise(null, st);
+    expect(st.duplicateFiles).toBe(1);
+    expect(s.codex?.sessions).toBe(1);
+    expect(s.codex?.totals.input).toBe(300);
+    expect(s.codex?.totals.output).toBe(30);
+    expect(s.codex?.capOccurrences).toBe(1);
+    expect(s.evidence.map((e) => e.files)).toEqual([["2026/10/14/rollout-full.jsonl"]]);
+    const text = renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: false, sources: ["Codex"] });
+    expect(text).toContain("1 Codex file(s) repeated a session id already read");
+  });
+
+  test("[integration] the private report has an evidence index: aliases, source-relative files, no project name, and episodes point at it", async () => {
+    const s = summarise(await scanClaude(claudeFixture(), FROM, TO), await scanCodex(codexFixture(), FROM, TO));
+    const text = renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: false, sources: ["Claude Code", "Codex"] });
+    const index = text.slice(text.indexOf("## Evidence index"), text.indexOf("## Proposals"));
+    expect(index).toContain("| Session | Source | Source file |");
+    expect(index).toMatch(/\| session-\d{3} \| claude \| dir-[0-9a-f]{8}\/s-1\.jsonl \|/);
+    expect(index).toContain("2026/10/14/rollout-a.jsonl");
+    expect(index).toMatch(/dir-[0-9a-f]{8}\/s-1\/subagents\/agent-1\.jsonl/);
+    expect(index).not.toContain("alpha");
+    expect(index).not.toContain("SECRET");
+    // Every cap episode names the sessions it came from.
+    const episodes = text.slice(text.indexOf("| Episode |"), text.indexOf("## Evidence index"));
+    expect(episodes).toContain("| Evidence |");
+    expect(episodes).toMatch(/session-00\d/);
+    // The two sessions with caps come before the one without.
+    const aliasOfNoCap = s.evidence.find((e) => e.caps === 0)?.alias ?? "";
+    expect(s.evidence.slice(0, s.evidence.filter((e) => e.caps > 0).length).every((e) => e.caps > 0)).toBe(true);
+    expect(aliasOfNoCap).not.toBe("session-001");
+    const named = renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: true, sources: ["Claude Code", "Codex"] });
+    expect(named).toContain("-Users-x-projects-alpha/s-1.jsonl");
+  });
+
+  test("[integration] --share is refused when a folder could not be read; the report says the totals are understated", async () => {
+    const root = claudeFixture();
+    const locked = join(root, "-Users-x-projects-locked");
+    mkdirSync(locked);
+    writeFileSync(join(locked, "x.jsonl"), asst({ id: "mx", ts: "2026-10-14T09:00:00Z" }));
+    chmodSync(locked, 0o000);
+    const out = join(mkdtempSync(join(tmpdir(), "tmx-unread-")), "r");
+    const lines: string[] = [];
+    const spy = spyOn(console, "log").mockImplementation((...a: unknown[]) => { lines.push(a.map(String).join(" ")); });
+    let code = -1;
+    try { code = await main(["--share", "--claude", root, "--codex", "none", "--out", out, "--now", "2026-10-16T12:00:00Z"]); } finally { spy.mockRestore(); chmodSync(locked, 0o755); }
+    const output = lines.join("\n");
+    expect(code).toBe(1);
+    expect(output).toContain("Share skipped: 1 folder(s) or file(s) could not be read");
+    expect(output).not.toContain("#m=");
+    expect(readFileSync(join(out, "private-report.md"), "utf8")).toContain("could not be read: the totals below are understated");
+    expect(readFileSync(join(out, "share-draft.md"), "utf8")).toContain("1 folders or files unreadable");
   });
 });

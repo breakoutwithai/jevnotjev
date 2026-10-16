@@ -13,6 +13,7 @@
 // private-report.md and only with --by-project. share-draft.md carries aggregate counts only.
 // --share prints the tm-share/1 aggregate fields and a review link to stdout; nothing is sent.
 
+import { createHash } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
@@ -44,7 +45,7 @@ export function projectOf(cwd: string): string {
 // ---------- shared types ----------
 
 export type Window = "short" | "weekly" | "unknown";
-export type CapOccurrence = { source: "claude" | "codex"; ts: number; window: Window; reset: string; session: string; eventId: string };
+export type CapOccurrence = { source: "claude" | "codex"; ts: number; window: Window; reset: string; session: string; eventId: string; file?: string };
 export type Episode = { source: "claude" | "codex"; window: Window; reset: string; first: number; last: number; occurrences: number; sessions: Set<string> };
 export type Coverage = { files: number; unreadable: number; lines: number; parsed: number; malformed: number; accepted: number; unsupported: number; outOfPeriod: number };
 const newCoverage = (): Coverage => ({ files: 0, unreadable: 0, lines: 0, parsed: 0, malformed: 0, accepted: 0, unsupported: 0, outOfPeriod: 0 });
@@ -77,7 +78,7 @@ export function groupEpisodes(occ: CapOccurrence[]): Episode[] {
 // ---------- Claude Code ----------
 
 export type ClaudeTokens = { input: number; output: number; cacheRead: number; cacheWrite: number };
-export type ClaudeUsage = { messageId: string; ts: number; order: number; session: string; subagent: boolean; model: string; project: string; tokens: ClaudeTokens };
+export type ClaudeUsage = { messageId: string; ts: number; order: number; session: string; subagent: boolean; model: string; project: string; tokens: ClaudeTokens; file: string };
 export type ClaudeParsed =
   | { kind: "usage"; usage: ClaudeUsage }
   | { kind: "cap"; cap: CapOccurrence }
@@ -94,7 +95,7 @@ export function classifyClaudeNotice(text: string): { window: Window; reset: str
 }
 
 /** One Claude Code line. Lines that cannot carry usage or an API error are skipped unparsed. */
-export function parseClaudeLine(line: string, ctx: { subagent: boolean; order: number }): ClaudeParsed {
+export function parseClaudeLine(line: string, ctx: { subagent: boolean; order: number; file?: string }): ClaudeParsed {
   if (!line.includes('"usage"') && !line.includes("isApiErrorMessage")) return { kind: "skip" };
   let raw: unknown;
   try {
@@ -114,7 +115,7 @@ export function parseClaudeLine(line: string, ctx: { subagent: boolean; order: n
     if (Array.isArray(msg.content)) for (const c of msg.content) if (isRec(c)) text += str(c.text);
     if (!/hit your .{0,12}limit|usage limit/i.test(text)) return { kind: "error", category: "rate_limit-generic", ts };
     const { window, reset } = classifyClaudeNotice(text);
-    return { kind: "cap", cap: { source: "claude", ts, window, reset, session, eventId: str(raw.uuid) } };
+    return { kind: "cap", cap: { source: "claude", ts, window, reset, session, eventId: str(raw.uuid), file: ctx.file ?? "" } };
   }
   const model = str(msg.model);
   const id = str(msg.id);
@@ -133,6 +134,7 @@ export function parseClaudeLine(line: string, ctx: { subagent: boolean; order: n
       subagent: ctx.subagent || raw.isSidechain === true,
       model,
       project: projectOf(str(raw.cwd)),
+      file: ctx.file ?? "",
       tokens: { input, output, cacheRead: counter(u.cache_read_input_tokens) ?? 0, cacheWrite: counter(u.cache_creation_input_tokens) ?? 0 },
     },
   };
@@ -186,6 +188,12 @@ export type CodexSession = {
   subagent: boolean;
   forked: boolean;
   startTs: number | undefined;
+  /** Source-relative path of the file this session was read from. */
+  file: string;
+  /** Counted counter readings, and the first and last of them (epoch ms). */
+  readings: number;
+  firstTs: number;
+  lastTs: number;
   model: string;
   project: string;
   prev: CodexTokens | undefined;
@@ -201,8 +209,8 @@ export type WindowReading = { ts: number; slot: string; usedPercent: number; win
  * badReadings counts window slots whose used_percent is not a finite non-negative number, or whose resets_at is not
  * a representable date: they are never readings.
  */
-export type CodexState = { cov: Coverage; sessions: CodexSession[]; caps: CapOccurrence[]; reachedWithoutWindow: number; badReadings: number; lastReading: WindowReading | undefined; lastWeekly: WindowReading | undefined };
-export const newCodexState = (): CodexState => ({ cov: newCoverage(), sessions: [], caps: [], reachedWithoutWindow: 0, badReadings: 0, lastReading: undefined, lastWeekly: undefined });
+export type CodexState = { cov: Coverage; sessions: CodexSession[]; duplicateFiles: number; caps: CapOccurrence[]; reachedWithoutWindow: number; badReadings: number; lastReading: WindowReading | undefined; lastWeekly: WindowReading | undefined };
+export const newCodexState = (): CodexState => ({ cov: newCoverage(), sessions: [], duplicateFiles: 0, caps: [], reachedWithoutWindow: 0, badReadings: 0, lastReading: undefined, lastWeekly: undefined });
 /** Epoch seconds that make a valid Date, else undefined. */
 const epochSeconds = (v: unknown): number | undefined => {
   const s = counter(v);
@@ -288,16 +296,19 @@ export function addCodexLine(st: CodexState, sess: CodexSession, line: string, f
     found = true;
     const wm = counter(w.window_minutes);
     const window: Window = wm === 10080 ? "weekly" : wm !== undefined && wm <= 300 ? "short" : "unknown";
-    st.caps.push({ source: "codex", ts, window, reset: String(resetsAt ?? ""), session: sess.id, eventId: "" });
+    st.caps.push({ source: "codex", ts, window, reset: String(resetsAt ?? ""), session: sess.id, eventId: "", file: sess.file });
   }
   if (reached && !found) {
     st.reachedWithoutWindow++;
-    st.caps.push({ source: "codex", ts, window: "unknown", reset: reached, session: sess.id, eventId: "" });
+    st.caps.push({ source: "codex", ts, window: "unknown", reset: reached, session: sess.id, eventId: "", file: sess.file });
   }
 }
 
 function addDelta(sess: CodexSession, d: CodexTokens, ts: number): void {
   for (const [k] of CODEX_KEYS) sess.established[k] += d[k];
+  sess.readings++;
+  sess.firstTs = Math.min(sess.firstTs, ts);
+  sess.lastTs = Math.max(sess.lastTs, ts);
   const day = dayOf(ts);
   sess.days.set(day, (sess.days.get(day) ?? 0) + d.input + d.output);
   sess.byModel.set(sess.model, (sess.byModel.get(sess.model) ?? 0) + d.input + d.output);
@@ -350,17 +361,44 @@ export async function scanClaude(dir: string, from: number, to: number): Promise
   const s = newClaudeState();
   for (const f of listJsonl(dir, from, s.cov)) {
     const subagent = f.split(sep).includes("subagents");
-    await eachLine(f, s.cov, (line) => addClaude(s, parseClaudeLine(line, { subagent, order: s.order++ }), from, to));
+    const file = relative(dir, f);
+    await eachLine(f, s.cov, (line) => addClaude(s, parseClaudeLine(line, { subagent, order: s.order++, file }), from, to));
   }
   return s;
 }
 
+const addCoverage = (a: Coverage, b: Coverage): void => {
+  for (const k of Object.keys(a) as Array<keyof Coverage>) a[k] += b[k];
+};
+
+/**
+ * One state per file, merged by session id: the same session read from two files (a copy, a restored backup) counts once.
+ * The file with the later cumulative total is kept, the other is counted in duplicateFiles and contributes nothing else.
+ */
 export async function scanCodex(dir: string, from: number, to: number): Promise<CodexState> {
   const st = newCodexState();
+  const kept = new Map<string, { sess: CodexSession; fst: CodexState }>();
+  const finalTotal = (x: CodexSession): number => (x.prev ? x.prev.input + x.prev.output : 0);
   for (const f of listJsonl(dir, from, st.cov)) {
-    const sess: CodexSession = { id: relative(dir, f), subagent: false, forked: false, startTs: undefined, model: "unknown", project: "unknown", prev: undefined, established: zeroCodex(), baselines: 0, days: new Map(), byModel: new Map() };
-    await eachLine(f, st.cov, (line) => addCodexLine(st, sess, line, from, to));
+    const fst = newCodexState();
+    const file = relative(dir, f);
+    const sess: CodexSession = { id: file, subagent: false, forked: false, startTs: undefined, file, readings: 0, firstTs: Infinity, lastTs: -Infinity, model: "unknown", project: "unknown", prev: undefined, established: zeroCodex(), baselines: 0, days: new Map(), byModel: new Map() };
+    await eachLine(f, fst.cov, (line) => addCodexLine(fst, sess, line, from, to));
+    addCoverage(st.cov, fst.cov);
+    const old = kept.get(sess.id);
+    if (!old) kept.set(sess.id, { sess, fst });
+    else {
+      st.duplicateFiles++;
+      if (finalTotal(sess) > finalTotal(old.sess)) kept.set(sess.id, { sess, fst });
+    }
+  }
+  for (const { sess, fst } of kept.values()) {
     st.sessions.push(sess);
+    st.caps.push(...fst.caps);
+    st.reachedWithoutWindow += fst.reachedWithoutWindow;
+    st.badReadings += fst.badReadings;
+    if (fst.lastReading && (!st.lastReading || fst.lastReading.ts >= st.lastReading.ts)) st.lastReading = fst.lastReading;
+    if (fst.lastWeekly && (!st.lastWeekly || fst.lastWeekly.ts >= st.lastWeekly.ts)) st.lastWeekly = fst.lastWeekly;
   }
   return st;
 }
@@ -368,6 +406,40 @@ export async function scanCodex(dir: string, from: number, to: number): Promise<
 // ---------- summary ----------
 
 export type Summary = ReturnType<typeof summarise>;
+
+/** One row of the private evidence index: where in the source logs a session's findings come from. */
+export type Evidence = { source: "claude" | "codex"; session: string; alias: string; files: string[]; first: number; last: number; records: number; caps: number };
+
+/**
+ * Per-session provenance: source-relative files, first and last in-period record, counted records and cap notices.
+ * Sessions with a cap come first, then the most records; aliases session-001... follow that order.
+ */
+function buildEvidence(c: ClaudeState | null, x: CodexState | null, xActive: CodexSession[]): Evidence[] {
+  const rows = new Map<string, Omit<Evidence, "alias"> & { fileSet: Set<string> }>();
+  const touch = (source: "claude" | "codex", session: string, file: string | undefined, ts: number, records: number, caps: number): void => {
+    const key = `${source}|${session}`;
+    const r = rows.get(key) ?? { source, session, files: [], fileSet: new Set<string>(), first: ts, last: ts, records: 0, caps: 0 };
+    if (file) r.fileSet.add(file);
+    r.first = Math.min(r.first, ts);
+    r.last = Math.max(r.last, ts);
+    r.records += records;
+    r.caps += caps;
+    rows.set(key, r);
+  };
+  for (const u of c?.snaps.values() ?? []) touch("claude", u.session, u.file, u.ts, 1, 0);
+  for (const cap of c?.caps ?? []) touch("claude", cap.session, cap.file, cap.ts, 0, 1);
+  for (const sess of xActive) if (sess.readings > 0) { touch("codex", sess.id, sess.file, sess.firstTs, sess.readings, 0); touch("codex", sess.id, sess.file, sess.lastTs, 0, 0); }
+  for (const cap of x?.caps ?? []) touch("codex", cap.session, cap.file, cap.ts, 0, 1);
+  const ordered = [...rows.values()].sort((a, b) => (b.caps > 0 ? 1 : 0) - (a.caps > 0 ? 1 : 0) || b.records - a.records || a.first - b.first || a.session.localeCompare(b.session));
+  return ordered.map((r, i) => ({ source: r.source, session: r.session, alias: `session-${String(i + 1).padStart(3, "0")}`, files: [...r.fileSet].sort(), first: r.first, last: r.last, records: r.records, caps: r.caps }));
+}
+
+/** A source-relative path for the private report. Without --by-project the Claude project folder (its first segment) is replaced by a short hash, so the same folder still matches across rows. */
+export function fileRef(rel: string, source: "claude" | "codex", byProject: boolean): string {
+  const parts = rel.split(sep);
+  if (byProject || source !== "claude" || parts.length < 2) return parts.join("/");
+  return ["dir-" + createHash("sha256").update(parts[0] ?? "").digest("hex").slice(0, 8), ...parts.slice(1)].join("/");
+}
 
 export function summarise(c: ClaudeState | null, x: CodexState | null) {
   const byModel = new Map<string, ClaudeTokens & { messages: number }>();
@@ -402,6 +474,7 @@ export function summarise(c: ClaudeState | null, x: CodexState | null) {
     xByProject.set(s.project, (xByProject.get(s.project) ?? 0) + t);
     for (const [d, n] of s.days) xByDay.set(d, (xByDay.get(d) ?? 0) + n);
   }
+  const evidence = buildEvidence(c, x, xActive);
   const capEvents = new Set((c?.caps ?? []).map((cap) => cap.eventId).filter(Boolean)).size;
   const episodes = groupEpisodes([...(c?.caps ?? []), ...(x?.caps ?? [])]);
   const win = (src: "claude" | "codex") => {
@@ -411,6 +484,7 @@ export function summarise(c: ClaudeState | null, x: CodexState | null) {
   };
   const subagents = [...sessions.values()].filter(Boolean).length;
   return {
+    evidence,
     claude: c && {
       cov: c.cov,
       sessions: sessions.size,
@@ -431,6 +505,7 @@ export function summarise(c: ClaudeState | null, x: CodexState | null) {
       subagentSessions: xActive.filter((s) => s.subagent).length,
       // Over every scanned session: a session with only uncounted readings is exactly the coverage gap to report.
       baselines: x.sessions.reduce((a, s) => a + s.baselines, 0),
+      duplicateFiles: x.duplicateFiles,
       badReadings: x.badReadings,
       totals: xTotals,
       byModel: xByModel,
@@ -450,6 +525,7 @@ export function summarise(c: ClaudeState | null, x: CodexState | null) {
 
 const n = (v: number): string => v.toLocaleString("en-GB");
 const top = (m: Map<string, number>, k: number): Array<[string, number]> => [...m].sort((a, b) => b[1] - a[1]).slice(0, k);
+const EVIDENCE_ROWS = 200;
 const share = (v: number, total: number): string => (total > 0 ? `${Math.round((v / total) * 100)}%` : "0%");
 
 export function renderPrivate(s: Summary, o: { from: string; to: string; byProject: boolean; sources: string[] }): string {
@@ -464,6 +540,9 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
   L.push("", "- Files are selected by modification time inside the period, then records by timestamp. Lines that cannot carry usage, a cap or a counter are skipped unparsed (Lines minus Parsed).");
   if (s.claude) L.push(`- Claude: ${n(s.claude.sessions)} sessions with in-period evidence, ${n(s.claude.subagentSessions)} of them with subagent work (\`subagents/\` file or sidechain flag; a subagent transcript carries its parent's sessionId, so it counts inside the parent session). ${n(s.claude.usageRecords)} usage records collapse to ${n(s.claude.messages)} messages (latest snapshot per message.id). \`<synthetic>\` records carry no usage.`);
   if (s.codex) L.push(`- Codex: ${n(s.codex.sessions)} sessions with established usage, ${n(s.codex.subagentSessions)} subagent (parent_thread_id). ${n(s.codex.baselines)} uncounted baselines (forked sessions, sessions started before the period, counter decreases).`);
+  if (s.codex?.duplicateFiles) L.push(`- ${n(s.codex.duplicateFiles)} Codex file(s) repeated a session id already read: the file with the later cumulative total is kept, so no session is counted twice.`);
+  const unread = (s.claude?.cov.unreadable ?? 0) + (s.codex?.cov.unreadable ?? 0);
+  if (unread) L.push(`- ${n(unread)} folder(s) or file(s) could not be read: the totals below are understated and the share is refused.`);
   L.push("");
 
   if (s.claude) {
@@ -519,10 +598,26 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
   if (s.claude && s.claude.errors.size) L.push(`- Other API errors, not caps: ${[...s.claude.errors].map(([k, v]) => `${k} ${v}`).join(", ")}.`);
   L.push("");
   if (s.episodes.length) {
-    L.push(`| Episode | Source | Window | Reset reading | First (UTC) | Occurrences | Sessions |`, `|---|---|---|---|---|---|---|`);
-    s.episodes.forEach((e, i) => L.push(`| ${i + 1} | ${e.source} | ${e.window} | ${e.reset || "none"} | ${new Date(e.first).toISOString().slice(0, 16)} | ${e.occurrences} | ${e.sessions.size} |`));
+    const alias = new Map(s.evidence.map((e) => [`${e.source}|${e.session}`, e.alias]));
+    L.push(`| Episode | Source | Window | Reset reading | First (UTC) | Occurrences | Sessions | Evidence |`, `|---|---|---|---|---|---|---|---|`);
+    s.episodes.forEach((e, i) => {
+      const names = [...e.sessions].map((id) => alias.get(`${e.source}|${id}`) ?? "").filter(Boolean).sort();
+      L.push(`| ${i + 1} | ${e.source} | ${e.window} | ${e.reset || "none"} | ${new Date(e.first).toISOString().slice(0, 16)} | ${e.occurrences} | ${e.sessions.size} | ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3}` : ""} |`);
+    });
     L.push("");
   }
+
+  L.push(`## Evidence index`, "", `Where each finding comes from, with no message text copied. Sessions with a cap notice come first, then the most records. Records: Claude messages (latest snapshot per message.id) or Codex counted counter readings. Files are relative to the source folder${o.byProject ? "" : "; a Claude project folder shows as dir-<hash> (add --by-project for the name)"}.`, "");
+  if (s.evidence.length) {
+    L.push(`| Session | Source | Source file | First (UTC) | Last (UTC) | Records | Cap notices |`, `|---|---|---|---|---|---|---|`);
+    for (const e of s.evidence.slice(0, EVIDENCE_ROWS)) {
+      const first = e.files[0] ? fileRef(e.files[0], e.source, o.byProject) : "none";
+      const more = e.files.length > 1 ? ` +${e.files.length - 1} more` : "";
+      L.push(`| ${e.alias} | ${e.source} | ${first}${more} | ${new Date(e.first).toISOString().slice(0, 16)} | ${new Date(e.last).toISOString().slice(0, 16)} | ${n(e.records)} | ${e.caps} |`);
+    }
+    if (s.evidence.length > EVIDENCE_ROWS) L.push("", `${n(s.evidence.length - EVIDENCE_ROWS)} more session(s) with in-period evidence are not listed.`);
+  } else L.push("No session had in-period evidence.");
+  L.push("");
 
   L.push(`## Proposals (not measured savings)`, "");
   const proposals: string[] = [];
@@ -543,6 +638,8 @@ export function renderShare(s: Summary, o: { alias: string; days: number; source
   const sessions = (s.claude?.sessions ?? 0) + (s.codex?.sessions ?? 0);
   const gaps: string[] = [];
   if (s.codex && s.codex.baselines) gaps.push(`${s.codex.baselines} Codex counter baselines uncounted`);
+  const unread = (s.claude?.cov.unreadable ?? 0) + (s.codex?.cov.unreadable ?? 0);
+  if (unread) gaps.push(`${unread} folders or files unreadable`);
   if (s.claude && s.claude.cov.malformed + s.claude.cov.unsupported) gaps.push(`${s.claude.cov.malformed + s.claude.cov.unsupported} Claude records excluded`);
   const models = new Set<string>();
   for (const m of s.claude?.byModel.keys() ?? []) models.add(m.replace(/-\d.*$/, ""));
@@ -789,7 +886,8 @@ export async function main(argv: string[]): Promise<number> {
   if (args.share) {
     const sources: ShareSources = args.claude && args.codex ? "claude+codex" : args.claude ? "claude" : "codex";
     const payload = buildShare(s, { days: args.days, sources });
-    const refused = shareRangeError(payload);
+    const unread = (s.claude?.cov.unreadable ?? 0) + (s.codex?.cov.unreadable ?? 0);
+    const refused = unread ? `${unread} folder(s) or file(s) could not be read, so the totals would be understated` : shareRangeError(payload);
     console.log("");
     if (refused) {
       console.log(`Share skipped: ${refused}. The report is written; nothing has been sent.`);

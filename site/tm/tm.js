@@ -190,7 +190,7 @@
     var max = track.offsetHeight - innerHeight;
     return max > 0 ? clamp(-r.top / max) : 1;
   }
-  function frame() { ticking = false; render(progress()); }
+  function frame() { ticking = false; if (motion) render(progress()); }
   function onScroll() { if (!ticking) { ticking = true; requestAnimationFrame(frame); } }
 
   function layout() {

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
@@ -532,7 +533,28 @@ test("[integration] 13e the honeypot field's name and id carry no word a browser
   } finally { await context.close(); }
 });
 
-test("[integration] 12 M1 landing to own row on the board in four actions or fewer", async () => {
+/** The command the page shows, run for real: the served mapper piped to `bun run -` against a synthetic Claude history. Returns the link it prints. */
+async function runServedMapper(): Promise<string> {
+  const served = await (await fetch(`${origin}/tm/map.ts`)).text();
+  const claude = mkdtempSync(join(tmpdir(), "tmx-journey-claude-"));
+  const project = join(claude, "-Users-x-projects-alpha");
+  mkdirSync(project, { recursive: true });
+  const usage = { input_tokens: 10, output_tokens: 5 };
+  writeFileSync(join(project, "s-1.jsonl"), [
+    JSON.stringify({ type: "assistant", sessionId: "s-1", uuid: "u-1", timestamp: "2026-10-14T09:00:00Z", cwd: "/x/alpha", message: { id: "m1", model: "claude-opus-5-5", usage } }),
+    JSON.stringify({ type: "assistant", sessionId: "s-1", uuid: "u-2", timestamp: "2026-10-14T09:10:00Z", isApiErrorMessage: true, error: "rate_limit", message: { id: "x", model: "<synthetic>", content: [{ type: "text", text: "You've hit your session limit · resets 2pm (Europe/Warsaw)" }] } }),
+  ].join("\n"));
+  const proc = Bun.spawn(["bun", "run", "-", "--share", "--claude", claude, "--codex", "none", "--out", join(mkdtempSync(join(tmpdir(), "tmx-journey-out-")), "r"), "--now", "2026-10-16T12:00:00Z"], {
+    stdin: new TextEncoder().encode(served), stdout: "pipe", stderr: "pipe", cwd: mkdtempSync(join(tmpdir(), "tmx-journey-cwd-")),
+  });
+  const stdout = await new Response(proc.stdout).text();
+  expect(await proc.exited).toBe(0);
+  const printed = stdout.split("\n").find((line) => line.startsWith(`${SHARE_BASE}#m=`));
+  if (!printed) throw new Error(`the served mapper printed no share link:\n${stdout}`);
+  return `${origin}/maps/${printed.slice(SHARE_BASE.length)}`;
+}
+
+test("[integration] 12 M1 landing to own row on the board in four actions or fewer, with the real served mapper as the terminal step", async () => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
   const page = await context.newPage();
@@ -543,17 +565,19 @@ test("[integration] 12 M1 landing to own row on the board in four actions or few
     await page.locator("#tmCopy").click(); actions += 1;
     expect(await page.locator("#tmCommand").innerText()).toBe(COMMAND);
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(COMMAND);
-    // Action 2: paste into a terminal; the mapper prints shareLink(payload). Simulated with the fixture payload.
+    // Action 2: paste into a terminal. The copied command's script is fetched from the served site and run for real.
     actions += 1;
-    const printed = link();
+    const printed = await runServedMapper();
     await page.goto(printed, { waitUntil: "load" }); actions += 1;
     expect(await page.locator("#mapAlias").inputValue()).toMatch(/^builder-[a-z0-9]{4}$/);
+    expect(await page.locator('#mapFields [data-field="sessions"]').getAttribute("data-value")).toBe("1");
+    expect(await page.locator('#mapFields [data-field="caps.short"]').getAttribute("data-value")).toBe("1");
     await page.locator("#mapShare").click(); actions += 1;
     await page.locator("#mapBoard .map-row.mine").waitFor();
     console.log(`M1 actions=${actions}`);
     expect(actions).toBeLessThanOrEqual(4);
   } finally { await context.close(); }
-}, 30000);
+}, 60000);
 
 // #238 pass 2: one name for the cap event everywhere, "cap hits"; the trust line on the share card; tap targets.
 const TRUST_LINE = "Runs on your machine. Nothing sent until you press Share.";

@@ -369,8 +369,14 @@ describe("/api/maps route", () => {
     tick(BOARD_CACHE_MS + 1);
     expect((await board(handler)).totals.builders).toBe(1);
     // A share through this server shows at once.
-    expect((await handler(...post("/api/maps", body))).status).toBe(200);
+    const shared = await handler(...post("/api/maps", body));
+    expect(shared.status).toBe(200);
     expect((await board(handler)).totals.builders).toBe(2);
+    // A delete through this server shows at once too.
+    const data: unknown = await shared.json();
+    const id = typeof data === "object" && data !== null && "id" in data && typeof data.id === "string" ? data.id : "";
+    expect((await handler(...post("/api/maps/delete", { id, key: KEY }))).status).toBe(200);
+    expect((await board(handler)).totals.builders).toBe(1);
   });
 
   test("[integration] 31 the store file is mode 0600 and logs carry no key, alias or payload", async () => {

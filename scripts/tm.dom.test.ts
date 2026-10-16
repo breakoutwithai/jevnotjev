@@ -595,6 +595,31 @@ test("[integration] turning reduced motion on while the page is open switches to
   } finally { await close(page); }
 }, 30000);
 
+test("[integration] a frame queued before reduced motion was turned on does not undo the static end state", async () => {
+  const page = await open(1440, 900, "no-preference");
+  try {
+    await scrollShare(page, .3);
+    // Hold the next animation frame back: a scroll queues it, then the preference changes, then it runs.
+    await page.evaluate(() => {
+      const real = window.requestAnimationFrame.bind(window);
+      Reflect.set(window, "__queued", null);
+      window.requestAnimationFrame = (cb: FrameRequestCallback): number => { Reflect.set(window, "__queued", cb); window.requestAnimationFrame = real; return 1; };
+      window.dispatchEvent(new Event("scroll"));
+    });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.waitForFunction(() => !document.documentElement.classList.contains("motion"));
+    await page.evaluate(() => {
+      const queued: unknown = Reflect.get(window, "__queued");
+      if (typeof queued !== "function") throw new Error("no frame was queued");
+      queued(0);
+    });
+    const state = await staticState(page);
+    expect(state.motion).toBe(false);
+    expect(state.hidden).toEqual([]);
+    expect(state.typed).toBe(COMMAND);
+  } finally { await close(page); }
+}, 30000);
+
 test("[integration] in motion mode the keyboard reaches /maps/ and this week's card from the top, and the focused link is on screen", async () => {
   const page = await open(390, 844, "no-preference");
   try {

@@ -4,9 +4,9 @@ import { describe, expect, test } from "bun:test";
 import { sanitizeNextPath } from "../backstage/auth.ts";
 import { parseCaseImport, validateSceneKeys } from "../backstage/run.ts";
 import { packFromSearch } from "./pack-link.ts";
-import { STARTER_PACKS, starterPackCsv, starterPackScene } from "./starter-packs.ts";
+import { STARTER_PACKS, starterPackCsv, starterPackScene, type StarterPack } from "./starter-packs.ts";
 
-const IDS = ["p9", "p10"];
+const IDS: StarterPack["id"][] = ["p9", "p10"];
 const PACKS = STARTER_PACKS.filter((p) => IDS.includes(p.id));
 const BANNED_HALVES: readonly (readonly [string, string])[] = [
   ["ol", "ly"], ["lutf", "iya"], ["switch", " check"], ["bur", "ton"], ["chall", "enge"], ["golden", " ticket"], ["_ref", "erence"], ["/Us", "ers/"], ["30", "-day"],

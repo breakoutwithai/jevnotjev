@@ -20,20 +20,20 @@ echo "[T1] nginx vhost + provision contract"
 source .deploy/backstage-lib.sh
 snippet="$(cat .deploy/backstage-nginx.conf)"
 [[ "$(printf '%s\n' "$snippet" | backstage_snippet_auth)" == session ]] && ok "repo Backstage snippet is a session gate" || nope "repo Backstage snippet is not a session gate"
-without_session_ip="$(printf '%s\n' "$snippet" | awk '
+without_gate_ip="$(printf '%s\n' "$snippet" | awk '
     /^location = \/_backstage_session \{/ { in_session=1 }
     in_session && /proxy_set_header X-Backstage-Client-IP \$remote_addr;/ { next }
     { print }
     in_session && /^}/ { in_session=0 }
 ')"
-[[ "$(printf '%s\n' "$without_session_ip" | backstage_snippet_auth)" == session ]] && ok "installed session snippet without client IP header still parses" || nope "installed session snippet without client IP header rejected"
-duplicate_session_ip="$(printf '%s\n' "$snippet" | awk '
+[[ "$(printf '%s\n' "$without_gate_ip" | backstage_snippet_auth)" == session ]] && ok "installed session snippet without client IP header still parses" || nope "installed session snippet without client IP header rejected"
+duplicate_gate_ip="$(printf '%s\n' "$snippet" | awk '
     /^location = \/_backstage_session \{/ { in_session=1 }
     in_session && /proxy_set_header X-Backstage-Client-IP \$remote_addr;/ { print; print; next }
     { print }
     in_session && /^}/ { in_session=0 }
 ')"
-[[ "$(printf '%s\n' "$duplicate_session_ip" | backstage_snippet_auth)" == unknown ]] && ok "duplicate session client IP header rejected" || nope "duplicate session client IP header accepted"
+[[ "$(printf '%s\n' "$duplicate_gate_ip" | backstage_snippet_auth)" == unknown ]] && ok "duplicate session client IP header rejected" || nope "duplicate session client IP header accepted"
 if printf '%s\n' "$snippet" | grep -Eq 'auth_basic|WWW-Authenticate|satisfy'; then nope "session snippet contains Basic gate or challenge"; else ok "session snippet has no Basic gate, challenge or satisfy"; fi
 session="$(printf '%s\n' "$snippet" | sed 's/#.*//' | tr '\n' ' ')"
 [[ "$(printf '%s\n' "$session" | backstage_snippet_auth)" == session ]] && ok "inline shipped session layout parses" || nope "inline shipped session layout rejected"
@@ -121,10 +121,52 @@ while IFS= read -r block; do
     [[ "$(printf '%s' "$block" | tr '\036' '\n' | grep -c '^[[:space:]]*proxy_set_header X-Backstage-Route "";$')" == 1 ]] && cleared=$((cleared+1)) \
         || nope "${block%% \{*} proxies to Backstage without clearing X-Backstage-Route"
 done < <(printf '%s\n' "$snippet" | sed 's/#.*//' | awk '/^location / { if (b != "") print b; b = $0; next } b != "" { b = b "\036" $0 } END { if (b != "") print b }')
-[[ "$proxied" -eq 10 && "$cleared" -eq "$proxied" ]] && ok "all ${proxied} other Backstage proxy locations clear X-Backstage-Route" || nope "${cleared} of ${proxied} other proxy locations clear X-Backstage-Route (want 10 of 10)"
+[[ "$proxied" -eq 12 && "$cleared" -eq "$proxied" ]] && ok "all ${proxied} other Backstage proxy locations clear X-Backstage-Route" || nope "${cleared} of ${proxied} other proxy locations clear X-Backstage-Route (want 12 of 12)"
 # Every other location is what fae0400 shipped plus the route-mark clear: the change is additive.
-without_v1="$(awk '/^# HTTP API v1/ { skip=1 } skip && /^}/ { skip=0; next } !skip' .deploy/backstage-nginx.conf | grep -v '^    proxy_set_header X-Backstage-Route "";$')"
+# The TokenMax map locations (#238) are stripped with the comment lines directly above each, by exact header only.
+without_maps() {
+    awk '
+        /^#/ && !skip { held = held $0 "\n"; next }
+        /^location = \/api\/maps \{$|^location = \/api\/maps\/delete \{$|^location = \/tm\/map\.ts \{$/ { skip=1; held=""; next }
+        skip { if (/^}/) skip=0; next }
+        { printf "%s", held; held=""; print }
+        END { printf "%s", held }'
+}
+without_v1="$(awk '/^# HTTP API v1/ { skip=1 } skip && /^}/ { skip=0; next } !skip' .deploy/backstage-nginx.conf | without_maps | grep -v '^    proxy_set_header X-Backstage-Route "";$')"
 [[ "$without_v1" == "$(git show fae0400:.deploy/backstage-nginx.conf)" ]] && ok "no other snippet location changed since fae0400 beyond the route-mark clear" || nope "the snippet differs from fae0400 outside the /api/v1/ block and the route-mark clear"
+[[ "$(printf '%s\n' 'location = /api/tickets {' '    client_max_body_size 64m;' '}' | without_maps)" == *'64m'* ]] && ok "the map-block strip keeps any other location" || nope "the map-block strip hides other locations"
+
+# TokenMax map board (#238): two public JSON routes proxied to their exact paths, and the mapper script served as text.
+map_cap_body="$(sed -n 's/^export const MAX_MAP_BODY = \([0-9_]*\);.*/\1/p' src/backstage/maps.ts | tr -d '_')"
+map_cap_delete="$(sed -n 's/^export const MAX_MAP_DELETE_BODY = \([0-9_]*\);.*/\1/p' src/backstage/maps.ts | tr -d '_')"
+for pair in "/api/maps:4:${map_cap_body}" "/api/maps/delete:1:${map_cap_delete}"; do
+    route="${pair%%:*}"; rest="${pair#*:}"; want_k="${rest%%:*}"; server_bytes="${rest#*:}"
+    [[ "$(printf '%s\n' "$snippet" | grep -c "^location = ${route} {$")" == 1 ]] && ok "exactly one location = ${route}" || nope "location = ${route} missing or duplicated"
+    block="$(printf '%s\n' "$snippet" | sed 's/#.*//' | sed -n "\\|^location = ${route} {$|,/^}/p")"
+    [[ "$block" == *"proxy_pass http://127.0.0.1:3456${route};"* && "$block" == *'proxy_set_header Host $host;'* && "$block" == *'proxy_set_header X-Backstage-Client-IP $remote_addr;'* ]] \
+        && ok "${route} proxies to its exact path and overwrites the client address" || nope "unsafe ${route} proxy location"
+    [[ "$(printf '%s\n' "$block" | grep -c '^[[:space:]]*proxy_set_header X-Backstage-Route "";$')" == 1 ]] && ok "${route} clears the route mark" || nope "${route} does not clear X-Backstage-Route"
+    cap_k="$(printf '%s\n' "$block" | sed -n 's/^[[:space:]]*client_max_body_size \([0-9]*\)k;.*/\1/p')"
+    [[ "$cap_k" == "$want_k" && -n "$server_bytes" && $((cap_k * 1024)) -eq "$server_bytes" ]] && ok "${route} body cap ${cap_k}k equals the server cap ${server_bytes}" || nope "${route} body cap '${cap_k}k' is not ${want_k}k or differs from the server cap '${server_bytes}'"
+    if printf '%s\n' "$block" | grep -Eq 'auth_request|auth_basic|add_header|access_log'; then nope "${route} carries a gate, a response header or a log change"; else ok "${route} has no gate, response header or log change"; fi
+    [[ "$(printf '%s\n' "$block" | grep -c ';')" == 5 ]] && ok "${route} has exactly its five statements" || nope "${route} has extra or missing statements"
+done
+tm="$(printf '%s\n' "$snippet" | sed 's/#.*//' | sed -n '\|^location = /tm/map\.ts {$|,/^}/p')"
+[[ "$(printf '%s\n' "$snippet" | grep -c '^location = /tm/map\.ts {$')" == 1 ]] && ok "exactly one location = /tm/map.ts" || nope "location = /tm/map.ts missing or duplicated"
+[[ "$tm" == *'types { }'* && "$tm" == *'default_type "text/plain; charset=utf-8";'* ]] && ok "/tm/map.ts is served as text/plain, not video/mp2t" || nope "/tm/map.ts keeps the stock .ts MIME type"
+# The parser allows exactly one empty types block, inside /tm/map.ts only: a mapping in it, a second block, or a block
+# in another location is refused.
+types_mapped="$(printf '%s\n' "$snippet" | awk '{ if ($0 == "    types { }") print "    types { text/html ts; }"; else print }')"
+types_twice="$(printf '%s\n' "$snippet" | awk '{ print } $0 == "    types { }" { print }')"
+types_elsewhere="$(printf '%s\n' "$snippet" | awk '{ print } $0 == "location = /api/maps {" { print "    types { }" }')"
+for variant in "$types_mapped" "$types_twice" "$types_elsewhere"; do
+    [[ "$variant" != "$snippet" && "$(printf '%s\n' "$variant" | backstage_snippet_auth)" == unknown ]] && ok "a types block with a mapping, a second block or one outside /tm/map.ts is refused" || nope "an altered types block was accepted"
+done
+[[ "$tm" == *'try_files $uri =404;'* ]] && ok "/tm/map.ts serves the static file or 404" || nope "/tm/map.ts lacks try_files \$uri =404"
+if printf '%s\n' "$tm" | grep -Eq 'proxy_pass|auth_request|auth_basic|alias|root'; then nope "/tm/map.ts proxies, gates or remaps the file"; else ok "/tm/map.ts is a plain static file under the site root"; fi
+[[ "$tm" == *'expires epoch;'* ]] && ok "/tm/map.ts is never cached (expires epoch sends Cache-Control no-cache)" || nope "/tm/map.ts can be cached"
+if printf '%s\n' "$tm" | grep -q 'add_header'; then nope "/tm/map.ts sets add_header, which drops the server-level nosniff and referrer policy"; else ok "/tm/map.ts inherits the server-level headers (no add_header)"; fi
+[[ "$(printf '%s\n' "$snippet" | grep -B4 '^location = /tm/map\.ts {$' | grep -c 'video/mp2t')" == 1 ]] && ok "/tm/map.ts carries the comment naming why the type is overridden" || nope "/tm/map.ts lacks its MIME comment"
 
 if [[ ! -f "$CONF" ]]; then
     nope "missing committed vhost at ${CONF}"

@@ -22,6 +22,7 @@ import {
 import type { ProviderFetch } from "./providers.ts";
 import { openTrial, validTrialInput } from "./trial.ts";
 import { checkTicket, MAX_TICKET_BODY, TicketLimiter, TicketStore } from "./tickets.ts";
+import { checkDelete, checkMap, createMapLogger, MapStore, MAX_MAP_BODY, MAX_MAP_DELETE_BODY } from "./maps.ts";
 import { rankPosters, type Poster } from "../shows/posters.ts";
 import { COACH_PROMPT_VERSION, COACH_UNSAFE_MESSAGE } from "./coach.ts";
 import { findCredentials } from "./credential-scan.ts";
@@ -78,6 +79,8 @@ export interface ServerOptions {
   readonly log?: (line: string) => void;
   /** Ticket office lead store; without a path the ticket routes answer 503. */
   readonly tickets?: { readonly path?: string | undefined };
+  /** TokenMax map board store (src/backstage/maps.ts); without a path the /api/maps routes answer 503. */
+  readonly maps?: { readonly path?: string | undefined; readonly maxRows?: number | undefined };
   /** /api/v1 bearer-token state file (src/backstage/api-tokens.ts); without one, or inside staticRoot, every /api/v1 route answers 401. */
   readonly api?: {
     readonly tokensPath?: string | undefined;
@@ -221,6 +224,11 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     trialCookieName = "backstage_trial";
   const ticketStore = options.tickets?.path ? new TicketStore(options.tickets.path) : null;
   const ticketLimiter = new TicketLimiter(clock);
+  const mapStore = options.maps?.path ? new MapStore(options.maps.path, { maxRows: options.maps.maxRows }) : null;
+  const mapLimiter = new TicketLimiter(clock);
+  // Delete has its own window, so shares (and rejected shares) from one address never block deleting a row.
+  const mapDeleteLimiter = new TicketLimiter(clock);
+  const mapLog = createMapLogger(clock, options.log);
   const tokensPath = options.api?.tokensPath;
   const api = createApiV1({
     tokens: new ApiTokenStore(tokensPath !== undefined && tokensPath !== "" && !isInside(tokensPath, root) ? tokensPath : null),
@@ -718,6 +726,46 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       logger.ticket({ event: "ticket.issued", rid, ticket: issued.id, kind: issued.kind, show: issued.show });
       return json({ ticket: issued.id, kind: issued.kind, show: issued.show, replay: issued.status === "replay" });
     }
+    if (pathname === "/api/maps" || pathname === "/api/maps/delete") {
+      const deleting = pathname === "/api/maps/delete";
+      const reject = (reason: string, status: number, extra: Record<string, string> = {}): Response => { mapLog({ event: "map.rejected", rid, reason }); return json({ code: reason, ...extra }, status); };
+      if (!deleting && request.method === "GET") {
+        if (!mapStore) return reject("maps-unavailable", 503);
+        return json(mapStore.board(clock()));
+      }
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (request.headers.get("origin") !== origin || request.headers.get("sec-fetch-site") === "cross-site") return reject("origin-rejected", 403);
+      if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") return reject("json-required", 415);
+      if (!mapStore) return reject("maps-unavailable", 503);
+      if (!(deleting ? mapDeleteLimiter : mapLimiter).allow(ip)) return reject("rate-limited", 429);
+      const cap = deleting ? MAX_MAP_DELETE_BODY : MAX_MAP_BODY;
+      if (Number(request.headers.get("content-length") ?? 0) > cap) return reject("too-large", 413);
+      let decoded: unknown;
+      try {
+        const raw = await boundedText(new Response(request.body), cap, AbortSignal.timeout(5000));
+        decoded = JSON.parse(raw);
+      } catch (error) { return error instanceof SyntaxError ? reject("bad-json", 400) : reject("too-large", 413); }
+      if (deleting) {
+        const target = checkDelete(decoded);
+        if (!target) return reject("bad-body", 400);
+        let removed: boolean;
+        try { removed = mapStore.remove(target.id, target.key); }
+        catch { return reject("store-error", 503); }
+        if (!removed) return reject("not-found", 404);
+        mapLog({ event: "map.deleted", rid, id: target.id });
+        return json({ deleted: true });
+      }
+      const checked = checkMap(decoded);
+      if (!checked.ok) return reject(checked.code, 400, { field: checked.field, reason: checked.reason });
+      if ("trap" in checked) { mapLog({ event: "map.rejected", rid, reason: "honeypot" }); return json({ ok: true }); }
+      let issued;
+      try { issued = mapStore.issue(checked.map, clock()); }
+      catch { return reject("store-error", 503); }
+      if (issued.status === "conflict") return reject("request-key-reused", 409);
+      if (issued.status === "full") return reject("maps-full", 503);
+      mapLog({ event: "map.stored", rid, id: issued.id, replay: issued.status === "replay" });
+      return json({ id: issued.id, replay: issued.status === "replay", delete: `/maps/#delete=${issued.id}.${checked.map.requestKey}`, board: mapStore.board(clock()) });
+    }
     if (pathname.startsWith("/api/"))
       return json({ error: "Not found." }, 404);
     if (request.method !== "GET" && request.method !== "HEAD")
@@ -750,6 +798,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     close() {
       if (trial.available) trial.ledger.close();
       ticketStore?.close();
+      mapStore?.close();
     },
   });
 }
@@ -778,6 +827,7 @@ if (import.meta.main) {
     requireSession: process.env.BACKSTAGE_REQUIRE_SESSION === "1",
     api: { tokensPath: apiTokensPath(process.env) },
     tickets: { path: process.env.BACKSTAGE_TICKETS_PATH ?? (process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, "tickets.sqlite") : undefined) },
+    maps: { path: process.env.BACKSTAGE_MAPS_PATH ?? (process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, "maps.sqlite") : undefined) },
     auth: {
       sessionSecret: process.env.BACKSTAGE_SESSION_SECRET,
       operatorsPath: process.env.BACKSTAGE_OPERATORS_PATH ?? (process.env.STATE_DIRECTORY ? join(process.env.STATE_DIRECTORY, "operators.json") : undefined),

@@ -13,7 +13,7 @@ import { extname, join, relative } from "node:path";
 export const DASHES: readonly number[] = [0x2014, 0x2013];
 /** Scanned as text. */
 export const TEXT_EXT: ReadonlySet<string> = new Set([
-  ".html", ".htm", ".js", ".mjs", ".cjs", ".css", ".json", ".webmanifest", ".map", ".txt", ".svg", ".md", ".csv", ".xml",
+  ".html", ".htm", ".js", ".mjs", ".cjs", ".css", ".json", ".webmanifest", ".map", ".txt", ".svg", ".md", ".csv", ".xml", ".ts",
 ]);
 /** Publishable binaries that carry no text to scan. Anything outside both sets fails the gate. */
 export const BINARY_EXT: ReadonlySet<string> = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico", ".woff", ".woff2"]);

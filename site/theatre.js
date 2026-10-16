@@ -36,7 +36,7 @@
   var root = document.documentElement;
   var RUNWAY = 0.7, FADED = 0.36, KEY_STEP = 0.4, LINE = 40;
   var ov = document.getElementById("overture");
-  // The curtain's first control: where focus goes when the curtain closes over focus left on the page.
+  // The curtain's first control (the Mad TokenMax poster): the curtain needs one to play.
   var first = ov ? ov.querySelector("a[href]") : null;
   var badge = document.getElementById("sampleBadge");
   var brand = document.querySelector(".house .brand");
@@ -125,8 +125,13 @@
     window.clearTimeout(closing);
     closing = window.setTimeout(function () { delete root.dataset.closing; }, 900);
     setCurtain(0);
-    // Focus left on the page would sit behind the curtain: move it to the curtain's first control.
-    if (onPage) first.focus({ preventScroll: true });
+    // Focus left on the page would sit behind the curtain: move it to the curtain's first shown control (a very short
+    // phone curtain shows no posters), else House lights on the curtain.
+    if (onPage) {
+      var shown = null, links = ov.querySelectorAll("a[href]");
+      for (var i = 0; i < links.length && !shown; i++) if (links[i].getClientRects().length) shown = links[i];
+      (shown || lights || first).focus({ preventScroll: true });
+    }
   }
   // Scroll events already arrive once per frame, before animation frames: updating here opens a curtain that a jump
   // completes before anything else reads the page in that frame.

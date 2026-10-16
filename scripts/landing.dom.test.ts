@@ -894,7 +894,7 @@ test("[integration] V2 no generic opening: no #opening or #takeSeat, nothing nam
   }
 }, 30000);
 
-test("[integration] V3 there is no Skip the overture (#248); from the keyboard the curtain still opens: the scroll keys on a curtain poster open it onto the result bars with focus on their heading, and Tab past House lights opens it", async () => {
+test("[integration] V3 there is no Skip the overture (#248); from the keyboard the curtain still opens: scrolling the curtain from a curtain poster (and PageDown there) opens it onto the result bars with focus on their heading, and Tab past House lights opens it", async () => {
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
@@ -915,6 +915,13 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
       expect(fullBars(await bars(page))).toBe(true);
       expect(await page.locator("#resultBars").isVisible()).toBe(true);
     } finally { await page.close(); }
+    // A real key: PageDown with focus on the Mad TokenMax poster scrolls the curtain and opens it onto the results.
+    const keyed = await pageAt(width, height, "no-preference");
+    try {
+      await keyed.locator(MADMAX).focus();
+      for (let i = 0; i < 6 && (await curtain(keyed)).state !== "open"; i++) { await keyed.keyboard.press("PageDown"); await keyed.waitForTimeout(150); await frames(keyed); }
+      expect({ width, key: "PageDown", state: (await curtain(keyed)).state, focus: await keyed.evaluate(() => document.activeElement?.id ?? "") }).toEqual({ width, key: "PageDown", state: "open", focus: "resultsTitle" });
+    } finally { await keyed.close(); }
     // Tab only: the two posters and House lights keep it closed; the next Tab lands on the page and opens it.
     const tabs = await pageAt(width, height, "no-preference");
     try {
@@ -2478,7 +2485,7 @@ async function playbillSizes(page: Page): Promise<{ ticketArea: number; marqueeW
   return page.evaluate(() => {
     const t = document.querySelector("#overture .ticket")?.getBoundingClientRect(), m = document.querySelector("#overture .marquee")?.getBoundingClientRect();
     const b = document.querySelector("#overture .marquee .billing");
-    return { ticketArea: t ? Math.round(t.width * t.height) : NaN, marqueeWidth: m ? Math.round(m.width) : NaN, billing: b ? parseFloat(getComputedStyle(b).fontSize) : NaN };
+    return { ticketArea: t ? t.width * t.height : NaN, marqueeWidth: m ? m.width : NaN, billing: b ? parseFloat(getComputedStyle(b).fontSize) : NaN };
   });
 }
 
@@ -2500,8 +2507,9 @@ async function partOf(page: Page, selector: string): Promise<Part | null> {
  * whose box paints differently with the part hidden (visibility: hidden), which a curtain that hit-tests on top but
  * lets the header show through (translucent) would give. Pulled: those whose box shows anything but the resting
  * curtain while the curtain is pulled down past its top (an upward touch scroll at the curtain's scrollTop 0, the
- * overscroll a trackpad or a finger gives; each box is screenshotted at rest and every 100ms of a 2s pull). The curtain
- * does not move while closed, so any change in a header part's box during the pull is the page showing.
+ * overscroll a trackpad or a finger gives; each box is screenshotted every 100ms of a 2s pull with
+ * the parts painted pure green, a colour the curtain never has, so a part counts only when its own green shows in its
+ * box, not when the curtain merely moves over it).
  * `overscroll` replaces the curtain's overscroll-behavior: the control.
  */
 async function headerThroughCurtain(width: number, height: number, overscroll?: string): Promise<{ atRest: number; painted: number; pulled: number }> {
@@ -2532,21 +2540,37 @@ async function headerThroughCurtain(width: number, height: number, overscroll?: 
     const painted = resting.filter((shot, i) => shot !== null && !shot.equals(hidden[i] ?? Buffer.alloc(0))).length;
     await page.evaluate(() => { document.head.lastElementChild?.remove(); });
     await frames(page);
+    // For the pull the header parts paint pure green; the curtain is red and gold, so green in a part's box is the part.
+    await page.addStyleTag({ content: `${HEADER_PARTS.join(", ")} { background: #00ff00 !important; color: #00ff00 !important; }` });
+    await frames(page);
     const cdp = await page.context().newCDPSession(page);
     let pulling = true;
     const pull = cdp.send("Input.synthesizeScrollGesture", { x: width / 2, y: Math.round(height * 0.9), yDistance: 600, speed: 300, gestureSourceType: "touch", preventFling: true })
       .finally(() => { pulling = false; });
-    const shown = new Set<number>();
+    const shots: { part: number; b64: string }[] = [];
     for (let frame = 0; frame < 24 && (pulling || frame < 4); frame++) {
       await page.waitForTimeout(100);
-      for (const [i, clip] of boxes.entries()) {
-        const before = resting[i];
-        if (!clip || !before || shown.has(i)) continue;
-        if (!(await page.screenshot({ clip })).equals(before)) shown.add(i);
-      }
+      for (const [i, clip] of boxes.entries()) if (clip) shots.push({ part: i, b64: (await page.screenshot({ clip })).toString("base64") });
     }
     await pull;
-    return { atRest, painted, pulled: shown.size };
+    const green = await page.evaluate(async (list) => {
+      const seen = new Set<number>();
+      for (const { part, b64 } of list) {
+        if (seen.has(part)) continue;
+        const img = new Image();
+        img.src = `data:image/png;base64,${b64}`;
+        await img.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) continue;
+        ctx.drawImage(img, 0, 0);
+        const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        for (let k = 0; k < d.length; k += 4) if ((d[k + 1] ?? 0) > 200 && (d[k] ?? 255) < 90 && (d[k + 2] ?? 255) < 90) { seen.add(part); break; }
+      }
+      return seen.size;
+    }, shots);
+    return { atRest, painted, pulled: green };
   } finally { await elastic.close(); }
 }
 
@@ -2557,7 +2581,7 @@ test("[integration] MM1 at 1440x900 the marquee leads and the ticket is a small 
     const now = await playbillSizes(page);
     // Asserted unrounded; rounded only for the log line.
     const ratio = { ticket: now.ticketArea / BEFORE_248.ticketArea, marquee: now.marqueeWidth / BEFORE_248.marqueeWidth, billing: now.billing / BEFORE_248.billing };
-    console.log(`#248 MM1 1440x900 now ${JSON.stringify(now)} before ${JSON.stringify(BEFORE_248)} ratio ticket ${ratio.ticket.toFixed(3)} marquee ${ratio.marquee.toFixed(3)} billing ${ratio.billing.toFixed(3)}`);
+    console.log(`#248 MM1 1440x900 now ${JSON.stringify({ ticketArea: Math.round(now.ticketArea), marqueeWidth: Math.round(now.marqueeWidth), billing: now.billing })} before ${JSON.stringify(BEFORE_248)} ratio ticket ${ratio.ticket.toFixed(3)} marquee ${ratio.marquee.toFixed(3)} billing ${ratio.billing.toFixed(3)}`);
     expect({ ticket: ratio.ticket <= 0.4 ? "<=0.4" : ratio.ticket.toFixed(4), marquee: ratio.marquee >= 1.5 ? ">=1.5" : ratio.marquee.toFixed(4), billing: ratio.billing >= 1.5 ? ">=1.5" : ratio.billing.toFixed(4) })
       .toEqual({ ticket: "<=0.4", marquee: ">=1.5", billing: ">=1.5" });
   } finally { await page.close(); }
@@ -2658,3 +2682,20 @@ test("[unit] MM7 the Mad TokenMax poster is a WebP file (RIFF....WEBP header) at
   console.log(`#248 MM7 site/shows/madtokenmax-poster.webp ${bytes.length} bytes`);
   expect({ riff: text(0, 4), webp: text(8, 12), small: bytes.length > 0 && bytes.length <= 250_000 }).toEqual({ riff: "RIFF", webp: "WEBP", small: true });
 });
+
+test("[integration] MM8 a very short phone curtain shows no posters (390x500, 667x375): re-closing over focus left on the page moves focus to House lights on the curtain, never to a hidden poster", async () => {
+  for (const [width, height] of [[390, 500], [667, 375]] satisfies [number, number][]) {
+  const page = await pageAt(width, height, "no-preference");
+  try {
+    expect(await page.locator(MADMAX).isVisible()).toBe(false);
+    await page.mouse.move(width / 2, height / 2);
+    await page.mouse.wheel(0, 1200);
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+    await page.evaluate(() => { window.scrollTo({ top: document.getElementById("results")?.offsetTop ?? 600, behavior: "instant" }); });
+    await page.locator("#aboutSample > summary").click();
+    await page.evaluate(() => { window.scrollTo({ top: 0, behavior: "instant" }); });
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "closed", undefined, { timeout: 4000 });
+    expect({ width, focus: await page.evaluate(() => document.activeElement?.id || document.activeElement?.tagName || "") }).toEqual({ width, focus: "lights" });
+  } finally { await page.close(); }
+  }
+}, 20000);

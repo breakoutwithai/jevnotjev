@@ -13,12 +13,12 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { MODEL_CATALOG } from "../backstage/catalog.ts";
+import { runInNewContext } from "node:vm";
+import { CATALOG_CHECKED_DATE, MODEL_CATALOG } from "../backstage/catalog.ts";
 import { KEY_FIELD_NAMES } from "../backstage/run-gate.ts";
 import { MAX_FILE_BYTES } from "../browser/results-loader.ts";
 import { RESAMPLES } from "../core/calc.ts";
 import { CHEAPER, MARGIN, MIN_PAIRED } from "../core/verdict.ts";
-import { PRICE_TABLE, PRICE_TABLE_DATE } from "../decide/prices.ts";
 import { COLUMNS_V1_2, SUGGESTION_COLUMNS } from "../format/validate.ts";
 import { JEV_PIN } from "../jev-answer.ts";
 
@@ -210,9 +210,8 @@ async function glossaryMissing(guideHtml: string, stageHtml: string, backstageHt
 // ---------- Known values: code constants and the sample run ----------
 
 function constants(): Map<string, string> {
-  const jev = PRICE_TABLE.find((entry) => entry.arm === "jev");
   const backstageJev = MODEL_CATALOG.find((entry) => entry.provider === "jev");
-  if (jev === undefined || backstageJev?.pricing == null) throw new Error("no Jev price");
+  if (backstageJev?.pricing == null) throw new Error("no Jev price");
   return new Map([
     ["MIN_PAIRED", String(MIN_PAIRED)],
     ["MARGIN_POINTS", String(Math.round(MARGIN * 100))],
@@ -221,8 +220,7 @@ function constants(): Map<string, string> {
     ["CHEAPER_PERCENT", String(Math.round((1 - CHEAPER) * 100))],
     ["RESAMPLES", RESAMPLES.toLocaleString("en-US")],
     ["MAX_FILE_MB", String(MAX_FILE_BYTES / 1024 / 1024)],
-    ["PRICE_TABLE_DATE", PRICE_TABLE_DATE],
-    ["JEV_INPUT_USD_PER_MTOK", String(jev.inputUsdPerMTok)],
+    ["BACKSTAGE_CATALOG_CHECKED_DATE", CATALOG_CHECKED_DATE],
     ["BACKSTAGE_JEV_INPUT_USD_PER_MTOK", String(backstageJev.pricing.inputUsdPerMillion)],
     ["JEV_PIN", JEV_PIN],
   ]);
@@ -477,7 +475,7 @@ describe("in-product first-use guide (D18)", () => {
   });
 
   test("[unit] D18-SITE-GUIDE-SECTIONS the six sections and the glossary come in order", async () => {
-    expect(await texts(read(GUIDE), "main h2")).toEqual(SECTION_HEADINGS);
+    expect(await texts(read(GUIDE), "#reference h2")).toEqual(SECTION_HEADINGS);
   });
 
   test("[integration] D18-SITE-GUIDE-MARKS every marked figure in the guide is the code constant or sample value it names", async () => {
@@ -522,7 +520,7 @@ describe("in-product first-use guide (D18)", () => {
   test("[unit] D18-SWARM-C01 every Backstage control the swarm could not read has a glossary entry and is still on the page", async () => {
     const page = clean(`${read(BACKSTAGE)} ${read("src/backstage/main.ts")}`);
     const entries = [...(await glossary(read(GUIDE))).keys()];
-    for (const label of ["Edit the question", "Theme", "Send feedback", "Try first case", "Try one small Jev query", "Copy own-key CLI", "Prefer the Playground?", "Catalog checked"]) {
+    for (const label of ["Edit the question", "Theme", "Send feedback", "Try first case", "Try one small Jev query", "Prefer the Playground?", "Catalog checked"]) {
       expect(page).toContain(label);
       expect(entries).toContain(label);
     }
@@ -772,21 +770,21 @@ describe("in-product first-use guide (D18)", () => {
 
   const INTRO = /(<p id="jev-intro">[\s\S]*?<\/p>\n)/;
 
-  /** What the Jev intro fails to say, or where it fails to sit (the first thing after the page title). */
+  /** Technical provenance stays at the start of the optional reference, outside the visitor walkthrough. */
   async function introProblems(html: string): Promise<string[]> {
     const out: string[] = [];
-    if (!/<\/h1>\s*<p id="jev-intro">/.test(html)) out.push("intro is not right after the page title");
+    if (!/<div class="reference-body">\s*<p id="jev-intro">/.test(html)) out.push("intro is not at the start of the reference");
     const intro = (await texts(html, "p#jev-intro"))[0] ?? "";
     for (const needed of [JEV_PIN, "TypeSafe", "one decision", "not a cross-task benchmark"]) if (!intro.includes(needed)) out.push(`intro: missing ${needed}`);
     return out;
   }
 
-  test("[unit] D18-SWARM-C07 under the title the guide says what Jev is, who makes it, its pinned model, and that this tests one decision", async () => {
+  test("[unit] D18-SWARM-C07 reference preserves what Jev is, who makes it, its pinned model, and that this tests one decision", async () => {
     expect(await introProblems(read(GUIDE))).toEqual([]);
     expect(MODEL_CATALOG.find((entry) => entry.provider === "jev")?.modelId).toBe(JEV_PIN);
     const para = capture(INTRO, read(GUIDE));
     const moved = mutate(mutate(read(GUIDE), para, ""), "</main>", `${para}</main>`);
-    expect(await introProblems(moved)).toEqual(["intro is not right after the page title"]);
+    expect(await introProblems(moved)).toEqual(["intro is not at the start of the reference"]);
   });
 
   test("[unit] D18-SWARM-WORDING section 3's title and opening agree, and the answer name hand_off is explained", async () => {
@@ -876,271 +874,155 @@ describe("guide reads the verdict statistics in plain words (D18 swarm l01)", ()
   });
 });
 
-// Operator requirement for /guide/: readable plain styling, no images, no theatre theme
-// (confirmed 2026-10-13; #200 read "no styling" as zero CSS and shipped an unreadable page).
-describe("guide is plain: readable styling, no images, no theatre theme", () => {
-  /** Decimal and hex character references decoded, so an entity cannot hide a word or an emoji. */
-  function decodeRefs(text: string): string {
-    const point = (n: number): string => (Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : " ");
-    return text.replace(/&#x([0-9a-f]+);?/gi, (_m: string, hex: string) => point(parseInt(hex, 16))).replace(/&#(\d+);?/g, (_m: string, dec: string) => point(Number(dec)));
+/** Run the shipped navigation script against a small DOM surface; no network or browser dependency. */
+function guideNavigation(initialHash: string) {
+  const details = { open: false };
+  const scrolled: string[] = [];
+  const hashListeners: (() => void)[] = [];
+  const clickListeners: ((event: { target: unknown }) => void)[] = [];
+  const window = {
+    location: { hash: initialHash },
+    addEventListener(name: string, handler: () => void) {
+      if (name === "hashchange") hashListeners.push(handler);
+    },
+  };
+  class Link {
+    constructor(readonly hash: string) {}
+    closest(selector: string) { return selector === 'a[href^="#"]' ? this : null; }
+    getAttribute(name: string) { return name === "href" ? this.hash : null; }
   }
+  const document = {
+    getElementById(id: string) {
+      if (!["fields", "verdict", "choose"].includes(id)) return null;
+      return {
+        closest(selector: string) { return selector === "details" && id !== "choose" ? details : null; },
+        scrollIntoView() { scrolled.push(id); },
+      };
+    },
+    addEventListener(name: string, handler: (event: { target: unknown }) => void) {
+      if (name === "click") clickListeners.push(handler);
+    },
+  };
+  runInNewContext(read("site/guide/guide.js"), { window, document, Element: Link });
+  return {
+    details, scrolled,
+    navigate(hash: string) {
+      window.location.hash = hash;
+      hashListeners.forEach(handler => handler());
+    },
+    clickSameAnchor() {
+      clickListeners.forEach(handler => handler({ target: new Link(window.location.hash) }));
+    },
+  };
+}
 
-  const PRESENTATION_TAGS = new Set(["img", "svg", "picture", "b", "i", "font", "object", "embed", "video", "canvas"]);
-  const PRESENTATION_ATTRS = ["style", "class", "background", "bgcolor", "color", "face", "align"];
-  const SIZED_TABLE_TAGS = new Set(["table", "td", "th", "col", "colgroup"]);
-  const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u;
-
-  /** Styling and images left in the page: presentational elements and attributes, styling links, imports and emoji. */
-  async function presentationProblems(html: string): Promise<string[]> {
-    const out: string[] = [];
-    await new HTMLRewriter()
-      .on("*", {
-        element(el) {
-          const tag = el.tagName;
-          if (PRESENTATION_TAGS.has(tag)) out.push(tag);
-          for (const attr of PRESENTATION_ATTRS) if (el.hasAttribute(attr)) out.push(`${tag}[${attr}]`);
-          if (!SIZED_TABLE_TAGS.has(tag)) for (const attr of ["width", "height"]) if (el.hasAttribute(attr)) out.push(`${tag}[${attr}]`);
-          if (tag === "input" && (el.getAttribute("type") ?? "").toLowerCase() === "image") out.push("input[type=image]");
-          if (tag === "link") {
-            const rel = (el.getAttribute("rel") ?? "").toLowerCase().split(/\s+/);
-            const as = (el.getAttribute("as") ?? "").toLowerCase();
-            if (rel.includes("stylesheet") || rel.some((r) => r.includes("icon")) || (rel.includes("preload") && (as === "font" || as === "style"))) out.push(`link[rel=${rel.join(" ")}]`);
-          }
-        },
-      })
-      .transform(new Response(html))
-      .text();
-    const raw = decodeRefs(html.replace(/<!--[\s\S]*?-->/g, " "));
-    if (/url\(|@import|fonts\.googleapis/i.test(raw)) out.push("background image or font import");
-    if (EMOJI.test(raw)) out.push("emoji");
-    return out;
-  }
-
-  // The Stage's fonts and palette (site/index.html before #200), light and dark.
-  const THEATRE_STYLE = /alegreya|schibsted|curtain|brass|theatre|#7b1424|#94203a|#8a5f10|#e0b04e/;
-  const STYLE_BLOCK = /<style\b[^>]*>[\s\S]*?<\/style\s*>\n?/i;
-
-  /** CSS as the browser reads it: comments dropped, escapes decoded, rgb() as hex, lower case. */
-  function normaliseCss(css: string): string {
-    const channel = (n: string): number => (n.endsWith("%") ? (Number(n.slice(0, -1)) * 255) / 100 : Number(n));
-    const hex = (n: string): string => Math.max(0, Math.min(255, Math.round(channel(n)))).toString(16).padStart(2, "0");
-    return css
-      .replace(/\/\*[\s\S]*?\*\//g, " ")
-      .replace(/\\([0-9a-f]{1,6})\s?/gi, (_m: string, h: string) => String.fromCodePoint(Math.min(parseInt(h, 16), 0x10ffff)))
-      .replace(/\\(.)/g, "$1")
-      .toLowerCase()
-      .replace(/rgba?\(\s*([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)[^)]*\)/g, (_m: string, r: string, g: string, b: string) => `#${hex(r)}${hex(g)}${hex(b)}`);
-  }
-
-  /** What the one inline style block fails to give a readable plain page; empty when it gives all of it. */
-  async function readableStyleProblems(html: string): Promise<string[]> {
-    const blocks: { inHead: boolean; attrs: number; css: string }[] = [];
-    let viewport = false;
-    await new HTMLRewriter()
-      .on("style", {
-        element(el) {
-          blocks.push({ inHead: false, attrs: [...el.attributes].length, css: "" });
-        },
-        text(chunk) {
-          const last = blocks[blocks.length - 1];
-          if (last !== undefined) last.css += chunk.text;
-        },
-      })
-      .on("head > style", {
-        element() {
-          const last = blocks[blocks.length - 1];
-          if (last !== undefined) last.inHead = true;
-        },
-      })
-      .on('meta[name="viewport"]', {
-        element() {
-          viewport = true;
-        },
-      })
-      .transform(new Response(html))
-      .text();
-    const block = blocks[0];
-    if (blocks.length !== 1 || block === undefined) return [`style blocks: ${blocks.length}`];
-    if (!block.inHead) return ["style block outside head"];
-    const out: string[] = [];
-    if (block.attrs > 0) out.push("style block has attributes");
-    const css = normaliseCss(block.css);
-    // Required rules hold only if nothing later overrides them and no at-rule but dark mode wraps them.
-    const atRules = (css.match(/@[^{;]*/g) ?? []).map((r) => r.trim().replace(/\s+/g, " "));
-    if (atRules.some((r) => r !== "@media (prefers-color-scheme: dark)")) out.push("at-rule other than dark mode");
-    const LENGTH = /^\d+(?:\.\d+)?(?:ch|px|rem|em)$/;
-    const widths = [...css.matchAll(/max-width\s*:\s*([^;}]+)/g)].map((m) => (m[1] ?? "").trim());
-    if (!/(?:^|[}\s])(?:main|body)\s*\{[^}]*max-width\s*:/.test(css) || widths.some((w) => !LENGTH.test(w))) out.push("no max-width on the content");
-    const fonts = [...css.matchAll(/font(?:-family)?\s*:\s*([^;}]+)/g)].map((m) => (m[1] ?? "").trim());
-    if (!/(?:^|[}\s])body\s*\{[^}]*font(?:-family)?\s*:[^;}]*sans-serif/.test(css) || fonts.some((f) => !/(?:sans-serif|monospace)$/.test(f))) out.push("no body font-family");
-    if (/url\(|@import|image-set\(|image\(|gradient\(|element\(/.test(css)) out.push("css image or import");
-    if (/(?:^|[;{\s])content\s*:/.test(css) || EMOJI.test(css)) out.push("generated content or emoji");
-    if (THEATRE_STYLE.test(css)) out.push("theatre styling");
-    if (!viewport) out.push("no viewport meta");
-    return out;
-  }
-
-  test("[unit] D18-PLAIN-STYLE the guide has one readable inline style block and no stylesheet, style or class attribute, or image", async () => {
-    expect(await presentationProblems(read(GUIDE))).toEqual([]);
-    expect(await readableStyleProblems(read(GUIDE))).toEqual([]);
+// #247 supersedes the old request for a plain, image-free guide. Source-truth tests above remain.
+describe("visual site guide (#247)", () => {
+  test("[unit] #247 two entry paths distinguish a public replay from invited own-key runs", async () => {
+    const html = read(GUIDE);
+    const entries = await texts(html, ".entry");
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toContain("No account. No API key. No calls to pay for.");
+    expect(entries[1]).toContain("invited sign-in");
+    expect(entries[1]).toContain("billed to you");
+    const links = (await grab(html, [".entry a"])).get(".entry a") ?? [];
+    expect(links.map(link => link.attrs.get("href"))).toEqual(["/replay/?run=uc13-100", "/backstage/", "/#tkForm"]);
   });
 
-  test("[unit] D18-PLAIN-STYLE-READABLE-NEGATIVE a missing, extra, hidden, unreadable or theatre style block goes RED", async () => {
-    const guide = read(GUIDE);
-    const block = STYLE_BLOCK.exec(guide)?.[0] ?? "";
-    expect(block).toContain("max-width");
-    const unstyled = mutate(guide, block, "");
-    const check = async (from: string, to: string): Promise<string[]> => readableStyleProblems(mutate(guide, from, to));
-    expect(await readableStyleProblems(unstyled)).toEqual(["style blocks: 0"]);
-    expect(await check("<style>", "<!--<style>")).toEqual(["style blocks: 0"]);
-    expect(await readableStyleProblems(guide.replace("</style>", "</style >"))).toEqual([]);
-    expect(await check("<main>", "<main><style>p { color: red; }</style>")).toEqual(["style blocks: 2"]);
-    expect(await readableStyleProblems(mutate(unstyled, "<main>", `<main>${block}`))).toEqual(["style block outside head"]);
-    expect(await check("<style>", '<style media="print">')).toEqual(["style block has attributes"]);
-    expect(await check("max-width: 72ch;", "")).toEqual(["no max-width on the content"]);
-    expect(await check("max-width: 72ch;", "max-width: none;")).toEqual(["no max-width on the content"]);
-    expect(await check("max-width: 72ch;", "/* max-width: 72ch; */")).toEqual(["no max-width on the content"]);
-    expect(await check('system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', "Georgia, serif")).toEqual(["no body font-family"]);
-    expect(await check("system-ui,", '"Alegreya", system-ui,')).toEqual(["theatre styling"]);
-    expect(await check("background: #fff;", "background: #7b1424;")).toEqual(["theatre styling"]);
-    expect(await check("background: #fff;", "background: rgb(123, 20, 36);")).toEqual(["theatre styling"]);
-    expect(await check("background: #fff;", 'background: u\\72l("x.png");')).toEqual(["css image or import"]);
-    expect(await check('<meta name="viewport"', '<meta name="x-viewport"')).toEqual(["no viewport meta"]);
-    const append = async (rule: string): Promise<string[]> => check("</style>", `${rule}\n</style>`);
-    expect(await append("@media print { main { color: red; } }")).toEqual(["at-rule other than dark mode"]);
-    expect(await append("main { max-width: var(--unbounded, none); }")).toEqual(["no max-width on the content"]);
-    expect(await append("body { font-family: serif; }")).toEqual(["no body font-family"]);
-    expect(await append("body { background: rgb(123.0 20.0 36.0); }")).toEqual(["theatre styling"]);
-    expect(await append("body { background: rgb(48.24% 7.84% 14.12%); }")).toEqual(["theatre styling"]);
-    expect(await append("body { background: linear-gradient(red, blue); }")).toEqual(["css image or import"]);
-    expect(await append('main::before { content: "\\1f3ad"; }')).toEqual(["generated content or emoji"]);
-  });
-
-  test("[unit] D18-PLAIN-STYLE-NEGATIVE each kind of styling or image put back goes RED", async () => {
-    const guide = read(GUIDE);
-    const inMain = async (added: string): Promise<string[]> => presentationProblems(mutate(guide, "<main>", `<main>${added}`));
-    const inHead = async (added: string): Promise<string[]> => presentationProblems(mutate(guide, "</head>", `${added}</head>`));
-    expect(await inHead('<link rel="stylesheet" href="x.css">')).toEqual(["link[rel=stylesheet]"]);
-    expect(await inHead('<link rel="icon" href="x.ico">')).toEqual(["link[rel=icon]"]);
-    expect(await inHead('<link rel="preload" as="font" href="x.woff2">')).toEqual(["link[rel=preload]"]);
-    expect(await inHead('<link rel="canonical" href="https://example.invalid/guide/">')).toEqual([]);
-    expect(await presentationProblems(mutate(guide, "<main>", '<main style="color: red">'))).toEqual(["main[style]"]);
-    expect(await presentationProblems(mutate(guide, "<main>", '<main class="wide">'))).toEqual(["main[class]"]);
-    expect(await presentationProblems(mutate(guide, "<body>", '<body background="x.png" bgcolor="red">'))).toEqual(["body[background]", "body[bgcolor]"]);
-    expect(await inMain('<p width="10" align="center"></p>')).toEqual(["p[align]", "p[width]"]);
-    expect(await inMain('<img src="x.png" alt="">')).toEqual(["img"]);
-    expect(await inMain("<svg></svg>")).toEqual(["svg"]);
-    expect(await inMain("<picture></picture>")).toEqual(["picture"]);
-    expect(await inMain('<input type="image" src="x.png" alt="">')).toEqual(["input[type=image]"]);
-    for (const tag of ["object", "embed", "video", "canvas"]) expect(await inMain(`<${tag}></${tag}>`)).toEqual([tag]);
-    expect(await inMain('<p style="background: url(x.png)"></p>')).toEqual(["p[style]", "background image or font import"]);
-    expect(await inMain("<p>&#127917; &#x1F3AD;</p>")).toEqual(["emoji"]);
-    expect(await inMain("<!-- Removed @import -->")).toEqual([]);
-  });
-
-  /**
-   * Theatre-named labels the product UI really shows, each with the page it is on. The guide may name one only inside
-   * double quotes, or as a glossary term (the label verbatim), so a tester knows it is on-screen text to find.
-   */
-  // [label, page, where the page renders it: its markup, or a string literal its inline script writes into the page]
-  const UI_LABELS: readonly (readonly [string, string, "markup" | "script"])[] = [
-    ["Backstage Pass", BACKSTAGE, "markup"],
-    ["Edit the question", BACKSTAGE, "markup"],
-    ["Send feedback", BACKSTAGE, "markup"],
-    ["Ticket office", STAGE, "markup"],
-    ["Open the ticket office", STAGE, "markup"],
-    ["Get another ticket", OFFICE, "script"],
-    ["Bring your own decision", STAGE, "markup"],
-    ["GO TO THE TICKET OFFICE", STAGE, "markup"],
-    ["IN REPERTOIRE", STAGE, "markup"],
-    ["Spotlight", STAGE, "script"],
-    ["Understudies wait in the wings; the stage manager keeps tabs on the subs.", STAGE, "script"],
-  ];
-
-  const THEATRE = /\b(theat(?:re|er)s?|theatrical|stages?|backstage|curtains?|rehears\w*|tickets?|acts?|scenes?|overtures?|wings?|repertoire|spotlights?|casting|dress|opening night|house lights|understud(?:y|ies)|playbill|offstage|onstage)\b/gi;
-
-  /** Rendered text of a page's markup: scripts, styles and comments dropped, tags removed, references decoded. */
-  function markupText(html: string): string {
-    const body = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ");
-    return decodeRefs(clean(body.replace(/<[^>]*>/g, " "))).toLowerCase();
-  }
-
-  /** Text of the string literals in a page's inline scripts (comments dropped), with any markup inside them removed. */
-  function scriptText(html: string): string {
-    const inline = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1] ?? "").join("\n");
-    const code = (inline || html).replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
-    const literals = [...code.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"/g)].map((m) => m[1] ?? m[2] ?? "");
-    return decodeRefs(clean(literals.join(" ").replace(/<[^>]*>/g, " "))).toLowerCase();
-  }
-
-  /** Allowlisted labels that are not on their page (case-insensitive: the UI may upper-case them), or never used by the guide. */
-  function labelProblems(guideHtml: string, pageHtml: ReadonlyMap<string, string>): string[] {
-    const guide = clean(guideHtml);
-    const out: string[] = [];
-    for (const [label, page, where] of UI_LABELS) {
-      const html = pageHtml.get(page) ?? "";
-      const shown = where === "markup" ? markupText(html) : scriptText(html);
-      if (!shown.includes(label.toLowerCase())) out.push(`not on ${page}: ${label}`);
-      if (!guide.includes(label)) out.push(`unused allowance: ${label}`);
+  test("[unit] #247 three visual acts use the current Backstage tab and action labels", async () => {
+    const html = read(GUIDE);
+    expect(await texts(html, ".acts h3")).toEqual(await texts(read(BACKSTAGE), "#rooms button").then(labels => labels.map(label => label.replace(/^\d+\s*/, ""))));
+    expect(await texts(html, ".miniature figcaption")).toHaveLength(3);
+    const walkthrough = (await texts(html, ".walkthrough"))[0] ?? "";
+    for (const action of ["Try first case", "Run remaining cases", "Unsure", "Download records.csv", "Download run evidence"]) {
+      expect(walkthrough).toContain(action);
+      expect(read(BACKSTAGE) + read("src/backstage/main.ts")).toContain(action);
     }
-    return out;
-  }
-
-  /** A label as a whole phrase: not part of a longer word on either side. */
-  function wholeLabel(label: string): RegExp {
-    return new RegExp(`(?<![\\w])${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`, "g");
-  }
-
-  /** Every theatre word in the guide's title and body, outside a quoted UI label or a glossary term. */
-  async function theatreWords(html: string): Promise<string[]> {
-    const labels = UI_LABELS.map(([label]) => label).sort((a, b) => b.length - a.length);
-    const terms = await texts(html, "#glossary > dt");
-    const withoutTerms = await new HTMLRewriter()
-      .on("#glossary > dt", {
-        element(el) {
-          el.remove();
-        },
-      })
-      .transform(new Response(html))
-      .text();
-    let prose = decodeRefs([(await texts(html, "title"))[0] ?? "", (await texts(withoutTerms, "body"))[0] ?? ""].join(" "));
-    prose = prose.replace("Backstage does not save your cases, runs or keys to a file or database on our server.", "does not save your cases, runs or keys to a file or database on our server.");
-    for (const label of labels) prose = prose.split(`"${label}"`).join(" ");
-    let termText = decodeRefs(terms.join(" | "));
-    for (const label of labels) termText = termText.replace(wholeLabel(label), " ");
-    return [...`${prose} ${termText}`.matchAll(THEATRE)].map((m) => m[0]);
-  }
-
-  const pages = (): Map<string, string> => new Map([[STAGE, read(STAGE)], [BACKSTAGE, read(BACKSTAGE)], [OFFICE, read(OFFICE)]]);
-
-  test("[unit] D18-PLAIN-THEATRE no theatre word in the guide outside a quoted on-screen label, and every label is on its page", async () => {
-    expect(await theatreWords(read(GUIDE))).toEqual([]);
-    expect(labelProblems(read(GUIDE), pages())).toEqual([]);
-    expect(UI_LABELS.length).toBeGreaterThan(0);
+    expect(walkthrough).toContain("Not enough evidence");
+    expect(walkthrough).toContain("this test set only");
+    expect((await texts(html, ".miniature button, .miniature input"))).toEqual([]);
   });
 
-  test("[unit] D18-PLAIN-THEATRE-NEGATIVE theatre prose, an unquoted label, an unlisted quote and a renamed label each go RED", async () => {
-    const guide = read(GUIDE);
-    const anchor = "</main>";
-    expect(await theatreWords(mutate(guide, anchor, `<p>The curtain rises</p>${anchor}`))).toEqual(["curtain"]);
-    expect(await theatreWords(mutate(guide, anchor, `<p>Press House Lights</p>${anchor}`))).toEqual(["House Lights"]);
-    expect(await theatreWords(mutate(guide, anchor, `<p>Read "the second act"</p>${anchor}`))).toEqual(["act"]);
-    expect(await theatreWords(mutate(guide, "Jev!Jev: first-use guide", "Jev!Jev: stage guide"))).toEqual(["stage"]);
-    expect(await theatreWords(mutate(guide, "<dt>Stop</dt>", "<dt>Stop the show at the curtain</dt>"))).toEqual(["curtain"]);
-    expect(await theatreWords(mutate(guide, anchor, `<p>The cur&#116;ain and the cur&#x74;ain</p>${anchor}`))).toEqual(["curtain", "curtain"]);
-    expect(await theatreWords(mutate(guide, "<dt>Spotlight</dt>", "<dt>Spotlights</dt>"))).toEqual(["Spotlights"]);
-    const renamed = new Map(pages());
-    renamed.set(BACKSTAGE, mutate(read(BACKSTAGE), ">Send feedback<", ">Feedback<"));
-    expect(labelProblems(guide, renamed)).toEqual([`not on ${BACKSTAGE}: Send feedback`]);
-    // A markup label that survives only inside a script is not on screen.
-    const scriptOnly = new Map(pages());
-    scriptOnly.set(BACKSTAGE, mutate(read(BACKSTAGE), ">Send feedback<", "><script>var t = 'Send feedback';</script>Feedback<"));
-    expect(labelProblems(guide, scriptOnly)).toEqual([`not on ${BACKSTAGE}: Send feedback`]);
-    // A script label that survives only in a script comment is not rendered.
-    const commented = new Map(pages());
-    const line = "Understudies wait in the wings; the stage manager keeps tabs on the subs.";
-    commented.set(STAGE, mutate(read(STAGE), `"${line}"`, `"" /* ${line} */`));
-    expect(labelProblems(guide, commented)).toEqual([`not on ${STAGE}: ${line}`]);
+  test("[unit] #247 reference stays collapsed while every existing anchor remains addressable", async () => {
+    const html = read(GUIDE);
+    const disclosure = (await grab(html, ["details#reference"])).get("details#reference")?.[0];
+    expect(disclosure?.attrs.has("open")).toBe(false);
+    for (const id of ["jev-intro", "prepare", "label", "costs", "verdict", "example", "limits", "fields", "record-columns", "glossary", "access", "format-name", "verdict-terms", "verdict-plain"]) {
+      expect((await grab(html, [`#reference #${id}`])).get(`#reference #${id}`)).toHaveLength(1);
+    }
+    expect(read("site/guide/guide.js")).toContain("hashchange");
+    expect(read("site/guide/guide.js")).toContain("details.open = true");
+    expect(read("site/guide/guide.js")).toContain("decodeURIComponent");
+  });
+
+  test("[unit] #247 direct and encoded reference deep links reveal and scroll their target", () => {
+    const direct = guideNavigation("#fields");
+    expect(direct.details.open).toBe(true);
+    expect(direct.scrolled).toEqual(["fields"]);
+    const encoded = guideNavigation("#%66ields");
+    expect(encoded.details.open).toBe(true);
+    expect(encoded.scrolled).toEqual(["fields"]);
+  });
+
+  test("[unit] #247 hash history and a repeated same-anchor click reopen a closed reference", () => {
+    const nav = guideNavigation("");
+    expect(nav.details.open).toBe(false);
+    nav.navigate("#fields");
+    expect(nav.details.open).toBe(true);
+    nav.details.open = false;
+    nav.navigate("#verdict");
+    expect(nav.details.open).toBe(true);
+    nav.details.open = false;
+    nav.navigate("#fields");
+    expect(nav.details.open).toBe(true);
+    nav.details.open = false;
+    nav.clickSameAnchor();
+    expect(nav.details.open).toBe(true);
+    expect(nav.scrolled).toEqual(["fields", "verdict", "fields", "fields"]);
+  });
+
+  test("[unit] #247 malformed, absent and primary-content anchors do not open reference or throw", () => {
+    const nav = guideNavigation("#%zz");
+    nav.navigate("#does-not-exist");
+    nav.navigate("#choose");
+    nav.navigate("");
+    expect(nav.details.open).toBe(false);
+    expect(nav.scrolled).toEqual([]);
+  });
+
+  test("[unit] #247 primary reading stays short and sends API questions to TypeSafe", async () => {
+    const html = read(GUIDE);
+    const primary = html.slice(html.indexOf("<main>"), html.indexOf('<details id="reference"'));
+    const words = ((await texts(primary + "</main>", "main"))[0] ?? "").split(/\s+/);
+    expect(words.length).toBeLessThanOrEqual(500);
+    expect(primary).toContain('href="https://docs.typesafe.ai/introduction"');
+    expect(primary).not.toContain('id="jev-intro"');
+    expect(await texts(html, ".welcome .lede")).toEqual(["Your guide to using this site: watch a recorded test, or bring a decision of your own."]);
+    for (const path of ["/little-shop/", "/replay/", "/tm/", "/maps/"]) expect(primary).toContain(`href="${path}"`);
+    expect(primary).toContain("if unavailable, return later");
+    expect(html).toContain("optional collapsed disclosure");
+  });
+
+  test("[unit] #247 visitor guide stays browser-only, including its collapsed reference", async () => {
+    const html = read(GUIDE);
+    expect(html).not.toMatch(/\bbun\b|command[- ]line|\bterminal\b|\bCLI\b|TYPESAFE_API_KEY|environment variables?|docs\/GUIDE\.md/i);
+    const values = await marked(html, known());
+    const catalogDate = values.filter(value => value.name === "BACKSTAGE_CATALOG_CHECKED_DATE");
+    expect(catalogDate).toHaveLength(1);
+    expect(catalogDate[0]?.error).toBeNull();
+    expect(values.some(value => value.name === "BACKSTAGE_JEV_INPUT_USD_PER_MTOK")).toBe(true);
+  });
+
+  test("[unit] #247 playbill has responsive columns, keyboard focus and no motion requirement", () => {
+    const css = read("site/guide/guide.css");
+    expect(read(GUIDE)).toContain('name="viewport"');
+    expect(read(GUIDE)).toContain('class="skip-link" href="#choose"');
+    expect(css).toContain("#7b1424");
+    expect(css).toContain(":focus-visible");
+    expect(css).toContain("@media (max-width: 640px)");
+    expect(css).toContain("grid-template-columns: minmax(0, 1fr)");
+    expect(css).toContain("prefers-reduced-motion");
+    expect(css).not.toMatch(/animation\s*:/);
   });
 });
 

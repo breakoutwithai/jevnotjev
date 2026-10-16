@@ -3,6 +3,7 @@ import { sampleRun } from "./d17-sample-export.ts";
 import { EXIT_CODES, parseCsv, toCsv } from "./math-check.ts";
 import { main, render, verifyCore, type CheckId, type CheckResult, type PageReport } from "./verify-core.ts";
 import type { BackstageRun } from "../src/backstage/run.ts";
+import type { CostPerAccepted } from "../src/core/metrics.ts";
 
 type Evidence = ReturnType<BackstageRun["evidence"]>;
 
@@ -297,7 +298,8 @@ describe("verifyCore defects found in review of PR #226", () => {
     const p = withPair(freshPage(), 0, (pair) => {
       const jev = pair.metrics.arms.find((a) => a.arm === "jev");
       if (!jev) throw new Error("sample pair has no jev");
-      const wrong = { ...jev, costPerAccepted: { kind: "value" as const, usd: 999 } };
+      const worse: CostPerAccepted = { kind: "value", usd: 999 };
+      const wrong = { ...jev, costPerAccepted: worse };
       return { ...pair, metrics: { ...pair.metrics, arms: [wrong, ...pair.metrics.arms] } };
     });
     const results = await verifyCore(p, text(freshExport()));
@@ -365,7 +367,8 @@ describe("verifyCore defects found in review of PR #226", () => {
     const e = freshExport();
     e.comparisons = e.comparisons.map((c, i) => (i === 0 ? { ...c, csv: "not,a,record\nx,y,z\n" } : c));
     const results = await verifyCore(freshPage(), text(e));
-    for (const id of ["three-methods", "cost-per-accepted"] as const) {
+    const failed: readonly CheckId[] = ["three-methods", "cost-per-accepted"];
+    for (const id of failed) {
       expect(byId(results, id).ok).toBe(false);
       expect(byId(results, id).detail).toContain("comparisons[0]");
     }

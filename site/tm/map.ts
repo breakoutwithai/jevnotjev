@@ -194,6 +194,8 @@ export type CodexSession = {
   readings: number;
   firstTs: number;
   lastTs: number;
+  /** Timestamp of the latest counter record in the file, in or out of period: which of two copies of a session is the newer history. */
+  lastSeenTs: number;
   model: string;
   project: string;
   prev: CodexTokens | undefined;
@@ -260,6 +262,7 @@ export function addCodexLine(st: CodexState, sess: CodexSession, line: string, f
   }
   if (raw.type !== "event_msg" || p.type !== "token_count") return;
   if (!Number.isFinite(ts)) { st.cov.unsupported++; return; }
+  sess.lastSeenTs = Math.max(sess.lastSeenTs, ts);
   const inPeriod = ts >= from && ts <= to;
   const cur = readTotals(isRec(p.info) ? p.info.total_token_usage : undefined);
   if (cur) {
@@ -373,7 +376,8 @@ const addCoverage = (a: Coverage, b: Coverage): void => {
 
 /**
  * One state per file, merged by session id: the same session read from two files (a copy, a restored backup) counts once.
- * The file with the later cumulative total is kept, the other is counted in duplicateFiles and contributes nothing else.
+ * The file whose latest counter record is newer is kept (a longer history, even after a counter reset); on a tie the larger
+ * cumulative total, then the first file. The other is counted in duplicateFiles and contributes nothing else.
  */
 export async function scanCodex(dir: string, from: number, to: number): Promise<CodexState> {
   const st = newCodexState();
@@ -382,14 +386,14 @@ export async function scanCodex(dir: string, from: number, to: number): Promise<
   for (const f of listJsonl(dir, from, st.cov)) {
     const fst = newCodexState();
     const file = relative(dir, f);
-    const sess: CodexSession = { id: file, subagent: false, forked: false, startTs: undefined, file, readings: 0, firstTs: Infinity, lastTs: -Infinity, model: "unknown", project: "unknown", prev: undefined, established: zeroCodex(), baselines: 0, days: new Map(), byModel: new Map() };
+    const sess: CodexSession = { id: file, subagent: false, forked: false, startTs: undefined, file, readings: 0, firstTs: Infinity, lastTs: -Infinity, lastSeenTs: -Infinity, model: "unknown", project: "unknown", prev: undefined, established: zeroCodex(), baselines: 0, days: new Map(), byModel: new Map() };
     await eachLine(f, fst.cov, (line) => addCodexLine(fst, sess, line, from, to));
     addCoverage(st.cov, fst.cov);
     const old = kept.get(sess.id);
     if (!old) kept.set(sess.id, { sess, fst });
     else {
       st.duplicateFiles++;
-      if (finalTotal(sess) > finalTotal(old.sess)) kept.set(sess.id, { sess, fst });
+      if (sess.lastSeenTs > old.sess.lastSeenTs || (sess.lastSeenTs === old.sess.lastSeenTs && finalTotal(sess) > finalTotal(old.sess))) kept.set(sess.id, { sess, fst });
     }
   }
   for (const { sess, fst } of kept.values()) {
@@ -540,7 +544,7 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
   L.push("", "- Files are selected by modification time inside the period, then records by timestamp. Lines that cannot carry usage, a cap or a counter are skipped unparsed (Lines minus Parsed).");
   if (s.claude) L.push(`- Claude: ${n(s.claude.sessions)} sessions with in-period evidence, ${n(s.claude.subagentSessions)} of them with subagent work (\`subagents/\` file or sidechain flag; a subagent transcript carries its parent's sessionId, so it counts inside the parent session). ${n(s.claude.usageRecords)} usage records collapse to ${n(s.claude.messages)} messages (latest snapshot per message.id). \`<synthetic>\` records carry no usage.`);
   if (s.codex) L.push(`- Codex: ${n(s.codex.sessions)} sessions with established usage, ${n(s.codex.subagentSessions)} subagent (parent_thread_id). ${n(s.codex.baselines)} uncounted baselines (forked sessions, sessions started before the period, counter decreases).`);
-  if (s.codex?.duplicateFiles) L.push(`- ${n(s.codex.duplicateFiles)} Codex file(s) repeated a session id already read: the file with the later cumulative total is kept, so no session is counted twice.`);
+  if (s.codex?.duplicateFiles) L.push(`- ${n(s.codex.duplicateFiles)} Codex file(s) repeated a session id already read: the file with the newer history is kept, so no session is counted twice.`);
   const unread = (s.claude?.cov.unreadable ?? 0) + (s.codex?.cov.unreadable ?? 0);
   if (unread) L.push(`- ${n(unread)} folder(s) or file(s) could not be read: the totals below are understated and the share is refused.`);
   L.push("");
@@ -610,12 +614,13 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
   L.push(`## Evidence index`, "", `Where each finding comes from, with no message text copied. Sessions with a cap notice come first, then the most records. Records: Claude messages (latest snapshot per message.id) or Codex counted counter readings. Files are relative to the source folder${o.byProject ? "" : "; a Claude project folder shows as dir-<hash> (add --by-project for the name)"}.`, "");
   if (s.evidence.length) {
     L.push(`| Session | Source | Source file | First (UTC) | Last (UTC) | Records | Cap notices |`, `|---|---|---|---|---|---|---|`);
-    for (const e of s.evidence.slice(0, EVIDENCE_ROWS)) {
-      const first = e.files[0] ? fileRef(e.files[0], e.source, o.byProject) : "none";
-      const more = e.files.length > 1 ? ` +${e.files.length - 1} more` : "";
-      L.push(`| ${e.alias} | ${e.source} | ${first}${more} | ${new Date(e.first).toISOString().slice(0, 16)} | ${new Date(e.last).toISOString().slice(0, 16)} | ${n(e.records)} | ${e.caps} |`);
+    // Every session with a cap notice is listed, so each episode's aliases resolve; the cutoff applies to the rest.
+    const shown = Math.max(EVIDENCE_ROWS, s.evidence.filter((e) => e.caps > 0).length);
+    for (const e of s.evidence.slice(0, shown)) {
+      const refs = e.files.length ? e.files.map((f) => fileRef(f, e.source, o.byProject)).join("; ") : "none";
+      L.push(`| ${e.alias} | ${e.source} | ${refs} | ${new Date(e.first).toISOString().slice(0, 16)} | ${new Date(e.last).toISOString().slice(0, 16)} | ${n(e.records)} | ${e.caps} |`);
     }
-    if (s.evidence.length > EVIDENCE_ROWS) L.push("", `${n(s.evidence.length - EVIDENCE_ROWS)} more session(s) with in-period evidence are not listed.`);
+    if (s.evidence.length > shown) L.push("", `${n(s.evidence.length - shown)} more session(s) with in-period evidence are not listed.`);
   } else L.push("No session had in-period evidence.");
   L.push("");
 

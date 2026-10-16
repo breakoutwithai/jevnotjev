@@ -1,5 +1,5 @@
 {
-  "minFiles": 135,
+  "minFiles": 136,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -45,7 +45,7 @@
     "scripts/site-content.test.ts": 11,
     "scripts/stage-door.test.ts": 6,
     "scripts/stage-sample.test.ts": 11,
-    "scripts/tm.dom.test.ts": 27,
+    "scripts/tm.dom.test.ts": 28,
     "scripts/tokenmax/arms.test.ts": 13,
     "scripts/tokenmax/hardening.test.ts": 10,
     "scripts/tokenmax/hardening2.test.ts": 4,
@@ -61,7 +61,7 @@
     "scripts/uc13/run-arms.test.ts": 24,
     "scripts/uc13/stage-demo.test.ts": 15,
     "scripts/verify-core.test.ts": 40,
-    "skills/tokenmax-map/scripts/map.test.ts": 19,
+    "skills/tokenmax-map/scripts/map.test.ts": 24,
     "skills/tokenmax-map/scripts/parity.test.ts": 1,
     "skills/tokenmax-map/scripts/share.test.ts": 13,
     "src/backstage/api-tokens.test.ts": 3,

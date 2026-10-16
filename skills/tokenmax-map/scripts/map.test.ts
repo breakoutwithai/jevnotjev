@@ -298,7 +298,7 @@ describe("[integration] review #241 round 2", () => {
   const sessionFile = (id: string, totals: Array<[string, number, number]>, withCap = false): string =>
     [JSON.stringify({ timestamp: "2026-10-14T08:00:00Z", type: CODEX_META_TYPE, payload: { id } }), ...totals.map(([ts, i, o], k) => tc(ts, tot(i, o), withCap && k === 0 ? CAP : undefined))].join("\n");
 
-  test("[integration] the same Codex session id in two files counts once; the file with the later total wins; its caps are not doubled", async () => {
+  test("[integration] the same Codex session id in two files counts once; the newer history wins; its caps are not doubled", async () => {
     const root = mkdtempSync(join(tmpdir(), "tmx-codex-dup-"));
     const day = join(root, "2026", "10", "14");
     mkdirSync(day, { recursive: true });
@@ -314,6 +314,33 @@ describe("[integration] review #241 round 2", () => {
     expect(s.evidence.map((e) => e.files)).toEqual([["2026/10/14/rollout-full.jsonl"]]);
     const text = renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: false, sources: ["Codex"] });
     expect(text).toContain("1 Codex file(s) repeated a session id already read");
+  });
+
+  test("[integration] duplicate Codex files: the newer history wins over a larger total (counter reset) and over an equal total with a later cap", async () => {
+    const reset = mkdtempSync(join(tmpdir(), "tmx-codex-reset-"));
+    mkdirSync(join(reset, "d"), { recursive: true });
+    writeFileSync(join(reset, "d", "a-copy.jsonl"), sessionFile("cx-r", [["2026-10-14T08:01:00Z", 100, 10], ["2026-10-14T08:02:00Z", 120, 12]]));
+    writeFileSync(join(reset, "d", "b-newer.jsonl"), sessionFile("cx-r", [["2026-10-14T08:01:00Z", 100, 10], ["2026-10-14T08:02:00Z", 120, 12], ["2026-10-14T08:03:00Z", 10, 1], ["2026-10-14T08:04:00Z", 40, 4]], false));
+    const r = summarise(null, await scanCodex(reset, FROM, TO)).codex;
+    // 100 + 20 before the reset, the reset is an uncounted baseline, then 30 after it.
+    expect(r?.totals.input).toBe(150);
+    const tie = mkdtempSync(join(tmpdir(), "tmx-codex-tie-"));
+    mkdirSync(join(tie, "d"), { recursive: true });
+    writeFileSync(join(tie, "d", "a-copy.jsonl"), sessionFile("cx-t", [["2026-10-14T08:01:00Z", 100, 10]]));
+    writeFileSync(join(tie, "d", "b-newer.jsonl"), [sessionFile("cx-t", [["2026-10-14T08:01:00Z", 100, 10]]), tc("2026-10-14T08:05:00Z", tot(100, 10), CAP)].join("\n"));
+    const t = summarise(null, await scanCodex(tie, FROM, TO)).codex;
+    expect(t?.totals.input).toBe(100);
+    expect(t?.capOccurrences).toBe(1);
+  });
+
+  test("[integration] a session read from several files lists every file in the evidence index", async () => {
+    const root = mkdtempSync(join(tmpdir(), "tmx-claude-multi-"));
+    const proj = join(root, "-Users-x-projects-alpha");
+    mkdirSync(join(proj, "s-9", "subagents"), { recursive: true });
+    writeFileSync(join(proj, "s-9.jsonl"), asst({ id: "p1", ts: "2026-10-14T09:00:00Z", session: "s-9" }));
+    writeFileSync(join(proj, "s-9", "subagents", "agent-7.jsonl"), asst({ id: "p2", ts: "2026-10-14T09:01:00Z", session: "s-9" }));
+    const text = renderPrivate(summarise(await scanClaude(root, FROM, TO), null), { from: "2026-10-09", to: "2026-10-16", byProject: true, sources: ["Claude Code"] });
+    expect(text).toContain("| -Users-x-projects-alpha/s-9.jsonl; -Users-x-projects-alpha/s-9/subagents/agent-7.jsonl |");
   });
 
   test("[integration] the private report has an evidence index: aliases, source-relative files, no project name, and episodes point at it", async () => {

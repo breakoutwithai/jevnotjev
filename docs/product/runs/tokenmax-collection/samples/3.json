@@ -1,0 +1,75 @@
+{
+  "v": "tm-collection/1",
+  "map": {
+    "v": "tm-share/1",
+    "skill": "1.0.0",
+    "days": 7,
+    "sources": "claude",
+    "sessions": 8,
+    "subagent_sessions": 0,
+    "caps": {
+      "short": 0,
+      "weekly": 0,
+      "unknown": 0
+    },
+    "output_tokens": {
+      "claude": 1000,
+      "codex": 0
+    },
+    "opus_share_pct": 0,
+    "codex_weekly_pct": null
+  },
+  "period": {
+    "basis": "rolling_seven_days",
+    "days": 7
+  },
+  "coverage": {
+    "accepted": 8,
+    "malformed": 0,
+    "unsupported": 0,
+    "baseline_segments": 0,
+    "semantic_candidates": 2,
+    "semantic_selected": 2
+  },
+  "tokens": {
+    "claude": {
+      "input": 48000,
+      "output": 1000,
+      "cacheRead": 10000,
+      "cacheWrite": 2000
+    },
+    "codex": {
+      "input": 0,
+      "output": 0,
+      "cachedInput": 0,
+      "cacheWrite": 0,
+      "reasoning": 0
+    }
+  },
+  "analysis": {
+    "mode": "host",
+    "status": "review",
+    "model": "host-model",
+    "jev_calls": 0,
+    "host_calls": 1,
+    "cache_hits": 0,
+    "input_tokens": null,
+    "output_tokens": null,
+    "cost_usd": null
+  },
+  "categories": {
+    "must_deliver": 1,
+    "internal": 1,
+    "free_burn": 0,
+    "unknown": 0
+  },
+  "context": {
+    "subscription": "unspecified",
+    "week": "unspecified"
+  },
+  "findings": [
+    "usage_only_no_savings_claim",
+    "review_required"
+  ],
+  "synthetic": true
+}

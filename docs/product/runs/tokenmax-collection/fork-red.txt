@@ -1,0 +1,41 @@
+bun test v1.4.2 (744846f84)
+
+src/tokenmax-collection/collector.test.ts:
+(pass) [integration] TC four synthetic journeys claude host [2.35ms]
+(pass) [integration] TC four synthetic journeys claude jev [0.60ms]
+(pass) [integration] TC four synthetic journeys codex host [0.28ms]
+(pass) [integration] TC four synthetic journeys codex jev [0.14ms]
+(pass) [unit] TC privacy span IDs and locally stripped canaries [0.08ms]
+(pass) [unit] TC unavailable Jev never silently invokes baseline [0.15ms]
+(pass) [unit] TC selected subset preserves complete accounting and active exclusion [0.07ms]
+(pass) [unit] TC unknown cumulative baseline and decreases only count established deltas [0.09ms]
+(pass) [unit] TC uncertain selection abstains without manufacturing a tier [0.07ms]
+(pass) [unit] TC invalid typed Jev responses stay reviewable and do not become baseline [0.19ms]
+(pass) [unit] TC bounded timeout aborts a hanging transport [5.62ms]
+(pass) [unit] TC changed facts and changed actions fail Switch Check release [0.46ms]
+(pass) [unit] TC host sees stripped bounded state only and content authorization is enforced [0.16ms]
+(pass) [unit] TC caching and concurrency bounds apply to independent candidates [3.74ms]
+(pass) [unit] TC Claude final snapshots deduplicate within each session namespace [0.14ms]
+(pass) [unit] TC Codex duplicate files and inherited starts do not inflate counters [0.14ms]
+(pass) [unit] TC weekly readings survive newer short windows without becoming token allowance estimates [0.08ms]
+(pass) [unit] TC explicitly requested unavailable Jev stays unavailable with no candidates [0.04ms]
+(pass) [unit] TC interleaved duplicate session files are ordered before cumulative folding [0.11ms]
+(pass) [unit] TC Jev key without explicit processing approval makes zero transport calls [0.07ms]
+(pass) [unit] TC approved Jev call byte and spend reservations stop before transport and never retry [0.33ms]
+(pass) [unit] TC synthetic approval cannot authorize default real Jev transport [0.08ms]
+
+error: expect(received).toBe(expected)
+
+Expected: 150
+Received: 130
+
+      at <anonymous> (<worktree>/src/tokenmax-collection/collector.test.ts:35:1139)
+(fail) [unit] TC copied parent metadata does not collapse fork identity or inherited accounting [0.34ms]
+
+1 tests failed:
+(fail) [unit] TC copied parent metadata does not collapse fork identity or inherited accounting [0.34ms]
+
+ 22 pass
+ 1 fail
+ 107 expect() calls
+Ran 23 tests across 1 file. [39.00ms]

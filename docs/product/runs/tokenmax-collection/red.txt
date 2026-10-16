@@ -1,0 +1,14 @@
+bun test v1.4.2 (744846f84)
+
+src/tokenmax-collection/collector.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module './collector.ts' from '<worktree>/src/tokenmax-collection/collector.test.ts'
+-------------------------------
+
+
+ 0 pass
+ 1 fail
+ 1 error
+Ran 1 test across 1 file. [17.00ms]

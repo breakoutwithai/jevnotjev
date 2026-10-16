@@ -1,3 +1,5 @@
+import { ingestPipeline, MAX_DRAFT_BYTES } from "../tokenmax-ingest/ingest.ts";
+import type { PlatformChecks, PipelineStage } from "../tokenmax-ingest/ingest.ts";
 import { validSceneChoices } from "./run.ts";
 import { join, resolve, sep } from "node:path";
 import { isIP } from "node:net";
@@ -63,6 +65,8 @@ export function houseJevKeyFromEnvironment(
   return key;
 }
 export interface ServerOptions {
+  /** Explicitly configured aggregate checks only; no ambient provider spend. No persistence. */
+  readonly tokenmaxChecks?: PlatformChecks;
   /** Jev key held by the server for loopback UAT; never sent to the browser. */
   readonly houseJevKey?: string;
   readonly version: string;
@@ -221,6 +225,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     trialCookieName = "backstage_trial";
   const ticketStore = options.tickets?.path ? new TicketStore(options.tickets.path) : null;
   const ticketLimiter = new TicketLimiter(clock);
+  const tokenmaxLimiter = new TicketLimiter(clock);
   const tokensPath = options.api?.tokensPath;
   const api = createApiV1({
     tokens: new ApiTokenStore(tokensPath !== undefined && tokensPath !== "" && !isInside(tokensPath, root) ? tokensPath : null),
@@ -677,6 +682,24 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       const done = await api(request, pathname, slot);
       logger.api({ event: "api.request", rid, route: done.route, method: request.method, status: done.response.status, token: done.tokenId });
       return done.response;
+    }
+    if (pathname === "/api/tokenmax/preview") {
+      if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
+      if (request.headers.get("origin") !== origin || request.headers.get("sec-fetch-site") === "cross-site") return json({ error: "Origin rejected." }, 403);
+      if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") return json({ error: "JSON required." }, 415);
+      if (Number(request.headers.get("content-length") ?? 0) > MAX_DRAFT_BYTES) return json({ error: "Aggregate exceeds 16 KiB." }, 413);
+      if (!tokenmaxLimiter.allow(ip) || active >= (options.maxConcurrent ?? 8)) return json({ error: "Preview busy. Retry later; your draft is retained." }, 429);
+      // Reserve before the first await so simultaneous body reads cannot bypass the limit.
+      active++;
+      try {
+        let raw: string;
+        try { raw = await boundedText(new Response(request.body), MAX_DRAFT_BYTES, AbortSignal.timeout(5000)); }
+        catch { return json({ error: "Aggregate exceeds the read limit." }, 413); }
+        const stages: PipelineStage[] = [];
+        const result = await ingestPipeline(raw, { ...(options.tokenmaxChecks ? { checks: options.tokenmaxChecks } : {}), progress: stage => stages.push(stage) });
+        if (!result.ok) return json({ ok: false, error: result.error, publication: "blocked", stages }, 400);
+        return json({ ok: true, value: result.value, map: result.map, platform: result.platform, publication: result.publication, stages });
+      } finally { active--; }
     }
     if (pathname === "/api/tickets/ranking") {
       if (request.method !== "GET") return json({ error: "Method not allowed." }, 405);

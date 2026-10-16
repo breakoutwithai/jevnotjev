@@ -1,0 +1,24 @@
+bun test v1.4.2 (744846f84)
+
+src/tokenmax-ingest/ingest.test.ts:
+(pass) TokenMax paste ingestion > [integration] TM-I1 all three synthetic samples follow the same validation and map path [0.51ms]
+(pass) TokenMax paste ingestion > [unit] TM-I2 unknown fields and planted identifiers are rejected without losing the draft [0.07ms]
+(pass) TokenMax paste ingestion > [unit] TM-I3 rejects unsafe numeric values, inconsistent totals and unsupported versions [0.19ms]
+(pass) TokenMax paste ingestion > [unit] TM-I4 malformed and oversize drafts are recoverable and never publish [0.03ms]
+(pass) TokenMax paste ingestion > [unit] TM-I5 real aggregates remain unpublished; local Jev does not imply platform verification [0.07ms]
+(pass) [integration] TM-I6 platform checks receive only validated aggregates and preserve draft on failure [0.32ms]
+(pass) [unit] TM-I7 unknown Opus coverage blocks tm-share projection without rejecting the collection draft [0.03ms]
+(pass) [unit] TM-I8 visible prompts cover both providers and both modes without installation [0.14ms]
+                                                                                                               ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (<worktree>/src/tokenmax-ingest/ingest.test.ts:116:106)
+(fail) [unit] TM-I9 contradictory Jev provenance and provider readings are rejected [0.20ms]
+
+ 8 pass
+ 1 fail
+ 77 expect() calls
+Ran 9 tests across 1 file. [15.00ms]

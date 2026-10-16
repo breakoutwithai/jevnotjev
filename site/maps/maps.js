@@ -149,7 +149,7 @@
     head.textContent = "";
     var stats = [
       ["builders", builders, plural(builders, "builder mapped", "builders mapped")],
-      ["cap_episodes", episodes, plural(episodes, "cap episode, a time a limit stopped someone", "cap episodes, times a limit stopped someone")],
+      ["cap_episodes", episodes, plural(episodes, "cap hit, a time a limit stopped someone", "cap hits, times a limit stopped someone")],
       ["with_weekly_cap", weekly, plural(weekly, "builder hit a weekly cap", "builders hit a weekly cap")]
     ];
     for (var s = 0; s < stats.length; s++) {
@@ -175,7 +175,7 @@
       var tokens = isObj(r.output_tokens) ? r.output_tokens : {};
       var items = [
         ["sessions", fmt(r.sessions), ""],
-        ["caps short / weekly / unknown", capsText(caps), ""],
+        ["cap hits short / weekly / unknown", capsText(caps), ""],
         ["Claude output", compact(tokens.claude), typeof tokens.claude === "number" ? fmt(tokens.claude) + " output tokens" : ""],
         ["Codex output", compact(tokens.codex), typeof tokens.codex === "number" ? fmt(tokens.codex) + " output tokens" : ""],
         ["Opus share", pct(r.opus_share_pct), ""],
@@ -230,7 +230,7 @@
     }
     line("Sessions", [leafNode("span", "sessions", p.sessions, fmt(p.sessions))]);
     line("Subagent sessions", [leafNode("span", "subagent_sessions", p.subagent_sessions, fmt(p.subagent_sessions))]);
-    line("Cap episodes, short / weekly / unknown", [
+    line("Cap hits, short / weekly / unknown", [
       leafNode("span", "caps.short", p.caps.short, fmt(p.caps.short)), " / ",
       leafNode("span", "caps.weekly", p.caps.weekly, fmt(p.caps.weekly)), " / ",
       leafNode("span", "caps.unknown", p.caps.unknown, fmt(p.caps.unknown))

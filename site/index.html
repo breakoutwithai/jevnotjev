@@ -175,8 +175,8 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 /* The first screen: what to do, above the curtain (theatre.css starts the curtain at this band's bottom). In the flow,
    no heading in it (the first heading stays #t1), and no motion of its own. Styled as the #238 v3 house strip in both
    themes: the promise in cream serif, the command on the cream admission ticket (side notches, a dashed tear line
-   before the stub) with the one accent (Copy), then a plain "Watch it run" link to /tm/. The trust and Bun lines arrive
-   after Copy. The notches are solid circles in the strip colour, not a mask, so Copy's focus ring is never clipped. */
+   before the stub) with the one accent (Copy), its three parts noted below it, the trust line, then a plain "Watch it
+   run" link to /tm/. The Bun line arrives after Copy. The notches are solid circles in the strip colour, not a mask, so Copy's focus ring is never clipped. */
 .tm-first { --tm-house: #14060a; --tm-cream: #efe2c4; --tm-cream-ink: #2a1408; --tm-gold: #e0b04e; --tm-gold-dim: #8a6a26; position: relative; z-index: 55; padding: 28px max(24px,calc((100vw - 1120px)/2)) 22px; background: var(--tm-house); color: #f2e9df; border-bottom: 2px solid var(--tm-gold-dim); font: 15px/1.45 var(--sans); }
 .tm-promise { max-width: 24em; margin: 0 0 18px; color: var(--tm-cream); font: 700 44px/1.08 var(--serif); letter-spacing: -.01em; }
 .tm-ticket { position: relative; display: flex; align-items: center; gap: 12px; max-width: 900px; padding: 8px 8px 8px 22px; background: var(--tm-cream); color: var(--tm-cream-ink); box-shadow: 0 0 0 1px var(--tm-gold-dim), 0 10px 24px rgba(0, 0, 0, .5); }
@@ -190,17 +190,31 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 #tmCopy { flex: 0 0 auto; min-width: 88px; min-height: 44px; padding: 8px 20px; border: 0; background: var(--curtain); color: #f6e7c8; cursor: pointer; font: 800 16px var(--sans); box-shadow: 0 3px 0 #3a0610; }
 #tmCopy:hover { background: var(--curtain-hi); }
 #tmCopy:focus-visible { outline: 2px solid var(--tm-cream-ink); outline-offset: 2px; }
+/* #238 pass 2: the command's three parts are underlined on the ticket and each has its note below it, before Copy:
+   the note names the part (its first word, in gold mono) and says what it does; the first note links to the script.
+   The trust line follows at every width. Controls in the band are at least 24px each way with 13px text or more. */
+.tm-tok { text-decoration: underline 2px var(--tm-gold-dim); text-underline-offset: 4px; text-decoration-skip-ink: none; }
+.tm-notes { display: flex; flex-wrap: wrap; gap: 0 24px; max-width: 900px; margin: 10px 0 0; padding: 0; list-style: none; color: #f2e9df; font-size: 14px; line-height: 1.35; }
+.tm-notes li { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; }
+.tm-key { color: var(--tm-gold); font: 600 13px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; text-decoration: underline 2px var(--tm-gold-dim); text-underline-offset: 4px; white-space: nowrap; }
+#tmScript { display: inline-flex; align-items: center; min-height: 24px; color: var(--tm-cream); font-weight: 600; text-underline-offset: 3px; }
+#tmScript:hover { color: var(--tm-gold); }
+#tmScript:focus-visible { outline: 2px solid var(--tm-gold); outline-offset: 2px; }
+.tm-trust { color: var(--tm-cream); font-weight: 600; }
 .tm-copied { max-width: 760px; margin: 0; color: #f2e9df; }
 .tm-copied:not(:empty) { margin-top: 12px; }
 .tm-copied code { color: var(--tm-gold); font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
-.tm-watch { margin: 14px 0 0; }
-#tmWatch { display: inline-flex; align-items: center; min-height: 24px; color: var(--tm-gold); font-weight: 600; text-underline-offset: 3px; }
+/* The trust line and Watch it run share one line where it fits. */
+.tm-watch { max-width: 900px; margin: 10px 0 0; }
+#tmWatch { display: inline-flex; align-items: center; min-height: 24px; margin-left: 10px; color: var(--tm-gold); font-weight: 600; text-underline-offset: 3px; vertical-align: middle; }
 #tmWatch:hover { color: var(--tm-cream); }
 #tmWatch:focus-visible { outline: 2px solid var(--tm-gold); outline-offset: 3px; }
-@media(max-width:720px) { .tm-first { padding: 18px 16px 14px; font-size: 14px; }.tm-promise { margin-bottom: 14px; font-size: 28px; line-height: 1.1; }.tm-ticket { gap: 8px; padding: 6px 6px 6px 16px; }.tm-stub { margin: -6px 0; }#tmCommand { padding: 2px 0; font-size: 12.5px; line-height: 1.45; }#tmCopy { min-width: 68px; padding: 8px 14px; }.tm-copied code { font-size: 12.5px; }.tm-watch { margin-top: 10px; } }
-/* Short screens (a small phone, a phone on its side) keep the same three parts at a size that leaves the curtain room. */
-@media(max-height:700px) { .tm-first { padding-top: 12px; padding-bottom: 8px; font-size: 13.5px; }.tm-promise { margin-bottom: 8px; font-size: 22px; line-height: 1.1; }.tm-ticket { padding-top: 4px; padding-bottom: 4px; }.tm-stub { margin: -4px 0; }#tmCommand { padding: 2px 0; font-size: 12.5px; line-height: 1.4; }#tmCopy { min-height: 36px; }.tm-copied:not(:empty) { margin-top: 6px; }.tm-watch { margin-top: 4px; } }
-@media(max-height:460px) { .tm-promise { font-size: 19px; } }
+@media(max-width:720px) { .tm-first { padding: 14px 16px 10px; font-size: 14px; }.tm-promise { margin-bottom: 10px; font-size: 28px; line-height: 1.1; }.tm-ticket { gap: 8px; padding: 4px 6px 4px 16px; }.tm-stub { margin: -4px 0; }#tmCommand { padding: 2px 0; font-size: 13px; line-height: 1.45; word-break: break-all; }#tmCopy { min-width: 68px; padding: 8px 14px; }.tm-copied code { font-size: 13px; }.tm-notes { gap: 0 16px; margin-top: 6px; font-size: 13.5px; }.tm-watch { margin-top: 4px; line-height: 1.35; }.tm-copied:not(:empty) { margin-top: 8px; } }
+/* Short screens (a small phone, a phone on its side) keep every part at a size that leaves the curtain room: the promise
+   smaller, and the notes' plain text rows no taller than their text (the one link in them keeps its 24px). */
+@media(max-height:700px) { .tm-first { padding-top: 10px; padding-bottom: 8px; font-size: 13.5px; }.tm-promise { margin-bottom: 6px; font-size: 20px; line-height: 1.1; }.tm-ticket { padding-top: 2px; padding-bottom: 2px; }.tm-stub { margin: -2px 0; }#tmCommand { padding: 1px 0; font-size: 13px; line-height: 1.35; }#tmCopy { min-height: 32px; }.tm-notes { margin-top: 4px; font-size: 13px; }.tm-notes li { min-height: 0; }.tm-watch { margin-top: 2px; }.tm-copied:not(:empty) { margin-top: 6px; } }
+@media(max-width:720px) and (max-height:700px) { .tm-promise { font-size: 18px; } }
+@media(max-height:460px) { .tm-first { padding-top: 8px; padding-bottom: 6px; }.tm-promise { margin-bottom: 4px; font-size: 16px; }#tmCopy { min-height: 28px; padding-top: 4px; padding-bottom: 4px; }.tm-notes { margin-top: 2px; }.tm-watch { margin-top: 0; } }
 
 </style>
 <link rel="stylesheet" href="theatre.css">
@@ -236,10 +250,15 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 </head>
 <body>
 <section class="tm-first" id="tmFirst" aria-label="Map your Claude week">
-  <p class="tm-promise" id="tmPromise">Hitting Claude limits? See your last 7 days in 10 seconds, on your own machine.</p>
-  <div class="tm-ticket" role="group" aria-label="The command"><code id="tmCommand">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - <span class="tm-flag">--share</span></code><span class="tm-stub" aria-hidden="true"></span><button type="button" id="tmCopy">Copy</button></div>
+  <p class="tm-promise" id="tmPromise">Hitting Claude limits? See your last 7 days in 10 seconds, on your own machine</p>
+  <div class="tm-ticket" role="group" aria-label="The command"><code id="tmCommand"><span class="tm-tok" data-note="tmNote1">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts</span> | <span class="tm-tok" data-note="tmNote2">bun run -</span> <span class="tm-tok tm-flag" data-note="tmNote3">--share</span></code><span class="tm-stub" aria-hidden="true"></span><button type="button" id="tmCopy">Copy</button></div>
+  <ul class="tm-notes" id="tmNotes" aria-label="What each part of the command does">
+    <li id="tmNote1"><code class="tm-key">curl</code> <a id="tmScript" href="/tm/map.ts">the script, readable</a></li>
+    <li id="tmNote2"><code class="tm-key">bun run -</code> <span>runs on your machine</span></li>
+    <li id="tmNote3"><code class="tm-key">--share</code> <span>a link you choose to press</span></li>
+  </ul>
+  <p class="tm-watch"><span class="tm-trust" id="tmTrust">Runs on your machine. Nothing sent until you press Share.</span> <a id="tmWatch" href="/tm/">Watch it run</a></p>
   <p class="tm-copied" id="tmCopied" aria-live="polite"></p>
-  <p class="tm-watch"><a id="tmWatch" href="/tm/">Watch it run</a></p>
 </section>
 <script>
 /* Copy puts exactly the text of #tmCommand on the clipboard, so the button and the command shown can never differ.

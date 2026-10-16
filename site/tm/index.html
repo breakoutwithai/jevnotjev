@@ -22,6 +22,7 @@
 
 <header class="intro">
   <h1>Your Claude week, mapped</h1>
+  <p class="whose" id="whose">One builder's real week (16 Oct 2026). Run it to see yours.</p>
   <p>One line in your terminal reads your last 7 days of Claude Code and Codex logs and writes a private report. It prints a link; nothing is sent unless you open it and choose to share.</p>
 </header>
 
@@ -40,7 +41,7 @@
           <pre id="out"><span class="ln cmdln" data-at="0"><span class="ps" aria-hidden="true">$ </span><span id="typed">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share</span><span class="caret gone" id="caret" aria-hidden="true"></span><span class="rest" id="rest" aria-hidden="true"></span></span>
 <span class="ln" data-at=".21">wrote /home/you/tokenmax-report-20261016-091500/private-report.md</span>
 <span class="ln" data-at=".23">wrote /home/you/tokenmax-report-20261016-091500/share-draft.md (scan: clean)</span>
-<span class="ln" data-at=".248">claude sessions 515, codex sessions 3478, cap episodes <span class="num n1" id="num1">2</span></span>
+<span class="ln" data-at=".248">claude sessions 515, codex sessions 3478, cap hits <span class="num n1" id="num1">2</span></span>
 <span class="ln" data-at=".27"></span>
 <span class="ln ok share" data-at=".29">Share fields (tm-share/1). Nothing has been sent.</span>
 <span class="ln elide share" data-at=".3" title="4 lines left out: v, skill, days, sources">...</span>
@@ -65,7 +66,7 @@
               </g>
               <path d="M12 90 V46 H48 V90 M72 90 V46 H108 V90" fill="none" stroke="#6e4f14" stroke-width="2"/>
             </svg>
-            <p><b>2</b>cap episodes, Wed 14 Oct, 16:20 UTC</p>
+            <p><b>2</b> cap hits, Wed 14 Oct 16:20 UTC</p>
           </li>
           <li class="pic n2" id="pic2" data-at=".365">
             <svg viewBox="0 0 120 90" aria-hidden="true">
@@ -76,7 +77,7 @@
               <path d="M53 82 L58 45 Q73 37 88 45 L93 82 Z" fill="#f6e7c8"/>
               <text x="73" y="70" text-anchor="middle" font-family="Alegreya, serif" font-style="italic" font-weight="800" font-size="16" fill="#7b1424">Opus</text>
             </svg>
-            <p><b>87%</b>of Claude output, Opus-class</p>
+            <p><b>87%</b> of Claude output, Opus-class</p>
           </li>
           <li class="pic n3" id="pic3" data-at=".415">
             <svg viewBox="0 0 120 90" aria-hidden="true">
@@ -87,7 +88,7 @@
               <circle cx="60" cy="62" r="7" fill="#e0b04e"/>
               <text x="60" y="88" text-anchor="middle" font-family="Schibsted Grotesk, Arial" font-weight="700" font-size="16" fill="#c99a3e">CODEX WEEK</text>
             </svg>
-            <p><b>15%</b>of the Codex week used</p>
+            <p><b>15%</b> of the Codex week used</p>
           </li>
         </ul>
       </div>
@@ -102,7 +103,7 @@
           <p class="sub">Only these fields leave your machine, and only if you share</p>
           <dl class="fields">
             <dt>Sessions</dt><dd>3,993</dd>
-            <dt>Cap episodes</dt><dd>2</dd>
+            <dt>Cap hits</dt><dd>2</dd>
             <dt>Claude output tokens</dt><dd>9,977,232</dd>
             <dt>Codex output tokens</dt><dd>7,503,143</dd>
             <dt>Opus-class share</dt><dd>87%</dd>
@@ -123,23 +124,25 @@
           <p class="q">Which subscription window may this job run on?</p>
           <span class="tag">no result yet</span>
         </div>
-        <svg class="route" id="route" viewBox="0 0 420 300" role="img" aria-label="Jobs wait at the door. Rules decide first, Jev takes the rest. Not run yet, no result yet.">
-          <path id="rIn" d="M4 150 H120" fill="none" stroke="#7a5c26" stroke-width="2" stroke-dasharray="4 6"/>
-          <path d="M120 150 C170 150 170 70 220 70 H262" fill="none" stroke="#7a5c26" stroke-width="2" stroke-dasharray="4 6"/>
-          <path d="M120 150 C170 150 170 230 220 230 H262" fill="none" stroke="#7a5c26" stroke-width="2" stroke-dasharray="4 6"/>
-          <text x="62" y="186" text-anchor="middle" font-size="16" font-weight="700" fill="#c9b6aa">waiting</text>
-          <g>
-            <rect x="272" y="30" width="144" height="80" fill="#1f090e" stroke="#e0b04e" stroke-width="2"/>
-            <text x="344" y="66" text-anchor="middle" font-size="26" font-weight="800" fill="#e0b04e">Rules</text>
-            <text x="344" y="92" text-anchor="middle" font-size="17" font-weight="500" fill="#c9b6aa">decide first</text>
-          </g>
-          <g>
-            <rect x="272" y="190" width="144" height="80" fill="#7b1424" stroke="#e0b04e" stroke-width="2"/>
-            <text x="344" y="226" text-anchor="middle" font-size="26" font-weight="800" fill="#f6e7c8">Jev</text>
-            <text x="344" y="252" text-anchor="middle" font-size="17" font-weight="500" fill="#f0d9c4">takes the rest</text>
-          </g>
-          <g id="jobs"></g>
-        </svg>
+        <ol class="walks" id="walks">
+          <li class="walk ruled" id="walk1">
+            <p class="job"><span class="who">Job</span> Implement a feature in a client app</p>
+            <div class="path">
+              <span class="walker" aria-hidden="true"></span>
+              <p class="rule"><span class="yours">Your code</span> rule <b>R-PRO</b> matches <code>\bimplement(s|ed|ing|ation)?\b</code>, seat <b>pro_ok</b></p>
+            </div>
+            <p class="door"><span class="who">Door</span> Claude, ChatGPT or Codex window</p>
+          </li>
+          <li class="walk unmatched" id="walk2">
+            <p class="job"><span class="who">Job</span> Pick up the next ticket</p>
+            <div class="path">
+              <span class="walker" aria-hidden="true"></span>
+              <p class="rule">No rule matches: <b>abstain</b></p>
+            </div>
+            <p class="door jev"><span class="who">Door</span> Jev <span class="rehearsal">in rehearsal, 47 jobs, not run yet</span></p>
+          </li>
+        </ol>
+        <p class="jevdef" id="jevdef">Jev picks from a fixed list of answers, fast and cheap</p>
         <p class="next"><a href="/maps/">See the shared maps</a></p>
       </div>
     </section>
@@ -151,13 +154,22 @@
       <div class="marquee" id="marquee">
         <p class="mq-title">Your Claude week, mapped</p>
         <p class="mq-sub">One line in your terminal</p>
+        <p class="mq-whose">One builder's real week (16 Oct 2026). Run it to see yours.</p>
       </div>
     </div>
   </div>
 </main>
 
-<div class="ticket" role="group" aria-label="The command">
-  <code id="cmdText"><b aria-hidden="true">$ </b><span id="cmd">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share</span></code>
+<div class="ticket" id="ticket" role="group" aria-label="The command">
+  <div class="cmdbox">
+    <code id="cmdText"><b aria-hidden="true">$ </b><span id="cmd"><span class="tok k1" id="tok1" aria-describedby="note1">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts</span> | <span class="tok k2" id="tok2" aria-describedby="note2">bun run -</span> <span class="tok k3" id="tok3" aria-describedby="note3">--share</span></span></code>
+    <ul class="notes" aria-label="What each part does">
+      <li class="k1"><a id="note1" href="/tm/map.ts">the script, readable</a></li>
+      <li class="k2" id="note2">runs on your machine</li>
+      <li class="k3" id="note3">a link you choose to press</li>
+    </ul>
+    <p class="trust" id="trust">Runs on your machine. Nothing sent until you press Share.</p>
+  </div>
   <span class="stub" aria-hidden="true"></span>
   <button type="button" class="copy" id="copy">Copy</button>
 </div>

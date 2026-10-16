@@ -115,28 +115,11 @@
     });
   }
 
-  /* -------- Scene D: three job tickets queue at the door. #236 has not run, so none reaches Rules or Jev. -------- */
-  var jobsG = $('jobs'), rIn = $('rIn');
-  var QUEUE = [104, 68, 32];
-  var jobEls = QUEUE.map(function () {
-    var g = document.createElementNS(NS, 'g');
-    var r = document.createElementNS(NS, 'rect');
-    r.setAttribute('x', '-16'); r.setAttribute('y', '-10'); r.setAttribute('width', '32'); r.setAttribute('height', '20');
-    r.setAttribute('fill', '#efe2c4'); r.setAttribute('stroke', '#8a5f10');
-    var p = document.createElementNS(NS, 'path');
-    p.setAttribute('d', 'M-10 -2 H2 M-10 3 H-2'); p.setAttribute('stroke', '#7b1424'); p.setAttribute('stroke-width', '2');
-    g.appendChild(r); g.appendChild(p);
-    jobsG.appendChild(g);
-    return g;
-  });
+  /* -------- Scene D: two real jobs walk to their doors (the ruled one first, then the one no rule matches). The walk
+     shows the route a rule or Jev would take; #236 has not run, so nothing here is a result. -------- */
+  var walks = [$('walk1'), $('walk2')];
   function placeJobs(t) {
-    QUEUE.forEach(function (stop, i) {
-      var local = clamp((t - i * .2) / .5);
-      var g = jobEls[i];
-      g.style.opacity = local > 0 ? '1' : '0';
-      var pt = rIn.getPointAtLength(Math.max(0, stop - 4) * ease(local));
-      g.setAttribute('transform', 'translate(' + pt.x + ' ' + pt.y + ')');
-    });
+    walks.forEach(function (w, i) { w.style.setProperty('--t', ease(clamp((t - i * .35) / .65)).toFixed(3)); });
   }
 
   /* -------- One frame -------- */
@@ -148,9 +131,12 @@
     el.style.visibility = o > .01 ? 'visible' : 'hidden';
   }
   function render(p) {
+    /* The curtain only parts sideways, at the start. On a phone it leaves the stage entirely, so no drape edge ever
+       sits over a figure; on wide screens a 4% drape frames the stage, well clear of the content column. */
     var c = ease(span(p, T.curtain));
-    $('halfL').style.transform = 'translateX(' + (-96 * c) + '%)';
-    $('halfR').style.transform = 'translateX(' + (96 * c) + '%)';
+    var drape = innerWidth < 760 ? 101 : 96;
+    $('halfL').style.transform = 'translateX(' + (-drape * c) + '%)';
+    $('halfR').style.transform = 'translateX(' + (drape * c) + '%)';
     $('marquee').style.opacity = 1 - clamp(c * 1.6);
 
     var n = Math.round(CMD.length * span(p, T.type));
@@ -171,7 +157,8 @@
         w.line.style.strokeDashoffset = 1 - t;
         w.dot.style.opacity = t >= 1 ? 1 : 0;
       }
-      o.pic.style.opacity = .12 + .88 * clamp((p - o.at - T.wireLen * .6) / (T.wireLen * .5));
+      /* no figure, not even dimmed, behind the closed curtain */
+      o.pic.style.opacity = p < T.curtain[1] ? 0 : .12 + .88 * clamp((p - o.at - T.wireLen * .6) / (T.wireLen * .5));
     });
     $('exitA').style.opacity = p >= pics[0].at + T.wireLen ? 1 : .15;
     $('exitB').style.opacity = p >= pics[0].at + T.wireLen * 1.6 ? 1 : .15;
@@ -207,6 +194,8 @@
   function onScroll() { if (!ticking) { ticking = true; requestAnimationFrame(frame); } }
 
   function layout() {
+    /* the ticket wraps the full command, so its height varies with the width: the stage ends above it */
+    document.documentElement.style.setProperty('--ticket-h', ($('ticket').offsetHeight + 10) + 'px');
     if (motion) {
       /* measure scene A at rest so the wires land on the real boxes */
       var keep = [sceneA.style.transform, sceneA.style.visibility];
@@ -217,7 +206,7 @@
     } else {
       typed.textContent = CMD; rest.textContent = ''; caret.classList.add('gone');
       buildWires();
-      placeJobs(1);
+      /* the walks keep their CSS end state (--t: 1): both jobs stand at their doors */
     }
   }
 

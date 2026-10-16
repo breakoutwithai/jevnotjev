@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
@@ -314,7 +314,7 @@ test("[integration] 10 with no fragment the page reads the board once and labels
     expect(apiSeen().length).toBe(1);
     const totalsText = (await page.locator("#mapTotals").innerText()).replace(/\s+/g, " ");
     expect(totalsText).toContain("2 builders mapped");
-    expect(totalsText).toContain("4 cap episodes");
+    expect(totalsText).toContain("4 cap hits");
     expect(totalsText).toContain("1 builder hit a weekly cap");
     const rowsShown = page.locator("#mapBoard .map-row");
     expect(await rowsShown.count()).toBe(2);
@@ -326,7 +326,7 @@ test("[integration] 10 with no fragment the page reads the board once and labels
     expect(second).toContain("self-reported by tokenmax-map 0.3.0, not verified");
     for (const text of [first, second]) {
       expect(text).toMatch(LABEL);
-      for (const word of ["2026-10-16", "sessions", "caps short / weekly / unknown", "claude output", "codex output", "opus share", "codex weekly"]) expect(text.toLowerCase()).toContain(word);
+      for (const word of ["2026-10-16", "sessions", "cap hits short / weekly / unknown", "claude output", "codex output", "opus share", "codex weekly"]) expect(text.toLowerCase()).toContain(word);
     }
     // Output tokens in compact form; the exact count stays in the title.
     expect(first).toContain("1.2M");
@@ -479,3 +479,69 @@ test("[integration] 12 M1 landing to own row on the board in four actions or few
     expect(actions).toBeLessThanOrEqual(4);
   } finally { await context.close(); }
 }, 30000);
+
+// #238 pass 2: one name for the cap event everywhere, "cap hits"; the trust line on the share card; tap targets.
+const TRUST_LINE = "Runs on your machine. Nothing sent until you press Share.";
+
+test("[integration] 14 the cap event is called cap hits everywhere: the meta description, the share card, the board and the shipped files say cap hits and never cap episode; share labels carry no trailing punctuation", async () => {
+  for (const file of ["index.html", "maps.js"]) expect({ file, episode: /cap episode/i.test(readFileSync(join(SITE, "maps", file), "utf8")) }).toEqual({ file, episode: false });
+  for (const [width, height] of [[390, 844], [1440, 900]]) {
+    rows = THREE();
+    const { page, context } = await open(link(), width, height);
+    try {
+      await page.locator("#mapShare").waitFor();
+      const meta = await page.locator('meta[name="description"]').getAttribute("content") ?? "";
+      expect({ width, hits: meta.includes("cap hits"), episode: /episode/i.test(meta) }).toEqual({ width, hits: true, episode: false });
+      const share = await page.locator("#mapFields").evaluate((root) => Array.from(root.querySelectorAll("dt")).map((dt) => (dt.textContent ?? "").trim()));
+      expect({ width, cap: share.filter((label) => /^cap/i.test(label)) }).toEqual({ width, cap: ["Cap hits, short / weekly / unknown"] });
+      expect({ width, trailing: share.filter((label) => /[.:,;]$/.test(label)) }).toEqual({ width, trailing: [] });
+      await page.locator("#mapShare").click();
+      await page.locator("#mapBoard .map-row.mine").waitFor();
+      const seenText = await page.evaluate(() => ({ text: document.body.innerText, html: document.documentElement.outerHTML }));
+      expect({ width, text: /cap episode/i.test(seenText.text), html: /cap episode/i.test(seenText.html), tile: /\bcap hits?\b/.test(seenText.text) }).toEqual({ width, text: false, html: false, tile: true });
+      expect({ width, rowLabel: (await page.locator("#mapBoard .map-row").first().innerText()).toLowerCase().includes("cap hits short / weekly / unknown") }).toEqual({ width, rowLabel: true });
+    } finally { await context.close(); }
+  }
+}, 30000);
+
+test("[integration] 15 the share card shows the trust line at 390 and 1440, on the first screen, before Share", async () => {
+  for (const [width, height] of [[390, 844], [1440, 900]]) {
+    const { page, context } = await open(link(), width, height);
+    try {
+      await page.locator("#mapShare").waitFor();
+      const trust = await page.locator("#mapTrust").evaluate((node) => {
+        const r = node.getBoundingClientRect(), s = getComputedStyle(node);
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { text: (node.textContent ?? "").trim(), inCard: Boolean(document.getElementById("mapPreview")?.contains(node)),
+          shown: s.display !== "none" && s.visibility === "visible" && r.width > 0 && r.height > 0, inView: r.top >= 0 && r.bottom <= innerHeight && r.right <= innerWidth,
+          size: parseFloat(s.fontSize) >= 13, hit: hit === node || node.contains(hit) };
+      });
+      expect({ width, ...trust, sent: posts().length }).toEqual({ width, text: TRUST_LINE, inCard: true, shown: true, inView: true, size: true, hit: true, sent: 0 });
+    } finally { await context.close(); }
+  }
+}, 30000);
+
+test("[integration] 16 every visible link and button is at least 24x24 px with text at least 13 px: share card, after Share, board, delete and not-a-map views at 390 and 1440", async () => {
+  const views: [string, () => string, (page: Page) => Promise<void>][] = [
+    ["share", link, async (page) => { await page.locator("#mapShare").waitFor(); }],
+    ["shared", link, async (page) => { await page.locator("#mapShare").click(); await page.locator("#mapDeleteLink a").waitFor(); }],
+    ["board", () => `${origin}/maps/`, async (page) => { await page.locator("#mapBoard .map-row").first().waitFor(); }],
+    ["delete", () => `${origin}/maps/#delete=TM-00000000BEEF.${"A".repeat(43)}`, async (page) => { await page.locator("#mapDeleteRow").waitFor(); }],
+    ["invalid", () => fragment("{}"), async (page) => { await page.locator("#mapInvalid a").waitFor(); }],
+  ];
+  for (const [width, height] of [[390, 844], [1440, 900]]) for (const [name, url, ready] of views) {
+    rows = [OTHER];
+    const { page, context } = await open(url(), width, height);
+    try {
+      await ready(page);
+      const controls = await page.evaluate(() => Array.from(document.querySelectorAll("a, button")).filter((n) => {
+        const r = n.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && getComputedStyle(n).visibility !== "hidden";
+      }).map((n) => {
+        const r = n.getBoundingClientRect();
+        return { name: n.id || (n.textContent ?? "").trim().slice(0, 24), w: r.width >= 24, h: r.height >= 24, text: parseFloat(getComputedStyle(n).fontSize) >= 13 };
+      }));
+      expect({ width, name, some: controls.length > 0, bad: controls.filter((c) => !c.w || !c.h || !c.text) }).toEqual({ width, name, some: true, bad: [] });
+    } finally { await context.close(); }
+  }
+}, 60000);

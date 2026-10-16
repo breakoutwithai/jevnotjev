@@ -507,7 +507,7 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
   const opus = s.claude ? [...s.claude.byModel].filter(([m]) => /opus/i.test(m)).reduce((a, [, t]) => a + t.output, 0) : 0;
   const allOut = s.claude ? [...s.claude.byModel.values()].reduce((a, t) => a + t.output, 0) : 0;
   if (allOut > 0 && opus / allOut > 0.5) proposals.push(`Opus-class models produced ${share(opus, allOut)} of Claude output tokens: test whether routine subagent work holds quality on a smaller model before moving it.`);
-  if (!proposals.length) proposals.push("No cap episodes and no dominant model: nothing to propose from metadata alone.");
+  if (!proposals.length) proposals.push("No cap hits and no dominant model: nothing to propose from metadata alone.");
   for (const p of proposals.slice(0, 3)) L.push(`- ${p}`);
   L.push("", `## Not covered`, "", "- Jev classification NOT RUN. Message text is not read except Claude Code cap notices. Work categories need your own descriptions.", "- Token counts are not subscription percentages or cost.");
   return L.join("\n") + "\n";
@@ -712,7 +712,7 @@ export async function main(argv: string[]): Promise<number> {
   writeFileSync(join(args.out, "share-draft.md"), share);
   console.log(`wrote ${join(args.out, "private-report.md")}`);
   console.log(`wrote ${join(args.out, "share-draft.md")} (scan: ${leaks.length ? `FOUND ${leaks.join(", ")}` : "clean"})`);
-  console.log(`claude sessions ${s.claude?.sessions ?? 0}, codex sessions ${s.codex?.sessions ?? 0}, cap episodes ${s.episodes.length}`);
+  console.log(`claude sessions ${s.claude?.sessions ?? 0}, codex sessions ${s.codex?.sessions ?? 0}, cap hits ${s.episodes.length}`);
   if (args.share) {
     const sources: ShareSources = args.claude && args.codex ? "claude+codex" : args.claude ? "claude" : "codex";
     const payload = buildShare(s, { days: args.days, sources });

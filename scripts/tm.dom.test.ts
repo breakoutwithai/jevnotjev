@@ -141,7 +141,8 @@ test("[integration] reduced motion shows every scene in its end state with nothi
           scenes: [...document.querySelectorAll(".scene")].map((s) => s.getBoundingClientRect().height > 0),
           typed: document.getElementById("typed")?.textContent,
           wiresDrawn: [...document.querySelectorAll("#wires path.wire")].every((p) => getComputedStyle(p).strokeDashoffset === "0px" || getComputedStyle(p).strokeDasharray === "none"),
-          jobs: document.querySelectorAll("#jobs g").length,
+          // Both real jobs stand at their doors: the walk's progress is 1.
+          walks: [...document.querySelectorAll(".walk")].map((w) => getComputedStyle(w).getPropertyValue("--t").trim()),
         };
       });
       expect(state.motion).toBe(false);
@@ -150,7 +151,7 @@ test("[integration] reduced motion shows every scene in its end state with nothi
       expect(state.scenes).toEqual([true, true, true]);
       expect(state.typed).toBe(COMMAND);
       expect(state.wiresDrawn).toBe(true);
-      expect(state.jobs).toBe(3);
+      expect(state.walks).toEqual(["1", "1"]);
     } finally { await close(page); }
   }
 }, 30000);
@@ -183,7 +184,7 @@ test("[integration] the terminal prints what map.ts --share prints: real line sh
     expect(lines[0]).toBe(`$ ${COMMAND}`);
     // wrote private-report, wrote share-draft (scan: clean), the sessions line, the blank line: same shapes as main().
     for (let i = 0; i < 4; i++) expect(lines[i + 1] ?? "").toMatch(shape(stdout[i] ?? "\u0000"));
-    expect(lines[3]).toBe("claude sessions 515, codex sessions 3478, cap episodes 2");
+    expect(lines[3]).toBe("claude sessions 515, codex sessions 3478, cap hits 2");
     // The share block: every shown line equals renderShareBlock(REAL) in order; "..." stands for one or more whole lines.
     const expected = renderShareBlock(REAL).split("\n");
     const shown = lines.slice(5);
@@ -211,11 +212,11 @@ test("[integration] the terminal prints what map.ts --share prints: real line sh
 test("[integration] the router card says not run yet and shows no result: no percentage, no counts beyond 47 jobs and #236", async () => {
   const page = await open(390, 844, "reduce");
   try {
-    const text = await page.locator("#sceneD").evaluate((node) => `${node.textContent ?? ""} ${node.querySelector("svg")?.getAttribute("aria-label") ?? ""}`);
-    expect(text).toContain("47 jobs in rehearsal, not run yet");
+    const text = await page.locator("#sceneD").evaluate((node) => [node.textContent ?? "", ...[...node.querySelectorAll("[aria-label], [title]")].map((el) => `${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""}`)].join(" "));
+    expect(text.replace(/\s+/g, " ")).toContain("47 jobs in rehearsal, not run yet");
     expect(text).toContain("no result yet");
     expect(text).not.toContain("%");
-    expect([...text.matchAll(/\d+/g)].map((m) => m[0]).sort()).toEqual(["236", "47"]);
+    expect([...new Set([...text.matchAll(/\d+/g)].map((m) => m[0]))].sort()).toEqual(["236", "47"]);
   } finally { await close(page); }
 }, 30000);
 
@@ -294,4 +295,222 @@ for (const motion of MOTIONS) {
       } finally { await close(page); }
     }
   }, 30000);
+}
+
+// ---------- Second pass (#238 roast): whose week, trust line, annotated command, cap hits, router walk, tap targets ----------
+
+const WHOSE = "One builder's real week (16 Oct 2026). Run it to see yours.";
+const TRUST = "Runs on your machine. Nothing sent until you press Share.";
+const VIEWS = [[390, 844], [1440, 900]] as const;
+
+for (const motion of MOTIONS) {
+  test(`[integration] the first screen says whose week it is before any figure (${motion})`, async () => {
+    for (const [width, height] of VIEWS) {
+      const page = await open(width, height, motion);
+      try {
+        await scrollShare(page, 0);
+        const seen = await page.evaluate((whose) => {
+          const opacity = (el: Element): number => { let o = 1; for (let n: Element | null = el; n; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity); return o; };
+          const ticketTop = document.getElementById("ticket")?.getBoundingClientRect().top ?? innerHeight;
+          const onScreen = (el: Element, min: number): DOMRect | null => {
+            const r = el.getBoundingClientRect();
+            const shown = el.checkVisibility({ visibilityProperty: true }) && opacity(el) >= min && r.width > 0 && r.height > 0;
+            return shown && r.top >= 0 && r.bottom <= Math.min(innerHeight, ticketTop) && r.left >= 0 && r.right <= innerWidth ? r : null;
+          };
+          const lines = [...document.querySelectorAll("#whose, .mq-whose")].filter((el) => (el.textContent ?? "").replace(/\s+/g, " ").trim() === whose);
+          const line = lines.map((el) => onScreen(el, .99)).find((r) => r !== null) ?? null;
+          // Every figure the first screen shows at all (opacity over 5%) sits below the whose-week line.
+          const figures = [...document.querySelectorAll("#num1, #num2, #num3, .pic b, .fields dd, #lnk")]
+            .map((el) => ({ text: el.textContent ?? "", r: onScreen(el, .05) }))
+            .filter((f) => f.r !== null);
+          const whoseEl = document.getElementById("whose");
+          const out = document.getElementById("out");
+          return {
+            copies: lines.length,
+            line: line ? { top: line.top, bottom: line.bottom } : null,
+            above: figures.filter((f) => line === null || (f.r?.top ?? 0) < line.bottom).map((f) => f.text),
+            firstInSource: !!whoseEl && !!out && (whoseEl.compareDocumentPosition(out) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+          };
+        }, WHOSE);
+        expect(seen.copies).toBeGreaterThan(0);
+        expect(seen.line).not.toBeNull();
+        expect(seen.above).toEqual([]);
+        expect(seen.firstInSource).toBe(true);
+      } finally { await close(page); }
+    }
+  }, 30000);
+
+  test(`[integration] the trust line is on screen and uncovered at 390 and 1440, all through the scroll (${motion})`, async () => {
+    for (const [width, height] of VIEWS) {
+      const page = await open(width, height, motion);
+      try {
+        for (const share of [0, .5, 1]) {
+          await scrollShare(page, share);
+          const trust = await page.locator("#trust").evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            return {
+              text: (el.textContent ?? "").trim(),
+              visible: el.checkVisibility({ visibilityProperty: true, opacityProperty: true }),
+              inView: r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth && r.height > 0,
+              uncovered: hit === el || el.contains(hit),
+              px: parseFloat(getComputedStyle(el).fontSize),
+            };
+          });
+          expect(trust).toEqual({ text: TRUST, visible: true, inView: true, uncovered: true, px: trust.px });
+          expect(trust.px).toBeGreaterThanOrEqual(13);
+        }
+      } finally { await close(page); }
+    }
+  }, 30000);
+}
+
+test("[integration] the command is annotated before Copy: three underlined parts, each tied to its note, the script linked", async () => {
+  const page = await open(390, 844, "no-preference");
+  try {
+    expect(await page.locator("#cmd").textContent()).toBe(COMMAND);
+    const parts = await page.locator("#cmd .tok").evaluateAll((toks) => toks.map((tok) => {
+      const note = document.getElementById(tok.getAttribute("aria-describedby") ?? "");
+      const link = note?.closest("a") ?? note?.querySelector("a") ?? null;
+      return {
+        part: tok.textContent,
+        note: note?.textContent?.trim() ?? null,
+        href: link?.getAttribute("href") ?? null,
+        underlined: getComputedStyle(tok).textDecorationLine.includes("underline"),
+        beforeCopy: !!note && !!document.getElementById("copy") && (note.compareDocumentPosition(document.getElementById("copy") ?? note) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      };
+    }));
+    expect(parts).toEqual([
+      { part: "curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts", note: "the script, readable", href: "/tm/map.ts", underlined: true, beforeCopy: true },
+      { part: "bun run -", note: "runs on your machine", href: null, underlined: true, beforeCopy: true },
+      { part: "--share", note: "a link you choose to press", href: null, underlined: true, beforeCopy: true },
+    ]);
+    // The linked script is served from the same origin.
+    expect((await page.request.get(`http://127.0.0.1:${server.port}/tm/map.ts`)).status()).toBe(200);
+    // At 390 the FULL command is visible: no clipping, no ellipsis, no fade mask, every glyph box on screen and uncovered.
+    const fit = await page.locator("#cmdText").evaluate((code) => {
+      const s = getComputedStyle(code);
+      const box = code.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(document.getElementById("cmd") ?? code);
+      const rects = [...range.getClientRects()].filter((r) => r.width > 0);
+      const covered = rects.filter((r) => {
+        const hit = document.elementFromPoint(r.left + Math.min(4, r.width / 2), r.top + r.height / 2);
+        return !(hit && code.contains(hit));
+      }).length;
+      return {
+        overflow: code.scrollWidth > code.clientWidth + 1 || code.scrollHeight > code.clientHeight + 1,
+        ellipsis: s.textOverflow === "ellipsis",
+        masked: s.maskImage !== "none" || s.getPropertyValue("-webkit-mask-image") !== "none" && s.getPropertyValue("-webkit-mask-image") !== "",
+        offscreen: rects.filter((r) => r.left < box.left - 1 || r.right > box.right + 1 || r.left < 0 || r.right > innerWidth || r.top < 0 || r.bottom > innerHeight).length,
+        covered,
+        lines: new Set(rects.map((r) => Math.round(r.top))).size,
+      };
+    });
+    expect(fit).toEqual({ overflow: false, ellipsis: false, masked: false, offscreen: 0, covered: 0, lines: fit.lines });
+    expect(fit.lines).toBeGreaterThan(1);
+  } finally { await close(page); }
+}, 30000);
+
+test("[integration] one name for the cap event: cap hits, never cap episodes; the curtain parts sideways and never covers a figure", async () => {
+  const reduced = await open(1440, 900, "reduce");
+  try {
+    const all = await reduced.evaluate(() => [document.documentElement.textContent ?? "", ...[...document.querySelectorAll("*")].flatMap((el) => ["title", "aria-label", "alt", "content"].map((a) => el.getAttribute(a) ?? ""))].join(" "));
+    expect(all).not.toMatch(/cap episode/i);
+    expect((await reduced.locator("#pic1 p").textContent())?.replace(/\s+/g, " ").trim()).toBe("2 cap hits, Wed 14 Oct 16:20 UTC");
+    expect(await reduced.locator(".fields dt").allTextContents()).toContain("Cap hits");
+  } finally { await close(reduced); }
+  for (const file of ["index.html", "tm.css", "tm.js"]) expect(readFileSync(join(SITE, "tm", file), "utf8")).not.toMatch(/cap episode/i);
+
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, "no-preference");
+    try {
+      for (const share of [0, .1, .3, .5, .65, 1]) {
+        await scrollShare(page, share);
+        const clash = await page.evaluate((at) => {
+          const opacity = (el: Element): number => { let o = 1; for (let n: Element | null = el; n; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity); return o; };
+          const halves = [...document.querySelectorAll(".curtain .half")];
+          const moves = halves.map((h) => { const m = new DOMMatrix(getComputedStyle(h).transform); return m.b === 0 && m.c === 0 && m.a === 1 && m.d === 1 && m.f === 0; });
+          const boxes = halves.map((h) => h.getBoundingClientRect());
+          const hits: string[] = [];
+          // Every figure the scroll has revealed (opacity over 5%) must sit clear of both curtain halves.
+          for (const el of document.querySelectorAll("#num1, #num2, #num3, .pic b, .pic p, .fields dd, #lnk, .walk, .poster")) {
+            if (!el.checkVisibility({ visibilityProperty: true }) || opacity(el) < .05) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width <= 1 || r.height <= 1) continue;
+            if (boxes.some((b) => r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top)) hits.push(`${at}: ${(el.textContent ?? "").trim().slice(0, 30)}`);
+          }
+          return { sideways: moves.every(Boolean), hits };
+        }, `${width}@${share}`);
+        expect(clash).toEqual({ sideways: true, hits: [] });
+      }
+    } finally { await close(page); }
+  }
+}, 60000);
+
+test("[integration] the router card walks one real ruled job and one unmatched job, with no router result anywhere", async () => {
+  for (const motion of MOTIONS) {
+    const page = await open(390, 844, motion);
+    try {
+      if (motion === "no-preference") await scrollShare(page, 1);
+      const card = await page.locator("#sceneD").evaluate((scene) => {
+        const text = (el: Element | null): string => (el?.textContent ?? "").replace(/\s+/g, " ").trim();
+        const ruled = scene.querySelector(".walk.ruled");
+        const unmatched = scene.querySelector(".walk.unmatched");
+        const path = ruled?.querySelector(".path") ?? null;
+        return {
+          all: text(scene),
+          ruledJob: text(ruled?.querySelector(".job") ?? null),
+          ruledRule: text(ruled?.querySelector(".rule") ?? null),
+          yoursOnDashedLine: !!path?.querySelector(".yours") && getComputedStyle(path, "::before").borderTopStyle + getComputedStyle(path, "::before").borderLeftStyle,
+          ruledDoor: text(ruled?.querySelector(".door") ?? null),
+          openJob: text(unmatched?.querySelector(".job") ?? null),
+          openRule: text(unmatched?.querySelector(".rule") ?? null),
+          openDoor: text(unmatched?.querySelector(".door") ?? null),
+          jev: text(scene.querySelector("#jevdef")),
+        };
+      });
+      expect(card.ruledJob).toBe("Job Implement a feature in a client app");
+      expect(card.ruledRule).toBe("Your code rule R-PRO matches \\bimplement(s|ed|ing|ation)?\\b, seat pro_ok");
+      expect(String(card.yoursOnDashedLine)).toContain("dashed");
+      expect(card.ruledDoor).toBe("Door Claude, ChatGPT or Codex window");
+      expect(card.openJob).toBe("Job Pick up the next ticket");
+      expect(card.openRule).toBe("No rule matches: abstain");
+      expect(card.openDoor).toBe("Door Jev in rehearsal, 47 jobs, not run yet");
+      expect(card.jev).toBe("Jev picks from a fixed list of answers, fast and cheap");
+      expect(card.all).not.toMatch(/route most|most jobs|%/i);
+      expect([...new Set([...card.all.matchAll(/\d+/g)].map((m) => m[0]))].sort()).toEqual(["236", "47"]);
+    } finally { await close(page); }
+  }
+}, 30000);
+
+for (const motion of MOTIONS) {
+  test(`[integration] every button and link is at least 24x24 px with text at least 13 px (${motion})`, async () => {
+    for (const [width, height] of VIEWS) {
+      const page = await open(width, height, motion);
+      try {
+        let checked = 0;
+        for (const share of motion === "reduce" ? [0] : [0, .3, .65, 1]) {
+          await scrollShare(page, share);
+          const res = await page.evaluate(() => {
+            const opacity = (el: Element): number => { let o = 1; for (let n: Element | null = el; n; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity); return o; };
+            const bad: string[] = [];
+            let n = 0;
+            for (const el of document.querySelectorAll("a[href], button")) {
+              if (!el.checkVisibility({ visibilityProperty: true }) || opacity(el) < .05) continue;
+              n += 1;
+              const r = el.getBoundingClientRect();
+              const px = parseFloat(getComputedStyle(el).fontSize);
+              if (r.width < 24 || r.height < 24 || px < 13) bad.push(`${(el.textContent ?? "").trim()} ${r.width.toFixed(0)}x${r.height.toFixed(0)} ${px}px`);
+            }
+            return { bad, n };
+          });
+          expect(res.bad).toEqual([]);
+          checked += res.n;
+        }
+        // Copy and the script link are always on screen; reduced motion also shows the card and the maps link.
+        expect(checked).toBeGreaterThanOrEqual(motion === "reduce" ? 4 : 8);
+      } finally { await close(page); }
+    }
+  }, 60000);
 }

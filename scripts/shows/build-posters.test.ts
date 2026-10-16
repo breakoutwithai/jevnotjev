@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { formatRows, readDictRows } from "../../src/format/csv.ts";
 import { join } from "node:path";
 import { buildPosters, POSTERS_OUT, render, summariseRun, watchPage } from "./build-posters.ts";
+import { RUN_SOURCES } from "../../src/evidence/replay.ts";
 import { LANDING_COPY } from "../../src/shows/landing-copy.ts";
 import type { Poster } from "../../src/shows/posters.ts";
 
@@ -237,15 +238,19 @@ describe("watch links", () => {
   test("[unit] the latest UC13 run opens the replay player at replay/?run=uc13-100", async () => {
     const built = await buildPosters(ROOT);
     expect(built.find((p) => p.id === "uc13")?.watch).toBe("replay/?run=uc13-100");
-    expect(watchPage(ROOT, "2026-10-01-uc13-shop-bot")).toBe("replay/?run=uc13");
+    expect(watchPage("2026-10-01-uc13-shop-bot")).toBe("replay/?run=uc13");
   });
 
-  test("[unit] a run folder no replay source holds has no watch link", () => {
+  test("[unit] a run folder no replay source holds has no watch link even when a site page names it", () => {
+    const folder = "2026-10-20-uc99-unlisted";
+    expect(RUN_SOURCES.some((source) => source.file.startsWith(`docs/product/runs/${folder}/`))).toBe(false);
     const root = mkdtempSync(join(tmpdir(), "posters-watch-"));
+    mkdirSync(join(root, "docs", "product", "runs", folder), { recursive: true });
+    writeFileSync(join(root, "docs", "product", "runs", folder, "records.csv"), "answerer,case_key\nllm,a\n");
     mkdirSync(join(root, "site", "other"), { recursive: true });
-    writeFileSync(join(root, "site", "other", "index.html"), "<p>nothing here</p>");
-    expect(watchPage(root, "2026-01-01-nowhere")).toBeNull();
-    expect(watchPage(ROOT, "2026-01-01-nowhere")).toBeNull();
+    writeFileSync(join(root, "site", "other", "index.html"), `<a href="docs/product/runs/${folder}/">${folder}</a>`);
+    expect(watchPage(folder)).toBeNull();
+    expect(watchPage("2026-01-01-nowhere")).toBeNull();
   });
 });
 

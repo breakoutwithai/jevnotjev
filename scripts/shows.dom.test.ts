@@ -2,12 +2,12 @@
 // SITE (LANDING_TEST_SITE overrides it) so the same checks can run against another site tree.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 import type { Poster } from "../src/shows/posters.ts";
 
-const SITE = process.env.LANDING_TEST_SITE ?? join(import.meta.dir, "..", "site");
+const SITE = resolve(process.env.LANDING_TEST_SITE ?? join(import.meta.dir, "..", "site"));
 const POSTERS: { posters: Poster[] } = JSON.parse(readFileSync(join(SITE, "shows", "posters.json"), "utf8"));
 const CAPTURE = process.env.UAT_SCREENSHOT_DIR;
 const PREFIX = "window.JNJ_REPLAY = ";
@@ -31,6 +31,10 @@ function runFor(poster: Poster): string | undefined {
   if (!poster.run) return undefined;
   const prefix = `docs/product/runs/${poster.run.folder}/`;
   return replayRuns().find((run) => run.file.startsWith(prefix))?.key;
+}
+
+function origin(): string {
+  return `http://127.0.0.1:${server.port}`;
 }
 
 let browser: Browser;
@@ -92,7 +96,8 @@ test("[integration] #237 every card's Watch now plays its own run in the one pla
       const key = runFor(poster);
       if (key !== undefined) {
         expect(await watch.count()).toBe(1);
-        const url = new URL((await watch.getAttribute("href")) ?? "", `http://127.0.0.1:${server.port}/`);
+        const url = new URL((await watch.getAttribute("href")) ?? "", `${origin()}/`);
+        expect(url.origin).toBe(origin());
         expect(url.pathname).toBe("/replay/");
         expect(url.searchParams.get("run")).toBe(key);
         watched++;
@@ -107,8 +112,8 @@ test("[integration] #237 every card's Watch now plays its own run in the one pla
       const card = link.locator("xpath=ancestor::article[1]");
       const id = await card.getAttribute("data-id");
       const owner = POSTERS.posters.find((p) => p.id === id);
-      const url = new URL((await link.getAttribute("href")) ?? "", `http://127.0.0.1:${server.port}/`);
-      if (!owner || url.pathname !== "/replay/" || url.searchParams.get("run") !== runFor(owner)) wrong++;
+      const url = new URL((await link.getAttribute("href")) ?? "", `${origin()}/`);
+      if (!owner || url.origin !== origin() || url.pathname !== "/replay/" || url.searchParams.get("run") !== runFor(owner)) wrong++;
     }
     console.log(`M8=${wrong}`);
     expect(wrong).toBe(0);
@@ -193,7 +198,8 @@ test("[integration] #237 the button is keyboard reachable and the page has no ho
       expect(await page.locator("#tkBring").isVisible()).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect((await page.locator("#tkBring").boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
-      await page.locator("#tkBring").focus();
+      await page.locator("#tkPosters summary").last().focus();
+      await page.keyboard.press("Tab");
       expect(await page.evaluate(() => document.activeElement?.id)).toBe("tkBring");
       await page.keyboard.press("Enter");
       expect(await page.locator("#tkIdea").inputValue()).toBe(IDEA);
@@ -201,4 +207,47 @@ test("[integration] #237 the button is keyboard reachable and the page has no ho
     } finally { await page.close(); }
   }
   expect(posts).toBe(0);
+}, 20000);
+
+test("[integration] #237 clicking every card's Watch now opens the replay with that card's own run pressed", async () => {
+  let clicked = 0;
+  for (const poster of POSTERS.posters) {
+    const key = runFor(poster);
+    if (key === undefined) continue;
+    const page = await landing();
+    try {
+      await page.locator(`#tkPosters .tk-poster[data-id="${poster.id}"]`).getByRole("link", { name: /^Watch now/ }).click();
+      await page.waitForSelector('[data-run][aria-pressed="true"]');
+      const url = new URL(page.url());
+      expect(url.origin).toBe(origin());
+      expect(url.pathname).toBe("/replay/");
+      expect(await page.locator('[data-run][aria-pressed="true"]').getAttribute("data-run")).toBe(key);
+      clicked++;
+    } finally { await page.close(); }
+  }
+  expect(clicked).toBeGreaterThan(0);
+}, 60000);
+
+test("[integration] the Little Shop's replay the run link opens the 40-message run it plays", async () => {
+  const page = await pageAt("/little-shop/", 390, 844);
+  try {
+    await page.getByRole("link", { name: "replay the run" }).click();
+    await page.waitForSelector('[data-run][aria-pressed="true"]');
+    expect(new URL(page.url()).searchParams.get("run")).toBe("uc13");
+    expect(await page.locator('[data-run][aria-pressed="true"]').getAttribute("data-run")).toBe("uc13");
+  } finally { await page.close(); }
+}, 20000);
+
+test("[integration] the paged step table of the 100-message run heads its input column Case", async () => {
+  const page = await pageAt("/replay/?run=uc13-100", 1440, 900);
+  try {
+    await page.waitForSelector('[data-run][aria-pressed="true"]');
+    let presses = 0;
+    while (!(await page.locator("#pageList").isVisible()) && presses < 15) {
+      await page.locator("#next").click();
+      presses++;
+    }
+    expect(await page.locator("#pageList").isVisible()).toBe(true);
+    expect((await page.locator("#pageList th.pi").innerText()).trim()).toBe("Case");
+  } finally { await page.close(); }
 }, 20000);

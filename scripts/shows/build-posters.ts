@@ -126,7 +126,7 @@ export async function summariseRun(root: string, folder: string): Promise<Comput
  * plays a card's run at `replay/?run=<key>`, but only when a listed run's records live in that run's own folder.
  * A run the player does not list has no Watch link (null), never a link to a different run.
  */
-export function watchPage(_root: string, folder: string): string | null {
+export function watchPage(folder: string): string | null {
   const replay = RUN_SOURCES.find((source) => source.file.startsWith(`${RUNS_REL}/${folder}/`));
   return replay ? `replay/?run=${encodeURIComponent(replay.key)}` : null;
 }
@@ -153,7 +153,7 @@ export async function buildPosters(root: string = ROOT, copies: Readonly<Record<
       if (!section.toLowerCase().includes(copy.verdict.toLowerCase())) throw new Error(`${source}: card verdict missing from Jev or not section`);
     }
     const date = run ? run.folder.slice(0, 10) : addedDate(root, source);
-    posters.push({ id: parsed.id, title: parsed.title, story: parsed.story, fit: parsed.fit, verdictLine: copy.verdict, explained: copy, stage: stageOf(run), date, source, run, watch: run ? watchPage(root, run.folder) : null });
+    posters.push({ id: parsed.id, title: parsed.title, story: parsed.story, fit: parsed.fit, verdictLine: copy.verdict, explained: copy, stage: stageOf(run), date, source, run, watch: run ? watchPage(run.folder) : null });
   }
   // Every use case is kept: the ten-poster limit applies after ranking with ticket counts (server and page).
   return latestFirst(posters);

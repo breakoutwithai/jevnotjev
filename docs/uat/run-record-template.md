@@ -12,13 +12,13 @@ Tick each box only after the tester has said yes. Everything starts unticked, an
 - [ ] Optional permission: cite what they found without their name.
 - [ ] Optional permission: quote them by name.
 - [ ] Optional permission: link their own post.
-- [ ] Optional permission: screen recording.
-- [ ] They can withdraw at any time and everything we hold is deleted (see Delete on withdrawal).
+- [ ] Optional permission: screen recording that does not show their question or case text.
+- [ ] They can withdraw at any time and the copies we hold are deleted (see Delete on withdrawal). Sign-in and server log records have no deletion path yet (the privacy page says so).
 - Date consent was given: ___
 
 ## Run
 
-Every field is a count, a closed choice or a short identifier. Never write free text about their cases.
+Every field is a count, a closed choice or a short identifier, except the assist reason and the error screen text. Never write free text about their cases.
 
 Variants: guided means the host may type; unguided means the tester only has the link and the checklist; hybrid switches to guided after 10 minutes stuck.
 

@@ -211,8 +211,8 @@ describe("outside-run record template", () => {
       "- [ ] Optional permission: cite what they found without their name.",
       "- [ ] Optional permission: quote them by name.",
       "- [ ] Optional permission: link their own post.",
-      "- [ ] Optional permission: screen recording.",
-      "- [ ] They can withdraw at any time and everything we hold is deleted (see Delete on withdrawal).",
+      "- [ ] Optional permission: screen recording that does not show their question or case text.",
+      "- [ ] They can withdraw at any time and the copies we hold are deleted (see Delete on withdrawal). Sign-in and server log records have no deletion path yet (the privacy page says so).",
       "- What did you expect Jev to do?",
       "- Where did you hesitate?",
       "- Would you act on this verdict?",
@@ -277,5 +277,11 @@ describe("outside-run record template", () => {
     const lower = del.toLowerCase();
     for (const word of ["notes", "exports", "screens", "recording", "emails", "messages", "completion evidence", "quote", "claim"]) expect(lower).toContain(word);
     expect(lower).toContain("only the date and the count of files deleted");
+  });
+  test("[unit] the withdrawal promise does not claim to delete what the privacy page says has no deletion path", () => {
+    const privacy = readFileSync(join(ROOT, "site/privacy/index.html"), "utf8");
+    expect(privacy).toContain("We have not set a way to request deletion of operator accounts");
+    expect(doc).toContain("Sign-in and server log records have no deletion path yet");
+    expect(doc).not.toContain("everything we hold is deleted");
   });
 });

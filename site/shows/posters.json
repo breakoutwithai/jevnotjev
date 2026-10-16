@@ -178,7 +178,7 @@
           }
         ]
       },
-      "watch": "./#act2"
+      "watch": "replay/?run=uc13-100"
     },
     {
       "id": "uc11",

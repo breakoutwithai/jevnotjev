@@ -123,7 +123,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 .spot-arm b { margin-right: 4px; }
 #heroResult { margin: 0 0 18px; font: 600 18px/1.4 var(--sans); }
 #heroWhy { margin: 0 0 18px; font: 15px/1.45 var(--sans); }
-#primaryAction, .tk-primary, #officeOpen { display: inline-block; min-height: 44px; padding: 10px 16px; border: 0; background: var(--curtain); color: #fff; text-decoration: none; cursor: pointer; font: 700 16px/24px var(--sans); }
+#primaryAction, .tk-primary, #officeOpen, #tkBring { display: inline-block; min-height: 44px; padding: 10px 16px; border: 0; background: var(--curtain); color: #fff; text-decoration: none; cursor: pointer; font: 700 16px/24px var(--sans); }
 .hero-note { margin: 16px 0 8px; font: 15px var(--sans); }
 .hero-guide { margin: 0; font: 14px var(--sans); }
 .stage-dir { margin: 0 0 12px; color: var(--ink-soft); }
@@ -131,6 +131,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 .tk-stages { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; font: 600 13px var(--sans); }
 .tk-stages a { display: inline-flex; gap: 4px; min-height: 30px; padding: 5px 10px; border: 1px solid var(--line); text-decoration: none; }
 .tk-posters { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,245px),1fr)); gap: 12px; font-family: var(--sans); }
+.tk-bring { margin: 16px 0 0; }
 .tk-poster { display: flex; flex-direction: column; gap: 7px; padding: 14px; border: 1px solid var(--line); border-top: 4px solid var(--brass); min-width: 0; }
 .tk-poster h3 { margin: 0; font: 700 21px/1.15 var(--serif); }
 .tk-poster p { margin: 0; overflow-wrap: anywhere; }
@@ -272,6 +273,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 <section class="samples" aria-label="Sample questions"><h2>Sample questions</h2>
   <nav class="tk-stages" aria-label="Stages"><a href="#stage-show">Tested <span data-count="show"></span></a><a href="#stage-rehearsal">Small test (under 30 cases) <span data-count="rehearsal"></span></a><a href="#stage-script-reading">Idea only, not tested <span data-count="script-reading"></span></a></nav>
   <div class="tk-posters" id="tkPosters"></div>
+  <p class="tk-bring"><button type="button" id="tkBring" aria-controls="officePanel">Bring your own decision</button></p>
 </section>
 <section class="act" id="act2" aria-labelledby="t2"><div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">I</span></div></div><div class="stage"><h2 id="t2">The three players</h2><p class="sample-flag" id="sampleFlag2" hidden></p><p class="stage-dir" id="workflowDir"></p><div class="cast" id="cast"></div><details class="act-more" id="castMore"><summary>How each player works</summary><ul class="cast-methods" id="castMethods"></ul><p class="stage-dir" id="understudies"></p></details></div></section>
 <section class="act" id="act3" aria-labelledby="t3"><div class="slate"><div class="slate-in"><span class="act-word">Act</span><span class="roman">II</span></div></div><div class="stage"><h2 id="t3">The trial</h2><p class="sample-flag" id="sampleFlag3" hidden></p><div id="spotlights"></div><details class="act-more" id="moreSpot"><summary>Another miss</summary></details><details id="allCases"><summary>See all cases</summary><div class="tally" id="tally"></div><ol class="docket" id="docket"></ol></details></div></section>

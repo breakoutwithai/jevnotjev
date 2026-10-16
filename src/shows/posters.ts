@@ -53,7 +53,7 @@ export interface Poster {
   readonly date: string;
   readonly source: string;
   readonly run: RunSummary | null;
-  /** A page under site/ that plays this run (its index.html names the run folder); null when none does. */
+  /** The one player for this run, `replay/?run=<key>` (src/evidence/replay.ts RUN_SOURCES); null when the player does not list it. */
   readonly watch: string | null;
 }
 

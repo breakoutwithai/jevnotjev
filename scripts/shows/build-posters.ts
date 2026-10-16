@@ -16,7 +16,6 @@ import { verdict } from "../../src/core/verdict.ts";
 import { RUN_SOURCES } from "../../src/evidence/replay.ts";
 import { LANDING_COPY, type ExplainedCopy, type LandingSampleId } from "../../src/shows/landing-copy.ts";
 import { headlineOf, latestFirst, parseUseCase, stageOf, verdictWordShown, whyNotYetOf, type MethodLine, type Poster, type RunSummary } from "../../src/shows/posters.ts";
-import { RECORDS_REL } from "../stage-sample.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 export const USE_CASES_REL = "docs/product/use-cases";
@@ -123,17 +122,11 @@ export async function summariseRun(root: string, folder: string): Promise<Comput
 }
 
 /**
- * The Stage plays the run named by stage-sample.ts RECORDS_REL. Otherwise, the first site/<dir>/ page that names the
- * folder plays it; the guide is excluded because it only explains runs. If neither does, the data-driven replay
- * page (site/replay/, fed by src/evidence/replay.ts RUN_SOURCES) can play a listed run: `replay/?run=<key>`.
+ * One player for every show: the data-driven replay page (site/replay/, fed by src/evidence/replay.ts RUN_SOURCES)
+ * plays a card's run at `replay/?run=<key>`, but only when a listed run's records live in that run's own folder.
+ * A run the player does not list has no Watch link (null), never a link to a different run.
  */
-export function watchPage(root: string, folder: string): string | null {
-  const site = join(root, "site");
-  if (RECORDS_REL === `${RUNS_REL}/${folder}/records.csv`) return "./#act2";
-  for (const dir of readdirSync(site, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()) {
-    const page = join(site, dir, "index.html");
-    if (dir !== "guide" && existsSync(page) && readFileSync(page, "utf8").includes(folder)) return `${dir}/`;
-  }
+export function watchPage(_root: string, folder: string): string | null {
   const replay = RUN_SOURCES.find((source) => source.file.startsWith(`${RUNS_REL}/${folder}/`));
   return replay ? `replay/?run=${encodeURIComponent(replay.key)}` : null;
 }

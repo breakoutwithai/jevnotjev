@@ -36,7 +36,8 @@ export interface RunSource {
 }
 
 export const RUN_SOURCES: readonly RunSource[] = [
-  { key: "uc13", file: "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv", title: "Ski shop bot", synthetic: false },
+  { key: "uc13-100", file: "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv", title: "Ski shop bot, 100 messages", synthetic: false, pageBy: 10 },
+  { key: "uc13", file: "docs/product/runs/2026-10-01-uc13-shop-bot/records.csv", title: "Ski shop bot, first 40 messages", synthetic: false },
   { key: "tokenmax", file: "docs/product/runs/2026-10-03-tokenmax/records.csv", title: "TokenMax CV screen", synthetic: false },
   { key: "d12", file: "examples/d12-three-methods/records.csv", title: "Delivery messages", synthetic: true },
 ];

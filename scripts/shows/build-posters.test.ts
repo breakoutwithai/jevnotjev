@@ -234,14 +234,13 @@ describe("watch links", () => {
     expect(committed.posters.find((p) => p.id === "uc11")?.watch).toBe("replay/?run=tokenmax");
   });
 
-  test("[unit] the latest UC13 run opens the Stage page that plays it", async () => {
+  test("[unit] the latest UC13 run opens the replay player at replay/?run=uc13-100", async () => {
     const built = await buildPosters(ROOT);
-    expect(built.find((p) => p.id === "uc13")?.watch).toBe("./#act2");
-    expect(page).toContain('id="act2"');
-    expect(watchPage(ROOT, "2026-10-01-uc13-shop-bot")).toBe("little-shop/");
+    expect(built.find((p) => p.id === "uc13")?.watch).toBe("replay/?run=uc13-100");
+    expect(watchPage(ROOT, "2026-10-01-uc13-shop-bot")).toBe("replay/?run=uc13");
   });
 
-  test("[unit] a run folder no page names and no replay source holds has no watch link", () => {
+  test("[unit] a run folder no replay source holds has no watch link", () => {
     const root = mkdtempSync(join(tmpdir(), "posters-watch-"));
     mkdirSync(join(root, "site", "other"), { recursive: true });
     writeFileSync(join(root, "site", "other", "index.html"), "<p>nothing here</p>");

@@ -8,7 +8,7 @@ Test one decision with two possible answers, from question to verdict. Use synth
 - Bring a TypeSafe API key for Jev (from https://console.typesafe.ai/playground) and a key for one model provider for the LLM comparison. Jev-only mode needs only the TypeSafe key; the optional Question coach and case drafting need a model key. Calls and retries are billed to your own accounts. Time and spend depend on your cases, provider and retries; record what you actually observe.
 - Use made-up or redacted cases only. No names, emails, account numbers or customer data.
 - A shared verdict needs at least 30 paired labelled cases, explained in step 4. Reaching 30 does not guarantee a decisive verdict: missing costs, uncertain differences or other evidence limits can still give "not enough evidence".
-- Ready packs P1 to P4 contain 10 cases each: enough to rehearse, below the shared-verdict minimum. P1 labels were approved by a person; P2 to P4 labels were drafted by an agent and need your review. P5 to P8 contain 30 synthetic cases each with no labels. Pick each case yourself to test blind judging. Adding cases or selecting Unsure may leave fewer than 30 eligible pairs.
+- Ready packs P1 to P4 contain 10 cases each: enough to rehearse, below the shared-verdict minimum. P1 labels were approved by a person; P2 to P4 labels were drafted by an agent and need your review. P5 to P10 contain 30 synthetic cases each with no labels. Pick each case yourself to test blind judging. Adding cases or selecting Unsure may leave fewer than 30 eligible pairs.
 
 ## Step 1: Write the decision and judging rule
 

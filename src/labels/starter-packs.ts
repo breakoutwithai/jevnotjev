@@ -10,6 +10,9 @@
  * - P5 to P8 are persona packs of 30 cases each with NO labels: the tester labels them blind. Their CSV leaves
  *   label, label_source, labelled_by and labelled_at empty, so the import records no label for them.
  *
+ * - P9 and P10 are 30-case unlabelled packs for two outside testers: a booking-claim check and a reply-swap check.
+ *   P9 is a yes/no question asked as two choices, so the keyword rule can answer it; unknown availability stays unknown.
+ *
  * Every case is invented. A pack loads through the same CSV import as a tester's own file (starterPackCsv).
  */
 import { formatRows } from "../format/csv.ts";
@@ -17,6 +20,7 @@ import type { Scene } from "../backstage/contracts.ts";
 import type { TruthSource } from "./calibration.ts";
 import { UC13_CHOICES, UC13_FACT_SHEET, UC13_QUESTION } from "./calibration-set.ts";
 import { P5_CASES, P6_CASES, P7_CASES, P8_CASES, type PersonaCase } from "./persona-pack-cases.ts";
+import { P10_CASES, P9_CASES } from "./booking-swap-pack-cases.ts";
 
 export interface StarterCase {
   readonly id: string;
@@ -41,7 +45,7 @@ export function isLabelled(c: PackCase): c is StarterCase {
 }
 
 export interface StarterPack {
-  readonly id: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" | "p8";
+  readonly id: "p1" | "p2" | "p3" | "p4" | "p5" | "p6" | "p7" | "p8" | "p9" | "p10";
   readonly title: string;
   /** Who the pack is for, without naming anyone. */
   readonly persona: string;
@@ -297,7 +301,51 @@ const P8: StarterPack = {
   cases: unlabelled(P8_CASES),
 };
 
-export const STARTER_PACKS: readonly StarterPack[] = Object.freeze([P1, P2, P3, P4, P5, P6, P7, P8]);
+const P9: StarterPack = {
+  id: "p9",
+  title: "P9 Booking bot: confirmed or not",
+  persona: "A booking-bot builder checking that the bot never claims a booking, hold or stock level it cannot see.",
+  question: "Does this bot reply claim a confirmed booking, hold or stock level?",
+  choices: [
+    {
+      name: "confirmed",
+      definition:
+        "The reply tells the customer that something is booked, reserved, held, moved, in stock, available or ready at a set time, as a fact.",
+    },
+    {
+      name: "not_confirmed",
+      definition:
+        "The reply only states fixed facts such as hours, prices or policy, or says the team will check or confirm. Unknown availability stays unknown.",
+    },
+  ],
+  acceptance: "Keep not_confirmed when the reply only states fixed facts or says the team will confirm.",
+  exclusions: "Judge the bot reply only; the customer message is context.",
+  keywords: ["reserved", "booked for", "is confirmed", "waiting for you", "are held", "held until", "moved your booking", "is available", "spot is saved", "ready at", "plenty left"],
+  cases: unlabelled(P9_CASES),
+};
+
+const P10: StarterPack = {
+  id: "p10",
+  title: "P10 Reply swap: as good or worse",
+  persona: "Someone swapping the model behind a support reply and checking reply B against reply A with one yes/no check.",
+  question: "Does reply B pass this check as well as reply A: same facts and same action for the customer?",
+  choices: [
+    {
+      name: "worse",
+      definition: "Reply B drops, changes or contradicts a fact or action that reply A gives, or does not answer the email.",
+    },
+    {
+      name: "as_good",
+      definition: "Reply B carries the same facts and the same action as reply A. Wording, order and tone may differ.",
+    },
+  ],
+  acceptance: "Keep as_good when B carries the same facts and action as A; wording may differ.",
+  exclusions: "Ignore style and length; judge facts and action only.",
+  keywords: ["not ", "no,", "administrator", "unsubscribe", "not sure", "usually", "permanently", "30% off", "20% off", "are free", "full price", "any plan", "bank statement"],
+  cases: unlabelled(P10_CASES),
+};
+
+export const STARTER_PACKS: readonly StarterPack[] = Object.freeze([P1, P2, P3, P4, P5, P6, P7, P8, P9, P10]);
 
 /** The pack as a case CSV with the optional label columns: what a tester could upload to get the same scene. */
 export function starterPackCsv(pack: StarterPack): string {

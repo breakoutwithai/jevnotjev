@@ -1524,7 +1524,7 @@ test("[integration] W5 a funded trial appears only when health reports availabil
 });
 
 test("[integration] PL7 an unknown pack id, or none, shows the normal page: empty scene, no notice", async () => {
-  for (const search of ["?pack=p9", "", "?pack="]) {
+  for (const search of ["?pack=p11", "", "?pack="]) {
     const page = await mount(undefined, undefined, undefined, undefined, search);
     expect(page.get("question").value).toBe("");
     expect(page.get("cases").value).toBe("");
@@ -1534,7 +1534,7 @@ test("[integration] PL7 an unknown pack id, or none, shows the normal page: empt
 
 test("[integration] PL8 every pack has a button, and the P6 button loads its scene with 30 cases and no label summary", async () => {
   const page = await mount();
-  for (const id of ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"]) expect(page.document.getElementById(`starter-${id}`)).not.toBeNull();
+  for (const id of ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9", "p10"]) expect(page.document.getElementById(`starter-${id}`)).not.toBeNull();
   page.get("starter-p6").click();
   expect(page.get("question").value).toBe("Is this find worth a morning headline?");
   expect(page.get("cases").value.split("\n").length).toBe(30);

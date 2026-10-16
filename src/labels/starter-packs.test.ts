@@ -115,7 +115,7 @@ describe("STARTER_PACKS", () => {
   });
 
   test("[unit] M3 a pack's keyword rule points the right way: on its own cases it agrees with the labels more often than not", async () => {
-    for (const pack of STARTER_PACKS.filter((p) => p.keywords.length > 0)) {
+    for (const pack of STARTER_PACKS.filter((p) => p.keywords.length > 0 && p.cases.every(isLabelled))) {
       const imported = parseCaseImport(starterPackCsv(pack));
       const run = new BackstageRun(starterPackScene(pack, imported.cases), "test", { arms: ["jev", "rule"] }, imported.labels);
       await run.start({ jev: "test-secret-jev" }, async () => {

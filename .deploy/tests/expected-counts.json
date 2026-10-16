@@ -1,5 +1,5 @@
 {
-  "minFiles": 129,
+  "minFiles": 130,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -121,6 +121,7 @@
     "src/format/record-v1-2.test.ts": 25,
     "src/format/validate.test.ts": 62,
     "src/jev-answer.test.ts": 28,
+    "src/labels/booking-swap-packs.test.ts": 6,
     "src/labels/calibration.test.ts": 8,
     "src/labels/pack-link.test.ts": 5,
     "src/labels/persona-packs.test.ts": 6,

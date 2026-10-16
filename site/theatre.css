@@ -1,5 +1,5 @@
-/* Theatre frame over the result-first page: the opening curtain with its playbill (marquee, ticket, scroll cue, Skip
-   the overture, the Mad TokenMax and Little Shop posters), the valance and drapes, and in the page the marquee band, the house-bar
+/* Theatre frame over the result-first page: the opening curtain with its playbill (marquee, the Mad TokenMax poster
+   with its ticket, the Little Shop poster, scroll cue), the valance and drapes, and in the page the marquee band, the house-bar
    ticket and the Little Shop poster. Motion only under html.motion (set before first paint when reduced motion is off). */
 
 /* ---------- Opening curtain ----------
@@ -8,8 +8,8 @@
    over the page: a wheel or a swipe over it scrolls it, natively, through a runway (--runway, set by
    theatre.js to 0.7 of the screen height) while its stage stays put (sticky), so the page under it never moves and the
    result bars grow in place. theatre.js sets the root's --reveal from 0 to 1 over that runway, and the playbill fades
-   and lifts as it parts, gone by 0.36 (sooner than 96f5b14's 0.56) so it never ghosts over the bars. Skip the overture,
-   focus outside the curtain's controls or a #hash opens it at once; once open the whole overture is display:none,
+   and lifts as it parts, gone by 0.36 (sooner than 96f5b14's 0.56) so it never ghosts over the bars. Focus outside
+   the curtain's controls (Tab past them) or a #hash opens it at once; once open the whole overture is display:none,
    the page is where it was until it is scrolled away and back to its top, when theatre.js closes it again (html[data-closing]
    swings it shut). Without overture-play (reduced motion, a later page, no script, or
    theatre.js missing) there is no curtain. */
@@ -55,8 +55,10 @@
 
 /* The playbill on the closed curtain. It fades and lifts as the curtain parts; theatre.js marks it faded (hidden from
    the pointer and from focus) once it is no longer readable, so it never sits over the result bars. #248: the marquee
-   bills the show, the ticket is a small prop, and two posters hang side by side (.showbills): Mad TokenMax (tm/) and
-   Little Shop of Horrors (little-shop/). */
+   bills the show across the top; under it two posters hang side by side, centred (.showbills): Mad TokenMax with the
+   ADMIT ONE ticket tucked over its lower left corner (one link to tm/: the ticket is its way in), and Little Shop of
+   Horrors (little-shop/); under them the scroll cue. There is no Skip button: a scroll, the scroll keys, Tab past the
+   curtain's controls, or a #hash opens the curtain. */
 .playbill {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 26px; padding: 70px 16px 40px; pointer-events: none;
@@ -68,51 +70,47 @@
 .overture .marquee { padding: 16px 30px 14px; max-width: min(640px, 92vw); box-shadow: 0 10px 40px rgba(0, 0, 0, .5), inset 0 0 0 6px #1a0508, inset 0 0 0 8px #6e4f14; }
 .overture .marquee .kicker { font-size: 11px; letter-spacing: .32em; }
 .overture .marquee .billing { margin-top: 6px; font: 800 clamp(26px, 4.4vw, 46px)/1 var(--serif); }
-/* The ticket: a small prop under the marquee, its fine print set aside. */
-.overture .ticket {
-  position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 50px;
-  width: min(240px, 72vw); color: #2a1408; background: #efe2c4; font-family: var(--sans);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, .45);
-  transform: rotate(-2.5deg);
-  -webkit-mask: radial-gradient(circle 6px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
-                radial-gradient(circle 6px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
-          mask: radial-gradient(circle 6px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
-                radial-gradient(circle 6px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
-}
-.overture .ticket .main { padding: 9px 10px 8px 16px; border-right: 2px dashed rgba(42, 20, 8, .35); }
-.overture .ticket .admit { margin: 0; font: 800 20px/1 var(--serif); letter-spacing: .02em; }
-.overture .ticket .show { margin: 2px 0 5px; font: italic 12px/1.3 var(--serif); }
-.overture .ticket dl { display: grid; grid-template-columns: repeat(3, auto); gap: 0 10px; margin: 0; justify-content: start; }
-.overture .ticket dt { font-size: 7px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; opacity: .7; }
-.overture .ticket dd { margin: 0; font-weight: 800; font-size: 11px; }
-.overture .ticket .fine { display: none; }
-.overture .ticket .stub { display: flex; align-items: center; justify-content: center; padding: 6px 4px; }
-.overture .ticket .stub span { writing-mode: vertical-rl; transform: rotate(180deg); font-weight: 800; font-size: 9px; letter-spacing: .22em; text-transform: uppercase; }
-.overture-actions { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .cue-scroll { margin: 0; font: 12px var(--sans); letter-spacing: .22em; text-transform: uppercase; color: #f6e7c8; text-shadow: 0 1px 6px rgba(0, 0, 0, .6); }
 .cue-scroll::after { content: ""; display: block; width: 1px; height: 26px; margin: 8px auto 0; background: #f6e7c8; transform-origin: top; }
 @media (prefers-reduced-motion: no-preference) { .motion .cue-scroll::after { animation: drip 1.8s ease-in-out infinite; } }
 @keyframes drip { 0% { transform: scaleY(0); } 60% { transform: scaleY(1); } 100% { transform: scaleY(1); opacity: 0; } }
-.skip {
-  min-height: 40px; padding: 10px 16px; border: 1px solid #e0b04e; background: rgba(20, 4, 8, .72); color: #f6e7c8; cursor: pointer;
-  font: 700 12px var(--sans); letter-spacing: .16em; text-transform: uppercase;
-}
-.skip:hover { background: #e0b04e; color: #1a0508; }
-.skip:focus-visible { outline: 2px solid #ffe6a6; outline-offset: 3px; }
-/* The two posters, side by side: small cards under Skip on narrow screens, the row beside the playbill on wide ones.
-   --mm-h is the Mad TokenMax poster's height (its image keeps 2:3 from its width and height attributes). */
+/* The two posters. --mm-h is the Mad TokenMax poster's image height (2:3); the poster link is sized from it, so the
+   ticket inside can be sized in container units (cqw) of the poster's width and stays the same prop at every size. */
 .overture .showbills {
-  --mm-h: clamp(140px, 42vw, 225px);
+  --mm-h: clamp(150px, 46vw, 225px);
   display: flex; align-items: center; justify-content: center; gap: 14px; max-width: 100%; pointer-events: none;
 }
 .overture .showbills > * { pointer-events: auto; }
 .overture .madmax {
-  flex: none; display: block; line-height: 0; border: 5px solid #1a0508; background: #1a0508; transform: rotate(-1.5deg);
+  container-type: inline-size; position: relative; flex: none; display: block; box-sizing: border-box;
+  width: calc(var(--mm-h) * 2 / 3 + 10px); margin-left: calc(var(--mm-h) * 2 / 30);
+  line-height: 0; text-decoration: none; border: 5px solid #1a0508; background: #1a0508; transform: rotate(-1.5deg);
   box-shadow: 0 0 0 2px #b8892a, 0 18px 40px rgba(0, 0, 0, .55);
 }
-.overture .madmax img { display: block; width: auto; height: var(--mm-h); }
+.overture .madmax img { display: block; width: 100%; height: auto; }
 .overture .madmax:hover { box-shadow: 0 0 0 2px #ffe6a6, 0 18px 40px rgba(0, 0, 0, .55); }
 .overture .madmax:focus-visible { outline: 3px solid #ffe6a6; outline-offset: 5px; }
+/* The ticket, tucked over the poster's lower left corner and hanging past its edge, tilted. */
+.overture .ticket {
+  position: absolute; left: -10cqw; bottom: 8cqw; width: 82cqw; display: grid; grid-template-columns: minmax(0, 1fr) 17cqw;
+  line-height: 1; color: #2a1408; background: #efe2c4; font-family: var(--sans);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .55);
+  transform: rotate(-6deg); transform-origin: 30% 50%;
+  -webkit-mask: radial-gradient(circle 2.6cqw at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
+                radial-gradient(circle 2.6cqw at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+          mask: radial-gradient(circle 2.6cqw at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
+                radial-gradient(circle 2.6cqw at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+}
+.overture .ticket .main { display: block; padding: 3.6cqw 3cqw 3.2cqw 6cqw; border-right: max(1px, .7cqw) dashed rgba(42, 20, 8, .35); }
+.overture .ticket .admit { display: block; font: 800 max(10px, 8cqw)/1 var(--serif); letter-spacing: .02em; }
+.overture .ticket .show { display: block; margin: .8cqw 0 2cqw; font: italic max(6px, 4.8cqw)/1.3 var(--serif); }
+.overture .ticket .seat { display: flex; gap: 4cqw; }
+.overture .ticket .seat > span { display: flex; flex-direction: column; gap: .6cqw; }
+.overture .ticket .k { font-size: max(5px, 2.8cqw); font-weight: 700; letter-spacing: .2em; text-transform: uppercase; opacity: .7; }
+.overture .ticket .v { font-weight: 800; font-size: max(6px, 4.4cqw); }
+.overture .ticket .stub { display: flex; align-items: center; justify-content: center; padding: 2cqw 1cqw; }
+.overture .ticket .stub span { writing-mode: vertical-rl; transform: rotate(180deg); font-weight: 800; font-size: max(5px, 3.6cqw); letter-spacing: .22em; text-transform: uppercase; }
+.overture .madmax:hover .ticket { background: #f6ead0; }
 .overture .poster {
   pointer-events: auto; display: flex; flex-direction: column; gap: 6px; flex: 0 1 240px; min-width: 0; width: 240px; margin: 0;
   text-decoration: none; color: #1a0508; background: #e9d9b4; font-family: var(--sans);
@@ -125,20 +123,11 @@
 .overture .poster .p-rule { margin: 2px 0; }
 .overture .poster .p-blurb, .overture .poster .p-seats { font-size: 13px; line-height: 1.4; }
 .overture .poster .p-cta { padding: 8px 10px; letter-spacing: .14em; }
-/* Wide screens: the marquee is a wide lit banner across the top centre; under it one row: the playbill column (the
-   small ticket, the scroll cue, Skip) on the left, the Mad TokenMax poster in the centre, Little Shop on the right.
+/* Wide screens: the marquee is a wide lit banner across the top centre and the two posters stand under it, centred.
    Sizes follow the curtain's height (the screen under the first-screen band) as well as its width. */
 @media (min-width: 1100px) and (min-height: 640px) {
-  .playbill {
-    --stage-h: calc(100vh - var(--tm-first-h, 0px));
-    display: grid; grid-template-columns: auto auto; grid-template-areas: "marquee marquee" "ticket shows" "actions shows";
-    justify-content: center; align-content: center; justify-items: center; gap: clamp(10px, 2.4vh, 24px) clamp(36px, 4vw, 64px);
-    padding: 64px 32px 32px;
-  }
-  .playbill > .marquee { grid-area: marquee; margin-bottom: clamp(4px, 1.6vh, 16px); }
-  .playbill > .ticket { grid-area: ticket; align-self: end; }
-  .playbill > .overture-actions { grid-area: actions; align-self: start; }
-  .playbill > .showbills { grid-area: shows; --mm-h: clamp(220px, calc(var(--stage-h) * .44), 420px); gap: clamp(28px, 3.2vw, 56px); }
+  .playbill { --stage-h: calc(100vh - var(--tm-first-h, 0px)); gap: clamp(10px, 2.4vh, 26px); padding: 56px 32px 24px; }
+  .playbill > .showbills { --mm-h: clamp(220px, calc(var(--stage-h) * .44), 420px); gap: clamp(40px, 4.4vw, 80px); }
   .overture .marquee {
     max-width: min(1180px, 94vw); padding: clamp(14px, 2.4vh, 24px) clamp(30px, 3.4vw, 52px) clamp(12px, 2.2vh, 22px); border-width: 4px;
     box-shadow: 0 14px 50px rgba(0, 0, 0, .55), inset 0 0 0 8px #1a0508, inset 0 0 0 11px #6e4f14;
@@ -158,34 +147,28 @@
   .overture .poster .p-blurb, .overture .poster .p-seats { font-size: 14px; line-height: 1.45; }
   .overture .poster .p-cta { margin-top: auto; padding: 11px 14px; letter-spacing: .22em; }
 }
+@media (min-width: 1100px) and (min-height: 640px) and (max-height: 799px) { .cue-scroll::after { display: none; } }
 /* Short or narrow screens: the Little Shop card without the blurb. */
 @media (max-width: 1099px), (max-height: 639px) { .overture .poster .p-blurb { display: none; } }
 /* A very short narrow screen: no room on the curtain; the poster in the page carries the preview. */
 @media (max-width: 720px) and (max-height: 520px) { .overture .showbills { display: none; } }
-/* Short screens wider than a phone held upright (a phone on its side, a small laptop window): the playbill in two
-   columns, marquee, ticket and Skip on the left, the two posters on the right, compressed by height so everything sits
-   under the sample chip and above the bottom edge. */
+/* Short screens wider than a phone held upright (a phone on its side, a small laptop window): marquee, posters and
+   cue compressed by height so everything sits under the sample chip and above the bottom edge. */
 @media (min-width: 721px) and (max-height: 639px) {
-  .playbill {
-    display: grid; grid-template-columns: minmax(0, 400px) auto; align-content: center; justify-content: center;
-    justify-items: center; gap: 8px 32px; padding: 54px 24px 10px;
-  }
-  .playbill > .marquee { grid-column: 1; grid-row: 1; max-width: 100%; }
-  .playbill > .ticket { grid-column: 1; grid-row: 2; }
-  .playbill > .overture-actions { grid-column: 1; grid-row: 3; }
-  .playbill > .showbills { grid-column: 2; grid-row: 1 / span 3; align-self: center; --mm-h: clamp(150px, calc((100vh - var(--tm-first-h, 0px)) * .5), 260px); }
+  .playbill { gap: 8px; padding: 54px 24px 10px; }
+  .playbill > .showbills { --mm-h: clamp(130px, calc((100vh - var(--tm-first-h, 0px)) * .5), 260px); gap: 32px; }
   .overture .poster { flex-basis: 210px; width: 210px; gap: 4px; padding: 10px 14px; }
   .overture .marquee { padding: 10px 18px 9px; }
   .overture .marquee .kicker { font-size: 10px; letter-spacing: .24em; }
   .overture .marquee .billing { margin-top: 4px; font-size: 24px; }
-  .overture-actions { flex-direction: row; gap: 16px; }
   .cue-scroll::after { display: none; }
   .overture .poster .p-who, .overture .poster .p-rule { display: none; }
   .overture .poster .p-title { font-size: 22px; }
 }
 @media (max-width: 720px) {
   .playbill { gap: 20px; }
-  .overture .showbills { --mm-h: clamp(140px, 42vw, 180px); gap: 12px; }
+  .overture .showbills { --mm-h: clamp(150px, 46vw, 190px); gap: 12px; }
+  .overture .ticket { width: 90cqw; left: -8cqw; }
 }
 /* Short portrait screens (a phone with its toolbars, down to 560px tall): the same playbill, compressed to fit under
    the sample chip and above the bottom edge. Tighter gaps and padding, a smaller billing, the scroll cue without its
@@ -195,9 +178,8 @@
   .overture .marquee { padding: 10px 16px 9px; }
   .overture .marquee .kicker { font-size: 10px; letter-spacing: .24em; }
   .overture .marquee .billing { margin-top: 4px; font-size: 22px; }
-  .overture-actions { gap: 8px; }
   .cue-scroll::after { display: none; }
-  .overture .showbills { --mm-h: clamp(120px, 28vh, 170px); }
+  .overture .showbills { --mm-h: clamp(130px, 30vh, 190px); }
   .overture .poster { gap: 4px; padding: 10px 12px; }
   .overture .poster .p-who, .overture .poster .p-rule { display: none; }
   .overture .poster .p-title { font-size: 20px; }
@@ -212,30 +194,29 @@
   .overture .marquee { padding: 10px 16px 9px; }
   .overture .marquee .kicker { font-size: 10px; letter-spacing: .24em; }
   .overture .marquee .billing { margin-top: 4px; font-size: 22px; }
-  .overture-actions { gap: 8px; }
   .cue-scroll::after { display: none; }
-  .overture .showbills { --mm-h: clamp(110px, 30cqh, 170px); }
+  .overture .showbills { --mm-h: clamp(120px, 32cqh, 190px); }
   .overture .poster { gap: 4px; padding: 10px 12px; }
   .overture .poster .p-who, .overture .poster .p-rule { display: none; }
   .overture .poster .p-title { font-size: 20px; }
 }
-/* A short phone curtain (a phone with its toolbars, under the band): marquee, Skip and the posters; the ticket and the
-   scroll cue stay in the house bar and the page. */
+/* A short phone curtain (a phone with its toolbars, under the band): marquee and the posters; the scroll cue steps out. */
 @container stage (max-width: 720px) and (max-height: 520px) {
   .playbill { gap: 6px; padding-top: 46px; }
-  .overture .ticket, .cue-scroll { display: none; }
+  .cue-scroll { display: none; }
 }
 @container stage (max-width: 720px) and (max-height: 420px) {
   .overture .marquee .kicker, .overture .poster .p-kicker { display: none; }
 }
-/* A short wide curtain (a phone on its side, under the band): the left column keeps the marquee and Skip. */
+/* A short wide curtain (a phone on its side, under the band): the cue steps out. */
 @container stage (min-width: 721px) and (max-height: 330px) {
   .playbill { padding-top: 46px; }
-  .playbill > .ticket { display: none; }
+  .cue-scroll { display: none; }
 }
 /* A wide curtain under the band with little height: Little Shop without its blurb, so the row fits under the marquee. */
 @container stage (min-width: 1100px) and (max-height: 700px) {
   .overture .poster .p-blurb { display: none; }
+  .cue-scroll::after { display: none; }
 }
 
 /* The sample chip and House lights sit top right on the closed curtain, above it, as in the October 6 references; once

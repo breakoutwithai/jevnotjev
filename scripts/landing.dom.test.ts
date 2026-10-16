@@ -89,7 +89,7 @@ for (const motion of MOTIONS) {
           // No curtain: the result bars are on the first screen.
           expect(await page.locator("#resultBars").evaluate((node) => node.getBoundingClientRect().top < innerHeight)).toBe(true);
         } else {
-          const seat = await page.locator("#skipOverture").evaluate((node) => {
+          const seat = await page.locator(MADMAX).evaluate((node) => {
             const box = node.getBoundingClientRect();
             const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
             return { top: box.top, covered: hit === node || node.contains(hit) };
@@ -540,10 +540,24 @@ async function scrollToRunway(page: Page, fraction: number): Promise<void> {
 /** One part of the closed curtain: its box, whether it lies wholly in the viewport, hit-tests to itself, and is turned. */
 interface Part { left: number; right: number; top: number; bottom: number; inView: boolean; hit: boolean; turned: boolean }
 
+/** The Mad TokenMax poster on the curtain: one link to tm/ carrying the poster and the ADMIT ONE ticket (#248). */
+const MADMAX = '#overture a[href="tm/"]';
+
 const PARTS: Record<string, string> = {
-  marquee: "#overture .marquee", ticket: "#overture .ticket", cue: "#overture .cue-scroll", skip: "#skipOverture",
-  poster: "#overture a.poster", madmax: '#overture a[href="tm/"]', chip: "#sampleBadge", lights: "#lights",
+  marquee: "#overture .marquee", ticket: "#overture .ticket", cue: "#overture .cue-scroll",
+  poster: "#overture a.poster", madmax: MADMAX, chip: "#sampleBadge", lights: "#lights",
 };
+
+/**
+ * Opens the curtain onto the results the way a keyboard visitor does since #248 removed Skip the overture: focus on a
+ * curtain control (the Mad TokenMax poster) and scroll the curtain past the fade; theatre.js then opens it, brings the
+ * result bars to the top and moves focus to their heading.
+ */
+async function openOntoResults(page: Page): Promise<void> {
+  await page.locator(MADMAX).focus();
+  await scrollToRunway(page, 1.2);
+  await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+}
 
 async function curtainParts(page: Page): Promise<Record<string, Part | null>> {
   return page.evaluate((parts) => {
@@ -748,7 +762,7 @@ async function held(width: number, height: number, motion: "no-preference" | "re
     await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
     await page.route("**/theatre.js", async (route) => { await gate; await route.continue(); });
     await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "commit" });
-    await page.waitForFunction(() => document.getElementById("skipOverture") !== null && document.getElementById("results") !== null && document.querySelectorAll(".overture .curtain").length === 2);
+    await page.waitForFunction(() => document.querySelector('#overture a[href="tm/"]') !== null && document.getElementById("results") !== null && document.querySelectorAll(".overture .curtain").length === 2);
   } catch (error) {
     open();
     await page.close();
@@ -782,14 +796,14 @@ test("[integration] L16 at scrollY 0 with no input the curtain is still closed a
       expect(hits).toContain("curtain");
       // The first-screen band sits above the curtain; nothing of the page behind the curtain is reachable.
       expect(hits.filter((h) => !["curtain", "chip", "band"].includes(h))).toEqual([]);
-      expect(await hitsItself(page, "#skipOverture")).toBe(true);
+      expect(await hitsItself(page, MADMAX)).toBe(true);
       // The curtain is a named region; its painted drapes are hidden from assistive technology, its controls are not.
       const named = await page.evaluate(() => {
         const ov = document.getElementById("overture");
         return {
           role: ov?.getAttribute("role") ?? "", label: ov?.getAttribute("aria-label") ?? "", hidden: ov?.getAttribute("aria-hidden") ?? null,
           drapes: [...document.querySelectorAll(".overture .curtain")].map((node) => node.getAttribute("aria-hidden")),
-          controlsHidden: [...document.querySelectorAll("#skipOverture, #overture a.poster")].some((node) => node.closest("[aria-hidden=true]") !== null),
+          controlsHidden: [...document.querySelectorAll('#overture a[href="tm/"], #overture a.poster')].some((node) => node.closest("[aria-hidden=true]") !== null),
         };
       });
       expect(named).toEqual({ role: "region", label: "Opening curtain", hidden: null, drapes: ["true", "true"], controlsHidden: false });
@@ -814,7 +828,7 @@ test("[integration] L16b the curtain is decided before first paint: closed and c
   }
 }, 30000);
 
-test("[integration] V1 the closed curtain carries the October 6 composition: marquee, ticket, scroll cue, Skip, the Little Shop poster and the sample chip (a short phone curtain sets the ticket and cue aside, never clips them)", async () => {
+test("[integration] V1 the closed curtain carries the composition: marquee, the Mad TokenMax poster with the ADMIT ONE ticket on it, the Little Shop poster, scroll cue and the sample chip, and no Skip (a short phone curtain sets the cue aside, never clips it)", async () => {
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
@@ -827,29 +841,32 @@ test("[integration] V1 the closed curtain carries the October 6 composition: mar
       expect(await page.locator("#overture a.poster").getAttribute("href")).toMatch(/little-shop\/$/);
       expect(await page.locator("#overture a.poster .p-cta").innerText()).toMatch(/^take your seat$/i);
       expect(await page.locator("#overture .cue-scroll").innerText()).toMatch(/^scroll to raise the curtain$/i);
-      expect(await page.locator("#skipOverture").innerText()).toMatch(/^skip the overture$/i);
+      expect({ width, skip: await page.locator("#skipOverture").count(), button: await page.getByRole("button", { name: /skip/i }).count() }).toEqual({ width, skip: 0, button: 0 });
+      expect(await page.locator("#overture .ticket").evaluate((node) => node.closest("a")?.getAttribute("href") ?? "")).toBe("tm/");
       expect(await page.locator("#sampleBadge").innerText()).toMatch(/^sample run/i);
       const parts = await curtainParts(page);
       // #238 pass 2: with the band's notes and trust line, a phone curtain of 520px of stage or less (390x844 now) is
-      // theatre.css's short phone curtain: the ticket and the scroll cue step out (display none, never clipped).
+      // theatre.css's short phone curtain: the scroll cue steps out (display none, never clipped).
       const edge = (await bandBox(page)).bottom;
       const roomy = width > 720 || height - edge > 520;
-      const stepsOut = roomy ? [] : ["ticket", "cue"];
+      const stepsOut = roomy ? [] : ["cue"];
       for (const [name, part] of Object.entries(parts)) {
         if (stepsOut.includes(name)) continue;
         expect({ width, name, inView: part?.inView, hit: part?.hit }).toEqual({ width, name, inView: true, hit: true });
       }
       expect({ width, out: await page.evaluate((names) => names.map((n) => getComputedStyle(document.querySelector(n === "ticket" ? "#overture .ticket" : "#overture .cue-scroll") ?? document.body).display), stepsOut) })
         .toEqual({ width, out: stepsOut.map(() => "none") });
-      const { marquee, ticket: tk, skip, poster, chip } = parts;
-      if (!marquee || !tk || !skip || !poster || !chip) throw new Error("a part of the curtain is missing");
+      const { marquee, ticket: tk, madmax, poster, chip } = parts;
+      if (!marquee || !tk || !madmax || !poster || !chip) throw new Error("a part of the curtain is missing");
       // The chip sits top right of the curtain, as in the references: just under the first-screen band.
       expect({ width, right: chip.right >= width - 24, top: chip.top >= edge && chip.top <= edge + 40, side: (chip.left + chip.right) / 2 > width / 2 }).toEqual({ width, right: true, top: true, side: true });
+      // The ticket rides on the Mad TokenMax poster, both under the marquee, left of the Little Shop poster.
+      const onPoster = tk.left < madmax.right && tk.right > madmax.left && tk.top < madmax.bottom && tk.bottom > madmax.top;
+      expect({ width, onPoster, posterRight: poster.left > tk.right && poster.left > madmax.right, marqueeAbove: marquee.bottom <= madmax.top && marquee.bottom <= poster.top })
+        .toEqual({ width, onPoster: true, posterRight: true, marqueeAbove: true });
       if (width >= 1100) {
-        expect({ posterRight: poster.left > tk.right, marqueeAbove: marquee.bottom <= tk.top }).toEqual({ posterRight: true, marqueeAbove: true });
         expect(await page.locator("#overture .p-blurb").isVisible()).toBe(true);
       } else {
-        expect({ order: roomy ? marquee.top < tk.top && tk.top < skip.top && skip.top < poster.top : marquee.top < skip.top && skip.top < poster.top }).toEqual({ order: true });
         expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
         // The phone poster keeps the short copy.
         expect(await page.locator("#overture .p-blurb").isVisible()).toBe(false);
@@ -877,11 +894,12 @@ test("[integration] V2 no generic opening: no #opening or #takeSeat, nothing nam
   }
 }, 30000);
 
-test("[integration] V3 Skip the overture opens the curtain at once, hides it, scrolls to the result bars and moves focus to the results heading", async () => {
+test("[integration] V3 there is no Skip the overture (#248); from the keyboard the curtain still opens: the scroll keys on a curtain poster open it onto the result bars with focus on their heading, and Tab past House lights opens it", async () => {
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      await page.locator("#skipOverture").click();
+      expect({ width, skip: await page.locator("#skipOverture, #overture button").count() }).toEqual({ width, skip: 0 });
+      await openOntoResults(page);
       const after = await page.evaluate(() => {
         const ov = document.getElementById("overture"), head = document.getElementById("resultsTitle");
         return {
@@ -897,6 +915,13 @@ test("[integration] V3 Skip the overture opens the curtain at once, hides it, sc
       expect(fullBars(await bars(page))).toBe(true);
       expect(await page.locator("#resultBars").isVisible()).toBe(true);
     } finally { await page.close(); }
+    // Tab only: the two posters and House lights keep it closed; the next Tab lands on the page and opens it.
+    const tabs = await pageAt(width, height, "no-preference");
+    try {
+      const stops = await tabStops(tabs, 4);
+      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", "lights:closed", "A.house-link:open"] });
+      expect(await shownCurtains(tabs)).toBe(0);
+    } finally { await tabs.close(); }
   }
 }, 30000);
 
@@ -933,10 +958,10 @@ test("[integration] V5 mid-reveal every result bar's coloured fill shows in the 
 }, 30000);
 
 test("[integration] V6 once open nothing of the opening is left: back at the top the house bar, marquee and results show, with no screen-high block", async () => {
-  for (const [width, height] of CLOSED_VIEWPORTS) for (const how of ["skip", "scroll"]) {
+  for (const [width, height] of CLOSED_VIEWPORTS) for (const how of ["keys", "scroll"]) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      if (how === "skip") await page.locator("#skipOverture").click();
+      if (how === "keys") await openOntoResults(page);
       else await scrollToRunway(page, 1.2);
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "open");
       await page.evaluate(() => { window.scrollTo({ top: 0, behavior: "instant" }); });
@@ -1004,7 +1029,7 @@ test("[integration] V7 the page holds still while the curtain parts: at least ha
   }
 }, 30000);
 
-test("[integration] V9 short screens (390x600, 390x560, 740x600, 844x390) and 390x844 fit the closed curtain: the whole marquee on screen and clear of the chip, Skip, the Mad TokenMax poster and the Little Shop poster's Take your seat on screen and reachable, no horizontal scroll", async () => {
+test("[integration] V9 short screens (390x600, 390x560, 740x600, 844x390) and 390x844 fit the closed curtain: the whole marquee on screen and clear of the chip, the Mad TokenMax poster and its ticket and the Little Shop poster's Take your seat on screen and reachable, no horizontal scroll", async () => {
   const shorts: [number, number][] = [[390, 844], [390, 600], [390, 560], [740, 600], [844, 390]];
   for (const [width, height] of shorts) {
     const page = await pageAt(width, height, "no-preference");
@@ -1024,12 +1049,12 @@ test("[integration] V9 short screens (390x600, 390x560, 740x600, 844x390) and 39
         const marquee = box("#overture .marquee"), title = box("#overture .marquee .billing"), chip = box("#sampleBadge");
         return {
           marqueeTop: marquee ? Math.round(marquee.top) : NaN, marquee: inside(marquee), chipClear: !meets(chip, marquee) && !meets(chip, title),
-          skip: inside(box("#skipOverture")) && reach("#skipOverture", "#skipOverture"), seat: inside(box("#overture a.poster .p-cta")) && reach("#overture a.poster .p-cta", "#overture a.poster"),
+          ticket: inside(box("#overture .ticket")) && reach("#overture .ticket", '#overture a[href="tm/"]'), seat: inside(box("#overture a.poster .p-cta")) && reach("#overture a.poster .p-cta", "#overture a.poster"),
           madmax: inside(box('#overture a[href="tm/"]')) && reach('#overture a[href="tm/"]', '#overture a[href="tm/"]'),
           poster: inside(box("#overture a.poster")), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         };
       });
-      expect({ width, height, ...fit, marqueeTop: fit.marqueeTop >= 0 }).toEqual({ width, height, marqueeTop: true, marquee: true, chipClear: true, skip: true, seat: true, madmax: true, poster: true, overflow: 0 });
+      expect({ width, height, ...fit, marqueeTop: fit.marqueeTop >= 0 }).toEqual({ width, height, marqueeTop: true, marquee: true, chipClear: true, ticket: true, seat: true, madmax: true, poster: true, overflow: 0 });
     } finally { await page.close(); }
   }
 }, 30000);
@@ -1147,7 +1172,7 @@ async function stepToOpen(page: Page, step: () => Promise<void>, limit: number):
   return { steps, yBefore, moved, open: await stand(page) };
 }
 
-test("[integration] V10 every way of scrolling drives the curtain's runway and the page stays at scrollY 0 until it opens: PageDown, Space and End on the page, ArrowDown from Skip, a wheel and a swipe over the sample chip, a real wheel and a real swipe over the curtain", async () => {
+test("[integration] V10 every way of scrolling drives the curtain's runway and the page stays at scrollY 0 until it opens: PageDown, Space and End on the page, ArrowDown from the Mad TokenMax poster, a wheel and a swipe over the sample chip, a real wheel and a real swipe over the curtain", async () => {
   stripOn();
   for (const [width, height] of CLOSED_VIEWPORTS) {
     // PageDown from the page: one press parts it without moving the page; more presses open it with the heading in view.
@@ -1173,11 +1198,11 @@ test("[integration] V10 every way of scrolling drives the curtain's runway and t
       const end = await stand(keys);
       expect({ width, key: "End", y: end.y, state: end.state, inView: end.top >= 0 && end.top < height }).toEqual({ width, key: "End", y: 0, state: "open", inView: true });
     } finally { await keys.close(); }
-    // ArrowDown with focus on Skip scrolls the curtain natively; when the playbill fades it opens onto the results.
+    // ArrowDown with focus on the Mad TokenMax poster scrolls the curtain natively; when the playbill fades it opens onto the results.
     const arrows = await pageAt(width, height, "no-preference");
     try {
-      // Tab passes the first-screen band (Copy, the script note, Watch it run) to reach Skip.
-      await tabToSkip(arrows);
+      // Tab passes the first-screen band (Copy, the script note, Watch it run) to reach the first curtain poster.
+      await tabToCurtain(arrows);
       const run = await stepToOpen(arrows, async () => { await arrows.keyboard.press("ArrowDown"); await arrows.waitForTimeout(40); await frames(arrows); }, 40);
       expect({ width, key: "ArrowDown", yBefore: run.yBefore, moved: run.moved, state: run.open.state, inView: run.open.top >= -1 && run.open.top < height, focus: await arrows.evaluate(() => document.activeElement?.id) })
         .toEqual({ width, key: "ArrowDown", yBefore: 0, moved: 0, state: "open", inView: true, focus: "resultsTitle" });
@@ -1212,13 +1237,13 @@ test("[integration] V10 every way of scrolling drives the curtain's runway and t
   } finally { await touch.context().close(); }
 }, 60000);
 
-test("[integration] V11 when the playbill fades with focus on Skip, focus is not dropped: the curtain opens onto the results and the results heading has focus", async () => {
+test("[integration] V11 when the playbill fades with focus on a curtain poster, focus is not dropped: the curtain opens onto the results and the results heading has focus", async () => {
   stripOn();
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      // Tab passes the first-screen band (Copy, the script note, Watch it run) to reach Skip.
-      await tabToSkip(page);
+      // Tab passes the first-screen band (Copy, the script note, Watch it run) to reach the first curtain poster.
+      await tabToCurtain(page);
       await scrollToRunway(page, 0.5);
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
       const after = await page.evaluate(() => ({ focus: document.activeElement?.id ?? "BODY", top: document.getElementById("resultsTitle")?.getBoundingClientRect().top ?? NaN }));
@@ -1311,13 +1336,13 @@ test("[integration] V16 a case label is escaped where it becomes a class name: a
   } finally { await page.close(); }
 }, 20000);
 
-test("[integration] V17 a scroll that opens the curtain in one go with focus on Skip moves focus to the results heading; the same scroll without focus on the curtain leaves the page at scrollY 0", async () => {
+test("[integration] V17 a scroll that opens the curtain in one go with focus on a curtain poster moves focus to the results heading; the same scroll without focus on the curtain leaves the page at scrollY 0", async () => {
   stripOn();
   for (const [width, height] of CLOSED_VIEWPORTS) for (const how of ["wheel", "scrollTop"]) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      // Tab passes the first-screen band (Copy, the script note, Watch it run) to reach Skip.
-      await tabToSkip(page);
+      // Tab passes the first-screen band (Copy, the script note, Watch it run) to reach the first curtain poster.
+      await tabToCurtain(page);
       const distance = await runway(page);
       if (how === "wheel") {
         await page.mouse.move(width / 2, height / 2 + 50);
@@ -1401,7 +1426,7 @@ test("[integration] L24 the curtain follows the scroll both ways: partial progre
   } finally { await page.close(); }
 }, 15000);
 
-test("[integration] L26 Skip is the first tab stop on the curtain (after the first-screen band's three) with a visible focus ring; Tab goes Skip, the Mad TokenMax poster, the Little Shop poster, House lights with the curtain closed; focus anywhere else opens it", async () => {
+test("[integration] L26 the Mad TokenMax poster is the first tab stop on the curtain (after the first-screen band's three) with a visible focus ring; Tab goes Mad TokenMax, Little Shop, House lights with the curtain closed; focus anywhere else opens it", async () => {
   stripOn();
   const page = await pageAt(1280, 900, "no-preference");
   try {
@@ -1411,14 +1436,9 @@ test("[integration] L26 Skip is the first tab stop on the curtain (after the fir
     const first = await page.evaluate(() => {
       const a = document.activeElement;
       const s = a ? getComputedStyle(a) : null;
-      return { id: a?.id ?? "", ring: Boolean(a?.matches(":focus-visible") && s && s.outlineStyle !== "none" && parseFloat(s.outlineWidth) >= 2), state: document.documentElement.dataset.curtain };
+      return { madmax: Boolean(a?.matches('#overture a[href="tm/"]')), ring: Boolean(a?.matches(":focus-visible") && s && s.outlineStyle !== "none" && parseFloat(s.outlineWidth) >= 2), state: document.documentElement.dataset.curtain };
     });
-    expect(first).toEqual({ id: "skipOverture", ring: true, state: "closed" });
-    await page.keyboard.press("Tab");
-    expect(await page.evaluate(() => ({
-      madmax: document.activeElement?.matches('#overture a[href="tm/"]') ?? false,
-      state: document.documentElement.dataset.curtain,
-    }))).toEqual({ madmax: true, state: "closed" });
+    expect(first).toEqual({ madmax: true, ring: true, state: "closed" });
     await page.keyboard.press("Tab");
     expect(await page.evaluate(() => ({
       poster: document.activeElement?.matches("#overture a.poster") ?? false,
@@ -1499,12 +1519,12 @@ test("[integration] L28 a page that loads already scrolled (a restored position)
   }
 }, 30000);
 
-test("[integration] L17 under reduced motion there is no curtain, even before the curtain script loads; the page is open with full bars and no Skip", async () => {
+test("[integration] L17 under reduced motion there is no curtain, even before the curtain script loads; the page is open with full bars and no curtain poster", async () => {
   for (const [width, height] of CURTAIN_VIEWPORTS) {
     await onHeld(width, height, "reduce", async ({ page, release, ready }) => {
       expect(await page.evaluate(() => document.documentElement.classList.contains("motion"))).toBe(false);
       expect(await shownCurtains(page)).toBe(0);
-      expect(await page.locator("#skipOverture").isVisible()).toBe(false);
+      expect(await page.locator(MADMAX).isVisible()).toBe(false);
       release();
       await ready();
       expect((await curtain(page)).state).toBe("open");
@@ -1541,7 +1561,7 @@ for (const motion of MOTIONS) {
     for (const [width, height] of ACTION_VIEWPORTS) {
       const page = await pageAt(width, height, motion);
       try {
-        if (motion === "no-preference") await page.locator("#skipOverture").click();
+        if (motion === "no-preference") await openOntoResults(page);
         await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
         for (const selector of [".valance", "main .marquee", ".house .ticket .admit", ".house .ticket .stub", ".results a.poster"]) expect(await page.locator(selector).isVisible()).toBe(true);
         expect(await page.locator(".valance").evaluate((node) => getComputedStyle(node).pointerEvents)).toBe("none");
@@ -1591,7 +1611,7 @@ test("[integration] L21 the curtain plays once per tab session, and a page whose
     expect(again).toEqual({ motion: true, play: false, curtain: "open" });
     expect(await shownCurtains(page)).toBe(0);
     expect(fullBars(await bars(page))).toBe(true);
-    expect(await page.locator("#skipOverture").isVisible()).toBe(false);
+    expect(await page.locator(MADMAX).isVisible()).toBe(false);
   } finally { await page.close(); }
 
   const blocked = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: "no-preference" });
@@ -1623,7 +1643,7 @@ test("[integration] L29 with JavaScript off the page is fully readable with no c
     await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "load" });
     expect(await page.locator("html").getAttribute("class")).toBeNull();
     expect(await page.locator("#overture").isVisible()).toBe(false);
-    expect(await page.locator("#skipOverture").isVisible()).toBe(false);
+    expect(await page.locator(MADMAX).isVisible()).toBe(false);
     for (const selector of ["#t1", "#resultsTitle", "#t2", "#t3", "#t4", "#officeOpen"]) expect(await page.locator(selector).isVisible()).toBe(true);
     expect(await hitsItself(page, "#t1")).toBe(true);
   } finally { await context.close(); }
@@ -1639,7 +1659,7 @@ test("[integration] L30 when the curtain script never loads, the head script's f
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
       expect({ blocked, play: await page.evaluate(() => document.documentElement.classList.contains("overture-play")) }).toEqual({ blocked, play: false });
       expect(await shownCurtains(page)).toBe(0);
-      expect(await page.locator("#skipOverture").isVisible()).toBe(false);
+      expect(await page.locator(MADMAX).isVisible()).toBe(false);
       expect(await hitsItself(page, "#t1")).toBe(true);
       expect(await page.locator("#t2").isVisible()).toBe(true);
     } finally { await page.close(); }
@@ -1779,7 +1799,7 @@ test("[integration] L33 with every disclosure closed the essential context stays
   } finally { await decisive.close(); }
 }, 30000);
 
-test("[integration] L34 at 390x844 no horizontal scroll closed, mid-way or open; Skip and the whole marquee sit on the closed curtain's screen, unclipped", async () => {
+test("[integration] L34 at 390x844 no horizontal scroll closed, mid-way or open; the Mad TokenMax poster and the whole marquee sit on the closed curtain's screen, unclipped", async () => {
   const page = await pageAt(390, 844, "no-preference");
   try {
     const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -1787,7 +1807,7 @@ test("[integration] L34 at 390x844 no horizontal scroll closed, mid-way or open;
     expect(await coversViewport(page)).toBe(true);
     const fit = await page.evaluate(() => {
       const inside = (r: DOMRect) => r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight;
-      const marquee = document.querySelector("#overture .marquee"), billing = document.querySelector("#overture .marquee .billing"), skip = document.getElementById("skipOverture");
+      const marquee = document.querySelector("#overture .marquee"), billing = document.querySelector("#overture .marquee .billing"), skip = document.querySelector('#overture a[href="tm/"]');
       if (!marquee || !billing || !skip) return { whole: false, lines: false, clipped: true, skip: false };
       const range = document.createRange(); range.selectNodeContents(billing);
       const lines = [...range.getClientRects()].every((r) => inside(r));
@@ -1804,7 +1824,7 @@ test("[integration] L34 at 390x844 no horizontal scroll closed, mid-way or open;
     await scrollToRunway(page, 0.3);
     await page.waitForFunction(() => document.documentElement.dataset.curtain === "rising");
     expect(await overflow()).toBe(0);
-    await page.locator("#skipOverture").click();
+    await openOntoResults(page);
     expect((await curtain(page)).state).toBe("open");
     expect(await overflow()).toBe(0);
   } finally { await page.close(); }
@@ -1927,10 +1947,10 @@ async function tabStops(page: Page, count: number): Promise<{ stop: string; stat
   return out;
 }
 
-/** Tabs from the top of the page to Skip the overture through the band's two controls, checking the order on the way. */
-async function tabToSkip(page: Page): Promise<void> {
+/** Tabs from the top of the page to the curtain's first control (the Mad TokenMax poster) through the band's controls, checking the order on the way. */
+async function tabToCurtain(page: Page): Promise<void> {
   const stops = await tabStops(page, TM_BAND_STOPS.length + 1);
-  expect(stops.map((s) => s.stop)).toEqual([...TM_BAND_STOPS, "skipOverture"]);
+  expect(stops.map((s) => s.stop)).toEqual([...TM_BAND_STOPS, "madmax poster"]);
 }
 
 for (const motion of MOTIONS) {
@@ -2044,11 +2064,11 @@ test("[integration] TM4 while the curtain plays the band sits above it: the poin
       // or less is theatre.css's "short phone curtain": the decorative ticket steps out (display none, never clipped)
       // and every playbill control stays. At 390x844 the band now leaves less than 520px.
       const roomy = width > 720 || height - band.bottom > 520;
-      for (const name of roomy ? ["marquee", "ticket", "skip", "madmax", "poster", "chip", "lights"] : ["marquee", "skip", "madmax", "poster", "chip", "lights"]) {
+      for (const name of ["marquee", "ticket", "madmax", "poster", "chip", "lights"]) {
         const part = parts[name];
         expect({ width, name, inView: part?.inView, hit: part?.hit, belowBand: part ? part.top >= band.bottom : false }).toEqual({ width, name, inView: true, hit: true, belowBand: true });
       }
-      if (!roomy) expect({ width, ticket: await page.evaluate(() => getComputedStyle(document.querySelector("#overture .ticket") ?? document.body).display) }).toEqual({ width, ticket: "none" });
+      if (!roomy) expect({ width, cue: await page.evaluate(() => getComputedStyle(document.querySelector("#overture .cue-scroll") ?? document.body).display) }).toEqual({ width, cue: "none" });
       expect(await page.evaluate(() => {
         const t = document.querySelector("#overture .poster .p-cta")?.getBoundingClientRect();
         return Boolean(t && t.top >= 0 && t.bottom <= innerHeight);
@@ -2057,7 +2077,7 @@ test("[integration] TM4 while the curtain plays the band sits above it: the poin
   }
 }, 30000);
 
-test("[integration] TM5 with the curtain closed the band's controls keep it closed: focus or a click on Copy; Tab goes Copy, the script note, Watch it run, Skip, the two posters, House lights, each with a visible focus ring", async () => {
+test("[integration] TM5 with the curtain closed the band's controls keep it closed: focus or a click on Copy; Tab goes Copy, the script note, Watch it run, the two posters, House lights, each with a visible focus ring", async () => {
   stripOn();
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference", "", false, undefined, async (p) => {
@@ -2074,13 +2094,13 @@ test("[integration] TM5 with the curtain closed the band's controls keep it clos
     } finally { await page.close(); }
     const keys = await pageAt(width, height, "no-preference");
     try {
-      expect({ width, stops: await tabStops(keys, TM_BAND_STOPS.length + 4) })
-        .toEqual({ width, stops: [...TM_BAND_STOPS, "skipOverture", "madmax poster", "curtain poster", "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
+      expect({ width, stops: await tabStops(keys, TM_BAND_STOPS.length + 3) })
+        .toEqual({ width, stops: [...TM_BAND_STOPS, "madmax poster", "curtain poster", "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
     } finally { await keys.close(); }
   }
 }, 30000);
 
-test("[integration] TM6 the curtain still opens every way with the band above it: a scroll, Skip (focus to the results heading) and a #hash", async () => {
+test("[integration] TM6 the curtain still opens every way with the band above it: a scroll, the keys from a curtain poster (focus to the results heading) and a #hash", async () => {
   stripOn();
   for (const [width, height] of VIEWPORTS) {
     const scrolled = await pageAt(width, height, "no-preference");
@@ -2091,7 +2111,7 @@ test("[integration] TM6 the curtain still opens every way with the band above it
     } finally { await scrolled.close(); }
     const skipped = await pageAt(width, height, "no-preference");
     try {
-      await skipped.locator("#skipOverture").click();
+      await openOntoResults(skipped);
       const after = await skipped.evaluate(() => ({ state: document.documentElement.dataset.curtain, active: document.activeElement?.id, top: document.getElementById("results")?.getBoundingClientRect().top ?? NaN }));
       expect({ width, state: after.state, active: after.active, top: Math.abs(after.top) < 2 }).toEqual({ width, state: "open", active: "resultsTitle", top: true });
     } finally { await skipped.close(); }
@@ -2129,7 +2149,7 @@ for (const [width, height] of VIEWPORTS) test(`[integration] TM7 at ${width}x${h
       };
     });
     expect(await measure()).toEqual({ page: 0, code: 0, inside: true, share: 1 });
-    await page.locator("#skipOverture").click();
+    await openOntoResults(page);
     expect((await curtain(page)).state).toBe("open");
     await page.evaluate(() => { window.scrollTo({ top: 0, behavior: "instant" }); });
     await frames(page);
@@ -2159,7 +2179,7 @@ test("[integration] TM8 the after-copy message carries the trust sentence and th
         const band = await bandBox(page);
         expect(Math.abs(await page.evaluate(() => document.getElementById("overture")?.getBoundingClientRect().top ?? NaN) - band.bottom)).toBeLessThan(1);
         const parts = await curtainParts(page);
-        for (const name of ["marquee", "skip", "poster", "chip", "lights"]) {
+        for (const name of ["marquee", "madmax", "poster", "chip", "lights"]) {
           const part = parts[name];
           expect({ width, name, inView: part?.inView, hit: part?.hit, belowBand: part ? part.top >= band.bottom : false }).toEqual({ width, name, inView: true, hit: true, belowBand: true });
         }
@@ -2235,7 +2255,7 @@ for (const motion of MOTIONS) test(`[integration] TM11 the trust line shows in t
       });
       expect({ width, motion, ...(await look()), hit: await hitsEveryLine(page, "#tmTrust") }).toEqual({ width, motion, text: TM_TRUST_LINE, inBand: true, shown: true, inView: true, size: true, hit: true });
       if (motion === "no-preference") {
-        await page.locator("#skipOverture").click();
+        await openOntoResults(page);
         await page.evaluate(() => { window.scrollTo({ top: 0, behavior: "instant" }); });
         await frames(page);
         expect({ width, open: await look() }).toEqual({ width, open: { text: TM_TRUST_LINE, inBand: true, shown: true, inView: true, size: true } });
@@ -2424,22 +2444,21 @@ test("[integration] L42 the light animations run under motion (stage-door swish,
   }
 }, 60000);
 
-test("[integration] L43 keyboard: Shift+Tab to the header link after Skip keeps the curtain open and the focus; after a click, scrolling to the top closes it and puts focus on Skip", async () => {
+test("[integration] L43 keyboard: Shift+Tab to the header link after opening onto the results keeps the curtain open and the focus; after a click, scrolling to the top closes it and puts focus on the Mad TokenMax poster", async () => {
   for (const [width, height] of CURTAIN_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      await page.locator("#skipOverture").click();
-      await page.waitForFunction(() => document.documentElement.dataset.curtain === "open");
+      await openOntoResults(page);
       await page.keyboard.press("Shift+Tab");
       await page.waitForTimeout(400);
       const link = await page.evaluate(() => ({ state: document.documentElement.dataset.curtain, focus: document.activeElement?.className ?? "" }));
       expect({ width, ...link }).toEqual({ width, state: "open", focus: "house-link" });
-      // A clicked control is not keyboard focus: scrolling back to the top closes the curtain and moves focus to Skip.
+      // A clicked control is not keyboard focus: scrolling back to the top closes the curtain and moves focus to the curtain's first control.
       await page.evaluate(() => { window.scrollTo({ top: document.getElementById("results")?.offsetTop ?? 600, behavior: "instant" }); });
       await page.locator("#aboutSample > summary").click();
       await page.evaluate(() => { window.scrollTo({ top: 0, behavior: "instant" }); });
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "closed", undefined, { timeout: 4000 });
-      expect({ width, focus: await page.evaluate(() => document.activeElement?.id ?? "") }).toEqual({ width, focus: "skipOverture" });
+      expect({ width, madmax: await page.evaluate(() => document.activeElement?.matches('#overture a[href="tm/"]') ?? false) }).toEqual({ width, madmax: true });
     } finally { await page.close(); }
   }
 }, 30000);
@@ -2451,7 +2470,6 @@ test("[integration] L43 keyboard: Shift+Tab to the header link after Skip keeps 
  * BEFORE_248 is the build before #248 (d7d6ab2) measured by these tests' RED run in this harness (no web fonts).
  */
 const BEFORE_248 = { ticketArea: 85854, marqueeWidth: 640, billing: 46 };
-const MADMAX = '#overture a[href="tm/"]';
 /** The three header parts that showed through the closed curtain in the #248 report. */
 const HEADER_PARTS = ["header.house .brand", "header.house > .ticket", "header.house .house-link"];
 
@@ -2545,61 +2563,74 @@ test("[integration] MM1 at 1440x900 the marquee leads and the ticket is a small 
   } finally { await page.close(); }
 }, 15000);
 
-test("[integration] MM2 wide screens (1716x910, 1440x900, 1100x700): the marquee spans the top centre, and under it the playbill, the Mad TokenMax poster and the Little Shop poster stand in one row; the poster is one link to tm/, at least 240px wide at 1440, with its image loaded, sized and named", async () => {
+test("[integration] MM2 wide screens (1716x910, 1440x900, 1100x700): the marquee spans the top centre; under it the Mad TokenMax poster, with the ADMIT ONE ticket tucked over its lower left corner, and the Little Shop poster stand in one row, centred; the poster is one link to tm/, at least 240px wide at 1440, with its image loaded, sized and named", async () => {
   for (const [width, height] of [[1716, 910], [1440, 900], [1100, 700]] satisfies [number, number][]) {
     const page = await pageAt(width, height, "no-preference");
     try {
       expect((await curtain(page)).state).toBe("closed");
       expect({ width, links: await page.locator(MADMAX).count() }).toEqual({ width, links: 1 });
-      await page.locator(`${MADMAX} img`).evaluate((img) => img instanceof HTMLImageElement ? img.decode().catch(() => undefined) : undefined);
+      await page.waitForFunction((sel) => { const i = document.querySelector(sel); return i instanceof HTMLImageElement && i.complete && i.naturalWidth > 0; }, `${MADMAX} img`, { timeout: 5000 }).catch(() => undefined);
       const img = await page.locator(`${MADMAX} img`).evaluate((node) => ({
         alt: node.getAttribute("alt") ?? "", sized: Number(node.getAttribute("width")) > 0 && Number(node.getAttribute("height")) > 0,
         loaded: node instanceof HTMLImageElement && node.complete && node.naturalWidth > 0, src: node.getAttribute("src") ?? "",
       }));
       expect({ width, show: /mad tokenmax/i.test(img.alt), poster: /poster/i.test(img.alt), sized: img.sized, loaded: img.loaded, src: img.src })
         .toEqual({ width, show: true, poster: true, sized: true, loaded: true, src: "shows/madtokenmax-poster.webp" });
-      const [marquee, ticket, skip, madmax, poster] = await Promise.all(["#overture .marquee", "#overture .ticket", "#skipOverture", MADMAX, "#overture a.poster"].map((s) => partOf(page, s)));
-      if (!marquee || !ticket || !skip || !madmax || !poster) throw new Error(`a part of the curtain is missing at ${width}`);
-      const row = [ticket, madmax, poster];
+      const [marquee, ticket, madmax, poster] = await Promise.all(["#overture .marquee", "#overture .ticket", MADMAX, "#overture a.poster"].map((s) => partOf(page, s)));
+      if (!marquee || !ticket || !madmax || !poster) throw new Error(`a part of the curtain is missing at ${width}`);
+      const mid = (a: Part): [number, number] => [(a.left + a.right) / 2, (a.top + a.bottom) / 2];
+      const [tx, ty] = mid(ticket), [mx, my] = mid(madmax);
       expect({
         width,
-        marqueeOnTop: row.every((p) => marquee.bottom <= p.top), centred: Math.abs((marquee.left + marquee.right) / 2 - width / 2) <= 24,
-        order: ticket.right < madmax.left && madmax.right < poster.left && skip.right < madmax.left,
-        oneRow: madmax.top < poster.bottom && poster.top < madmax.bottom && madmax.top < skip.bottom && ticket.top < madmax.bottom,
-        shown: [madmax, poster, skip, ticket, marquee].every((p) => p.inView && p.hit), turned: madmax.turned,
+        marqueeOnTop: [madmax, poster].every((p) => marquee.bottom <= p.top), centred: Math.abs((marquee.left + marquee.right) / 2 - width / 2) <= 24,
+        rowCentred: Math.abs((Math.min(ticket.left, madmax.left) + poster.right) / 2 - width / 2) <= 24,
+        order: madmax.right < poster.left, oneRow: madmax.top < poster.bottom && poster.top < madmax.bottom,
+        tucked: ticket.left < madmax.left && ticket.right > madmax.left && tx < mx && ty > my && ticket.top < madmax.bottom,
+        clearOfShop: ticket.right < poster.left,
+        shown: [madmax, poster, ticket, marquee].every((p) => p.inView && p.hit), turned: madmax.turned && ticket.turned,
         wide: width === 1440 ? madmax.right - madmax.left >= 240 : true,
-      }).toEqual({ width, marqueeOnTop: true, centred: true, order: true, oneRow: true, shown: true, turned: true, wide: true });
-      if (width === 1440) console.log(`#248 MM2 1440x900 Mad TokenMax poster link ${Math.round(madmax.right - madmax.left)}x${Math.round(madmax.bottom - madmax.top)}px`);
+      }).toEqual({ width, marqueeOnTop: true, centred: true, rowCentred: true, order: true, oneRow: true, tucked: true, clearOfShop: true, shown: true, turned: true, wide: true });
+      if (width === 1440) console.log(`#248 MM2 1440x900 Mad TokenMax poster link ${Math.round(madmax.right - madmax.left)}x${Math.round(madmax.bottom - madmax.top)}px, ticket ${Math.round(ticket.right - ticket.left)}x${Math.round(ticket.bottom - ticket.top)}px`);
     } finally { await page.close(); }
   }
 }, 30000);
 
-test("[integration] MM3 the Mad TokenMax poster is a keyboard stop after Skip with a visible focus ring, keeps the curtain closed, and opens tm/", async () => {
+test("[integration] MM3 the Mad TokenMax poster and its ticket are one link: the first keyboard stop on the curtain with a visible focus ring and its own name, no link inside a link; a click on the ticket and a click on the poster both open tm/", async () => {
   const page = await pageAt(1440, 900, "no-preference");
   try {
-    await page.locator("#skipOverture").focus();
     await page.keyboard.press("Tab");
     expect(await page.evaluate((sel) => {
       const a = document.activeElement, s = a ? getComputedStyle(a) : null;
       return { madmax: Boolean(a?.matches(sel)), ring: Boolean(a?.matches(":focus-visible") && s && s.outlineStyle !== "none" && parseFloat(s.outlineWidth) >= 2), state: document.documentElement.dataset.curtain };
     }, MADMAX)).toEqual({ madmax: true, ring: true, state: "closed" });
-    await Promise.all([page.waitForURL(/\/tm\/$/, { waitUntil: "commit" }), page.locator(MADMAX).click()]);
+    expect(await page.evaluate(() => ({ nested: document.querySelectorAll("#overture a a").length, ticketInLink: document.querySelector("#overture .ticket")?.closest("a")?.getAttribute("href") ?? "" }))).toEqual({ nested: 0, ticketInLink: "tm/" });
+    expect(await page.getByRole("link", { name: "Mad TokenMax, a token opera: admit one", exact: true }).count()).toBe(1);
+    await Promise.all([page.waitForURL(/\/tm\/$/, { waitUntil: "commit" }), page.locator("#overture .ticket .admit").click()]);
     expect(new URL(page.url()).pathname).toBe("/tm/");
   } finally { await page.close(); }
+  const poster = await pageAt(1440, 900, "no-preference");
+  try {
+    const box = await poster.locator(`${MADMAX} img`).boundingBox();
+    if (!box) throw new Error("no poster image");
+    // The top of the poster, clear of the ticket.
+    await Promise.all([poster.waitForURL(/\/tm\/$/, { waitUntil: "commit" }), poster.mouse.click(box.x + box.width / 2, box.y + box.height * 0.2)]);
+    expect(new URL(poster.url()).pathname).toBe("/tm/");
+  } finally { await poster.close(); }
 }, 15000);
 
-test("[integration] MM4 narrow screens (390x844, 1024x768): the two posters sit side by side under Skip as small cards, each at least 44px, no blurb, no horizontal scroll", async () => {
+test("[integration] MM4 narrow screens (390x844, 1024x768): the two posters sit side by side under the marquee as small cards, each at least 44px, no blurb, no horizontal scroll; the ticket stays on the Mad TokenMax poster, on screen and clear of the Little Shop card", async () => {
   for (const [width, height] of [[390, 844], [1024, 768]] satisfies [number, number][]) {
     const page = await pageAt(width, height, "no-preference");
     try {
       expect((await curtain(page)).state).toBe("closed");
-      const [skip, madmax, poster] = await Promise.all(["#skipOverture", MADMAX, "#overture a.poster"].map((s) => partOf(page, s)));
-      if (!skip || !madmax || !poster) throw new Error(`a part of the curtain is missing at ${width}`);
+      const [marquee, ticket, madmax, poster] = await Promise.all(["#overture .marquee", "#overture .ticket", MADMAX, "#overture a.poster"].map((s) => partOf(page, s)));
+      if (!marquee || !ticket || !madmax || !poster) throw new Error(`a part of the curtain is missing at ${width}`);
       expect({
-        width, underSkip: madmax.top >= skip.bottom && poster.top >= skip.bottom, sideBySide: madmax.right <= poster.left && madmax.top < poster.bottom && poster.top < madmax.bottom,
-        tap: [madmax, poster].every((p) => p.right - p.left >= 44 && p.bottom - p.top >= 44), shown: [skip, madmax, poster].every((p) => p.inView && p.hit),
+        width, underMarquee: madmax.top >= marquee.bottom && poster.top >= marquee.bottom, sideBySide: madmax.right <= poster.left && madmax.top < poster.bottom && poster.top < madmax.bottom,
+        tap: [madmax, poster].every((p) => p.right - p.left >= 44 && p.bottom - p.top >= 44), shown: [ticket, madmax, poster].every((p) => p.inView && p.hit),
+        attached: ticket.left < madmax.right && ticket.right > madmax.left && ticket.top < madmax.bottom && ticket.bottom > madmax.top, clearOfShop: ticket.right <= poster.left,
         blurb: await page.locator("#overture .p-blurb").isVisible(), overflow: await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
-      }).toEqual({ width, underSkip: true, sideBySide: true, tap: true, shown: true, blurb: false, overflow: 0 });
+      }).toEqual({ width, underMarquee: true, sideBySide: true, tap: true, shown: true, attached: true, clearOfShop: true, blurb: false, overflow: 0 });
     } finally { await page.close(); }
   }
 }, 30000);

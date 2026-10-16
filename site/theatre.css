@@ -15,6 +15,9 @@
 .overture { display: none; }
 .motion.overture-play .overture {
   display: block; position: fixed; inset: 0; z-index: 50; overflow: hidden auto; overscroll-behavior: contain; scrollbar-width: none;
+  /* The first-screen band (#tmFirst, z-index 55, in the flow above) keeps the top of the screen; the curtain starts at
+     its bottom. theatre.js sets --tm-first-h from the band's height; 0 without a band. */
+  top: var(--tm-first-h, 0px);
 }
 .motion.overture-play .overture::-webkit-scrollbar { display: none; }
 .overture-stage { position: sticky; top: 0; height: 100%; overflow: hidden; }
@@ -166,6 +169,40 @@
   .overture .poster .p-title { font-size: 22px; }
   .overture .poster .p-cta { padding: 8px 12px; }
 }
+/* With the first-screen band above it the curtain is shorter than the screen, so the playbill also compresses by the
+   height the curtain's stage actually has (a size container), not only by the screen's. The sample chip sits 10px
+   under the band, so the playbill needs less room above it. */
+.overture-stage { container: stage / size; }
+@container stage (max-width: 720px) and (max-height: 760px) {
+  .playbill { gap: 10px; padding: 52px 16px 8px; }
+  .overture .marquee { padding: 10px 16px 9px; }
+  .overture .marquee .kicker { font-size: 10px; letter-spacing: .24em; }
+  .overture .marquee .billing { margin-top: 4px; font-size: 22px; }
+  .overture .ticket .main { padding: 10px 14px 10px 20px; }
+  .overture .ticket .admit { font-size: 24px; }
+  .overture .ticket .show { margin: 2px 0 6px; font-size: 14px; }
+  .overture .ticket .fine { display: none; }
+  .overture-actions { gap: 8px; }
+  .cue-scroll::after { display: none; }
+  .overture .poster { gap: 4px; padding: 10px 14px; }
+  .overture .poster .p-who, .overture .poster .p-rule { display: none; }
+  .overture .poster .p-title { font-size: 22px; }
+  .overture .poster .p-cta { padding: 8px 12px; }
+}
+/* A short phone curtain (a phone with its toolbars, under the band): marquee, Skip and the poster; the ticket and the
+   scroll cue stay in the house bar and the page. */
+@container stage (max-width: 720px) and (max-height: 520px) {
+  .playbill { gap: 6px; padding-top: 46px; }
+  .overture .ticket, .cue-scroll { display: none; }
+}
+@container stage (max-width: 720px) and (max-height: 420px) {
+  .overture .marquee .kicker, .overture .poster .p-kicker { display: none; }
+}
+/* A short wide curtain (a phone on its side, under the band): the left column keeps the marquee and Skip. */
+@container stage (min-width: 721px) and (max-height: 330px) {
+  .playbill { padding-top: 46px; }
+  .playbill > .ticket { display: none; }
+}
 
 /* The sample chip and House lights sit top right on the closed curtain, above it, as in the October 6 references; once
    the curtain starts to part they return to the house bar, under the curtain, so they never sit over the page's text.
@@ -175,7 +212,7 @@
 .motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) .sample-ghost { display: flex; visibility: hidden; }
 .motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) .house { z-index: auto; }
 .motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) #sampleBadge {
-  position: fixed; top: 14px; right: 16px; z-index: 60; gap: 10px; padding: 3px 10px;
+  position: fixed; top: calc(var(--tm-first-h, 0px) + 14px); right: 16px; z-index: 60; gap: 10px; padding: 3px 10px;
   background: var(--bg); border: 1px solid var(--brass); letter-spacing: .14em;
 }
 .motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) #lights {
@@ -183,11 +220,11 @@
   letter-spacing: .1em; text-transform: uppercase;
 }
 @media (max-width: 720px) {
-  .motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) #sampleBadge { top: 34px; font-size: 10px; }
+  .motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) #sampleBadge { top: max(34px, calc(var(--tm-first-h, 0px) + 10px)); font-size: 10px; }
 }
 
 /* ---------- House furniture: valance across the top, drapes in the side margins on wide screens ---------- */
-.proscenium { position: absolute; inset: 0 0 auto 0; height: 100vh; pointer-events: none; z-index: 0; overflow: hidden; }
+.proscenium { position: absolute; inset: var(--tm-first-h, 0px) 0 auto 0; height: 100vh; pointer-events: none; z-index: 0; overflow: hidden; }
 .valance {
   position: absolute; top: 0; left: 0; right: 0; height: 26px;
   background:

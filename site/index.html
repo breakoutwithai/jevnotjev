@@ -172,6 +172,26 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 @media(max-width:720px) { .dropzone { grid-template-columns: minmax(0,1fr); }.dropzone .btn { justify-self: start; } }
 @media(prefers-reduced-motion:reduce) { html { scroll-behavior: auto; }.rbars .bar i { width: var(--w); } }
 @media(max-width:720px) { .rbar { grid-template-columns: 84px minmax(0,1fr) auto; gap: 8px; }.results { padding: 24px 0 18px; } }
+/* The first screen: what to do, above the curtain (theatre.css starts the curtain at this band's bottom). In the flow,
+   no heading in it (the first heading stays #t1), and no motion of its own. One focal point: the promise; then the
+   command in a calm box with the one accent (Copy); then a plain link. The trust and Bun lines arrive after Copy. */
+.tm-first { position: relative; z-index: 55; padding: 32px max(24px,calc((100vw - 1120px)/2)) 24px; background: var(--bg); color: var(--ink); border-bottom: 1px solid var(--line); font: 15px/1.45 var(--sans); }
+.tm-promise { max-width: 24em; margin: 0 0 20px; font: 700 44px/1.08 var(--serif); letter-spacing: -.01em; }
+.tm-run { display: flex; align-items: stretch; max-width: 900px; border: 1px solid var(--line); background: var(--bg-2); }
+.tm-flag { white-space: nowrap; }
+#tmCommand { flex: 1 1 auto; min-width: 0; margin: 0; padding: 12px 14px; background: none; color: var(--ink); font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+#tmCopy { flex: 0 0 auto; min-width: 88px; min-height: 44px; padding: 8px 18px; border: 0; background: var(--curtain); color: #fff; cursor: pointer; font: 700 15px var(--sans); }
+#tmCopy:hover { background: var(--curtain-hi); }
+.tm-copied { max-width: 760px; margin: 0; color: var(--ink); }
+.tm-copied:not(:empty) { margin-top: 10px; }
+.tm-copied code { font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.tm-read { margin: 12px 0 0; }
+#tmRead { display: inline-flex; align-items: center; min-height: 24px; color: var(--ink-soft); }
+#tmRead:hover { color: var(--ink); }
+@media(max-width:720px) { .tm-first { padding: 20px 16px 16px; font-size: 14px; }.tm-promise { margin-bottom: 14px; font-size: 28px; line-height: 1.1; }#tmCommand { padding: 10px 12px; font-size: 13px; }#tmCopy { min-width: 72px; padding: 8px 14px; }.tm-copied code { font-size: 12.5px; }.tm-read { margin-top: 8px; } }
+/* Short screens (a small phone, a phone on its side) keep the same three parts at a size that leaves the curtain room. */
+@media(max-height:700px) { .tm-first { padding-top: 12px; padding-bottom: 8px; font-size: 13.5px; }.tm-promise { margin-bottom: 8px; font-size: 22px; line-height: 1.1; }#tmCommand { padding: 6px 10px; font-size: 12.5px; line-height: 1.4; }#tmCopy { min-height: 36px; }.tm-copied:not(:empty) { margin-top: 6px; }.tm-read { margin-top: 4px; } }
+@media(max-height:460px) { .tm-promise { font-size: 19px; } }
 
 </style>
 <link rel="stylesheet" href="theatre.css">
@@ -206,6 +226,47 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 </script>
 </head>
 <body>
+<section class="tm-first" id="tmFirst" aria-label="Map your Claude week">
+  <p class="tm-promise" id="tmPromise">Hitting Claude limits? See your last 7 days in 10 seconds, on your own machine.</p>
+  <div class="tm-run"><code id="tmCommand">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - <span class="tm-flag">--share</span></code><button type="button" id="tmCopy">Copy</button></div>
+  <p class="tm-copied" id="tmCopied" aria-live="polite"></p>
+  <p class="tm-read"><a id="tmRead" href="/tm/map.ts">Read the script</a></p>
+</section>
+<script>
+/* Copy puts exactly the text of #tmCommand on the clipboard, so the button and the command shown can never differ.
+   Without the clipboard API, or when it refuses, the command is selected and the visitor is told the keys. Either way
+   the message then says what the script reads, that it sends nothing, and how to get Bun. */
+(function () {
+  var button = document.getElementById("tmCopy"), command = document.getElementById("tmCommand"), said = document.getElementById("tmCopied");
+  if (!button || !command || !said) return;
+  var BUN = "curl -fsSL https://bun.sh/install | bash";
+  function say(lead) {
+    var code = document.createElement("code");
+    code.textContent = BUN;
+    said.textContent = "";
+    said.append(lead + " It reads your local Claude Code and Codex logs and sends nothing. No Bun? Run ", code, " first.");
+  }
+  function fallback() {
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (selection) {
+      var range = document.createRange();
+      range.selectNodeContents(command);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    say("Press Ctrl+C or Cmd+C to copy.");
+  }
+  button.addEventListener("click", function () {
+    var text = command.textContent || "";
+    said.textContent = "";
+    var clip = navigator.clipboard;
+    if (!clip || typeof clip.writeText !== "function") { fallback(); return; }
+    try {
+      clip.writeText(text).then(function () { say("Copied. Paste it into a terminal."); }, fallback);
+    } catch (e) { fallback(); }
+  });
+})();
+</script>
 
 <div class="overture" id="overture" role="region" aria-label="Opening curtain">
   <div class="overture-stage">

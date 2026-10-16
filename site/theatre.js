@@ -18,7 +18,10 @@
  * - once open the overture is display:none, and the page is where it was;
  * - the sample chip is lifted onto the curtain while it is closed and returns to the house bar once it starts to part;
  *   a hidden copy holds its place in the house bar meanwhile, so its return moves nothing;
- * - turning reduced motion on drops it (theatre.css hides it at once; this records the page as open).
+ * - turning reduced motion on drops it (theatre.css hides it at once; this records the page as open);
+ * - the first-screen band (#tmFirst: the promise, Copy, Read the script) sits above the curtain, which starts at its
+ *   bottom (the root's --tm-first-h, kept in step with the band's height); focus on its controls keeps the curtain
+ *   closed, so Tab goes Copy, Read the script, No Bun yet?, Skip, poster, House lights.
  * With no curtain (reduced motion, a later page, missing markup, or the head script's watchdog already opened the page)
  * the page is open and --reveal is 1, so the result bars are full. If this script never runs or stalls, the head
  * script opens the page.
@@ -33,6 +36,7 @@
   var brand = document.querySelector(".house .brand");
   var results = document.getElementById("results");
   var heading = document.getElementById("resultsTitle");
+  var band = document.getElementById("tmFirst");
   var reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
   var progress = 0, done = false, distance = 1, ghost = null;
 
@@ -49,7 +53,13 @@
     if (ov) ov.classList.add("gone");
     if (brand) brand.removeAttribute("tabindex");
   }
+  // The first-screen band (#tmFirst) sits above the curtain: the curtain, the lifted sample chip and the valance start
+  // at its bottom (theatre.css reads --tm-first-h; 0 when there is no band).
+  function bandHeight() {
+    root.style.setProperty("--tm-first-h", (band ? band.offsetHeight : 0) + "px");
+  }
   function runway() {
+    bandHeight();
     distance = Math.max(1, Math.round((window.innerHeight || 1) * RUNWAY));
     root.dataset.runway = String(distance);
     root.style.setProperty("--runway", distance + "px");
@@ -95,8 +105,9 @@
       if (next >= 1) { open(); return; }
       setCurtain(next);
     };
+    // The band's controls (Copy, Read the script, No Bun yet?) sit above the curtain, so focus there keeps it closed too.
     var onCurtain = function (node) {
-      return ov.contains(node) || (badge !== null && badge.contains(node));
+      return ov.contains(node) || (badge !== null && badge.contains(node)) || (band !== null && band.contains(node));
     };
     var drive = function (delta) {
       if (!done && delta) ov.scrollTop = Math.max(0, ov.scrollTop + delta);
@@ -159,6 +170,10 @@
     if (window.location.hash || (focused && focused !== document.body && focused !== root && !onCurtain(focused))) open();
     else update();
   }
+  // The band's height changes with the width, the web fonts arriving and No Bun yet? opening; the curtain follows it.
+  bandHeight();
+  if (band && window.ResizeObserver) new ResizeObserver(bandHeight).observe(band);
+  else window.addEventListener("resize", bandHeight);
 
   var lights = document.getElementById("lights");
   if (!lights) return;

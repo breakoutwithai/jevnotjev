@@ -107,7 +107,16 @@ test("[unit] #128 every privacy source citation resolves to existing lines", asy
   expect(badCitations(page.replace("journald@jevnotjev-backstage.conf:1-5", "journald@jevnotjev-backstage.conf:1-999999"))).toContain(".deploy/journald@jevnotjev-backstage.conf:1-999999");
 });
 
-const allowedWriters = new Set(["tickets.ts", "trial.ts", "auth.ts", "api-tokens.ts"]);
+const allowedWriters = new Set(["tickets.ts", "trial.ts", "auth.ts", "api-tokens.ts", "maps.ts"]);
+
+test("[unit] #238 the privacy page describes the map board store that maps.ts writes", async () => {
+  const page = await Bun.file(privacyPath).text();
+  const paragraph = page.match(/<p id="map-board">[\s\S]*?<\/p>/)?.[0] ?? "";
+  for (const phrase of ["tm-share/1 numbers", "alias", "network address is used in memory", "not stored", "delete link", "no automatic deletion date"]) {
+    expect(paragraph).toContain(phrase);
+  }
+  expect(paragraph).toContain('<a href="/maps/">');
+});
 const writer = /\b(?:writeFile(?:Sync)?|Bun\.write|appendFile(?:Sync)?|new Database|createWriteStream|openSync)\b|\.writer\s*\(/;
 function unexpectedWriters(sources: ReadonlyMap<string, string>): string[] {
   return [...sources].filter(([name, source]) => !allowedWriters.has(name) && writer.test(source)).map(([name]) => name);

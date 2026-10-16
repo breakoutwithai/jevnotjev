@@ -192,6 +192,19 @@ backstage_snippet_auth() {
         allow("tickets_ranking", "proxy_set_header Host $host")
         allow("tickets_ranking", "proxy_set_header X-Backstage-Client-IP $remote_addr")
         allow("tickets_ranking", "client_max_body_size 1k")
+        # TokenMax map board (src/backstage/maps.ts): public, optional; when present exactly these statements.
+        allow("maps", "proxy_pass http://127.0.0.1:3456/api/maps")
+        allow("maps", "proxy_set_header Host $host")
+        allow("maps", "proxy_set_header X-Backstage-Client-IP $remote_addr")
+        allow("maps", "client_max_body_size 4k")
+        allow("maps_delete", "proxy_pass http://127.0.0.1:3456/api/maps/delete")
+        allow("maps_delete", "proxy_set_header Host $host")
+        allow("maps_delete", "proxy_set_header X-Backstage-Client-IP $remote_addr")
+        allow("maps_delete", "client_max_body_size 1k")
+        # The mapper script as text: a static file, optional; exactly these statements plus one empty types block.
+        allow("tm_script", "default_type \"text/plain; charset=utf-8\"")
+        allow("tm_script", "expires epoch")
+        allow("tm_script", "try_files $uri =404")
         # HTTP API v1 (src/backstage/api-v1.ts): public at nginx, bearer auth in the server; optional, exactly these statements.
         allow("api_v1", "proxy_set_header X-Backstage-Gate session")
         allow("api_v1", "proxy_pass http://127.0.0.1:3456")
@@ -206,7 +219,7 @@ backstage_snippet_auth() {
         # location that proxies to 3456. All clears present, or none (an install from before the mark); /api/v1 needs all.
         allow("api_v1", "proxy_set_header X-Backstage-Route api-v1")
         route_clear = "proxy_set_header X-Backstage-Route \"\""
-        n_clear_locs = split("sign_in password sign_out google callback tickets tickets_ranking session_check page api", clear_locs, " ")
+        n_clear_locs = split("sign_in password sign_out google callback tickets tickets_ranking maps maps_delete session_check page api", clear_locs, " ")
         for (c = 1; c <= n_clear_locs; c++) clear_ok[clear_locs[c]] = 1
         allow("session_check", "internal")
         allow("session_check", "proxy_pass http://127.0.0.1:3456/api/auth/session")
@@ -281,16 +294,22 @@ backstage_snippet_auth() {
                     else if (h == "location = /api/auth/google/callback") { cur = "callback"; seen[cur]++ }
                     else if (h == "location = /api/tickets") { cur = "tickets"; seen[cur]++ }
                     else if (h == "location = /api/tickets/ranking") { cur = "tickets_ranking"; seen[cur]++ }
+                    else if (h == "location = /api/maps") { cur = "maps"; seen[cur]++ }
+                    else if (h == "location = /api/maps/delete") { cur = "maps_delete"; seen[cur]++ }
+                    else if (h == "location = /tm/map.ts") { cur = "tm_script"; seen[cur]++ }
                     else if (h == "location ^~ /api/v1/") { cur = "api_v1"; seen[cur]++ }
                     else if (h == "location @backstage_deny") { cur = "deny"; seen[cur]++ }
                     else if (h == "location @backstage_sign_in") { cur = "sign_in_redirect"; seen[cur]++ }
                     else if (h == "location @backstage_api_401") { cur = "api_401"; seen[cur]++ }
                     else { cur = "other"; other_seen++ }
-                } else if (cur != "other") bad = 1
+                } else if (cur == "tm_script" && depth == 1 && h == "types" && !tm_types++) { types_open = 1 }
+                else if (cur != "other") bad = 1
                 depth++
             } else if (s == "}") {
+                types_open = 0
                 depth--; if (depth < 0) bad = 1; if (depth == 0) cur = ""
             } else if (last == ";") {
+                if (types_open) { bad = 1; continue }
                 s = substr(s, 1, length(s) - 1); split(s, w, /[[:space:]]+/); d = w[1]
                 if (depth == 1 && cur != "other") statements[cur, s]++
                 else if (depth == 0) top_statement++
@@ -338,14 +357,16 @@ backstage_snippet_auth() {
                 if (!(key in permitted) || statements[key] != 1) { print "unknown"; exit }
                 observed[loc]++
             }
-            clear_want = 8 + (seen["tickets"] == 1) + (seen["tickets_ranking"] == 1)
+            clear_want = 8 + (seen["tickets"] == 1) + (seen["tickets_ranking"] == 1) + (seen["maps"] == 1) + (seen["maps_delete"] == 1)
             if (cleared != clear_want && (cleared != 0 || seen["api_v1"] == 1)) { print "unknown"; exit }
             for (i = 1; i <= 12; i++) {
                 loc = locations[i]
                 if (loc != "page" && loc != "api" && loc != "session_check" && observed[loc] != required[loc]) { print "unknown"; exit }
             }
-            for (k = 1; k <= 3; k++) {
-                loc = (k == 1 ? "tickets" : k == 2 ? "tickets_ranking" : "api_v1")
+            if (seen["tm_script"] == 1 && tm_types != 1) { print "unknown"; exit }
+            n_optional = split("tickets tickets_ranking api_v1 maps maps_delete tm_script", optional, " ")
+            for (k = 1; k <= n_optional; k++) {
+                loc = optional[k]
                 if (seen[loc] > 1 || (seen[loc] == 1 && observed[loc] != required[loc])) { print "unknown"; exit }
             }
             if (!statements["session_check", "internal"] ||

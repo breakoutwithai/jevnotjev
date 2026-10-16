@@ -1,5 +1,5 @@
 {
-  "minFiles": 127,
+  "minFiles": 128,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -108,6 +108,7 @@
     "src/docs/labelling-card.test.ts": 4,
     "src/docs/landing-samples.test.ts": 102,
     "src/docs/limits.test.ts": 15,
+    "src/docs/run-record-template.test.ts": 19,
     "src/docs/site-guide.test.ts": 35,
     "src/docs/stack.test.ts": 18,
     "src/docs/tester-checklist.test.ts": 8,

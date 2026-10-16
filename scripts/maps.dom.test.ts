@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 import { SHARE_BASE, shareLink, type SharePayload } from "../skills/tokenmax-map/scripts/map.ts";
+import { withStripShown } from "./tm-strip.ts";
 
 // The /maps/ share page and board (#238). A fake Backstage answers /api/maps and /api/maps/delete per the contract
 // and records every request, so the tests can count what the page sends and when.
@@ -63,6 +64,8 @@ const seen: Seen[] = [];
 let rows: Row[] = [];
 let postReply: { status: number; body: Rec } | null = null;
 let deleteReply: { status: number; body: Rec } | null = null;
+// The landing strip ships hidden; the one test that starts from it serves the landing page with that one `hidden` removed.
+let landingStripShown = false;
 
 beforeAll(async () => {
   const found = resolveChromium(null, process.env.UAT_CHROMIUM_PATH, chromium.executablePath(), existsSync);
@@ -91,13 +94,15 @@ beforeAll(async () => {
     const path = join(SITE, pathname.endsWith("/") ? `${pathname}index.html` : pathname);
     if (!path.startsWith(`${SITE}/`)) return new Response("Not found", { status: 404 });
     const file = Bun.file(path);
-    return await file.exists() ? new Response(file) : new Response("Not found", { status: 404 });
+    if (!await file.exists()) return new Response("Not found", { status: 404 });
+    if (landingStripShown && path === join(SITE, "index.html")) return new Response(withStripShown(await file.text()), { headers: { "content-type": "text/html; charset=utf-8" } });
+    return new Response(file);
   } });
   origin = `http://127.0.0.1:${server.port}`;
   browser = await chromium.launch({ headless: true, executablePath: found.path });
 });
 afterAll(async () => { await browser?.close(); server?.stop(); });
-beforeEach(() => { seen.length = 0; rows = [OTHER]; postReply = null; deleteReply = null; });
+beforeEach(() => { seen.length = 0; rows = [OTHER]; postReply = null; deleteReply = null; landingStripShown = false; });
 
 const apiSeen = () => seen.filter((s) => s.path === "/api/maps" || s.path === "/api/maps/delete");
 const posts = (path = "/api/maps") => seen.filter((s) => s.method === "POST" && s.path === path);
@@ -557,6 +562,7 @@ async function runServedMapper(): Promise<string> {
 test("[integration] 12 M1 landing to own row on the board in four actions or fewer, with the real served mapper as the terminal step", async () => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
+  landingStripShown = true;
   const page = await context.newPage();
   await page.route("**/*", (route) => route.request().url().startsWith(`${origin}/`) ? route.continue() : route.abort());
   let actions = 0;

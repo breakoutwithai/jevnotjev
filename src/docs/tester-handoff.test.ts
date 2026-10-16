@@ -25,12 +25,14 @@ describe("outside tester handoff", () => {
   });
   test("[integration] D21 first-case completion is observable without exposing the blind answer", () => {
     const task = section("Your task");
-    for (const phrase of ["cells processed", "have no answer", "No calls in progress.", "hidden until", "blind pick"])
+    for (const phrase of ["Try first case", "failed or stopped calls", "cases not yet attempted", "Run remaining", "does not call it again", "have no answer", "No calls in progress.", "hidden until", "blind pick"])
       expect(task).toContain(phrase);
     expect(task).not.toContain("confirm that an answer or a visible error appears");
     const ui = readFileSync(join(root, "src/backstage/main.ts"), "utf8");
-    for (const phrase of ["cells processed", "have no answer", "No calls in progress."])
+    for (const phrase of ["failed or stopped calls", "cases not yet attempted", "have no answer", "No calls in progress.", "Run remaining"])
       expect(ui).toContain(phrase);
+    const page = readFileSync(join(root, "site/backstage/index.html"), "utf8");
+    expect(page).toContain("Try first case");
   });
   test("[integration] D21 linked product documents and destination source files exist", () => {
     const links = [...doc.matchAll(/\]\(([^)]+)\)/g)].map(match => match[1] ?? "");

@@ -1588,3 +1588,47 @@ describe("#209 blind verdict seed", () => {
     }
   });
 });
+
+describe("#222 F1 first-case trial keeps the rule complete for the frozen scene", () => {
+  const threeCases = (): Scene => ({
+    ...scene(),
+    cases: [
+      { id: "c1", input: "TypeScript builder" },
+      { id: "c2", input: "other" },
+      { id: "c3", input: "typescript again" },
+    ],
+  });
+  test("[unit] #222 F1 compare plus rule first case then judging exports a rule row for every frozen case", async () => {
+    const calls: AnswerRequest[] = [];
+    const run = new BackstageRun(threeCases(), "test", compareSelection);
+    await run.start(keys, async (request) => {
+      calls.push(request);
+      return success(request);
+    }, undefined, false, true);
+    expect(calls.map((r) => r.caseId)).toEqual(["c1", "c1"]);
+    expect(calls.some((r) => r.armId === "rule")).toBe(false);
+    run.beginLabeling();
+    run.reveal();
+    await run.report();
+    const evidence = run.evidence();
+    expect(evidence.labels.filter((l) => l.armId === "rule").map((l) => l.caseId)).toEqual(["c1", "c2", "c3"]);
+    const check = await checkExport(evidence);
+    expect(check.problems).toEqual([]);
+    expect(check.ok).toBe(true);
+  });
+  test("[unit] #222 F1 continuing remaining cases adds no duplicate rule answers and makes no rule calls", async () => {
+    const calls: AnswerRequest[] = [];
+    const transport = async (request: AnswerRequest) => {
+      calls.push(request);
+      return success(request);
+    };
+    const run = new BackstageRun(threeCases(), "test", compareSelection);
+    await run.start(keys, transport, undefined, false, true);
+    await run.continueRemaining(keys, transport);
+    expect(calls).toHaveLength(6);
+    expect(calls.some((r) => r.armId === "rule")).toBe(false);
+    run.beginLabeling();
+    run.reveal();
+    expect(run.evidence().labels.filter((l) => l.armId === "rule").map((l) => l.caseId)).toEqual(["c1", "c2", "c3"]);
+  });
+});

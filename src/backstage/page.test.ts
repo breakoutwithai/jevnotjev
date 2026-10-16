@@ -1,4 +1,13 @@
 import { expect, test } from "bun:test";
+function closedDisclosureBefore(html: string, position: number): boolean {
+  const stack: boolean[] = [];
+  for (const match of html.slice(0, position).matchAll(/<details\b[^>]*>|<\/details>/g)) {
+    if (match[0].startsWith("</")) stack.pop();
+    else stack.push(!/\sopen(?:\s|>|=)/.test(match[0]));
+  }
+  return stack.some(Boolean);
+}
+
 
 test("[smoke] A2 header sign-out stays separate from Theme without warning markup", async () => {
   const page = await Bun.file("site/backstage/index.html").text();
@@ -28,15 +37,12 @@ test("[smoke] SO5 sign-out shares clearKeys and clears the scene", async () => {
   expect(main).not.toMatch(/\b(?:alert|confirm|prompt)\(/);
 });
 
-test("[smoke] B1 six accessible rooms and real key/run controls", async () => {
+test("[smoke] B1 three accessible workspace targets and real key/run controls", async () => {
   const page = await Bun.file("site/backstage/index.html").text();
   for (const title of [
-    "New Scene",
-    "Casting",
-    "Learning Lines",
-    "Rehearsals",
-    "Dress Rehearsal",
-    "Opening Night",
+    "Setup and run",
+    "Review answers",
+    "Results and downloads",
   ])
     expect(page).toContain(title);
   expect(page).toContain('id="jev-key"');
@@ -67,9 +73,11 @@ test("[smoke] JF1 Jev-only is the initial cast and comparisons require opt-in", 
 
 test("[smoke] JF5 privacy and copy guidance precede billable run controls", async () => {
   const page = await Bun.file("site/backstage/index.html").text();
-  expect(page.indexOf('class="trust-sign"')).toBeLessThan(
+  expect(page.indexOf('<aside class="trust-sign"')).toBeLessThan(
     page.indexOf('id="run-one"'),
   );
+  expect(closedDisclosureBefore(page, page.indexOf('<aside class="trust-sign"'))).toBe(false);
+  expect(closedDisclosureBefore(`<details>${page}</details>`, page.indexOf('<aside class="trust-sign"') + 9)).toBe(true);
   expect(page).toContain("mailto:jev@breakoutwithai.com");
   expect(page).toContain('id="copy-case"');
   expect(page).toContain('id="copy-cli"');
@@ -78,7 +86,7 @@ test("[smoke] JF5 privacy and copy guidance precede billable run controls", asyn
 
 test("[smoke] I88 irreversible steps use in-page confirm panels, not native dialogs", async () => {
   const page = await Bun.file("site/backstage/index.html").text();
-  for (const step of ["judging", "reveal", "new-scene"]) {
+  for (const step of ["judging", "reveal", "new-scene", "replace"]) {
     const id = `confirm-${step}`;
     expect(page).toContain(`id="${id}"`);
     expect(page).toContain(`id="${id}-yes"`);
@@ -88,7 +96,7 @@ test("[smoke] I88 irreversible steps use in-page confirm panels, not native dial
     expect(page).toContain(`aria-labelledby="${id}-title"`);
     expect(page).toContain(`aria-describedby="${id}-message"`);
   }
-  expect(page.match(/role="alertdialog"/g)?.length).toBe(3);
+  expect(page.match(/role="alertdialog"/g)?.length).toBe(4);
   const main = await Bun.file("src/backstage/main.ts").text();
   expect(main).not.toMatch(/\bconfirm\(/);
   expect(main).not.toMatch(/\balert\(|\bprompt\(/);

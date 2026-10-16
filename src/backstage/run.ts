@@ -363,7 +363,7 @@ export function importedLabelSummary(labels: readonly ImportedLabel[]): string {
     return count > 0 ? [`${count} ${source}`] : [];
   });
   const agentNote = labels.some((l) => l.source === "agent") ? " An agent label is never counted as truth." : "";
-  return `Labels on ${labels.length}: ${counts.join(", ")}.${agentNote} Your pick in Rehearsals replaces an imported label.`;
+  return `Labels on ${labels.length}: ${counts.join(", ")}.${agentNote} Your pick in Review answers replaces an imported label.`;
 }
 /**
  * The D11 case import with an optional label column (labelling loop M3). Without label_source a label is agent, never
@@ -1137,12 +1137,24 @@ export class BackstageRun {
     transport: Transport = answerTransport,
     onChange?: () => void,
     houseJev = false,
+    firstCaseOnly = false,
   ) {
     if (this.#started)
       throw new Error(
         "This run has already started. Use explicit retry for incomplete calls.",
       );
-    await this.#execute(keys, transport, onChange, false, houseJev);
+    await this.#execute(keys, transport, onChange, false, houseJev, firstCaseOnly ? "first" : "all");
+  }
+  /** Untouched slots are different from failed attempts: continuing never retries either a success or a failure. */
+  get remainingCaseIds(): readonly string[] {
+    return this.manifest.scene.cases.filter((c) => this.manifest.models.some((m) => !this.#attempts.some((a) => a.caseId === c.id && a.armId === m.id))).map((c) => c.id);
+  }
+  get retryable(): number {
+    return new Set(this.#attempts.filter((a) => !a.ok && !this.#answers.some((answer) => answer.caseId === a.caseId && answer.armId === a.armId)).map((a) => a.caseId + ":" + a.armId)).size;
+  }
+  async continueRemaining(keys: KeySource, transport: Transport = answerTransport, onChange?: () => void, houseJev = false) {
+    if (!this.#started || this.#funded || this.#labeling) throw new Error("Remaining calls require a started own-key run before judging.");
+    await this.#execute(keys, transport, onChange, false, houseJev, "remaining");
   }
   async startTrial(transport: Transport, onChange?: () => void): Promise<void> {
     if (this.#started) throw new Error("This trial has already started.");
@@ -1176,7 +1188,7 @@ export class BackstageRun {
         "Retries are locked once blind judging begins. Start a new run.",
       );
     if (!this.#started) throw new Error("Start the run first.");
-    await this.#execute(keys, transport, onChange, false, houseJev);
+    await this.#execute(keys, transport, onChange, false, houseJev, "retry");
   }
   async #execute(
     source: KeySource,
@@ -1184,6 +1196,7 @@ export class BackstageRun {
     onChange?: () => void,
     funded = false,
     houseJev = false,
+    scope: "all" | "first" | "remaining" | "retry" = "all",
   ) {
     if (this.running) throw new Error("A run is already in progress.");
     const scene = this.manifest.scene;
@@ -1212,12 +1225,13 @@ export class BackstageRun {
     const controller = new AbortController();
     this.#controller = controller;
     const skipped = new Set<Provider>();
+    const selectedCases = scope === "first" ? scene.cases.slice(0, 1) : scope === "retry" ? scene.cases.filter((c) => this.#attempts.some((a) => a.caseId === c.id)) : scene.cases;
+    const untouched = new Set(scene.cases.flatMap((c) => this.manifest.models.filter((m) => !this.#attempts.some((a) => a.caseId === c.id && a.armId === m.id)).map((m) => c.id + ":" + m.id)));
     if (
-      this.manifest.arms.includes("rule") &&
-      !this.#answers.some((a) => a.armId === "rule")
+      this.manifest.arms.includes("rule")
     )
       for (const c of scene.cases)
-        this.#answers.push({
+        if (!this.#answers.some((a) => a.caseId === c.id && a.armId === "rule")) this.#answers.push({
           id: crypto.randomUUID(),
           attemptId: null,
           caseId: c.id,
@@ -1229,8 +1243,10 @@ export class BackstageRun {
         });
     try {
       onChange?.();
-      for (const c of scene.cases)
+      for (const c of selectedCases)
         for (const entry of this.manifest.models) {
+          if (scope === "remaining" && !untouched.has(c.id + ":" + entry.id)) continue;
+          if (scope === "retry" && untouched.has(c.id + ":" + entry.id)) continue;
           if (
             this.#answers.some((a) => a.caseId === c.id && a.armId === entry.id)
           )

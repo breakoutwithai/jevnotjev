@@ -1,194 +1,11 @@
 import { expect, test } from "bun:test";
 import { CATALOG_VERSION } from "./catalog.ts";
 import { PROTOCOL_VERSION, type AnswerRequest } from "./contracts.ts";
-import { getModelEntry } from "./catalog.ts";
 import { inputFingerprint, runScene } from "./run.ts";
 import { SCENE_DRAFT_KEY } from "./scene-draft.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 
-class FakeNode extends EventTarget {
-  children: FakeNode[] = [];
-  textContent = "";
-  constructor(readonly tagName: string) { super(); }
-  append(...nodes: FakeNode[]) { this.children.push(...nodes); }
-  replaceChildren(...nodes: FakeNode[]) { this.children = nodes; this.textContent = ""; }
-}
-
-class FakeElement extends FakeNode {
-  id = "";
-  type = "";
-  value = "";
-  checked = false;
-  hidden = false;
-  disabled = false;
-  className = "";
-  dataset: Record<string, string> = {};
-  onclick: (() => void) | null = null;
-  private attributes = new Map<string, string>();
-  owner: FakeDocument | undefined;
-  setAttribute(name: string, value: string) {
-    this.attributes.set(name, value);
-    if (name === "id") this.id = value;
-    if (name === "type") this.type = value;
-    if (name === "value") this.value = value;
-    if (name === "class") this.className = value;
-    if (name === "hidden") this.hidden = true;
-    if (name === "disabled") this.disabled = true;
-    if (name.startsWith("data-")) this.dataset[name.slice(5)] = value;
-  }
-  getAttribute(name: string) { return this.attributes.get(name) ?? null; }
-  removeAttribute(name: string) { this.attributes.delete(name); }
-  attributeText(): string { return [...this.attributes.values(), this.value].join("\n"); }
-  focus() { if (this.owner) this.owner.activeElement = this; }
-  click() { this.onclick?.(); this.dispatchEvent(new Event("click")); }
-  querySelectorAll(selector: string): FakeElement[] {
-    if (selector !== "button") throw new Error(`Unexpected selector: ${selector}`);
-    const found: FakeElement[] = [];
-    const walk = (node: FakeNode) => { for (const child of node.children) { if (child instanceof FakeElement && child.tagName === "BUTTON") found.push(child); walk(child); } };
-    walk(this);
-    return found;
-  }
-}
-class FakeInput extends FakeElement { files: File[] | null = null; }
-class FakeTextArea extends FakeElement {}
-class FakeButton extends FakeElement {}
-class FakeFieldSet extends FakeElement {}
-class FakeSelect extends FakeElement {}
-
-class FakeDocument {
-  readonly documentElement = new FakeElement("HTML");
-  activeElement: FakeElement | null = null;
-  private elements: FakeElement[] = [];
-  createElement(tag: string): FakeElement {
-    const upper = tag.toUpperCase();
-    const element = upper === "INPUT" ? new FakeInput(upper)
-      : upper === "TEXTAREA" ? new FakeTextArea(upper)
-      : upper === "BUTTON" ? new FakeButton(upper)
-      : upper === "FIELDSET" ? new FakeFieldSet(upper)
-      : upper === "SELECT" ? new FakeSelect(upper)
-      : new FakeElement(upper);
-    element.owner = this;
-    this.elements.push(element);
-    return element;
-  }
-  createTextNode(value: string): FakeNode { const node = new FakeNode("#text"); node.textContent = value; return node; }
-  getElementById(id: string): FakeElement | null { return this.elements.find((element) => element.id === id) ?? null; }
-  /** Everything in the connected tree from the page's root element: text, attributes and field values, hidden or not. */
-  connectedText(): string {
-    const walk = (node: FakeNode): string =>
-      [node.textContent, node instanceof FakeElement ? node.attributeText() : "", ...node.children.map(walk)].join("\n");
-    const root = this.elements[0];
-    return root === undefined ? "" : walk(root);
-  }
-  querySelectorAll(selector: string): FakeElement[] {
-    if (selector === "img") return this.elements.filter((element) => element.tagName === "IMG");
-    if (selector === "[data-panel]") return this.elements.filter((element) => element.dataset.panel !== undefined);
-    if (selector === "[data-room]") return this.elements.filter((element) => element.dataset.room !== undefined);
-    if (selector === "[data-arm]:checked") return this.elements.filter((element) => element.dataset.arm !== undefined && element.checked);
-    throw new Error(`Unexpected selector: ${selector}`);
-  }
-  querySelector(selector: string): FakeElement | null {
-    const match = /^\[data-panel="(\d+)"\] h2$/.exec(selector);
-    if (!match) throw new Error(`Unexpected selector: ${selector}`);
-    const panel = this.elements.find((element) => element.dataset.panel === match[1]);
-    const findHeading = (node: FakeNode): FakeElement | null => {
-      for (const child of node.children) {
-        if (child instanceof FakeElement && child.tagName === "H2") return child;
-        const nested = findHeading(child);
-        if (nested) return nested;
-      }
-      return null;
-    };
-    return panel ? findHeading(panel) : null;
-  }
-}
-
-function documentFromMarkup(markup: string): FakeDocument {
-  const document = new FakeDocument();
-  const stack: FakeElement[] = [];
-  const voidTags = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
-  for (const token of markup.matchAll(/<\/?[a-z][^>]*>/gi)) {
-    const raw = token[0];
-    if (raw.startsWith("</")) { stack.pop(); continue; }
-    const tag = /^<([a-z][\w-]*)/i.exec(raw)?.[1]?.toLowerCase();
-    if (!tag) throw new Error(`Cannot parse tag ${raw}`);
-    const element = document.createElement(tag);
-    for (const attr of raw.slice(tag.length + 1).matchAll(/([\w-]+)(?:="([^"]*)")?/g)) {
-      const name = attr[1];
-      if (name) element.setAttribute(name, attr[2] ?? "");
-    }
-    stack.at(-1)?.append(element);
-    if (!voidTags.has(tag) && !raw.endsWith("/>")) stack.push(element);
-  }
-  return document;
-}
-
-let importNumber = 0;
-function redirectedResponse(): Response {
-  const response = new Response(null, { status: 200 });
-  Object.defineProperty(response, "redirected", { value: true });
-  return response;
-}
-class FakeStorage {
-  readonly items = new Map<string, string>();
-  getItem(key: string) { return this.items.get(key) ?? null; }
-  setItem(key: string, value: string) { this.items.set(key, value); }
-  removeItem(key: string) { this.items.delete(key); }
-}
-async function mount(health = new Response(JSON.stringify({ trial: { available: true }, protocol: PROTOCOL_VERSION, version: "so6-test", catalogVersion: CATALOG_VERSION }), { status: 200, headers: { "content-type": "application/json" } }), signOutResponse: Response | Error = redirectedResponse(), store = new FakeStorage(), answer?: (request: AnswerRequest) => Promise<unknown>, search = "", coach?: (question: string, signal: AbortSignal | undefined, mode?: string) => unknown | Promise<unknown>) {
-  const document = documentFromMarkup(await Bun.file("site/backstage/index.html").text());
-  const urls: string[] = [];
-  const requests: Array<{ input: string; init: RequestInit | undefined }> = [];
-  const copied: string[] = [];
-  const replacements: string[] = [];
-  const historyCalls: unknown[][] = [];
-  const location = { search, pathname: "/backstage/", origin: "https://example.test", replace: (url: string) => replacements.push(url) };
-  const window = new EventTarget();
-  Object.assign(window, { location });
-  Object.assign(globalThis, {
-    document, window, location,
-    sessionStorage: store,
-    history: { replaceState: (...args: unknown[]) => historyCalls.push(args) },
-    navigator: { clipboard: { writeText: async (value: string) => { copied.push(value); } } },
-    matchMedia: (_query: string) => ({ matches: false }),
-    XMLHttpRequest: class { constructor() { throw new Error("No XMLHttpRequest may be constructed"); } },
-    HTMLInputElement: FakeInput,
-    HTMLTextAreaElement: FakeTextArea,
-    HTMLButtonElement: FakeButton,
-    HTMLFieldSetElement: FakeFieldSet,
-    HTMLSelectElement: FakeSelect,
-    BACKSTAGE_BUILD_VERSION: "so6-test",
-    fetch: async (input: string, init?: RequestInit) => {
-      urls.push(input);
-      requests.push({ input, init });
-      if (input === "/api/auth/sign-out") {
-        if (signOutResponse instanceof Error) throw signOutResponse;
-        return signOutResponse;
-      }
-      if (input === "/api/backstage/answer" && answer && typeof init?.body === "string") {
-        const request: AnswerRequest = JSON.parse(init.body);
-        return new Response(JSON.stringify(await answer(request)), { status: 200, headers: { "content-type": "application/json" } });
-      }
-      if (input === "/api/backstage/coach" && coach && typeof init?.body === "string") {
-        const data: unknown = JSON.parse(init.body);
-        const question = typeof data === "object" && data !== null && "question" in data && typeof data.question === "string" ? data.question :
-          typeof data === "object" && data !== null && "scene" in data && typeof data.scene === "object" && data.scene !== null && "question" in data.scene && typeof data.scene.question === "string" ? data.scene.question : "";
-        const casesMode = typeof data === "object" && data !== null && "mode" in data && data.mode === "cases";
-        const reply = await coach(question, init.signal ?? undefined, casesMode ? "cases" : undefined);
-        return reply instanceof Response ? reply : Response.json(casesMode ? { cases: reply } : { drafts: reply, promptVersion: "coach.2", model: "claude-sonnet-5-5" });
-      }
-      if (input !== "/api/backstage/health") throw new Error(`Unexpected fetch: ${input}`);
-      return health.clone();
-    },
-  });
-  await import(`./main.ts?so6=${++importNumber}`);
-  const get = (id: string): FakeElement => {
-    const found = document.getElementById(id);
-    if (!found) throw new Error(`Missing markup element: ${id}`);
-    return found;
-  };
-  return { document, get, urls, requests, replacements, historyCalls, window, store, copied };
-}
+import { FakeNode, FakeElement, FakeInput, FakeStorage, answerYes, mount, redirectedResponse, tick } from "./dom-fixture.ts";
 
 const keyIds = ["jev-key", "anthropic-key", "openai-key", "google-key", "xai-key"];
 function fillKeys(get: (id: string) => FakeElement) {
@@ -197,7 +14,7 @@ function fillKeys(get: (id: string) => FakeElement) {
 function assertKeysBlank(get: (id: string) => FakeElement) {
   for (const id of keyIds) expect(get(id).value).toBe("");
 }
-async function tick() { await new Promise<void>((resolve) => setTimeout(resolve, 0)); }
+
 
 test("[integration] A2 load does not send sign-out", async () => {
   const page = await mount();
@@ -350,7 +167,10 @@ test("[integration] #133 K5 K6 typed scene uses cases mode and scans every field
   typeInto(page, "definition-b", "When intact.");
   typeInto(page, "cases", "My existing case");
   page.get("draft-cases").click(); await tick();
-  expect(page.get("coach-status").textContent).toBe("10 starter cases added. Edit them before running.");
+  expect(page.get("coach-status").textContent).toBe("10 starter cases ready. Choose Add or Replace before changing your cases.");
+  expect(page.get("cases").value).toBe("My existing case");
+  expect(page.get("cases-use-reply").textContent).toBe("Add 10 cases");
+  page.get("cases-use-reply").click();
   expect(page.get("cases").value).toBe("My existing case\n" + starterCases.join("\n"));
   const sent = page.requests.filter((item) => item.input === "/api/backstage/coach");
   expect(sent).toHaveLength(1);
@@ -873,7 +693,8 @@ function typeInto(page: Awaited<ReturnType<typeof mount>>, id: string, value: st
   page.get(id).dispatchEvent(new Event("input"));
 }
 
-const roomTitles = ["scene-title", "casting-title", "lines-title", "rehearsal-title", "dress-title", "opening-title"];
+const roomTitles = ["scene-title", "rehearsal-title", "dress-title"];
+const workspaceTargets = [0, 3, 4];
 function navButton(page: Awaited<ReturnType<typeof mount>>, room: number): FakeElement {
   const found = page.document.querySelectorAll("[data-room]").find((item) => item.dataset.room === String(room));
   if (!found) throw new Error(`Missing nav button ${room}`);
@@ -893,12 +714,11 @@ test("[integration] UX-125 first load leaves focus off the scene heading; changi
   const page = await mount();
   expect(page.document.activeElement).not.toBe(page.get("scene-title"));
   expect(page.document.activeElement).toBeNull();
-  navButton(page, 1).click();
-  expect(page.document.activeElement).toBe(page.get("casting-title"));
-  page.get("next").click();
-  expect(page.document.activeElement).toBe(page.get("lines-title"));
-  page.get("back").click();
-  page.get("back").click();
+  navButton(page, 3).click();
+  expect(page.document.activeElement).toBe(page.get("rehearsal-title"));
+  navButton(page, 4).click();
+  expect(page.document.activeElement).toBe(page.get("dress-title"));
+  navButton(page, 0).click();
   expect(page.document.activeElement).toBe(page.get("scene-title"));
 });
 
@@ -906,7 +726,7 @@ test("[integration] UX-C05 the skip link follows the current room and moves focu
   const page = await mount();
   expect(page.get("skip-link").getAttribute("href")).toBe("#scene-title");
   roomTitles.forEach((title, index) => {
-    navButton(page, index).click();
+    navButton(page, workspaceTargets[index] ?? 0).click();
     page.get("theme").focus();
     expect(page.document.activeElement).toBe(page.get("theme"));
     expect(page.get("skip-link").getAttribute("href")).toBe(`#${title}`);
@@ -918,42 +738,29 @@ test("[integration] UX-C05 the skip link follows the current room and moves focu
 test("[integration] UX-C03 the line under the nav names each room's own step", async () => {
   const page = await mount();
   const lines: string[] = [];
-  for (let index = 0; index < 6; index++) {
-    navButton(page, index).click();
+  for (let index = 0; index < 3; index++) {
+    navButton(page, workspaceTargets[index] ?? 0).click();
     lines.push(page.get("room-line").textContent);
   }
   expect(lines[0]).toBe("State your question and define the two answers.");
-  expect(new Set(lines).size).toBe(6);
+  expect(new Set(lines).size).toBe(3);
   for (const line of lines) expect(line.length).toBeGreaterThan(10);
 });
 
-test("[integration] UX-C01 Run stays reachable but off, with its reason, until there is a case and every selected model has its key", async () => {
-  const page = await mount();
-  await tick();
-  for (const id of ["run-one", "run-all"]) {
-    expect(page.get(id).disabled).toBe(false);
-    expect(page.get(id).getAttribute("aria-disabled")).toBe("true");
-  }
-  expect(page.get("run-reason").textContent).toBe("Add at least one case. Add your TypeSafe API key on Casting.");
-  page.get("run-all").click();
-  await tick();
-  expect(page.urls.filter((url) => url.startsWith("/api/backstage/answer"))).toEqual([]);
-  expect(page.get("notice").textContent).toBe("Add at least one case. Add your TypeSafe API key on Casting.");
-  typeInto(page, "cases", "Please refund my mug");
-  expect(page.get("run-reason").textContent).toBe("Add your TypeSafe API key on Casting.");
-  typeInto(page, "jev-key", "jev-secret-value");
-  for (const id of ["run-one", "run-all"]) expect(page.get(id).getAttribute("aria-disabled")).toBe("false");
-  expect(page.get("run-reason").textContent).toBe("");
-  compareOn(page);
-  tickModel(page, "gpt-6-luna");
-  expect(page.get("run-one").getAttribute("aria-disabled")).toBe("true");
-  expect(page.get("run-reason").textContent).toBe("Add your OpenAI API key on Casting, or untick its models.");
-  typeInto(page, "openai-key", "openai-secret-value");
-  expect(page.get("run-one").getAttribute("aria-disabled")).toBe("false");
-  // Clear keys closes the gate again without any typing.
-  page.get("clear-keys").click();
-  expect(page.get("run-one").getAttribute("aria-disabled")).toBe("true");
-  expect(page.get("run-reason").textContent).toBe("Add your TypeSafe API key on Casting. Add your OpenAI API key on Casting, or untick its models.");
+test("[integration] UX-C01 Run stays reachable with a field-linked explanation until all required inputs and selected keys are valid", async () => {
+  const page=await mount(); await tick();
+  for(const id of ["run-one","run-all"]) {expect(page.get(id).disabled).toBe(false);expect(page.get(id).getAttribute("aria-disabled")).toBe("true");}
+  expect(page.get("run-reason").textContent).toContain("One question");
+  page.get("run-all").click();await tick();
+  expect(page.urls.filter((url)=>url.startsWith("/api/backstage/answer"))).toEqual([]);
+  expect(page.document.activeElement).toBe(page.get("question"));
+  for(const [id,value] of Object.entries({question:"Refund?","definition-a":"Explicit request","definition-b":"Anything else",acceptance:"Match the meaning",cases:"Please refund my mug"})) typeInto(page,id,value);
+  expect(page.get("run-reason").textContent).toContain("TypeSafe API key");
+  typeInto(page,"jev-key","jev-secret-value");expect(page.get("run-reason").textContent).toBe("");
+  compareOn(page);tickModel(page,"gpt-6-luna");expect(page.get("run-reason").textContent).toContain("OpenAI API key");
+  typeInto(page,"openai-key","openai-secret-value");expect(page.get("run-one").getAttribute("aria-disabled")).toBe("false");
+  page.get("clear-keys").click();expect(page.get("run-one").getAttribute("aria-disabled")).toBe("true");
+  expect(page.get("run-reason").textContent).toContain("TypeSafe API key");
 });
 
 test("[integration] UX-C01 the spend preview gives a money range beside the call count and names unpriced models", async () => {
@@ -993,7 +800,7 @@ test("[integration] UX-C05 Reveal and Download stay in Tab order with a reason u
   typeInto(page, "cases", "Please refund my mug");
   await runFirstCase(page);
   // Both files wait for judging; each locked button is described by the reason.
-  expect(page.get("download-reason").textContent).toBe("Finish judging in Rehearsals to unlock downloads.");
+  expect(page.get("download-reason").textContent).toBe("Finish judging in Review answers to unlock downloads.");
   for (const id of ["download-csv", "download-evidence"]) expect(page.get(id).getAttribute("aria-disabled")).toBe("true");
   expect(page.get("download-csv").getAttribute("aria-describedby")).toBe("download-reason csv-note");
   expect(page.get("download-evidence").getAttribute("aria-describedby")).toBe("download-reason");
@@ -1086,17 +893,6 @@ test("[integration] D11 a well-formed CSV import reports the count", async () =>
   expect(page.get("cases").value).toBe("fine\nalso fine");
 });
 
-async function answerYes(request: AnswerRequest) {
-  return {
-    ok: true, runId: request.runId, revision: request.revision, caseId: request.caseId,
-    provider: request.provider, attemptId: crypto.randomUUID(), fingerprint: await inputFingerprint(request),
-    startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), latencyMs: 10,
-    model: request.modelId, armId: request.armId, catalogVersion: request.catalogVersion,
-    promptVersion: request.promptVersion, requestedModel: request.modelId, returnedModel: request.modelId,
-    parameters: getModelEntry(request.armId)?.parameters, tokensIn: 20, tokensOut: 1, costUsd: 0.001,
-    priceVersion: "2026-10-03", output: "yes", confidence: null,
-  };
-}
 function fillScene(page: Awaited<ReturnType<typeof mount>>, exclusions = "") {
   typeInto(page, "question", "Which choice?");
   typeInto(page, "definition-a", "First choice");
@@ -1408,7 +1204,7 @@ test("[e2e] M2 blind integrity per case: picking one case shows its ranking and 
   // Evidence holds every answer, so it stays locked until judging finishes (aria-disabled keeps it in Tab order).
   expect(page.get("download-evidence").getAttribute("aria-disabled")).toBe("true");
   page.get("download-evidence").click();
-  expect(page.get("notice").textContent).toBe("Finish judging in Rehearsals to unlock downloads.");
+  expect(page.get("notice").textContent).toBe("Finish judging in Review answers to unlock downloads.");
 });
 test("[e2e] #133 B7 C2 compare hides plain Jev and LLM outputs for every unpicked case", async () => {
   const page = await mount(undefined, undefined, undefined, async (request) => ({

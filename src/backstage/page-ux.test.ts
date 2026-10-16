@@ -1,4 +1,13 @@
 import { expect, test } from "bun:test";
+function closedDisclosureBefore(html: string, position: number): boolean {
+  const stack: boolean[] = [];
+  for (const match of html.slice(0, position).matchAll(/<details\b[^>]*>|<\/details>/g)) {
+    if (match[0].startsWith("</")) stack.pop();
+    else stack.push(!/\sopen(?:\s|>|=)/.test(match[0]));
+  }
+  return stack.some(Boolean);
+}
+
 import { createHash } from "node:crypto";
 import { PURPOSE_SENTENCE } from "./purpose.ts";
 import { renderSignInPage } from "./sign-in-page.ts";
@@ -10,7 +19,7 @@ function flat(value: string): string {
   return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 function openTag(html: string, id: string): string {
-  return new RegExp(`<[a-z]+\\b[^>]*\\bid="${id}"[^>]*>`).exec(html)?.[0] ?? "";
+  return new RegExp(`<[a-z][a-z0-9]*\\b[^>]*\\bid="${id}"[^>]*>`).exec(html)?.[0] ?? "";
 }
 function panel(html: string, index: number): string {
   return new RegExp(`<section data-panel="${index}"[\\s\\S]*?</section>`).exec(html)?.[0] ?? "";
@@ -38,7 +47,9 @@ test("[smoke] UX-C01 Run buttons point at a reachable reason and the estimate ba
   const html = await page();
   for (const id of ["run-one", "run-all"]) {
     const tag = openTag(html, id);
-    expect(tag).toContain('aria-describedby="run-reason"');
+    const reason = id === "run-one" ? "run-one-reason" : "run-reason";
+    expect(tag).toContain(`aria-describedby="${reason}"`);
+    expect(openTag(html, reason)).toBeTruthy();
     expect(tag).not.toMatch(/\sdisabled(\s|>|=)/);
   }
   expect(openTag(html, "run-reason")).toBeTruthy();
@@ -71,7 +82,7 @@ test("[smoke] W5 every pre-existing Backstage id survives", async () => {
   const html = await page();
   const oldIds = [...html.matchAll(/id="([^"]+)"/g)]
     .map((match) => match[0])
-    .filter((id) => id !== 'id="topic-heading"' && id !== 'id="start-pack"' && id !== 'id="question-hint"')
+    .filter((id) => !["topic-heading","start-pack","question-hint","cases-mutation-preview","cases-replace","confirm-replace","confirm-replace-title","confirm-replace-message","confirm-replace-yes","confirm-replace-no","fix-run","review-run","run-one-reason"].some((added) => id === 'id="' + added + '"'))
     .sort();
   const digest = (ids: readonly string[]) => createHash("sha256").update(ids.join("\n") + "\n").digest("hex");
   expect(digest(oldIds)).toBe("5143692d364687a22ce0f9219673fb8ad72e129931ec7e61f4a93d7600e8e1b2");
@@ -86,16 +97,7 @@ test("[smoke] W5 the first heading asks for the tester's question before the fir
   expect(flat(html.slice(html.indexOf("<main>"), firstField?.index ?? 0))).not.toMatch(/\b(?:Scene|Casting|Learning Lines|Rehearsals|Dress Rehearsal|Opening Night|Act)\b/i);
 });
 
-test("[smoke] W5 tabs lead with plain names and put theatre names in secondary text", async () => {
-  const html = await page();
-  const nav = /<nav[\s\S]*?<\/nav>/.exec(html)?.[0] ?? "";
-  plainSteps.forEach((plain, index) => {
-    const tab = new RegExp(`<button data-room="${index}"[\\s\\S]*?</button`).exec(nav)?.[0] ?? "";
-    expect(flat(/<span>([^<]+)<\/span>/.exec(tab)?.[1] ?? "")).toBe(plain);
-    expect(flat(/<small class="job">([^<]+)<\/small>/.exec(tab)?.[1] ?? "")).toBe(theatreSteps[index] ?? "");
-  });
-});
-
+test("[smoke] W5 workspace navigation uses three task-oriented targets without theatre subtitles",async()=>{const html=await page();const nav=/<nav[\s\S]*?<\/nav>/.exec(html)?.[0]??"";expect(flat(nav)).toContain("Setup and run");expect(flat(nav)).toContain("Review answers");expect(flat(nav)).toContain("Results and downloads");expect(nav.match(/data-room=/g)).toHaveLength(3);for(const word of theatreSteps)expect(nav).not.toContain(word);});
 test("[smoke] W5 each step starts with one Jev tutorial sentence before controls", async () => {
   const html = await page();
   plainSteps.forEach((_, index) => {
@@ -113,31 +115,17 @@ test("[unit] W5 heading, field order, tab priority and tutorial checks reject mu
   const html = await page();
   const firstHeading = (source: string) => flat(/<h1[^>]*>([\s\S]*?)<\/h1>/.exec(source)?.[1] ?? "");
   const firstField = (source: string) => /<(?:input|textarea|select)\b[^>]*\bid="([^"]+)"/.exec(source)?.[1];
-  const firstTab = (source: string) => flat(/<button data-room="0"[\s\S]*?<span>([^<]+)<\/span>/.exec(source)?.[1] ?? "");
+  const firstTab = (source: string) => flat(/<button data-room="0"[^>]*>([\s\S]*?)<\/button>/.exec(source)?.[1] ?? "");
   const firstTutorial = (source: string) => flat(/<p class="direction">([\s\S]*?)<\/p>/.exec(firstStep(source))?.[1] ?? "");
   expect(firstHeading(html.replace("What do you want to decide?</h1>", "Backstage Pass</h1>"))).not.toBe("What do you want to decide?");
   expect(firstField(html.replace('<textarea id="question"', '<input id="premature"><textarea id="question"'))).not.toBe("question");
-  expect(firstTab(html.replace("<span>Your question</span>", "<span>New Scene</span>"))).not.toBe("Your question");
+  expect(firstTab(html)).toBe("Setup and run");
+  expect(firstTab(html.replace("Setup and run</button>","New Scene</button>"))).not.toBe("Setup and run");
   expect(firstTutorial(html.replace("Jev answers your question with one of your two choices and how sure it is so you can test which answers to keep.</p>", "Set the scene before the first call.</p>"))).not.toMatch(/^Jev .*\.$/);
 });
 
-test("[smoke] UX-C03 every room names its plain job in the nav and in its heading", async () => {
-  const html = await page();
-  const nav = /<nav[\s\S]*?<\/nav>/.exec(html)?.[0] ?? "";
-  jobs.forEach((job, index) => {
-    const navButton = new RegExp(`<button data-room="${index}"[\\s\\S]*?</button`).exec(nav)?.[0] ?? "";
-    expect(flat(navButton)).toContain(job);
-    // A literal space keeps the accessible name from running the two labels together.
-    expect(navButton).toContain(`<span>${job}</span> <small class="job">${theatreSteps[index]}</small>`);
-    expect(flat(roomTitle(html, titles[index] ?? ""))).toContain(job);
-  });
-});
-
-test("[smoke] W5 each room leads with the plain name and keeps theatre secondary", async () => {
-  const html = await page();
-  titles.forEach((title, index) => expect(roomTitle(html, title)).toContain(`${jobs[index]} <span class="job">${theatreSteps[index]}</span>`));
-});
-
+test("[smoke] UX-C03 workspace targets reference accessible headings for setup review and results",async()=>{const html=await page();for(const [id,name] of [["scene-title","Your question"],["rehearsal-title","Judge the answers"],["dress-title","Cost and downloads"]]){expect(flat(roomTitle(html,id??""))).toContain(name??"");expect(openTag(html,id??"")).toContain('tabindex="-1"');}});
+test("[smoke] W5 all sections have plain headings without theatre subtitles",async()=>{const html=await page();titles.forEach((title,index)=>{expect(flat(roomTitle(html,title))).toContain(jobs[index]??"");expect(roomTitle(html,title)).not.toContain('class="job"');});});
 test("[smoke] UX-C04 room 1 opens with a Before you start box naming every requirement", async () => {
   const html = await page();
   const room = panel(html, 0);
@@ -145,6 +133,8 @@ test("[smoke] UX-C04 room 1 opens with a Before you start box naming every requi
   expect(room.indexOf('id="before-you-start"')).toBeGreaterThan(-1);
   expect(room.indexOf('id="before-you-start"')).toBeGreaterThan(room.indexOf('id="scene-fields"'));
   expect(openTag(box, "before-you-start")).not.toMatch(/\shidden(\s|>|=)/);
+  expect(closedDisclosureBefore(room, room.indexOf('id="before-you-start"'))).toBe(false);
+  expect(closedDisclosureBefore(`<details>${room}</details>`, room.indexOf('id="before-you-start"') + 9)).toBe(true);
   const shown = flat(box);
   for (const required of ["Before you start", "your own Jev key", "billed to your own provider accounts", "30 paired, human-labelled cases", "synthetic or redacted data only", PURPOSE_SENTENCE])
     expect(shown).toContain(required);

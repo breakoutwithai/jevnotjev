@@ -80,7 +80,7 @@ export interface ServerOptions {
   /** Ticket office lead store; without a path the ticket routes answer 503. */
   readonly tickets?: { readonly path?: string | undefined };
   /** TokenMax map board store (src/backstage/maps.ts); without a path the /api/maps routes answer 503. */
-  readonly maps?: { readonly path?: string | undefined };
+  readonly maps?: { readonly path?: string | undefined; readonly maxRows?: number | undefined };
   /** /api/v1 bearer-token state file (src/backstage/api-tokens.ts); without one, or inside staticRoot, every /api/v1 route answers 401. */
   readonly api?: {
     readonly tokensPath?: string | undefined;
@@ -224,8 +224,10 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     trialCookieName = "backstage_trial";
   const ticketStore = options.tickets?.path ? new TicketStore(options.tickets.path) : null;
   const ticketLimiter = new TicketLimiter(clock);
-  const mapStore = options.maps?.path ? new MapStore(options.maps.path) : null;
+  const mapStore = options.maps?.path ? new MapStore(options.maps.path, { maxRows: options.maps.maxRows }) : null;
   const mapLimiter = new TicketLimiter(clock);
+  // Delete has its own window, so shares (and rejected shares) from one address never block deleting a row.
+  const mapDeleteLimiter = new TicketLimiter(clock);
   const mapLog = createMapLogger(clock, options.log);
   const tokensPath = options.api?.tokensPath;
   const api = createApiV1({
@@ -729,13 +731,13 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       const reject = (reason: string, status: number, extra: Record<string, string> = {}): Response => { mapLog({ event: "map.rejected", rid, reason }); return json({ code: reason, ...extra }, status); };
       if (!deleting && request.method === "GET") {
         if (!mapStore) return reject("maps-unavailable", 503);
-        return json(mapStore.board());
+        return json(mapStore.board(clock()));
       }
       if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
       if (request.headers.get("origin") !== origin || request.headers.get("sec-fetch-site") === "cross-site") return reject("origin-rejected", 403);
       if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") return reject("json-required", 415);
       if (!mapStore) return reject("maps-unavailable", 503);
-      if (!mapLimiter.allow(ip)) return reject("rate-limited", 429);
+      if (!(deleting ? mapDeleteLimiter : mapLimiter).allow(ip)) return reject("rate-limited", 429);
       const cap = deleting ? MAX_MAP_DELETE_BODY : MAX_MAP_BODY;
       if (Number(request.headers.get("content-length") ?? 0) > cap) return reject("too-large", 413);
       let decoded: unknown;
@@ -760,8 +762,9 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       try { issued = mapStore.issue(checked.map, clock()); }
       catch { return reject("store-error", 503); }
       if (issued.status === "conflict") return reject("request-key-reused", 409);
+      if (issued.status === "full") return reject("maps-full", 503);
       mapLog({ event: "map.stored", rid, id: issued.id, replay: issued.status === "replay" });
-      return json({ id: issued.id, replay: issued.status === "replay", delete: `/maps/#delete=${issued.id}.${checked.map.requestKey}`, board: mapStore.board() });
+      return json({ id: issued.id, replay: issued.status === "replay", delete: `/maps/#delete=${issued.id}.${checked.map.requestKey}`, board: mapStore.board(clock()) });
     }
     if (pathname.startsWith("/api/"))
       return json({ error: "Not found." }, 404);

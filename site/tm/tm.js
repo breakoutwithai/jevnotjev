@@ -115,7 +115,7 @@
     });
   }
 
-  /* -------- Scene D: two real jobs walk to their doors (the ruled one first, then the one no rule matches). The walk
+  /* -------- Scene D: two example jobs walk to their doors (the ruled one first, then the one no rule matches). The walk
      shows the route a rule or Jev would take; #236 has not run, so nothing here is a result. -------- */
   var walks = [$('walk1'), $('walk2')];
   function placeJobs(t) {
@@ -210,8 +210,26 @@
     }
   }
 
+  /* Reduced motion turned on while the page is open: drop every scripted style and draw the static end state. */
+  function toStatic() {
+    if (!motion) return;
+    motion = false;
+    removeEventListener('scroll', onScroll);
+    document.documentElement.classList.remove('motion');
+    Array.prototype.forEach.call(document.querySelectorAll('#stage [style]'), function (n) { n.removeAttribute('style'); });
+    $('lnk').classList.remove('lit');
+    key.classList.remove('show', 'down');
+    caret.classList.remove('blink');
+    sur.classList.remove('swap');
+    layout();
+  }
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)');
+  if (reduce.addEventListener) reduce.addEventListener('change', function (e) { if (e.matches) toStatic(); });
+
   (document.fonts ? document.fonts.ready : Promise.resolve()).then(layout);
   layout();
   addEventListener('resize', layout);
   if (motion) addEventListener('scroll', onScroll, { passive: true });
+  /* the head script keeps the motion layout only when this is set by the window load event */
+  document.documentElement.setAttribute('data-tm-ready', '');
 })();

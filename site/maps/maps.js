@@ -11,6 +11,9 @@
   var TOKEN_KEYS = ["claude", "codex"];
   var SOURCES = ["claude", "codex", "claude+codex"];
   var MAX_FRAGMENT = 4096;
+  /* tm-share/1 [min, max] per leaf: the same table as src/backstage/maps.ts MAP_BOUNDS and the mapper's RANGES
+     (src/backstage/maps.test.ts asserts the three agree, reading this line as JSON). */
+  var BOUNDS = {"days":[1,90],"sessions":[0,1000000],"subagent_sessions":[0,1000000],"caps.short":[0,10000],"caps.weekly":[0,10000],"caps.unknown":[0,10000],"output_tokens.claude":[0,1000000000000],"output_tokens.codex":[0,1000000000000],"opus_share_pct":[0,100],"codex_weekly_pct":[0,100]};
 
   var el = function (id) { return document.getElementById(id); };
   var status = el("mapStatus");
@@ -18,6 +21,7 @@
 
   function isObj(v) { return typeof v === "object" && v !== null && !Array.isArray(v); }
   function int(v, lo, hi) { return typeof v === "number" && Number.isSafeInteger(v) && v >= lo && v <= hi; }
+  function inRange(v, leaf) { return int(v, BOUNDS[leaf][0], BOUNDS[leaf][1]); }
   function sameKeys(o, keys) {
     var own = Object.keys(o);
     if (own.length !== keys.length) return false;
@@ -33,15 +37,15 @@
     for (var i = 0; i < KEYS.length; i++) if (own[i] !== KEYS[i]) return false;
     if (p.v !== "tm-share/1") return false;
     if (typeof p.skill !== "string" || !/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(p.skill)) return false;
-    if (!int(p.days, 1, 90)) return false;
+    if (!inRange(p.days, "days")) return false;
     if (SOURCES.indexOf(p.sources) < 0) return false;
-    if (!int(p.sessions, 0, 1000000) || !int(p.subagent_sessions, 0, p.sessions)) return false;
+    if (!inRange(p.sessions, "sessions") || !inRange(p.subagent_sessions, "subagent_sessions") || p.subagent_sessions > p.sessions) return false;
     if (!isObj(p.caps) || !sameKeys(p.caps, CAP_KEYS)) return false;
-    for (var c = 0; c < CAP_KEYS.length; c++) if (!int(p.caps[CAP_KEYS[c]], 0, 10000)) return false;
+    for (var c = 0; c < CAP_KEYS.length; c++) if (!inRange(p.caps[CAP_KEYS[c]], "caps." + CAP_KEYS[c])) return false;
     if (!isObj(p.output_tokens) || !sameKeys(p.output_tokens, TOKEN_KEYS)) return false;
-    for (var t = 0; t < TOKEN_KEYS.length; t++) if (!int(p.output_tokens[TOKEN_KEYS[t]], 0, 1000000000000)) return false;
-    if (!int(p.opus_share_pct, 0, 100)) return false;
-    if (p.codex_weekly_pct !== null && !int(p.codex_weekly_pct, 0, 100)) return false;
+    for (var t = 0; t < TOKEN_KEYS.length; t++) if (!inRange(p.output_tokens[TOKEN_KEYS[t]], "output_tokens." + TOKEN_KEYS[t])) return false;
+    if (!inRange(p.opus_share_pct, "opus_share_pct")) return false;
+    if (p.codex_weekly_pct !== null && !inRange(p.codex_weekly_pct, "codex_weekly_pct")) return false;
     return true;
   }
 
@@ -254,17 +258,33 @@
     var requestKey = b64url(crypto.getRandomValues(new Uint8Array(32)));
     var button = el("mapShare");
     var busy = false;
+    // After an answer that may mean the row was stored (no answer, or an unreadable one), the retry must repeat the
+    // first request exactly, or the server sees the same key with other details (409) and the delete link is lost.
+    var sentAlias = null;
+    function retry(text, ambiguous, aliasValue) {
+      busy = false;
+      button.disabled = false;
+      if (ambiguous) {
+        sentAlias = aliasValue;
+        alias.readOnly = true;
+        text += " The alias stays as sent until this share goes through.";
+      }
+      warn(text);
+      button.focus();
+    }
     button.addEventListener("click", function () {
       if (busy) return;
-      if (!alias.checkValidity()) { warn("Not shared: the alias must be 3 to 24 lowercase letters, digits or hyphens."); alias.focus(); return; }
+      if (sentAlias === null && !alias.checkValidity()) { warn("Not shared: the alias must be 3 to 24 lowercase letters, digits or hyphens."); alias.focus(); return; }
+      var aliasValue = sentAlias !== null ? sentAlias : alias.value;
       busy = true;
       button.disabled = true;
       clearMessages();
-      postJson("/api/maps", { payload: payload, alias: alias.value, request_key: requestKey, nickname: el("mapNickname").value })
+      // From here the request may reach the server, so the "nothing sent" line would no longer be true.
+      el("mapNotSent").hidden = true;
+      postJson("/api/maps", { payload: payload, alias: aliasValue, request_key: requestKey, nickname: el("mapTrap").value })
         .then(function (res) {
           if (res.ok && isObj(res.body) && typeof res.body.id === "string") {
             el("mapPreview").hidden = true;
-            el("mapNotSent").hidden = true;
             var a = el("mapDeleteLink").querySelector("a");
             var href = typeof res.body["delete"] === "string" ? new URL(res.body["delete"], location.origin).href : "";
             a.href = href;
@@ -273,16 +293,21 @@
             renderBoard(res.body.board, res.body.id);
             history.replaceState(null, "", location.pathname + location.search);
             say("Shared. Your row is on the board.");
+            a.focus();
             return;
           }
-          if (res.ok) { el("mapPreview").hidden = true; say("Received. Nothing was added to the board."); return; }
-          busy = false;
-          button.disabled = false;
-          warn("Not shared: " + reasonOf(res.body, res.status) + ".");
+          // Only the server's honeypot answer is {"ok":true} with no id; any other success without an id is unreadable.
+          if (res.ok && isObj(res.body) && res.body.ok === true && Object.keys(res.body).length === 1) {
+            el("mapPreview").hidden = true;
+            say("Received. Nothing was added to the board.");
+            status.tabIndex = -1;
+            status.focus();
+            return;
+          }
+          if (res.ok) { retry("Not shared: the server's answer could not be read. Press Share to try again.", true, aliasValue); return; }
+          retry("Not shared: " + reasonOf(res.body, res.status) + ".", false, aliasValue);
         }, function () {
-          busy = false;
-          button.disabled = false;
-          warn("Not shared: the request did not reach the server. Press Share to try again.");
+          retry("Not shared: the request did not reach the server. Press Share to try again.", true, aliasValue);
         });
     });
   }

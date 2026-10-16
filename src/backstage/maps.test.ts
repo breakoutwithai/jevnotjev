@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHandler } from "./server.ts";
-import { checkMap, MapStore, MAX_MAP_BODY } from "./maps.ts";
-import { addClaude, buildShare, newClaudeState, newCodexState, parseClaudeLine, summarise } from "../../skills/tokenmax-map/scripts/map.ts";
+import { BOARD_CACHE_MS, checkMap, MAP_BOUNDS, MapStore, MAX_MAP_BODY } from "./maps.ts";
+import { addClaude, buildShare, newClaudeState, newCodexState, parseClaudeLine, RANGES, summarise } from "../../skills/tokenmax-map/scripts/map.ts";
 
 const ORIGIN = "http://localhost:3456";
 const KEY = "k".repeat(22) + "AbC_-0123456789xyzQRSTU";
@@ -329,6 +329,50 @@ describe("/api/maps route", () => {
     store.close();
   });
 
+  test("[integration] delete has its own limiter: five shares from one address do not block its delete", async () => {
+    const { handler } = setup();
+    let id = "";
+    for (let i = 0; i < 5; i++) {
+      const data: unknown = await (await handler(...post("/api/maps", { ...body, request_key: `${KEY.slice(0, 40)}${i}` }))).json();
+      if (i === 0) id = typeof data === "object" && data !== null && "id" in data && typeof data.id === "string" ? data.id : "";
+    }
+    expect((await handler(...post("/api/maps", { ...body, request_key: `${KEY.slice(0, 40)}9` }))).status).toBe(429);
+    const deleted = await handler(...post("/api/maps/delete", { id, key: `${KEY.slice(0, 40)}0` }));
+    expect(deleted.status).toBe(200);
+    for (let i = 0; i < 4; i++) await handler(...post("/api/maps/delete", { id: "TM-0123456789AB", key: KEY }));
+    expect((await handler(...post("/api/maps/delete", { id: "TM-0123456789AB", key: KEY }))).status).toBe(429);
+  });
+
+  test("[integration] the store holds at most maxRows maps: a new map past the cap is 503 maps-full, a replay still answers", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "maps-full-"));
+    const path = join(dir, "maps.sqlite");
+    const now = Date.UTC(2026, 9, 16, 12);
+    const handler = createHandler({ version: "test", origin: ORIGIN, staticRoot: join(dir, "site"), maps: { path, maxRows: 2 }, log: () => {}, auth: { clock: () => now } });
+    for (let i = 0; i < 2; i++) expect((await handler(...post("/api/maps", { ...body, request_key: `${KEY.slice(0, 40)}${i}` }, { ip: `198.51.100.${10 + i}` }))).status).toBe(200);
+    const full = await handler(...post("/api/maps", { ...body, request_key: `${KEY.slice(0, 40)}7` }, { ip: "198.51.100.20" }));
+    expect(full.status).toBe(503);
+    expect(await full.json()).toEqual({ code: "maps-full" });
+    expect((await handler(...post("/api/maps", { ...body, request_key: `${KEY.slice(0, 40)}0` }, { ip: "198.51.100.21" }))).status).toBe(200);
+    expect(rowCount(path)).toBe(2);
+  });
+
+  test("[integration] the board is cached for a few seconds and refreshed at once by a share or a delete", async () => {
+    const { handler, path, tick } = setup();
+    expect((await board(handler)).totals).toEqual({ builders: 0, cap_episodes: 0, with_weekly_cap: 0 });
+    // A row written by another connection is not read until the cache expires.
+    const other = new MapStore(path);
+    const checked = checkMap(body);
+    if (!checked.ok || "trap" in checked) throw new Error("expected accept");
+    other.issue({ ...checked.map, requestKey: `${KEY.slice(0, 40)}x` }, Date.UTC(2026, 9, 16));
+    other.close();
+    expect((await board(handler)).totals.builders).toBe(0);
+    tick(BOARD_CACHE_MS + 1);
+    expect((await board(handler)).totals.builders).toBe(1);
+    // A share through this server shows at once.
+    expect((await handler(...post("/api/maps", body))).status).toBe(200);
+    expect((await board(handler)).totals.builders).toBe(2);
+  });
+
   test("[integration] 31 the store file is mode 0600 and logs carry no key, alias or payload", async () => {
     const { handler, path, logs } = setup();
     await handler(...post("/api/maps", body));
@@ -351,6 +395,16 @@ describe("/api/maps route", () => {
 });
 
 describe("cross-contract with the mapper", () => {
+  test("[unit] the tm-share/1 bounds agree across the mapper, the server and the /maps/ page", () => {
+    const mapper = Object.fromEntries(RANGES.map(([leaf, lo, hi]) => [leaf, [lo, hi]]));
+    const source = readFileSync(join(import.meta.dir, "..", "..", "site", "maps", "maps.js"), "utf8");
+    const literal = /var BOUNDS = (\{[^;]*\});/.exec(source)?.[1] ?? "null";
+    const page: unknown = JSON.parse(literal);
+    expect(Object.keys(mapper).length).toBe(10);
+    expect(Object.fromEntries(Object.entries(MAP_BOUNDS).map(([leaf, range]) => [leaf, [...range]]))).toEqual(mapper);
+    expect(page).toEqual(mapper);
+  });
+
   test("[integration] 33 a payload built by tokenmax-map buildShare from a tiny fixture passes checkMap", () => {
     const from = Date.UTC(2026, 9, 9);
     const to = Date.UTC(2026, 9, 16);

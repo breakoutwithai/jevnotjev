@@ -15,7 +15,7 @@
 
 import { createReadStream, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { createInterface } from "node:readline";
 
 export const VERSION = "0.3.0";
@@ -81,7 +81,7 @@ export type ClaudeUsage = { messageId: string; ts: number; order: number; sessio
 export type ClaudeParsed =
   | { kind: "usage"; usage: ClaudeUsage }
   | { kind: "cap"; cap: CapOccurrence }
-  | { kind: "error"; category: string }
+  | { kind: "error"; category: string; ts: number }
   | { kind: "skip" }
   | { kind: "malformed" }
   | { kind: "unsupported" };
@@ -109,10 +109,10 @@ export function parseClaudeLine(line: string, ctx: { subagent: boolean; order: n
   const msg = raw.message;
   if (raw.isApiErrorMessage === true) {
     const category = str(raw.error) || "unknown";
-    if (category !== "rate_limit") return { kind: "error", category };
+    if (category !== "rate_limit") return { kind: "error", category, ts };
     let text = "";
     if (Array.isArray(msg.content)) for (const c of msg.content) if (isRec(c)) text += str(c.text);
-    if (!/hit your .{0,12}limit|usage limit/i.test(text)) return { kind: "error", category: "rate_limit-generic" };
+    if (!/hit your .{0,12}limit|usage limit/i.test(text)) return { kind: "error", category: "rate_limit-generic", ts };
     const { window, reset } = classifyClaudeNotice(text);
     return { kind: "cap", cap: { source: "claude", ts, window, reset, session, eventId: str(raw.uuid) } };
   }
@@ -154,7 +154,7 @@ export function addClaude(s: ClaudeState, p: ClaudeParsed, from: number, to: num
   s.cov.parsed++;
   if (p.kind === "malformed") { s.cov.malformed++; return; }
   if (p.kind === "unsupported") { s.cov.unsupported++; return; }
-  const ts = p.kind === "usage" ? p.usage.ts : p.kind === "cap" ? p.cap.ts : from;
+  const ts = p.kind === "usage" ? p.usage.ts : p.kind === "cap" ? p.cap.ts : p.ts;
   if (ts < from || ts > to) { s.cov.outOfPeriod++; return; }
   s.cov.accepted++;
   if (p.kind === "error") { s.errors.set(p.category, (s.errors.get(p.category) ?? 0) + 1); return; }
@@ -192,11 +192,22 @@ export type CodexSession = {
   established: CodexTokens;
   baselines: number;
   days: Map<string, number>;
+  /** input + output per model, credited to the model of the latest turn_context before each reading. */
+  byModel: Map<string, number>;
 };
 export type WindowReading = { ts: number; slot: string; usedPercent: number; windowMinutes: number; resetsAt: number };
-/** lastReading is the latest in-period window reading of any window; lastWeekly the latest weekly (10080-minute) one. */
-export type CodexState = { cov: Coverage; sessions: CodexSession[]; caps: CapOccurrence[]; reachedWithoutWindow: number; lastReading: WindowReading | undefined; lastWeekly: WindowReading | undefined };
-export const newCodexState = (): CodexState => ({ cov: newCoverage(), sessions: [], caps: [], reachedWithoutWindow: 0, lastReading: undefined, lastWeekly: undefined });
+/**
+ * lastReading is the latest in-period window reading of any window; lastWeekly the latest weekly (10080-minute) one.
+ * badReadings counts window slots whose used_percent is not a finite non-negative number, or whose resets_at is not
+ * a representable date: they are never readings.
+ */
+export type CodexState = { cov: Coverage; sessions: CodexSession[]; caps: CapOccurrence[]; reachedWithoutWindow: number; badReadings: number; lastReading: WindowReading | undefined; lastWeekly: WindowReading | undefined };
+export const newCodexState = (): CodexState => ({ cov: newCoverage(), sessions: [], caps: [], reachedWithoutWindow: 0, badReadings: 0, lastReading: undefined, lastWeekly: undefined });
+/** Epoch seconds that make a valid Date, else undefined. */
+const epochSeconds = (v: unknown): number | undefined => {
+  const s = counter(v);
+  return s !== undefined && Number.isFinite(new Date(s * 1000).getTime()) ? s : undefined;
+};
 
 const readTotals = (v: unknown): CodexTokens | undefined => {
   if (!isRec(v)) return undefined;
@@ -247,9 +258,9 @@ export function addCodexLine(st: CodexState, sess: CodexSession, line: string, f
     if (!sess.prev) {
       const fromStart = sess.startTs !== undefined && sess.startTs >= from && !sess.forked;
       if (fromStart && inPeriod) addDelta(sess, cur, ts);
-      else sess.baselines++;
+      else if (inPeriod) sess.baselines++;
     } else if (cur.input < sess.prev.input || cur.output < sess.prev.output) {
-      sess.baselines++;
+      if (inPeriod) sess.baselines++;
     } else if (inPeriod) {
       const d = zeroCodex();
       for (const [k] of CODEX_KEYS) d[k] = Math.max(0, cur[k] - sess.prev[k]);
@@ -266,15 +277,18 @@ export function addCodexLine(st: CodexState, sess: CodexSession, line: string, f
   for (const slot of ["primary", "secondary"]) {
     const w = rl[slot];
     if (!isRec(w)) continue;
-    const used = typeof w.used_percent === "number" ? w.used_percent : 0;
-    const reading: WindowReading = { ts, slot, usedPercent: used, windowMinutes: counter(w.window_minutes) ?? 0, resetsAt: counter(w.resets_at) ?? 0 };
+    const used = w.used_percent;
+    if (typeof used !== "number" || !Number.isFinite(used) || used < 0) { st.badReadings++; continue; }
+    const resetsAt = epochSeconds(w.resets_at);
+    if (resetsAt === undefined && w.resets_at !== undefined && w.resets_at !== null) st.badReadings++;
+    const reading: WindowReading = { ts, slot, usedPercent: used, windowMinutes: counter(w.window_minutes) ?? 0, resetsAt: resetsAt ?? 0 };
     if (!st.lastReading || ts >= st.lastReading.ts) st.lastReading = reading;
     if (reading.windowMinutes === 10080 && (!st.lastWeekly || ts >= st.lastWeekly.ts)) st.lastWeekly = reading;
     if (used < 100) continue;
     found = true;
     const wm = counter(w.window_minutes);
     const window: Window = wm === 10080 ? "weekly" : wm !== undefined && wm <= 300 ? "short" : "unknown";
-    st.caps.push({ source: "codex", ts, window, reset: String(counter(w.resets_at) ?? ""), session: sess.id, eventId: "" });
+    st.caps.push({ source: "codex", ts, window, reset: String(resetsAt ?? ""), session: sess.id, eventId: "" });
   }
   if (reached && !found) {
     st.reachedWithoutWindow++;
@@ -286,17 +300,20 @@ function addDelta(sess: CodexSession, d: CodexTokens, ts: number): void {
   for (const [k] of CODEX_KEYS) sess.established[k] += d[k];
   const day = dayOf(ts);
   sess.days.set(day, (sess.days.get(day) ?? 0) + d.input + d.output);
+  sess.byModel.set(sess.model, (sess.byModel.get(sess.model) ?? 0) + d.input + d.output);
 }
 
 // ---------- file walking ----------
 
-export function listJsonl(dir: string, minMtime: number): string[] {
+/** The .jsonl files under dir modified at or after minMtime. A folder or file that cannot be read counts in cov.unreadable. */
+export function listJsonl(dir: string, minMtime: number, cov?: Coverage): string[] {
   const out: string[] = [];
   const walk = (d: string): void => {
     let entries;
     try {
       entries = readdirSync(d, { withFileTypes: true });
     } catch {
+      if (cov) cov.unreadable++;
       return;
     }
     for (const e of entries) {
@@ -306,7 +323,7 @@ export function listJsonl(dir: string, minMtime: number): string[] {
         try {
           if (statSync(p).mtimeMs >= minMtime) out.push(p);
         } catch {
-          // vanished between readdir and stat
+          if (cov) cov.unreadable++;
         }
       }
     }
@@ -331,7 +348,7 @@ async function eachLine(path: string, cov: Coverage, fn: (line: string) => void)
 
 export async function scanClaude(dir: string, from: number, to: number): Promise<ClaudeState> {
   const s = newClaudeState();
-  for (const f of listJsonl(dir, from)) {
+  for (const f of listJsonl(dir, from, s.cov)) {
     const subagent = f.split(sep).includes("subagents");
     await eachLine(f, s.cov, (line) => addClaude(s, parseClaudeLine(line, { subagent, order: s.order++ }), from, to));
   }
@@ -340,8 +357,8 @@ export async function scanClaude(dir: string, from: number, to: number): Promise
 
 export async function scanCodex(dir: string, from: number, to: number): Promise<CodexState> {
   const st = newCodexState();
-  for (const f of listJsonl(dir, from)) {
-    const sess: CodexSession = { id: relative(dir, f), subagent: false, forked: false, startTs: undefined, model: "unknown", project: "unknown", prev: undefined, established: zeroCodex(), baselines: 0, days: new Map() };
+  for (const f of listJsonl(dir, from, st.cov)) {
+    const sess: CodexSession = { id: relative(dir, f), subagent: false, forked: false, startTs: undefined, model: "unknown", project: "unknown", prev: undefined, established: zeroCodex(), baselines: 0, days: new Map(), byModel: new Map() };
     await eachLine(f, st.cov, (line) => addCodexLine(st, sess, line, from, to));
     st.sessions.push(sess);
   }
@@ -371,7 +388,9 @@ export function summarise(c: ClaudeState | null, x: CodexState | null) {
     sessions.set(u.session, (sessions.get(u.session) ?? false) || u.subagent);
   }
   for (const cap of c?.caps ?? []) if (!sessions.has(cap.session)) sessions.set(cap.session, false);
-  const xActive = (x?.sessions ?? []).filter((s) => s.days.size > 0);
+  // A Codex session counts with in-period usage or an in-period cap, the same rule as Claude.
+  const xCapSessions = new Set((x?.caps ?? []).map((cap) => cap.session));
+  const xActive = (x?.sessions ?? []).filter((s) => s.days.size > 0 || xCapSessions.has(s.id));
   const xTotals = zeroCodex();
   const xByModel = new Map<string, number>();
   const xByDay = new Map<string, number>();
@@ -379,10 +398,11 @@ export function summarise(c: ClaudeState | null, x: CodexState | null) {
   for (const s of xActive) {
     for (const [k] of CODEX_KEYS) xTotals[k] += s.established[k];
     const t = s.established.input + s.established.output;
-    xByModel.set(s.model, (xByModel.get(s.model) ?? 0) + t);
+    for (const [m, v] of s.byModel) xByModel.set(m, (xByModel.get(m) ?? 0) + v);
     xByProject.set(s.project, (xByProject.get(s.project) ?? 0) + t);
     for (const [d, n] of s.days) xByDay.set(d, (xByDay.get(d) ?? 0) + n);
   }
+  const capEvents = new Set((c?.caps ?? []).map((cap) => cap.eventId).filter(Boolean)).size;
   const episodes = groupEpisodes([...(c?.caps ?? []), ...(x?.caps ?? [])]);
   const win = (src: "claude" | "codex") => {
     const e = { short: 0, weekly: 0, unknown: 0 };
@@ -401,6 +421,7 @@ export function summarise(c: ClaudeState | null, x: CodexState | null) {
       byDay,
       byProject,
       capOccurrences: c.caps.length,
+      capEvents,
       capEpisodes: win("claude"),
       errors: c.errors,
     },
@@ -408,7 +429,9 @@ export function summarise(c: ClaudeState | null, x: CodexState | null) {
       cov: x.cov,
       sessions: xActive.length,
       subagentSessions: xActive.filter((s) => s.subagent).length,
-      baselines: xActive.reduce((a, s) => a + s.baselines, 0),
+      // Over every scanned session: a session with only uncounted readings is exactly the coverage gap to report.
+      baselines: x.sessions.reduce((a, s) => a + s.baselines, 0),
+      badReadings: x.badReadings,
       totals: xTotals,
       byModel: xByModel,
       byDay: xByDay,
@@ -433,13 +456,13 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
   const L: string[] = [];
   L.push(`# TokenMax map: private report`, "");
   L.push(`Skill tokenmax-map ${VERSION}, metadata mode, \`scripts/map.ts\`. Period ${o.from} to ${o.to} (UTC). Sources: ${o.sources.join(", ") || "none"}. Jev analysis: NOT RUN.`, "");
-  L.push(`## Coverage`, "", `| Source | Files | Lines | Parsed | Accepted | Malformed | Unsupported | Out of period |`, `|---|---|---|---|---|---|---|---|`);
+  L.push(`## Coverage`, "", `| Source | Files | Unreadable | Lines | Parsed | Accepted | Malformed | Unsupported | Out of period |`, `|---|---|---|---|---|---|---|---|---|`);
   const covRows: Array<[string, Coverage | undefined]> = [["Claude Code", s.claude?.cov], ["Codex", s.codex?.cov]];
   for (const [name, cov] of covRows) {
-    if (cov) L.push(`| ${name} | ${n(cov.files)} | ${n(cov.lines)} | ${n(cov.parsed)} | ${n(cov.accepted)} | ${n(cov.malformed)} | ${n(cov.unsupported)} | ${n(cov.outOfPeriod)} |`);
+    if (cov) L.push(`| ${name} | ${n(cov.files)} | ${n(cov.unreadable)} | ${n(cov.lines)} | ${n(cov.parsed)} | ${n(cov.accepted)} | ${n(cov.malformed)} | ${n(cov.unsupported)} | ${n(cov.outOfPeriod)} |`);
   }
   L.push("", "- Files are selected by modification time inside the period, then records by timestamp. Lines that cannot carry usage, a cap or a counter are skipped unparsed (Lines minus Parsed).");
-  if (s.claude) L.push(`- Claude: ${n(s.claude.sessions)} sessions with in-period evidence, ${n(s.claude.subagentSessions)} of them subagent (\`subagents/\` file or sidechain flag). ${n(s.claude.usageRecords)} usage records collapse to ${n(s.claude.messages)} messages (latest snapshot per message.id). \`<synthetic>\` records carry no usage.`);
+  if (s.claude) L.push(`- Claude: ${n(s.claude.sessions)} sessions with in-period evidence, ${n(s.claude.subagentSessions)} of them with subagent work (\`subagents/\` file or sidechain flag; a subagent transcript carries its parent's sessionId, so it counts inside the parent session). ${n(s.claude.usageRecords)} usage records collapse to ${n(s.claude.messages)} messages (latest snapshot per message.id). \`<synthetic>\` records carry no usage.`);
   if (s.codex) L.push(`- Codex: ${n(s.codex.sessions)} sessions with established usage, ${n(s.codex.subagentSessions)} subagent (parent_thread_id). ${n(s.codex.baselines)} uncounted baselines (forked sessions, sessions started before the period, counter decreases).`);
   L.push("");
 
@@ -476,17 +499,19 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
     }
   }
 
-  L.push(`## Limits`, "", `| Source | Occurrences | Episodes | Short | Weekly | Unknown |`, `|---|---|---|---|---|---|`);
-  if (s.claude) { const e = s.claude.capEpisodes; L.push(`| Claude Code | ${s.claude.capOccurrences} | ${e.short + e.weekly + e.unknown} | ${e.short} | ${e.weekly} | ${e.unknown} |`); }
-  if (s.codex) { const e = s.codex.capEpisodes; L.push(`| Codex | ${s.codex.capOccurrences} | ${e.short + e.weekly + e.unknown} | ${e.short} | ${e.weekly} | ${e.unknown} |`); }
-  L.push("", "- Claude evidence: assistant records with isApiErrorMessage true, error \"rate_limit\" and a Claude Code cap notice. \"session limit\" is short, \"weekly limit\" weekly, a bare \"hit your limit\" unknown.");
+  L.push(`## Limits`, "", `| Source | Occurrences | Distinct events | Episodes | Short | Weekly | Unknown |`, `|---|---|---|---|---|---|---|`);
+  if (s.claude) { const e = s.claude.capEpisodes; L.push(`| Claude Code | ${s.claude.capOccurrences} | ${s.claude.capEvents} | ${e.short + e.weekly + e.unknown} | ${e.short} | ${e.weekly} | ${e.unknown} |`); }
+  if (s.codex) { const e = s.codex.capEpisodes; L.push(`| Codex | ${s.codex.capOccurrences} | n/a | ${e.short + e.weekly + e.unknown} | ${e.short} | ${e.weekly} | ${e.unknown} |`); }
+  L.push("", "- Distinct events: distinct record uuids among the Claude cap notices. Codex window readings carry no event id.");
+  L.push("- Claude evidence: assistant records with isApiErrorMessage true, error \"rate_limit\" and a Claude Code cap notice. \"session limit\" is short, \"weekly limit\" weekly, a bare \"hit your limit\" unknown.");
   L.push("- Codex evidence: a rate_limits window at used_percent >= 100 (window_minutes 10080 is weekly, <= 300 short), or a non-null rate_limit_reached_type.");
   L.push("- Episode rule: same source, window class and reset reading, within 24 hours of the episode's first occurrence, across all sessions.");
   if (s.codex?.lastReading) {
     const r = s.codex.lastReading;
     const resets = r.resetsAt ? new Date(r.resetsAt * 1000).toISOString().slice(0, 16) : "none";
-    L.push(`- Last Codex window reading: ${r.slot} ${r.usedPercent}% used, window_minutes ${r.windowMinutes}, resets_at ${resets} UTC (read ${new Date(r.ts).toISOString().slice(0, 16)}).`);
+    L.push(`- Last Codex window reading: ${r.slot} ${r.usedPercent}% used, window_minutes ${r.windowMinutes}, resets_at ${resets}${r.resetsAt ? " UTC" : ""} (read ${new Date(r.ts).toISOString().slice(0, 16)}).`);
   }
+  if (s.codex?.badReadings) L.push(`- ${n(s.codex.badReadings)} Codex window slot(s) had no numeric used_percent or an impossible resets_at: not used as readings.`);
   for (const u of s.episodes.filter((e) => e.window === "unknown")) {
     const twin = s.episodes.find((e) => e !== u && e.window !== "unknown" && e.source === u.source && e.reset === u.reset && Math.abs(e.first - u.first) < DAY);
     if (twin) L.push(`- An unknown-window episode shares its reset reading (${u.reset}) with a ${twin.window} episode; they may be one cap. Not merged: the notice text does not name the window.`);
@@ -580,8 +605,11 @@ export type SharePayload = {
   codex_weekly_pct: number | null;
 };
 
-/** Contract ranges per leaf. A value outside its range is never pulled to a bound: the share is refused (shareRangeError). */
-const RANGES: ReadonlyArray<[string, number, number]> = [
+/**
+ * Contract ranges per leaf. A value outside its range is never pulled to a bound: the share is refused (shareRangeError).
+ * The server (src/backstage/maps.ts MAP_BOUNDS) and the /maps/ page (site/maps/maps.js BOUNDS) must agree.
+ */
+export const RANGES: ReadonlyArray<[string, number, number]> = [
   ["days", 1, 90], ["sessions", 0, 1_000_000], ["subagent_sessions", 0, 1_000_000],
   ["caps.short", 0, 10_000], ["caps.weekly", 0, 10_000], ["caps.unknown", 0, 10_000],
   ["output_tokens.claude", 0, 1_000_000_000_000], ["output_tokens.codex", 0, 1_000_000_000_000],
@@ -660,22 +688,50 @@ export function renderShareBlock(p: SharePayload): string {
 
 export type Args = { claude: string | null; codex: string | null; from: number; to: number; days: number; out: string; byProject: boolean; alias: string; share: boolean };
 
+const VALUE_FLAGS = ["--claude", "--codex", "--days", "--from", "--to", "--out", "--alias", "--now"];
+const BOOL_FLAGS = ["--by-project", "--share"];
+const isDir = (p: string): boolean => {
+  try { return statSync(p).isDirectory(); } catch { return false; }
+};
+/** A YYYY-MM-DD calendar date as UTC midnight, or NaN when it is not one (2026-02-30 does not round-trip). */
+const calendarDay = (v: string): number => {
+  const ms = /^\d{4}-\d{2}-\d{2}$/.test(v) ? Date.parse(`${v}T00:00:00Z`) : NaN;
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === v ? ms : NaN;
+};
+
+/** Throws an Error naming the problem for an unknown flag, a missing value, a stray word or a malformed period. */
 export function parseArgs(argv: string[], env: { home: string; now: number; cwd: string }): Args {
   const a = new Map<string, string>();
   const flags = new Set<string>();
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i] ?? "";
-    if (k === "--by-project" || k === "--share") flags.add(k);
-    else if (k.startsWith("--")) a.set(k, argv[++i] ?? "");
+    if (BOOL_FLAGS.includes(k)) flags.add(k);
+    else if (VALUE_FLAGS.includes(k)) {
+      const v = argv[i + 1];
+      if (v === undefined || v === "" || v.startsWith("--")) throw new Error(`${k} needs a value`);
+      if (a.has(k)) throw new Error(`${k} given twice`);
+      a.set(k, v);
+      i++;
+    } else throw new Error(k.startsWith("--") ? `unknown option ${k}` : `unexpected argument ${k}`);
   }
+  const PERIOD = "use --days N (a whole number of days, 1 or more) or --from YYYY-MM-DD --to YYYY-MM-DD";
+  if (a.has("--days") && (a.has("--from") || a.has("--to"))) throw new Error(`bad period: ${PERIOD}, not both`);
+  if (a.has("--from") !== a.has("--to")) throw new Error(`bad period: ${PERIOD}`);
   const now = a.has("--now") ? Date.parse(a.get("--now") ?? "") : env.now;
-  const days = Number(a.get("--days") ?? "7");
-  const from = a.has("--from") ? Date.parse(`${a.get("--from")}T00:00:00Z`) : now - days * DAY;
-  const to = a.has("--to") ? Date.parse(`${a.get("--to")}T23:59:59.999Z`) : now;
-  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) throw new Error("bad period: use --days N or --from/--to YYYY-MM-DD");
+  const daysText = a.get("--days") ?? "7";
+  if (!/^\d+$/.test(daysText) || Number(daysText) < 1) throw new Error(`bad period: ${PERIOD}`);
+  const days = Number(daysText);
+  const from = a.has("--from") ? calendarDay(a.get("--from") ?? "") : now - days * DAY;
+  const to = a.has("--to") ? calendarDay(a.get("--to") ?? "") + DAY - 1 : now;
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) throw new Error(`bad period: ${PERIOD}`);
   const src = (flag: string, def: string): string | null => {
-    const v = a.get(flag) ?? def;
-    return v === "none" || !existsSync(v) ? null : v;
+    const given = a.get(flag);
+    if (given === "none") return null;
+    if (given !== undefined) {
+      if (!isDir(given)) throw new Error(`${flag} ${given} is not a folder`);
+      return given;
+    }
+    return isDir(def) ? def : null;
   };
   const stamp = new Date(env.now).toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
   return {
@@ -691,14 +747,32 @@ export function parseArgs(argv: string[], env: { home: string; now: number; cwd:
   };
 }
 
+/** Creates out (not its parents' contents) atomically: false when it already exists, so two runs never share one folder. */
+function reserve(out: string): boolean {
+  mkdirSync(dirname(out), { recursive: true });
+  try {
+    mkdirSync(out);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") return false;
+    throw error;
+  }
+}
+
 export async function main(argv: string[]): Promise<number> {
-  const args = parseArgs(argv, { home: homedir(), now: Date.now(), cwd: process.cwd() });
-  if (existsSync(args.out)) {
-    console.error(`refusing to overwrite ${args.out}`);
+  let args: Args;
+  try {
+    args = parseArgs(argv, { home: homedir(), now: Date.now(), cwd: process.cwd() });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     return 2;
   }
   if (!args.claude && !args.codex) {
     console.error("no source folder found: pass --claude DIR or --codex DIR");
+    return 2;
+  }
+  if (existsSync(args.out) || !reserve(args.out)) {
+    console.error(`refusing to overwrite ${args.out}`);
     return 2;
   }
   const c = args.claude ? await scanClaude(args.claude, args.from, args.to) : null;
@@ -707,9 +781,8 @@ export async function main(argv: string[]): Promise<number> {
   const sources = [args.claude ? "Claude Code" : "", args.codex ? "Codex" : ""].filter(Boolean);
   const share = renderShare(s, { alias: args.alias, days: args.days, sources });
   const leaks = scanShare(share);
-  mkdirSync(args.out, { recursive: true });
-  writeFileSync(join(args.out, "private-report.md"), renderPrivate(s, { from: dayOf(args.from), to: dayOf(args.to), byProject: args.byProject, sources }));
-  writeFileSync(join(args.out, "share-draft.md"), share);
+  writeFileSync(join(args.out, "private-report.md"), renderPrivate(s, { from: dayOf(args.from), to: dayOf(args.to), byProject: args.byProject, sources }), { flag: "wx" });
+  writeFileSync(join(args.out, "share-draft.md"), share, { flag: "wx" });
   console.log(`wrote ${join(args.out, "private-report.md")}`);
   console.log(`wrote ${join(args.out, "share-draft.md")} (scan: ${leaks.length ? `FOUND ${leaks.join(", ")}` : "clean"})`);
   console.log(`claude sessions ${s.claude?.sessions ?? 0}, codex sessions ${s.codex?.sessions ?? 0}, cap hits ${s.episodes.length}`);

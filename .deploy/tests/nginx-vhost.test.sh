@@ -154,6 +154,14 @@ done
 tm="$(printf '%s\n' "$snippet" | sed 's/#.*//' | sed -n '\|^location = /tm/map\.ts {$|,/^}/p')"
 [[ "$(printf '%s\n' "$snippet" | grep -c '^location = /tm/map\.ts {$')" == 1 ]] && ok "exactly one location = /tm/map.ts" || nope "location = /tm/map.ts missing or duplicated"
 [[ "$tm" == *'types { }'* && "$tm" == *'default_type "text/plain; charset=utf-8";'* ]] && ok "/tm/map.ts is served as text/plain, not video/mp2t" || nope "/tm/map.ts keeps the stock .ts MIME type"
+# The parser allows exactly one empty types block, inside /tm/map.ts only: a mapping in it, a second block, or a block
+# in another location is refused.
+types_mapped="$(printf '%s\n' "$snippet" | awk '{ if ($0 == "    types { }") print "    types { text/html ts; }"; else print }')"
+types_twice="$(printf '%s\n' "$snippet" | awk '{ print } $0 == "    types { }" { print }')"
+types_elsewhere="$(printf '%s\n' "$snippet" | awk '{ print } $0 == "location = /api/maps {" { print "    types { }" }')"
+for variant in "$types_mapped" "$types_twice" "$types_elsewhere"; do
+    [[ "$variant" != "$snippet" && "$(printf '%s\n' "$variant" | backstage_snippet_auth)" == unknown ]] && ok "a types block with a mapping, a second block or one outside /tm/map.ts is refused" || nope "an altered types block was accepted"
+done
 [[ "$tm" == *'try_files $uri =404;'* ]] && ok "/tm/map.ts serves the static file or 404" || nope "/tm/map.ts lacks try_files \$uri =404"
 if printf '%s\n' "$tm" | grep -Eq 'proxy_pass|auth_request|auth_basic|alias|root'; then nope "/tm/map.ts proxies, gates or remaps the file"; else ok "/tm/map.ts is a plain static file under the site root"; fi
 [[ "$tm" == *'expires epoch;'* ]] && ok "/tm/map.ts is never cached (expires epoch sends Cache-Control no-cache)" || nope "/tm/map.ts can be cached"

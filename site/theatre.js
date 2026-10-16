@@ -19,9 +19,9 @@
  * - the sample chip is lifted onto the curtain while it is closed and returns to the house bar once it starts to part;
  *   a hidden copy holds its place in the house bar meanwhile, so its return moves nothing;
  * - turning reduced motion on drops it (theatre.css hides it at once; this records the page as open);
- * - the first-screen band (#tmFirst: the promise, Copy, Read the script) sits above the curtain, which starts at its
- *   bottom (the root's --tm-first-h, kept in step with the band's height); focus on its controls keeps the curtain
- *   closed, so Tab goes Copy, Read the script, No Bun yet?, Skip, poster, House lights.
+ * - the first-screen band (#tmFirst: the promise, Copy, the script link, Watch it run) sits above the curtain, which
+ *   starts at its bottom (the root's --tm-first-h, kept in step with the band's height); focus on its controls keeps the
+ *   curtain closed, so Tab goes Copy, the script link, Watch it run, Skip, poster, House lights.
  * With no curtain (reduced motion, a later page, missing markup, or the head script's watchdog already opened the page)
  * the page is open and --reveal is 1, so the result bars are full. If this script never runs or stalls, the head
  * script opens the page.
@@ -105,7 +105,7 @@
       if (next >= 1) { open(); return; }
       setCurtain(next);
     };
-    // The band's controls (Copy, Read the script, No Bun yet?) sit above the curtain, so focus there keeps it closed too.
+    // The band's controls (Copy, the script link, Watch it run) sit above the curtain, so focus there keeps it closed too.
     var onCurtain = function (node) {
       return ov.contains(node) || (badge !== null && badge.contains(node)) || (band !== null && band.contains(node));
     };
@@ -170,7 +170,7 @@
     if (window.location.hash || (focused && focused !== document.body && focused !== root && !onCurtain(focused))) open();
     else update();
   }
-  // The band's height changes with the width, the web fonts arriving and No Bun yet? opening; the curtain follows it.
+  // The band's height changes with the width and the web fonts arriving; the curtain follows it.
   bandHeight();
   if (band && window.ResizeObserver) new ResizeObserver(bandHeight).observe(band);
   else window.addEventListener("resize", bandHeight);

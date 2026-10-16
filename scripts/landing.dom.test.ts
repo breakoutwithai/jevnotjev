@@ -2164,8 +2164,11 @@ test("[integration] TM12 before Copy the command's three parts are underlined, e
             href: link ? link.getAttribute("href") : null,
             inNotes: Boolean(note && document.getElementById("tmNotes")?.contains(note)),
             noteInView: Boolean(r && r.height > 0 && r.top >= 0 && r.bottom <= innerHeight && r.right <= innerWidth),
-            // Every line box of the part sits inside the command's box and on screen: nothing clipped or cut off.
-            whole: Boolean(box) && [...tok.getClientRects()].every((q) => box !== undefined && q.left >= box.left - 0.5 && q.right <= box.right + 0.5 && q.top >= box.top - 0.5 && q.bottom <= box.bottom + 0.5 && q.right <= innerWidth && q.bottom <= innerHeight && q.top >= 0),
+            // The part is rendered and seen (at least one line box with area, not hidden or transparent), and every line box
+            // sits inside the command's box and on screen: nothing clipped or cut off. An empty rect list never passes.
+            whole: Boolean(box) && tok.checkVisibility({ visibilityProperty: true, opacityProperty: true })
+              && [...tok.getClientRects()].some((q) => q.width > 0 && q.height > 0)
+              && [...tok.getClientRects()].every((q) => box !== undefined && q.left >= box.left - 0.5 && q.right <= box.right + 0.5 && q.top >= box.top - 0.5 && q.bottom <= box.bottom + 0.5 && q.right <= innerWidth && q.bottom <= innerHeight && q.top >= 0),
           };
         });
         const s = code ? getComputedStyle(code) : null;

@@ -333,8 +333,20 @@ test("[integration] 10 with no fragment the page reads the board once and labels
     expect(await rowsShown.nth(0).locator('[title="1,234,567 output tokens"]').count()).toBe(1);
     expect(second.replace(/\s+/g, " ")).toContain("0 / 0 / 1");
     expect(second).toContain("none read");
-    // Data is text, never markup: an alias with markup characters would not become an element.
-    expect(await page.locator("#mapBoard script, #mapBoard img").count()).toBe(0);
+  } finally { await context.close(); }
+});
+
+test("[integration] 10e server data with markup renders as text: no element is created and no handler runs", async () => {
+  const hostile = '<img src=x onerror="window.__pwned=1"><script>window.__pwned=2</script>';
+  rows = [boardRow("TM-0000000000E5", hostile, { ...PAYLOAD, skill: '0.3.0<b id="inj">x</b>' }), OTHER];
+  const { page, context } = await open(`${origin}/maps/`);
+  try {
+    await page.locator("#mapBoard .map-row").nth(1).waitFor();
+    await page.waitForTimeout(200);
+    expect((await page.locator("#mapBoard .map-row-alias").first().innerText()).trim()).toBe(hostile);
+    expect(await page.locator("#mapBoard .map-row-label").first().innerText()).toContain('0.3.0<b id="inj">x</b>');
+    expect(await page.locator("#mapBoard img, #mapBoard script, #inj").count()).toBe(0);
+    expect(await page.evaluate(() => Reflect.get(window, "__pwned") ?? null)).toBeNull();
   } finally { await context.close(); }
 });
 
@@ -454,6 +466,69 @@ test("[integration] 13 a retry after a network error reuses the same request_key
     expect(keys[1]).toBe(keys[0]);
     expect(posts().length).toBe(1);
     expect(await page.locator("[role=alert]").innerText()).toBe("");
+  } finally { await context.close(); }
+});
+
+test("[integration] 13b an unreadable success (no id, or not JSON) is a retryable failure: the alias locks and the retry repeats key and alias", async () => {
+  for (const reply of [{ status: 200, body: "{}" }, { status: 200, body: "<html>proxy page</html>" }]) {
+    seen.length = 0;
+    rows = [OTHER];
+    const { page, context } = await open(link());
+    try {
+      const sent: { key: unknown; alias: unknown }[] = [];
+      await page.route("**/api/maps", (route) => {
+        const b: unknown = route.request().postDataJSON();
+        sent.push({ key: isRec(b) ? b.request_key : null, alias: isRec(b) ? b.alias : null });
+        return sent.length === 1 ? route.fulfill({ status: reply.status, contentType: "application/json", body: reply.body }) : route.continue();
+      });
+      await page.locator("#mapShare").click();
+      await page.waitForFunction(() => (document.querySelector("[role=alert]")?.textContent ?? "").length > 0, null, { timeout: 5000 });
+      expect(await page.locator("[role=alert]").innerText(), reply.body).toContain("Not shared");
+      expect(await page.locator("#mapShare").isEnabled(), reply.body).toBe(true);
+      expect(await page.locator("#mapPreview").isVisible(), reply.body).toBe(true);
+      expect(await page.locator("#mapAlias").isEditable(), reply.body).toBe(false);
+      await page.locator("#mapShare").click();
+      await page.locator("#mapBoard .map-row.mine").waitFor();
+      expect(sent.length).toBe(2);
+      expect(sent[1]).toEqual(sent[0]);
+    } finally { await context.close(); }
+  }
+}, 30000);
+
+test("[integration] 13c only the honeypot answer reads as received with nothing added", async () => {
+  postReply = { status: 200, body: { ok: true } };
+  const { page, context } = await open(link());
+  try {
+    await page.locator("#mapShare").click();
+    await page.waitForFunction(() => (document.getElementById("mapStatus")?.textContent ?? "").length > 0);
+    expect(await page.locator("#mapStatus").innerText()).toBe("Received. Nothing was added to the board.");
+    expect(await page.locator("[role=alert]").innerText()).toBe("");
+  } finally { await context.close(); }
+});
+
+test("[integration] 13d after a failed POST the not-sent line is gone and focus is on Share; a definite refusal keeps the alias editable; after success focus is on the delete link", async () => {
+  postReply = { status: 400, body: { code: "bad-alias", field: "alias", reason: "alias taken by the test" } };
+  const { page, context } = await open(link());
+  try {
+    expect(await page.locator("#mapNotSent").isVisible()).toBe(true);
+    await page.locator("#mapShare").click();
+    await page.waitForFunction(() => (document.querySelector("[role=alert]")?.textContent ?? "").length > 0);
+    expect(await page.locator("#mapNotSent").isVisible()).toBe(false);
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe("mapShare");
+    expect(await page.locator("#mapAlias").isEditable()).toBe(true);
+    postReply = null;
+    await page.locator("#mapShare").click();
+    await page.locator("#mapBoard .map-row.mine").waitFor();
+    expect(await page.evaluate(() => document.activeElement?.closest("#mapDeleteLink") !== null && document.activeElement?.tagName === "A")).toBe(true);
+  } finally { await context.close(); }
+});
+
+test("[integration] 13e the honeypot field's name and id carry no word a browser autofills", async () => {
+  const { page, context } = await open(link());
+  try {
+    const trap = await page.locator(".map-honey input").evaluate((n) => ({ name: n.getAttribute("name") ?? "", id: n.id }));
+    expect(trap.name.length).toBeGreaterThan(0);
+    expect(`${trap.name} ${trap.id}`).not.toMatch(/name|nick|mail|phone|user|address/i);
   } finally { await context.close(); }
 });
 

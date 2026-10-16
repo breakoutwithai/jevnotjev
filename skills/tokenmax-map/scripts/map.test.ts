@@ -1,9 +1,9 @@
 // [unit] tokenmax-map parser. Synthetic lines in the record shapes observed in real local history on 2026-10-16.
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { describe, expect, spyOn, test } from "bun:test";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type CapOccurrence, CODEX_META_TYPE, classifyClaudeNotice, groupEpisodes, main, parseClaudeLine, projectOf, scanClaude, scanCodex, scanShare, summarise } from "./map.ts";
+import { type CapOccurrence, CODEX_META_TYPE, classifyClaudeNotice, groupEpisodes, main, parseArgs, parseClaudeLine, projectOf, renderPrivate, scanClaude, scanCodex, scanShare, summarise } from "./map.ts";
 
 const FROM = Date.parse("2026-10-09T00:00:00Z");
 const TO = Date.parse("2026-10-16T23:59:59Z");
@@ -33,7 +33,7 @@ describe("[unit] claude lines", () => {
   });
 
   test("[unit] model_not_found is an error, not a cap; synthetic usage is skipped; non-usage lines are not parsed", () => {
-    expect(parseClaudeLine(apiErr("2026-10-14T10:00:00Z", "model_not_found"), { subagent: false, order: 0 })).toEqual({ kind: "error", category: "model_not_found" });
+    expect(parseClaudeLine(apiErr("2026-10-14T10:00:00Z", "model_not_found"), { subagent: false, order: 0 })).toEqual({ kind: "error", category: "model_not_found", ts: Date.parse("2026-10-14T10:00:00Z") });
     expect(parseClaudeLine(JSON.stringify({ type: "user", message: { content: "You've hit your limit" } }), { subagent: false, order: 0 }).kind).toBe("skip");
     expect(parseClaudeLine('{"type":"assistant","usage" BROKEN', { subagent: false, order: 0 }).kind).toBe("malformed");
   });
@@ -171,5 +171,122 @@ describe("[integration] codex window reading", () => {
     const x = summarise(null, await scanCodex(codexFixture(), FROM, TO)).codex;
     expect(x?.lastReading?.usedPercent).toBe(40);
     expect(x?.lastReading?.windowMinutes).toBe(10080);
+  });
+});
+
+// ---------- PR #241 review batch (#238) ----------
+
+const capWithId = (ts: string, uuid: string) =>
+  JSON.stringify({ type: "assistant", sessionId: "s-1", uuid, timestamp: ts, isApiErrorMessage: true, error: "rate_limit", message: { id: "x", model: "<synthetic>", content: [{ type: "text", text: "You've hit your limit · resets 9pm (Europe/Warsaw)" }] } });
+const meta = (ts: string, id: string, extra: Record<string, string> = {}) => JSON.stringify({ timestamp: ts, type: CODEX_META_TYPE, payload: { id, cwd: "/home/x/projects/beta", ...extra } });
+const turn = (ts: string, model: string) => JSON.stringify({ timestamp: ts, type: "turn_context", payload: { model } });
+const ENV = { home: "/nonexistent-home", now: Date.parse("2026-10-16T12:00:00Z"), cwd: tmpdir() };
+
+function codexFiles(files: Record<string, string[]>): string {
+  const root = mkdtempSync(join(tmpdir(), "tmx-review-codex-"));
+  const day = join(root, "2026", "10", "14");
+  mkdirSync(day, { recursive: true });
+  for (const [name, lines] of Object.entries(files)) writeFileSync(join(day, name), lines.join("\n"));
+  return root;
+}
+async function quietly<T>(run: () => Promise<T>): Promise<T> {
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  const err = spyOn(console, "error").mockImplementation(() => {});
+  try { return await run(); } finally { log.mockRestore(); err.mockRestore(); }
+}
+
+describe("[integration] review #241: output folder", () => {
+  test("[integration] two runs started together into one --out: exactly one writes, the other refuses", async () => {
+    const out = join(mkdtempSync(join(tmpdir(), "tmx-race-")), "r");
+    const argv = ["--claude", claudeFixture(), "--codex", "none", "--from", "2026-10-09", "--to", "2026-10-16", "--out", out];
+    const codes = await quietly(() => Promise.all([main(argv), main(argv)]));
+    expect([...codes].sort()).toEqual([0, 2]);
+  });
+});
+
+describe("[unit] review #241: CLI arguments", () => {
+  const bad: string[][] = [
+    ["--claud", "x"], ["--claude", "--share"], ["--out"], ["stray"], ["--days"],
+    ["--days", "0"], ["--days", "0.5"], ["--days", "-1"], ["--days", "7d"],
+    ["--from", "2026-02-30", "--to", "2026-03-01"], ["--from", "2026-10-09"], ["--to", "2026-10-16"],
+    ["--days", "7", "--from", "2026-10-09", "--to", "2026-10-16"], ["--from", "20261009", "--to", "2026-10-16"],
+  ];
+  test("[unit] parseArgs refuses unknown flags, missing values, stray words and malformed periods", () => {
+    const accepted = bad.filter((argv) => { try { parseArgs(argv, ENV); return true; } catch { return false; } });
+    expect(accepted).toEqual([]);
+  });
+  test("[unit] parseArgs accepts the documented forms", () => {
+    expect(parseArgs(["--days", "7", "--claude", "none", "--codex", "none", "--share"], ENV).days).toBe(7);
+    expect(parseArgs(["--from", "2026-10-09", "--to", "2026-10-16", "--claude", "none", "--codex", "none"], ENV).days).toBe(8);
+    expect(parseArgs(["--days", "400", "--claude", "none", "--codex", "none"], ENV).days).toBe(400);
+  });
+  test("[integration] main answers a bad argument or a source that is not a folder with exit 2 and writes nothing", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "tmx-badarg-"));
+    const file = join(parent, "not-a-folder.jsonl");
+    writeFileSync(file, "");
+    const codes: number[] = [];
+    for (const argv of [["--out"], ["--claude", file, "--codex", "none", "--out", join(parent, "a")], ["--codex", file, "--claude", "none", "--out", join(parent, "b")]]) {
+      codes.push(await quietly(() => main(argv)));
+    }
+    expect(codes).toEqual([2, 2, 2]);
+    expect(existsSync(join(parent, "a")) || existsSync(join(parent, "b"))).toBe(false);
+  });
+});
+
+describe("[integration] review #241: records", () => {
+  test("[integration] an old Claude API error in a recent file is out of period, not counted", async () => {
+    const root = mkdtempSync(join(tmpdir(), "tmx-err-"));
+    writeFileSync(join(root, "s.jsonl"), [apiErr("2026-09-20T10:00:00Z", "authentication_failed"), apiErr("2026-10-14T10:00:00Z", "model_not_found")].join("\n"));
+    const c = summarise(await scanClaude(root, FROM, TO), null).claude;
+    expect(c?.errors.get("authentication_failed")).toBeUndefined();
+    expect(c?.errors.get("model_not_found")).toBe(1);
+    expect(c?.cov.outOfPeriod).toBe(1);
+  });
+
+  test("[integration] three cap notices with one event id are 3 occurrences, 1 distinct event, 1 episode", async () => {
+    const root = mkdtempSync(join(tmpdir(), "tmx-ev-"));
+    writeFileSync(join(root, "s.jsonl"), ["2026-10-14T09:10:00Z", "2026-10-14T09:11:00Z", "2026-10-14T09:12:00Z"].map((ts) => capWithId(ts, "ev-1")).join("\n"));
+    const s = summarise(await scanClaude(root, FROM, TO), null);
+    expect(s.claude?.capOccurrences).toBe(3);
+    expect(s.claude?.capEvents).toBe(1);
+    expect(s.episodes.length).toBe(1);
+    expect(renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: false, sources: ["Claude Code"] })).toContain("| Claude Code | 3 | 1 | 1 |");
+  });
+
+  test("[integration] Codex usage is credited to the model active at each reading", async () => {
+    const root = codexFiles({ "rollout-m.jsonl": [meta("2026-10-14T08:00:00Z", "cx-m"), turn("2026-10-14T08:00:01Z", "model-a"), tc("2026-10-14T08:01:00Z", tot(100, 10)), turn("2026-10-14T08:02:00Z", "model-b"), tc("2026-10-14T08:03:00Z", tot(130, 20))] });
+    const x = summarise(null, await scanCodex(root, FROM, TO)).codex;
+    expect(x?.byModel.get("model-a")).toBe(110);
+    expect(x?.byModel.get("model-b")).toBe(40);
+  });
+
+  test("[integration] a session with only a baseline still counts its baseline; a cap-only session is a session", async () => {
+    const rl100 = { limit_id: "codex", primary: { used_percent: 100, window_minutes: 300, resets_at: 1760900000 }, secondary: null, rate_limit_reached_type: null };
+    const root = codexFiles({
+      "rollout-f.jsonl": [meta("2026-10-14T08:00:00Z", "cx-f", { forked_from_id: "cx-0" }), tc("2026-10-14T08:01:00Z", tot(500, 50))],
+      "rollout-c.jsonl": [meta("2026-09-01T08:00:00Z", "cx-c"), tc("2026-10-14T09:01:00Z", tot(700, 70), rl100)],
+    });
+    const x = summarise(null, await scanCodex(root, FROM, TO)).codex;
+    expect(x?.baselines).toBe(2);
+    expect(x?.sessions).toBe(1);
+    expect(x?.capOccurrences).toBe(1);
+  });
+
+  test("[integration] a missing or non-numeric used_percent is not a reading; an out-of-range resets_at renders as none", async () => {
+    const slot = (used: unknown, resets: number) => ({ limit_id: "codex", primary: { used_percent: used, window_minutes: 10080, resets_at: resets }, secondary: null, rate_limit_reached_type: null });
+    const root = codexFiles({ "rollout-r.jsonl": [meta("2026-10-14T08:00:00Z", "cx-r"), tc("2026-10-14T08:01:00Z", tot(10, 1), slot(37, 1760900000)), tc("2026-10-14T08:02:00Z", tot(20, 2), slot("high", 1760900000)), tc("2026-10-14T08:03:00Z", tot(30, 3), slot(undefined, 1760900000))] });
+    const x = summarise(null, await scanCodex(root, FROM, TO)).codex;
+    expect(x?.lastWeekly?.usedPercent).toBe(37);
+    expect(x?.badReadings).toBe(2);
+    const far = codexFiles({ "rollout-z.jsonl": [meta("2026-10-14T08:00:00Z", "cx-z"), tc("2026-10-14T08:01:00Z", tot(10, 1), slot(40, 9_000_000_000_000))] });
+    const s = summarise(null, await scanCodex(far, FROM, TO));
+    let text = "";
+    expect(() => { text = renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: false, sources: ["Codex"] }); }).not.toThrow();
+    expect(text).toContain("resets_at none");
+  });
+
+  test("[integration] the coverage table reports files that could not be read", async () => {
+    const s = summarise(await scanClaude(claudeFixture(), FROM, TO), null);
+    expect(renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: false, sources: ["Claude Code"] })).toContain("| Source | Files | Unreadable | Lines |");
   });
 });

@@ -14,11 +14,21 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,500;0,700;0,800;1,500;1,700&family=JetBrains+Mono:wght@500;700&family=Schibsted+Grotesk:wght@500;700;800&display=swap" rel="stylesheet">
 <script>
-  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('motion');
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    document.documentElement.classList.add('motion');
+    /* tm.js sets data-tm-ready once the scroll story is running; if it never loads or throws, show the static layout */
+    addEventListener('load', function () { if (!document.documentElement.hasAttribute('data-tm-ready')) document.documentElement.classList.remove('motion'); });
+  }
 </script>
 <link rel="stylesheet" href="tm.css">
 </head>
 <body>
+
+<!-- In motion mode the scenes stay hidden until scrolled to; these links reach the same pages by keyboard and screen reader. -->
+<nav class="skip" aria-label="Skip the scroll story">
+  <a href="/maps/">Skip to the shared maps</a>
+  <a href="https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9">Skip to this week's card</a>
+</nav>
 
 <header class="intro">
   <h1>Your Claude week, mapped</h1>
@@ -31,6 +41,13 @@
     <div class="valance" aria-hidden="true"></div>
     <p class="sur" id="sur" aria-hidden="true">Scroll to open the show</p>
 
+    <!-- Figure sources. Scenes A and B: the builder's own run log, use-cases/tim-tokenmax/RUNS.md in the private planning
+         folder, section "Builder's real history with 0.2.0 (2026-10-16)": period 2026-10-09 to 2026-10-16 (line 24),
+         report folder tokenmax-report-20261016-091208 (line 26), sessions 515 Claude and 3,478 Codex (line 32, sum 3,993),
+         subagent sessions 68 and 376 (line 33, sum 444), output tokens 9,977,232 and 7,503,143 (line 35), 2 cap hits
+         (line 37: 1 unknown window, 1 short), all on 2026-10-14 from 16:20 UTC (line 39), Opus-class 87% (line 40), Codex
+         week 15% (line 41). That run was skill 0.2.0 without --share; the share block and link are renderShareBlock() of
+         those figures (scripts/tm.dom.test.ts REAL). /home/you is a placeholder home folder. Scene D: see its comment. -->
     <section class="scene" id="sceneA" aria-labelledby="hA">
       <h2 id="hA">Runs on your machine</h2>
       <div class="play" id="play">
@@ -39,8 +56,8 @@
           <div class="bar"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i><span>one builder's real week, 16 Oct 2026</span></div>
           <span class="key" id="key" aria-hidden="true">Enter</span>
           <pre id="out"><span class="ln cmdln" data-at="0"><span class="ps" aria-hidden="true">$ </span><span id="typed">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share</span><span class="caret gone" id="caret" aria-hidden="true"></span><span class="rest" id="rest" aria-hidden="true"></span></span>
-<span class="ln" data-at=".21">wrote /home/you/tokenmax-report-20261016-091500/private-report.md</span>
-<span class="ln" data-at=".23">wrote /home/you/tokenmax-report-20261016-091500/share-draft.md (scan: clean)</span>
+<span class="ln" data-at=".21">wrote /home/you/tokenmax-report-20261016-091208/private-report.md</span>
+<span class="ln" data-at=".23">wrote /home/you/tokenmax-report-20261016-091208/share-draft.md (scan: clean)</span>
 <span class="ln" data-at=".248">claude sessions 515, codex sessions 3478, cap hits <span class="num n1" id="num1">2</span></span>
 <span class="ln" data-at=".27"></span>
 <span class="ln ok share" data-at=".29">Share fields (tm-share/1). Nothing has been sent.</span>
@@ -115,11 +132,15 @@
       </div>
     </section>
 
+    <!-- Scene D sources. The seat pro_ok and the answer abstain are classes of question model-class-v1 in issue #236.
+         No source was found for the job count 47, the rule R-PRO, its pattern or the two jobs (searched: the tokenmax
+         repo, RUNS.md, and fixtures under the projects folder, 2026-10-16), so the page labels them as an example. -->
     <section class="scene" id="sceneD" aria-labelledby="hD">
       <h2 id="hD">Rules first, Jev for the rest</h2>
       <div class="billing">
         <div class="poster" id="router">
           <p class="soon">Next: #236</p>
+          <p class="eg">Example jobs, rule and count</p>
           <p class="big">47 jobs in rehearsal, <span>not run yet</span></p>
           <p class="q">Which subscription window may this job run on?</p>
           <span class="tag">no result yet</span>
@@ -129,7 +150,7 @@
             <p class="job"><span class="who">Job</span> Implement a feature in a client app</p>
             <div class="path">
               <span class="walker" aria-hidden="true"></span>
-              <p class="rule"><span class="yours">Your code</span> rule <b>R-PRO</b> matches <code>\bimplement(s|ed|ing|ation)?\b</code>, seat <b>pro_ok</b></p>
+              <p class="rule"><span class="yours">Example</span> rule <b>R-PRO</b> matches <code>\bimplement(s|ed|ing|ation)?\b</code>, seat <b>pro_ok</b></p>
             </div>
             <p class="door"><span class="who">Door</span> Claude, ChatGPT or Codex window</p>
           </li>
@@ -139,11 +160,11 @@
               <span class="walker" aria-hidden="true"></span>
               <p class="rule">No rule matches: <b>abstain</b></p>
             </div>
-            <p class="door jev"><span class="who">Door</span> Jev <span class="rehearsal">in rehearsal, 47 jobs, not run yet</span></p>
+            <p class="door jev"><span class="who">Door</span> Jev <span class="rehearsal">in rehearsal, 47 jobs (example), not run yet</span></p>
           </li>
         </ol>
         <p class="jevdef" id="jevdef">Jev picks from a fixed list of answers, fast and cheap</p>
-        <p class="next"><a href="/maps/">See the shared maps</a></p>
+        <p class="next"><a id="seeMaps" href="/maps/">See the shared maps</a></p>
       </div>
     </section>
 

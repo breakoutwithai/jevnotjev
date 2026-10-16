@@ -13,6 +13,28 @@ export const BOARD_LIMIT = 100;
 export const MAX_SESSIONS = 1_000_000;
 export const MAX_CAP_EPISODES = 10_000;
 export const MAX_OUTPUT_TOKENS = 1_000_000_000_000;
+/** Stored maps at most; a new map past it is refused (maps-full) so one source cannot grow the file or the scan without end. */
+export const MAX_MAPS = 10_000;
+/** How long board() reuses its last read when nothing was written through this store. */
+export const BOARD_CACHE_MS = 5_000;
+
+export type MapLeaf = "days" | "sessions" | "subagent_sessions" | "caps.short" | "caps.weekly" | "caps.unknown" | "output_tokens.claude" | "output_tokens.codex" | "opus_share_pct" | "codex_weekly_pct";
+/**
+ * tm-share/1 range per leaf, [min, max]. The mapper (skills/tokenmax-map/scripts/map.ts RANGES) and the /maps/ page
+ * (site/maps/maps.js BOUNDS) carry the same table; maps.test.ts asserts the three agree.
+ */
+export const MAP_BOUNDS: Readonly<Record<MapLeaf, readonly [number, number]>> = {
+  days: [1, 90],
+  sessions: [0, MAX_SESSIONS],
+  subagent_sessions: [0, MAX_SESSIONS],
+  "caps.short": [0, MAX_CAP_EPISODES],
+  "caps.weekly": [0, MAX_CAP_EPISODES],
+  "caps.unknown": [0, MAX_CAP_EPISODES],
+  "output_tokens.claude": [0, MAX_OUTPUT_TOKENS],
+  "output_tokens.codex": [0, MAX_OUTPUT_TOKENS],
+  opus_share_pct: [0, 100],
+  codex_weekly_pct: [0, 100],
+};
 
 const ALIAS = /^[a-z0-9-]{3,24}$/;
 const REQUEST_KEY = /^[A-Za-z0-9_-]{22,64}$/;
@@ -63,7 +85,7 @@ export interface MapRejection {
 
 export type MapCheck = { readonly ok: true; readonly map: MapInput } | { readonly ok: true; readonly trap: true } | MapRejection;
 
-export type MapIssue = { readonly status: "issued" | "replay"; readonly id: string } | { readonly status: "conflict" };
+export type MapIssue = { readonly status: "issued" | "replay"; readonly id: string } | { readonly status: "conflict" } | { readonly status: "full" };
 
 export interface MapBoardRow {
   readonly id: string;
@@ -147,21 +169,22 @@ function payloadFrom(value: unknown): MapPayload {
   if (v !== SHARE_VERSION) throw new Rejected("bad-payload", "v", v === undefined ? "missing" : `must be ${SHARE_VERSION}`);
   const skill = own(value, "skill");
   if (typeof skill !== "string" || !SKILL.test(skill)) throw new Rejected("bad-payload", "skill", skill === undefined ? "missing" : "must be a version like 0.3.0");
-  const days = integer(value, "days", "", 1, 90);
+  const B = MAP_BOUNDS;
+  const days = integer(value, "days", "", ...B.days);
   const source = sources(own(value, "sources"));
-  const sessions = integer(value, "sessions", "", 0, MAX_SESSIONS);
-  const subagents = integer(value, "subagent_sessions", "", 0, MAX_SESSIONS);
+  const sessions = integer(value, "sessions", "", ...B.sessions);
+  const subagents = integer(value, "subagent_sessions", "", ...B.subagent_sessions);
   if (subagents > sessions) throw new Rejected("bad-payload", "subagent_sessions", "must not exceed sessions");
   const caps = object(value, "caps", CAP_KEYS);
-  const capShort = integer(caps, "short", "caps.", 0, MAX_CAP_EPISODES);
-  const capWeekly = integer(caps, "weekly", "caps.", 0, MAX_CAP_EPISODES);
-  const capUnknown = integer(caps, "unknown", "caps.", 0, MAX_CAP_EPISODES);
+  const capShort = integer(caps, "short", "caps.", ...B["caps.short"]);
+  const capWeekly = integer(caps, "weekly", "caps.", ...B["caps.weekly"]);
+  const capUnknown = integer(caps, "unknown", "caps.", ...B["caps.unknown"]);
   const tokens = object(value, "output_tokens", TOKEN_KEYS);
-  const claude = integer(tokens, "claude", "output_tokens.", 0, MAX_OUTPUT_TOKENS);
-  const codex = integer(tokens, "codex", "output_tokens.", 0, MAX_OUTPUT_TOKENS);
-  const opus = integer(value, "opus_share_pct", "", 0, 100);
+  const claude = integer(tokens, "claude", "output_tokens.", ...B["output_tokens.claude"]);
+  const codex = integer(tokens, "codex", "output_tokens.", ...B["output_tokens.codex"]);
+  const opus = integer(value, "opus_share_pct", "", ...B.opus_share_pct);
   if (!Object.prototype.hasOwnProperty.call(value, "codex_weekly_pct")) throw new Rejected("bad-payload", "codex_weekly_pct", "missing");
-  const weekly = own(value, "codex_weekly_pct") === null ? null : integer(value, "codex_weekly_pct", "", 0, 100);
+  const weekly = own(value, "codex_weekly_pct") === null ? null : integer(value, "codex_weekly_pct", "", ...B.codex_weekly_pct);
   return {
     v: SHARE_VERSION,
     skill,
@@ -211,8 +234,11 @@ const sha256 = (text: string): string => createHash("sha256").update(text).diges
 
 export class MapStore {
   #db: Database;
+  #maxRows: number;
+  #cached: { readonly at: number; readonly board: MapBoard } | null = null;
 
-  constructor(path: string) {
+  constructor(path: string, options: { readonly maxRows?: number | undefined } = {}) {
+    this.#maxRows = options.maxRows ?? MAX_MAPS;
     this.#db = new Database(path, { create: true, strict: true });
     chmodSync(path, 0o600);
     this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
@@ -223,7 +249,8 @@ export class MapStore {
 
   /**
    * Stores a map. A key already stored with the same alias and payload returns that map (a retry); the same key with
-   * anything different is a conflict and stores nothing. 48-bit ids; an id clash retries.
+   * anything different is a conflict and stores nothing. A new map when maxRows are stored is "full". 48-bit ids; an
+   * id clash retries.
    */
   issue(input: MapInput, now: number): MapIssue {
     const payload = JSON.stringify(input.payload);
@@ -236,12 +263,14 @@ export class MapStore {
     };
     const before = prior();
     if (before) return before;
+    if (this.count() >= this.#maxRows) return { status: "full" };
     for (let attempt = 0; ; attempt++) {
       const id = `TM-${randomBytes(6).toString("hex").toUpperCase()}`;
       try {
         this.#db
           .query("INSERT INTO maps (id, created_at, alias, payload, key_hash, request_hash) VALUES (?, ?, ?, ?, ?, ?)")
           .run(id, new Date(now).toISOString(), input.alias, payload, keyHash, requestHash);
+        this.#cached = null;
         return { status: "issued", id };
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
@@ -256,11 +285,24 @@ export class MapStore {
 
   /** Deletes a map only when the key hashes to the stored one. False for an unknown id or a wrong key alike. */
   remove(id: string, key: string): boolean {
-    return this.#db.query("DELETE FROM maps WHERE id = ? AND key_hash = ?").run(id, sha256(key)).changes === 1;
+    const removed = this.#db.query("DELETE FROM maps WHERE id = ? AND key_hash = ?").run(id, sha256(key)).changes === 1;
+    if (removed) this.#cached = null;
+    return removed;
   }
 
-  /** Newest first, at most BOARD_LIMIT rows; totals over every row. No key hash, no `v`, no request data. */
-  board(): MapBoard {
+  /**
+   * Newest first, at most BOARD_LIMIT rows; totals over every row. No key hash, no `v`, no request data. With `now`,
+   * the last read is reused for BOARD_CACHE_MS unless this store wrote since; without it the table is read every time.
+   */
+  board(now?: number): MapBoard {
+    const hit = this.#cached;
+    if (now !== undefined && hit && now >= hit.at && now - hit.at <= BOARD_CACHE_MS) return hit.board;
+    const fresh = this.#read();
+    if (now !== undefined) this.#cached = { at: now, board: fresh };
+    return fresh;
+  }
+
+  #read(): MapBoard {
     const stored = this.#db
       .query<{ id: string; created_at: string; alias: string; payload: string }, [number]>("SELECT id, created_at, alias, payload FROM maps ORDER BY created_at DESC, seq DESC LIMIT ?")
       .all(BOARD_LIMIT);

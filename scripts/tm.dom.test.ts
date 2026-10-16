@@ -11,7 +11,8 @@ import { main, renderShareBlock, shareLink, type SharePayload } from "../skills/
 
 const SITE = join(import.meta.dir, "..", "site");
 const COMMAND = "curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share";
-// One builder's real week, 16 Oct 2026 (the builder's own tokenmax-map run): Claude 515 sessions and 68 subagent,
+// One builder's real week, 16 Oct 2026 (the builder's own tokenmax-map 0.2.0 run, recorded in the private planning folder's
+// use-cases/tim-tokenmax/RUNS.md, "Builder's real history with 0.2.0"): Claude 515 sessions and 68 subagent,
 // Codex 3,478 and 376; caps 1 short and 1 unknown window; output tokens as below; Opus-class 87%; Codex week 15%.
 const REAL: SharePayload = {
   v: "tm-share/1",
@@ -205,7 +206,8 @@ test("[integration] the terminal prints what map.ts --share prints: real line sh
     expect(await page.locator("#openCard").getAttribute("href")).toBe(shareLink(REAL));
     expect(await page.locator("#term .bar").textContent()).toContain("one builder's real week, 16 Oct 2026");
     expect(await page.locator("#sceneB").textContent()).toContain("One builder's real week, 16 Oct 2026");
-    expect(await page.locator('a[href="/maps/"]').count()).toBe(1);
+    // The router card's link, and the skip link that reaches it while motion hides the card.
+    expect(await page.locator('a[href="/maps/"]').count()).toBe(2);
   } finally { await close(page); }
 }, 30000);
 
@@ -258,16 +260,30 @@ async function wirePolylines(page: Page): Promise<{ x: number; y: number }[][]> 
     return Array.from({ length: 241 }, (_, i) => { const p = node.getPointAtLength((L * i) / 240); return { x: p.x, y: p.y }; });
   }));
 }
-function crosses(a: { x: number; y: number }[], b: { x: number; y: number }[]): boolean {
-  const side = (p: { x: number; y: number }, q: { x: number; y: number }, r: { x: number; y: number }) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+type Pt = { x: number; y: number };
+/** True when any segment of polyline a touches any segment of b: proper crossings, a touch at a vertex, and collinear overlap. */
+function crosses(a: Pt[], b: Pt[]): boolean {
+  const EPS = 1e-9;
+  const side = (p: Pt, q: Pt, r: Pt) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const sign = (v: number) => (v > EPS ? 1 : v < -EPS ? -1 : 0);
+  const onSegment = (p: Pt, q: Pt, r: Pt) => Math.min(p.x, q.x) - EPS <= r.x && r.x <= Math.max(p.x, q.x) + EPS && Math.min(p.y, q.y) - EPS <= r.y && r.y <= Math.max(p.y, q.y) + EPS;
   for (let i = 1; i < a.length; i++) for (let j = 1; j < b.length; j++) {
     const p1 = a[i - 1], p2 = a[i], q1 = b[j - 1], q2 = b[j];
     if (!p1 || !p2 || !q1 || !q2) continue;
-    const d1 = side(q1, q2, p1), d2 = side(q1, q2, p2), d3 = side(p1, p2, q1), d4 = side(p1, p2, q2);
-    if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+    const d1 = sign(side(q1, q2, p1)), d2 = sign(side(q1, q2, p2)), d3 = sign(side(p1, p2, q1)), d4 = sign(side(p1, p2, q2));
+    if (d1 * d2 < 0 && d3 * d4 < 0) return true;
+    if ((d1 === 0 && onSegment(q1, q2, p1)) || (d2 === 0 && onSegment(q1, q2, p2)) || (d3 === 0 && onSegment(p1, p2, q1)) || (d4 === 0 && onSegment(p1, p2, q2))) return true;
   }
   return false;
 }
+
+test("[unit] crosses() catches a proper crossing, a touch at a sampled vertex and a collinear overlap; parallel lines pass", () => {
+  const line = (...xy: number[]): Pt[] => { const out: Pt[] = []; for (let i = 0; i + 1 < xy.length; i += 2) out.push({ x: xy[i] ?? 0, y: xy[i + 1] ?? 0 }); return out; };
+  expect(crosses(line(0, 0, 10, 10), line(0, 10, 10, 0))).toBe(true);
+  expect(crosses(line(0, 0, 5, 5, 10, 0), line(5, 5, 5, 10))).toBe(true);
+  expect(crosses(line(0, 0, 10, 0), line(5, 0, 15, 0))).toBe(true);
+  expect(crosses(line(0, 0, 10, 0), line(0, 1, 10, 1))).toBe(false);
+});
 
 for (const motion of MOTIONS) {
   test(`[integration] the three wires never cross, at 390 and 1440 (${motion})`, async () => {
@@ -448,7 +464,7 @@ test("[integration] one name for the cap event: cap hits, never cap episodes; th
   }
 }, 60000);
 
-test("[integration] the router card walks one real ruled job and one unmatched job, with no router result anywhere", async () => {
+test("[integration] the router card walks one example ruled job and one unmatched job, labelled as an example, with no router result anywhere", async () => {
   for (const motion of MOTIONS) {
     const page = await open(390, 844, motion);
     try {
@@ -468,15 +484,18 @@ test("[integration] the router card walks one real ruled job and one unmatched j
           openRule: text(unmatched?.querySelector(".rule") ?? null),
           openDoor: text(unmatched?.querySelector(".door") ?? null),
           jev: text(scene.querySelector("#jevdef")),
+          example: text(scene.querySelector("#router .eg")),
         };
       });
+      // No source holds the jobs, the rule or the count 47 (site/tm/index.html, Scene D sources), so the card says example.
+      expect(card.example).toBe("Example jobs, rule and count");
       expect(card.ruledJob).toBe("Job Implement a feature in a client app");
-      expect(card.ruledRule).toBe("Your code rule R-PRO matches \\bimplement(s|ed|ing|ation)?\\b, seat pro_ok");
+      expect(card.ruledRule).toBe("Example rule R-PRO matches \\bimplement(s|ed|ing|ation)?\\b, seat pro_ok");
       expect(String(card.yoursOnDashedLine)).toContain("dashed");
       expect(card.ruledDoor).toBe("Door Claude, ChatGPT or Codex window");
       expect(card.openJob).toBe("Job Pick up the next ticket");
       expect(card.openRule).toBe("No rule matches: abstain");
-      expect(card.openDoor).toBe("Door Jev in rehearsal, 47 jobs, not run yet");
+      expect(card.openDoor).toBe("Door Jev in rehearsal, 47 jobs (example), not run yet");
       expect(card.jev).toBe("Jev picks from a fixed list of answers, fast and cheap");
       expect(card.all).not.toMatch(/route most|most jobs|%/i);
       expect([...new Set([...card.all.matchAll(/\d+/g)].map((m) => m[0]))].sort()).toEqual(["236", "47"]);
@@ -514,3 +533,103 @@ for (const motion of MOTIONS) {
     }
   }, 60000);
 }
+
+// ---------- PR #241 review batch ----------
+
+/** Every scene's text that is hidden or transparent, the motion class and both walks' progress. */
+async function staticState(page: Page): Promise<{ motion: boolean; hidden: string[]; walks: string[]; typed: string | null | undefined }> {
+  return page.evaluate(() => {
+    const hidden: string[] = [];
+    const opaque = (el: Element | null): boolean => {
+      for (let n = el; n; n = n.parentElement) if (parseFloat(getComputedStyle(n).opacity) < 1) return false;
+      return true;
+    };
+    const walk = document.createTreeWalker(document.querySelector("#track") ?? document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+      const text = (node.textContent ?? "").trim();
+      const el = node.parentElement;
+      if (!text || !el || el.closest(".curtain, .sur, .key")) continue;
+      if (!el.checkVisibility({ visibilityProperty: true }) || !opaque(el)) hidden.push(text);
+    }
+    return {
+      motion: document.documentElement.classList.contains("motion"),
+      hidden,
+      walks: [...document.querySelectorAll(".walk")].map((w) => getComputedStyle(w).getPropertyValue("--t").trim()),
+      typed: document.getElementById("typed")?.textContent,
+    };
+  });
+}
+
+test("[integration] if tm.js does not load, the page falls back to the static layout with every scene shown", async () => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "no-preference" });
+  const page = await context.newPage();
+  try {
+    await page.route("**/*", (route) => {
+      const url = route.request().url();
+      if (url.endsWith("/tm/tm.js")) return route.abort();
+      return url.startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort();
+    });
+    await page.goto(`http://127.0.0.1:${server.port}/tm/`, { waitUntil: "load" });
+    // Past the .15 s and .25 s opacity transitions the static layout starts from.
+    await page.waitForTimeout(600);
+    const state = await staticState(page);
+    expect(state.motion).toBe(false);
+    expect(state.hidden).toEqual([]);
+    expect(state.typed).toBe(COMMAND);
+  } finally { await context.close(); }
+}, 30000);
+
+test("[integration] turning reduced motion on while the page is open switches to the static end state", async () => {
+  const page = await open(1440, 900, "no-preference");
+  try {
+    await scrollShare(page, .3);
+    expect((await staticState(page)).motion).toBe(true);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(null)))));
+    const state = await staticState(page);
+    expect(state.motion).toBe(false);
+    expect(state.hidden).toEqual([]);
+    expect(state.walks).toEqual(["1", "1"]);
+    expect(state.typed).toBe(COMMAND);
+    expect(await page.evaluate(() => document.getAnimations().length)).toBe(0);
+  } finally { await close(page); }
+}, 30000);
+
+test("[integration] in motion mode the keyboard reaches /maps/ and this week's card from the top, and the focused link is on screen", async () => {
+  const page = await open(390, 844, "no-preference");
+  try {
+    await scrollShare(page, 0);
+    const reached: { href: string; inView: boolean }[] = [];
+    // Four Tabs from the top, before focus could wrap round to the start again.
+    for (let i = 0; i < 4; i++) {
+      await page.keyboard.press("Tab");
+      const focused = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (!(el instanceof HTMLAnchorElement)) return null;
+        const r = el.getBoundingClientRect();
+        return { href: el.getAttribute("href") ?? "", inView: r.width >= 24 && r.height >= 24 && r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth };
+      });
+      if (focused) reached.push(focused);
+    }
+    expect(reached.filter((f) => f.href === "/maps/").map((f) => f.inView)).toEqual([true]);
+    expect(reached.filter((f) => f.href === shareLink(REAL)).map((f) => f.inView)).toEqual([true]);
+  } finally { await close(page); }
+}, 30000);
+
+test("[integration] in the stacked layout a focused link scrolls clear of the fixed ticket", async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, "reduce");
+    try {
+      for (const id of ["openCard", "seeMaps"]) {
+        await scrollShare(page, 0);
+        await page.locator(`#${id}`).focus();
+        const box = await page.evaluate((target) => {
+          const r = document.getElementById(target)?.getBoundingClientRect();
+          const ticket = document.getElementById("ticket")?.getBoundingClientRect();
+          return r && ticket ? { bottom: r.bottom, ticketTop: ticket.top } : null;
+        }, id);
+        expect({ width, id, clear: box !== null && box.bottom <= box.ticketTop }).toEqual({ width, id, clear: true });
+      }
+    } finally { await close(page); }
+  }
+}, 30000);

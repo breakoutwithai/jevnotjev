@@ -37,6 +37,9 @@ body {
 a { color: var(--link); }
 :focus-visible { outline: 3px solid #ffe6a6; outline-offset: 3px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* Skip links: off screen until focused, then on top of the stage (motion mode hides scenes until scrolled to). */
+.skip a { position: fixed; top: 8px; left: -10000px; z-index: 50; padding: 10px 14px; font: 700 15px/1.3 var(--sans); color: var(--link); background: var(--house); box-shadow: 0 0 0 1px var(--brass); }
+.skip a:focus { left: 8px; }
 
 /* ---------- Title and intro (the page h1; visually hidden under motion, where the marquee carries it) ---------- */
 .intro { padding: 40px 16px 8px; text-align: center; }
@@ -207,6 +210,7 @@ html:not(.motion) .key { display: none; }
   box-shadow: 0 18px 40px rgba(0, 0, 0, .6); transform: rotate(-1.2deg);
 }
 .poster .soon { margin: 0; font: italic 500 22px var(--serif); color: var(--gold); }
+.poster .eg { margin: 4px 0 0; font: 700 13px/1.3 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-soft); }
 .poster .big { margin: 4px 0 10px; font: 800 36px/1 var(--serif); }
 .poster .big span { display: block; margin-top: 6px; font: italic 700 22px var(--serif); color: var(--gold); }
 .poster .q { margin: 0; font: 500 16px/1.4 var(--sans); color: #f0d9c4; }

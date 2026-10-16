@@ -28,7 +28,7 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - Backstage tests only a Choice question with exactly two answers (issue #122). [Source](../src/backstage/contracts.ts) <!-- claim: two-answer-choice -->
 - Inputs are text cases. [Source](RELEASE-v0.1.0.md) <!-- claim: text-inputs -->
 - The release check (`bun scripts/release-check.ts`) uses a recorded Jev response for `run` and makes no paid provider call. [Source](RELEASE-v0.1.0.md) <!-- claim: release-recorded -->
-- The release check does not exercise the HTTP surface or a hosted deployment. [Source](RELEASE-v0.1.0.md) <!-- claim: release-no-http -->
+- The release check does not exercise the HTTP surface. With `--url` it compares only the static site's `/DEPLOYED_SHA` to the candidate commit and does not check the backend or any other module. [Source](RELEASE-v0.1.0.md) <!-- claim: release-no-http -->
 
 ## 4. Data and trust
 

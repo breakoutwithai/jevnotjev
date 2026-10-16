@@ -19,7 +19,7 @@ import {
 } from "./catalog.ts";
 import { PROMPT_TEMPLATE_VERSION } from "./prompt.ts";
 import { requestFingerprint } from "./fingerprint.ts";
-import { LABELLED_AT, LABELLER_HANDLE, isCalendarDate, validate } from "../format/validate.ts";
+import { LABELLED_AT, LABELLER_HANDLE, SUGGESTION_COLUMNS, isCalendarDate, validate } from "../format/validate.ts";
 import type { JevSuggestion } from "../labels/rank.ts";
 import { ARGMAX_TOLERANCE, MASS_TOLERANCE } from "../jev-answer.ts";
 import { SuggestionBook, callsForPick, type Call, type Suggestion } from "../labels/suggest.ts";
@@ -363,7 +363,7 @@ export function importedLabelSummary(labels: readonly ImportedLabel[]): string {
     return count > 0 ? [`${count} ${source}`] : [];
   });
   const agentNote = labels.some((l) => l.source === "agent") ? " An agent label is never counted as truth." : "";
-  return `Labels on ${labels.length}: ${counts.join(", ")}.${agentNote} Your pick in Rehearsals replaces an imported label.`;
+  return `Labels on ${labels.length}: ${counts.join(", ")}.${agentNote} Your pick in Review answers replaces an imported label.`;
 }
 /**
  * The D11 case import with an optional label column (labelling loop M3). Without label_source a label is agent, never
@@ -1137,12 +1137,24 @@ export class BackstageRun {
     transport: Transport = answerTransport,
     onChange?: () => void,
     houseJev = false,
+    firstCaseOnly = false,
   ) {
     if (this.#started)
       throw new Error(
         "This run has already started. Use explicit retry for incomplete calls.",
       );
-    await this.#execute(keys, transport, onChange, false, houseJev);
+    await this.#execute(keys, transport, onChange, false, houseJev, firstCaseOnly ? "first" : "all");
+  }
+  /** Untouched slots are different from failed attempts: continuing never retries either a success or a failure. */
+  get remainingCaseIds(): readonly string[] {
+    return this.manifest.scene.cases.filter((c) => this.manifest.models.some((m) => !this.#attempts.some((a) => a.caseId === c.id && a.armId === m.id))).map((c) => c.id);
+  }
+  get retryable(): number {
+    return new Set(this.#attempts.filter((a) => !a.ok && !this.#answers.some((answer) => answer.caseId === a.caseId && answer.armId === a.armId)).map((a) => a.caseId + ":" + a.armId)).size;
+  }
+  async continueRemaining(keys: KeySource, transport: Transport = answerTransport, onChange?: () => void, houseJev = false) {
+    if (!this.#started || this.#funded || this.#labeling) throw new Error("Remaining calls require a started own-key run before judging.");
+    await this.#execute(keys, transport, onChange, false, houseJev, "remaining");
   }
   async startTrial(transport: Transport, onChange?: () => void): Promise<void> {
     if (this.#started) throw new Error("This trial has already started.");
@@ -1176,7 +1188,7 @@ export class BackstageRun {
         "Retries are locked once blind judging begins. Start a new run.",
       );
     if (!this.#started) throw new Error("Start the run first.");
-    await this.#execute(keys, transport, onChange, false, houseJev);
+    await this.#execute(keys, transport, onChange, false, houseJev, "retry");
   }
   async #execute(
     source: KeySource,
@@ -1184,6 +1196,7 @@ export class BackstageRun {
     onChange?: () => void,
     funded = false,
     houseJev = false,
+    scope: "all" | "first" | "remaining" | "retry" = "all",
   ) {
     if (this.running) throw new Error("A run is already in progress.");
     const scene = this.manifest.scene;
@@ -1212,12 +1225,13 @@ export class BackstageRun {
     const controller = new AbortController();
     this.#controller = controller;
     const skipped = new Set<Provider>();
+    const selectedCases = scope === "first" ? scene.cases.slice(0, 1) : scope === "retry" ? scene.cases.filter((c) => this.#attempts.some((a) => a.caseId === c.id)) : scene.cases;
+    const untouched = new Set(scene.cases.flatMap((c) => this.manifest.models.filter((m) => !this.#attempts.some((a) => a.caseId === c.id && a.armId === m.id)).map((m) => c.id + ":" + m.id)));
     if (
-      this.manifest.arms.includes("rule") &&
-      !this.#answers.some((a) => a.armId === "rule")
+      this.manifest.arms.includes("rule")
     )
       for (const c of scene.cases)
-        this.#answers.push({
+        if (!this.#answers.some((a) => a.caseId === c.id && a.armId === "rule")) this.#answers.push({
           id: crypto.randomUUID(),
           attemptId: null,
           caseId: c.id,
@@ -1229,8 +1243,10 @@ export class BackstageRun {
         });
     try {
       onChange?.();
-      for (const c of scene.cases)
+      for (const c of selectedCases)
         for (const entry of this.manifest.models) {
+          if (scope === "remaining" && !untouched.has(c.id + ":" + entry.id)) continue;
+          if (scope === "retry" && untouched.has(c.id + ":" + entry.id)) continue;
           if (
             this.#answers.some((a) => a.caseId === c.id && a.armId === entry.id)
           )
@@ -1688,9 +1704,11 @@ export type CohortOutcome =
   | { readonly ok: true; readonly metrics: CohortMetrics; readonly verdict: Verdict | null }
   | { readonly ok: false; readonly errors: readonly string[] };
 /**
- * One comparison's verdict chain: validate -> cohortMetrics -> verdict(metrics, fileSeed(csv)). BackstageRun.report()
+ * One comparison's verdict chain: validate -> cohortMetrics -> verdict(metrics, seed). BackstageRun.report()
  * and the export checker (export-check.ts) both call it, so the verdict they compute cannot drift apart. Header-only
  * records with no answers in the pair (`empty`) are an empty cohort; only a compare run with rows has a verdict.
+ * The seed hashes CSV fields with label_final and suggestion_shown blank: post-suggestion picks are evidence,
+ * never scoring truth. The raw export remains unchanged. Other CSV field values and their order stay in the seed.
  * The verdict calculation is versioned: change CALC_VERSION (contracts.ts) whenever it changes.
  */
 export async function cohortVerdict(csv: string, context: CohortContext, empty: boolean): Promise<CohortOutcome> {
@@ -1700,5 +1718,13 @@ export async function cohortVerdict(csv: string, context: CohortContext, empty: 
   const metrics: CohortMetrics = parsed.rows.length
     ? cohortMetrics(parsed.rows, context.key)
     : { key: { runId, promptVersion, questionId }, question: context.question, answerSet: context.answerSet, cases: 0, arms: [], jevVsLlm: null, jevVsRule: null };
-  return { ok: true, metrics, verdict: context.mode === "compare" && parsed.rows.length ? verdict(metrics, await fileSeed(csv)) : null };
+  let decision: Verdict | null = null;
+  if (context.mode === "compare" && parsed.rows.length) {
+    const records = readDictRows(csv);
+    const header = records.header ?? [];
+    const suggestionIndexes = new Set(header.flatMap((name, index) => SUGGESTION_COLUMNS.includes(name) ? [index] : []));
+    const seedCsv = formatRows([header, ...records.rows.map(({ fields }) => fields.map((value, index) => suggestionIndexes.has(index) ? "" : value))]);
+    decision = verdict(metrics, await fileSeed(seedCsv));
+  }
+  return { ok: true, metrics, verdict: decision };
 }

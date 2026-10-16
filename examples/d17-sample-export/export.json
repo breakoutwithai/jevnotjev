@@ -1,6 +1,6 @@
 {
   "version": "backstage/2",
-  "calcVersion": "verdict/1",
+  "calcVersion": "verdict/2",
   "manifest": {
     "mode": "compare",
     "arms": [

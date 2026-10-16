@@ -160,17 +160,16 @@ async function sampleRunFields(html: string): Promise<Field[]> {
 /** Labels, rooms, buttons and table headers a tester sees in Backstage. */
 async function backstageFields(html: string): Promise<Field[]> {
   const page = BACKSTAGE;
-  const g = await grab(html, ["nav#rooms button > span", "nav#rooms button > small.job", "main label", "#pick-actions button", "#download-csv", "#download-evidence", "#label-column-note"]);
+  const g = await grab(html, ["nav#rooms button", "main label", "#pick-actions button", "#download-csv", "#download-evidence", "#label-column-note"]);
   const list = (selector: string): string[] => (g.get(selector) ?? []).map((x) => x.text);
-  const names = list("nav#rooms button > span");
-  const jobs = list("nav#rooms button > small.job");
+  const names = list("nav#rooms button").map((name) => name.replace(/^\d+\s*/, ""));
   const note = list("#label-column-note")[0] ?? "";
   const labelColumns = [capture(/add a (\w+) column/, note), ...capture(/then ([\w, ]+?)\./, note).split(/, | and /)];
   const script = "src/backstage/main.ts";
   const ts = read(script);
   const csv = "site/backstage/sample-cases.csv";
   return [
-    ...fields(page, "rooms", names.map((name, i) => `${name}: ${jobs[i] ?? ""}`)),
+    ...fields(page, "rooms", names),
     ...fields(page, "form labels", list("main label").map((label) => label.replace(/\(optional\)/, "").trim())),
     ...fields(page, "pick buttons", list("#pick-actions button")),
     ...fields(page, "downloads", [...list("#download-csv"), ...list("#download-evidence")]),
@@ -386,7 +385,7 @@ const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
   ["Use Jev (rule 3)", "sample verdict glossary term"],
   ["Use Jev (100 messages)", "shop-bot card verdict glossary term"],
   ["Not enough evidence (rule 1)", "CV card verdict glossary term"],
-  ["starts with 5 practice cases", "calibration, quoted from Rehearsals"],
+  ["5 separate practice cases", "optional calibration count from calibration-view"],
   ["one kept and one rejected answer at $1 each cost $2 per kept answer", "arithmetic example"],
   ["about 1 to 4 bytes of your text", "estimate basis, quoted from Learning Lines"],
   ["A simple rule costs $0.", "a rule makes no call"],
@@ -399,12 +398,6 @@ const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
   ["(m01, m02 and so on", "case ids"],
   ["confidence from 0 to 1", "confidence scale"],
   ["\"undefined (0 kept)\"", "Stage text, quoted"],
-  ["Room 1:", "room number"],
-  ["Room 2:", "room number"],
-  ["Room 3:", "room number"],
-  ["Room 4:", "room number"],
-  ["Room 5:", "room number"],
-  ["Room 6:", "room number"],
   ["such as c1.", "sample cases file id"],
   ["Rule 1:", "verdict rule number, from src/core/verdict.ts"],
   ["Rule 2:", "verdict rule number, from src/core/verdict.ts"],
@@ -466,7 +459,7 @@ describe("in-product first-use guide (D18)", () => {
     for (const term of ["Sample run", "Sample questions", "Tested", "Small test (under 30 cases)", "Idea only, not tested", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "See all 100 cases", "Try it: pick a seat", "Get another ticket", "Open the ticket office", "What you do now", "Case", "Jev said", "label", "Spotlight", "Kept so far", "Cost per kept answer", "Median seconds per call", "Use Jev (rule 3)", "kept", "rejected", "Load your own script (CSV)"]) {
       expect(sample).toContain(term);
     }
-    for (const term of ["Keep an answer when...", "Leave out...", "Choose optional comparisons", "Cost and downloads: Dress Rehearsal", "First choice", "Download run evidence", "Kept / labelled", "Returned confidence", "case_input", "label_source", "Jev-only wins", "Anthropic API key", "xAI API key"]) {
+    for (const term of ["Judging rule (required)", "Leave out...", "Choose optional comparisons", "Results and downloads", "First choice", "Download run evidence", "Kept / labelled", "Returned confidence", "case_input", "label_source", "Jev-only wins", "Anthropic API key", "xAI API key"]) {
       expect(backstage).toContain(term);
     }
   });
@@ -529,7 +522,7 @@ describe("in-product first-use guide (D18)", () => {
   test("[unit] D18-SWARM-C01 every Backstage control the swarm could not read has a glossary entry and is still on the page", async () => {
     const page = clean(`${read(BACKSTAGE)} ${read("src/backstage/main.ts")}`);
     const entries = [...(await glossary(read(GUIDE))).keys()];
-    for (const label of ["Edit the question", "Theme", "Send feedback", "Run first case", "Try one small Jev query", "Copy own-key CLI", "Prefer the Playground?", "Catalog checked"]) {
+    for (const label of ["Edit the question", "Theme", "Send feedback", "Try first case", "Try one small Jev query", "Copy own-key CLI", "Prefer the Playground?", "Catalog checked"]) {
       expect(page).toContain(label);
       expect(entries).toContain(label);
     }
@@ -1052,11 +1045,6 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
   // [label, page, where the page renders it: its markup, or a string literal its inline script writes into the page]
   const UI_LABELS: readonly (readonly [string, string, "markup" | "script"])[] = [
     ["Backstage Pass", BACKSTAGE, "markup"],
-    ["New Scene", BACKSTAGE, "markup"],
-    ["Casting", BACKSTAGE, "markup"],
-    ["Rehearsals", BACKSTAGE, "markup"],
-    ["Dress Rehearsal", BACKSTAGE, "markup"],
-    ["Opening Night", BACKSTAGE, "markup"],
     ["Edit the question", BACKSTAGE, "markup"],
     ["Send feedback", BACKSTAGE, "markup"],
     ["Ticket office", STAGE, "markup"],
@@ -1151,7 +1139,7 @@ describe("guide is plain: readable styling, no images, no theatre theme", () => 
     // A script label that survives only in a script comment is not rendered.
     const commented = new Map(pages());
     const line = "Understudies wait in the wings; the stage manager keeps tabs on the subs.";
-    commented.set(STAGE, mutate(read(STAGE), ` ${line}"`, `" /* ${line} */`));
+    commented.set(STAGE, mutate(read(STAGE), `"${line}"`, `"" /* ${line} */`));
     expect(labelProblems(guide, commented)).toEqual([`not on ${STAGE}: ${line}`]);
   });
 });
@@ -1161,7 +1149,7 @@ test("[unit] CF146-B2 notice follows the room line before every step panel", asy
   const order = await texts(html, "main > #room-line, main > #notice, main > section[data-panel]");
   const expected = await texts(html, "#room-line, #notice");
   expect(order.slice(0, 2)).toEqual(expected);
-  expect(order.length).toBe(8);
+  expect(order.length).toBe(5);
   expect(html.indexOf('id="notice"')).toBeLessThan(html.indexOf('data-panel="0"'));
 });
 
@@ -1196,4 +1184,18 @@ test("[unit] CF146-O4 empty notice remains available to assistive technology", (
   const rule = css.match(/#notice:empty\s*\{([^}]+)\}/)?.[1] ?? "";
   expect(rule).not.toMatch(/display\s*:\s*none/);
   expect(rule).toContain("clip-path");
+});
+
+// #222: these are actual current controls, not the historical six-room captions.
+test("[integration] #222 guide explains recoverable setup, explicit case changes and remaining calls", async () => {
+  const entries = await glossary(read(GUIDE));
+  for (const term of ["Setup and run", "Review answers", "Results and downloads", "Judging rule (required)", "Try first case", "Run remaining cases", "Replace cases"]) {
+    expect(entries.get(term)?.trim().length ?? 0).toBeGreaterThan(0);
+  }
+  expect(entries.get("Run remaining cases")).toContain("never attempted");
+  expect(entries.get("Replace cases")).toContain("confirm");
+  expect(read(GUIDE)).not.toContain("Keep an answer when...");
+  expect(read(GUIDE)).not.toContain("Use these cases");
+  expect(entries.get("In the workspace")).not.toContain("Six steps");
+  expect(entries.get("Draft starter cases")).toContain("choose");
 });

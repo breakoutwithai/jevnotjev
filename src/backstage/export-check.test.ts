@@ -117,7 +117,7 @@ describe("D17 export check", () => {
     const noVersion = await checkExport(missing);
     expect(noVersion.ok).toBe(false);
     expect(noVersion.problems.some((p) => p.startsWith("No calcVersion"))).toBe(true);
-    const other = await checkExport({ ...fixture(), calcVersion: "verdict/0" });
+    const other = await checkExport({ ...fixture(), calcVersion: "verdict/1" });
     expect(other.ok).toBe(false);
     expect(other.problems).toContain(`calcVersion differs from ${CALC_VERSION}: this build cannot reproduce its verdicts.`);
   });

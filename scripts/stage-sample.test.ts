@@ -100,7 +100,7 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
     for (const file of ["data.js", "index.html"]) expect(routerPremise(await readFile(join(SITE, file), "utf8"), file === "data.js")).toBe(false);
     expect(await readFile(join(SITE, "data.js"), "utf8")).toContain("Claude Haiku 5.5");
     expect(routerPremise((await readFile(join(SITE, "index.html"), "utf8")) + " Haiku", false)).toBe(true);
-    expect(routerPremise((await readFile(join(SITE, "data.js"), "utf8")).replace("On 100 shop messages", "Haiku routed 100 shop messages"), true)).toBe(true);
+    expect(routerPremise((await readFile(join(SITE, "data.js"), "utf8")).replace("on these 100 shop messages", "on these 100 shop messages Haiku routed"), true)).toBe(true);
   });
 
   test("[unit] F2-D3 the sample holds the 100 labelled messages with the llm, rule and Jev answers of the run", async () => {
@@ -140,8 +140,8 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
     expect(els.get("docket")?.children.filter((c) => c.className.includes("row")).length).toBe(100);
     expect(els.get("t3")?.textContent).toBe("The trial of 100 messages");
     expect(els.get("t5")?.textContent).toBe("Use Jev (rule 3)");
-    expect(els.get("heroWhy")?.textContent).toContain("Why: On 100 shop messages");
-    expect(els.get("verdictWhy")?.textContent).toContain("Why: On 100 shop messages");
+    expect(els.get("heroWhy")?.textContent).toContain("Why: Jev kept 88 right answers and the LLM 86 on these 100 shop messages");
+    expect(els.get("verdictWhy")?.textContent).toContain("Why: Jev kept 88 right answers and the LLM 86 on these 100 shop messages");
     expect(els.get("verdictCases")?.textContent).toContain("Jev 88 of 100");
     expect(els.get("verdictNext")?.textContent).toContain("write 30 or more cases");
     expect(els.get("verdictEarlier")?.textContent).toContain("first 40");

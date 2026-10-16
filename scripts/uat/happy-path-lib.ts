@@ -362,6 +362,10 @@ export function runStartState(progress: string): PollState {
  */
 export const RUN_REASONS: Readonly<Record<string, "in-progress" | "blocked">> = {
   "Calls are in progress.": "in-progress",
+  "Judging has started; remaining calls and retries are locked. Start a new question to run again.": "blocked",
+  "Funded trials cannot continue or retry. Use your own key in a new question.": "blocked",
+  "No untouched calls remain. Retry failed calls explicitly, or review your answers.": "blocked",
+  "All selected calls have answers. Review your answers.": "blocked",
   "This scene already ran. Retry unfinished calls, or edit as a new scene to run again.": "blocked",
   "Wait for the case import to finish.": "blocked",
   "Run your cases and open judging first.": "blocked",
@@ -383,15 +387,22 @@ export function describeRunReason(reason: string): string {
  * Backstage text and element ids the driver reads or clicks, each with the file that must contain it. The contract
  * test asserts every entry is present in its source, so a rename in Backstage fails a unit test, not a paid live run.
  */
+export const WORKSPACE_SELECTORS = Object.freeze({
+  setup: '#rooms button[data-room="0"]',
+  review: '#rooms button[data-room="3"]',
+  results: '#rooms button[data-room="4"]',
+});
 export const APP_CONTRACT: readonly { readonly text: string; readonly source: string }[] = [
+  ...["0", "3", "4"].map(room => ({ text: `data-room="${room}"`, source: "site/backstage/index.html" })),
   { text: "No calls in progress.", source: "src/backstage/main.ts" },
-  { text: "selected case/model cells processed; ${current.pending} have no answer.", source: "src/backstage/main.ts" },
+  { text: "completed calls; ${current.retryable} failed or stopped calls; ${current.remainingCaseIds.length} cases not yet attempted. ${current.pending} selected calls have no answer.", source: "src/backstage/main.ts" },
   { text: "Imported ${loaded.cases.length} cases", source: "src/backstage/main.ts" },
-  ...["acceptance","blind-card","choice-a","choice-b","compare","confirm-judging-yes","confirm-reveal-yes","definition-a","definition-b","download-csv","download-evidence","import-cases","include-rule","keywords","llm-player","next","notice","progress","question","reveal","reveal-reason","rule-fields","run-all","run-preview","run-reason","verdict","jev-key"].map((id) => ({ text: `id="${id}"`, source: "site/backstage/index.html" })),
+  ...["acceptance","blind-card","choice-a","choice-b","compare","confirm-judging-yes","confirm-reveal-yes","definition-a","definition-b","download-csv","download-evidence","import-cases","include-rule","keywords","llm-player","notice","progress","question","reveal","reveal-reason","rule-fields","run-all","run-preview","run-reason","verdict","jev-key"].map((id) => ({ text: `id="${id}"`, source: "site/backstage/index.html" })),
 ];
 
 /** Run end: every selected case/model cell processed with an answer, and no call still in flight. */
 export function runCompleteState(preview: string, progress: string, cells: number): PollState {
   const all = new RegExp(`(^|\\D)${cells} of ${cells} selected case/model cells processed; 0 have no answer`).test(preview);
-  return all && /No calls in progress/.test(progress) ? { done: "complete" } : null;
+  const frozen = new RegExp(`(^|\\D)${cells} completed calls; 0 failed or stopped calls; 0 cases not yet attempted\\. 0 selected calls have no answer\\.`).test(preview);
+  return (all || frozen) && /No calls in progress/.test(progress) ? { done: "complete" } : null;
 }

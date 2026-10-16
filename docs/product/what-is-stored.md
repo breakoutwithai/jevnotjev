@@ -9,7 +9,7 @@ Every statement cites the code it comes from, as `file:line` under `src/backstag
 | Field | What it holds | Source |
 |---|---|---|
 | `version` | The protocol version, `backstage/2` | `run.ts:1519`, `contracts.ts:1` |
-| `calcVersion` | The version of the verdict calculation, constant `CALC_VERSION` (`"verdict/1"`); it must change whenever the verdict or stats calculation changes | `run.ts:1520`, `contracts.ts:7` |
+| `calcVersion` | The version of the verdict calculation, constant `CALC_VERSION` (`"verdict/2"`); it must change whenever the verdict or stats calculation changes | `run.ts:1520`, `contracts.ts:7` |
 | `manifest` | Mode, arms, models, catalog version, revision, run id, prompt version, question id, creation time, and the scene (question, choices, definitions, cases) | `run.ts:96-107` |
 | `funding` | `"trial"` or `"byok"`; never a key | `run.ts:1522` |
 | `attempts` | One record per provider call: ids, requested and returned model, generation parameters, fingerprint, start and finish time, latency, tokens in and out, cost in USD, price version; on success the output and confidence, on failure the error code, message and charge state | `run.ts:1523`, `contracts.ts:69-105` |
@@ -66,7 +66,7 @@ Tools:
 
 - `bun scripts/inspect-export.ts <file>` prints the line "Checks reproducibility and credentials; not proof the file came from a real run.", then calcVersion (the value only when it is this build's), case and label counts, spend, each verdict (recomputed, exported, match or MISMATCH) and the problems; exit 0 when OK, 1 otherwise.
 - `bun scripts/d17-sample-export.ts` runs `sampleRun()`: a real `BackstageRun` with a fictional deterministic transport and sample keys, every answer labelled. `sampleExportText()` then awaits `report()` and returns `evidence()`; the script writes it to `examples/d17-sample-export/export.json`. No provider is called. `--check` exits 1 when the committed file differs from a fresh export.
-- `examples/d17-sample-export/export.json` is that sample: `version` `backstage/2`, `calcVersion` `verdict/1` (`examples/d17-sample-export/export.json:2-3`).
+- `examples/d17-sample-export/export.json` is that sample: `version` `backstage/2`, `calcVersion` `verdict/2` (`examples/d17-sample-export/export.json:2-3`).
 
 ## 2. Where data lives while you use Backstage
 

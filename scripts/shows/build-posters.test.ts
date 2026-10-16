@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { formatRows, readDictRows } from "../../src/format/csv.ts";
 import { join } from "node:path";
 import { buildPosters, POSTERS_OUT, render, summariseRun, watchPage } from "./build-posters.ts";
+import { RUN_SOURCES } from "../../src/evidence/replay.ts";
 import { LANDING_COPY } from "../../src/shows/landing-copy.ts";
 import type { Poster } from "../../src/shows/posters.ts";
 
@@ -69,6 +70,18 @@ describe("ticket office form", () => {
 });
 
 describe("posters", () => {
+  test("[unit] S6 unequal accepted counts have no general accuracy relation in committed or built posters", async () => {
+    for (const posters of [committed.posters, await buildPosters(ROOT)]) {
+      const unequal = posters.filter((poster) => {
+        const jev = poster.run?.methods.find((method) => method.arm === "jev");
+        const llm = poster.run?.methods.find((method) => method.arm === "llm");
+        return jev !== undefined && llm !== undefined && jev.accepted !== llm.accepted;
+      });
+      expect(unequal.length).toBeGreaterThan(0);
+      for (const poster of unequal) expect(JSON.stringify(poster)).not.toMatch(/same\s+accuracy|at least as accurate/i);
+    }
+  });
+
   test("[integration] S6 earlier UC13 run still derives its historical headline and projection", async () => {
     const run = await summariseRun(ROOT, "2026-10-01-uc13-shop-bot");
     expect(run?.headline).toBe("Same accuracy as the LLM (38/40 each) at 1/79th of the cost");
@@ -85,7 +98,7 @@ describe("posters", () => {
     expect(measured?.map((child) => child.className)).toEqual(["tk-verdict", "tk-why", "tk-cases", "tk-next", "tk-earlier"]);
     expect(measured?.map((child) => child.textContent)).toEqual([
       "Use Jev (100 messages)",
-      "Why: Same accuracy as the LLM (88 against 86 of 100) at about a fifth of the cost per kept answer.",
+      "Why: Jev kept 88 right answers and the LLM 86 on these 100 synthetic messages, at about a fifth of the cost per kept answer.",
       "What the cases show: Jev 88, LLM (Haiku 5.5) 86, simple rule 49, of 100.",
       "Next step: Open the 100-message run, or try your own decision.",
       "Earlier run: 40 messages: tied 38 to 38, Not proven yet (LLM was Haiku 4.5).",
@@ -222,19 +235,22 @@ describe("watch links", () => {
     expect(committed.posters.find((p) => p.id === "uc11")?.watch).toBe("replay/?run=tokenmax");
   });
 
-  test("[unit] the latest UC13 run opens the Stage page that plays it", async () => {
+  test("[unit] the latest UC13 run opens the replay player at replay/?run=uc13-100", async () => {
     const built = await buildPosters(ROOT);
-    expect(built.find((p) => p.id === "uc13")?.watch).toBe("./#act2");
-    expect(page).toContain('id="act2"');
-    expect(watchPage(ROOT, "2026-10-01-uc13-shop-bot")).toBe("little-shop/");
+    expect(built.find((p) => p.id === "uc13")?.watch).toBe("replay/?run=uc13-100");
+    expect(watchPage("2026-10-01-uc13-shop-bot")).toBe("replay/?run=uc13");
   });
 
-  test("[unit] a run folder no page names and no replay source holds has no watch link", () => {
+  test("[unit] a run folder no replay source holds has no watch link even when a site page names it", () => {
+    const folder = "2026-10-20-uc99-unlisted";
+    expect(RUN_SOURCES.some((source) => source.file.startsWith(`docs/product/runs/${folder}/`))).toBe(false);
     const root = mkdtempSync(join(tmpdir(), "posters-watch-"));
+    mkdirSync(join(root, "docs", "product", "runs", folder), { recursive: true });
+    writeFileSync(join(root, "docs", "product", "runs", folder, "records.csv"), "answerer,case_key\nllm,a\n");
     mkdirSync(join(root, "site", "other"), { recursive: true });
-    writeFileSync(join(root, "site", "other", "index.html"), "<p>nothing here</p>");
-    expect(watchPage(root, "2026-01-01-nowhere")).toBeNull();
-    expect(watchPage(ROOT, "2026-01-01-nowhere")).toBeNull();
+    writeFileSync(join(root, "site", "other", "index.html"), `<a href="docs/product/runs/${folder}/">${folder}</a>`);
+    expect(watchPage(folder)).toBeNull();
+    expect(watchPage("2026-01-01-nowhere")).toBeNull();
   });
 });
 

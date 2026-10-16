@@ -53,7 +53,7 @@ export interface Poster {
   readonly date: string;
   readonly source: string;
   readonly run: RunSummary | null;
-  /** A page under site/ that plays this run (its index.html names the run folder); null when none does. */
+  /** The one player for this run, `replay/?run=<key>` (src/evidence/replay.ts RUN_SOURCES); null when the player does not list it. */
   readonly watch: string | null;
 }
 
@@ -99,10 +99,8 @@ export function headlineOf(pair: HeadlinePair | null, labelledPaired: number): s
   // Below a twofold spend ratio, flooring would turn a cheaper run into the misleading "1/1st" claim.
   const ratio = Math.floor(llm.spend.usd / jev.spend.usd);
   if (!Number.isFinite(ratio) || ratio < 2) return null;
-  const counts = jev.accepted === llm.accepted
-    ? `${jev.accepted}/${pair.n} each`
-    : `${jev.accepted}/${pair.n} vs ${llm.accepted}/${pair.n}`;
-  return `${jev.accepted === llm.accepted ? "Same accuracy as the LLM" : "At least as accurate as the LLM"} (${counts}) at 1/${ordinal(ratio)} of the cost`;
+  if (jev.accepted === llm.accepted) return `Same accuracy as the LLM (${jev.accepted}/${pair.n} each) at 1/${ordinal(ratio)} of the cost`;
+  return `Jev ${jev.accepted}/${pair.n}, the LLM ${llm.accepted}/${pair.n}, at 1/${ordinal(ratio)} of the cost`;
 }
 
 function scaledCounts(counts: PairedCounts, total: number): PairedCounts {

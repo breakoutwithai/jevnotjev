@@ -23,7 +23,7 @@ test("[unit] S6 UC13 projection first clears the margin after six extra paired c
 });
 
 test("[unit] S6 a more accurate and cheaper Jev gets its own measured form", () => {
-  expect(headlineOf({ ...paired, otherArm: { ...paired.otherArm, accepted: 37 } }, 40)).toBe("At least as accurate as the LLM (38/40 vs 37/40) at 1/79th of the cost");
+  expect(headlineOf({ ...paired, otherArm: { ...paired.otherArm, accepted: 37 } }, 40)).toBe("Jev 38/40, the LLM 37/40, at 1/79th of the cost");
 });
 
 test("[unit] S6 a less accurate Jev never gets a cost headline", () => {

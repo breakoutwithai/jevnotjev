@@ -1,9 +1,10 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 import posters from "../site/shows/posters.json";
+import { stripIsHidden, withStripShown } from "./tm-strip.ts";
 
 declare global {
   interface Window {
@@ -21,6 +22,11 @@ const MOTIONS: ("no-preference" | "reduce")[] = ["no-preference", "reduce"];
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
 const posted: unknown[] = [];
+// The TokenMax strip ships hidden. A test that is about the strip (or about the curtain under it) serves the page with
+// that one `hidden` removed by calling stripOn() first; every other test sees the page as shipped.
+let stripShown = false;
+const stripOn = (): void => { stripShown = true; };
+afterEach(() => { stripShown = false; });
 
 beforeAll(async () => {
   const found = resolveChromium(null, process.env.UAT_CHROMIUM_PATH, chromium.executablePath(), existsSync);
@@ -37,7 +43,9 @@ beforeAll(async () => {
     const path = join(SITE, pathname.endsWith("/") ? `${pathname}index.html` : pathname);
     if (!path.startsWith(`${SITE}/`)) return new Response("Not found", { status: 404 });
     const file = Bun.file(path);
-    return await file.exists() ? new Response(file) : new Response("Not found", { status: 404 });
+    if (!await file.exists()) return new Response("Not found", { status: 404 });
+    if (stripShown && path === join(SITE, "index.html")) return new Response(withStripShown(await file.text()), { headers: { "content-type": "text/html; charset=utf-8" } });
+    return new Response(file);
   } });
   browser = await chromium.launch({ headless: true, executablePath: found.path });
 });
@@ -1138,6 +1146,7 @@ async function stepToOpen(page: Page, step: () => Promise<void>, limit: number):
 }
 
 test("[integration] V10 every way of scrolling drives the curtain's runway and the page stays at scrollY 0 until it opens: PageDown, Space and End on the page, ArrowDown from Skip, a wheel and a swipe over the sample chip, a real wheel and a real swipe over the curtain", async () => {
+  stripOn();
   for (const [width, height] of CLOSED_VIEWPORTS) {
     // PageDown from the page: one press parts it without moving the page; more presses open it with the heading in view.
     const page = await pageAt(width, height, "no-preference");
@@ -1202,6 +1211,7 @@ test("[integration] V10 every way of scrolling drives the curtain's runway and t
 }, 60000);
 
 test("[integration] V11 when the playbill fades with focus on Skip, focus is not dropped: the curtain opens onto the results and the results heading has focus", async () => {
+  stripOn();
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
@@ -1300,6 +1310,7 @@ test("[integration] V16 a case label is escaped where it becomes a class name: a
 }, 20000);
 
 test("[integration] V17 a scroll that opens the curtain in one go with focus on Skip moves focus to the results heading; the same scroll without focus on the curtain leaves the page at scrollY 0", async () => {
+  stripOn();
   for (const [width, height] of CLOSED_VIEWPORTS) for (const how of ["wheel", "scrollTop"]) {
     const page = await pageAt(width, height, "no-preference");
     try {
@@ -1375,6 +1386,7 @@ test("[integration] L24 scrolling back up never closes the curtain again, and pa
 }, 15000);
 
 test("[integration] L26 Skip is the first tab stop on the curtain (after the first-screen band's three) with a visible focus ring; Tab goes Skip, poster, House lights with the curtain closed; focus anywhere else opens it", async () => {
+  stripOn();
   const page = await pageAt(1280, 900, "no-preference");
   try {
     // The band above the curtain comes first and keeps it closed: Copy, the script note's link, Watch it run.
@@ -1815,6 +1827,62 @@ const TM_NOTES: { part: string; key: string; note: string; href: string | null }
 const TM_BAND_STOPS = ["tmCopy", "tmScript", "tmWatch"];
 const TM_HINT = `Press Ctrl+C or Cmd+C to copy. ${TM_TRUST} ${TM_BUN_LINE}`;
 
+/** What the curtain, the sample chip and the valance do with no band above them (the page before #241), read off the page. */
+async function noBandView(page: Page): Promise<Record<string, string | number | boolean>> {
+  return page.evaluate(() => {
+    const ov = document.getElementById("overture")?.getBoundingClientRect();
+    const chip = document.getElementById("sampleBadge")?.getBoundingClientRect();
+    const stage = document.querySelector(".overture-stage");
+    const band = document.getElementById("tmFirst");
+    return {
+      bandHidden: band?.hasAttribute("hidden") ?? false,
+      bandDisplay: band ? getComputedStyle(band).display : "missing",
+      bandHeight: band ? band.getBoundingClientRect().height : -1,
+      bandVar: document.documentElement.style.getPropertyValue("--tm-first-h"),
+      ovTop: ov ? Math.round(ov.top) : NaN,
+      ovHeight: ov ? Math.round(ov.height) : NaN,
+      chipTop: chip ? Math.round(chip.top) : NaN,
+      container: stage ? getComputedStyle(stage).containerType : "missing",
+      shown: (document.body.innerText || "").includes("Hitting Claude limits") || (document.body.innerText || "").includes("Watch it run"),
+    };
+  });
+}
+
+for (const [width, height] of VIEWPORTS) test(`[integration] TM0 the TokenMax strip is off at ${width}x${height}: it takes no room, shows no text, has no tab stop, and the curtain, chip and valance start where they did before #241`, async () => {
+  const page = await pageAt(width, height, "no-preference");
+  try {
+    await page.waitForFunction(() => document.documentElement.dataset.curtain !== undefined, undefined, { timeout: 5000 });
+    const view: Record<string, unknown> = { width, ...(await noBandView(page)) };
+    expect(view)
+      .toEqual({ width, bandHidden: true, bandDisplay: "none", bandHeight: 0, bandVar: "0px", ovTop: 0, ovHeight: height, chipTop: width < 721 ? 34 : 14, container: "normal", shown: false });
+    // Nothing in it takes a tab stop: Tab from the top of the page never lands inside the strip.
+    const stops: string[] = [];
+    for (let i = 0; i < 4; i += 1) { await page.keyboard.press("Tab"); stops.push(await page.evaluate(() => document.activeElement?.closest("#tmFirst") ? "tmFirst" : document.activeElement?.id ?? "")); }
+    expect(stops.includes("tmFirst")).toBe(false);
+    // The first heading is still the billing, and the page was not asked for the strip's text anywhere visible.
+    expect(await page.locator(":is(h1,h2,h3)").first().getAttribute("id")).toBe("t1");
+    expect(await page.locator("#tmFirst").isVisible()).toBe(false);
+  } finally { await page.close(); }
+}, 30000);
+
+test("[integration] TM0b the strip comes back with one change: removing the one `hidden` word from its tag in index.html shows it, with the curtain, chip and valance under it", async () => {
+  const html = readFileSync(join(SITE, "index.html"), "utf8");
+  expect(stripIsHidden(html)).toBe(true);
+  expect([...html.matchAll(/<section[^>]*id="tmFirst"[^>]*>/g)].map((m) => (m[0].match(/\shidden\b/g) ?? []).length)).toEqual([1]);
+  // The re-enabled page differs from the shipped one by exactly that word.
+  expect(html.length - withStripShown(html).length).toBe(" hidden".length);
+  expect(stripIsHidden(withStripShown(html))).toBe(false);
+  stripOn();
+  const page = await pageAt(1440, 900, "no-preference");
+  try {
+    await page.waitForFunction(() => document.documentElement.dataset.curtain !== undefined, undefined, { timeout: 5000 });
+    const view = await noBandView(page);
+    const band = await bandBox(page);
+    expect({ hidden: view.bandHidden, display: view.bandDisplay, tall: band.height > 100, curtainUnderBand: view.ovTop === Math.round(band.bottom), container: view.container, copyShown: await page.locator("#tmCopy").isVisible(), text: view.shown })
+      .toEqual({ hidden: false, display: "block", tall: true, curtainUnderBand: true, container: "size", copyShown: true, text: true });
+  } finally { await page.close(); }
+}, 30000);
+
 /** The band's box on screen. */
 async function bandBox(page: Page): Promise<{ top: number; bottom: number; height: number }> {
   return page.evaluate(() => {
@@ -1846,6 +1914,7 @@ async function tabToSkip(page: Page): Promise<void> {
 
 for (const motion of MOTIONS) {
   test(`[integration] TM1 the first screen leads with the band: body's first child, the promise, the exact command, its notes, the trust line and Watch it run; the Bun line waits for Copy; no heading in it, no animation under reduced motion (${motion})`, async () => {
+    stripOn();
     for (const [width, height] of VIEWPORTS) {
       const page = await pageAt(width, height, motion);
       try {
@@ -1900,6 +1969,7 @@ for (const motion of MOTIONS) {
 }
 
 test("[integration] TM2 Copy puts exactly the command on the clipboard and says Copied, the next step, the trust sentence and the Bun line in a polite live region", async () => {
+  stripOn();
   for (const [width, height] of VIEWPORTS) {
     const context = await browser.newContext({ viewport: { width, height }, reducedMotion: "reduce", permissions: ["clipboard-read", "clipboard-write"] });
     const page = await context.newPage();
@@ -1916,6 +1986,7 @@ test("[integration] TM2 Copy puts exactly the command on the clipboard and says 
 }, 20000);
 
 test("[integration] TM3 a clipboard that refuses or is missing selects the command and gives the keyboard hint with the trust sentence and the Bun line", async () => {
+  stripOn();
   const stubs: [string, string][] = [
     ["refused", "Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: function () { return Promise.reject(new Error('denied')); } });"],
     ["missing", "Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });"],
@@ -1932,6 +2003,7 @@ test("[integration] TM3 a clipboard that refuses or is missing selects the comma
 }, 30000);
 
 test("[integration] TM4 while the curtain plays the band sits above it: the pointer at its centre reaches the band, the curtain starts at its bottom, and every playbill control is on screen and reachable", async () => {
+  stripOn();
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
@@ -1965,6 +2037,7 @@ test("[integration] TM4 while the curtain plays the band sits above it: the poin
 }, 30000);
 
 test("[integration] TM5 with the curtain closed the band's controls keep it closed: focus or a click on Copy; Tab goes Copy, the script note, Watch it run, Skip, poster, House lights, each with a visible focus ring", async () => {
+  stripOn();
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference", "", false, undefined, async (p) => {
       await p.addInitScript({ content: "Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: function () { return Promise.resolve(); } } });" });
@@ -1987,6 +2060,7 @@ test("[integration] TM5 with the curtain closed the band's controls keep it clos
 }, 30000);
 
 test("[integration] TM6 the curtain still opens every way with the band above it: a scroll, Skip (focus to the results heading) and a #hash", async () => {
+  stripOn();
   for (const [width, height] of VIEWPORTS) {
     const scrolled = await pageAt(width, height, "no-preference");
     try {
@@ -2009,6 +2083,7 @@ test("[integration] TM6 the curtain still opens every way with the band above it
 }, 30000);
 
 for (const [width, height] of VIEWPORTS) test(`[integration] TM7 at ${width}x${height} the command wraps inside its box, never inside "--share": no horizontal scroll with the curtain closed or open`, async () => {
+  stripOn();
   const page = await pageAt(width, height, "no-preference");
   try {
     const measure = () => page.evaluate(() => {
@@ -2042,6 +2117,7 @@ for (const [width, height] of VIEWPORTS) test(`[integration] TM7 at ${width}x${h
 }, 15000);
 
 test("[integration] TM8 the after-copy message carries the trust sentence and the exact Bun install line; the curtain follows the taller band and every playbill control stays on screen", async () => {
+  stripOn();
   for (const motion of MOTIONS) for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, motion, "", false, undefined, async (p) => {
       await p.addInitScript({ content: "Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: function () { return Promise.resolve(); } } });" });
@@ -2072,6 +2148,7 @@ test("[integration] TM8 the after-copy message carries the trust sentence and th
 }, 30000);
 
 test("[integration] TM9 L1 holds with the band: the first heading on the page is still #t1, in both motions and viewports", async () => {
+  stripOn();
   for (const motion of MOTIONS) for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, motion);
     try {
@@ -2081,6 +2158,7 @@ test("[integration] TM9 L1 holds with the band: the first heading on the page is
 }, 30000);
 
 test("[integration] TM10 the band holds exactly four parts (the promise, the command with Copy, the command's notes, the trust line with Watch it run) and no other visible text, in one accent colour with the promise as the focal point", async () => {
+  stripOn();
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, "reduce");
     try {
@@ -2125,6 +2203,7 @@ test("[integration] TM10 the band holds exactly four parts (the promise, the com
 }, 20000);
 
 for (const motion of MOTIONS) test(`[integration] TM11 the trust line shows in the band at 390 and 1440, never hidden on phones, uncovered, with the curtain closed and open (${motion})`, async () => {
+  stripOn();
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, motion);
     try {
@@ -2145,6 +2224,7 @@ for (const motion of MOTIONS) test(`[integration] TM11 the trust line shows in t
 }, 30000);
 
 test("[integration] TM12 before Copy the command's three parts are underlined, each tied to its note; the script note links to /tm/map.ts; the full command shows at 390 and 1440, wrapped, never clipped", async () => {
+  stripOn();
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
@@ -2194,6 +2274,7 @@ test("[integration] TM12 before Copy the command's three parts are underlined, e
 }, 30000);
 
 test("[integration] TM13 every link and button in the band is at least 24x24 px with text at least 13 px, at 390 and 1440, before and after Copy", async () => {
+  stripOn();
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference", "", false, undefined, async (p) => {
       await p.addInitScript({ content: "Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: function () { return Promise.resolve(); } } });" });

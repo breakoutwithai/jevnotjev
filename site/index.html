@@ -249,7 +249,9 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 </script>
 </head>
 <body>
-<section class="tm-first" id="tmFirst" aria-label="Map your Claude week">
+<!-- The TokenMax strip is switched off (operator, 2026-10-16). To show it again, delete the one word "hidden" on the next tag: the
+     curtain, the sample chip and the valance then start under it (theatre.css/theatre.js), as built in #241. -->
+<section class="tm-first" id="tmFirst" aria-label="Map your Claude week" hidden>
   <p class="tm-promise" id="tmPromise">Hitting Claude limits? See your last 7 days in 10 seconds, on your own machine</p>
   <div class="tm-ticket" role="group" aria-label="The command"><code id="tmCommand"><span class="tm-tok" data-note="tmNote1">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts</span> | <span class="tm-tok" data-note="tmNote2">bun run -</span> <span class="tm-tok tm-flag" data-note="tmNote3">--share</span></code><span class="tm-stub" aria-hidden="true"></span><button type="button" id="tmCopy">Copy</button></div>
   <ul class="tm-notes" id="tmNotes" aria-label="What each part of the command does">

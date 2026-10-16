@@ -169,10 +169,11 @@
   .overture .poster .p-title { font-size: 22px; }
   .overture .poster .p-cta { padding: 8px 12px; }
 }
-/* With the first-screen band above it the curtain is shorter than the screen, so the playbill also compresses by the
-   height the curtain's stage actually has (a size container), not only by the screen's. The sample chip sits 10px
-   under the band, so the playbill needs less room above it. */
-.overture-stage { container: stage / size; }
+/* Only while the first-screen band shows (index.html drops its `hidden`): with it above, the curtain is shorter than the
+   screen, so the playbill also compresses by the height the curtain's stage actually has (a size container), not only by
+   the screen's. The sample chip sits 10px under the band, so the playbill needs less room above it. Hidden: no container,
+   so these queries never match and the curtain is as it was before #241. */
+#tmFirst:not([hidden]) ~ .overture .overture-stage { container: stage / size; }
 @container stage (max-width: 720px) and (max-height: 760px) {
   .playbill { gap: 10px; padding: 52px 16px 8px; }
   .overture .marquee { padding: 10px 16px 9px; }

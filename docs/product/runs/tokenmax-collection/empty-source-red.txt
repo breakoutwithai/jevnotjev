@@ -1,0 +1,19 @@
+bun test v1.4.2 (744846f84)
+
+scripts/tokenmax-collection/run.test.ts:
+(pass) [integration] TC local selected-root metadata runner produces receiver-valid editable draft and refuses overwrite [4.94ms]
+(pass) [unit] TC runner requires explicit source and destination and unknown runtime capability fails honestly [13.74ms]
+(pass) [integration] TC standalone JavaScript runs in Node without Bun and emits receiver-valid aggregates without network [234.47ms]
+                                                                                                                                                                                                                                                                 ^
+error: expect(received).rejects.toThrow(expected)
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+      at <anonymous> (<worktree>/scripts/tokenmax-collection/run.test.ts:27:253)
+(fail) [integration] TC empty selected history cannot become a report for an invented provider [0.88ms]
+
+ 3 pass
+ 1 fail
+ 26 expect() calls
+Ran 4 tests across 1 file. [274.00ms]

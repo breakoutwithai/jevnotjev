@@ -1,0 +1,19 @@
+bun test v1.4.2 (744846f84)
+
+scripts/site-content.test.ts:
+(pass) site content gate > [unit] SITE-1 the Builder column is read as plain text: parentheticals, emphasis and links dropped [0.03ms]
+(pass) site content gate > [unit] SITE-2 a name matches only as a whole word, any case [3.44ms]
+(pass) site content gate > [unit] SITE-2 a name split across lines, inline tags or character references is still caught [7.22ms]
+(pass) site content gate > [unit] SITE-2 .mjs and .htm are scanned, images pass, and an unclassified file fails the gate [9.11ms]
+(pass) site content gate > [integration] SITE-3 a planted name and a planted em dash in a copy of site/ both fail [85.40ms]
+(pass) site content gate > [integration] SITE-4 site/ has 0 em or en dashes (M5), every file classified, and 0 synthetic-name hits [46.82ms]
+(pass) site content CLI (the real-leaderboard scan) > [integration] SITE-10 a missing leaderboard fails loudly, never passes [10.12ms]
+(pass) site content CLI (the real-leaderboard scan) > [integration] SITE-10 an unset JNJ_LEADERBOARD with no flag fails with a clear error, never falls back to a default path [10.26ms]
+(pass) site content CLI (the real-leaderboard scan) > [unit] SITE-10 leaderboardPath is undefined when the variable is unset or empty, and the variable's value when set [0.10ms]
+(pass) site content CLI (the real-leaderboard scan) > [integration] SITE-10 with a leaderboard: passes on site/, fails on a planted copy [142.02ms]
+(pass) site content CLI (the real-leaderboard scan) > [integration] SITE-10 a leaderboard with no Builder column fails, never checks zero names [47.11ms]
+
+ 11 pass
+ 0 fail
+ 37 expect() calls
+Ran 11 tests across 1 file. [383.00ms]

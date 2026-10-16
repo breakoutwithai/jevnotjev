@@ -1,0 +1,24 @@
+bun test v1.4.2 (744846f84)
+
+src/backstage/tokenmax-preview.test.ts:
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 200
+Received: 404
+
+      at <anonymous> (<worktree>/src/backstage/tokenmax-preview.test.ts:13:29)
+(fail) [integration] TM-H1 preview receives validates and generates map without publication or ambient inference [3.00ms]
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: 400
+Received: 404
+
+      at <anonymous> (<worktree>/src/backstage/tokenmax-preview.test.ts:26:29)
+(fail) [integration] TM-H2 preview rejects before provider processing and does not echo or log private input [0.17ms]
+
+ 0 pass
+ 2 fail
+ 2 expect() calls
+Ran 2 tests across 1 file. [32.00ms]

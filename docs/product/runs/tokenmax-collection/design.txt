@@ -1,0 +1,1 @@
+C1 PASS: design and credit files nonempty

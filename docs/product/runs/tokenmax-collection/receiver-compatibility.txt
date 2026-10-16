@@ -1,0 +1,6 @@
+Busy developer: projection accepted; full envelope rejected; synthetic not published
+Part-time builder: projection accepted; full envelope rejected; synthetic not published
+Simple chat: projection accepted; full envelope rejected; synthetic not published
+PASS 3 compatibility cases; sibling PR #241 head d03fcb357ca8968ae1f8fc3faa9dfc4e8b560987; no HTTP/storage calls
+Receiver source extracted with git show of the named commit; SHA256 cc95bef1057d490964436b93ad325ce8c568e1b1e1788839ffd39df516c4981e.
+The sibling working tree has active uncommitted edits. This evidence explicitly uses the committed artifact, without changing or running tests in that tree.

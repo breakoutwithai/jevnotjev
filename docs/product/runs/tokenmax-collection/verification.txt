@@ -1,0 +1,93 @@
+bun test v1.4.2 (744846f84)
+
+scripts/tokenmax-collection/browser.test.ts:
+(pass) [integration] TM-B1 mobile and desktop retain rejected draft and recover through the same sample path [901.24ms]
+
+scripts/tokenmax-collection/run.test.ts:
+(pass) [integration] TC local selected-root metadata runner produces receiver-valid editable draft and refuses overwrite [3.53ms]
+(pass) [unit] TC runner requires explicit source and destination and unknown runtime capability fails honestly [14.26ms]
+(pass) [integration] TC standalone JavaScript runs in Node without Bun and emits receiver-valid aggregates without network [224.07ms]
+(pass) [integration] TC empty selected history cannot become a report for an invented provider [0.28ms]
+
+src/tokenmax-collection/collector.test.ts:
+(pass) [integration] TC four synthetic journeys claude host [0.93ms]
+(pass) [integration] TC four synthetic journeys claude jev [0.77ms]
+(pass) [integration] TC four synthetic journeys codex host [0.30ms]
+(pass) [integration] TC four synthetic journeys codex jev [0.14ms]
+(pass) [unit] TC privacy span IDs and locally stripped canaries [0.06ms]
+(pass) [unit] TC unavailable Jev never silently invokes baseline [0.14ms]
+(pass) [unit] TC selected subset preserves complete accounting and active exclusion [0.07ms]
+(pass) [unit] TC unknown cumulative baseline and decreases only count established deltas [0.09ms]
+(pass) [unit] TC uncertain selection abstains without manufacturing a tier [0.07ms]
+(pass) [unit] TC invalid typed Jev responses stay reviewable and do not become baseline [0.19ms]
+(pass) [unit] TC bounded timeout aborts a hanging transport [5.83ms]
+(pass) [unit] TC changed facts and changed actions fail Switch Check release [0.42ms]
+(pass) [unit] TC host sees stripped bounded state only and content authorization is enforced [0.16ms]
+(pass) [unit] TC caching and concurrency bounds apply to independent candidates [3.63ms]
+(pass) [unit] TC Claude final snapshots deduplicate within each session namespace [0.15ms]
+(pass) [unit] TC Codex duplicate files and inherited starts do not inflate counters [0.16ms]
+(pass) [unit] TC weekly readings survive newer short windows without becoming token allowance estimates [0.15ms]
+(pass) [unit] TC explicitly requested unavailable Jev stays unavailable with no candidates [0.06ms]
+(pass) [unit] TC interleaved duplicate session files are ordered before cumulative folding [0.10ms]
+(pass) [unit] TC Jev key without explicit processing approval makes zero transport calls [0.07ms]
+(pass) [unit] TC approved Jev call byte and spend reservations stop before transport and never retry [0.47ms]
+(pass) [unit] TC synthetic approval cannot authorize default real Jev transport [0.09ms]
+(pass) [unit] TC copied parent metadata does not collapse fork identity or inherited accounting [0.26ms]
+(pass) [integration] TC window zones use observed readings and never token totals [0.10ms]
+
+src/tokenmax-collection/zone.test.ts:
+(pass) [unit] TZ1 actual readings cover six window zones [0.03ms]
+(pass) [unit] TZ2 absent and invalid readings never invent zones [0.04ms]
+(pass) [unit] TZ3 exact staleness reserve and reset boundaries [0.03ms]
+(pass) [unit] TZ4 early pace uses one seventh window and under hour no projection
+
+src/backstage/tokenmax-preview.test.ts:
+(pass) [integration] TM-H1 preview receives validates and generates map without publication or ambient inference [0.59ms]
+(pass) [integration] TM-H2 preview rejects before provider processing and does not echo or log private input [1.10ms]
+(pass) [integration] TM-H3 platform checks receive only validated aggregates and bounded work returns busy [0.23ms]
+
+src/tokenmax-ingest/ingest.test.ts:
+(pass) TokenMax paste ingestion > [integration] TM-I1 all three synthetic samples follow the same validation and map path [0.12ms]
+(pass) TokenMax paste ingestion > [unit] TM-I2 unknown fields and planted identifiers are rejected without losing the draft [0.07ms]
+(pass) TokenMax paste ingestion > [unit] TM-I3 rejects unsafe numeric values, inconsistent totals and unsupported versions [0.09ms]
+(pass) TokenMax paste ingestion > [unit] TM-I4 malformed and oversize drafts are recoverable and never publish [0.03ms]
+(pass) TokenMax paste ingestion > [unit] TM-I5 real aggregates remain unpublished; local Jev does not imply platform verification [0.04ms]
+(pass) [integration] TM-I6 platform checks receive only validated aggregates and preserve draft on failure [0.19ms]
+(pass) [unit] TM-I7 unknown Opus coverage blocks tm-share projection without rejecting the collection draft [0.02ms]
+(pass) [unit] TM-I8 visible prompts cover both providers and both modes without installation [0.12ms]
+(pass) [unit] TM-I9 contradictory Jev provenance and provider readings are rejected [0.10ms]
+
+src/tokenmax-ingest/browser.test.ts:
+(pass) [integration] TM-UI1 mobile editing, rejection recovery, samples and explicit platform submission [607.84ms]
+
+src/tokenmax-ingest/platform.test.ts:
+(pass) [integration] TM-P1 platform approval and key are required before any provider call [0.86ms]
+(pass) [integration] TM-P2 independent typed checks share one pinned request and enforce call ceiling [0.28ms]
+(pass) [integration] TM-P3 wrong model, missing answers, review and timeouts fail closed [6.07ms]
+(pass) [unit] TM-P4 spend reservation, recipient and input limits prevent calls [0.29ms]
+(pass) [unit] TM-P5 caller mutation cannot expand a platform approval after construction [0.14ms]
+
+ 51 pass
+ 0 fail
+ 311 expect() calls
+Ran 51 tests across 8 files. [2.50s]
+scripts/tokenmax-collection/browser.test.ts: 1 passed
+scripts/tokenmax-collection/run.test.ts: 4 passed
+src/tokenmax-collection/collector.test.ts: 24 passed
+src/tokenmax-collection/zone.test.ts: 4 passed
+src/backstage/tokenmax-preview.test.ts: 3 passed
+src/tokenmax-ingest/ingest.test.ts: 9 passed
+src/tokenmax-ingest/browser.test.ts: 1 passed
+src/tokenmax-ingest/platform.test.ts: 5 passed
+Collection verification: 8 files; 51 tests passed
+Bundled 2 modules in 2ms
+
+  collect.js  18.1 KB  (entry point)
+
+Browser bundle parity: PASS
+Bundled 8 modules in 4ms
+
+  collect.mjs  46.54 KB  (entry point)
+
+Node bundle parity: PASS
+Artifacts: 3 synthetic payloads valid; 4 participant prompts match visible UI

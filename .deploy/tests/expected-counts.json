@@ -1,5 +1,5 @@
 {
-  "minFiles": 126,
+  "minFiles": 134,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -126,6 +126,14 @@
     "src/labels/suggest.test.ts": 10,
     "src/mcp/broken-paths.test.ts": 25,
     "src/mcp/server.test.ts": 8,
-    "src/shows/posters.test.ts": 19
+    "src/shows/posters.test.ts": 19,
+    "src/tokenmax-collection/collector.test.ts": 24,
+    "scripts/tokenmax-collection/run.test.ts": 4,
+    "src/tokenmax-ingest/ingest.test.ts": 9,
+    "src/tokenmax-ingest/platform.test.ts": 5,
+    "src/tokenmax-ingest/browser.test.ts": 1,
+    "src/backstage/tokenmax-preview.test.ts": 3,
+    "scripts/tokenmax-collection/browser.test.ts": 1,
+    "src/tokenmax-collection/zone.test.ts": 4
   }
 }

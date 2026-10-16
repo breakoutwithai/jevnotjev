@@ -1,0 +1,20 @@
+bun test v1.4.2 (744846f84)
+
+src/tokenmax-ingest/platform.test.ts:
+(pass) [integration] TM-P1 platform approval and key are required before any provider call [0.78ms]
+(pass) [integration] TM-P2 independent typed checks share one pinned request and enforce call ceiling [0.52ms]
+(pass) [integration] TM-P3 wrong model, missing answers, review and timeouts fail closed [6.01ms]
+(pass) [unit] TM-P4 spend reservation, recipient and input limits prevent calls [0.29ms]
+                                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "review"
+Received: "accepted"
+
+      at <anonymous> (<worktree>/src/tokenmax-ingest/platform.test.ts:44:49)
+(fail) [unit] TM-P5 caller mutation cannot expand a platform approval after construction [0.37ms]
+
+ 4 pass
+ 1 fail
+ 22 expect() calls
+Ran 5 tests across 1 file. [25.00ms]

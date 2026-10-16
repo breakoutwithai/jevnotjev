@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+
+src/backstage/tokenmax-preview.test.ts:
+(pass) [integration] TM-H1 preview receives validates and generates map without publication or ambient inference [3.46ms]
+(pass) [integration] TM-H2 preview rejects before provider processing and does not echo or log private input [1.04ms]
+(fail) [integration] TM-H3 platform checks receive only validated aggregates and bounded work returns busy [5000.00ms]
+  ^ this test timed out after 5000ms.
+
+ 2 pass
+ 1 fail
+ 16 expect() calls
+Ran 3 tests across 1 file. [5.15s]

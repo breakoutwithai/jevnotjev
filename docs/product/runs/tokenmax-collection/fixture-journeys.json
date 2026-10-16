@@ -1,0 +1,381 @@
+{
+  "scope": "Synthetic contract tests only. No live host or Jev inference.",
+  "rows": [
+    {
+      "provider": "claude",
+      "mode": "host",
+      "transport": "injected-synthetic-contract-stub",
+      "contract_valid": true,
+      "period_basis": "rolling_seven_days",
+      "full_output_tokens": 20,
+      "selected": 1,
+      "semantic_status": "completed",
+      "stub_calls": 3,
+      "cache_hits": 0,
+      "elapsed_collector_ms": 1.9287500000000009,
+      "transported_characters": 292,
+      "host_context_tokens": null,
+      "jev_input_tokens": null,
+      "actual_cost_usd": null,
+      "privacy_quality": "NOT MEASURED: planted syntactic canaries only",
+      "preservation_quality": "NOT MEASURED: injected answer",
+      "blind_human_labels": "PENDING",
+      "share": {
+        "v": "tm-collection/1",
+        "map": {
+          "v": "tm-share/1",
+          "skill": "1.0.0",
+          "days": 7,
+          "sources": "claude",
+          "sessions": 1,
+          "subagent_sessions": 0,
+          "caps": {
+            "short": 0,
+            "weekly": 0,
+            "unknown": 0
+          },
+          "output_tokens": {
+            "claude": 20,
+            "codex": 0
+          },
+          "opus_share_pct": 0,
+          "codex_weekly_pct": null
+        },
+        "period": {
+          "basis": "rolling_seven_days",
+          "days": 7
+        },
+        "coverage": {
+          "accepted": 1,
+          "malformed": 0,
+          "unsupported": 0,
+          "baseline_segments": 0,
+          "semantic_candidates": 1,
+          "semantic_selected": 1
+        },
+        "tokens": {
+          "claude": {
+            "input": 100,
+            "output": 20,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "codex": {
+            "input": 0,
+            "cachedInput": 0,
+            "cacheWrite": 0,
+            "output": 0,
+            "reasoning": 0
+          }
+        },
+        "analysis": {
+          "mode": "host",
+          "status": "completed",
+          "model": "host-model",
+          "jev_calls": 0,
+          "host_calls": 3,
+          "cache_hits": 0,
+          "input_tokens": null,
+          "output_tokens": null,
+          "cost_usd": null
+        },
+        "context": {
+          "subscription": "unspecified",
+          "week": "unspecified"
+        },
+        "findings": [
+          "usage_only_no_savings_claim"
+        ],
+        "categories": {
+          "must_deliver": 1,
+          "internal": 0,
+          "free_burn": 0,
+          "unknown": 0
+        },
+        "synthetic": true
+      }
+    },
+    {
+      "provider": "claude",
+      "mode": "jev",
+      "transport": "injected-synthetic-contract-stub",
+      "contract_valid": true,
+      "period_basis": "rolling_seven_days",
+      "full_output_tokens": 20,
+      "selected": 1,
+      "semantic_status": "completed",
+      "stub_calls": 3,
+      "cache_hits": 0,
+      "elapsed_collector_ms": 0.5480419999999988,
+      "transported_characters": 2583,
+      "host_context_tokens": null,
+      "jev_input_tokens": null,
+      "actual_cost_usd": null,
+      "privacy_quality": "NOT MEASURED: planted syntactic canaries only",
+      "preservation_quality": "NOT MEASURED: injected answer",
+      "blind_human_labels": "PENDING",
+      "share": {
+        "v": "tm-collection/1",
+        "map": {
+          "v": "tm-share/1",
+          "skill": "1.0.0",
+          "days": 7,
+          "sources": "claude",
+          "sessions": 1,
+          "subagent_sessions": 0,
+          "caps": {
+            "short": 0,
+            "weekly": 0,
+            "unknown": 0
+          },
+          "output_tokens": {
+            "claude": 20,
+            "codex": 0
+          },
+          "opus_share_pct": 0,
+          "codex_weekly_pct": null
+        },
+        "period": {
+          "basis": "rolling_seven_days",
+          "days": 7
+        },
+        "coverage": {
+          "accepted": 1,
+          "malformed": 0,
+          "unsupported": 0,
+          "baseline_segments": 0,
+          "semantic_candidates": 1,
+          "semantic_selected": 1
+        },
+        "tokens": {
+          "claude": {
+            "input": 100,
+            "output": 20,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "codex": {
+            "input": 0,
+            "cachedInput": 0,
+            "cacheWrite": 0,
+            "output": 0,
+            "reasoning": 0
+          }
+        },
+        "analysis": {
+          "mode": "jev",
+          "status": "completed",
+          "model": "jev-1.13.0",
+          "jev_calls": 3,
+          "host_calls": 0,
+          "cache_hits": 0,
+          "input_tokens": null,
+          "output_tokens": null,
+          "cost_usd": null
+        },
+        "context": {
+          "subscription": "unspecified",
+          "week": "unspecified"
+        },
+        "findings": [
+          "usage_only_no_savings_claim"
+        ],
+        "categories": {
+          "must_deliver": 1,
+          "internal": 0,
+          "free_burn": 0,
+          "unknown": 0
+        },
+        "synthetic": true
+      }
+    },
+    {
+      "provider": "codex",
+      "mode": "host",
+      "transport": "injected-synthetic-contract-stub",
+      "contract_valid": true,
+      "period_basis": "rolling_seven_days",
+      "full_output_tokens": 20,
+      "selected": 1,
+      "semantic_status": "completed",
+      "stub_calls": 3,
+      "cache_hits": 0,
+      "elapsed_collector_ms": 0.22424999999999962,
+      "transported_characters": 292,
+      "host_context_tokens": null,
+      "jev_input_tokens": null,
+      "actual_cost_usd": null,
+      "privacy_quality": "NOT MEASURED: planted syntactic canaries only",
+      "preservation_quality": "NOT MEASURED: injected answer",
+      "blind_human_labels": "PENDING",
+      "share": {
+        "v": "tm-collection/1",
+        "map": {
+          "v": "tm-share/1",
+          "skill": "1.0.0",
+          "days": 7,
+          "sources": "codex",
+          "sessions": 1,
+          "subagent_sessions": 0,
+          "caps": {
+            "short": 0,
+            "weekly": 0,
+            "unknown": 0
+          },
+          "output_tokens": {
+            "claude": 0,
+            "codex": 20
+          },
+          "opus_share_pct": null,
+          "codex_weekly_pct": null
+        },
+        "period": {
+          "basis": "rolling_seven_days",
+          "days": 7
+        },
+        "coverage": {
+          "accepted": 1,
+          "malformed": 0,
+          "unsupported": 0,
+          "baseline_segments": 0,
+          "semantic_candidates": 1,
+          "semantic_selected": 1
+        },
+        "tokens": {
+          "claude": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "codex": {
+            "input": 100,
+            "cachedInput": 0,
+            "cacheWrite": 0,
+            "output": 20,
+            "reasoning": 0
+          }
+        },
+        "analysis": {
+          "mode": "host",
+          "status": "completed",
+          "model": "host-model",
+          "jev_calls": 0,
+          "host_calls": 3,
+          "cache_hits": 0,
+          "input_tokens": null,
+          "output_tokens": null,
+          "cost_usd": null
+        },
+        "context": {
+          "subscription": "unspecified",
+          "week": "unspecified"
+        },
+        "findings": [
+          "usage_only_no_savings_claim"
+        ],
+        "categories": {
+          "must_deliver": 1,
+          "internal": 0,
+          "free_burn": 0,
+          "unknown": 0
+        },
+        "synthetic": true
+      }
+    },
+    {
+      "provider": "codex",
+      "mode": "jev",
+      "transport": "injected-synthetic-contract-stub",
+      "contract_valid": true,
+      "period_basis": "rolling_seven_days",
+      "full_output_tokens": 20,
+      "selected": 1,
+      "semantic_status": "completed",
+      "stub_calls": 3,
+      "cache_hits": 0,
+      "elapsed_collector_ms": 0.10845799999999883,
+      "transported_characters": 2583,
+      "host_context_tokens": null,
+      "jev_input_tokens": null,
+      "actual_cost_usd": null,
+      "privacy_quality": "NOT MEASURED: planted syntactic canaries only",
+      "preservation_quality": "NOT MEASURED: injected answer",
+      "blind_human_labels": "PENDING",
+      "share": {
+        "v": "tm-collection/1",
+        "map": {
+          "v": "tm-share/1",
+          "skill": "1.0.0",
+          "days": 7,
+          "sources": "codex",
+          "sessions": 1,
+          "subagent_sessions": 0,
+          "caps": {
+            "short": 0,
+            "weekly": 0,
+            "unknown": 0
+          },
+          "output_tokens": {
+            "claude": 0,
+            "codex": 20
+          },
+          "opus_share_pct": null,
+          "codex_weekly_pct": null
+        },
+        "period": {
+          "basis": "rolling_seven_days",
+          "days": 7
+        },
+        "coverage": {
+          "accepted": 1,
+          "malformed": 0,
+          "unsupported": 0,
+          "baseline_segments": 0,
+          "semantic_candidates": 1,
+          "semantic_selected": 1
+        },
+        "tokens": {
+          "claude": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "codex": {
+            "input": 100,
+            "cachedInput": 0,
+            "cacheWrite": 0,
+            "output": 20,
+            "reasoning": 0
+          }
+        },
+        "analysis": {
+          "mode": "jev",
+          "status": "completed",
+          "model": "jev-1.13.0",
+          "jev_calls": 3,
+          "host_calls": 0,
+          "cache_hits": 0,
+          "input_tokens": null,
+          "output_tokens": null,
+          "cost_usd": null
+        },
+        "context": {
+          "subscription": "unspecified",
+          "week": "unspecified"
+        },
+        "findings": [
+          "usage_only_no_savings_claim"
+        ],
+        "categories": {
+          "must_deliver": 1,
+          "internal": 0,
+          "free_burn": 0,
+          "unknown": 0
+        },
+        "synthetic": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+
+src/tokenmax-collection/zone.test.ts:
+(pass) [unit] TZ1 actual readings cover six window zones [0.13ms]
+(pass) [unit] TZ2 absent and invalid readings never invent zones [0.05ms]
+(pass) [unit] TZ3 exact staleness reserve and reset boundaries [0.02ms]
+(pass) [unit] TZ4 early pace uses one seventh window and under hour no projection [0.04ms]
+
+ 4 pass
+ 0 fail
+ 25 expect() calls
+Ran 4 tests across 1 file. [15.00ms]

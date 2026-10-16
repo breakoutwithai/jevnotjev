@@ -542,7 +542,7 @@ interface Part { left: number; right: number; top: number; bottom: number; inVie
 
 const PARTS: Record<string, string> = {
   marquee: "#overture .marquee", ticket: "#overture .ticket", cue: "#overture .cue-scroll", skip: "#skipOverture",
-  poster: "#overture a.poster", chip: "#sampleBadge", lights: "#lights",
+  poster: "#overture a.poster", madmax: '#overture a[href="tm/"]', chip: "#sampleBadge", lights: "#lights",
 };
 
 async function curtainParts(page: Page): Promise<Record<string, Part | null>> {
@@ -1004,7 +1004,7 @@ test("[integration] V7 the page holds still while the curtain parts: at least ha
   }
 }, 30000);
 
-test("[integration] V9 short screens (390x600, 390x560, 740x600, 844x390) and 390x844 fit the closed curtain: the whole marquee on screen and clear of the chip, Skip and the poster's Take your seat on screen and reachable, no horizontal scroll", async () => {
+test("[integration] V9 short screens (390x600, 390x560, 740x600, 844x390) and 390x844 fit the closed curtain: the whole marquee on screen and clear of the chip, Skip, the Mad TokenMax poster and the Little Shop poster's Take your seat on screen and reachable, no horizontal scroll", async () => {
   const shorts: [number, number][] = [[390, 844], [390, 600], [390, 560], [740, 600], [844, 390]];
   for (const [width, height] of shorts) {
     const page = await pageAt(width, height, "no-preference");
@@ -1025,10 +1025,11 @@ test("[integration] V9 short screens (390x600, 390x560, 740x600, 844x390) and 39
         return {
           marqueeTop: marquee ? Math.round(marquee.top) : NaN, marquee: inside(marquee), chipClear: !meets(chip, marquee) && !meets(chip, title),
           skip: inside(box("#skipOverture")) && reach("#skipOverture", "#skipOverture"), seat: inside(box("#overture a.poster .p-cta")) && reach("#overture a.poster .p-cta", "#overture a.poster"),
+          madmax: inside(box('#overture a[href="tm/"]')) && reach('#overture a[href="tm/"]', '#overture a[href="tm/"]'),
           poster: inside(box("#overture a.poster")), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         };
       });
-      expect({ width, height, ...fit, marqueeTop: fit.marqueeTop >= 0 }).toEqual({ width, height, marqueeTop: true, marquee: true, chipClear: true, skip: true, seat: true, poster: true, overflow: 0 });
+      expect({ width, height, ...fit, marqueeTop: fit.marqueeTop >= 0 }).toEqual({ width, height, marqueeTop: true, marquee: true, chipClear: true, skip: true, seat: true, madmax: true, poster: true, overflow: 0 });
     } finally { await page.close(); }
   }
 }, 30000);
@@ -1400,7 +1401,7 @@ test("[integration] L24 the curtain follows the scroll both ways: partial progre
   } finally { await page.close(); }
 }, 15000);
 
-test("[integration] L26 Skip is the first tab stop on the curtain (after the first-screen band's three) with a visible focus ring; Tab goes Skip, poster, House lights with the curtain closed; focus anywhere else opens it", async () => {
+test("[integration] L26 Skip is the first tab stop on the curtain (after the first-screen band's three) with a visible focus ring; Tab goes Skip, the Mad TokenMax poster, the Little Shop poster, House lights with the curtain closed; focus anywhere else opens it", async () => {
   stripOn();
   const page = await pageAt(1280, 900, "no-preference");
   try {
@@ -1413,6 +1414,11 @@ test("[integration] L26 Skip is the first tab stop on the curtain (after the fir
       return { id: a?.id ?? "", ring: Boolean(a?.matches(":focus-visible") && s && s.outlineStyle !== "none" && parseFloat(s.outlineWidth) >= 2), state: document.documentElement.dataset.curtain };
     });
     expect(first).toEqual({ id: "skipOverture", ring: true, state: "closed" });
+    await page.keyboard.press("Tab");
+    expect(await page.evaluate(() => ({
+      madmax: document.activeElement?.matches('#overture a[href="tm/"]') ?? false,
+      state: document.documentElement.dataset.curtain,
+    }))).toEqual({ madmax: true, state: "closed" });
     await page.keyboard.press("Tab");
     expect(await page.evaluate(() => ({
       poster: document.activeElement?.matches("#overture a.poster") ?? false,
@@ -1914,7 +1920,7 @@ async function tabStops(page: Page, count: number): Promise<{ stop: string; stat
     out.push(await page.evaluate(() => {
       const a = document.activeElement;
       const s = a ? getComputedStyle(a) : null;
-      const stop = !a ? "none" : a.id ? a.id : a.matches("#overture a.poster") ? "curtain poster" : `${a.tagName}.${a.className}`;
+      const stop = !a ? "none" : a.id ? a.id : a.matches("#overture a.poster") ? "curtain poster" : a.matches('#overture a[href="tm/"]') ? "madmax poster" : `${a.tagName}.${a.className}`;
       return { stop, state: document.documentElement.dataset.curtain ?? "unset", ring: Boolean(a?.matches(":focus-visible") && s && s.outlineStyle !== "none" && parseFloat(s.outlineWidth) >= 2) };
     }));
   }
@@ -2038,7 +2044,7 @@ test("[integration] TM4 while the curtain plays the band sits above it: the poin
       // or less is theatre.css's "short phone curtain": the decorative ticket steps out (display none, never clipped)
       // and every playbill control stays. At 390x844 the band now leaves less than 520px.
       const roomy = width > 720 || height - band.bottom > 520;
-      for (const name of roomy ? ["marquee", "ticket", "skip", "poster", "chip", "lights"] : ["marquee", "skip", "poster", "chip", "lights"]) {
+      for (const name of roomy ? ["marquee", "ticket", "skip", "madmax", "poster", "chip", "lights"] : ["marquee", "skip", "madmax", "poster", "chip", "lights"]) {
         const part = parts[name];
         expect({ width, name, inView: part?.inView, hit: part?.hit, belowBand: part ? part.top >= band.bottom : false }).toEqual({ width, name, inView: true, hit: true, belowBand: true });
       }
@@ -2051,7 +2057,7 @@ test("[integration] TM4 while the curtain plays the band sits above it: the poin
   }
 }, 30000);
 
-test("[integration] TM5 with the curtain closed the band's controls keep it closed: focus or a click on Copy; Tab goes Copy, the script note, Watch it run, Skip, poster, House lights, each with a visible focus ring", async () => {
+test("[integration] TM5 with the curtain closed the band's controls keep it closed: focus or a click on Copy; Tab goes Copy, the script note, Watch it run, Skip, the two posters, House lights, each with a visible focus ring", async () => {
   stripOn();
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference", "", false, undefined, async (p) => {
@@ -2068,8 +2074,8 @@ test("[integration] TM5 with the curtain closed the band's controls keep it clos
     } finally { await page.close(); }
     const keys = await pageAt(width, height, "no-preference");
     try {
-      expect({ width, stops: await tabStops(keys, TM_BAND_STOPS.length + 3) })
-        .toEqual({ width, stops: [...TM_BAND_STOPS, "skipOverture", "curtain poster", "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
+      expect({ width, stops: await tabStops(keys, TM_BAND_STOPS.length + 4) })
+        .toEqual({ width, stops: [...TM_BAND_STOPS, "skipOverture", "madmax poster", "curtain poster", "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
     } finally { await keys.close(); }
   }
 }, 30000);
@@ -2437,3 +2443,170 @@ test("[integration] L43 keyboard: Shift+Tab to the header link after Skip keeps 
     } finally { await page.close(); }
   }
 }, 30000);
+
+/*
+ * #248: the closed curtain bills the show and hangs two posters. The marquee leads (much bigger, its lights scaled with
+ * it), the ticket is a small prop, the Mad TokenMax poster hangs in the centre slot between the playbill and the Little
+ * Shop poster and opens tm/, and nothing of the page header shows through the curtain when it is pulled past its top.
+ * BEFORE_248 is the build before #248 (d7d6ab2) measured by these tests' RED run in this harness (no web fonts).
+ */
+const BEFORE_248 = { ticketArea: 85854, marqueeWidth: 640, billing: 46 };
+const MADMAX = '#overture a[href="tm/"]';
+/** The three header parts that showed through the closed curtain in the #248 report. */
+const HEADER_PARTS = ["header.house .brand", "header.house > .ticket", "header.house .house-link"];
+
+/** The curtain's marquee width, billing font size and ticket area (its box on screen, turned as it is). */
+async function playbillSizes(page: Page): Promise<{ ticketArea: number; marqueeWidth: number; billing: number }> {
+  return page.evaluate(() => {
+    const t = document.querySelector("#overture .ticket")?.getBoundingClientRect(), m = document.querySelector("#overture .marquee")?.getBoundingClientRect();
+    const b = document.querySelector("#overture .marquee .billing");
+    return { ticketArea: t ? Math.round(t.width * t.height) : NaN, marqueeWidth: m ? Math.round(m.width) : NaN, billing: b ? parseFloat(getComputedStyle(b).fontSize) : NaN };
+  });
+}
+
+/** A part of the closed curtain by selector: its box, whether it lies wholly on screen, and whether the pointer at its centre reaches it. */
+async function partOf(page: Page, selector: string): Promise<Part | null> {
+  return page.evaluate((sel) => {
+    const node = document.querySelector(sel);
+    if (!node || getComputedStyle(node).display === "none") return null;
+    const r = node.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const t = getComputedStyle(node).transform;
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, turned: t !== "none" && Math.abs(new DOMMatrix(t).b) > 0.005, hit: hit === node || node.contains(hit),
+      inView: r.width > 0 && r.height > 0 && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight };
+  }, selector);
+}
+
+/**
+ * The header parts that show through the closed curtain: at rest, those the pointer at their centre reaches; pulled,
+ * those whose box shows anything but the resting curtain while the curtain is pulled down past its top (an upward
+ * touch scroll at the curtain's scrollTop 0, the overscroll a trackpad or a finger gives; each box is screenshotted at
+ * rest and every 100ms of a 2s pull). `overscroll` replaces the curtain's overscroll-behavior: the control.
+ */
+async function headerThroughCurtain(width: number, height: number, overscroll?: string): Promise<{ atRest: number; pulled: number }> {
+  const found = resolveChromium(null, process.env.UAT_CHROMIUM_PATH, chromium.executablePath(), existsSync);
+  if ("error" in found) throw new Error(found.error);
+  const elastic = await chromium.launch({ headless: true, executablePath: found.path, args: ["--enable-features=ElasticOverscroll"] });
+  try {
+    const page = await elastic.newPage({ viewport: { width, height }, reducedMotion: "no-preference", hasTouch: true });
+    await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
+    await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "load" });
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "closed");
+    if (overscroll) await page.addStyleTag({ content: `.motion.overture-play .overture { overscroll-behavior: ${overscroll} !important; }` });
+    await frames(page);
+    const boxes = await page.evaluate((sels) => sels.map((sel) => {
+      const r = document.querySelector(sel)?.getBoundingClientRect();
+      return r ? { x: Math.max(0, Math.floor(r.left)), y: Math.max(0, Math.floor(r.top)), width: Math.ceil(r.width), height: Math.ceil(r.height) } : null;
+    }), HEADER_PARTS);
+    const atRest = await page.evaluate((sels) => sels.filter((sel) => {
+      const node = document.querySelector(sel), r = node?.getBoundingClientRect();
+      if (!node || !r || r.bottom <= 0 || r.top >= innerHeight) return false;
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return hit === node || node.contains(hit);
+    }).length, HEADER_PARTS);
+    const resting = await Promise.all(boxes.map((clip) => clip ? page.screenshot({ clip }) : Promise.resolve(null)));
+    const cdp = await page.context().newCDPSession(page);
+    let pulling = true;
+    const pull = cdp.send("Input.synthesizeScrollGesture", { x: width / 2, y: Math.round(height * 0.9), yDistance: 600, speed: 300, gestureSourceType: "touch", preventFling: true })
+      .finally(() => { pulling = false; });
+    const shown = new Set<number>();
+    for (let frame = 0; frame < 24 && (pulling || frame < 4); frame++) {
+      await page.waitForTimeout(100);
+      for (const [i, clip] of boxes.entries()) {
+        const before = resting[i];
+        if (!clip || !before || shown.has(i)) continue;
+        if (!(await page.screenshot({ clip })).equals(before)) shown.add(i);
+      }
+    }
+    await pull;
+    return { atRest, pulled: shown.size };
+  } finally { await elastic.close(); }
+}
+
+test("[integration] MM1 at 1440x900 the marquee leads and the ticket is a small prop: ticket area at most 0.4 of before #248, marquee width and billing at least 1.5 times", async () => {
+  const page = await pageAt(1440, 900, "no-preference");
+  try {
+    expect((await curtain(page)).state).toBe("closed");
+    const now = await playbillSizes(page);
+    const ratio = { ticket: +(now.ticketArea / BEFORE_248.ticketArea).toFixed(3), marquee: +(now.marqueeWidth / BEFORE_248.marqueeWidth).toFixed(3), billing: +(now.billing / BEFORE_248.billing).toFixed(3) };
+    console.log(`#248 MM1 1440x900 now ${JSON.stringify(now)} before ${JSON.stringify(BEFORE_248)} ratio ${JSON.stringify(ratio)}`);
+    expect({ ticket: ratio.ticket <= 0.4 ? "<=0.4" : ratio.ticket, marquee: ratio.marquee >= 1.5 ? ">=1.5" : ratio.marquee, billing: ratio.billing >= 1.5 ? ">=1.5" : ratio.billing })
+      .toEqual({ ticket: "<=0.4", marquee: ">=1.5", billing: ">=1.5" });
+  } finally { await page.close(); }
+}, 15000);
+
+test("[integration] MM2 wide screens (1716x910, 1440x900, 1100x700): the marquee spans the top centre, and under it the playbill, the Mad TokenMax poster and the Little Shop poster stand in one row; the poster is one link to tm/, at least 240px wide at 1440, with its image loaded, sized and named", async () => {
+  for (const [width, height] of [[1716, 910], [1440, 900], [1100, 700]] satisfies [number, number][]) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      expect((await curtain(page)).state).toBe("closed");
+      expect({ width, links: await page.locator(MADMAX).count() }).toEqual({ width, links: 1 });
+      await page.locator(`${MADMAX} img`).evaluate((img) => img instanceof HTMLImageElement ? img.decode().catch(() => undefined) : undefined);
+      const img = await page.locator(`${MADMAX} img`).evaluate((node) => ({
+        alt: node.getAttribute("alt") ?? "", sized: Number(node.getAttribute("width")) > 0 && Number(node.getAttribute("height")) > 0,
+        loaded: node instanceof HTMLImageElement && node.complete && node.naturalWidth > 0, src: node.getAttribute("src") ?? "",
+      }));
+      expect({ width, show: /mad tokenmax/i.test(img.alt), poster: /poster/i.test(img.alt), sized: img.sized, loaded: img.loaded, src: img.src })
+        .toEqual({ width, show: true, poster: true, sized: true, loaded: true, src: "shows/madtokenmax-poster.webp" });
+      const [marquee, ticket, skip, madmax, poster] = await Promise.all(["#overture .marquee", "#overture .ticket", "#skipOverture", MADMAX, "#overture a.poster"].map((s) => partOf(page, s)));
+      if (!marquee || !ticket || !skip || !madmax || !poster) throw new Error(`a part of the curtain is missing at ${width}`);
+      const row = [ticket, madmax, poster];
+      expect({
+        width,
+        marqueeOnTop: row.every((p) => marquee.bottom <= p.top), centred: Math.abs((marquee.left + marquee.right) / 2 - width / 2) <= 24,
+        order: ticket.right < madmax.left && madmax.right < poster.left && skip.right < madmax.left,
+        oneRow: madmax.top < poster.bottom && poster.top < madmax.bottom && madmax.top < skip.bottom && ticket.top < madmax.bottom,
+        shown: [madmax, poster, skip, ticket, marquee].every((p) => p.inView && p.hit), turned: madmax.turned,
+        wide: width === 1440 ? madmax.right - madmax.left >= 240 : true,
+      }).toEqual({ width, marqueeOnTop: true, centred: true, order: true, oneRow: true, shown: true, turned: true, wide: true });
+      if (width === 1440) console.log(`#248 MM2 1440x900 Mad TokenMax poster link ${Math.round(madmax.right - madmax.left)}x${Math.round(madmax.bottom - madmax.top)}px`);
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+test("[integration] MM3 the Mad TokenMax poster is a keyboard stop after Skip with a visible focus ring, keeps the curtain closed, and opens tm/", async () => {
+  const page = await pageAt(1440, 900, "no-preference");
+  try {
+    await page.locator("#skipOverture").focus();
+    await page.keyboard.press("Tab");
+    expect(await page.evaluate((sel) => {
+      const a = document.activeElement, s = a ? getComputedStyle(a) : null;
+      return { madmax: Boolean(a?.matches(sel)), ring: Boolean(a?.matches(":focus-visible") && s && s.outlineStyle !== "none" && parseFloat(s.outlineWidth) >= 2), state: document.documentElement.dataset.curtain };
+    }, MADMAX)).toEqual({ madmax: true, ring: true, state: "closed" });
+    await Promise.all([page.waitForURL(/\/tm\/$/, { waitUntil: "commit" }), page.locator(MADMAX).click()]);
+    expect(new URL(page.url()).pathname).toBe("/tm/");
+  } finally { await page.close(); }
+}, 15000);
+
+test("[integration] MM4 narrow screens (390x844, 1024x768): the two posters sit side by side under Skip as small cards, each at least 44px, no blurb, no horizontal scroll", async () => {
+  for (const [width, height] of [[390, 844], [1024, 768]] satisfies [number, number][]) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      expect((await curtain(page)).state).toBe("closed");
+      const [skip, madmax, poster] = await Promise.all(["#skipOverture", MADMAX, "#overture a.poster"].map((s) => partOf(page, s)));
+      if (!skip || !madmax || !poster) throw new Error(`a part of the curtain is missing at ${width}`);
+      expect({
+        width, underSkip: madmax.top >= skip.bottom && poster.top >= skip.bottom, sideBySide: madmax.right <= poster.left && madmax.top < poster.bottom && poster.top < madmax.bottom,
+        tap: [madmax, poster].every((p) => p.right - p.left >= 44 && p.bottom - p.top >= 44), shown: [skip, madmax, poster].every((p) => p.inView && p.hit),
+        blurb: await page.locator("#overture .p-blurb").isVisible(), overflow: await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+      }).toEqual({ width, underSkip: true, sideBySide: true, tap: true, shown: true, blurb: false, overflow: 0 });
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+test("[integration] MM5 no header bleed at 1716x910: pulled down past its top, the closed curtain still covers the header's brand, ticket and ticket-office link (the control, the curtain's old overscroll-behavior: contain, shows all three)", async () => {
+  const control = await headerThroughCurtain(1716, 910, "contain");
+  const now = await headerThroughCurtain(1716, 910);
+  console.log(`#248 MM5 1716x910 header parts through the curtain: at rest ${now.atRest}, pulled ${now.pulled} (control pulled ${control.pulled})`);
+  expect({ control: control.pulled, atRest: now.atRest, pulled: now.pulled }).toEqual({ control: 3, atRest: 0, pulled: 0 });
+}, 30000);
+
+test("[integration] MM6 no horizontal scroll on the closed curtain at 390x844 and 1100x700", async () => {
+  for (const [width, height] of [[390, 844], [1100, 700]] satisfies [number, number][]) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      expect((await curtain(page)).state).toBe("closed");
+      expect({ width, overflow: await page.evaluate(() => document.documentElement.scrollWidth - innerWidth) }).toEqual({ width, overflow: 0 });
+    } finally { await page.close(); }
+  }
+}, 15000);

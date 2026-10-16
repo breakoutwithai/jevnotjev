@@ -2478,12 +2478,15 @@ async function partOf(page: Page, selector: string): Promise<Part | null> {
 }
 
 /**
- * The header parts that show through the closed curtain: at rest, those the pointer at their centre reaches; pulled,
- * those whose box shows anything but the resting curtain while the curtain is pulled down past its top (an upward
- * touch scroll at the curtain's scrollTop 0, the overscroll a trackpad or a finger gives; each box is screenshotted at
- * rest and every 100ms of a 2s pull). `overscroll` replaces the curtain's overscroll-behavior: the control.
+ * The header parts that show through the closed curtain. At rest: those the pointer at their centre reaches, and those
+ * whose box paints differently with the part hidden (visibility: hidden), which a curtain that hit-tests on top but
+ * lets the header show through (translucent) would give. Pulled: those whose box shows anything but the resting
+ * curtain while the curtain is pulled down past its top (an upward touch scroll at the curtain's scrollTop 0, the
+ * overscroll a trackpad or a finger gives; each box is screenshotted at rest and every 100ms of a 2s pull). The curtain
+ * does not move while closed, so any change in a header part's box during the pull is the page showing.
+ * `overscroll` replaces the curtain's overscroll-behavior: the control.
  */
-async function headerThroughCurtain(width: number, height: number, overscroll?: string): Promise<{ atRest: number; pulled: number }> {
+async function headerThroughCurtain(width: number, height: number, overscroll?: string): Promise<{ atRest: number; painted: number; pulled: number }> {
   const found = resolveChromium(null, process.env.UAT_CHROMIUM_PATH, chromium.executablePath(), existsSync);
   if ("error" in found) throw new Error(found.error);
   const elastic = await chromium.launch({ headless: true, executablePath: found.path, args: ["--enable-features=ElasticOverscroll"] });
@@ -2505,6 +2508,12 @@ async function headerThroughCurtain(width: number, height: number, overscroll?: 
       return hit === node || node.contains(hit);
     }).length, HEADER_PARTS);
     const resting = await Promise.all(boxes.map((clip) => clip ? page.screenshot({ clip }) : Promise.resolve(null)));
+    await page.addStyleTag({ content: `${HEADER_PARTS.join(", ")} { visibility: hidden !important; }` });
+    await frames(page);
+    const hidden = await Promise.all(boxes.map((clip) => clip ? page.screenshot({ clip }) : Promise.resolve(null)));
+    const painted = resting.filter((shot, i) => shot !== null && !shot.equals(hidden[i] ?? Buffer.alloc(0))).length;
+    await page.evaluate(() => { document.head.lastElementChild?.remove(); });
+    await frames(page);
     const cdp = await page.context().newCDPSession(page);
     let pulling = true;
     const pull = cdp.send("Input.synthesizeScrollGesture", { x: width / 2, y: Math.round(height * 0.9), yDistance: 600, speed: 300, gestureSourceType: "touch", preventFling: true })
@@ -2519,7 +2528,7 @@ async function headerThroughCurtain(width: number, height: number, overscroll?: 
       }
     }
     await pull;
-    return { atRest, pulled: shown.size };
+    return { atRest, painted, pulled: shown.size };
   } finally { await elastic.close(); }
 }
 
@@ -2528,9 +2537,10 @@ test("[integration] MM1 at 1440x900 the marquee leads and the ticket is a small 
   try {
     expect((await curtain(page)).state).toBe("closed");
     const now = await playbillSizes(page);
-    const ratio = { ticket: +(now.ticketArea / BEFORE_248.ticketArea).toFixed(3), marquee: +(now.marqueeWidth / BEFORE_248.marqueeWidth).toFixed(3), billing: +(now.billing / BEFORE_248.billing).toFixed(3) };
-    console.log(`#248 MM1 1440x900 now ${JSON.stringify(now)} before ${JSON.stringify(BEFORE_248)} ratio ${JSON.stringify(ratio)}`);
-    expect({ ticket: ratio.ticket <= 0.4 ? "<=0.4" : ratio.ticket, marquee: ratio.marquee >= 1.5 ? ">=1.5" : ratio.marquee, billing: ratio.billing >= 1.5 ? ">=1.5" : ratio.billing })
+    // Asserted unrounded; rounded only for the log line.
+    const ratio = { ticket: now.ticketArea / BEFORE_248.ticketArea, marquee: now.marqueeWidth / BEFORE_248.marqueeWidth, billing: now.billing / BEFORE_248.billing };
+    console.log(`#248 MM1 1440x900 now ${JSON.stringify(now)} before ${JSON.stringify(BEFORE_248)} ratio ticket ${ratio.ticket.toFixed(3)} marquee ${ratio.marquee.toFixed(3)} billing ${ratio.billing.toFixed(3)}`);
+    expect({ ticket: ratio.ticket <= 0.4 ? "<=0.4" : ratio.ticket.toFixed(4), marquee: ratio.marquee >= 1.5 ? ">=1.5" : ratio.marquee.toFixed(4), billing: ratio.billing >= 1.5 ? ">=1.5" : ratio.billing.toFixed(4) })
       .toEqual({ ticket: "<=0.4", marquee: ">=1.5", billing: ">=1.5" });
   } finally { await page.close(); }
 }, 15000);
@@ -2597,8 +2607,8 @@ test("[integration] MM4 narrow screens (390x844, 1024x768): the two posters sit 
 test("[integration] MM5 no header bleed at 1716x910: pulled down past its top, the closed curtain still covers the header's brand, ticket and ticket-office link (the control, the curtain's old overscroll-behavior: contain, shows all three)", async () => {
   const control = await headerThroughCurtain(1716, 910, "contain");
   const now = await headerThroughCurtain(1716, 910);
-  console.log(`#248 MM5 1716x910 header parts through the curtain: at rest ${now.atRest}, pulled ${now.pulled} (control pulled ${control.pulled})`);
-  expect({ control: control.pulled, atRest: now.atRest, pulled: now.pulled }).toEqual({ control: 3, atRest: 0, pulled: 0 });
+  console.log(`#248 MM5 1716x910 header parts through the curtain: at rest ${now.atRest} (painted ${now.painted}), pulled ${now.pulled} (control pulled ${control.pulled})`);
+  expect({ control: control.pulled, atRest: now.atRest, painted: now.painted, pulled: now.pulled }).toEqual({ control: 3, atRest: 0, painted: 0, pulled: 0 });
 }, 30000);
 
 test("[integration] MM6 no horizontal scroll on the closed curtain at 390x844 and 1100x700", async () => {
@@ -2610,3 +2620,10 @@ test("[integration] MM6 no horizontal scroll on the closed curtain at 390x844 an
     } finally { await page.close(); }
   }
 }, 15000);
+
+test("[unit] MM7 the Mad TokenMax poster is a WebP file (RIFF....WEBP header) at or under 250,000 bytes", async () => {
+  const bytes = new Uint8Array(await Bun.file(join(SITE, "shows", "madtokenmax-poster.webp")).arrayBuffer());
+  const text = (from: number, to: number): string => String.fromCharCode(...bytes.subarray(from, to));
+  console.log(`#248 MM7 site/shows/madtokenmax-poster.webp ${bytes.length} bytes`);
+  expect({ riff: text(0, 4), webp: text(8, 12), small: bytes.length > 0 && bytes.length <= 250_000 }).toEqual({ riff: "RIFF", webp: "WEBP", small: true });
+});

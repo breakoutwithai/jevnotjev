@@ -73,7 +73,7 @@ for (const motion of MOTIONS) {
         expect(await page.locator("#aboutSample .hero-note, #aboutSample .hero-guide").count()).toBe(2);
         const result = await page.locator("#heroResult").evaluate((node) => node.textContent ?? "");
         for (const word of ["100", "Jev", "LLM", "simple rule", "Verdict: Use Jev (rule 3)."] ) expect(result).toContain(word);
-        expect(await page.locator("#heroWhy").evaluate((node) => node.textContent ?? "")).toContain("Why: On 100 shop messages");
+        expect(await page.locator("#heroWhy").evaluate((node) => node.textContent ?? "")).toContain("Why: Jev kept 88 right answers and the LLM 86 on these 100 shop messages");
         expect(await page.locator("#primaryAction").evaluate((node) => node.textContent ?? "")).toBe("Try it: pick a seat");
         expect(new URL(await page.locator("#primaryAction").getAttribute("href") ?? "", page.url()).pathname).toBe("/little-shop/");
         for (const id of ["heroResult", "heroWhy", "primaryAction"]) expect(await page.locator(`#${id}`).isVisible()).toBe(false);

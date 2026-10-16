@@ -2354,7 +2354,7 @@ window.JNJ = {
  },
  "explained": {
   "verdict": "Use Jev (rule 3)",
-  "why": "On 100 shop messages Jev kept as many right answers as the LLM (88 against 86), and even at the cautious end of the range it is no more than about 4 points behind, inside the 10-point limit. Each kept answer cost Jev about a fifth of what it cost the LLM.",
+  "why": "Jev kept 88 right answers and the LLM 86 on these 100 shop messages, and even at the cautious end of the range it is no more than about 4 points behind, inside the 10-point limit. Each kept answer cost Jev about a fifth of what it cost the LLM.",
   "cases": "Jev 88 of 100, the LLM (Claude Haiku 5.5) 86 of 100, the simple rule 49 of 100. Jev spent $0.0033 against the LLM's $0.0163.",
   "next": "Try it on your own decision: write 30 or more cases, label them, and load the results.",
   "earlier": "On the first 40 of these messages Jev and the LLM tied, 38 each, and 40 was too few to prove it: the verdict was Not proven yet. That run used Claude Haiku 4.5 as the LLM, which is why its cost gap (Jev about 1/79th of the LLM) differs from this run.",
@@ -2371,21 +2371,12 @@ window.JNJ = {
    },
    {
     "part": "why",
-    "display": "100",
-    "format": "int",
-    "values": [
-     100
-    ],
-    "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
-    "metric": "paired"
-   },
-   {
-    "part": "why",
-    "display": "Jev kept as many right answers as the LLM (88 against 86)",
-    "format": "keptAsMany",
+    "display": "Jev kept 88 right answers and the LLM 86 on these 100",
+    "format": "keptOnThese",
     "values": [
      88,
-     86
+     86,
+     100
     ],
     "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
     "arms": [

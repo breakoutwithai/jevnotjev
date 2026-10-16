@@ -167,7 +167,7 @@ test("[integration] L9 one spotlight comparison shows; the next miss and the cas
     expect(await page.locator("#allCases .monologue").count()).toBe(0);
     await page.locator("#allCases").evaluate((node) => { if (node instanceof HTMLDetailsElement) node.open = true; });
     expect(await page.locator(".case.row .conf").first().evaluate((node) => getComputedStyle(node).height)).toBe("4px");
-    expect(await page.locator(".case.wrong .conf i").first().evaluate((node) => getComputedStyle(node).backgroundColor)).toBe("rgb(178, 56, 42)");
+    expect(await page.locator(".case.wrong .conf i").first().evaluate((node) => getComputedStyle(node).backgroundColor)).toBe("rgb(240, 132, 112)"); // --cut in the default dark theme
     expect(await page.locator("#tally").innerText()).not.toContain("heard");
   } finally { await page.close(); }
 });
@@ -491,7 +491,8 @@ test("[integration] L15 cards use plain stage labels first", async () => {
  * The curtain (theatre.js, decided before first paint by the inline head script). Curtain mode is motion on and the
  * first page of the tab session (sessionStorage jnj-overture). In curtain mode the page loads closed at scrollY 0 and
  * stays closed until the visitor acts: scrolling parts it in step (fully open after html[data-runway] pixels), Skip the
- * overture, any focus outside the curtain's own controls, or a #hash opens it at once. It never closes again.
+ * overture, any focus outside the curtain's own controls, or a #hash opens it at once. Scrolling the opened page back to its top closes
+ * it again (L41).
  * html[data-curtain] is closed, rising or open; the root's --reveal is how far it has parted (0 to 1), and the result
  * bars are drawn at --w times --reveal.
  */
@@ -1364,24 +1365,38 @@ test("[integration] L23 scrolling parts the curtain in step with the scroll, and
   }
 }, 30000);
 
-test("[integration] L24 scrolling back up never closes the curtain again, and partial progress never goes back", async () => {
+test("[integration] L24 the curtain follows the scroll both ways: partial progress goes back, and an opened page never scrolled away stays open at the top", async () => {
   const page = await pageAt(390, 844, "no-preference");
   try {
     await scrollToRunway(page, 0.45);
     await page.waitForFunction(() => document.documentElement.dataset.curtain === "rising");
-    const partial = (await curtain(page)).reveal;
-    expect(Math.abs(partial - 0.45)).toBeLessThan(0.02);
+    expect(Math.abs((await curtain(page)).reveal - 0.45)).toBeLessThan(0.02);
     await scrollToRunway(page, 0.15);
     await frames(page);
-    expect((await curtain(page)).reveal).toBeGreaterThanOrEqual(partial);
+    const back = await curtain(page);
+    expect({ state: back.state, near: Math.abs(back.reveal - 0.15) < 0.02 }).toEqual({ state: "rising", near: true });
     await scrollToRunway(page, 1.2);
     await page.waitForFunction(() => document.documentElement.dataset.curtain === "open");
+    // A page that was never scrolled away from its top stays open, a 1px bounce included.
+    await scrollToVh(page, 1 / 844);
     await scrollToVh(page, 0);
     await frames(page);
     expect(await page.evaluate(() => scrollY)).toBe(0);
     expect((await curtain(page)).state).toBe("open");
     expect(await shownCurtains(page)).toBe(0);
     expect(fullBars(await bars(page))).toBe(true);
+    // The reverse scroll keys move the runway back, as the wheel does (the page is reloaded closed first).
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.evaluate(() => { try { window.sessionStorage.removeItem("jnj-overture"); } catch (e) { /* ignore */ } });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => Number(document.documentElement.dataset.runway) > 0);
+    for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowDown");
+    await frames(page);
+    const down = (await curtain(page)).reveal;
+    expect(down).toBeGreaterThan(0.1);
+    for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowUp");
+    await frames(page);
+    expect((await curtain(page)).reveal).toBeLessThan(down - 0.05);
   } finally { await page.close(); }
 }, 15000);
 
@@ -2293,3 +2308,132 @@ test("[integration] TM13 every link and button in the band is at least 24x24 px 
   }
 }, 30000);
 
+
+/*
+ * The theatre restored on the landing page (fix/landing-restore-theatre): dark first whatever the OS says (L40), the
+ * curtain closes again when the page is scrolled back to its top (L41), and the light scroll cues come back: the stage
+ * door swishes in on a diagonal, the acts rise, the players slide in from the sides, the verdict word wipes in (L42).
+ */
+const DARK_BG = "rgb(18, 6, 10)";
+const LIGHT_BG = "rgb(232, 229, 223)";
+const OPEN_ON_LOAD = "try { window.sessionStorage.setItem('jnj-overture', 'seen'); } catch (e) { /* storage blocked */ }";
+
+test("[integration] L40 the first load is dark in an OS-light and an OS-dark browser; House lights switches to light and back", async () => {
+  for (const osScheme of ["light", "dark"] as const) {
+    for (const [width, height] of VIEWPORTS) {
+      const page = await pageAt(width, height, "no-preference", "", false, undefined, async (p) => { await p.emulateMedia({ colorScheme: osScheme }); });
+      try {
+        const read = () => page.evaluate(() => ({
+          bg: getComputedStyle(document.body).backgroundColor,
+          scheme: getComputedStyle(document.documentElement).colorScheme,
+          label: (document.getElementById("lights")?.textContent ?? "").trim(),
+        }));
+        expect({ osScheme, width, ...await read() }).toEqual({ osScheme, width, bg: DARK_BG, scheme: "dark", label: "House lights up" });
+        await page.locator("#lights").click();
+        expect({ osScheme, width, ...await read() }).toEqual({ osScheme, width, bg: LIGHT_BG, scheme: "light", label: "House lights down" });
+        await page.locator("#lights").click();
+        expect({ osScheme, width, ...await read() }).toEqual({ osScheme, width, bg: DARK_BG, scheme: "dark", label: "House lights up" });
+      } finally { await page.close(); }
+    }
+  }
+}, 30000);
+
+test("[integration] L41 scrolling back to the top closes the curtains again, on the first page of a session and on a later one, and the next scroll parts them again", async () => {
+  for (const [width, height] of CURTAIN_VIEWPORTS) {
+    for (const later of [false, true]) {
+      const page = await pageAt(width, height, "no-preference", "", false, undefined, later ? async (p) => { await p.addInitScript({ content: OPEN_ON_LOAD }); } : undefined);
+      try {
+        const settled = () => page.waitForFunction(() => {
+          const left = document.querySelector(".curtain.cl");
+          return document.documentElement.dataset.curtain === "closed" && left !== null && getComputedStyle(left).transform === "matrix(1, 0, 0, 1, 0, 0)";
+        }, undefined, { timeout: 4000 });
+        if (later) expect((await curtain(page)).state).toBe("open");
+        else { await scrollToRunway(page, 1.2); await page.waitForFunction(() => document.documentElement.dataset.curtain === "open"); }
+        await scrollToVh(page, 1);
+        expect({ later, width, state: (await curtain(page)).state, away: await page.evaluate(() => scrollY > 100) }).toEqual({ later, width, state: "open", away: true });
+        await scrollToVh(page, 0);
+        await settled();
+        expect(await page.evaluate(() => getComputedStyle(document.getElementById("sampleBadge") ?? document.body).position)).toBe("fixed");
+        const closed = await curtain(page);
+        expect({ later, width, state: closed.state, reveal: closed.reveal, shown: await shownCurtains(page), covers: await coversViewport(page), locked: await page.evaluate(() => getComputedStyle(document.documentElement).overflowY) })
+          .toEqual({ later, width, state: "closed", reveal: 0, shown: 2, covers: true, locked: "hidden" });
+        expect((await bars(page)).every((b) => b.drawn < 1)).toBe(true);
+        await scrollToRunway(page, 1.2);
+        await page.waitForFunction(() => document.documentElement.dataset.curtain === "open");
+        expect(fullBars(await bars(page))).toBe(true);
+      } finally { await page.close(); }
+    }
+  }
+}, 60000);
+
+const CUES = ["rise", "swish", "slide-l", "slide-r", "wipe"];
+
+test("[integration] L42 the light animations run under motion (stage-door swish, rising acts, sliding players, verdict wipe, marquee chase, drape sway) and stop under reduced motion", async () => {
+  for (const [width, height] of VIEWPORTS) {
+    const page = await pageAt(width, height, "no-preference", "", false, undefined, async (p) => { await p.addInitScript({ content: OPEN_ON_LOAD }); });
+    try {
+      const names = (selector: string, pseudo?: string) => page.evaluate(([sel, ps]) => {
+        const node = document.querySelector(sel ?? "");
+        return node ? getComputedStyle(node, ps || null).animationName : "missing";
+      }, [selector, pseudo ?? ""]);
+      const into = async (selector: string) => {
+        await page.evaluate((sel) => { document.querySelector(sel)?.scrollIntoView({ block: "center", behavior: "instant" }); }, selector);
+        await page.waitForFunction((sel) => document.querySelector(sel)?.classList.contains("in") === true, selector, { timeout: 4000 });
+      };
+      // Nothing is lit before it is seen: the door, off screen at load, waits hidden, without .in.
+      expect(await page.evaluate(() => { const door = document.getElementById("door"); return door ? { lit: door.classList.contains("in"), opacity: getComputedStyle(door).opacity } : null; })).toEqual({ lit: false, opacity: "0" });
+      expect(await page.evaluate((wanted) => {
+        const found = new Set<string>();
+        for (const sheet of document.styleSheets) {
+          let rules: CSSRuleList;
+          try { rules = sheet.cssRules; } catch (e) { continue; } // the blocked web-font sheet is cross-origin
+          for (const rule of rules) if (rule instanceof CSSKeyframesRule) found.add(rule.name);
+        }
+        return wanted.filter((name) => !found.has(name));
+      }, CUES)).toEqual([]);
+      await into("#act2 > .stage");
+      expect(await names("#act2 > .stage")).toBe("rise");
+      await into("#cast");
+      expect(await page.locator("#cast .player").evaluateAll((nodes) => nodes.map((n) => getComputedStyle(n).animationName))).toEqual(["slide-l", "slide-l", "slide-r"]);
+      await into("#act5 > .stage");
+      expect(await names("#act5 .verdict-word")).toBe("wipe");
+      await into("#door");
+      expect(await names("#door")).toBe("swish");
+      expect(await names(".marquee-band .marquee", "::before")).toBe("chase");
+      expect(await names(".drape.l")).toBe(width >= 1300 ? "sway" : "none");
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      expect({ door: await names("#door"), stage: await names("#act2 > .stage"), chase: await names(".marquee-band .marquee", "::before"), sway: await names(".drape.l"), opacity: await page.evaluate(() => getComputedStyle(document.getElementById("door") ?? document.body).opacity) })
+        .toEqual({ door: "none", stage: "none", chase: "none", sway: "none", opacity: "1" });
+    } finally { await page.close(); }
+  }
+  for (const [width, height] of VIEWPORTS) {
+    const page = await pageAt(width, height, "reduce");
+    try {
+      const shown = await page.evaluate(() => ({
+        cues: document.documentElement.classList.contains("cues"),
+        hidden: [...document.querySelectorAll("#door, #act2 > .stage, #act5 .verdict-word, #cast .player")].filter((n) => getComputedStyle(n).opacity !== "1" || getComputedStyle(n).animationName !== "none").length,
+      }));
+      expect({ width, ...shown }).toEqual({ width, cues: false, hidden: 0 });
+    } finally { await page.close(); }
+  }
+}, 60000);
+
+test("[integration] L43 keyboard: Shift+Tab to the header link after Skip keeps the curtain open and the focus; after a click, scrolling to the top closes it and puts focus on Skip", async () => {
+  for (const [width, height] of CURTAIN_VIEWPORTS) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      await page.locator("#skipOverture").click();
+      await page.waitForFunction(() => document.documentElement.dataset.curtain === "open");
+      await page.keyboard.press("Shift+Tab");
+      await page.waitForTimeout(400);
+      const link = await page.evaluate(() => ({ state: document.documentElement.dataset.curtain, focus: document.activeElement?.className ?? "" }));
+      expect({ width, ...link }).toEqual({ width, state: "open", focus: "house-link" });
+      // A clicked control is not keyboard focus: scrolling back to the top closes the curtain and moves focus to Skip.
+      await page.evaluate(() => { window.scrollTo({ top: document.getElementById("results")?.offsetTop ?? 600, behavior: "instant" }); });
+      await page.locator("#aboutSample > summary").click();
+      await page.evaluate(() => { window.scrollTo({ top: 0, behavior: "instant" }); });
+      await page.waitForFunction(() => document.documentElement.dataset.curtain === "closed", undefined, { timeout: 4000 });
+      expect({ width, focus: await page.evaluate(() => document.activeElement?.id ?? "") }).toEqual({ width, focus: "skipOverture" });
+    } finally { await page.close(); }
+  }
+}, 30000);

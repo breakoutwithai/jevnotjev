@@ -16,48 +16,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;0,800;1,400;1,500;1,700&family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #e8e5df;
-  --bg-2: #dcd7cf;
-  --ink: #1f0a0e;
-  --ink-soft: #4d3a3c;
-  --muted: #7a6a69;
-  --line: rgba(31, 10, 14, .16);
-  --curtain: #7b1424;
-  --curtain-hi: #a3263a;
-  --curtain-lo: #3e0710;
-  --brass: #8a5f10;
-  --brass-soft: rgba(138, 95, 16, .14);
-  --keep: #2f7a4d;
-  --cut: #b2382a;
-  --beam: rgba(255, 255, 255, .85);
-  --beam-2: rgba(255, 250, 238, .55);
-  --shadow: rgba(40, 10, 14, .10);
-  --serif: "Alegreya", "Iowan Old Style", Georgia, serif;
-  --sans: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #12060a;
-    --bg-2: #1c080d;
-    --ink: #f2e9df;
-    --ink-soft: #d4c3b8;
-    --muted: #9c8580;
-    --line: rgba(242, 233, 223, .13);
-    --curtain: #6d0f1e;
-    --curtain-hi: #94203a;
-    --curtain-lo: #25040a;
-    --brass: #e0b04e;
-    --brass-soft: rgba(224, 176, 78, .14);
-    --keep: #86cf9f;
-    --cut: #f08470;
-    --beam: rgba(255, 231, 186, .16);
-    --beam-2: rgba(255, 220, 170, .07);
-    --shadow: rgba(0, 0, 0, .45);
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
   --bg: #12060a;
   --bg-2: #1c080d;
   --ink: #f2e9df;
@@ -74,7 +32,29 @@
   --beam: rgba(255, 231, 186, .16);
   --beam-2: rgba(255, 220, 170, .07);
   --shadow: rgba(0, 0, 0, .45);
+  --serif: "Alegreya", "Iowan Old Style", Georgia, serif;
+  --sans: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
   color-scheme: dark;
+}
+/* Dark is the house default whatever the OS prefers; House lights switches to light (theatre.js sets data-theme). */
+:root[data-theme="light"] {
+  --bg: #e8e5df;
+  --bg-2: #dcd7cf;
+  --ink: #1f0a0e;
+  --ink-soft: #4d3a3c;
+  --muted: #7a6a69;
+  --line: rgba(31, 10, 14, .16);
+  --curtain: #7b1424;
+  --curtain-hi: #a3263a;
+  --curtain-lo: #3e0710;
+  --brass: #8a5f10;
+  --brass-soft: rgba(138, 95, 16, .14);
+  --keep: #2f7a4d;
+  --cut: #b2382a;
+  --beam: rgba(255, 255, 255, .85);
+  --beam-2: rgba(255, 250, 238, .55);
+  --shadow: rgba(40, 10, 14, .10);
+  color-scheme: light;
 }
 
 
@@ -224,7 +204,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
    can throw (private modes, blocked storage); then nothing is known, so the curtain plays. theatre.js opens it (scroll,
    Skip the overture, focus, #hash) and records html[data-curtain]; if theatre.js has not reported in by load (failed to
    load or run) or within 4 seconds (a request that stalls, so load never comes), this script takes the curtain away so
-   the page is never left closed. A theatre.js that arrives later finds no overture-play and leaves the page open. */
+   the page is never left closed. A theatre.js that arrives later finds no overture-play and starts open; scrolling away and back to the top then closes it. */
 (function () {
   var r = document.documentElement;
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;

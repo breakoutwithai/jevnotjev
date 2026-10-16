@@ -13,7 +13,7 @@
       "verdictLine": "Use Jev (100 messages)",
       "explained": {
         "verdict": "Use Jev (100 messages)",
-        "why": "Same accuracy as the LLM (88 against 86 of 100) at about a fifth of the cost per kept answer.",
+        "why": "Jev kept 88 right answers and the LLM 86 on these 100 synthetic messages, at about a fifth of the cost per kept answer.",
         "cases": "Jev 88, LLM (Haiku 5.5) 86, simple rule 49, of 100.",
         "next": "Open the 100-message run, or try your own decision.",
         "earlier": "40 messages: tied 38 to 38, Not proven yet (LLM was Haiku 4.5).",
@@ -31,13 +31,12 @@
           },
           {
             "part": "why",
-            "display": "Same accuracy as the LLM (88 against 86 of 100)",
-            "format": "sameAccuracy",
+            "display": "Jev kept 88 right answers and the LLM 86 on these 100",
+            "format": "keptOnThese",
             "values": [
               88,
               86,
-              100,
-              -0.04266031343755382
+              100
             ],
             "source": "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv",
             "arms": [
@@ -152,7 +151,7 @@
         "computedVerdict": "use Jev",
         "computedRule": 3,
         "reason": "use Jev: Jev is within 10 points of the LLM (lower bound -0.04) and costs 0.197 of it per accepted answer (upper bound 0.218)",
-        "headline": "At least as accurate as the LLM (88/100 vs 86/100) at 1/4th of the cost",
+        "headline": "Jev 88/100, the LLM 86/100, at 1/4th of the cost",
         "whyNotYet": null,
         "labels": "human_reviewed, blind: no",
         "methods": [

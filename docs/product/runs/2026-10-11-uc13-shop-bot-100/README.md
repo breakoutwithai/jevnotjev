@@ -20,10 +20,11 @@ The UC13 question (answer from the fact sheet, or hand off to staff) on 100 cust
 
 ## Files
 
-- `records.csv`: 300 rows, jnj-record/1.1, unlabelled.
+- `records.csv`: 300 rows, jnj-record/1.1, all labelled: `label_source` human_reviewed, `labelled_by` operator, `labelled_at` 2026-10-11, `label_blind` false. The operator reviewed the labels; they were not made blind.
 - `raw.json`: every Jev and LLM call's choice and model, plus the inputs fingerprint.
 - `examples/uc13-shop-bot/fixtures/uc13-2026-10-11.jev.json`: the Jev requests and responses. `bun scripts/uc13/run-arms.ts replay --run 2026-10-11` rebuilds the Jev rows and calls from it with no network, keeping the LLM rows and calls already in `records.csv` and `raw.json` and recomputing the rule rows; the result is byte-identical to the committed files.
-- `LABELS.md`, `labels-draft.csv`, `label-drafts/`: AI label drafts, not approved.
+- `labels.csv`: the 100 labels the operator approved. `LABELS.md` records the approval: "`labels.csv` holds the 100 approved labels (67 hand_off, 33 answer), merged into `records.csv` with `--source human_reviewed --by operator --at 2026-10-11 --blind false`: 300 of 300 rows labelled."
+- `labels-draft.csv`, `label-drafts/`: the AI label drafts the operator reviewed; `LABELS.md` lists the six calls changed from the majority draft.
 
 ## Reproduce
 

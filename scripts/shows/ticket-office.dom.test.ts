@@ -56,6 +56,12 @@ test("[integration] #136 the ticket-office link is on the plain first screen wit
       if (motion === "no-preference") {
         await page.locator("#skipOverture").click();
         await jump.scrollIntoViewIfNeeded();
+        // Skip leaves the page at the result bars; scrolling up to the link brings the page back to its top, which
+        // closes the curtain again (landing L41), and one more scroll parts it, as on the first screen.
+        await page.waitForFunction(() => document.documentElement.dataset.curtain === "closed", null, { timeout: 5000 });
+        await page.mouse.move(width / 2, height / 2);
+        await page.mouse.wheel(0, 2 * height);
+        await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", null, { timeout: 5000 });
       } else {
         // Without motion there is no curtain: the link is on the first screen as loaded, with no scrolling.
         expect(await jump.evaluate((node) => { const box = node.getBoundingClientRect(); return box.top >= 0 && box.top < innerHeight; })).toBe(true);
@@ -131,8 +137,9 @@ test("[integration] #135 house lights remain visible and clickable at phone and 
     try {
       const lights = page.locator("#lights");
       expect(await lights.isVisible()).toBe(true);
+      // The page opens dark whatever the OS says, so the first press switches to light.
       await lights.click({ timeout: 2000 });
-      expect(await page.locator("html").getAttribute("data-theme")).toBe("dark");
+      expect(await page.locator("html").getAttribute("data-theme")).toBe("light");
     } finally { await page.close(); }
   }
 }, 10000);

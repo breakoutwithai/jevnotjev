@@ -9,7 +9,9 @@
  *   it), so the results heading and the result bars hold still and grow in the gap. Every other way of scrolling drives
  *   the same runway: a wheel or a swipe over the sample chip or the page in the gap, and the scroll keys (PageDown,
  *   Space, ArrowDown, End) with focus on the page. A position the page already had when this script ran (a restored
- *   scroll) counts too. Progress never goes back and it never closes again;
+ *   scroll) counts too. Scrolling back down the runway lowers the progress again, and once the page is open and has
+ *   been scrolled away from its top, coming back to the top closes the curtain again (it swings shut), on the first
+ *   page of a session and on a later one alike, so the curtain follows the scroll both ways;
  * - Skip the overture opens it at once, scrolls to the result bars and moves focus to their heading; the same happens
  *   when the playbill fades with focus still on it, so focus is never dropped;
  * - the poster is a link to Little Shop; focus on it, on Skip or on House lights leaves the curtain closed (Tab goes
@@ -22,9 +24,12 @@
  * - the first-screen band (#tmFirst: the promise, Copy, the script link, Watch it run) sits above the curtain, which
  *   starts at its bottom (the root's --tm-first-h, kept in step with the band's height); focus on its controls keeps the
  *   curtain closed, so Tab goes Copy, the script link, Watch it run, Skip, poster, House lights.
- * With no curtain (reduced motion, a later page, missing markup, or the head script's watchdog already opened the page)
- * the page is open and --reveal is 1, so the result bars are full. If this script never runs or stalls, the head
+ * With no curtain at load (reduced motion, a later page, missing markup, or the head script's watchdog already opened the
+ * page) the page is open and --reveal is 1, so the result bars are full. If this script never runs or stalls, the head
  * script opens the page.
+ * The light scroll cues (theatre.css, html.cues): one IntersectionObserver marks the acts (their stage holds the verdict
+ * word), the cast, the samples and the stage door .in as they scroll into view and the CSS animates them (transform and opacity only). Without motion, or
+ * with this script missing, nothing is hidden.
  */
 (function () {
   "use strict";
@@ -37,6 +42,7 @@
   var results = document.getElementById("results");
   var heading = document.getElementById("resultsTitle");
   var band = document.getElementById("tmFirst");
+  var lights = document.getElementById("lights");
   var reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
   var progress = 0, done = false, distance = 1, ghost = null;
 
@@ -49,6 +55,7 @@
   function open() {
     if (done) return;
     done = true;
+    away = false;
     setCurtain(1);
     if (ov) ov.classList.add("gone");
     if (brand) brand.removeAttribute("tabindex");
@@ -72,43 +79,85 @@
     if (heading) heading.focus({ preventScroll: true });
   }
 
-  var playing = root.classList.contains("motion") && root.classList.contains("overture-play") && ov && skip && heading && !(reduce && reduce.matches);
+  // Motion is on when the head script chose it and reduced motion is not on now; the curtain needs its own markup too.
+  function motionOn() {
+    return root.classList.contains("motion") && !!ov && !!skip && !!heading && !(reduce && reduce.matches);
+  }
+  var playing = motionOn() && root.classList.contains("overture-play");
+  var away = false, closing = 0;
+
+  // The hidden copy of the sample chip that holds its place in the house bar while the chip is on the curtain.
+  function liftChip() {
+    if (ghost || !badge) return;
+    ghost = badge.cloneNode(true);
+    ghost.removeAttribute("id");
+    ghost.removeAttribute("role");
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.setAttribute("inert", "");
+    ghost.classList.add("sample-ghost");
+    var copies = ghost.querySelectorAll("[id]");
+    for (var i = 0; i < copies.length; i++) copies[i].removeAttribute("id");
+    badge.parentNode.insertBefore(ghost, badge.nextSibling);
+    var copy = ghost.querySelector(".house-lights");
+    if (copy && lights) copy.textContent = lights.textContent;
+  }
+  // The page was scrolled away from its top and is back: close the curtain again, with a short swing (theatre.css
+  // html[data-closing]). Focus left on the page is dropped, as nothing behind the curtain is reachable.
+  function close() {
+    if (!done || !motionOn()) return;
+    done = false;
+    away = false;
+    liftChip();
+    if (brand) brand.setAttribute("tabindex", "-1");
+    var at = document.activeElement;
+    if (at && at !== document.body && at !== root && !onCurtain(at) && at.blur) at.blur();
+    root.classList.add("overture-play");
+    ov.classList.remove("gone");
+    runway();
+    ov.scrollTop = 0;
+    root.dataset.closing = "1";
+    window.clearTimeout(closing);
+    closing = window.setTimeout(function () { delete root.dataset.closing; }, 900);
+    setCurtain(0);
+  }
+  // Scroll events already arrive once per frame, before animation frames: updating here opens a curtain that a jump
+  // completes before anything else reads the page in that frame.
+  function update() {
+    if (done) {
+      var y = window.scrollY;
+      if (y > 1) away = true;
+      else if (away) close();
+      return;
+    }
+    var next = Math.min(1, Math.max(ov.scrollTop, window.scrollY) / distance);
+    if (next === progress) return;
+    if (root.dataset.closing) { window.clearTimeout(closing); delete root.dataset.closing; }
+    // Past the fade (or open in one go) the playbill is hidden; focus on Skip or the poster would fall to the page, so
+    // do what Skip does. Without focus on the curtain the page stays where it is.
+    if (next >= FADED && ov.contains(document.activeElement)) { toResults(); return; }
+    if (next >= 1) { open(); return; }
+    setCurtain(next);
+  }
+  // The band's controls (Copy, the script link, Watch it run) sit above the curtain, so focus there keeps it closed too.
+  function onCurtain(node) {
+    return ov.contains(node) || (badge !== null && badge.contains(node)) || (band !== null && band.contains(node));
+  }
   if (!playing) {
     root.classList.remove("overture-play");
     done = true;
     setCurtain(1);
     if (ov) ov.classList.add("gone");
   } else {
-    // The hidden copy of the sample chip that holds its place in the house bar while the chip is on the curtain.
-    if (badge) {
-      ghost = badge.cloneNode(true);
-      ghost.removeAttribute("id");
-      ghost.removeAttribute("role");
-      ghost.setAttribute("aria-hidden", "true");
-      ghost.setAttribute("inert", "");
-      ghost.classList.add("sample-ghost");
-      var copies = ghost.querySelectorAll("[id]");
-      for (var i = 0; i < copies.length; i++) copies[i].removeAttribute("id");
-      badge.parentNode.insertBefore(ghost, badge.nextSibling);
-    }
+    liftChip();
     // While the curtain is closed, Tab goes from the poster to House lights, not to the brand link behind the curtain.
     if (brand) brand.setAttribute("tabindex", "-1");
-    // Scroll events already arrive once per frame, before animation frames: updating here opens a curtain that a jump
-    // completes before anything else reads the page in that frame.
-    var update = function () {
-      if (done) return;
-      var next = Math.max(progress, Math.min(1, Math.max(ov.scrollTop, window.scrollY) / distance));
-      if (next === progress) return;
-      // Past the fade (or open in one go) the playbill is hidden; focus on Skip or the poster would fall to the page, so
-      // do what Skip does. Without focus on the curtain the page stays where it is.
-      if (next >= FADED && ov.contains(document.activeElement)) { toResults(); return; }
-      if (next >= 1) { open(); return; }
-      setCurtain(next);
-    };
-    // The band's controls (Copy, the script link, Watch it run) sit above the curtain, so focus there keeps it closed too.
-    var onCurtain = function (node) {
-      return ov.contains(node) || (badge !== null && badge.contains(node)) || (band !== null && band.contains(node));
-    };
+    setCurtain(0);
+    runway();
+    var focused = document.activeElement;
+    if (window.location.hash || (focused && focused !== document.body && focused !== root && !onCurtain(focused))) open();
+    else update();
+  }
+  if (motionOn()) {
     var drive = function (delta) {
       if (!done && delta) ov.scrollTop = Math.max(0, ov.scrollTop + delta);
     };
@@ -123,12 +172,13 @@
     ov.addEventListener("scroll", update, { passive: true });
     window.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", function () {
+      if (done) return;
       runway();
-      if (!done) ov.scrollTop = progress * distance;
+      ov.scrollTop = progress * distance;
       update();
     });
-    // The page is locked while the curtain is up, so a wheel or a swipe that starts off the curtain (the sample chip, or
-    // the page in the gap) moves the curtain's runway instead. Passive: nothing is cancelled.
+    // The page is locked while the curtain is closed, so a wheel or a swipe that starts off the curtain (the sample chip,
+    // or the page in the gap) moves the curtain's runway instead. Passive: nothing is cancelled.
     document.addEventListener("wheel", function (e) {
       if (done || (e.target instanceof Node && ov.contains(e.target))) return;
       drive(e.deltaY * (e.deltaMode === 1 ? LINE : e.deltaMode === 2 ? window.innerHeight : 1));
@@ -145,7 +195,7 @@
     }, { passive: true });
     document.addEventListener("touchend", function () { touchY = null; }, { passive: true });
     // The scroll keys with focus on the page (not on the curtain, where they scroll it natively, and not while typing)
-    // move the runway; the reverse keys do nothing, as progress never goes back.
+    // move the runway; the reverse keys scroll it back (the curtain follows the scroll both ways).
     document.addEventListener("keydown", function (e) {
       var at = document.activeElement;
       if (done || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || typing(at)) return;
@@ -164,22 +214,32 @@
       if (reduce.addEventListener) reduce.addEventListener("change", calm);
       else if (reduce.addListener) reduce.addListener(calm);
     }
-    setCurtain(0);
-    runway();
-    var focused = document.activeElement;
-    if (window.location.hash || (focused && focused !== document.body && focused !== root && !onCurtain(focused))) open();
-    else update();
   }
   // The band's height changes with the width and the web fonts arriving; the curtain follows it.
   bandHeight();
   if (band && window.ResizeObserver) new ResizeObserver(bandHeight).observe(band);
   else window.addEventListener("resize", bandHeight);
 
-  var lights = document.getElementById("lights");
+  // The light scroll cues. html.cues is what lets theatre.css hide an element until it is seen, so a page without this
+  // script (or without IntersectionObserver, or under reduced motion) never has anything hidden; theatre.css also gates
+  // them on the live reduced-motion query. Each element is marked .in once, as it comes into view.
+  if (root.classList.contains("motion") && !(reduce && reduce.matches) && "IntersectionObserver" in window) {
+    var cueNodes = document.querySelectorAll(".act > .stage, .samples, .cast, .door-area .door");
+    var seen = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        en.target.classList.add("in");
+        seen.unobserve(en.target);
+      });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.01 });
+    root.classList.add("cues");
+    for (var c = 0; c < cueNodes.length; c++) seen.observe(cueNodes[c]);
+  }
+
   if (!lights) return;
+  // Dark is the default whatever the OS prefers; data-theme="light" (House lights) is the only other state.
   function darkNow() {
-    var theme = root.getAttribute("data-theme");
-    return theme ? theme === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return root.getAttribute("data-theme") !== "light";
   }
   function sync() {
     lights.textContent = darkNow() ? "House lights up" : "House lights down";

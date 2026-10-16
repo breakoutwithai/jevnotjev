@@ -344,6 +344,32 @@
   .repertoire li { margin-bottom: 6px; }
 }
 
+/* ---------- Light scroll cues and the curtain's swing shut ----------
+   The cues of the first landing (#5726c8b to #276dd7c, removed with Act I in #205), back on the current sections.
+   theatre.js sets html.cues and marks each section .in as it scrolls into view; until then it waits, hidden, so
+   nothing is ever hidden without the script. Transform and opacity (and one clip-path wipe) only, no scripted loop.
+   Live-gated on prefers-reduced-motion: no-preference, so turning reduced motion on shows everything at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .cues .act > .stage:not(.in), .cues .samples:not(.in), .cues .cast:not(.in) .player, .cues .door-area .door:not(.in) { opacity: 0; }
+  .cues #act5 > .stage:not(.in) .verdict-word { clip-path: inset(0 100% 0 0); }
+  .cues .act > .stage.in, .cues .samples.in { animation: rise .9s cubic-bezier(.2, .7, .2, 1) both; }
+  .cues .cast.in .player { animation: slide-l .9s cubic-bezier(.2, .7, .2, 1) both; }
+  .cues .cast.in .player:nth-child(2) { animation-delay: .2s; }
+  .cues .cast.in .player:nth-child(3) { animation-name: slide-r; animation-delay: .45s; }
+  .cues #act5 > .stage.in .verdict-word { animation: wipe 1.3s cubic-bezier(.7, 0, .2, 1) .3s both; }
+  /* The stage door swishes in on a diagonal (across and down, turning as it lands) and rests at its tilt. */
+  .cues .door-area .door.in { animation: swish .9s cubic-bezier(.2, .7, .2, 1) both; }
+  /* Scrolled back to the top: the curtains swing shut (theatre.js sets html[data-closing] for the swing). */
+  [data-closing] .curtain { transition: transform .8s cubic-bezier(.2, .7, .2, 1); }
+  [data-closing] .playbill { transition: opacity .5s ease .3s, transform .8s cubic-bezier(.2, .7, .2, 1); }
+  [data-closing] .rbars .bar i { transition: width .8s cubic-bezier(.2, .7, .2, 1); }
+}
+@keyframes rise { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
+@keyframes slide-l { from { opacity: 0; transform: translateX(-60px); } to { opacity: 1; transform: none; } }
+@keyframes slide-r { from { opacity: 0; transform: translateX(60px); } to { opacity: 1; transform: none; } }
+@keyframes wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes swish { from { opacity: 0; transform: translate(70px, -26px) rotate(4deg) skewX(-10deg); } to { opacity: 1; transform: rotate(1.5deg); } }
+
 /* ---------- Stage-door demo ---------- */
 .door-demo { margin: 40px 0 0; max-width: 980px; border-top: 2px solid var(--cut); padding-top: 18px; scroll-margin-top: 72px; }
 @media (max-width: 720px) { .door-demo { scroll-margin-top: 120px; } }

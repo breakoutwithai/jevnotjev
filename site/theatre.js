@@ -1,21 +1,21 @@
 /* The opening curtain and the house lights for the thin theatre frame.
  *
  * The head script in index.html decides before first paint: html.overture-play (motion on, first page of the tab
- * session) closes the curtain over the page, carrying the October 6 playbill: marquee, ticket, scroll cue, Skip the
- * overture and the Little Shop poster. This script then drives it and records html[data-curtain] (closed, rising or
- * open), the root's --reveal (0 to 1) and html[data-runway] (the scroll distance, in px, over which it parts):
+ * session) closes the curtain over the page, carrying the playbill: marquee, the Mad TokenMax poster with its ticket
+ * (one link to tm/), the Little Shop poster and the scroll cue (#248: no Skip button). This script then drives it and
+ * records html[data-curtain] (closed, rising or open), the root's --reveal (0 to 1) and html[data-runway] (the scroll distance, in px, over which it parts):
  * - scrolling parts it in step. The curtain is its own scroller (theatre.css): a wheel or a swipe over it scrolls it
  *   through a runway of 0.7 of the screen height. Until it is open the page itself does not scroll (theatre.css locks
  *   it), so the results heading and the result bars hold still and grow in the gap. Every other way of scrolling drives
  *   the same runway: a wheel or a swipe over the sample chip or the page in the gap, and the scroll keys (PageDown,
- *   Space, ArrowDown, End) with focus on the page. A position the page already had when this script ran (a restored
+ *   Space, ArrowDown, End) with focus on the page; with focus on a curtain link they scroll the curtain natively. A position the page already had when this script ran (a restored
  *   scroll) counts too. Scrolling back down the runway lowers the progress again, and once the page is open and has
  *   been scrolled away from its top, coming back to the top closes the curtain again (it swings shut), on the first
  *   page of a session and on a later one alike, so the curtain follows the scroll both ways;
- * - Skip the overture opens it at once, scrolls to the result bars and moves focus to their heading; the same happens
- *   when the playbill fades with focus still on it, so focus is never dropped;
- * - the poster is a link to Little Shop; focus on it, on Skip or on House lights leaves the curtain closed (Tab goes
- *   Skip, poster, House lights), while focus anywhere else, focus already elsewhere when this script runs, a #hash on
+ * - when the playbill fades with focus still on it, the curtain opens at once, scrolls to the result bars and moves
+ *   focus to their heading, so focus is never dropped;
+ * - the two posters are links (Mad TokenMax, Little Shop); focus on them or on House lights leaves the curtain closed
+ *   (Tab goes Mad TokenMax, Little Shop, House lights, and the next Tab opens it), while focus anywhere else, focus already elsewhere when this script runs, a #hash on
  *   load or a hash change opens it at once, so nothing is focused or linked to behind it;
  * - once open the overture is display:none, and the page is where it was;
  * - the sample chip is lifted onto the curtain while it is closed and returns to the house bar once it starts to part;
@@ -23,7 +23,7 @@
  * - turning reduced motion on drops it (theatre.css hides it at once; this records the page as open);
  * - the first-screen band (#tmFirst: the promise, Copy, the script link, Watch it run) sits above the curtain, which
  *   starts at its bottom (the root's --tm-first-h, kept in step with the band's height); focus on its controls keeps the
- *   curtain closed, so Tab goes Copy, the script link, Watch it run, Skip, poster, House lights.
+ *   curtain closed, so Tab goes Copy, the script link, Watch it run, the two posters, House lights.
  * With no curtain at load (reduced motion, a later page, missing markup, or the head script's watchdog already opened the
  * page) the page is open and --reveal is 1, so the result bars are full. If this script never runs or stalls, the head
  * script opens the page.
@@ -36,7 +36,8 @@
   var root = document.documentElement;
   var RUNWAY = 0.7, FADED = 0.36, KEY_STEP = 0.4, LINE = 40;
   var ov = document.getElementById("overture");
-  var skip = document.getElementById("skipOverture");
+  // The curtain's first control (the Mad TokenMax poster): the curtain needs one to play.
+  var first = ov ? ov.querySelector("a[href]") : null;
   var badge = document.getElementById("sampleBadge");
   var brand = document.querySelector(".house .brand");
   var results = document.getElementById("results");
@@ -81,7 +82,7 @@
 
   // Motion is on when the head script chose it and reduced motion is not on now; the curtain needs its own markup too.
   function motionOn() {
-    return root.classList.contains("motion") && !!ov && !!skip && !!heading && !(reduce && reduce.matches);
+    return root.classList.contains("motion") && !!ov && !!first && !!heading && !(reduce && reduce.matches);
   }
   var playing = motionOn() && root.classList.contains("overture-play");
   var away = false, closing = 0;
@@ -124,8 +125,13 @@
     window.clearTimeout(closing);
     closing = window.setTimeout(function () { delete root.dataset.closing; }, 900);
     setCurtain(0);
-    // Focus left on the page would sit behind the curtain: move it to Skip, as everything else on the curtain does.
-    if (onPage) skip.focus({ preventScroll: true });
+    // Focus left on the page would sit behind the curtain: move it to the curtain's first shown control (a very short
+    // phone curtain shows no posters), else House lights on the curtain.
+    if (onPage) {
+      var shown = null, links = ov.querySelectorAll("a[href]");
+      for (var i = 0; i < links.length && !shown; i++) if (links[i].getClientRects().length) shown = links[i];
+      (shown || lights || first).focus({ preventScroll: true });
+    }
   }
   // Scroll events already arrive once per frame, before animation frames: updating here opens a curtain that a jump
   // completes before anything else reads the page in that frame.
@@ -141,8 +147,8 @@
     var next = Math.min(1, Math.max(ov.scrollTop, window.scrollY) / distance);
     if (next === progress) return;
     if (root.dataset.closing) { window.clearTimeout(closing); delete root.dataset.closing; }
-    // Past the fade (or open in one go) the playbill is hidden; focus on Skip or the poster would fall to the page, so
-    // do what Skip does. Without focus on the curtain the page stays where it is.
+    // Past the fade (or open in one go) the playbill is hidden; focus on a poster would fall to the page, so open onto
+    // the results and focus their heading. Without focus on the curtain the page stays where it is.
     if (next >= FADED && ov.contains(document.activeElement)) { toResults(); return; }
     if (next >= 1) { open(); return; }
     setCurtain(next);
@@ -173,7 +179,6 @@
     var typing = function (node) {
       return node instanceof Element && (node.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(node.tagName));
     };
-    skip.addEventListener("click", toResults);
     document.addEventListener("focusin", function (e) {
       if (!done && e.target instanceof Node && !onCurtain(e.target)) open();
     });

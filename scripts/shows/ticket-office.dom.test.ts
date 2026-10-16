@@ -43,7 +43,7 @@ async function pageAt(width: number, height: number, reducedMotion: "reduce" | "
   return page;
 }
 
-test("[integration] #136 the ticket-office link is on the plain first screen without motion; with motion it is reached after Skip; it is clickable and jumps to the office", async () => {
+test("[integration] #136 the ticket-office link is on the plain first screen without motion; with motion it is reached once the curtain opens; it is clickable and jumps to the office", async () => {
   for (const [width, height] of VIEWPORTS) for (const motion of MOTIONS) {
     const page = await pageAt(width, height, motion);
     try {
@@ -51,14 +51,10 @@ test("[integration] #136 the ticket-office link is on the plain first screen wit
       const jump = page.getByRole("link", { name: "Go to the ticket office" });
       expect(await jump.isVisible()).toBe(true);
       if (CAPTURE && motion === "no-preference") { mkdirSync(CAPTURE, { recursive: true }); await page.screenshot({ path: join(CAPTURE, `first-${width}.png`) }); }
-      // #231: with motion the first screen is the closed curtain (the October 6 playbill); the link sits under it, so
-      // skip the overture first and bring the link into view. Without motion it is on the first screen as before.
+      // #231: with motion the first screen is the closed curtain; the link sits under it, so scroll the curtain open
+      // first (#248 removed Skip the overture); the page stays at its top with the link in view. Without motion it is on
+      // the first screen as before.
       if (motion === "no-preference") {
-        await page.locator("#skipOverture").click();
-        await jump.scrollIntoViewIfNeeded();
-        // Skip leaves the page at the result bars; scrolling up to the link brings the page back to its top, which
-        // closes the curtain again (landing L41), and one more scroll parts it, as on the first screen.
-        await page.waitForFunction(() => document.documentElement.dataset.curtain === "closed", null, { timeout: 5000 });
         await page.mouse.move(width / 2, height / 2);
         await page.mouse.wheel(0, 2 * height);
         await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", null, { timeout: 5000 });

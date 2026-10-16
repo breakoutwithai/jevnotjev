@@ -10,7 +10,8 @@
    result bars grow in place. theatre.js sets the root's --reveal from 0 to 1 over that runway, and the playbill fades
    and lifts as it parts, gone by 0.36 (sooner than 96f5b14's 0.56) so it never ghosts over the bars. Skip the overture,
    focus outside the curtain's controls or a #hash opens it at once; once open the whole overture is display:none,
-   the page is where it was, and it never comes back. Without overture-play (reduced motion, a later page, no script, or
+   the page is where it was until it is scrolled away and back to its top, when theatre.js closes it again (html[data-closing]
+   swings it shut). Without overture-play (reduced motion, a later page, no script, or
    theatre.js missing) there is no curtain. */
 .overture { display: none; }
 .motion.overture-play .overture {

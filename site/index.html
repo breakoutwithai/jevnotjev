@@ -204,7 +204,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
    can throw (private modes, blocked storage); then nothing is known, so the curtain plays. theatre.js opens it (scroll,
    Skip the overture, focus, #hash) and records html[data-curtain]; if theatre.js has not reported in by load (failed to
    load or run) or within 4 seconds (a request that stalls, so load never comes), this script takes the curtain away so
-   the page is never left closed. A theatre.js that arrives later finds no overture-play and leaves the page open. */
+   the page is never left closed. A theatre.js that arrives later finds no overture-play and starts open; scrolling away and back to the top then closes it. */
 (function () {
   var r = document.documentElement;
   var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;

@@ -85,6 +85,10 @@
   }
   var playing = motionOn() && root.classList.contains("overture-play");
   var away = false, closing = 0;
+  function keyboardOnPage() {
+    var at = document.activeElement;
+    return !!at && at !== document.body && at !== root && !onCurtain(at) && at.matches(":focus-visible");
+  }
 
   // The hidden copy of the sample chip that holds its place in the house bar while the chip is on the curtain.
   function liftChip() {
@@ -110,7 +114,8 @@
     liftChip();
     if (brand) brand.setAttribute("tabindex", "-1");
     var at = document.activeElement;
-    if (at && at !== document.body && at !== root && !onCurtain(at) && at.blur) at.blur();
+    var onPage = at && at !== document.body && at !== root && !onCurtain(at);
+    if (window.scrollY) window.scrollTo({ top: 0, behavior: "instant" });
     root.classList.add("overture-play");
     ov.classList.remove("gone");
     runway();
@@ -119,6 +124,8 @@
     window.clearTimeout(closing);
     closing = window.setTimeout(function () { delete root.dataset.closing; }, 900);
     setCurtain(0);
+    // Focus left on the page would sit behind the curtain: move it to Skip, as everything else on the curtain does.
+    if (onPage) skip.focus({ preventScroll: true });
   }
   // Scroll events already arrive once per frame, before animation frames: updating here opens a curtain that a jump
   // completes before anything else reads the page in that frame.
@@ -126,7 +133,9 @@
     if (done) {
       var y = window.scrollY;
       if (y > 1) away = true;
-      else if (away) close();
+      // Keyboard focus on a page control (Shift+Tab to the header link scrolls to the top) is the focusin contract: the
+      // visitor is working the page, so it stays open. A clicked control does not count; scrolling up closes over it.
+      else if (away && !keyboardOnPage()) close();
       return;
     }
     var next = Math.min(1, Math.max(ov.scrollTop, window.scrollY) / distance);
@@ -195,7 +204,7 @@
     }, { passive: true });
     document.addEventListener("touchend", function () { touchY = null; }, { passive: true });
     // The scroll keys with focus on the page (not on the curtain, where they scroll it natively, and not while typing)
-    // move the runway; the reverse keys scroll it back (the curtain follows the scroll both ways).
+    // move the runway; the reverse keys (ArrowUp, PageUp, Shift+Space, Home) scroll it back (both ways).
     document.addEventListener("keydown", function (e) {
       var at = document.activeElement;
       if (done || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || typing(at)) return;
@@ -204,7 +213,11 @@
       var step = e.key === "ArrowDown" ? LINE
         : e.key === "PageDown" ? distance * KEY_STEP
         : e.key === " " && !e.shiftKey && onPage ? distance * KEY_STEP
-        : e.key === "End" ? distance + 2 : 0;
+        : e.key === "End" ? distance + 2
+        : e.key === "ArrowUp" ? -LINE
+        : e.key === "PageUp" ? -distance * KEY_STEP
+        : e.key === " " && e.shiftKey && onPage ? -distance * KEY_STEP
+        : e.key === "Home" ? -(distance + 2) : 0;
       if (!step) return;
       e.preventDefault();
       drive(step);

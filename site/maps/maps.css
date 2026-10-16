@@ -1,100 +1,127 @@
-/* The /maps/ share page and board. Colour and type tokens copied from the landing (site/index.html :root).
-   Numbers are big figures with a plain label; --curtain is the one accent (the Share button). */
+/* The /maps/ share page and board in the v3 theatre style (#238): a dark house with cream cards.
+   The share view is v3's share card (every field that is sent, the alias box, one Share button); the board is v3's
+   cast list (totals, then rows newest first). --curtain is the one accent, on the Share button.
+   Tokens from the landing (site/index.html :root, dark set) plus the cream card colours v3 adds. */
 :root {
-  --bg: #e8e5df;
-  --bg-2: #dcd7cf;
-  --ink: #1f0a0e;
-  --ink-soft: #4d3a3c;
-  --muted: #7a6a69;
-  --line: rgba(31, 10, 14, .16);
-  --curtain: #7b1424;
-  --brass: #8a5f10;
-  --keep: #2f7a4d;
-  --cut: #b2382a;
+  --house: #14060a;
+  --ink: #f2e9df;
+  --ink-soft: #d4c3b8;
+  --curtain: #6d0f1e;
+  --curtain-hi: #94203a;
+  --brass: #e0b04e;
+  --keep: #86cf9f;
+  --cut: #f08470;
+  --cream: #efe2c4;
+  --cream-ink: #2a1408;
+  --cream-soft: #5a3a2c;
+  --cream-line: rgba(42, 20, 8, .3);
+  --link: #9fd8b4;
   --serif: "Alegreya", "Iowan Old Style", Georgia, serif;
   --sans: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color-scheme: light;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #12060a;
-    --bg-2: #1c080d;
-    --ink: #f2e9df;
-    --ink-soft: #d4c3b8;
-    --muted: #9c8580;
-    --line: rgba(242, 233, 223, .13);
-    --curtain: #6d0f1e;
-    --brass: #e0b04e;
-    --keep: #86cf9f;
-    --cut: #f08470;
-    color-scheme: dark;
-  }
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
-html { background: var(--bg); color: var(--ink); }
-body { margin: 0; font: 17px/1.5 var(--sans); overflow-wrap: anywhere; }
-main { max-width: 64rem; margin: 0 auto; padding: 20px 16px 72px; }
-h1, h2 { font-family: var(--serif); font-weight: 700; line-height: 1.1; }
-h1 { font-size: clamp(2rem, 5vw, 3rem); margin: .4em 0 .3em; }
-h2 { font-size: 1.5rem; margin: 0 0 .4em; }
+html {
+  background: radial-gradient(ellipse 70% 600px at 50% 0, rgba(255, 214, 140, .08), transparent 70%) no-repeat, var(--house);
+  color: var(--ink);
+}
+body { margin: 0; font: 500 16px/1.5 var(--sans); overflow-wrap: anywhere; -webkit-font-smoothing: antialiased; }
+main { max-width: 40rem; margin: 0 auto; padding: 20px 16px 72px; }
+h1, h2 { font-family: var(--serif); font-weight: 800; line-height: 1.1; }
+h1 { font-size: clamp(2rem, 5vw, 2.8rem); margin: .4em 0 .3em; color: var(--brass); }
+h2 { font-size: 1.75rem; margin: 0 0 2px; color: var(--curtain); }
 a { color: var(--ink); text-underline-offset: 3px; }
 p { margin: .5em 0; }
 .map-back { font-size: .9rem; }
-.map-lede { color: var(--ink-soft); max-width: 40rem; }
-.map-help { color: var(--ink-soft); font-size: .9rem; }
-.map-panel, .map-board { padding: 24px 0 8px; margin-top: 16px; }
+.map-lede { color: var(--ink-soft); }
 .map-status:empty, .map-alert:empty { display: none; }
-.map-status { font-weight: 600; color: var(--keep); }
-.map-alert { font-weight: 600; color: var(--cut); }
+.map-status { font-weight: 700; color: var(--keep); }
+.map-alert { font-weight: 700; color: var(--cut); }
+:focus-visible { outline: 3px solid #ffe6a6; outline-offset: 3px; }
 
-/* Stat tiles: one big figure, one short label. Figure beside label on narrow screens, 3 across when wide. */
-.map-tiles { display: grid; grid-template-columns: 1fr; gap: 0 32px; margin: 16px 0 8px; }
-.map-tile { display: flex; align-items: baseline; gap: 14px; border-top: 1px solid var(--line); padding: 12px 0; min-width: 0; }
-.map-tile p { margin: 0; }
-.map-tile-figure { flex: 0 0 auto; max-width: 60%; font: 700 2.4rem/1 var(--serif); font-variant-numeric: lining-nums tabular-nums; }
-.map-tile-label { color: var(--ink-soft); font-size: .95rem; line-height: 1.35; }
-@media (min-width: 40rem) {
-  .map-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .map-tile { display: block; padding: 16px 0 20px; }
-  .map-tile-figure { max-width: none; font-size: clamp(2.8rem, 5vw, 3.6rem); }
-  .map-tile-label { margin-top: 8px; }
+/* ---------- Cream cards: share card, board, delete and the not-a-map message ---------- */
+.map-card {
+  margin-top: 24px; background: var(--cream); color: var(--cream-ink);
+  border-top: 8px solid var(--curtain); box-shadow: 0 22px 50px rgba(0, 0, 0, .6), 0 0 0 1px #8a6a26;
+  padding: 20px 24px 18px;
 }
+.map-card a { color: var(--cream-ink); }
+.map-card :focus-visible { outline-color: var(--curtain); }
+.map-sub { margin: 0 0 12px; font: italic 500 1rem/1.35 var(--serif); color: var(--cream-soft); }
+.map-help { color: var(--cream-soft); font-size: .875rem; }
 
-/* What will be sent: the same tiles, then one quiet line of the remaining fields. */
-.map-meta { color: var(--muted); font-size: .9rem; margin: 4px 0 28px; }
-.map-meta .map-leaf { color: var(--ink-soft); font-weight: 600; }
+/* The share card sits in a small browser frame, as in v3. */
+#mapPreview { padding: 0; border-top: 0; }
+.map-url {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: var(--cream-ink); color: var(--link);
+  font: 500 .8125rem var(--mono); overflow: hidden; white-space: nowrap;
+}
+.map-url i { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #5c3a20; }
+.map-url span { overflow: hidden; text-overflow: ellipsis; margin-left: 6px; }
+.map-card-body { padding: 20px 24px 18px; border-top: 8px solid var(--curtain); }
 
-.map-form { display: grid; gap: 8px; max-width: 26rem; }
-.map-form label { font-weight: 600; }
-.map-form input { font: 1rem var(--mono); padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; background: var(--bg-2); color: var(--ink); width: 100%; }
+/* Every field that will be sent: label left, exact value right, dashed rules. */
+.map-field-list { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.map-field-list dt, .map-field-list dd { margin: 0; padding: 7px 0; border-top: 1px dashed var(--cream-line); }
+.map-field-list dt { font: 500 .9375rem var(--sans); color: var(--cream-soft); padding-right: 12px; }
+.map-field-list dd { font: 700 .9375rem var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+
+.map-form { margin-top: 16px; }
+.map-alias { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; }
+.map-alias label { display: block; font: 700 .875rem var(--sans); color: var(--cream-soft); margin-bottom: 4px; }
+.map-alias input {
+  width: 100%; min-height: 46px; padding: 0 12px; border: 2px solid #8a6a26; border-radius: 0;
+  background: #fff8e8; color: var(--cream-ink); font: 700 1rem var(--mono);
+}
 .map-honey { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
-button { font: 600 1rem var(--sans); padding: 10px 22px; border: 0; border-radius: 3px; background: var(--curtain); color: #fff; cursor: pointer; justify-self: start; min-height: 44px; }
-#mapShare { font-size: 1.2rem; padding: 14px 44px; min-height: 54px; margin-top: 12px; }
-button:disabled { opacity: .6; cursor: progress; }
-:focus-visible { outline: 3px solid var(--brass); outline-offset: 2px; }
-
-/* Board rows: plain lines, newest first. */
-.map-rows { list-style: none; margin: 8px 0 0; padding: 0; }
-.map-row { border-top: 1px solid var(--line); padding: 14px 0 12px; }
-.map-row:last-child { border-bottom: 1px solid var(--line); }
-.map-row.mine { background: var(--bg-2); padding-left: 12px; padding-right: 12px; }
-.map-row-who { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; margin: 0 0 8px; }
-.map-row-alias { font-weight: 700; font-family: var(--mono); }
-.map-row-day { color: var(--muted); font-size: .9rem; }
-.map-row-mine { font-size: .85rem; font-weight: 700; }
-.map-row-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 16px; margin: 0; }
-.map-fig { display: flex; flex-direction: column-reverse; justify-content: flex-end; min-width: 0; }
-.map-fig dd { margin: 0; font: 700 1.4rem/1.1 var(--serif); font-variant-numeric: lining-nums tabular-nums; }
-.map-fig dt { font-size: .75rem; color: var(--muted); line-height: 1.3; }
-.map-row-label { font-size: .8rem; color: var(--muted); font-style: italic; margin: 10px 0 0; }
-@media (min-width: 52rem) {
-  .map-row { display: grid; grid-template-columns: 13rem 1fr; gap: 0 24px; align-items: start; }
-  .map-row-who { flex-direction: column; gap: 0; margin: 0; }
-  .map-row-figures { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-  .map-row-label { grid-column: 2; }
+button {
+  min-height: 46px; padding: 0 24px; border: 0; border-radius: 0; cursor: pointer; background: var(--curtain); color: #f6e7c8;
+  font: 800 1rem var(--sans); box-shadow: 0 3px 0 #3a0610; transition: transform .08s, box-shadow .08s, background .15s;
 }
+button:hover { background: var(--curtain-hi); }
+button:active { transform: translateY(3px); box-shadow: 0 0 0 #3a0610, 0 0 0 4px rgba(224, 176, 78, .55); }
+button:disabled { opacity: .6; cursor: progress; }
+
+/* ---------- The board: a cast list, totals then rows newest first ---------- */
+.map-board { border-top-width: 10px; }
+.map-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 16px; margin: 4px 0 14px; }
+.map-tile { border-top: 2px solid var(--cream-ink); padding: 8px 0 4px; min-width: 0; }
+.map-tile p { margin: 0; }
+.map-tile-figure { font: 800 2.2rem/1 var(--serif); color: var(--curtain); font-variant-numeric: lining-nums tabular-nums; }
+.map-tile-label { margin-top: 4px; color: var(--cream-soft); font-size: .8125rem; line-height: 1.3; }
+
+.map-rows { list-style: none; margin: 0; padding: 0; }
+.map-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 14px; align-items: baseline;
+  padding: 10px 0; border-top: 1px dashed var(--cream-line);
+}
+.map-row.mine { background: rgba(224, 176, 78, .3); margin: 0 -10px; padding: 10px; border-top-color: transparent; }
+.map-row p { margin: 0; }
+.map-row-who { font: 800 1.25rem/1.15 var(--serif); min-width: 0; }
+.map-row-mine {
+  font: 700 .75rem var(--sans); color: var(--curtain); border: 1px solid var(--curtain);
+  padding: 1px 5px; margin-left: 6px; vertical-align: 3px;
+}
+.map-row-day { font: italic 500 .9375rem var(--serif); color: #6e4e3c; text-align: right; }
+.map-row-figures { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 2px 0 0; }
+.map-fig { display: flex; gap: 5px; align-items: baseline; min-width: 0; }
+.map-fig dd { order: 1; margin: 0; font: 700 .9375rem var(--sans); color: var(--cream-ink); font-variant-numeric: tabular-nums; }
+.map-fig dt { order: 2; font: 500 .875rem var(--sans); color: var(--cream-soft); }
+.map-row-label { grid-column: 1 / -1; font: italic 500 .8125rem var(--serif); color: #6e4e3c; }
+
 .map-foot { margin-top: 40px; font-size: .9rem; }
+
+@media (max-width: 30rem) {
+  .map-card, .map-card-body { padding: 14px 16px 16px; }
+  #mapPreview { padding: 0; }
+  h2 { font-size: 1.5rem; }
+  .map-field-list dt, .map-field-list dd { padding: 5px 0; font-size: .875rem; }
+  .map-alias { grid-template-columns: 1fr; }
+  #mapShare { width: 100%; }
+  .map-tile-figure { font-size: 1.8rem; }
+  .map-row-who { font-size: 1.125rem; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

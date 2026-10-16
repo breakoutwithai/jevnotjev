@@ -29,11 +29,11 @@ const PAYLOAD: SharePayload = {
   opus_share_pct: 61,
   codex_weekly_pct: 37,
 };
-// [field, exact value sent (data-value), text shown]. Token counts show compact; the exact count stays on the element.
+// [field, exact value sent (data-value), text shown]. The v3 share card shows every value exactly, grouped by thousands.
 const LEAVES: [string, string, string][] = [
   ["v", "tm-share/1", "tm-share/1"], ["skill", "0.3.0", "0.3.0"], ["days", "7", "7"], ["sources", "claude+codex", "claude+codex"],
   ["sessions", "42", "42"], ["subagent_sessions", "9", "9"], ["caps.short", "2", "2"], ["caps.weekly", "1", "1"], ["caps.unknown", "0", "0"],
-  ["output_tokens.claude", "1234567", "1.2M"], ["output_tokens.codex", "89012", "89K"], ["opus_share_pct", "61", "61"], ["codex_weekly_pct", "37", "37"],
+  ["output_tokens.claude", "1234567", "1,234,567"], ["output_tokens.codex", "89012", "89,012"], ["opus_share_pct", "61", "61"], ["codex_weekly_pct", "37", "37"],
 ];
 
 function boardRow(id: string, alias: string, payload: Rec): Row {
@@ -132,9 +132,11 @@ test("[integration] 1 a valid link shows every payload field with its value and 
     expect(fieldsText).toContain("1,234,567");
     expect(fieldsText).toContain("89,012");
     expect(fieldsText.toLowerCase()).toContain("short / weekly / unknown");
-    // The figures are big stat tiles, not a table.
+    // The v3 share card: one labelled line per field (11 lines for 13 leaves, caps on one line), not a table.
     expect(await page.locator("#mapFields table").count()).toBe(0);
-    expect(await page.locator("#mapFields .map-tile").count()).toBe(6);
+    expect(await page.locator("#mapFields dl.map-field-list > dt").count()).toBe(11);
+    expect(await page.locator("#mapFields dl.map-field-list > dd").count()).toBe(11);
+    expect(await page.locator("#mapPreview button").count()).toBe(1);
     expect(await page.locator("label[for=mapAlias]").innerText()).toContain("Alias on the board");
     expect(await page.locator("#mapAlias").inputValue()).toMatch(/^builder-[a-z0-9]{4}$/);
     expect(await page.locator("#mapPreview").innerText()).toContain("Nothing has been sent yet.");
@@ -382,6 +384,30 @@ test("[integration] 10c every board row shows the not-verified label once, newes
     }
     expect(aliases).toEqual(["builder-c333", "builder-c222", "builder-zz99"]);
     expect(await shown.nth(0).locator(".map-row-label").innerText()).toContain("tokenmax-map 0.3.2");
+  } finally { await context.close(); }
+});
+
+test("[integration] 10d the board is the v3 cast list and no visible label on it ends with a full stop or a colon", async () => {
+  rows = THREE();
+  const { page, context } = await open(`${origin}/maps/`, 390, 844);
+  try {
+    await page.locator("#mapBoard .map-row").nth(2).waitFor();
+    expect((await page.locator("#mapBoardTitle").innerText()).trim()).toBe("Cast list");
+    expect(await page.locator("#mapBoardSection").innerText()).toContain("Newest first, self-reported, not verified");
+    // Every visible element on the board whose own text is not empty: headings, sub line, tile labels, figure labels, row labels.
+    const labels = await page.locator("#mapBoardSection").evaluate((root) => {
+      const out: string[] = [];
+      for (const n of Array.from(root.querySelectorAll("*"))) {
+        const own = Array.from(n.childNodes).filter((c) => c.nodeType === Node.TEXT_NODE).map((c) => c.textContent ?? "").join("").trim();
+        if (!own) continue;
+        const box = n.getBoundingClientRect();
+        if (box.width === 0 || box.height === 0) continue;
+        out.push(own);
+      }
+      return out;
+    });
+    expect(labels.length).toBeGreaterThan(20);
+    expect(labels.filter((text) => /[.:]$/.test(text))).toEqual([]);
   } finally { await context.close(); }
 });
 

@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TokenMax map: your Claude week, mapped</title>
+<meta name="description" content="One line in your terminal reads your last 7 days of Claude Code and Codex logs, writes a private report and prints a share link. Nothing is sent unless you choose to.">
+<meta property="og:title" content="TokenMax map: your Claude week, mapped">
+<meta property="og:description" content="One line in your terminal maps your last 7 days of Claude Code and Codex.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://jevnotjev.breakoutwithai.com/tm/">
+<meta property="og:image" content="https://jevnotjev.breakoutwithai.com/og.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,500;0,700;0,800;1,500;1,700&family=JetBrains+Mono:wght@500;700&family=Schibsted+Grotesk:wght@500;700;800&display=swap" rel="stylesheet">
+<script>
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('motion');
+</script>
+<link rel="stylesheet" href="tm.css">
+</head>
+<body>
+
+<header class="intro">
+  <h1>Your Claude week, mapped</h1>
+  <p>One line in your terminal reads your last 7 days of Claude Code and Codex logs and writes a private report. It prints a link; nothing is sent unless you open it and choose to share.</p>
+</header>
+
+<main class="track" id="track">
+  <div class="stage" id="stage">
+    <div class="valance" aria-hidden="true"></div>
+    <p class="sur" id="sur" aria-hidden="true">Scroll to open the show</p>
+
+    <section class="scene" id="sceneA" aria-labelledby="hA">
+      <h2 id="hA">Runs on your machine</h2>
+      <div class="play" id="play">
+        <svg class="wires" id="wires" aria-hidden="true"></svg>
+        <div class="term" id="term">
+          <div class="bar"><i aria-hidden="true"></i><i aria-hidden="true"></i><i aria-hidden="true"></i><span>one builder's real week, 16 Oct 2026</span></div>
+          <span class="key" id="key" aria-hidden="true">Enter</span>
+          <pre id="out"><span class="ln cmdln" data-at="0"><span class="ps" aria-hidden="true">$ </span><span id="typed">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share</span><span class="caret gone" id="caret" aria-hidden="true"></span><span class="rest" id="rest" aria-hidden="true"></span></span>
+<span class="ln" data-at=".21">wrote /home/you/tokenmax-report-20261016-091500/private-report.md</span>
+<span class="ln" data-at=".23">wrote /home/you/tokenmax-report-20261016-091500/share-draft.md (scan: clean)</span>
+<span class="ln" data-at=".248">claude sessions 515, codex sessions 3478, cap episodes <span class="num n1" id="num1">2</span></span>
+<span class="ln" data-at=".27"></span>
+<span class="ln ok share" data-at=".29">Share fields (tm-share/1). Nothing has been sent.</span>
+<span class="ln elide share" data-at=".3" title="4 lines left out: v, skill, days, sources">...</span>
+<span class="ln share" data-at=".31">sessions: 3993</span>
+<span class="ln elide share" data-at=".318" title="6 lines left out: subagent_sessions, the three caps lines and the two output_tokens lines">...</span>
+<span class="ln share" data-at=".36">opus_share_pct: <span class="num n2" id="num2">87</span></span>
+<span class="ln share" data-at=".41">codex_weekly_pct: <span class="num n3" id="num3">15</span></span>
+<span class="ln share" data-at=".47">Open this link to review and share:</span>
+<span class="ln share" data-at=".49"><span class="lnk" id="lnk">https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9</span></span></pre>
+        </div>
+        <ul class="pics" id="pics">
+          <li class="pic n1" id="pic1" data-at=".255">
+            <svg viewBox="0 0 120 90" aria-hidden="true">
+              <defs><filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+              <g class="exitsign" id="exitA" filter="url(#glow)">
+                <rect x="4" y="12" width="52" height="24" rx="2" fill="#2a0806" stroke="#ff6a58" stroke-width="2"/>
+                <text x="30" y="30" text-anchor="middle" font-family="Schibsted Grotesk, Arial" font-weight="800" font-size="16" fill="#ff6a58">EXIT</text>
+              </g>
+              <g class="exitsign" id="exitB" filter="url(#glow)">
+                <rect x="64" y="12" width="52" height="24" rx="2" fill="#2a0806" stroke="#ff6a58" stroke-width="2"/>
+                <text x="90" y="30" text-anchor="middle" font-family="Schibsted Grotesk, Arial" font-weight="800" font-size="16" fill="#ff6a58">EXIT</text>
+              </g>
+              <path d="M12 90 V46 H48 V90 M72 90 V46 H108 V90" fill="none" stroke="#6e4f14" stroke-width="2"/>
+            </svg>
+            <p><b>2</b>cap episodes, Wed 14 Oct, 16:20 UTC</p>
+          </li>
+          <li class="pic n2" id="pic2" data-at=".365">
+            <svg viewBox="0 0 120 90" aria-hidden="true">
+              <path d="M20 8 L46 82 H100 Z" fill="rgba(255,238,200,.22)"/>
+              <rect x="10" y="2" width="20" height="12" rx="2" fill="#6e4f14" transform="rotate(30 20 8)"/>
+              <ellipse cx="73" cy="82" rx="29" ry="5" fill="rgba(255,238,200,.4)"/>
+              <circle cx="73" cy="30" r="8" fill="#f6e7c8"/>
+              <path d="M53 82 L58 45 Q73 37 88 45 L93 82 Z" fill="#f6e7c8"/>
+              <text x="73" y="70" text-anchor="middle" font-family="Alegreya, serif" font-style="italic" font-weight="800" font-size="16" fill="#7b1424">Opus</text>
+            </svg>
+            <p><b>87%</b>of Claude output, Opus-class</p>
+          </li>
+          <li class="pic n3" id="pic3" data-at=".415">
+            <svg viewBox="0 0 120 90" aria-hidden="true">
+              <path d="M20 62 A40 40 0 0 1 100 62" fill="none" stroke="#3a1a10" stroke-width="10"/>
+              <path d="M20 62 A40 40 0 0 1 24.4 43.8" fill="none" stroke="#e0b04e" stroke-width="10"/>
+              <path d="M60 62 L29.7 46.6" stroke="#f6e7c8" stroke-width="3" stroke-linecap="round"/>
+              <circle cx="60" cy="62" r="12" fill="rgba(224,176,78,.25)"/>
+              <circle cx="60" cy="62" r="7" fill="#e0b04e"/>
+              <text x="60" y="88" text-anchor="middle" font-family="Schibsted Grotesk, Arial" font-weight="700" font-size="16" fill="#c99a3e">CODEX WEEK</text>
+            </svg>
+            <p><b>15%</b>of the Codex week used</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="scene" id="sceneB" aria-labelledby="hB">
+      <h2 id="hB">You choose to share</h2>
+      <div class="browser" id="browser">
+        <div class="url" aria-hidden="true"><i></i><i></i><i></i><span>jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIs</span></div>
+        <div class="card">
+          <h3>Your map</h3>
+          <p class="sub">Only these fields leave your machine, and only if you share</p>
+          <dl class="fields">
+            <dt>Sessions</dt><dd>3,993</dd>
+            <dt>Cap episodes</dt><dd>2</dd>
+            <dt>Claude output tokens</dt><dd>9,977,232</dd>
+            <dt>Codex output tokens</dt><dd>7,503,143</dd>
+            <dt>Opus-class share</dt><dd>87%</dd>
+            <dt>Codex week used</dt><dd>15%</dd>
+          </dl>
+          <p class="note">One builder's real week, 16 Oct 2026.</p>
+          <a class="open" id="openCard" href="https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9">Open this week's card</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="scene" id="sceneD" aria-labelledby="hD">
+      <h2 id="hD">Rules first, Jev for the rest</h2>
+      <div class="billing">
+        <div class="poster" id="router">
+          <p class="soon">Next: #236</p>
+          <p class="big">47 jobs in rehearsal, <span>not run yet</span></p>
+          <p class="q">Which subscription window may this job run on?</p>
+          <span class="tag">no result yet</span>
+        </div>
+        <svg class="route" id="route" viewBox="0 0 420 300" role="img" aria-label="Jobs wait at the door. Rules decide first, Jev takes the rest. Not run yet, no result yet.">
+          <path id="rIn" d="M4 150 H120" fill="none" stroke="#7a5c26" stroke-width="2" stroke-dasharray="4 6"/>
+          <path d="M120 150 C170 150 170 70 220 70 H262" fill="none" stroke="#7a5c26" stroke-width="2" stroke-dasharray="4 6"/>
+          <path d="M120 150 C170 150 170 230 220 230 H262" fill="none" stroke="#7a5c26" stroke-width="2" stroke-dasharray="4 6"/>
+          <text x="62" y="186" text-anchor="middle" font-size="16" font-weight="700" fill="#c9b6aa">waiting</text>
+          <g>
+            <rect x="272" y="30" width="144" height="80" fill="#1f090e" stroke="#e0b04e" stroke-width="2"/>
+            <text x="344" y="66" text-anchor="middle" font-size="26" font-weight="800" fill="#e0b04e">Rules</text>
+            <text x="344" y="92" text-anchor="middle" font-size="17" font-weight="500" fill="#c9b6aa">decide first</text>
+          </g>
+          <g>
+            <rect x="272" y="190" width="144" height="80" fill="#7b1424" stroke="#e0b04e" stroke-width="2"/>
+            <text x="344" y="226" text-anchor="middle" font-size="26" font-weight="800" fill="#f6e7c8">Jev</text>
+            <text x="344" y="252" text-anchor="middle" font-size="17" font-weight="500" fill="#f0d9c4">takes the rest</text>
+          </g>
+          <g id="jobs"></g>
+        </svg>
+        <p class="next"><a href="/maps/">See the shared maps</a></p>
+      </div>
+    </section>
+
+    <div class="foot" aria-hidden="true"></div>
+    <div class="curtain" id="curtain" aria-hidden="true">
+      <div class="half l" id="halfL"></div>
+      <div class="half r" id="halfR"></div>
+      <div class="marquee" id="marquee">
+        <p class="mq-title">Your Claude week, mapped</p>
+        <p class="mq-sub">One line in your terminal</p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div class="ticket" role="group" aria-label="The command">
+  <code id="cmdText"><b aria-hidden="true">$ </b><span id="cmd">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share</span></code>
+  <span class="stub" aria-hidden="true"></span>
+  <button type="button" class="copy" id="copy">Copy</button>
+</div>
+<p class="copymsg" id="copyMsg" role="status" aria-live="polite"></p>
+
+<script src="tm.js"></script>
+</body>
+</html>

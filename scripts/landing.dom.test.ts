@@ -1145,7 +1145,7 @@ test("[integration] V10 every way of scrolling drives the curtain's runway and t
     // ArrowDown with focus on Skip scrolls the curtain natively; when the playbill fades it opens onto the results.
     const arrows = await pageAt(width, height, "no-preference");
     try {
-      // Tab passes the first-screen band (Copy, Read the script) to reach Skip.
+      // Tab passes the first-screen band (Copy, Watch it run) to reach Skip.
       await tabToSkip(arrows);
       const run = await stepToOpen(arrows, async () => { await arrows.keyboard.press("ArrowDown"); await arrows.waitForTimeout(40); await frames(arrows); }, 40);
       expect({ width, key: "ArrowDown", yBefore: run.yBefore, moved: run.moved, state: run.open.state, inView: run.open.top >= -1 && run.open.top < height, focus: await arrows.evaluate(() => document.activeElement?.id) })
@@ -1185,7 +1185,7 @@ test("[integration] V11 when the playbill fades with focus on Skip, focus is not
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      // Tab passes the first-screen band (Copy, Read the script) to reach Skip.
+      // Tab passes the first-screen band (Copy, Watch it run) to reach Skip.
       await tabToSkip(page);
       await scrollToRunway(page, 0.5);
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
@@ -1283,7 +1283,7 @@ test("[integration] V17 a scroll that opens the curtain in one go with focus on 
   for (const [width, height] of CLOSED_VIEWPORTS) for (const how of ["wheel", "scrollTop"]) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      // Tab passes the first-screen band (Copy, Read the script) to reach Skip.
+      // Tab passes the first-screen band (Copy, Watch it run) to reach Skip.
       await tabToSkip(page);
       const distance = await runway(page);
       if (how === "wheel") {
@@ -1357,8 +1357,8 @@ test("[integration] L24 scrolling back up never closes the curtain again, and pa
 test("[integration] L26 Skip is the first tab stop on the curtain (after the first-screen band's two) with a visible focus ring; Tab goes Skip, poster, House lights with the curtain closed; focus anywhere else opens it", async () => {
   const page = await pageAt(1280, 900, "no-preference");
   try {
-    // The band above the curtain comes first and keeps it closed: Copy, Read the script.
-    expect(await tabStops(page, 2)).toEqual(["tmCopy", "tmRead"].map((stop) => ({ stop, state: "closed", ring: true })));
+    // The band above the curtain comes first and keeps it closed: Copy, Watch it run.
+    expect(await tabStops(page, 2)).toEqual(["tmCopy", "tmWatch"].map((stop) => ({ stop, state: "closed", ring: true })));
     await page.keyboard.press("Tab");
     const first = await page.evaluate(() => {
       const a = document.activeElement;
@@ -1811,18 +1811,20 @@ async function tabStops(page: Page, count: number): Promise<{ stop: string; stat
 /** Tabs from the top of the page to Skip the overture through the band's two controls, checking the order on the way. */
 async function tabToSkip(page: Page): Promise<void> {
   const stops = await tabStops(page, 3);
-  expect(stops.map((s) => s.stop)).toEqual(["tmCopy", "tmRead", "skipOverture"]);
+  expect(stops.map((s) => s.stop)).toEqual(["tmCopy", "tmWatch", "skipOverture"]);
 }
 
 for (const motion of MOTIONS) {
-  test(`[integration] TM1 the first screen leads with the band: body's first child, the promise, the exact command and Read the script; the trust line waits for Copy; no heading in it, no animation under reduced motion (${motion})`, async () => {
+  test(`[integration] TM1 the first screen leads with the band: body's first child, the promise, the exact command and Watch it run; the trust line waits for Copy; no heading in it, no animation under reduced motion (${motion})`, async () => {
     for (const [width, height] of VIEWPORTS) {
       const page = await pageAt(width, height, motion);
       try {
         const band = await page.evaluate(() => {
           const node = document.body.firstElementChild;
           const section = document.getElementById("tmFirst");
-          const copy = document.getElementById("tmCopy"), read = document.getElementById("tmRead");
+          const copy = document.getElementById("tmCopy"), watch = document.getElementById("tmWatch");
+          const ticket = document.getElementById("tmCommand")?.parentElement;
+          const stub = ticket?.querySelector(".tm-stub");
           return {
             first: node?.id || node?.tagName || "none", tag: section?.tagName ?? "", cls: section?.className ?? "", label: section?.getAttribute("aria-label") ?? "",
             headings: section ? section.querySelectorAll("h1,h2,h3,h4,h5,h6,[role=heading]").length : -1,
@@ -1832,17 +1834,24 @@ for (const motion of MOTIONS) {
             commandTag: document.getElementById("tmCommand")?.tagName ?? "",
             copy: { tag: copy?.tagName ?? "", type: copy?.getAttribute("type") ?? "", text: copy?.textContent ?? "" },
             live: document.getElementById("tmCopied")?.getAttribute("aria-live") ?? "",
-            read: read?.textContent ?? "", href: read?.getAttribute("href") ?? "",
+            watch: watch?.textContent ?? "", watchTag: watch?.tagName ?? "", href: watch?.getAttribute("href") ?? "",
+            // v3's ticket: Copy sits on the same ticket as the command, after a dashed tear line, with a notch each side.
+            ticket: {
+              holdsCopy: Boolean(ticket && copy && ticket.contains(copy)),
+              tear: stub ? getComputedStyle(stub).borderLeftStyle : "none",
+              notches: ticket ? ["::before", "::after"].map((p) => getComputedStyle(ticket, p).borderRadius).join(",") : "",
+            },
             sends: section ? [...section.querySelectorAll("p")].filter((p) => (p.textContent ?? "").includes("sends nothing")).map((p) => (p.textContent ?? "").trim()) : [],
           };
         });
-        expect(new URL(band.href, page.url()).pathname).toBe("/tm/map.ts");
+        expect(new URL(band.href, page.url()).pathname).toBe("/tm/");
         expect({ width, motion, ...band, href: "" }).toEqual({
           width, motion, first: "tmFirst", tag: "SECTION", cls: "tm-first", label: "Map your Claude week", headings: 0, promiseTag: "P", promise: TM_PROMISE,
-          command: TM_COMMAND, commandTag: "CODE", copy: { tag: "BUTTON", type: "button", text: "Copy" }, live: "polite", read: "Read the script", href: "", sends: [],
+          command: TM_COMMAND, commandTag: "CODE", copy: { tag: "BUTTON", type: "button", text: "Copy" }, live: "polite", watch: "Watch it run", watchTag: "A", href: "", sends: [],
+          ticket: { holdsCopy: true, tear: "dashed", notches: "50%,50%" },
         });
-        // The promise, the command, Copy and Read the script are on the first screen and nothing covers them.
-        for (const id of ["tmPromise", "tmCommand", "tmCopy", "tmRead"]) {
+        // The promise, the command, Copy and Watch it run are on the first screen and nothing covers them.
+        for (const id of ["tmPromise", "tmCommand", "tmCopy", "tmWatch"]) {
           const inView = await page.locator(`#${id}`).evaluate((node) => { const r = node.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth; });
           expect({ width, motion, id, inView, hit: await hitsItself(page, `#${id}`) }).toEqual({ width, motion, id, inView: true, hit: true });
         }
@@ -1918,7 +1927,7 @@ test("[integration] TM4 while the curtain plays the band sits above it: the poin
   }
 }, 30000);
 
-test("[integration] TM5 with the curtain closed the band's controls keep it closed: focus or a click on Copy; Tab goes Copy, Read the script, Skip, poster, House lights, each with a visible focus ring", async () => {
+test("[integration] TM5 with the curtain closed the band's controls keep it closed: focus or a click on Copy; Tab goes Copy, Watch it run, Skip, poster, House lights, each with a visible focus ring", async () => {
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference", "", false, undefined, async (p) => {
       await p.addInitScript({ content: "Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: function () { return Promise.resolve(); } } });" });
@@ -1929,13 +1938,13 @@ test("[integration] TM5 with the curtain closed the band's controls keep it clos
       await page.locator("#tmCopy").click();
       await page.waitForFunction(() => (document.getElementById("tmCopied")?.textContent ?? "") !== "", undefined, { timeout: 3000 });
       expect({ width, state: (await curtain(page)).state, y: await page.evaluate(() => scrollY) }).toEqual({ width, state: "closed", y: 0 });
-      await page.locator("#tmRead").focus();
+      await page.locator("#tmWatch").focus();
       expect((await curtain(page)).state).toBe("closed");
     } finally { await page.close(); }
     const keys = await pageAt(width, height, "no-preference");
     try {
       expect({ width, stops: await tabStops(keys, 5) })
-        .toEqual({ width, stops: ["tmCopy", "tmRead", "skipOverture", "curtain poster", "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
+        .toEqual({ width, stops: ["tmCopy", "tmWatch", "skipOverture", "curtain poster", "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
     } finally { await keys.close(); }
   }
 }, 30000);
@@ -2034,7 +2043,7 @@ test("[integration] TM9 L1 holds with the band: the first heading on the page is
   }
 }, 30000);
 
-test("[integration] TM10 the band holds exactly three parts (the promise, the command with Copy, Read the script) and no other visible text, in one accent colour with the promise as the focal point", async () => {
+test("[integration] TM10 the band holds exactly three parts (the promise, the command with Copy, Watch it run) and no other visible text, in one accent colour with the promise as the focal point", async () => {
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, "reduce");
     try {
@@ -2042,7 +2051,7 @@ test("[integration] TM10 the band holds exactly three parts (the promise, the co
         const section = document.getElementById("tmFirst");
         if (!section) return null;
         const shown = (node: Element) => { const r = node.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(node).visibility !== "hidden"; };
-        const named = ["tmPromise", "tmCommand", "tmCopy", "tmRead"];
+        const named = ["tmPromise", "tmCommand", "tmCopy", "tmWatch"];
         const parts = [...section.children].filter(shown).map((node) => [node, ...node.querySelectorAll("[id]")].map((c) => c.id).filter((id) => named.includes(id)).sort().join("+"));
         const owners = new Set<string>();
         let stray = 0;
@@ -2050,7 +2059,7 @@ test("[integration] TM10 the band holds exactly three parts (the promise, the co
         for (let t = walk.nextNode(); t; t = walk.nextNode()) {
           const parent = t.parentElement;
           if (!parent || !(t.textContent ?? "").trim() || !shown(parent)) continue;
-          const owner = parent.closest("#tmPromise, #tmCommand, #tmCopy, #tmRead");
+          const owner = parent.closest("#tmPromise, #tmCommand, #tmCopy, #tmWatch");
           if (owner) owners.add(owner.id); else stray++;
         }
         const focusable = [...section.querySelectorAll("a[href], button, summary, input, select, textarea, details, [tabindex]")].map((node) => node.id || node.tagName);
@@ -2073,7 +2082,7 @@ test("[integration] TM10 the band holds exactly three parts (the promise, the co
       if (!band) throw new Error("no #tmFirst");
       const [lo, hi] = width >= 1024 ? [40, 48] : [28, 32];
       expect({ width, parts: band.parts, owners: band.owners, stray: band.stray, focusable: band.focusable, copyFill: band.copyFill, otherAccentFills: band.otherAccentFills, gradients: band.gradients, size: band.promiseSize >= lo && band.promiseSize <= hi, serif: band.promiseFont.includes("Alegreya"), bold: band.promiseWeight >= 700 })
-        .toEqual({ width, parts: ["tmPromise", "tmCommand+tmCopy", "tmRead"], owners: ["tmCommand", "tmCopy", "tmPromise", "tmRead"], stray: 0, focusable: ["tmCopy", "tmRead"], copyFill: true, otherAccentFills: 0, gradients: 0, size: true, serif: true, bold: true });
+        .toEqual({ width, parts: ["tmPromise", "tmCommand+tmCopy", "tmWatch"], owners: ["tmCommand", "tmCopy", "tmPromise", "tmWatch"], stray: 0, focusable: ["tmCopy", "tmWatch"], copyFill: true, otherAccentFills: 0, gradients: 0, size: true, serif: true, bold: true });
     } finally { await page.close(); }
   }
 }, 20000);

@@ -149,7 +149,7 @@
     head.textContent = "";
     var stats = [
       ["builders", builders, plural(builders, "builder mapped", "builders mapped")],
-      ["cap_episodes", episodes, plural(episodes, "cap episode: a time a limit stopped someone", "cap episodes: times a limit stopped someone")],
+      ["cap_episodes", episodes, plural(episodes, "cap episode, a time a limit stopped someone", "cap episodes, times a limit stopped someone")],
       ["with_weekly_cap", weekly, plural(weekly, "builder hit a weekly cap", "builders hit a weekly cap")]
     ];
     for (var s = 0; s < stats.length; s++) {
@@ -160,15 +160,16 @@
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       if (!isObj(r)) continue;
+      // A cast-list line: alias (and a "you" tag on your own row), the day on the right, then the figures.
       var li = node("li", "map-row");
       var who = node("p", "map-row-who");
       who.appendChild(node("span", "map-row-alias", String(r.alias)));
-      who.appendChild(node("span", "map-row-day", String(r.day) + (typeof r.days === "number" ? ", " + r.days + " days" : "")));
       if (mineId && r.id === mineId) {
         li.className += " mine";
-        who.appendChild(node("span", "map-row-mine", "Your row"));
+        who.appendChild(node("small", "map-row-mine", "you"));
       }
       li.appendChild(who);
+      li.appendChild(node("p", "map-row-day", String(r.day) + (typeof r.days === "number" ? ", " + r.days + plural(r.days, " day", " days") : "")));
       var dl = node("dl", "map-row-figures");
       var caps = isObj(r.caps) ? r.caps : {};
       var tokens = isObj(r.output_tokens) ? r.output_tokens : {};
@@ -218,32 +219,33 @@
         for (var j = 0; j < parts.length; j++) fig.appendChild(typeof parts[j] === "string" ? document.createTextNode(parts[j]) : parts[j]);
       };
     }
+    // The share card: one line per field, label left and exact value right, every payload leaf shown.
     var p = payload;
-    var tiles = node("div", "map-tiles");
-    tiles.appendChild(tile(leafFill([leafNode("span", "sessions", p.sessions, fmt(p.sessions))]), "sessions with activity in the period"));
-    tiles.appendChild(tile(leafFill([
+    var list = node("dl", "map-field-list");
+    function line(label, parts) {
+      list.appendChild(node("dt", "", label));
+      var dd = node("dd");
+      leafFill(parts)(dd);
+      list.appendChild(dd);
+    }
+    line("Sessions", [leafNode("span", "sessions", p.sessions, fmt(p.sessions))]);
+    line("Subagent sessions", [leafNode("span", "subagent_sessions", p.subagent_sessions, fmt(p.subagent_sessions))]);
+    line("Cap episodes, short / weekly / unknown", [
       leafNode("span", "caps.short", p.caps.short, fmt(p.caps.short)), " / ",
       leafNode("span", "caps.weekly", p.caps.weekly, fmt(p.caps.weekly)), " / ",
       leafNode("span", "caps.unknown", p.caps.unknown, fmt(p.caps.unknown))
-    ]), "times a limit stopped you: short / weekly / unknown window"));
-    tiles.appendChild(tile(leafFill([leafNode("span", "output_tokens.claude", p.output_tokens.claude, compact(p.output_tokens.claude))]), "Claude output tokens (" + fmt(p.output_tokens.claude) + ")"));
-    tiles.appendChild(tile(leafFill([leafNode("span", "output_tokens.codex", p.output_tokens.codex, compact(p.output_tokens.codex))]), "Codex output tokens (" + fmt(p.output_tokens.codex) + ")"));
-    tiles.appendChild(tile(leafFill([leafNode("span", "opus_share_pct", p.opus_share_pct, String(p.opus_share_pct)), "%"]), "of Claude output was Opus"));
-    tiles.appendChild(tile(leafFill(p.codex_weekly_pct === null
+    ]);
+    line("Claude output tokens", [leafNode("span", "output_tokens.claude", p.output_tokens.claude, fmt(p.output_tokens.claude))]);
+    line("Codex output tokens", [leafNode("span", "output_tokens.codex", p.output_tokens.codex, fmt(p.output_tokens.codex))]);
+    line("Opus share", [leafNode("span", "opus_share_pct", p.opus_share_pct, String(p.opus_share_pct)), "%"]);
+    line("Codex week used", p.codex_weekly_pct === null
       ? [leafNode("span", "codex_weekly_pct", null, "none read")]
-      : [leafNode("span", "codex_weekly_pct", p.codex_weekly_pct, String(p.codex_weekly_pct)), "%"]), "of the Codex weekly window used"));
-    body.appendChild(tiles);
-
-    var meta = node("p", "map-meta");
-    var metaParts = [
-      leafNode("span", "days", p.days, String(p.days)), plural(p.days, " day, ", " days, "),
-      leafNode("span", "sources", p.sources, p.sources), " logs, ",
-      leafNode("span", "subagent_sessions", p.subagent_sessions, fmt(p.subagent_sessions)), " subagent sessions, mapper ",
-      leafNode("span", "skill", p.skill, p.skill), ", format ",
-      leafNode("span", "v", p.v, p.v)
-    ];
-    leafFill(metaParts)(meta);
-    body.appendChild(meta);
+      : [leafNode("span", "codex_weekly_pct", p.codex_weekly_pct, String(p.codex_weekly_pct)), "%"]);
+    line("Days", [leafNode("span", "days", p.days, String(p.days))]);
+    line("Logs read", [leafNode("span", "sources", p.sources, p.sources)]);
+    line("Mapper version", [leafNode("span", "skill", p.skill, p.skill)]);
+    line("Format", [leafNode("span", "v", p.v, p.v)]);
+    body.appendChild(list);
     var alias = el("mapAlias");
     alias.value = randomAlias();
     el("mapPreview").hidden = false;

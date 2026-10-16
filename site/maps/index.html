@@ -8,7 +8,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,700;1,400&family=Schibsted+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,500;0,700;0,800;1,500&family=JetBrains+Mono:wght@500;700&family=Schibsted+Grotesk:wght@500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="maps.css">
 </head>
 <body>
@@ -20,40 +20,47 @@
 <p id="mapStatus" class="map-status" role="status" aria-live="polite"></p>
 <p id="mapAlert" class="map-alert" role="alert"></p>
 
-<section id="mapInvalid" class="map-panel" hidden>
+<section id="mapInvalid" class="map-card map-panel" hidden>
   <h2>Nothing to share</h2>
   <p>This link does not hold a tm-share/1 map.</p>
   <p>Run the mapper again and open the link it prints, or <a href="/maps/">see the board</a>.</p>
 </section>
 
-<section id="mapPreview" class="map-panel" aria-labelledby="mapPreviewTitle" hidden>
-  <h2 id="mapPreviewTitle">What will be sent</h2>
-  <p class="map-help">Read from your own logs, on your machine. Only in this page's address until you press Share.</p>
-  <div id="mapFields" class="map-fields"></div>
-  <div class="map-form">
-    <label for="mapAlias">Alias on the board</label>
-    <input id="mapAlias" name="alias" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" required minlength="3" maxlength="24" pattern="[a-z0-9\-]{3,24}" aria-describedby="mapAliasHelp">
-    <p id="mapAliasHelp" class="map-help">3 to 24 lowercase letters, digits or hyphens. Keep the random one or type your own.</p>
-    <div class="map-honey" aria-hidden="true"><label for="mapNickname">Leave this empty</label><input id="mapNickname" name="nickname" type="text" tabindex="-1" autocomplete="off"></div>
-    <button type="button" id="mapShare">Share</button>
-    <p id="mapNotSent" class="map-help">Nothing has been sent yet.</p>
+<section id="mapPreview" class="map-card map-panel" aria-labelledby="mapPreviewTitle" hidden>
+  <div class="map-url" aria-hidden="true"><i></i><i></i><i></i><span>jevnotjev.breakoutwithai.com/maps/</span></div>
+  <div class="map-card-body">
+    <h2 id="mapPreviewTitle">Your map</h2>
+    <p class="map-sub">What will be sent: only these fields leave your machine, and only when you press Share</p>
+    <div id="mapFields" class="map-fields"></div>
+    <div class="map-form">
+      <div class="map-alias">
+        <div class="map-alias-field">
+          <label for="mapAlias">Alias on the board</label>
+          <input id="mapAlias" name="alias" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" required minlength="3" maxlength="24" pattern="[a-z0-9\-]{3,24}" aria-describedby="mapAliasHelp">
+        </div>
+        <button type="button" id="mapShare">Share</button>
+      </div>
+      <p id="mapAliasHelp" class="map-help">3 to 24 lowercase letters, digits or hyphens. Keep the random one or type your own.</p>
+      <div class="map-honey" aria-hidden="true"><label for="mapNickname">Leave this empty</label><input id="mapNickname" name="nickname" type="text" tabindex="-1" autocomplete="off"></div>
+      <p id="mapNotSent" class="map-help">Nothing has been sent yet.</p>
+    </div>
   </div>
 </section>
 
-<section id="mapShared" class="map-panel" hidden>
+<section id="mapShared" class="map-card map-panel" hidden>
   <p id="mapDeleteLink">Keep this link to delete your row: <a href=""></a></p>
 </section>
 
-<section id="mapDelete" class="map-panel" hidden>
+<section id="mapDelete" class="map-card map-panel" hidden>
   <h2>Delete your row</h2>
   <p>This removes your row from the board.</p>
   <button type="button" id="mapDeleteRow">Delete my row</button>
 </section>
 
-<section id="mapBoardSection" class="map-board" aria-labelledby="mapBoardTitle" hidden>
-  <h2 id="mapBoardTitle">The board</h2>
+<section id="mapBoardSection" class="map-card map-board" aria-labelledby="mapBoardTitle" hidden>
+  <h2 id="mapBoardTitle">Cast list</h2>
+  <p class="map-sub">Newest first, self-reported, not verified</p>
   <div id="mapTotals" class="map-tiles"></div>
-  <p class="map-help">Newest first. Not ranked.</p>
   <ol id="mapBoard" class="map-rows"></ol>
 </section>
 

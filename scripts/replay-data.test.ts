@@ -139,10 +139,11 @@ describe("replay page data (scripts/replay-data.ts)", () => {
     }
   });
 
-  test("[unit] RD-8 the committed runs carry no paging and no generator-label marks", async () => {
+  test("[unit] RD-8 only the 100-message ski shop run is paged, and no committed run carries generator-label marks", async () => {
     const built = await buildReplay();
     for (const r of built.runs) {
-      expect(r.pageBy).toBeUndefined();
+      if (r.key === "uc13-100") expect(r.pageBy).toBe(10);
+      else expect(r.pageBy).toBeUndefined();
       expect(r.rows.some((x) => x.generated === true)).toBe(false);
     }
   });

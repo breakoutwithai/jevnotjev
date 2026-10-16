@@ -182,7 +182,7 @@
       rows += '<tr><td class="pn">' + (i + 1) + '</td><td class="pi">' + esc(c.input) + "</td>" + cells + "</tr>";
     }
     var heads = r.methods.map(function (m) { return '<th scope="col" class="pm">' + esc(nameOf(r, m)) + "</th>"; }).join("");
-    return '<table><caption class="tag">This step: cases ' + (rg.from + 1) + " to " + (rg.to + 1) + '</caption><thead><tr><th scope="col" class="pn">#</th><th scope="col" class="pi">CV</th>' + heads + "</tr></thead><tbody>" + rows + "</tbody></table>";
+    return '<table><caption class="tag">This step: cases ' + (rg.from + 1) + " to " + (rg.to + 1) + '</caption><thead><tr><th scope="col" class="pn">#</th><th scope="col" class="pi">Case</th>' + heads + "</tr></thead><tbody>" + rows + "</tbody></table>";
   }
 
   /* The spotlight CV as a document card in a dialog. The text is the case input from the records, split at line breaks. */

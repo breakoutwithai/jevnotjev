@@ -46,6 +46,17 @@
     $("officeOpen").setAttribute("aria-expanded", open ? "true" : "false");
     if (open && !form.hidden) $("tkEmail").focus();
   });
+  /* One button for anyone with their own decision: opens the office (never toggles it shut), shows the form again if a
+     request was already issued, prefills the idea once, and leaves the caret at the end. It sends nothing. */
+  var PREFILL = "Assess my use case: ";
+  if ($("tkBring")) $("tkBring").addEventListener("click", function () {
+    openPanel();
+    reopen();
+    var idea = $("tkIdea");
+    if (idea.value.trim() === "") idea.value = PREFILL;
+    idea.focus();
+    idea.setSelectionRange(idea.value.length, idea.value.length);
+  });
   function openHash() {
     if (window.location.hash !== "#tkForm" && window.location.hash !== "#csv") return;
     openPanel();

@@ -328,3 +328,9 @@ bun scripts/gate.ts
 | `CERTBOT_EMAIL` | none, required by `provision.sh` when a certificate is issued |
 | `BACKSTAGE_CURL_CONFIG` | `$HOME/.config/jevnotjev/backstage-curl` when unset and that file exists (a set value, even empty, wins; the file must still be yours and mode 0600); required by Backstage setup, deploy, rollback, status and verify while the Basic or session gate is on the host |
 | `JEV_API_KEY` / `TYPESAFE_API_KEY` | the deploy's Jev checklist key; else read from the primary checkout's `.env.local` (also `JEV_API_KEY_JAYLO`) |
+
+### Public TokenMax route checks (#251)
+
+The closing live verify checks anonymous `GET /api/maps` returns 200 JSON with a `rows` array and `totals` object, and `/tm/map.ts` returns `text/plain; charset=utf-8`. A 503 board response is a service failure. These checks run in Backstage scope; mapper verification also requires a static release. Setup can explicitly mark a module as having no release and skip its check; status and verify expect a running release and fail when it is unavailable.
+
+`ship.sh` reports installed Backstage nginx snippet drift independently of the served application SHA and refuses a deploy while the snippet is stale, missing or unreadable. A staged Backstage promotion from a legacy Basic gate to the session gate is allowed with a warning so the sign-in-capable release can run before guarded session setup. Its closing route checks can still fail until setup installs the routes; apply setup and rerun verification before recording a release. Review `.deploy/ship.sh --setup --module backstage --dry-run`, then apply the guarded setup when authorized. A legacy Basic snippet also differs from the current session snippet: review the existing staged rollout and session preconditions before applying setup. Normal release promotion does not install nginx configuration.

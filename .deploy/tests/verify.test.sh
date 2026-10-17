@@ -99,7 +99,7 @@ make_fixture() {
     cp "${REPO_ROOT}/.deploy/verify-lib.sh" "${WORK}/.deploy/" 2>/dev/null || true
     CFG="${FIXD}/curl-config"; : > "$CFG"; chmod 600 "$CFG"
     export BACKSTAGE_CURL_CONFIG="$CFG"
-    export FIXTURE_DIRS="${FIX}/gated"
+    export FIXTURE_DIRS="${FIX}/gated:${REPO_ROOT}/.deploy/tests/contracts/tokenmax"
     serve static "$M"; serve backstage "$M"
 }
 drop_fixture() { [[ -n "${FIXD:-}" && -d "$FIXD" ]] && rm -rf "$FIXD"; }
@@ -127,7 +127,7 @@ for want in \
     "PASS S1 release tag v2026.10.04.1 on ${M}"; do
     [[ "$out" == *"$want"* ]] && ok "names: ${want%% ${M}*}" || nope "missing '${want}'; out: ${out}"
 done
-[[ "$out" == *"verify: 10 passed, 0 failed"* ]] && ok "10 assertions, all passed" || nope "summary line: ${out}"
+[[ "$out" == *"verify: 12 passed, 0 failed"* ]] && ok "12 assertions, all passed" || nope "summary line: ${out}"
 no_mutation && ok "--verify reads only the snippet, pushes nothing, creates no tag" || nope "--verify mutated: ssh '$(cat "${FAKE_STATE}/ssh.log" 2>/dev/null)', push '$(cat "${FAKE_STATE}/push.log" 2>/dev/null)'"
 drop_fixture
 
@@ -194,7 +194,7 @@ fixture 'backstage_sign-in' 200 '<form action="/api/auth/password"></form>'
 fixture 'api_auth_password@mint' 303 '' '/backstage/' '__Host-backstage_session=fake; Path=/; Secure; HttpOnly'
 fixture 'backstage_@session' 200 '<main>Backstage</main>'
 fixture 'api_backstage_health@session' 200 '{"version":"{{BACKSTAGE_SHA}}"}'
-export FIXTURE_DIRS="${SFIX}:${FIX}/gated"
+export FIXTURE_DIRS="${SFIX}:${FIX}/gated:${REPO_ROOT}/.deploy/tests/contracts/tokenmax"
 session_verify() { verify "$M"; }
 out="$(session_verify 2>&1)"; rc=$?
 [[ $rc -eq 0 && "$out" == *'PASS S2 anon /backstage/ 302 sign-in'* && "$out" == *'PASS S2 anon /api/backstage/health 401 no WWW-Authenticate'* && "$out" == *'PASS S2 anon /backstage/sign-in 200 password form without app markup'* && "$out" == *'PASS S2 tampered /backstage/ 302 sign-in'* && "$out" == *'PASS S2 tampered /api/backstage/health 401 no WWW-Authenticate'* && "$out" == *'PASS S2 auth /backstage/ 200'* && "$out" == *'PASS S2 auth /api/backstage/health 200'* ]] \
@@ -281,7 +281,7 @@ drop_fixture
 
 echo "[T1] live 2026-10-04: Backstage served without auth (S2)"
 make_fixture 1
-export FIXTURE_DIRS="${FIX}/no-auth:${FIX}/gated"
+export FIXTURE_DIRS="${FIX}/no-auth:${FIX}/gated:${REPO_ROOT}/.deploy/tests/contracts/tokenmax"
 out="$(verify 2>&1)"; rc=$?
 [[ $rc -eq 6 && "$out" == *"FAIL S2 anon /backstage/: expected 401, got 200"* && "$out" == *"FAIL S2 anon /api/backstage/health: expected 401, got 200"* ]] \
     && ok "an ungated Backstage fails verify, naming both routes and the 200" || nope "no auth: rc=${rc}; out: ${out}"
@@ -337,6 +337,33 @@ out="$(cd "$WORK" && PATH="${FAKEBIN}:${PATH}" bash .deploy/ship.sh --verify --m
 [[ $rc -eq 2 ]] && ok "--verify is whole-stack: --module is a usage error" || nope "verify --module: rc=${rc}"
 out="$(cd "$WORK" && PATH="${FAKEBIN}:${PATH}" bash .deploy/ship.sh --help 2>&1)"
 [[ "$out" == *"--verify"* ]] && ok "--help documents --verify" || nope "--help lacks --verify"
+drop_fixture
+
+echo "[T1] #251 public maps and mapper checks discriminate nginx routing failures"
+make_fixture 1
+map_fixture() {
+    mkdir -p "${FIXD}/maps/http"
+    printf 'source: hand-built #251 regression\nhttp_code: %s\ncurl_exit: 0\ncontent_type: %s\n---\n%s\n' "$1" "$2" "$3" > "${FIXD}/maps/http/jevnotjev.breakoutwithai.com_api_maps.txt"
+    printf 'source: hand-built #251 regression\nhttp_code: 200\ncurl_exit: 0\ncontent_type: %s\n---\n// mapper\n' "$4" > "${FIXD}/maps/http/jevnotjev.breakoutwithai.com_tm_map.ts.txt"
+    export FIXTURE_DIRS="${FIXD}/maps:${FIX}/gated:${REPO_ROOT}/.deploy/tests/contracts/tokenmax"
+}
+map_fixture 404 text/html '<html>nginx 404</html>' 'text/plain; charset=utf-8'
+out="$(verify 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$out" == *"FAIL S2 public /api/maps"* ]] && ok "#251 nginx404 fails maps verification" || nope "#251 nginx404: $out"
+map_fixture 200 application/json '{"rows":[],"totals":{}}' 'text/plain; charset=utf-8'
+out="$(verify 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"PASS S2 public /api/maps"* && "$out" == *"PASS S2 public /tm/map.ts"* ]] && ok "#251 maps board JSON and plain text mapper pass" || nope "#251 healthy maps: $out"
+for bad in '[]' '{"rows":{},"totals":{}}' '{"rows":[],"totals":[]}' '<html>200</html>'; do
+    map_fixture 200 application/json "$bad" 'text/plain; charset=utf-8'
+    out="$(verify 2>&1)"; rc=$?
+    [[ $rc -eq 6 && "$out" == *"FAIL S2 public /api/maps"* ]] && ok "#251 malformed board fails: $bad" || nope "#251 malformed board: $out"
+done
+map_fixture 503 application/json '{"code":"maps-unavailable"}' 'text/plain; charset=utf-8'
+out="$(verify 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$out" == *"FAIL S2 public /api/maps"* ]] && ok "#251 maps-unavailable503 remains a service failure" || nope "#251 maps503: $out"
+map_fixture 200 application/json '{"rows":[],"totals":{}}' video/mp2t
+out="$(verify 2>&1)"; rc=$?
+[[ $rc -eq 6 && "$out" == *"FAIL S2 public /tm/map.ts"* ]] && ok "#251 video MIME fails mapper verification" || nope "#251 video MIME: $out"
 drop_fixture
 
 rm -rf "$FAKEBIN"

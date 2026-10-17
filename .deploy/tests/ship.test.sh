@@ -70,11 +70,12 @@ case "$cmd" in
             *) exit 10 ;;
         esac ;;
     *"jevnotjev-backstage-current"*)
+        [ -z "${FAKE_BACKSTAGE_PROBE_FAIL:-}" ] || exit 1
         s="$(st backstage_served none)"
         if [ "$s" = none ]; then rel=none; else rel="/var/www/jevnotjev-backstage-releases/${s}"; fi
         rel="$(st backstage_release "$rel")"
         printf '%s\n' "release=${rel}" "verified=$(st backstage_verified yes)" \
-            "service=active, enabled" "setup=$(st backstage_setup yes)" ;;
+            "service=active, enabled" "setup=$(st backstage_setup yes)" "snippet=$(st snippet_sha "$(shasum -a 256 "${FAKE_REPO}/.deploy/backstage-nginx.conf" | cut -d' ' -f1)")" ;;
     *"/var/www/jevnotjev"*)
         s="$(st static_served none)"
         if [ "$s" = none ]; then rel=none; else rel="/var/www/jevnotjev-releases/20261003T203100Z-${s:0:7}"; fi
@@ -99,6 +100,7 @@ elif [ "\${FAKE_AUTH:-}" = 1 ]; then export FIXTURE_DIRS="\$F/gated"; else expor
 [ -z "\${FIXTURE_EXTRA:-}" ] || export FIXTURE_DIRS="\$F/\${FIXTURE_EXTRA}:\${FIXTURE_DIRS}"
 # A complete body followed by a transfer error (e.g. Content-Length mismatch).
 [ -z "\${FAKE_CURL_PARTIAL:-}" ] || export FAKE_CURL_EXIT=18
+export FIXTURE_DIRS="\${FIXTURE_DIRS}:${REPO_ROOT}/.deploy/tests/contracts/tokenmax"
 exec bash "${REPO_ROOT}/.deploy/tests/fixture-curl.sh" "\$@"
 EOF
 cat > "${FAKEBIN}/gh" <<'EOF'
@@ -229,7 +231,7 @@ make_fixture() {
     mkdir -p "${WORK}/.deploy"
     cp "$SHIP" "${REPO_ROOT}/.deploy/config.sh" "${REPO_ROOT}/.deploy/lib.sh" \
         "${REPO_ROOT}/.deploy/backstage-lib.sh" "${REPO_ROOT}/.deploy/backstage-deps.ts" \
-        "${REPO_ROOT}/.deploy/verify-lib.sh" "${WORK}/.deploy/"
+        "${REPO_ROOT}/.deploy/verify-lib.sh" "${REPO_ROOT}/.deploy/backstage-nginx.conf" "${WORK}/.deploy/"
     # The host behind the Basic Auth gate with the private curl config set: the state the closing
     # verify requires (S2). Cases about an ungated host or a missing config override both.
     export FAKE_AUTH=1 VERIFY_SLEEP=0
@@ -458,7 +460,7 @@ st="$(section static)"
 "$REAL_GIT" -C "$WORK" tag -a v2026.01.01.1 -m r "$C2" && "$REAL_GIT" -C "$WORK" push -q origin refs/tags/v2026.01.01.1 >/dev/null 2>&1
 serve backstage "$C2"
 out="$(ship --status 2>&1)"; rc=$?
-[[ $rc -eq 0 && "$out" == *"verify: 10 passed, 0 failed"* ]] \
+[[ $rc -eq 0 && "$out" == *"verify: 12 passed, 0 failed"* ]] \
     && ok "--status exits 0 only when every module serves origin/main, the gate holds and the release tag is on origin" \
     || nope "--status all green: rc=${rc}; out: ${out}"
 drop_fixture
@@ -1004,8 +1006,8 @@ echo "[T1] #85 AC2: every deploy, setup and rollback closes with the live verify
 # and docs/backstage-deploy.md:53 (401 without credentials). FAKE_AUTH= is a host with no gate.
 make_fixture
 out="$(ship 2>&1)"; rc=$?
-[[ $rc -eq 0 && "$out" == *"verify: 9 passed, 0 failed"*"release: tagged v${TODAY}.1"*"PASS S1 release tag v${TODAY}.1 on ${C2}"* ]] \
-    && ok "a full-stack deploy verifies S1/S2 (9 assertions) BEFORE tagging, then finds the release tag on origin" \
+[[ $rc -eq 0 && "$out" == *"verify: 11 passed, 0 failed"*"release: tagged v${TODAY}.1"*"PASS S1 release tag v${TODAY}.1 on ${C2}"* ]] \
+    && ok "a full-stack deploy verifies S1/S2 (11 assertions) BEFORE tagging, then finds the release tag on origin" \
     || nope "closing verify on success: rc=${rc}; out: ${out}"
 drop_fixture
 make_fixture
@@ -1051,7 +1053,7 @@ out="$(ship --setup --module static 2>&1)"; rc=$?
     && ok "static setup asserts no SHA (it ships no release), only its public paths: 3 passed" \
     || nope "setup gated: rc=${rc}; out: ${out}"
 out="$(ship --setup --module backstage 2>&1)"; rc=$?
-[[ $rc -eq 0 && "$out" == *"PASS S2 anon /backstage/ 401"* && "$out" == *"verify: 4 passed, 0 failed"* ]] \
+[[ $rc -eq 0 && "$out" == *"PASS S2 anon /backstage/ 401"* && "$out" == *"verify: 6 passed, 0 failed"* ]] \
     && ok "backstage setup asserts its gate: 2 anon 401 + 2 auth 200 passed" \
     || nope "setup backstage gated: rc=${rc}; out: ${out}"
 drop_fixture
@@ -1411,6 +1413,44 @@ out="$(status_home 2>&1)"; rc=$?
 [[ $rc -eq 1 && "$out" == *"export BACKSTAGE_CURL_CONFIG="* ]] \
     && ok "unset variable and no documented file: status still fails naming the variable" \
     || nope "no default file: rc=${rc}; out: ${out}"
+drop_fixture
+
+echo
+echo "[T1] #251 installed nginx snippet drift is independent of the release SHA"
+make_fixture
+serve static "$C2"; serve backstage "$C2"
+printf '%064d\n' 0 > "${FAKE_STATE}/snippet_sha"
+out="$(ship --status 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$out" == *"snippet"*"stale"* && "$out" == *"--setup --module backstage"* ]] \
+    && ok "#251 status flags stale nginx snippet even when both modules serve main" || nope "#251 stale status: rc=$rc; $out"
+out="$(ship 2>&1)"; rc=$?
+[[ $rc -eq 1 && ! -s "$CALLS" && "$out" == *"--setup --module backstage"* ]] \
+    && ok "#251 stale nginx snippet refuses deploy before a module runs" || nope "#251 stale deploy: rc=$rc; $out"
+for state in absent unreadable; do
+    printf '%s\n' "$state" > "${FAKE_STATE}/snippet_sha"
+    out="$(ship --status 2>&1)"; rc=$?
+    [[ $rc -ne 0 && "$out" == *"UNKNOWN (nginx snippet"* && "$out" == *"--setup --module backstage"* ]] \
+        && ok "#251 $state snippet fails closed as UNKNOWN" || nope "#251 $state snippet: rc=$rc; $out"
+done
+drop_fixture
+
+echo "[T1] #251 staged rollout and refusal diagnostics"
+make_fixture
+serve static "$C2"; serve backstage "$C1"
+printf '%064d\n' 0 > "${FAKE_STATE}/snippet_sha"
+out="$(ship --module backstage 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"Legacy Basic nginx snippet is stale; allowing the staged"* && "$(calls)" == *"backstage-deploy.sh"* ]] \
+    && ok "#251 stale Basic gate permits the staged sign-in-capable Backstage release" || nope "#251 staged Basic: rc=$rc; $out"
+: > "$CALLS"
+out="$(ship --setup --module backstage 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$(calls)" == "backstage-setup.sh |" ]] \
+    && ok "#251 stale snippet never blocks the guarded setup repair path" || nope "#251 setup repair: rc=$rc; $out"
+out="$(ship --dry-run 2>&1)"; rc=$?
+[[ $rc -eq 0 && "$out" == *"would refuse (exit 1): Backstage nginx snippet stale"* ]] \
+    && ok "#251 no-plan stale dry-run prints the actionable refusal" || nope "#251 dry-run stale: rc=$rc; $out"
+out="$(FAKE_BACKSTAGE_PROBE_FAIL=1 ship --status 2>&1)"; rc=$?
+[[ $rc -ne 0 && "$out" == *"nginx snippet unknown"* && "$out" != *"nginx snippet ;"* ]] \
+    && ok "#251 failed remote probe initializes an explicit unknown snippet state" || nope "#251 empty probe: rc=$rc; $out"
 drop_fixture
 
 echo

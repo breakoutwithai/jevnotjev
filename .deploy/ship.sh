@@ -240,14 +240,24 @@ if [ -f \"\$V\" ] && [ \"\$(readlink \"\$E\" 2>/dev/null)\" = \"\$V\" ] && [ -d 
 }
 
 read_backstage() {
-    local probe health fields auth
-    setv backstage served none; setv backstage probe ""
+    local probe health fields auth snippet expected snippet_state
+    setv backstage served none; setv backstage probe "snippet_state=unknown"
     probe="$(remote "C='/var/www/jevnotjev-backstage-current' U='/etc/systemd/system/jevnotjev-backstage.service' S='/etc/nginx/snippets/jevnotjev-backstage.conf' V='${VHOST_AVAILABLE}'
 L=\$(readlink \"\$C\" 2>/dev/null || true)
 echo \"release=\${L:-none}\"
 if [ -n \"\$L\" ] && [ -f \"\$L/.verified\" ]; then echo verified=yes; else echo verified=no; fi
+if [ -f \"\$S\" ]; then echo \"snippet=\$(sha256sum \"\$S\" 2>/dev/null | cut -d' ' -f1)\"; else echo snippet=absent; fi
 echo \"service=\$(systemctl is-active jevnotjev-backstage 2>/dev/null || true), \$(systemctl is-enabled jevnotjev-backstage 2>/dev/null || true)\"
 if [ -f \"\$U\" ] && [ -f \"\$S\" ] && sed 's/#.*//' \"\$V\" 2>/dev/null | grep -qF \"include \$S;\"; then echo setup=yes; else echo setup=no; fi")" || return 1
+    snippet="$(probe_value "$probe" snippet)"
+    expected="$(shasum -a 256 "${DEPLOY_DIR}/backstage-nginx.conf" 2>/dev/null | cut -d' ' -f1)"
+    snippet_state=unknown
+    if [[ "$snippet" == absent ]]; then snippet_state=missing
+    elif [[ "$snippet" =~ ^[0-9a-f]{64}$ && "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+        if [[ "$snippet" == "$expected" ]]; then snippet_state=current; else snippet_state=stale; fi
+    fi
+    probe="${probe}
+snippet_state=${snippet_state}"
     # Effective auth of the installed snippet; unreadable or unrecognised is unknown, never no.
     # With the gate on, no Backstage probe is sent without the private curl config.
     auth="$(backstage_auth_state)" || auth=unknown
@@ -288,6 +298,12 @@ read_state() {
 compute_drift() {
     local m="$1"
     compare_served "$m"
+    if [[ "$m" == backstage && "$(probe_value "$(getv backstage probe)" snippet_state)" != current ]]; then
+        local snippet_class=UNKNOWN
+        [[ "$(probe_value "$(getv backstage probe)" snippet_state)" != stale ]] || snippet_class=STALE
+        setv "$m" class "$snippet_class"
+        setv "$m" drift "${snippet_class} (nginx snippet $(probe_value "$(getv backstage probe)" snippet_state); review .deploy/ship.sh --setup --module backstage --dry-run, then run --setup --module backstage)"
+    fi
     if $FETCH_FAILED; then
         setv "$m" drift "UNKNOWN (origin/main fetch failed; cached comparison: $(getv "$m" drift))"
         setv "$m" class UNKNOWN
@@ -353,7 +369,7 @@ print_status() {
         tag="$(release_tag_at "$served")"
         [[ -z "$tag" ]] || row release "$tag"
     fi
-    for key in release marker verified service setup auth; do
+    for key in release marker verified service setup snippet_state auth; do
         value="$(probe_value "$probe" "$key")"
         [[ -n "$value" ]] || continue
         [[ "$key" != release ]] || key=current
@@ -709,7 +725,15 @@ plan_modules() {
 # --dry-run reports them and continues.
 preconditions_hold() {
     local problems="" auth msg setup
-    [[ "$PLAN" != " " ]] || return 0
+    auth="$(getv backstage auth)"
+    if [[ "$(probe_value "$(getv backstage probe)" snippet_state)" == stale && "$auth" == yes && "$PLAN" == *" backstage "* ]] \
+        && [[ "$(backstage_snippet_auth < "${DEPLOY_DIR}/backstage-nginx.conf")" == session ]]; then
+        log_warn "Legacy Basic nginx snippet is stale; allowing the staged Backstage release before session setup. Review .deploy/ship.sh --setup --module backstage --dry-run next."
+    elif [[ "$(probe_value "$(getv backstage probe)" snippet_state)" != current ]]; then
+        problems="${problems}Backstage nginx snippet $(probe_value "$(getv backstage probe)" snippet_state); review .deploy/ship.sh --setup --module backstage --dry-run, then run --setup --module backstage before deploying.
+"
+    fi
+    [[ "$PLAN" != " " || -n "$problems" ]] || return 0
     setup="$(probe_value "$(getv backstage probe)" setup)"
     if [[ "$PLAN" == *" backstage "* && "$setup" != yes ]]; then
         problems="${problems}Backstage setup is missing on the host (setup ${setup:-unknown}); run .deploy/ship.sh --setup --module backstage first.

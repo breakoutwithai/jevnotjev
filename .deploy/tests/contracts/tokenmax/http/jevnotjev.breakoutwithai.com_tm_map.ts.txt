@@ -1,0 +1,6 @@
+source: hand-built #251 public route contract (not a live capture)
+http_code: 200
+curl_exit: 0
+content_type: text/plain; charset=utf-8
+---
+// fixture mapper

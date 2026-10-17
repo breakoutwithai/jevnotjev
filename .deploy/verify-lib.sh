@@ -120,6 +120,28 @@ verify_code() {
     fi
 }
 
+# Public TokenMax routes must traverse the installed nginx snippet (#251). Status alone
+# would accept a static HTML fallback; check the board contract and mapper MIME too.
+verify_maps() {
+    verify_get anon /api/maps
+    if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 200 ]] \
+        && printf '%s\n' "$VERIFY_HEADERS" | tr -d '\r' | grep -Eiq '^Content-Type:[[:space:]]*application/json([[:space:]]*;|[[:space:]]*$)' \
+        && printf '%s' "$VERIFY_BODY" | bun -e 'try { const r = await Bun.stdin.json(); if (r === null || typeof r !== "object" || !Array.isArray(r.rows) || r.totals === null || typeof r.totals !== "object" || Array.isArray(r.totals)) process.exit(1); } catch { process.exit(1); }' >/dev/null 2>&1; then
+        verify_pass "S2 public /api/maps 200 JSON board"
+    else
+        verify_fail "S2 public /api/maps: expected 200 application/json with rows array and totals object, $(verify_got)"
+    fi
+}
+verify_mapper() {
+    verify_get anon /tm/map.ts
+    if [[ "$VERIFY_RC" -eq 0 && "$VERIFY_CODE" == 200 ]] \
+        && printf '%s\n' "$VERIFY_HEADERS" | tr -d '\r' | grep -Eiq '^Content-Type:[[:space:]]*text/plain[[:space:]]*;[[:space:]]*charset=utf-8[[:space:]]*$'; then
+        verify_pass "S2 public /tm/map.ts 200 text/plain; charset=utf-8"
+    else
+        verify_fail "S2 public /tm/map.ts: expected 200 text/plain; charset=utf-8, $(verify_got)"
+    fi
+}
+
 # verify_static_sha <expected> - S1: /DEPLOYED_SHA names the expected commit.
 verify_static_sha() {
     local want="$1" served
@@ -246,6 +268,8 @@ verify_live() {
                 verify_backstage_auth "$want_backstage" "$release"
             fi
         fi
+        if [[ "$static_release" == yes ]]; then verify_mapper; else verify_note "S2 public /tm/map.ts: no static release yet"; fi
+        if [[ "$release" == yes ]]; then verify_maps; else verify_note "S2 public /api/maps: no Backstage release yet"; fi
     else
         verify_note "S2 gate: Backstage is not the module being set up"
     fi

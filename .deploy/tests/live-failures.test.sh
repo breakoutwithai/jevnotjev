@@ -100,14 +100,14 @@ printf '%s\n' 0123456789abcdef0123456789abcdef01234567 > "${FAKE_STATE}/backstag
 printf '%s\n' 0123456789abcdef0123456789abcdef01234567 > "${FAKE_STATE}/static_served"
 CFG="${FAKEBIN}/curl-config"; : > "$CFG"; chmod 600 "$CFG"
 export BACKSTAGE_CURL_CONFIG="$CFG" VERIFY_SLEEP=0
-export FIXTURE_DIRS="${FIX}/health-start:${FIX}/gated"
+export FIXTURE_DIRS="${FIX}/health-start:${FIX}/gated:${REPO_ROOT}/.deploy/tests/contracts/tokenmax"
 reset_calls
 out="$(verify_live "" 0123456789abcdef0123456789abcdef01234567 no yes 2>&1)"; rc=$?
 calls="$(grep -c 'api/backstage/health' "${FAKE_STATE}/curl.log" | tr -d ' ')"
 [[ $rc -eq 0 && "$out" == *"PASS S2 auth /api/backstage/health 200"* && "$calls" -ge 3 ]] \
     && ok "verify retries a starting service: 502 then 200 passes (docs/backstage-deploy.md:53, 200 with a running release)" \
     || nope "502-then-200: rc=${rc}, health calls ${calls}; out: ${out}"
-export FIXTURE_DIRS="${FIX}/page-start:${FIX}/health-start:${FIX}/gated"
+export FIXTURE_DIRS="${FIX}/page-start:${FIX}/health-start:${FIX}/gated:${REPO_ROOT}/.deploy/tests/contracts/tokenmax"
 reset_calls
 out="$(verify_live "" 0123456789abcdef0123456789abcdef01234567 no yes 2>&1)"; rc=$?
 [[ $rc -eq 0 && "$out" == *"PASS S2 auth /backstage/ 200"* && "$out" == *"PASS S2 auth /api/backstage/health 200"* ]] \
@@ -115,7 +115,7 @@ out="$(verify_live "" 0123456789abcdef0123456789abcdef01234567 no yes 2>&1)"; rc
     || nope "page+health start: rc=${rc}; out: ${out}"
 PERSIST="$(mktemp -d)"; mkdir -p "${PERSIST}/http"
 cp "${FIX}/health-start/http/jevnotjev.breakoutwithai.com_api_backstage_health@auth.1.txt" "${PERSIST}/http/"
-export FIXTURE_DIRS="${PERSIST}:${FIX}/gated"
+export FIXTURE_DIRS="${PERSIST}:${FIX}/gated:${REPO_ROOT}/.deploy/tests/contracts/tokenmax"
 reset_calls
 out="$(verify_live "" 0123456789abcdef0123456789abcdef01234567 no yes 2>&1)"; rc=$?
 [[ $rc -ne 0 && "$out" == *"FAIL S2 auth /api/backstage/health"*"502"* ]] \

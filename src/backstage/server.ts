@@ -22,6 +22,10 @@ import {
 import type { ProviderFetch } from "./providers.ts";
 import { openTrial, validTrialInput } from "./trial.ts";
 import { checkTicket, MAX_TICKET_BODY, TicketLimiter, TicketStore } from "./tickets.ts";
+import { createQuestionRoutes, QUESTION_ROUTES } from "../guest-intake/routes.ts";
+import { createGuestRoutes, isGuestPath } from "../guest-intake/guest-routes.ts";
+import { questionAdminArgs, runQuestionAdmin } from "../guest-intake/admin-cli.ts";
+import type { QuestionLimits } from "../guest-intake/contract.ts";
 import { checkDelete, checkMap, createMapLogger, MapStore, MAX_MAP_BODY, MAX_MAP_DELETE_BODY } from "./maps.ts";
 import { rankPosters, type Poster } from "../shows/posters.ts";
 import { COACH_PROMPT_VERSION, COACH_UNSAFE_MESSAGE } from "./coach.ts";
@@ -79,6 +83,8 @@ export interface ServerOptions {
   readonly log?: (line: string) => void;
   /** Ticket office lead store; without a path the ticket routes answer 503. */
   readonly tickets?: { readonly path?: string | undefined };
+  /** Guest questions (src/guest-intake/): tables in the tickets file; limits are the proposed defaults unless set. */
+  readonly questions?: { readonly limits?: Partial<QuestionLimits>; readonly limiterCapacity?: number };
   /** TokenMax map board store (src/backstage/maps.ts); without a path the /api/maps routes answer 503. */
   readonly maps?: { readonly path?: string | undefined; readonly maxRows?: number | undefined };
   /** /api/v1 bearer-token state file (src/backstage/api-tokens.ts); without one, or inside staticRoot, every /api/v1 route answers 401. */
@@ -229,6 +235,8 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   // Delete has its own window, so shares (and rejected shares) from one address never block deleting a row.
   const mapDeleteLimiter = new TicketLimiter(clock);
   const mapLog = createMapLogger(clock, options.log);
+  const questions = createQuestionRoutes({ path: options.tickets?.path, origin, clock, log: options.log, limits: options.questions?.limits, limiterCapacity: options.questions?.limiterCapacity });
+  const guests = createGuestRoutes({ path: options.tickets?.path, clock, log: options.log, limits: options.questions?.limits, limiterCapacity: options.questions?.limiterCapacity });
   const tokensPath = options.api?.tokensPath;
   const api = createApiV1({
     tokens: new ApiTokenStore(tokensPath !== undefined && tokensPath !== "" && !isInside(tokensPath, root) ? tokensPath : null),
@@ -679,6 +687,8 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         else activeByok--;
       }
     }
+    // Guest questions (#256) own /api/v1/guest/ and are dispatched first: a guest token never reaches the decide tools.
+    if (isGuestPath(pathname)) return guests.handle(request, pathname, ip, rid);
     if (pathname === API_V1_PREFIX || pathname.startsWith(`${API_V1_PREFIX}/`)) {
       const maxConcurrent = options.maxConcurrent ?? 8;
       const slot = { acquire: (): boolean => { if (active >= maxConcurrent) return false; active++; return true; }, release: (): void => { active--; } };
@@ -726,6 +736,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       logger.ticket({ event: "ticket.issued", rid, ticket: issued.id, kind: issued.kind, show: issued.show });
       return json({ ticket: issued.id, kind: issued.kind, show: issued.show, replay: issued.status === "replay" });
     }
+    if (QUESTION_ROUTES.includes(pathname)) return questions.handle(request, pathname, ip, rid);
     if (pathname === "/api/maps" || pathname === "/api/maps/delete") {
       const deleting = pathname === "/api/maps/delete";
       const reject = (reason: string, status: number, extra: Record<string, string> = {}): Response => { mapLog({ event: "map.rejected", rid, reason }); return json({ code: reason, ...extra }, status); };
@@ -798,11 +809,16 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     close() {
       if (trial.available) trial.ledger.close();
       ticketStore?.close();
+      questions.close();
+      guests.close();
       mapStore?.close();
     },
   });
 }
-if (import.meta.main) {
+// `server.js --question-admin <command>`: the operator CLI (src/guest-intake/admin-cli.ts), run before any server state.
+const adminArgs = import.meta.main ? questionAdminArgs(process.argv) : null;
+if (adminArgs !== null) process.exit(runQuestionAdmin(adminArgs, process.env, { out: (s) => process.stdout.write(s + "\n"), err: (s) => process.stderr.write(s + "\n") }, Date.now));
+if (import.meta.main && adminArgs === null) {
   const version = runtimeVersion(
     process.env.BACKSTAGE_VERSION,
     BACKSTAGE_BUILD_VERSION,

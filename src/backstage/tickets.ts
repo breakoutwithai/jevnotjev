@@ -40,7 +40,7 @@ export const RATE_WINDOW_MS = 10 * 60_000;
 // characters). Domain: dot-separated labels of letters, digits and inner hyphens, ending in a 2+ letter TLD.
 const ATOM = "[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+";
 export const HOSTNAME = /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$/;
-const EMAIL = new RegExp(`^(?=.{1,64}@)${ATOM}(?:\\.${ATOM})*@(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$`);
+export const EMAIL = new RegExp(`^(?=.{1,64}@)${ATOM}(?:\\.${ATOM})*@(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$`);
 const REQUEST_KEY = /^[A-Za-z0-9_-]{16,64}$/;
 export const MAX_LIMITED_ADDRESSES = 10_000;
 

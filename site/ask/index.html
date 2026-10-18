@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask a Jev!Jev question</title>
+<meta name="description" content="Send one decision question. A person reviews it and replies on this page. No account, no provider key and no Jev run.">
+<link rel="stylesheet" href="ask.css">
+<script src="ask.js" defer></script>
+</head>
+<body>
+<main>
+<p><a href="/">Back to Jev!Jev</a></p>
+<h1>Ask a Jev!Jev question</h1>
+<p class="lede">Bring one decision from your LLM workflow. A person reads it and replies here with a way to frame it or a prompt to try in your own assistant.</p>
+<ul class="facts" id="askFacts">
+  <li>A person reviews every question. Nothing answers it automatically.</li>
+  <li>No Jev run happens and no model provider sees your question.</li>
+  <li>Do not include passwords, API keys or private client data. Use made-up cases.</li>
+  <li>The reply appears on this page under your status code. We do not email replies.</li>
+</ul>
+
+<form class="ask-form" id="askForm" novalidate>
+  <div class="field">
+    <label for="askQuestion">What decision are you trying to make?</label>
+    <p class="hint" id="askQuestionHint">For example: route shop questions to stock help or general help. Up to 4,096 characters.</p>
+    <textarea id="askQuestion" name="question" rows="6" maxlength="4096" required aria-describedby="askQuestionHint askQuestionErr"></textarea>
+    <p class="err" id="askQuestionErr" hidden>Write your question first.</p>
+  </div>
+  <div class="field">
+    <label for="askEmail">Your email</label>
+    <p class="hint" id="askEmailHint">Kept private on our own server. It is not checked, and replies are never sent to it.</p>
+    <input id="askEmail" name="email" type="email" autocomplete="email" maxlength="254" required aria-describedby="askEmailHint askEmailErr">
+    <p class="err" id="askEmailErr" hidden>Enter an email address like name@example.com.</p>
+  </div>
+  <div class="field check">
+    <input id="askReply" name="reply_consent" type="checkbox" aria-describedby="askReplyErr">
+    <label for="askReply">Store my email and question so a person can review it and reply here (needed to send).</label>
+    <p class="err" id="askReplyErr" hidden>Tick this box to send your question.</p>
+  </div>
+  <div class="field check">
+    <input id="askMarketing" name="marketing_consent" type="checkbox">
+    <label for="askMarketing">Optional: I would like occasional Jev!Jev news by email.</label>
+  </div>
+  <div class="trap" inert aria-hidden="true">
+    <label for="askNickname">Leave this empty</label>
+    <input id="askNickname" name="nickname" type="text" tabindex="-1" autocomplete="off">
+  </div>
+  <p class="err" id="askFormErr" role="alert" hidden></p>
+  <button id="askSubmit" type="submit">Send my question</button>
+  <p class="hint">Stored in our own database; no retention period has been set yet. To have it deleted, email <a href="mailto:jev@breakoutwithai.com">jev@breakoutwithai.com</a> quoting only your reference (Q-...), never your status code. <a href="/privacy/">How we handle data</a>.</p>
+</form>
+
+<section class="receipt" id="askReceipt" aria-labelledby="askReceiptTitle" tabindex="-1" hidden>
+  <h2 id="askReceiptTitle">Saved: pending review</h2>
+  <p>Reference <strong id="askRef"></strong>. A person has not read it yet, and no reply time is promised.</p>
+  <p>Your status code is shown once. Keep it private: it is the only way to read the reply.</p>
+  <p class="code-row"><code id="askCode"></code> <button id="askCopy" type="button">Copy status code</button></p>
+  <p class="hint" id="askCopied" role="status"></p>
+  <p>Check it later under <a href="#status">Check a question</a> below.</p>
+  <p>To have it deleted, email <a href="mailto:jev@breakoutwithai.com">jev@breakoutwithai.com</a> quoting only the reference above. Do not send your status code; a person deletes it by hand.</p>
+  <p>While you wait, try this in your own assistant: "Help me state one decision as a fixed choice, with two or three answers, five made-up example cases and the rule I would use to accept an answer. Do not run anything."</p>
+</section>
+
+<section class="status" id="status" aria-labelledby="statusTitle">
+  <h2 id="statusTitle">Check a question</h2>
+  <form id="statusForm" novalidate>
+    <div class="field">
+      <label for="statusCode">Your status code</label>
+      <input id="statusCode" name="code" type="text" autocomplete="off" spellcheck="false" aria-describedby="statusErr">
+    </div>
+    <p class="err" id="statusErr" role="alert" hidden></p>
+    <button id="statusCheck" type="submit">Check status</button>
+  </form>
+  <div class="result" id="statusResult" aria-live="polite" hidden>
+    <p>State: <strong id="statusState"></strong></p>
+    <p id="statusWhen"></p>
+    <p id="statusNote"></p>
+    <pre id="statusResponse" hidden></pre>
+    <p class="hint">Replies are reviewed by a person. No model has assessed your question, its accuracy or any savings.</p>
+  </div>
+</section>
+
+<section class="usage" id="usage" aria-labelledby="usageTitle">
+  <h2 id="usageTitle">Optional: map your AI coding usage on your own computer</h2>
+  <p>Separate from your question and not needed for a reply. The <a href="/tm/">TokenMax mapper</a> reads only the Claude Code and Codex log folders you choose and writes a private report on your computer. It needs <a href="https://bun.sh">Bun</a>. Nothing is sent to us.</p>
+  <p>Paste this into Claude Code or Codex. This is the whole prompt; read it before you copy it.</p>
+  <pre id="usagePrompt">Help me run the TokenMax usage mapper on my own computer. Do not upload anything and do not open any link it prints.
+1. Ask me which logs to read: my Claude Code projects folder (often ~/.claude/projects), my Codex sessions folder (often ~/.codex/sessions), or none for either. Read no other folder.
+2. Ask me for the period: the last N days (7 if I do not say), or a start and an end date.
+3. Download https://jevnotjev.breakoutwithai.com/tm/map.ts into a new empty folder and show me its first 15 lines before running it.
+4. In that folder run: bun map.ts <span class="nb">--claude</span> &lt;folder or none&gt; <span class="nb">--codex</span> &lt;folder or none&gt; <span class="nb">--days</span> &lt;N&gt; <span class="nb">--out</span> &lt;a new folder name&gt;
+   For a date range, use <span class="nb">--from</span> YYYY-MM-DD <span class="nb">--to</span> YYYY-MM-DD instead of <span class="nb">--days</span>.
+5. Show me share-draft.md and explain each number, including anything reported as unknown or not covered. Do not estimate cost, savings or remaining allowance from token counts.
+6. Stop there. Sharing anything is a separate choice I make myself.</pre>
+  <p class="code-row"><button id="usageCopy" type="button">Copy prompt</button></p>
+  <p class="hint" id="usageCopied" role="status"></p>
+  <ul class="facts">
+    <li>The report counts sessions, tokens and limit notices. Unknown values stay unknown; it says nothing about cost or savings.</li>
+    <li>Sending your usage to us privately is not available yet.</li>
+    <li>The public board at <a href="/maps/">/maps/</a> is a separate step you take yourself. Numbers there are self-reported and not verified.</li>
+  </ul>
+</section>
+</main>
+</body>
+</html>

@@ -38,8 +38,12 @@ Live, read-only on 2026-10-18: static `/DEPLOYED_SHA` serves `3418769`; `GET /ap
 
 ### Admin model
 
-- The only admin surface in PRs 1 to 3 is `scripts/guest-intake/review.ts`, run on the host as the service user against the private state directory.
-- The CLI refuses to start unless the state directory is mode 0700 and `tickets.sqlite` is mode 0600, both owned by the running user. It never widens or prints a path's contents beyond the requested row.
+- The only admin surface in PRs 1 to 3 is the operator CLI `src/guest-intake/admin-cli.ts`, shipped inside the existing Backstage bundle.
+- **Delivery path:** the release package admits only `server.js`, `release.json` and `site/` (`.deploy/backstage-package.ts:32-46`), so a separate script would be refused as "Unexpected release file." `server.ts` imports the CLI, and its `import.meta.main` block (`server.ts:805`) checks `process.argv` for `--question-admin` first. When present it runs the CLI and exits before `createHandler` or `Bun.serve`: no port, no trial ledger, no provider key read. The package allowlist and `scripts/backstage-build.ts:8` entrypoints are unchanged.
+- **Host use:** `sudo -u jevnotjev-backstage env STATE_DIRECTORY=/var/lib/jevnotjev-backstage /usr/local/bin/bun /var/www/jevnotjev-backstage-current/server.js --question-admin <command>`. The service user owns the state directory (`.deploy/backstage.service:9-12`, `StateDirectoryMode=0700`). The tickets path resolves as the server does (`server.ts:829`).
+- Commands: `list`, `show <id>`, `transition <id> <to> --version <n>`, `answer <id> --version <n> --source human_reviewed|template --file <path>`, `delete <id>`, `purge`. PR 2 adds `token mint|list|revoke` on the same dispatch.
+- The CLI refuses to start unless the state directory is mode 0700 and `tickets.sqlite` is mode 0600, both owned by the running user. It prints only the requested row.
+- **Bundled-mode tests (off-host):** GI-14c builds the release with `scripts/backstage-build.ts`, runs the built `server.js --question-admin` against temporary state, and asserts the command works and no port is bound. The existing `backstage-package.test.ts` still passes with the allowlist unchanged.
 - A Backstage session, password or Google, is not an admin. `operators.json` holds testers (`docs/backstage-deploy.md:24`). PR 1 adds no queue route under `/api/backstage/` or `/backstage/`; a test asserts none exists.
 
 ### Contact and response rules
@@ -61,14 +65,15 @@ Live, read-only on 2026-10-18: static `/DEPLOYED_SHA` serves `3418769`; `GET /ap
 
 - `src/guest-intake/store.ts` adds three tables to the existing `tickets.sqlite`: `questions`, `question_events`, `question_tombstones`. All created with `CREATE TABLE IF NOT EXISTS`. The `tickets` table, its DDL and its rows are not altered.
 - An older release opens the same file with its unchanged `TicketStore` (`tickets.ts:93-101`) and ignores the new tables. GI-7b tests this.
-- `questions` columns: id (`Q-` + 12 hex), created_at, scope, email (public only), question, reply_consent, marketing_consent, state, version, response, response_source, key_hash, request_hash. `UNIQUE(scope, key_hash)`.
-- `question_tombstones` columns: scope, key_tag, deleted_at, reason (`operator` | `retention`). Primary key `(scope, key_tag)`. No id, email, question, response, timestamp of submission, or capability hash.
+- `questions` columns: id (`Q-` + 12 hex), created_at, scope, email (public only), question, reply_consent, marketing_consent, state, version, response, response_source, key_hash, key_tag, request_hash. `UNIQUE(scope, key_hash)`. The raw request key is never stored.
+- `question_tombstones` columns: scope, key_tag, deleted_at, reason (`operator` | `retention`). Primary key `(scope, key_tag)`. No id, email, question, response, timestamp of submission, or key hash.
+- Tombstones are kept indefinitely. There is no tombstone expiry or compaction in PRs 1 to 3; compaction waits for an approved anti-replay design.
 
 ### Idempotency
 
 - `scope` is set by the server and never read from the body: `public` for the form, `guest:<token id>` for a guest token. A token id never changes for the life of the token.
 - `request_hash = sha256` of the canonical JSON `[scope, email, question, reply_consent, marketing_consent]`. Email is trimmed and lowercased; question is trimmed, NFC-normalized, with CRLF and CR turned into LF; consents are booleans with absent read as false.
-- `key_hash = sha256(request_key)`. `key_tag = sha256("tombstone\0" + scope + "\0" + request_key)`, a different value, so a tombstone holds no capability verifier.
+- `key_hash = sha256(request_key)`. `key_tag = sha256("tombstone\0" + scope + "\0" + request_key)`, a different value. Both are computed at submit and stored on the live row; deletion copies the row's `key_tag` into the tombstone, so delete never needs the raw key and the tombstone holds no capability verifier.
 - Lookup order inside one `BEGIN IMMEDIATE` transaction: tombstone for `(scope, key_tag)`, then row for `(scope, key_hash)`, then quota, then insert.
   - Tombstone hit: 410 `deleted`, nothing written.
   - Same scope, same key, same `request_hash`: replay, the original id, status 200, quota not consumed.
@@ -78,11 +83,10 @@ Live, read-only on 2026-10-18: static `/DEPLOYED_SHA` serves `3418769`; `GET /ap
 
 ### Deletion and retention
 
-- `review.ts delete <id>`: works in every state, `answered` and `declined` included. One transaction deletes the `questions` row and all its `question_events`, and inserts the tombstone. Any failure rolls back all three.
-- `review.ts purge --before <ISO date> [--dry-run]`: the same transaction per row, for rows created before the cutoff. `--dry-run` prints ids and a count only.
-- `review.ts purge --retention`: reads `GUEST_INTAKE_RETENTION_DAYS` from the service environment. Unset or not a positive integer: refuse, exit 1, nothing deleted. 30 days is proposed, not approved. No timer runs purge in PRs 1 to 3.
-- After deletion: status with the old code is 404 `not-found`, the same answer as a code that never existed; a guest read is 404; a submit replay is 410; the row is absent from `list`, exports and backups taken afterwards.
-- Tombstones are kept until a separate cutoff (`--tombstones-before`), proposed 180 days. After that cutoff a replay with the old key and payload stores a new row.
+- `--question-admin delete <id>`: works in every state, `answered` and `declined` included. One transaction reads the row's `scope` and `key_tag`, inserts the tombstone, and deletes the `questions` row and all its `question_events`. Any failure rolls back all three.
+- `--question-admin purge --before <ISO date> [--dry-run]`: the same transaction per row, for rows created before the cutoff. `--dry-run` prints ids and a count only.
+- `--question-admin purge --retention`: reads `retentionDays` from `intake-policy.json` in the state directory (service-user owned, mode 0600, written by the operator once a period is approved). Missing file, wrong mode, or a value that is not a positive integer: refuse, exit 1, nothing deleted. 30 days is proposed, not approved. No timer runs purge in PRs 1 to 3.
+- After deletion: status with the old code is 404 `not-found`, the same answer as a code that never existed; a guest read is 404; a submit replay is 410, for as long as the file exists; the row is absent from `list`, exports and backups taken afterwards.
 
 ### HTTP
 
@@ -99,6 +103,16 @@ Live, read-only on 2026-10-18: static `/DEPLOYED_SHA` serves `3418769`; `GET /ap
 - The code travels in a POST body, never a URL, so it reaches no access log or referrer.
 - Errors are a `code` only. Logs record `question.received` / `question.rejected` / `question.deleted` with id and reason, never email, text or code.
 
+### Guest HTTP schema (PR 2)
+
+- **Principal:** the verified token id, set by the server. `scope = guest:<token id>`; the body cannot name a scope, guest, email or id.
+- **Submit body** (strict, unknown keys 400): `question` (same rules as public), `reply_consent: true`, optional `marketing_consent`, `request_key` (43 base64url characters, chosen by the client or the MCP adapter). No `email` field: a body carrying one is 400.
+- **Idempotency:** the same rules as public, with `email` null in `request_hash`. A guest key never replays a public row or another guest's row.
+- **Submit response:** `{ id, state, replay }`. No status code is issued; the token is the read credential.
+- **List response:** `{ questions: [{ id, state, created_at, updated_at }] }`, own rows only, newest first, at most 50.
+- **Read response:** `{ id, state, updated_at, response, response_source }`, with `response` null until answered. Another guest's id, a public id or a deleted id is 404.
+- No route returns question text, email or events to a guest. There is no edit, withdraw or delete route.
+
 ### Limits (proposed; exact values recorded in the PR)
 
 | Counter | Counts | Limit |
@@ -106,16 +120,16 @@ Live, read-only on 2026-10-18: static `/DEPLOYED_SHA` serves `3418769`; `GET /ap
 | Attempts per address | every POST, any outcome | 5 per 10 min |
 | New public rows | inserted rows only | 100 per 10 min |
 | New guest rows | inserted rows per token | 10 per UTC day |
-| Retained rows | all rows, every state | 5,000 |
-| Tombstones | all tombstones | 20,000 |
+| Retained rows plus tombstones | every state, all tombstones | 25,000 |
 
 - The attempt limiter is the existing `TicketLimiter` (`tickets.ts:164-183`): bounded at 10,000 addresses, refuses rather than evicts.
-- Write quotas are checked after the replay lookup, so a replay never consumes or is refused by a write quota. Over a write quota or a cap: 503 `capacity`, nothing written.
+- Write quotas and the cap are checked after the replay lookup, so a replay never consumes or is refused by them. Over a quota or the cap: 503 `capacity`, nothing written.
+- The cap is checked only at admission. Delete and purge turn one row into one tombstone, so they never raise the total and are never refused. At the cap the store fails closed: new submissions stop until the operator approves a compaction design or a higher cap.
 - Request read timeout 5 s (existing `boundedText` use).
 
 ### Guest tokens (PR 2)
 
-Separate store, never `api-tokens.json`. Prefix `jng_`, which fails the decide token pattern `^jnj_[A-Za-z0-9_-]{43}$` (`api-tokens.ts:15`), so even a rollback to a release without guest support cannot accept one on `ask` or `run`. Record: id, guest label, sha256, created, expires (default 14 days), revoked_at, last_used_at, fixed scopes `questions:submit` and `questions:read-own`. No edit, withdraw or delete scope. `scripts/guest-intake/token.ts mint|list|revoke` prints the token once, ids otherwise. Guest routes are dispatched before `createApiV1`. Revoking a token leaves its rows in place.
+Separate store, never `api-tokens.json`. Prefix `jng_`, which fails the decide token pattern `^jnj_[A-Za-z0-9_-]{43}$` (`api-tokens.ts:15`), so even a rollback to a release without guest support cannot accept one on `ask` or `run`. Record: id, guest label, sha256, created, expires (default 14 days), revoked_at, last_used_at, fixed scopes `questions:submit` and `questions:read-own`. No edit, withdraw or delete scope. `server.js --question-admin token mint|list|revoke` prints the token once, ids otherwise. Guest routes are dispatched before `createApiV1`. Revoking a token leaves its rows in place.
 
 ### Guest MCP adapter (PR 3)
 
@@ -144,7 +158,7 @@ PR 1 covers GI-1 to GI-15.
 | GI-4d | Concurrent same-key retries leave exactly one row | `[integration] GI-4d` |
 | GI-5a | Attempt limiter refuses; memory bounded | `[unit] GI-5a` |
 | GI-5b | Write quota counts new rows only | `[unit] GI-5b` |
-| GI-5c | Retained-row and tombstone caps refuse with 503 | `[unit] GI-5c` |
+| GI-5c | Row-plus-tombstone cap refuses admission; delete still works | `[unit] GI-5c` |
 | GI-6 | Store failure is 503; page keeps the draft | `[integration] GI-6`, DOM |
 | GI-7a | Row, state, response survive a store reopen | `[integration] GI-7a` |
 | GI-7b | `TicketStore` reopens the file; tickets DDL and rows unchanged | `[integration] GI-7b` |
@@ -160,6 +174,7 @@ PR 1 covers GI-1 to GI-15.
 | GI-13 | `src/guest-intake/` imports no decide or provider code | `[unit] GI-13` |
 | GI-14a | Logs hold no email, question or code | `[unit] GI-14a` |
 | GI-14b | CLI refuses wider than 0700 dir or 0600 file | `[unit] GI-14b` |
+| GI-14c | Built `server.js --question-admin` runs; binds no port | `[integration] GI-14c` |
 | GI-15a | Pending text absent from public GETs and `site/` | `[integration] GI-15a` |
 | GI-15b | No queue route under Backstage; tester session gets none | `[integration] GI-15b` |
 | GI-15c | No route takes or returns rows by email | `[integration] GI-15c` |
@@ -168,7 +183,8 @@ PR 1 covers GI-1 to GI-15.
 | GI-18 | Real stdio MCP: three tools; same row as HTTP; origin fixed | PR 3 |
 
 - GI-12 instruments `globalThis.fetch`, `Bun.spawn`, `Bun.spawnSync` and `node:child_process`; any request to a non-intake host or any model CLI spawn fails the test even when the call would succeed.
-- `bun scripts/guest-intake/verify.ts --local` (PR 2 onward) starts the real server and adapter on temporary storage, runs GI-7a, GI-10c, GI-12 and GI-16 to GI-18, and prints each named check and a count before `GUEST_INTAKE_PASS`.
+- GI-10a also asserts the tombstone's `key_tag` equals the deleted row's stored `key_tag`, and that no column anywhere holds the raw request key.
+- `bun scripts/guest-intake/verify.ts --local` is an off-host check. In PR 2 it starts the real server on temporary storage and runs HTTP, store and permission checks only: GI-7a, GI-10c, GI-12, GI-16 and GI-17. PR 3 adds the stdio adapter checks (GI-18). Each run prints every named check and a count before `GUEST_INTAKE_PASS`.
 
 ## Verification protocol
 
@@ -199,4 +215,4 @@ Each PR raises floors in `.deploy/tests/expected-counts.json`. Run output and sc
 
 ## Open operator decisions
 
-Proposals until confirmed: retention cutoff (30 days), tombstone cutoff (180 days), token expiry and quota, who reviews and whether any reply time is stated (default: none), the selected guests and their private token handoff (blocks production minting only). The public page states no retention period until one is approved.
+Proposals until confirmed: retention cutoff (30 days), every limit and the 25,000 cap, token expiry and quota, who reviews and whether any reply time is stated (default: none), the selected guests and their private token handoff (blocks production minting only). The public page states no retention period until one is approved.

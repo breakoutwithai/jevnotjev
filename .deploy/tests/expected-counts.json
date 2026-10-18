@@ -33,7 +33,7 @@
     "scripts/hand-check.test.ts": 24,
     "scripts/landing.dom.test.ts": 86,
     "scripts/little-shop-seating.test.ts": 14,
-    "scripts/maps.dom.test.ts": 26,
+    "scripts/maps.dom.test.ts": 35,
     "scripts/math-check.test.ts": 28,
     "scripts/prompt-audit-outputs.test.ts": 63,
     "scripts/prompt-audit.test.ts": 129,

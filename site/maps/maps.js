@@ -37,6 +37,10 @@
     for (var i = 0; i < KEYS.length; i++) if (own[i] !== KEYS[i]) return false;
     if (p.v !== "tm-share/1") return false;
     if (typeof p.skill !== "string" || !/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(p.skill)) return false;
+    return checkMeasurements(p);
+  }
+
+  function checkMeasurements(p) {
     if (!inRange(p.days, "days")) return false;
     if (SOURCES.indexOf(p.sources) < 0) return false;
     if (!inRange(p.sessions, "sessions") || !inRange(p.subagent_sessions, "subagent_sessions") || p.subagent_sessions > p.sessions) return false;
@@ -91,6 +95,8 @@
     }
     return String(n);
   }
+  function collected(sources, provider) { return sources === provider || sources === "claude+codex"; }
+  function providerValue(p, provider, value, format) { return collected(p.sources, provider) ? format(value) : "not collected"; }
   function pct(n) { return typeof n === "number" ? n + "%" : "none read"; }
 
   function say(text) { alertBox.textContent = ""; status.textContent = text; }
@@ -140,15 +146,37 @@
   function capsText(caps) { return fmt(caps.short) + " / " + fmt(caps.weekly) + " / " + fmt(caps.unknown); }
   function plural(n, one, many) { return n === 1 ? one : many; }
 
+  function validBoard(board) {
+    if (!isObj(board) || !Array.isArray(board.rows) || !isObj(board.totals)) return false;
+    var totals = board.totals;
+    if (!int(totals.builders, 0, Number.MAX_SAFE_INTEGER) || !int(totals.cap_episodes, 0, Number.MAX_SAFE_INTEGER) || !int(totals.with_weekly_cap, 0, totals.builders)) return false;
+    if (totals.builders < board.rows.length || (board.rows.length === 0 && (totals.builders !== 0 || totals.cap_episodes !== 0 || totals.with_weekly_cap !== 0))) return false;
+    var ids = [];
+    for (var i = 0; i < board.rows.length; i++) {
+      var r = board.rows[i];
+      if (!isObj(r) || typeof r.id !== "string" || !/^TM-[0-9A-F]{12}$/.test(r.id) || ids.indexOf(r.id) >= 0 || typeof r.alias !== "string" || typeof r.day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(r.day) || typeof r.skill !== "string") return false;
+      // Validate measurement fields with the same rules as the preview. Display strings remain text-only.
+      if (!checkMeasurements(r)) return false;
+      ids.push(r.id);
+    }
+    return true;
+  }
+
   function renderBoard(board, mineId) {
+    if (!validBoard(board)) {
+      el("mapBoardSection").hidden = true;
+      warn("The board is not available right now.");
+      return false;
+    }
     var section = el("mapBoardSection");
     var list = el("mapBoard");
     list.textContent = "";
-    var rows = isObj(board) && Array.isArray(board.rows) ? board.rows : [];
-    var totals = isObj(board) && isObj(board.totals) ? board.totals : { builders: 0, cap_episodes: 0, with_weekly_cap: 0 };
-    var builders = Number(totals.builders) || 0;
-    var episodes = Number(totals.cap_episodes) || 0;
-    var weekly = Number(totals.with_weekly_cap) || 0;
+    var rows = board.rows;
+    var totals = board.totals;
+    el("mapEmpty").hidden = rows.length !== 0;
+    var builders = totals.builders;
+    var episodes = totals.cap_episodes;
+    var weekly = totals.with_weekly_cap;
     var head = el("mapTotals");
     head.textContent = "";
     var stats = [
@@ -163,9 +191,9 @@
     }
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
-      if (!isObj(r)) continue;
       // A cast-list line: alias (and a "you" tag on your own row), the day on the right, then the figures.
       var li = node("li", "map-row");
+      li.setAttribute("data-map-id", r.id);
       var who = node("p", "map-row-who");
       who.appendChild(node("span", "map-row-alias", String(r.alias)));
       if (mineId && r.id === mineId) {
@@ -175,15 +203,15 @@
       li.appendChild(who);
       li.appendChild(node("p", "map-row-day", String(r.day) + (typeof r.days === "number" ? ", " + r.days + plural(r.days, " day", " days") : "")));
       var dl = node("dl", "map-row-figures");
-      var caps = isObj(r.caps) ? r.caps : {};
-      var tokens = isObj(r.output_tokens) ? r.output_tokens : {};
+      var caps = r.caps;
+      var tokens = r.output_tokens;
       var items = [
         ["sessions", fmt(r.sessions), ""],
         ["cap hits short / weekly / unknown", capsText(caps), ""],
-        ["Claude output", compact(tokens.claude), typeof tokens.claude === "number" ? fmt(tokens.claude) + " output tokens" : ""],
-        ["Codex output", compact(tokens.codex), typeof tokens.codex === "number" ? fmt(tokens.codex) + " output tokens" : ""],
-        ["Opus share", pct(r.opus_share_pct), ""],
-        ["Codex weekly used", pct(r.codex_weekly_pct), ""]
+        ["Claude output", providerValue(r, "claude", tokens.claude, compact), collected(r.sources, "claude") ? fmt(tokens.claude) + " output tokens" : ""],
+        ["Codex output", providerValue(r, "codex", tokens.codex, compact), collected(r.sources, "codex") ? fmt(tokens.codex) + " output tokens" : ""],
+        ["Opus share", providerValue(r, "claude", r.opus_share_pct, pct), ""],
+        ["Codex weekly used", providerValue(r, "codex", r.codex_weekly_pct, pct), ""]
       ];
       for (var k = 0; k < items.length; k++) {
         var wrap = node("div", "map-fig");
@@ -198,6 +226,7 @@
       list.appendChild(li);
     }
     section.hidden = false;
+    return true;
   }
 
   function loadBoard() {
@@ -239,10 +268,12 @@
       leafNode("span", "caps.weekly", p.caps.weekly, fmt(p.caps.weekly)), " / ",
       leafNode("span", "caps.unknown", p.caps.unknown, fmt(p.caps.unknown))
     ]);
-    line("Claude output tokens", [leafNode("span", "output_tokens.claude", p.output_tokens.claude, fmt(p.output_tokens.claude))]);
-    line("Codex output tokens", [leafNode("span", "output_tokens.codex", p.output_tokens.codex, fmt(p.output_tokens.codex))]);
-    line("Opus share", [leafNode("span", "opus_share_pct", p.opus_share_pct, String(p.opus_share_pct)), "%"]);
-    line("Codex week used", p.codex_weekly_pct === null
+    line("Claude output tokens", [leafNode("span", "output_tokens.claude", p.output_tokens.claude, providerValue(p, "claude", p.output_tokens.claude, fmt))]);
+    line("Codex output tokens", [leafNode("span", "output_tokens.codex", p.output_tokens.codex, providerValue(p, "codex", p.output_tokens.codex, fmt))]);
+    line("Opus share", [leafNode("span", "opus_share_pct", p.opus_share_pct, providerValue(p, "claude", p.opus_share_pct, String)), collected(p.sources, "claude") ? "%" : ""]);
+    line("Codex week used", !collected(p.sources, "codex")
+      ? [leafNode("span", "codex_weekly_pct", p.codex_weekly_pct, "not collected")]
+      : p.codex_weekly_pct === null
       ? [leafNode("span", "codex_weekly_pct", null, "none read")]
       : [leafNode("span", "codex_weekly_pct", p.codex_weekly_pct, String(p.codex_weekly_pct)), "%"]);
     line("Days", [leafNode("span", "days", p.days, String(p.days))]);
@@ -290,9 +321,9 @@
             a.href = href;
             a.textContent = href;
             el("mapShared").hidden = false;
-            renderBoard(res.body.board, res.body.id);
+            var boardShown = renderBoard(res.body.board, res.body.id);
             history.replaceState(null, "", location.pathname + location.search);
-            say("Shared. Your row is on the board.");
+            say(boardShown ? "Shared. Your row is on the board." : "Shared. The board could not be displayed right now. Keep your delete link.");
             a.focus();
             return;
           }

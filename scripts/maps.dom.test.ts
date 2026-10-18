@@ -650,3 +650,175 @@ test("[integration] 16 every visible link and button is at least 24x24 px with t
     } finally { await context.close(); }
   }
 }, 60000);
+
+// #242: source coverage governs visible and accessible measurements; defaults remain in the wire payload.
+for (const fixture of [
+  { name: "Claude only", sources: "claude", claude: 1200, codex: 0, shown: ["1,200", "not collected"], board: ["1.2K", "not collected"] },
+  { name: "Codex only", sources: "codex", claude: 0, codex: 2400, shown: ["not collected", "2,400"], board: ["not collected", "2.4K"] },
+  { name: "collected zero", sources: "claude+codex", claude: 0, codex: 0, shown: ["0", "0"], board: ["0", "0"] },
+  { name: "both nonzero", sources: "claude+codex", claude: 1200, codex: 2400, shown: ["1,200", "2,400"], board: ["1.2K", "2.4K"] },
+]) test(`[integration] #242 ${fixture.name}: preview and board preserve coverage, accessibility and payload`, async () => {
+  const payload = { ...PAYLOAD, sources: fixture.sources, output_tokens: { claude: fixture.claude, codex: fixture.codex } };
+  const { page, context } = await open(fragment(JSON.stringify(payload)));
+  try {
+    for (const [i, provider] of ["claude", "codex"].entries()) {
+      const leaf = page.locator(`[data-field="output_tokens.${provider}"]`);
+      expect(await leaf.innerText()).toBe(fixture.shown[i] ?? "missing expectation");
+      expect(await leaf.ariaSnapshot()).toContain(fixture.shown[i] ?? "missing expectation");
+      expect(await leaf.getAttribute("data-value")).toBe(String(provider === "claude" ? fixture.claude : fixture.codex));
+    }
+    expect(await page.locator('[data-field="opus_share_pct"]').innerText()).toBe(fixture.sources === "codex" ? "not collected" : "61");
+    expect(await page.locator('[data-field="codex_weekly_pct"]').innerText()).toBe(fixture.sources === "claude" ? "not collected" : "37");
+    expect(posts()).toHaveLength(0);
+    await page.locator("#mapShare").click();
+    const row = page.locator('[data-map-id="TM-00000000BEEF"]');
+    await row.waitFor({ timeout: 3000 });
+    for (const [i, provider] of ["Claude", "Codex"].entries()) {
+      const figure = row.locator(".map-fig").filter({ has: page.locator("dt", { hasText: `${provider} output` }) }).locator("dd");
+      expect(await figure.innerText()).toBe(fixture.board[i] ?? "missing expectation");
+      expect(await figure.ariaSnapshot()).toContain(fixture.board[i] ?? "missing expectation");
+      if (fixture.board[i] === "not collected") expect(await figure.getAttribute("title")).toBeNull();
+    }
+    expect(await page.locator("#mapBoard .map-row").evaluateAll(nodes => nodes.map(n => n.getAttribute("data-map-id")))).toEqual(rows.map(r => r.id));
+    const sent = posts()[0]?.body;
+    expect(isRec(sent) ? sent.payload : null).toEqual(payload);
+    expect(await page.locator('[data-total="builders"] .map-tile-figure').innerText()).toBe("2");
+  } finally { await context.close(); }
+});
+
+test("[integration] #242 malformed sources fail preview and board instead of inventing measurements", async () => {
+  for (const sources of ["", "claude,codex", ["claude"], null]) {
+    const { page, context } = await open(fragment(JSON.stringify({ ...PAYLOAD, sources })));
+    try {
+      expect(await page.locator("#mapInvalid").isVisible()).toBe(true);
+      expect(await page.locator("#mapShare").isVisible()).toBe(false);
+      expect(apiSeen()).toHaveLength(0);
+      rows = [boardRow("TM-0000000000A1", "builder-test", { ...PAYLOAD, sources })];
+      await page.goto(`${origin}/maps/`);
+      await page.waitForFunction(() => Boolean(document.querySelector("#mapAlert")?.textContent) || !document.querySelector("#mapBoardSection")?.hasAttribute("hidden"));
+      expect(await page.locator("#mapAlert").innerText()).toContain("not available");
+      expect(await page.locator("#mapBoardSection").isVisible()).toBe(false);
+    } finally { await context.close(); seen.length = 0; }
+  }
+});
+
+test("[integration] #242 only a valid empty board exposes an explicit empty state; HTTP, JSON and schema errors fail", async () => {
+  rows = [];
+  const { page, context } = await open(`${origin}/maps/`);
+  try {
+    await page.locator("#mapBoardSection").waitFor();
+    expect(await page.locator("#mapEmpty").innerText()).toContain("No maps shared yet");
+    expect(await page.locator("#mapBoard .map-row").count()).toBe(0);
+    expect(await page.locator("#mapAlert").innerText()).toBe("");
+    for (const reply of [
+      { status: 503, body: "{}" }, { status: 200, body: "not JSON" }, { status: 200, body: "{}" },
+      { status: 200, body: JSON.stringify({ rows: [], totals: { builders: 1, cap_episodes: 0, with_weekly_cap: 0 } }) },
+      { status: 200, body: JSON.stringify({ rows: [null], totals: { builders: 1, cap_episodes: 0, with_weekly_cap: 0 } }) },
+    ]) {
+      await page.route("**/api/maps", route => route.fulfill({ ...reply, contentType: "application/json" }));
+      await page.reload();
+      await page.waitForFunction(() => Boolean(document.querySelector("#mapAlert")?.textContent) || !document.querySelector("#mapBoardSection")?.hasAttribute("hidden"));
+      expect(await page.locator("#mapAlert").innerText()).toContain("not available");
+      expect(await page.locator("#mapBoardSection").isVisible()).toBe(false);
+      expect(await page.locator("#mapEmpty").isVisible()).toBe(false);
+      await page.unroute("**/api/maps");
+    }
+  } finally { await context.close(); }
+});
+
+async function keyboardFollow(page: Page, selector: string): Promise<void> {
+  const control = page.locator(selector);
+  expect(await control.isVisible()).toBe(true);
+  // Traverse the real tab order, including the story's skip links and fixed Copy ticket.
+  for (let step = 0; step < 50; step++) {
+    await page.keyboard.press("Tab");
+    if (await control.evaluate(n => n === document.activeElement)) break;
+  }
+  expect(await control.evaluate(n => {
+    const r = n.getBoundingClientRect(), s = getComputedStyle(n);
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return n === document.activeElement && s.outlineStyle !== "none" && parseFloat(s.outlineWidth) > 0 && r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight && (hit === n || n.contains(hit));
+  })).toBe(true);
+  await Promise.all([page.waitForNavigation({ waitUntil: "load", timeout: 3000 }), page.keyboard.press("Enter")]);
+}
+
+async function followExplanation(page: Page, capture = false): Promise<void> {
+  const unsafe: string[] = [];
+  const track = (request: import("playwright-core").Request) => { if (request.method() !== "GET" || /\/backstage\/|api\.typesafe\.ai|api\.anthropic\.com|api\.openai\.com/.test(request.url())) unsafe.push(request.method() + " " + request.url()); };
+  page.on("request", track);
+  try {
+    await keyboardFollow(page, "#tokenmaxGuide");
+    expect(new URL(page.url()).pathname + new URL(page.url()).hash).toBe("/guide/#tokenmax");
+    const explanation = page.locator("#tokenmax");
+    expect(await explanation.isVisible()).toBe(true);
+    const text = await explanation.innerText();
+    for (const meaning of ["TokenMax", "self-reported", "not collected", "labelled evidence", "optional"]) expect(text).toContain(meaning);
+    expect(await explanation.locator('a[href="/maps/"]').isVisible()).toBe(true);
+    const artifacts = process.env.JNJ_JOURNEY_ARTIFACTS;
+    if (artifacts && capture) { mkdirSync(artifacts, { recursive: true }); await page.screenshot({ path: join(artifacts, `guide-${page.viewportSize()?.width}.png`) }); }
+    await keyboardFollow(page, '#tokenmax a[href="/replay/?run=uc13-100"]');
+    expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe("/replay/?run=uc13-100");
+    await page.locator("#headline").filter({ hasText: /.+/ }).waitFor({ timeout: 3000 });
+    expect((await page.locator("#arms").innerText()).length).toBeGreaterThan(0);
+    const before = await page.locator("#counter").innerText();
+    await page.getByRole("button", { name: "Next case", exact: true }).click();
+    expect(await page.locator("#counter").innerText()).not.toBe(before);
+    expect(unsafe).toEqual([]);
+  } finally { page.off("request", track); }
+}
+
+test("[integration] #258 both origins navigate by keyboard to explanation and anonymous recorded sample at 390 and 1440", async () => {
+  for (const motion of ["reduce", "no-preference"] satisfies ("reduce" | "no-preference")[]) for (const width of [390, 1440]) for (const path of ["/maps/", "/tm/"]) {
+    const { page, context } = await open(`${origin}${path}`, width, 900, motion);
+    const unsafe: string[] = [];
+    await page.route("**/*", route => {
+      const req = route.request();
+      if (!req.url().startsWith(`${origin}/`)) return route.abort();
+      if (req.method() !== "GET" || new URL(req.url()).pathname.startsWith("/backstage")) { unsafe.push(req.method() + " " + req.url()); return route.abort(); }
+      return route.continue();
+    });
+    try {
+      const artifacts = process.env.JNJ_JOURNEY_ARTIFACTS;
+      if (artifacts && motion === "reduce") { mkdirSync(artifacts, { recursive: true }); await page.screenshot({ path: join(artifacts, `${path.slice(1, -1)}-${width}.png`) }); }
+      await followExplanation(page, true);
+      if (artifacts && motion === "reduce") await page.screenshot({ path: join(artifacts, `${path.slice(1, -1)}-replay-${width}.png`) });
+      expect(unsafe).toEqual([]);
+      expect(posts()).toHaveLength(0);
+      await page.goto(`${origin}/guide/#tokenmax`);
+      await keyboardFollow(page, '#tokenmax a[href="/maps/"]');
+      expect(new URL(page.url()).pathname).toBe("/maps/");
+      await page.locator("#mapBoardSection").waitFor();
+    } finally { await context.close(); }
+  }
+}, 60000);
+
+test("[integration] #258 navigation assertions reject self-loop, 404, unrelated, hidden/offscreen, absent focus, dead-end and mutating variants", async () => {
+  for (const variant of ["self", "404", "unrelated", "hidden", "offscreen", "no-focus", "dead-end", "mutation"]) {
+    const { page, context } = await open(`${origin}/maps/`);
+    page.setDefaultTimeout(2000);
+    try {
+      if (variant === "dead-end") await page.route("**/guide/", async route => route.fulfill({ contentType: "text/html", body: (await Bun.file(join(SITE, "guide/index.html")).text()).replace('href="/replay/?run=uc13-100"', 'href="/guide/#tokenmax"') }));
+      if (variant === "mutation") await page.route("**/guide/", async route => route.fulfill({ contentType: "text/html", body: (await Bun.file(join(SITE, "guide/index.html")).text()) + '<script>fetch("/api/maps",{method:"POST",body:"{}"})</script>' }));
+      if (["self", "404", "unrelated"].includes(variant)) await page.locator("#tokenmaxGuide").evaluate((n, href) => n.setAttribute("href", href), variant === "self" ? "/maps/" : variant === "404" ? "/missing/" : "/privacy/");
+      if (variant === "hidden") await page.locator("#tokenmaxGuide").evaluate(n => n.setAttribute("style", "display:none"));
+      if (variant === "offscreen") await page.locator("#tokenmaxGuide").evaluate(n => n.setAttribute("style", "position:fixed;left:-10000px"));
+      if (variant === "no-focus") await page.locator("#tokenmaxGuide").evaluate(n => n.setAttribute("style", "outline:none"));
+      let rejected = false;
+      try { await followExplanation(page); } catch { rejected = true; }
+      expect({ variant, rejected }).toEqual({ variant, rejected: true });
+    } finally { await context.close(); }
+  }
+}, 30000);
+
+test("[integration] #242 a stored share with an unreadable returned board retains its delete link and explains the display failure", async () => {
+  postReply = { status: 200, body: { id: "TM-00000000BEEF", delete: `/maps/#delete=TM-00000000BEEF.${"A".repeat(43)}`, board: {} } };
+  const { page, context } = await open(link());
+  try {
+    await page.locator("#mapShare").click();
+    await page.locator("#mapShared").waitFor();
+    expect(await page.locator("#mapStatus").innerText()).toContain("board could not be displayed");
+    expect(await page.locator("#mapDeleteLink a").getAttribute("href")).toContain("#delete=TM-00000000BEEF");
+    expect(await page.locator("#mapBoardSection").isVisible()).toBe(false);
+    expect(posts()).toHaveLength(1);
+  } finally { await context.close(); }
+});

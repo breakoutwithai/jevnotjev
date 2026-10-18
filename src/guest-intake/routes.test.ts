@@ -213,7 +213,7 @@ describe("status", () => {
     const { handler, path } = setup();
     const key = "G".repeat(43);
     const store = new QuestionStore(path);
-    const guest = store.submit("guest:tok_a", { email: null, question: "Guest question", replyConsent: true, marketingConsent: false, requestKey: key }, Date.now());
+    const guest = store.submit("guest:gtk_00000000000a", { email: null, question: "Guest question", replyConsent: true, marketingConsent: false, requestKey: key }, Date.now());
     if (guest.status !== "issued") throw new Error("guest row not stored");
     const res = await handler(...post("/api/questions/status", { code: `${guest.id}.${key}` }));
     expect([res.status, (await json(res)).code]).toEqual([404, "not-found"]);

@@ -40,6 +40,25 @@ export interface QuestionRow {
   readonly key_tag: string;
 }
 
+/** A guest's own row in a list: never the question, an email or events. */
+export interface GuestListEntry {
+  readonly id: string;
+  readonly state: QuestionState;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+/** The longest list a guest gets, newest first. */
+export const GUEST_LIST_MAX = 50;
+
+/** `guest:` plus a GuestTokenStore id (tokens.ts): the only guest scope a row can carry. */
+const GUEST_SCOPE = /^guest:gtk_[a-f0-9]{12}$/;
+
+function guestScope(scope: string): string {
+  if (!GUEST_SCOPE.test(scope)) throw new Error("unknown scope");
+  return scope;
+}
+
 export interface QueueEntry {
   readonly id: string;
   readonly created_at: string;
@@ -97,7 +116,7 @@ export class QuestionStore {
 
   /** Lookup order, in one immediate transaction: tombstone, same-scope key, write quota, cap, insert. */
   submit(scope: string, submission: Submission, now: number): SubmitResult {
-    if (scope !== "public" && !/^guest:tok_[A-Za-z0-9]{1,32}$/.test(scope)) throw new Error("unknown scope");
+    if (scope !== "public") guestScope(scope);
     const tag = keyTag(scope, submission.requestKey);
     const hash = keyHash(submission.requestKey);
     const request = requestHash(scope, submission.email, submission.question, submission.replyConsent, submission.marketingConsent);
@@ -142,6 +161,20 @@ export class QuestionStore {
     const stored = Buffer.from(row?.key_hash ?? "0".repeat(64), "hex");
     if (!timingSafeEqual(stored, presented) || !row) return null;
     return { id: row.id, state: row.state, updated_at: row.updated_at, response: row.response, response_source: row.response_source };
+  }
+
+  /** One guest's own rows, newest first, at most GUEST_LIST_MAX. */
+  guestList(scope: string): GuestListEntry[] {
+    return this.#db
+      .query<GuestListEntry, [string, number]>("SELECT id, state, created_at, updated_at FROM questions WHERE scope = ? ORDER BY created_at DESC, id DESC LIMIT ?")
+      .all(guestScope(scope), GUEST_LIST_MAX);
+  }
+
+  /** One of the guest's own rows; another scope's row, a deleted row and an unknown id all read as null. */
+  guestRead(scope: string, id: string): StatusView | null {
+    return this.#db
+      .query<StatusView, [string, string]>("SELECT id, state, updated_at, response, response_source FROM questions WHERE id = ? AND scope = ?")
+      .get(id, guestScope(scope));
   }
 
   list(): QueueEntry[] {

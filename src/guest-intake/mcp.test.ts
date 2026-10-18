@@ -159,7 +159,7 @@ function contractReceiver(token: string): ContractReceiver {
       const questions = [...rows.values()].reverse().slice(0, 50).map((row) => ({ id: row.id, state: row.state, created_at: row.created_at, updated_at: row.updated_at }));
       return Response.json({ questions });
     }
-    const one = /^\/api\/v1\/guest\/questions\/(Q-[0-9a-f]{12})$/.exec(url.pathname);
+    const one = /^\/api\/v1\/guest\/questions\/(Q-[0-9A-F]{12})$/.exec(url.pathname);
     if (one !== null && req.method === "GET") {
       const row = rows.get(one[1] ?? "");
       if (row === undefined) return code(404, "not-found");
@@ -495,6 +495,20 @@ describe("guest MCP adapter boundaries", () => {
       const laxClient = await inProcess(first.origin, { fetch: lax });
       expect(errorOf(await call(laxClient, "get_my_question", { id: "Q-000000000001" }))).toEqual({ code: "redirect-refused", status });
     }
+  });
+
+  test("[unit] GI-18-ID the adapter takes the server's id shape, Q- and 12 uppercase hex characters, and refuses lowercase", async () => {
+    const id = "Q-0A1B2C3D4E5F";
+    const served: GuestFetch = async (url, init) => {
+      if (init.method === "POST") return Response.json({ id, state: "pending_review", replay: false });
+      if (url.pathname.endsWith(id)) return Response.json({ id, state: "answered", updated_at: "2026-10-18T10:00:00.000Z", response: "Reviewed.", response_source: "human_reviewed" });
+      return Response.json({ questions: [{ id, state: "answered", created_at: "2026-10-18T09:00:00.000Z", updated_at: "2026-10-18T10:00:00.000Z" }] });
+    };
+    const client = await inProcess("http://127.0.0.1:9", { fetch: served });
+    expect((await call(client, "submit_question", SUBMIT)).body).toEqual({ id, state: "pending_review", replay: false });
+    expect(field((await call(client, "get_my_question", { id })).body, "response")).toBe("Reviewed.");
+    expect(field((await call(client, "list_my_questions")).body, "questions", 0, "id")).toBe(id);
+    expect((await call(client, "get_my_question", { id: id.toLowerCase() })).isError).toBe(true);
   });
 
   test("[unit] GI-12 every request goes to the injected origin's guest paths with redirect error, and nowhere else", async () => {

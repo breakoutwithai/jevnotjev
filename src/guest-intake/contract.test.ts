@@ -30,7 +30,7 @@ describe("public submission contract", () => {
       [{ ...valid, request_key: `${KEY.slice(0, 42)}=` }, "bad-request-key"],
       [{ ...valid, request_key: undefined }, "bad-request-key"],
       [{ ...valid, website: "https://shop.example" }, "unknown-field"],
-      [{ ...valid, scope: "guest:tok_1" }, "unknown-field"],
+      [{ ...valid, scope: "guest:gtk_000000000001" }, "unknown-field"],
     ];
     for (const [body, reason] of cases) expect([reason, checkPublicSubmission(body)]).toEqual([reason, { ok: false, reason }]);
   });
@@ -54,7 +54,7 @@ describe("public submission contract", () => {
   test("[unit] GI-4b the request hash covers scope, email, question and both consents", () => {
     const base = requestHash("public", "a@example.test", "q", true, false);
     expect(requestHash("public", "a@example.test", "q", true, false)).toBe(base);
-    expect(requestHash("guest:tok_a", "a@example.test", "q", true, false)).not.toBe(base);
+    expect(requestHash("guest:gtk_00000000000a", "a@example.test", "q", true, false)).not.toBe(base);
     expect(requestHash("public", "b@example.test", "q", true, false)).not.toBe(base);
     expect(requestHash("public", "a@example.test", "q2", true, false)).not.toBe(base);
     expect(requestHash("public", "a@example.test", "q", true, true)).not.toBe(base);
@@ -63,7 +63,7 @@ describe("public submission contract", () => {
 
   test("[unit] GI-10a the tombstone tag differs from the key hash and from another scope's tag", () => {
     expect(keyTag("public", KEY)).not.toBe(keyHash(KEY));
-    expect(keyTag("public", KEY)).not.toBe(keyTag("guest:tok_a", KEY));
+    expect(keyTag("public", KEY)).not.toBe(keyTag("guest:gtk_00000000000a", KEY));
     expect(keyTag("public", KEY)).toMatch(/^[a-f0-9]{64}$/);
     expect(keyHash(KEY)).toMatch(/^[a-f0-9]{64}$/);
   });

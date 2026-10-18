@@ -115,7 +115,7 @@ function isRedirectError(error: unknown): boolean {
   return error instanceof Error && /redirect/i.test(`${error.name} ${error.message} ${String(Reflect.get(error, "code") ?? "")}`);
 }
 
-const ID = z.string().regex(/^Q-[0-9a-f]{12}$/, "id is Q- followed by 12 lowercase hex characters");
+const ID = z.string().regex(/^Q-[0-9A-F]{12}$/, "id is Q- followed by 12 uppercase hex characters");
 const STATE = z.enum(["pending_review", "needs_info", "approved", "declined", "answered"]);
 const STAMP = z.string().min(1).max(64);
 const SUBMITTED = z.object({ id: ID, state: STATE, replay: z.boolean() });
@@ -251,7 +251,7 @@ export function createGuestMcp(opts: GuestMcpOptions): McpServer {
     "get_my_question",
     {
       description: "The state of one of your questions and, once answered, the reviewed response: { id, state, updated_at, response, response_source }. Another id is not-found.",
-      inputSchema: z.strictObject({ id: ID.describe("The id submit_question returned, e.g. Q-0123456789ab") }),
+      inputSchema: z.strictObject({ id: ID.describe("The id submit_question returned, e.g. Q-0123456789AB") }),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (a): Promise<ToolResult> =>

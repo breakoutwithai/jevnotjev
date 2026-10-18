@@ -43,10 +43,10 @@ describe("idempotency", () => {
   test("[unit] GI-4c one key in two scopes is two unrelated rows", () => {
     const { store } = fresh();
     const pub = issuedId(store.submit("public", base, NOW));
-    const guest = issuedId(store.submit("guest:tok_a", { ...base, email: null }, NOW));
+    const guest = issuedId(store.submit("guest:gtk_00000000000a", { ...base, email: null }, NOW));
     expect(guest).not.toBe(pub);
-    expect(store.submit("guest:tok_a", { ...base, email: null }, NOW)).toEqual({ status: "replay", id: guest, state: "pending_review" });
-    expect(store.submit("guest:tok_b", { ...base, email: null, question: "Different" }, NOW).status).toBe("issued");
+    expect(store.submit("guest:gtk_00000000000a", { ...base, email: null }, NOW)).toEqual({ status: "replay", id: guest, state: "pending_review" });
+    expect(store.submit("guest:gtk_00000000000b", { ...base, email: null, question: "Different" }, NOW).status).toBe("issued");
     expect(store.counts().questions).toBe(3);
   });
 });
@@ -63,10 +63,10 @@ describe("write quotas and the cap", () => {
 
   test("[unit] GI-5b the guest quota counts new rows per token per UTC day", () => {
     const { store } = fresh({ guestNewPerDay: 1 });
-    expect(store.submit("guest:tok_a", { ...base, email: null }, NOW).status).toBe("issued");
-    expect(store.submit("guest:tok_a", { ...base, email: null, requestKey: OTHER_KEY }, NOW).status).toBe("capacity");
-    expect(store.submit("guest:tok_b", { ...base, email: null, requestKey: OTHER_KEY }, NOW).status).toBe("issued");
-    expect(store.submit("guest:tok_a", { ...base, email: null, requestKey: OTHER_KEY }, Date.parse("2026-10-19T00:00:00.000Z")).status).toBe("issued");
+    expect(store.submit("guest:gtk_00000000000a", { ...base, email: null }, NOW).status).toBe("issued");
+    expect(store.submit("guest:gtk_00000000000a", { ...base, email: null, requestKey: OTHER_KEY }, NOW).status).toBe("capacity");
+    expect(store.submit("guest:gtk_00000000000b", { ...base, email: null, requestKey: OTHER_KEY }, NOW).status).toBe("issued");
+    expect(store.submit("guest:gtk_00000000000a", { ...base, email: null, requestKey: OTHER_KEY }, Date.parse("2026-10-19T00:00:00.000Z")).status).toBe("issued");
   });
 
   test("[unit] GI-5c the row-plus-tombstone cap refuses admission and never refuses a delete", () => {
@@ -192,7 +192,7 @@ describe("deletion", () => {
   test("[unit] GI-10a no column in any question table ever holds the raw request key", () => {
     const { store, path } = fresh();
     store.submit("public", base, NOW);
-    store.submit("guest:tok_a", { ...base, email: null }, NOW);
+    store.submit("guest:gtk_00000000000a", { ...base, email: null }, NOW);
     const db = new Database(path, { readonly: true });
     const dump = JSON.stringify(["questions", "question_events", "question_tombstones"].map((t) => db.query(`SELECT * FROM ${t}`).all()));
     expect(dump).not.toContain(KEY);
@@ -219,7 +219,7 @@ describe("deletion", () => {
     expect(store.submit("public", base, NOW).status).toBe("deleted");
     expect(store.submit("public", { ...base, question: "Changed after delete" }, NOW).status).toBe("deleted");
     expect(store.list()).toEqual([]);
-    expect(store.submit("guest:tok_a", { ...base, email: null }, NOW).status).toBe("issued");
+    expect(store.submit("guest:gtk_00000000000a", { ...base, email: null }, NOW).status).toBe("issued");
   });
 
   test("[unit] GI-10d purge before a cutoff deletes older rows only, and a dry run deletes nothing", () => {
@@ -238,11 +238,55 @@ describe("public status scope", () => {
   test("[unit] GI-8 status reads public rows with the matching key only; a guest row is never readable by code", () => {
     const { store } = fresh();
     const pub = issuedId(store.submit("public", base, NOW));
-    const guest = issuedId(store.submit("guest:tok_a", { ...base, email: null }, NOW));
+    const guest = issuedId(store.submit("guest:gtk_00000000000a", { ...base, email: null }, NOW));
     expect(store.publicStatus(pub, KEY)?.state).toBe("pending_review");
     expect(store.publicStatus(pub, OTHER_KEY)).toBeNull();
     expect(store.publicStatus(guest, KEY)).toBeNull();
     expect(Object.keys(store.publicStatus(pub, KEY) ?? {}).sort()).toEqual(["id", "response", "response_source", "state", "updated_at"]);
+  });
+});
+
+describe("guest reads", () => {
+  const A = "guest:gtk_00000000000a";
+  const B = "guest:gtk_00000000000b";
+
+  test("[unit] GI-16 a guest scope is guest: plus a GuestTokenStore id; any other scope is refused before a write", () => {
+    const { store } = fresh();
+    expect(store.submit(A, { ...base, email: null }, NOW).status).toBe("issued");
+    for (const scope of ["guest:tok_a", "guest:gtk_00000000000A", "guest:gtk_0000000000a", "guest:", "admin", "guest:gtk_00000000000a "]) {
+      expect(() => store.submit(scope, { ...base, email: null, requestKey: OTHER_KEY }, NOW)).toThrow("unknown scope");
+      expect(() => store.guestList(scope)).toThrow("unknown scope");
+      expect(() => store.guestRead(scope, "Q-000000000000")).toThrow("unknown scope");
+    }
+    expect(() => store.guestList("public")).toThrow("unknown scope");
+    expect(store.counts().questions).toBe(1);
+  });
+
+  test("[unit] GI-16 a guest lists and reads only its own rows, newest first, without question text, email or events", () => {
+    const { store } = fresh();
+    const first = issuedId(store.submit(A, { ...base, email: null }, NOW));
+    const second = issuedId(store.submit(A, { ...base, email: null, requestKey: OTHER_KEY }, NOW + 1000));
+    const theirs = issuedId(store.submit(B, { ...base, email: null }, NOW));
+    const pub = issuedId(store.submit("public", base, NOW));
+    expect(store.guestList(A).map((r) => r.id)).toEqual([second, first]);
+    expect(store.guestList(B).map((r) => r.id)).toEqual([theirs]);
+    for (const row of store.guestList(A)) expect(Object.keys(row).sort()).toEqual(["created_at", "id", "state", "updated_at"]);
+    expect(store.guestRead(A, first)).toEqual({ id: first, state: "pending_review", updated_at: new Date(NOW).toISOString(), response: null, response_source: null });
+    expect(store.guestRead(A, theirs)).toBeNull();
+    expect(store.guestRead(A, pub)).toBeNull();
+    expect(store.guestRead(A, "Q-FFFFFFFFFFFF")).toBeNull();
+    expect(store.transition(first, "approved", 1, "operator:cli", NOW + 2000).ok).toBe(true);
+    expect(store.answer(first, 2, "operator:cli", NOW + 3000, "Reviewed reply.", "human_reviewed").ok).toBe(true);
+    expect(store.guestRead(A, first)).toMatchObject({ state: "answered", response: "Reviewed reply.", response_source: "human_reviewed" });
+    expect(store.remove(first, "operator", NOW + 4000)).toBe(true);
+    expect(store.guestRead(A, first)).toBeNull();
+    expect(store.guestList(A).map((r) => r.id)).toEqual([second]);
+  });
+
+  test("[unit] GI-16 a guest list is capped at 50 rows", () => {
+    const { store } = fresh({ guestNewPerDay: 60 });
+    for (let i = 0; i < 55; i++) issuedId(store.submit(A, { ...base, email: null, requestKey: `${String(i).padStart(3, "0")}${"k".repeat(40)}` }, NOW + i));
+    expect(store.guestList(A)).toHaveLength(50);
   });
 });
 

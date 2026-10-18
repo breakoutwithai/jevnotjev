@@ -592,7 +592,8 @@ async function patternProblems(page: Page): Promise<string[]> {
       else if (svg.querySelector(`defs pattern#${id}`) === null) problems.push(`pattern ${id} is not defined in the chart`);
     }
     if (new Set(ids).size !== ids.length) problems.push("two job kinds share a pattern");
-    for (const [label, index] of [["easy job", 0], ["ordinary job", 1], ["hard job", 2]] as const) {
+    const kinds: [string, number][] = [["easy job", 0], ["ordinary job", 1], ["hard job", 2]];
+    for (const [label, index] of kinds) {
       const text = Array.from(svg.querySelectorAll("text")).find((t) => t.textContent === label);
       let swatch: Element | null = text?.previousElementSibling ?? null;
       while (swatch !== null && swatch.tagName !== "rect") swatch = swatch.previousElementSibling;
@@ -652,7 +653,8 @@ const dimmedFailures = (options: Dimmed[]): string[] => options.flatMap((o) => {
 });
 
 test("[integration] E21 every dimmed option, unlit ticket and dim scene 2 answer is 4.5:1 or better on its blended colours", async () => {
-  for (const [width, height, wide] of [[390, 844, false], [1440, 900, true]] as const) {
+  const sizes: [number, number, boolean][] = [[390, 844, false], [1440, 900, true]];
+  for (const [width, height, wide] of sizes) {
     const page = await pageAt(width, height, "reduce");
     try {
       const options = await dimmedOptions(page, wide);

@@ -15,6 +15,7 @@ set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 REPO_ROOT="$(pwd)"
+source "${REPO_ROOT}/.deploy/tests/git-fixture.sh" || exit 1
 SHIP="${REPO_ROOT}/.deploy/ship.sh"
 REAL_GIT="$(command -v git)"
 
@@ -131,7 +132,7 @@ case "\${1:-}" in
         # verify can see the release tag there.
         printf 'git %s\n' "\$*" >> "\${FAKE_STATE}/push.log"
         [ "\${STUB_RC_PUSH:-0}" = 0 ] || exit "\${STUB_RC_PUSH}"
-        exec "${REAL_GIT}" "\$@" >/dev/null 2>&1 ;;
+        exec "${REAL_GIT}" -C "\$PWD" "\$@" >/dev/null 2>&1 ;;
     diff) [ -z "\${FAKE_GIT_DIFF_FAIL:-}" ] || exit 128 ;;
     log) [ -z "\${FAKE_GIT_LOG_FAIL:-}" ] || exit 128 ;;
     status)
@@ -146,7 +147,7 @@ case "\${1:-}" in
         # The race: a remote tag created after this fetch is not seen locally.
         [ -z "\${FAKE_GIT_TAGFETCH_NOOP:-}" ] || exit 0 ;; esac ;;
 esac
-exec "${REAL_GIT}" "\$@"
+exec "${REAL_GIT}" -C "\$PWD" "\$@"
 EOF
 REAL_BUN="$(command -v bun)"
 cat > "${FAKEBIN}/bun" <<EOF
@@ -169,7 +170,7 @@ case "\${1:-} \${2:-}" in
         echo "\${FAKE_GATE_LINE:-gate: PASS files=3 tests=42}"
         # The checkout changing while the gate runs: a new commit, or a tracked edit.
         if [ -n "\${FAKE_GATE_ADVANCES_HEAD:-}" ]; then
-            echo moved >> README && "${REAL_GIT}" commit -qam "moved during the gate" >/dev/null 2>&1
+            echo moved >> README && "${REAL_GIT}" -C "\$PWD" commit -qam "moved during the gate" >/dev/null 2>&1
         fi
         [ -z "\${FAKE_GATE_DIRTIES_TREE:-}" ] || echo dirty >> README
         exit "\${FAKE_BUN_GATE_RC:-0}" ;;
@@ -198,13 +199,13 @@ make_fixture() {
     FIX="$(mktemp -d)"
     FAKE_STATE="${FIX}/state"; mkdir -p "$FAKE_STATE"; export FAKE_STATE
     WORK="${FIX}/work"
-    "$REAL_GIT" init -q --bare --initial-branch=main "${FIX}/origin.git"
-    "$REAL_GIT" init -q --initial-branch=main "$WORK"
+    fixture_init "$FIX" "${FIX}/origin.git" --bare --initial-branch=main || exit 1
+    fixture_init "$FIX" "$WORK" --initial-branch=main || exit 1
     (
         cd "$WORK" || exit 1
-        "$REAL_GIT" config user.name "Fixture Actor"
-        "$REAL_GIT" config commit.gpgsign false
-        "$REAL_GIT" config tag.gpgsign false
+        "$REAL_GIT" -C "$WORK" config user.name "Fixture Actor"
+        "$REAL_GIT" -C "$WORK" config commit.gpgsign false
+        "$REAL_GIT" -C "$WORK" config tag.gpgsign false
         mkdir -p site/backstage src/backstage src/core
         echo index > site/index.html; echo app > site/backstage/app.js; echo readme > README
         # Backstage sources: main.ts imports src/core/verdict.ts; src/other.ts is outside the build.
@@ -214,15 +215,16 @@ make_fixture() {
         printf '%s\n' 'export const other = 1;' > src/other.ts
         # The real build script, committed: drift reads its entrypoints from the archived revision.
         mkdir -p scripts; cp "${REPO_ROOT}/scripts/backstage-build.ts" scripts/
-        "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "chore: base (#10)"
+        "$REAL_GIT" -C "$WORK" add -A && "$REAL_GIT" -C "$WORK" commit -qm "chore: base (#10)"
         mkdir -p site/label; echo label > site/label/page.html
-        "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "feat: label page (#11)"
+        "$REAL_GIT" -C "$WORK" add -A && "$REAL_GIT" -C "$WORK" commit -qm "feat: label page (#11)"
         echo readme2 > README
-        "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "docs: readme (#12)"
-        "$REAL_GIT" remote add origin "${FIX}/origin.git"
-        "$REAL_GIT" push -q origin main
-        "$REAL_GIT" fetch -q origin
-        "$REAL_GIT" branch -q --set-upstream-to=origin/main main
+        "$REAL_GIT" -C "$WORK" add -A && "$REAL_GIT" -C "$WORK" commit -qm "docs: readme (#12)"
+        "$REAL_GIT" -C "$WORK" remote add origin "${FIX}/origin.git"
+        "$REAL_GIT" -C "$WORK" push -q origin main
+        "$REAL_GIT" -C "$WORK" fetch -q origin
+        "$REAL_GIT" -C "$WORK" branch -q --set-upstream-to=origin/main main
+        mkdir -p .git/info
         printf '%s\n' .deploy/ >> .git/info/exclude
     ) >/dev/null 2>&1
     C0="$("$REAL_GIT" -C "$WORK" rev-parse HEAD~2)"
@@ -275,7 +277,7 @@ advance_main() {
     (
         cd "$WORK" || exit 1
         mkdir -p "$(dirname "$1")"; printf '%s\n' "$2" > "$1"
-        "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "$3" && "$REAL_GIT" push -q origin main
+        "$REAL_GIT" -C "$WORK" add -A && "$REAL_GIT" -C "$WORK" commit -qm "$3" && "$REAL_GIT" -C "$WORK" push -q origin main
     ) >/dev/null 2>&1
     "$REAL_GIT" -C "$WORK" rev-parse HEAD
 }
@@ -769,16 +771,16 @@ drop_fixture
 make_fixture
 (
     cd "$WORK" || exit 1
-    "$REAL_GIT" checkout -q -b side
+    "$REAL_GIT" -C "$WORK" checkout -q -b side
     awk '{print} /\["src\/backstage\/server.ts", "bun", "", "server.js"\],/ {print "  [\"src/backstage/extra.ts\", \"bun\", \"\", \"extra.js\"],"}' \
         scripts/backstage-build.ts > scripts/b.tmp && mv scripts/b.tmp scripts/backstage-build.ts
     printf '%s\n' 'import { dep } from "../core/extra-dep.ts";' 'export const extra = dep;' > src/backstage/extra.ts
     printf '%s\n' 'export const dep = 1;' > src/core/extra-dep.ts
-    "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "feat: third entrypoint (#15)"
+    "$REAL_GIT" -C "$WORK" add -A && "$REAL_GIT" -C "$WORK" commit -qm "feat: third entrypoint (#15)"
     printf '%s\n' 'export const dep = 2;' > src/core/extra-dep.ts
-    "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "fix: extra dep (#16)"
-    "$REAL_GIT" push -q origin side:main
-    "$REAL_GIT" checkout -q main
+    "$REAL_GIT" -C "$WORK" add -A && "$REAL_GIT" -C "$WORK" commit -qm "fix: extra dep (#16)"
+    "$REAL_GIT" -C "$WORK" push -q origin side:main
+    "$REAL_GIT" -C "$WORK" checkout -q main
 ) >/dev/null 2>&1
 A="$("$REAL_GIT" -C "$WORK" rev-parse side~1)"
 grep -c 'src/backstage/extra.ts' "${WORK}/scripts/backstage-build.ts" >/dev/null && echo "    (fixture error: local script has the third entrypoint)"
@@ -957,8 +959,8 @@ drop_fixture
 make_fixture
 v="v${TODAY}.1"
 # Another run publishes the same name on C0 after this run's tag fetch (FAKE_GIT_TAGFETCH_NOOP).
-( cd "$WORK" && "$REAL_GIT" tag -a "$v" -m other "$C0" && "$REAL_GIT" push -q origin "refs/tags/${v}" \
-  && "$REAL_GIT" tag -d "$v" ) >/dev/null 2>&1
+( cd "$WORK" && "$REAL_GIT" -C "$WORK" tag -a "$v" -m other "$C0" && "$REAL_GIT" -C "$WORK" push -q origin "refs/tags/${v}" \
+  && "$REAL_GIT" -C "$WORK" tag -d "$v" ) >/dev/null 2>&1
 out="$(FAKE_GIT_TAGFETCH_NOOP=1 ship 2>&1)"; rc=$?
 [[ $rc -eq 5 && -z "$(ghcalls)" && ! -s "${FAKE_STATE}/gh-view.log" && -z "$(pushes)" \
    && "$out" == *"$C0"* && "$out" == *"$C2"* ]] \
@@ -968,8 +970,8 @@ drop_fixture
 
 make_fixture
 v="v${TODAY}.1"
-( cd "$WORK" && "$REAL_GIT" tag -a "$v" -m other "$C2" && "$REAL_GIT" push -q origin "refs/tags/${v}" \
-  && "$REAL_GIT" tag -d "$v" ) >/dev/null 2>&1
+( cd "$WORK" && "$REAL_GIT" -C "$WORK" tag -a "$v" -m other "$C2" && "$REAL_GIT" -C "$WORK" push -q origin "refs/tags/${v}" \
+  && "$REAL_GIT" -C "$WORK" tag -d "$v" ) >/dev/null 2>&1
 out="$(FAKE_GIT_TAGFETCH_NOOP=1 ship 2>&1)"; rc=$?
 [[ $rc -eq 5 && -z "$(ghcalls)" && -z "$(pushes)" ]] \
     && ok "P1 a remote tag on S but a different tag object than the local one: exit 5, no gh call" \

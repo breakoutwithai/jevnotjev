@@ -6,6 +6,7 @@
 # throwaway git repositories. Hermetic: no ssh, no network (origin is a local directory).
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
+source .deploy/tests/git-fixture.sh || exit 1
 pass=0; fail=0
 ok()   { echo "  ok   - $1"; pass=$((pass+1)); }
 nope() { echo "  FAIL - $1"; fail=$((fail+1)); }
@@ -26,9 +27,9 @@ fi
 
 make_upstream() {
     # $1 = dir. Two commits on main.
-    git init -q --initial-branch=main --template= "$1"
-    ( cd "$1" && echo one > f && git add f && git -c commit.gpgsign=false commit -qm one \
-      && echo two > f && git add f && git -c commit.gpgsign=false commit -qm two )
+    fixture_init "$(dirname "$1")" "$1" --initial-branch=main || exit 1
+    ( cd "$1" && echo one > f && git -C "$PWD" add f && git -C "$PWD" -c commit.gpgsign=false commit -qm one \
+      && echo two > f && git -C "$PWD" add f && git -C "$PWD" -c commit.gpgsign=false commit -qm two )
 }
 
 run_guard_at() {
@@ -36,21 +37,21 @@ run_guard_at() {
     tmp="$(mktemp -d)"
     (
         cd "$tmp" || exit 1
-        make_upstream upstream >/dev/null 2>&1
-        git clone -q upstream work 2>/dev/null
+        make_upstream "$tmp/upstream" >/dev/null 2>&1
+        fixture_clone "$tmp" "$tmp/upstream" "$tmp/work" 2>/dev/null || exit 1
         cd work || exit 1
         case "$checkout" in
-            at-main) git checkout -q --detach origin/main ;;
-            older)   git checkout -q --detach origin/main~1 ;;
-            feature) git checkout -q -b feature-x origin/main ;;
+            at-main) git -C "$PWD" checkout -q --detach origin/main ;;
+            older)   git -C "$PWD" checkout -q --detach origin/main~1 ;;
+            feature) git -C "$PWD" checkout -q -b feature-x origin/main ;;
             feature-ahead)
-                git checkout -q -b feature-x origin/main && echo ahead > g && git add g \
-                    && git -c commit.gpgsign=false commit -qm ahead ;;
-            feature-older) git checkout -q -b feature-x origin/main~1 ;;
+                git -C "$PWD" checkout -q -b feature-x origin/main && echo ahead > g && git -C "$PWD" add g \
+                    && git -C "$PWD" -c commit.gpgsign=false commit -qm ahead ;;
+            feature-older) git -C "$PWD" checkout -q -b feature-x origin/main~1 ;;
         esac
-        BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-        SHA="$(git rev-parse HEAD)"
-        SHORT_SHA="$(git rev-parse --short HEAD)"
+        BRANCH="$(git -C "$PWD" rev-parse --abbrev-ref HEAD)"
+        SHA="$(git -C "$PWD" rev-parse HEAD)"
+        SHORT_SHA="$(git -C "$PWD" rev-parse --short HEAD)"
         ALLOWED_BRANCH=main
         log_info() { :; }
         eval "$guard_block"
@@ -101,12 +102,12 @@ dry_run_on_branch() {
     tmp="$(mktemp -d)"
     (
         cd "$tmp" || exit 1
-        make_upstream upstream >/dev/null 2>&1
-        git clone -q upstream work 2>/dev/null
+        make_upstream "$tmp/upstream" >/dev/null 2>&1
+        fixture_clone "$tmp" "$tmp/upstream" "$tmp/work" 2>/dev/null || exit 1
         cd work || exit 1
-        git checkout -q -b feature-y
+        git -C "$PWD" checkout -q -b feature-y
         if [[ "$1" == ahead ]]; then
-            echo ahead > g && git add g && git -c commit.gpgsign=false commit -qm ahead
+            echo ahead > g && git -C "$PWD" add g && git -C "$PWD" -c commit.gpgsign=false commit -qm ahead
         fi
     ) >/dev/null 2>&1
     cp -R .deploy "$tmp/work/.deploy"
@@ -138,7 +139,7 @@ source .deploy/lib.sh
 setup_origin_fixture() {
     ORIGIN_DIR="$(mktemp -d)"; CLONE_DIR="$(mktemp -d)"
     make_upstream "$ORIGIN_DIR/r" >/dev/null 2>&1
-    git clone -q "$ORIGIN_DIR/r" "$CLONE_DIR/w" 2>/dev/null
+    fixture_clone "$CLONE_DIR" "$ORIGIN_DIR/r" "$CLONE_DIR/w" 2>/dev/null || exit 1
     CLONE_DIR="$CLONE_DIR/w"
 }
 teardown_origin_fixture() { rm -rf "${ORIGIN_DIR:-/nonexistent}" "$(dirname "${CLONE_DIR:-/nonexistent/x}")"; }
@@ -154,7 +155,7 @@ fi
 teardown_origin_fixture
 
 setup_origin_fixture
-(cd "$CLONE_DIR" && echo three > g && git add g && git -c commit.gpgsign=false commit -qm three) >/dev/null 2>&1
+(cd "$CLONE_DIR" && echo three > g && git -C "$PWD" add g && git -C "$PWD" -c commit.gpgsign=false commit -qm three) >/dev/null 2>&1
 sha="$(git -C "$CLONE_DIR" rev-parse HEAD)"
 if (cd "$CLONE_DIR" && verify_head_is_remote_main "$sha" main main false >/dev/null 2>&1); then
     nope "HEAD ahead of origin/main but verify_head_is_remote_main returned success"
@@ -184,7 +185,7 @@ fi
 teardown_origin_fixture
 
 setup_origin_fixture
-(cd "$CLONE_DIR" && git checkout -q -b hotfix && echo four > h && git add h && git -c commit.gpgsign=false commit -qm four) >/dev/null 2>&1
+(cd "$CLONE_DIR" && git -C "$PWD" checkout -q -b hotfix && echo four > h && git -C "$PWD" add h && git -C "$PWD" -c commit.gpgsign=false commit -qm four) >/dev/null 2>&1
 sha="$(git -C "$CLONE_DIR" rev-parse HEAD)"
 if (cd "$CLONE_DIR" && verify_head_is_remote_main "$sha" hotfix main false >/dev/null 2>&1); then
     nope "DEPLOY_ALLOW_BRANCH path accepted an unpushed commit"

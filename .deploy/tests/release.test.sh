@@ -11,6 +11,7 @@ set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 REPO_ROOT="$(pwd)"
+source "${REPO_ROOT}/.deploy/tests/git-fixture.sh" || exit 1
 D=".deploy/deploy.sh"
 L=".deploy/lib.sh"
 
@@ -215,13 +216,14 @@ tmp="$(mktemp -d)"
 (
     export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
     export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
-    cd "$tmp" && git init -q --initial-branch=main --template= r && cd r
+    fixture_init "$tmp" "$tmp/r" --initial-branch=main || exit 1
+    cd "$tmp/r" || exit 1
     mkdir -p site/img && echo i > site/index.html && echo d > site/data.js && echo p > site/img/og.png
     echo secret > .env && echo readme > README.md
-    git add site README.md && git -c commit.gpgsign=false commit -qm s
+    git -C "$tmp/r" add site README.md && git -C "$tmp/r" -c commit.gpgsign=false commit -qm s
     echo stowaway > site/untracked.html
-    manifest="$(git ls-files -- site/ | sed 's|^site/||' | LC_ALL=C sort)"
-    archive="$(git archive --format=tar HEAD:site | tar -tf - | grep -v '/$' | LC_ALL=C sort)"
+    manifest="$(git -C "$tmp/r" ls-files -- site/ | sed 's|^site/||' | LC_ALL=C sort)"
+    archive="$(git -C "$tmp/r" archive --format=tar HEAD:site | tar -tf - | grep -v '/$' | LC_ALL=C sort)"
     printf 'M=%s\nA=%s\n' "$(echo $manifest)" "$(echo $archive)"
 ) > "$tmp/out" 2>&1
 m="$(sed -n 's/^M=//p' "$tmp/out")"; a="$(sed -n 's/^A=//p' "$tmp/out")"
@@ -231,8 +233,8 @@ rm -rf "$tmp"
     || nope "manifest '${m}' vs archive '${a}'"
 
 # The same extraction deploy.sh uses must hold for THIS repo's committed site/.
-m="$(git ls-files -- site/ | sed 's|^site/||' | LC_ALL=C sort | tr '\n' ' ')"
-a="$(git archive --format=tar HEAD:site 2>/dev/null | tar -tf - | grep -v '/$' | LC_ALL=C sort | tr '\n' ' ')"
+m="$(git -C "$REPO_ROOT" ls-files -- site/ | sed 's|^site/||' | LC_ALL=C sort | tr '\n' ' ')"
+a="$(git -C "$REPO_ROOT" archive --format=tar HEAD:site 2>/dev/null | tar -tf - | grep -v '/$' | LC_ALL=C sort | tr '\n' ' ')"
 [[ -n "$m" && "$m" == "$a" && "$m" == *"index.html"* ]] \
     && ok "this repo: HEAD:site archive matches git ls-files site/ (${m% })" \
     || nope "this repo: manifest '${m}' vs archive '${a}'"

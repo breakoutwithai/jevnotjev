@@ -8,7 +8,7 @@
 // production entrypoint keeps its fixed origin: the loopback origin reaches createGuestMcp only through a generated
 // temporary shim, and a separate check runs the production entrypoint itself with a recording fetch stub.
 //
-// Every server and adapter process is started with a --preload trap that records any fetch to a non-loopback host and
+// Every server, admin CLI and adapter process is started with a --preload trap that records any fetch to a non-loopback host and
 // any process spawn, and refuses both before they happen. Fake provider keys sit in the server's environment and fake
 // claude/codex binaries sit first on its PATH. A positive control sends one decide request with a fake key and requires
 // the trap to record it, so a trap that records nothing cannot pass. No request leaves 127.0.0.1.
@@ -200,10 +200,15 @@ async function startServer(out: string): Promise<Running> {
   throw new Error("built server did not start");
 }
 
+/** Every admin subprocess runs under the same trap as the server; its trap file is kept for the zero-call checks. */
+const adminTraps: string[] = [];
+const adminEnv = (trap: string): Record<string, string> => ({ PATH: `${shimBin}:${process.env.PATH ?? ""}`, HOME: scratch, STATE_DIRECTORY: state, GI_TRAP_FILE: trap, ...FAKE_KEYS });
 async function admin(out: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn([process.execPath, join(out, "server.js"), "--question-admin", ...args], {
+  const trap = join(work, `trap-admin-${adminTraps.length + 1}.jsonl`);
+  adminTraps.push(trap);
+  const proc = Bun.spawn([process.execPath, "--preload", TRAP, join(out, "server.js"), "--question-admin", ...args], {
     cwd: out,
-    env: { PATH: `${shimBin}:${process.env.PATH ?? ""}`, HOME: scratch, STATE_DIRECTORY: state, ...FAKE_KEYS },
+    env: adminEnv(trap),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -475,6 +480,18 @@ async function run(): Promise<void> {
   const tokenList = await admin(out, ["token", "list"]);
   check("C2-31 host CLI token list shows ids and status and no token", tokenList.code === 0 && tokenList.stdout.includes(a.id) && tokenList.stdout.includes("revoked") && !tokenList.stdout.includes("jng_"));
   check("C2-32 zero provider requests and zero spawns after restart", violations(s2.trap).length === 0 && violations(mA3.trap).length === 0);
+
+  // The admin CLI: every compiled --question-admin process carried the trap, and the trap works in that launch line.
+  const adminViolations = adminTraps.flatMap(violations);
+  const adminInstalled = adminTraps.every((t) => trapEntries(t).some((e) => e.kind === "installed"));
+  check(`C2-34 every admin CLI subprocess (${adminTraps.length}) ran with the trap and made zero provider requests and zero spawns`, adminTraps.length > 0 && adminInstalled && adminViolations.length === 0, `${adminViolations.length} recorded`);
+  const probe = join(work, "admin-probe.mjs");
+  writeFileSync(probe, `try { await fetch("https://api.anthropic.com/v1/messages", { method: "POST" }); } catch {}\ntry { Bun.spawn(["claude", "--version"]); } catch {}\n`);
+  const probeTrap = join(work, "trap-admin-control.jsonl");
+  const control2 = Bun.spawn([process.execPath, "--preload", TRAP, probe], { cwd: out, env: adminEnv(probeTrap), stdout: "ignore", stderr: "ignore" });
+  await control2.exited;
+  const kinds = violations(probeTrap).map((e) => `${e.kind}${e.host === "" || e.host === undefined ? "" : `:${e.host}`}`);
+  check("C2-35 admin trap control: the admin launch line records and refuses one provider fetch and one claude spawn", kinds.includes("fetch:api.anthropic.com") && kinds.includes("bun.spawn") && !existsSync(modelCalls), kinds.join(","));
 
   // The production adapter entrypoint: fixed origin, no override, with a stub fetch that sends nothing.
   const stub = join(work, "stub-fetch.mjs");

@@ -154,7 +154,7 @@ svg.narrow{display:block}
 .job{position:relative;display:flex;flex-direction:column;justify-content:space-between;gap:4px;min-height:70px;padding:8px 10px 8px 14px;
   background:var(--cream);color:var(--cream-ink);font-family:var(--sans);border-left:8px solid var(--c)}
 .job b{font:800 clamp(17px,4.2vw,19px)/1.1 var(--serif)}
-.job i{font:700 13px/1.2 var(--sans);font-style:normal;letter-spacing:.06em;text-transform:uppercase;color:#6a3a0c}
+.job i{font:700 14px/1.2 var(--sans);font-style:normal;letter-spacing:.06em;text-transform:uppercase;color:#6a3a0c}
 .j-s{--c:var(--keep)}.j-m{--c:var(--brass)}.j-l{--c:var(--cut)}
 .gauges{display:grid;gap:14px}
 @media (min-width:900px){.gauges{grid-template-columns:1fr 1fr;gap:28px}}
@@ -162,19 +162,26 @@ svg.narrow{display:block}
 .gname{font:700 15px/1.25 var(--sans);color:var(--ink-soft)}
 .tube{position:relative;display:flex;height:44px;border:2px solid var(--brass);background:#1a0508;overflow:hidden}
 .seg{display:flex;align-items:center;overflow:hidden;white-space:nowrap;flex:0 0 calc(var(--v,0) * 1%);min-width:0;background:var(--c)}
-.seg span{padding:0 8px;font:700 13px/1 var(--sans)}
+.seg span{padding:0 8px;font:700 14px/1 var(--sans)}
 .seg.s{min-width:12px}.seg.m{min-width:12px}
 .seg.base{--c:#6a5a57;color:var(--ink)}.seg.s{--c:var(--keep)}.seg.m{--c:var(--brass)}.seg.l{--c:var(--cut);color:var(--black)}
 .tube::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),rgba(0,0,0,.35) calc(10% - 1px) 10%)}
 .motion .payoff:not(.seen) .seg{flex-basis:0}
 .motion .payoff .seg{transition:flex-basis 1.1s ease .2s}
 .reading{font:800 28px/1 var(--sans)}
-.reading small{font:600 13px var(--sans);color:var(--ink-soft);letter-spacing:.04em}
+.reading small{font:600 14px var(--sans);color:var(--ink-soft);letter-spacing:.04em}
 .stamp{position:absolute;right:8px;top:50%;z-index:2;transform:translateY(-50%) rotate(-4deg);padding:4px 10px;border:2px solid var(--ink);
   background:var(--black);color:var(--ink);font:800 14px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase}
 .motion .payoff:not(.seen) .stamp{opacity:0}
 .motion .payoff .stamp{transition:opacity .4s 1.2s}
-.key{display:flex;flex-wrap:wrap;gap:8px 18px;margin:16px 0 0;padding:0;list-style:none;font:600 15px/1.2 var(--sans);color:var(--ink)}
+.keyhead{margin:16px 0 0;font:700 15px/1.3 var(--sans);color:var(--ink)}
+.marks{display:flex;height:26px;margin:0 2px}
+.mk{position:relative;flex:0 0 calc(var(--v,0) * 1%);min-width:0}
+.mk.s,.mk.m{min-width:12px}
+.mk.s::before,.mk.m::before{content:"";position:absolute;left:50%;top:0;width:2px;height:7px;margin-left:-1px;background:var(--ink-soft)}
+.mk em{position:absolute;top:8px;font:700 14px/1 var(--sans);font-style:normal;color:var(--ink);white-space:nowrap}
+.mk.s em{right:calc(50% - 3px)}.mk.m em{left:calc(50% - 3px)}
+.key{display:flex;flex-wrap:wrap;gap:8px 18px;margin:6px 0 0;padding:0;list-style:none;font:600 15px/1.2 var(--sans);color:var(--ink)}
 .key li{display:flex;align-items:center;gap:8px}
 .key i{display:inline-block;width:18px;height:18px;border:2px solid var(--ink-soft);background:var(--c)}
 .k-base{--c:#6a5a57}.k-s{--c:var(--keep)}.k-m{--c:var(--brass)}.k-l{--c:var(--cut)}
@@ -198,27 +205,32 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
     </div>
     <div class="pic stripes">
       <svg viewBox="0 0 420 306" role="img" aria-label="Example week chart. Seven days, Monday to Sunday, each a stack of blocks. One block is one job. Green blocks are easy jobs, gold are ordinary jobs, red are hard jobs. Wednesday is the busiest day.">
+        <defs>
+          <pattern id="pat-easy" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#86cf9f"/></pattern>
+          <pattern id="pat-ordinary" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#e0b04e"/><circle cx="4" cy="4" r="1.8" fill="#2a1408"/></pattern>
+          <pattern id="pat-hard" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#f08470"/><path d="M-1 1 L1 -1 M0 8 L8 0 M7 9 L9 7" stroke="#2a1408" stroke-width="1.8"/></pattern>
+        </defs>
         <rect x="14" y="12" width="392" height="284" fill="#efe2c4" stroke="#2a1408" stroke-width="3"/>
         <circle cx="14" cy="154" r="12" fill="#25040a"/><circle cx="406" cy="154" r="12" fill="#25040a"/>
-        <text x="36" y="46" class="t-sans" font-size="15" font-weight="800" letter-spacing="1" fill="#2a1408">ONE BLOCK = ONE JOB</text>
-        <g transform="translate(282 26)"><rect data-fit width="110" height="32" fill="none" stroke="#8a1a2e" stroke-width="2.5"/><text x="55" y="22" text-anchor="middle" class="t-sans" font-size="15" font-weight="800" letter-spacing="2" fill="#8a1a2e">EXAMPLE</text></g>
+        <text x="36" y="46" class="t-sans" font-size="17" font-weight="800" letter-spacing="0.5" fill="#2a1408">ONE BLOCK = ONE JOB</text>
+        <g transform="translate(276 26)"><rect data-fit width="122" height="34" fill="none" stroke="#8a1a2e" stroke-width="2.5"/><text x="61" y="24" text-anchor="middle" class="t-sans" font-size="17" font-weight="800" letter-spacing="1" fill="#8a1a2e">EXAMPLE</text></g>
         <line x1="32" y1="212" x2="390" y2="212" stroke="#2a1408" stroke-width="3"/>
         <g stroke="#2a1408" stroke-width="2">
-          <g transform="translate(40 0)"><rect y="184" width="36" height="28" fill="#86cf9f"/><rect y="156" width="36" height="28" fill="#86cf9f"/></g>
-          <g transform="translate(92 0)"><rect y="184" width="36" height="28" fill="#86cf9f"/><rect y="156" width="36" height="28" fill="#e0b04e"/><rect y="128" width="36" height="28" fill="#e0b04e"/></g>
-          <g transform="translate(144 0)"><rect y="184" width="36" height="28" fill="#86cf9f"/><rect y="156" width="36" height="28" fill="#e0b04e"/><rect y="128" width="36" height="28" fill="#f08470"/><rect y="100" width="36" height="28" fill="#f08470"/><rect y="72" width="36" height="28" fill="#f08470"/></g>
-          <g transform="translate(196 0)"><rect y="184" width="36" height="28" fill="#86cf9f"/><rect y="156" width="36" height="28" fill="#86cf9f"/><rect y="128" width="36" height="28" fill="#e0b04e"/></g>
-          <g transform="translate(248 0)"><rect y="184" width="36" height="28" fill="#86cf9f"/><rect y="156" width="36" height="28" fill="#e0b04e"/><rect y="128" width="36" height="28" fill="#e0b04e"/><rect y="100" width="36" height="28" fill="#f08470"/></g>
-          <g transform="translate(300 0)"><rect y="184" width="36" height="28" fill="#86cf9f"/></g>
-          <g transform="translate(352 0)"><rect y="184" width="36" height="28" fill="#86cf9f"/><rect y="156" width="36" height="28" fill="#e0b04e"/></g>
+          <g transform="translate(40 0)"><rect y="184" width="36" height="28" fill="url(#pat-easy)"/><rect y="156" width="36" height="28" fill="url(#pat-easy)"/></g>
+          <g transform="translate(92 0)"><rect y="184" width="36" height="28" fill="url(#pat-easy)"/><rect y="156" width="36" height="28" fill="url(#pat-ordinary)"/><rect y="128" width="36" height="28" fill="url(#pat-ordinary)"/></g>
+          <g transform="translate(144 0)"><rect y="184" width="36" height="28" fill="url(#pat-easy)"/><rect y="156" width="36" height="28" fill="url(#pat-ordinary)"/><rect y="128" width="36" height="28" fill="url(#pat-hard)"/><rect y="100" width="36" height="28" fill="url(#pat-hard)"/><rect y="72" width="36" height="28" fill="url(#pat-hard)"/></g>
+          <g transform="translate(196 0)"><rect y="184" width="36" height="28" fill="url(#pat-easy)"/><rect y="156" width="36" height="28" fill="url(#pat-easy)"/><rect y="128" width="36" height="28" fill="url(#pat-ordinary)"/></g>
+          <g transform="translate(248 0)"><rect y="184" width="36" height="28" fill="url(#pat-easy)"/><rect y="156" width="36" height="28" fill="url(#pat-ordinary)"/><rect y="128" width="36" height="28" fill="url(#pat-ordinary)"/><rect y="100" width="36" height="28" fill="url(#pat-hard)"/></g>
+          <g transform="translate(300 0)"><rect y="184" width="36" height="28" fill="url(#pat-easy)"/></g>
+          <g transform="translate(352 0)"><rect y="184" width="36" height="28" fill="url(#pat-easy)"/><rect y="156" width="36" height="28" fill="url(#pat-ordinary)"/></g>
         </g>
-        <g class="t-sans" font-size="15" font-weight="800" fill="#2a1408" text-anchor="middle">
+        <g class="t-sans" font-size="17" font-weight="800" fill="#2a1408" text-anchor="middle">
           <text x="58" y="236">Mon</text><text x="110" y="236">Tue</text><text x="162" y="236">Wed</text><text x="214" y="236">Thu</text><text x="266" y="236">Fri</text><text x="318" y="236">Sat</text><text x="370" y="236">Sun</text>
         </g>
-        <g class="t-sans" font-size="16" font-weight="700" fill="#2a1408">
-          <rect x="34" y="262" width="16" height="16" fill="#86cf9f" stroke="#2a1408" stroke-width="2"/><text x="56" y="276">easy job</text>
-          <rect x="130" y="262" width="16" height="16" fill="#e0b04e" stroke="#2a1408" stroke-width="2"/><text x="152" y="276">ordinary job</text>
-          <rect x="262" y="262" width="16" height="16" fill="#f08470" stroke="#2a1408" stroke-width="2"/><text x="284" y="276">hard job</text>
+        <g class="t-sans" font-size="17" font-weight="700" fill="#2a1408">
+          <rect x="30" y="261" width="18" height="18" fill="url(#pat-easy)" stroke="#2a1408" stroke-width="2"/><text x="54" y="276">easy job</text>
+          <rect x="136" y="261" width="18" height="18" fill="url(#pat-ordinary)" stroke="#2a1408" stroke-width="2"/><text x="160" y="276">ordinary job</text>
+          <rect x="286" y="261" width="18" height="18" fill="url(#pat-hard)" stroke="#2a1408" stroke-width="2"/><text x="310" y="276">hard job</text>
         </g>
       </svg>
     </div>
@@ -255,7 +267,7 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
         <text x="150" y="194" font-size="22" font-weight="800" fill="#1a0508" text-anchor="middle" id="noul-read">78% yes</text>
       </g>
     </svg>
-    <p class="p-cap">Jev gives odds on a yes or no.</p>
+    <p class="p-cap">Will it happen? Jev gives the odds.</p>
   </article>
 
   <article class="poster" aria-labelledby="t-choice">
@@ -287,11 +299,11 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
       </g>
       <text x="150" y="190" font-size="18" font-weight="800" fill="#ffe6a6" text-anchor="middle" id="choice-read">Medium is lit</text>
     </svg>
-    <p class="p-cap">Jev picks one from your list.</p>
+    <p class="p-cap">Which one fits? Jev picks from your list.</p>
   </article>
 
   <article class="poster" aria-labelledby="t-score">
-    <h2 class="p-title" id="t-score">How far up</h2>
+    <h2 class="p-title" id="t-score">How hard</h2>
     <svg class="pic4" viewBox="0 0 300 200" role="group" aria-label="A ladder with three rungs: easy, ordinary and hard. A marker sits on ordinary. Example. Tap a rung to move it.">
       <rect width="300" height="200" fill="#f1e5c6"/>
       <rect x="86" y="12" width="9" height="180" fill="#5a0f1c"/>
@@ -320,7 +332,7 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
         <circle cx="130" cy="102" r="4.5" fill="#ffe6a6"/>
       </g>
     </svg>
-    <p class="p-cap">Jev rates how hard a job is.</p>
+    <p class="p-cap">How hard is this job? Jev rates it.</p>
   </article>
 
   <article class="poster" aria-labelledby="t-box">
@@ -345,7 +357,7 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
         <text x="68" y="73" font-size="17" font-weight="800" letter-spacing="1" fill="#f6e7c8" text-anchor="middle">METER</text>
       </g>
     </svg>
-    <p class="p-cap">Jev points to a spot in a picture.</p>
+    <p class="p-cap">Where is the limit meter? Jev frames it.</p>
   </article>
 
   </div>
@@ -418,7 +430,7 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
       <g class="in">
         <rect data-fit x="20" y="34" width="320" height="142" fill="#efe2c4" stroke="#2a1408" stroke-width="3"/>
         <rect x="20" y="34" width="9" height="142" fill="#6d0f1e"/>
-        <text x="42" y="56" class="t-sans" font-size="13" font-weight="700" letter-spacing="2" fill="#8a1a2e">PICK ONE</text>
+        <text x="42" y="56" class="t-sans" font-size="15" font-weight="700" letter-spacing="2" fill="#8a1a2e">PICK ONE</text>
         <text x="42" y="80" class="t-serif" font-size="19" font-weight="800" fill="#2a1408">Which helper for this job?</text>
         <g class="t-serif" font-size="18" font-weight="700" fill="#2a1408">
           <rect x="42" y="90" width="282" height="24" fill="none" stroke="#2a1408" stroke-width="2"/><circle cx="56" cy="102" r="5.5" fill="none" stroke="#2a1408" stroke-width="2.5"/><text x="72" y="108">Small</text>
@@ -440,13 +452,13 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
         <rect x="180" y="259" width="128" height="18" fill="#94203a"/><rect x="236" y="266" width="60" height="4" fill="#efe2c4" opacity=".75"/>
         <rect x="180" y="281" width="128" height="17" fill="#6d0f1e"/><rect x="236" y="287" width="60" height="4" fill="#efe2c4" opacity=".75"/>
       </g>
-      <g class="lit"><g transform="translate(124 246)">
-        <rect data-fit width="112" height="44" fill="#efe2c4" stroke="#2a1408" stroke-width="3"/>
-        <text x="56" y="28" text-anchor="middle" class="t-sans" font-size="14" font-weight="800" letter-spacing="1" fill="#8a1a2e">ADMIT ONE</text>
+      <g class="lit"><g transform="translate(116 246)">
+        <rect data-fit width="128" height="44" fill="#efe2c4" stroke="#2a1408" stroke-width="3"/>
+        <text x="64" y="28" text-anchor="middle" class="t-sans" font-size="15" font-weight="800" letter-spacing="0.5" fill="#8a1a2e">ADMIT ONE</text>
       </g></g>
       <path class="draw" d="M180 304 V320" stroke="#e0b04e" stroke-width="4" fill="none"/>
       <g class="lit">
-        <text x="20" y="340" class="t-sans" font-size="14" font-weight="700" letter-spacing="2" fill="#e0b04e">JEV PICKS ONE</text>
+        <text x="20" y="340" class="t-sans" font-size="15" font-weight="700" letter-spacing="2" fill="#e0b04e">JEV PICKS ONE</text>
         <rect data-fit x="20" y="346" width="320" height="44" fill="#efe2c4" stroke="#e0b04e" stroke-width="4"/>
         <circle cx="40" cy="368" r="8" fill="#6d0f1e"/>
         <text x="58" y="376" class="t-serif" font-size="24" font-weight="800" fill="#2a1408">Small</text>
@@ -516,17 +528,17 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
   <div class="pic stripes">
     <span class="tag">JEV</span>
     <svg class="narrow" viewBox="0 0 360 392" role="img" aria-label="The pick, Small, goes down into your choice. Your choice says what happens: use the small helper.">
-      <g class="in"><text x="24" y="58" class="t-sans" font-size="14" font-weight="700" letter-spacing="2" fill="#e0b04e">JEV PICKED</text>
+      <g class="in"><text x="24" y="58" class="t-sans" font-size="15" font-weight="700" letter-spacing="2" fill="#e0b04e">JEV PICKED</text>
       <rect data-fit x="22" y="68" width="150" height="58" fill="#efe2c4" stroke="#2a1408" stroke-width="3"/>
       <text x="97" y="108" text-anchor="middle" class="t-serif" font-size="32" font-weight="800" fill="#2a1408">Small</text></g>
       <path class="draw" d="M97 130 V150" stroke="#e0b04e" stroke-width="4" fill="none"/>
       <g class="lit"><rect data-fit x="22" y="160" width="316" height="106" fill="#14060a" stroke="#e0b04e" stroke-width="3"/>
-      <text x="40" y="184" class="t-sans" font-size="14" font-weight="700" letter-spacing="2" fill="#e0b04e">YOUR CHOICE</text>
+      <text x="40" y="184" class="t-sans" font-size="15" font-weight="700" letter-spacing="2" fill="#e0b04e">YOUR CHOICE</text>
       <text x="40" y="216" class="t-serif" font-size="24" font-weight="700" fill="#f2e9df">If Small: run it now</text>
       <text x="40" y="248" class="t-serif" font-size="24" font-weight="700" fill="#f2e9df">If Large: wait</text></g>
       <path class="draw" d="M180 270 V288" stroke="#e0b04e" stroke-width="4" fill="none"/>
       <g class="lit"><rect data-fit x="22" y="296" width="316" height="78" fill="#6d0f1e" stroke="#e0b04e" stroke-width="3"/>
-      <text x="40" y="320" class="t-sans" font-size="14" font-weight="700" letter-spacing="2" fill="#e0b04e">WHAT HAPPENS</text>
+      <text x="40" y="320" class="t-sans" font-size="15" font-weight="700" letter-spacing="2" fill="#e0b04e">WHAT HAPPENS</text>
       <text x="40" y="354" class="t-serif" font-size="24" font-weight="800" fill="#f2e9df">Use the small helper</text></g>
     </svg>
     <svg class="wide" viewBox="0 0 560 300" role="img" aria-label="The pick, Small, goes into your choice. Your choice says what happens: use the small helper.">
@@ -570,22 +582,25 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
   <div class="gauges">
     <div class="gauge">
       <div class="gname">Right helper for each job</div>
-      <div class="tube" role="img" aria-label="Weekly limit tube filled to 58 percent, example"><i class="seg base" style="--v:36"><span>already used</span></i><i class="seg s" style="--v:2"></i><i class="seg m" style="--v:4"></i><i class="seg l" style="--v:16"></i></div>
+      <div class="tube" role="img" aria-label="Weekly limit tube filled to 58 percent, example"><i class="seg base" style="--v:36"><span>already used</span></i><i class="seg s" style="--v:2"></i><i class="seg m" style="--v:4"></i><i class="seg l" style="--v:16"><span>+16%</span></i></div>
+      <div class="marks" aria-hidden="true"><i class="mk base" style="--v:36"></i><i class="mk s" style="--v:2"><em>+1%</em></i><i class="mk m" style="--v:4"><em>+4%</em></i></div>
       <div class="reading">58%<small> of the weekly limit (example)</small></div>
     </div>
     <div class="gauge">
       <div class="gname">Large helper for every job</div>
       <div class="tube" role="img" aria-label="Weekly limit tube full at 100 percent, example"><i class="seg base" style="--v:36"><span>already used</span></i><i class="seg l" style="--v:64"><span>4 large jobs</span></i><span class="stamp">Limit hit</span></div>
+      <div class="marks" aria-hidden="true"></div>
       <div class="reading">100%<small> of the weekly limit (example)</small></div>
     </div>
   </div>
-  <ul class="key" aria-label="Bar colours">
-    <li class="k-base"><i></i>already used (36%)</li>
-    <li class="k-s"><i></i>small job (adds 1)</li>
-    <li class="k-m"><i></i>medium job (adds 4)</li>
-    <li class="k-l"><i></i>large job (adds 16)</li>
+  <p class="keyhead" id="keyhead">Each slice is a share of the weekly limit</p>
+  <ul class="key" aria-labelledby="keyhead">
+    <li class="k-base"><i></i>already used: 36%</li>
+    <li class="k-s"><i></i>small job: adds 1% (drawn wider)</li>
+    <li class="k-m"><i></i>medium job: adds 4% (drawn wider)</li>
+    <li class="k-l"><i></i>large job: adds 16%</li>
   </ul>
-  <p class="legend">EXAMPLE: all numbers are invented for this picture. Thin slices are drawn wider so you can see them.</p>
+  <p class="legend">EXAMPLE: all numbers are invented for this picture. The small and medium slices are drawn wider than their real share.</p>
   <p class="end"><a class="cta" href="../guide/"><span>See the free example</span>
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h15M12 5l8 7-8 7" fill="none" stroke="currentColor" stroke-width="3"/></svg></a></p>
 </div>

@@ -113,6 +113,8 @@ Live, read-only on 2026-10-18: static `/DEPLOYED_SHA` serves `3418769`; `GET /ap
 - **Read response:** `{ id, state, updated_at, response, response_source }`, with `response` null until answered. Another guest's id, a public id or a deleted id is 404.
 - No route returns question text, email or events to a guest. There is no edit, withdraw or delete route.
 
+Public capability boundary: POST /api/questions/status selects only scope = public. Guest rows always return 404 even when the caller constructs the correct guest id.request_key; test this before and after guest token revocation and expiry. All guest reads require their live guest credential.
+
 ### Limits (proposed; exact values recorded in the PR)
 
 | Counter | Counts | Limit |

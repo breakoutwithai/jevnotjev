@@ -192,6 +192,15 @@ backstage_snippet_auth() {
         allow("tickets_ranking", "proxy_set_header Host $host")
         allow("tickets_ranking", "proxy_set_header X-Backstage-Client-IP $remote_addr")
         allow("tickets_ranking", "client_max_body_size 1k")
+        # Guest questions (src/guest-intake/routes.ts, #253): public, optional; when present exactly these statements.
+        allow("questions", "proxy_pass http://127.0.0.1:3456/api/questions")
+        allow("questions", "proxy_set_header Host $host")
+        allow("questions", "proxy_set_header X-Backstage-Client-IP $remote_addr")
+        allow("questions", "client_max_body_size 16k")
+        allow("questions_status", "proxy_pass http://127.0.0.1:3456/api/questions/status")
+        allow("questions_status", "proxy_set_header Host $host")
+        allow("questions_status", "proxy_set_header X-Backstage-Client-IP $remote_addr")
+        allow("questions_status", "client_max_body_size 1k")
         # TokenMax map board (src/backstage/maps.ts): public, optional; when present exactly these statements.
         allow("maps", "proxy_pass http://127.0.0.1:3456/api/maps")
         allow("maps", "proxy_set_header Host $host")
@@ -219,7 +228,7 @@ backstage_snippet_auth() {
         # location that proxies to 3456. All clears present, or none (an install from before the mark); /api/v1 needs all.
         allow("api_v1", "proxy_set_header X-Backstage-Route api-v1")
         route_clear = "proxy_set_header X-Backstage-Route \"\""
-        n_clear_locs = split("sign_in password sign_out google callback tickets tickets_ranking maps maps_delete session_check page api", clear_locs, " ")
+        n_clear_locs = split("sign_in password sign_out google callback tickets tickets_ranking questions questions_status maps maps_delete session_check page api", clear_locs, " ")
         for (c = 1; c <= n_clear_locs; c++) clear_ok[clear_locs[c]] = 1
         allow("session_check", "internal")
         allow("session_check", "proxy_pass http://127.0.0.1:3456/api/auth/session")
@@ -294,6 +303,8 @@ backstage_snippet_auth() {
                     else if (h == "location = /api/auth/google/callback") { cur = "callback"; seen[cur]++ }
                     else if (h == "location = /api/tickets") { cur = "tickets"; seen[cur]++ }
                     else if (h == "location = /api/tickets/ranking") { cur = "tickets_ranking"; seen[cur]++ }
+                    else if (h == "location = /api/questions") { cur = "questions"; seen[cur]++ }
+                    else if (h == "location = /api/questions/status") { cur = "questions_status"; seen[cur]++ }
                     else if (h == "location = /api/maps") { cur = "maps"; seen[cur]++ }
                     else if (h == "location = /api/maps/delete") { cur = "maps_delete"; seen[cur]++ }
                     else if (h == "location = /tm/map.ts") { cur = "tm_script"; seen[cur]++ }
@@ -357,14 +368,14 @@ backstage_snippet_auth() {
                 if (!(key in permitted) || statements[key] != 1) { print "unknown"; exit }
                 observed[loc]++
             }
-            clear_want = 8 + (seen["tickets"] == 1) + (seen["tickets_ranking"] == 1) + (seen["maps"] == 1) + (seen["maps_delete"] == 1)
+            clear_want = 8 + (seen["tickets"] == 1) + (seen["tickets_ranking"] == 1) + (seen["questions"] == 1) + (seen["questions_status"] == 1) + (seen["maps"] == 1) + (seen["maps_delete"] == 1)
             if (cleared != clear_want && (cleared != 0 || seen["api_v1"] == 1)) { print "unknown"; exit }
             for (i = 1; i <= 12; i++) {
                 loc = locations[i]
                 if (loc != "page" && loc != "api" && loc != "session_check" && observed[loc] != required[loc]) { print "unknown"; exit }
             }
             if (seen["tm_script"] == 1 && tm_types != 1) { print "unknown"; exit }
-            n_optional = split("tickets tickets_ranking api_v1 maps maps_delete tm_script", optional, " ")
+            n_optional = split("tickets tickets_ranking questions questions_status api_v1 maps maps_delete tm_script", optional, " ")
             for (k = 1; k <= n_optional; k++) {
                 loc = optional[k]
                 if (seen[loc] > 1 || (seen[loc] == 1 && observed[loc] != required[loc])) { print "unknown"; exit }

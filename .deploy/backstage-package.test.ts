@@ -963,8 +963,9 @@ test("[unit] the /api/v1 route header is accepted exactly: set in /api/v1, clear
   const lines = repo.split("\n");
   expect(lines.filter((l) => l === set).length).toBe(1);
   const clears = lines.flatMap((l, i) => (l === clear ? [i] : []));
-  // sign-in, password, sign-out, google, callback, tickets, ranking, maps, maps delete, session check, page, api.
-  expect(clears.length).toBe(12);
+  // sign-in, password, sign-out, google, callback, tickets, ranking, questions, question status, maps, maps delete,
+  // session check, page, api.
+  expect(clears.length).toBe(14);
   expect(await authState(repo)).toEqual({ code: 0, out: "session" });
   // The snippet installed before this change (no /api/v1, no route header) still reads as session, so the
   // server deploy that must precede the snippet update is not refused.
@@ -992,5 +993,5 @@ test("[unit] the /api/v1 route header is accepted exactly: set in /api/v1, clear
     expect(variant).not.toBe(repo);
     expect((await authState(variant)).code).toBe(1);
   }
-  expect(unknown.length).toBe(45);
+  expect(unknown.length).toBe(3 * clears.length + 9);
 });

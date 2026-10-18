@@ -121,13 +121,14 @@ while IFS= read -r block; do
     [[ "$(printf '%s' "$block" | tr '\036' '\n' | grep -c '^[[:space:]]*proxy_set_header X-Backstage-Route "";$')" == 1 ]] && cleared=$((cleared+1)) \
         || nope "${block%% \{*} proxies to Backstage without clearing X-Backstage-Route"
 done < <(printf '%s\n' "$snippet" | sed 's/#.*//' | awk '/^location / { if (b != "") print b; b = $0; next } b != "" { b = b "\036" $0 } END { if (b != "") print b }')
-[[ "$proxied" -eq 12 && "$cleared" -eq "$proxied" ]] && ok "all ${proxied} other Backstage proxy locations clear X-Backstage-Route" || nope "${cleared} of ${proxied} other proxy locations clear X-Backstage-Route (want 12 of 12)"
+[[ "$proxied" -eq 14 && "$cleared" -eq "$proxied" ]] && ok "all ${proxied} other Backstage proxy locations clear X-Backstage-Route" || nope "${cleared} of ${proxied} other proxy locations clear X-Backstage-Route (want 14 of 14)"
 # Every other location is what fae0400 shipped plus the route-mark clear: the change is additive.
-# The TokenMax map locations (#238) are stripped with the comment lines directly above each, by exact header only.
+# The TokenMax map locations (#238) and the guest question locations (#253) are stripped with the comment lines
+# directly above each, by exact header only.
 without_maps() {
     awk '
         /^#/ && !skip { held = held $0 "\n"; next }
-        /^location = \/api\/maps \{$|^location = \/api\/maps\/delete \{$|^location = \/tm\/map\.ts \{$/ { skip=1; held=""; next }
+        /^location = \/api\/maps \{$|^location = \/api\/maps\/delete \{$|^location = \/tm\/map\.ts \{$|^location = \/api\/questions \{$|^location = \/api\/questions\/status \{$/ { skip=1; held=""; next }
         skip { if (/^}/) skip=0; next }
         { printf "%s", held; held=""; print }
         END { printf "%s", held }'
@@ -151,6 +152,25 @@ for pair in "/api/maps:4:${map_cap_body}" "/api/maps/delete:1:${map_cap_delete}"
     if printf '%s\n' "$block" | grep -Eq 'auth_request|auth_basic|add_header|access_log'; then nope "${route} carries a gate, a response header or a log change"; else ok "${route} has no gate, response header or log change"; fi
     [[ "$(printf '%s\n' "$block" | grep -c ';')" == 5 ]] && ok "${route} has exactly its five statements" || nope "${route} has extra or missing statements"
 done
+# Guest questions (#253): two public JSON routes proxied to their exact paths, caps equal to the server's.
+q_cap_body="$(sed -n 's/^export const MAX_QUESTION_BODY = \([0-9_]*\);.*/\1/p' src/guest-intake/contract.ts | tr -d '_')"
+q_cap_status="$(sed -n 's/^export const MAX_STATUS_BODY = \([0-9_]*\);.*/\1/p' src/guest-intake/contract.ts | tr -d '_')"
+for pair in "/api/questions:16:${q_cap_body}" "/api/questions/status:1:${q_cap_status}"; do
+    route="${pair%%:*}"; rest="${pair#*:}"; want_k="${rest%%:*}"; server_bytes="${rest#*:}"
+    [[ "$(printf '%s\n' "$snippet" | grep -c "^location = ${route} {$")" == 1 ]] && ok "exactly one location = ${route}" || nope "location = ${route} missing or duplicated"
+    block="$(printf '%s\n' "$snippet" | sed 's/#.*//' | sed -n "\\|^location = ${route} {$|,/^}/p")"
+    [[ "$block" == *"proxy_pass http://127.0.0.1:3456${route};"* && "$block" == *'proxy_set_header Host $host;'* && "$block" == *'proxy_set_header X-Backstage-Client-IP $remote_addr;'* ]] \
+        && ok "${route} proxies to its exact path and overwrites the client address" || nope "unsafe ${route} proxy location"
+    [[ "$(printf '%s\n' "$block" | grep -c '^[[:space:]]*proxy_set_header X-Backstage-Route "";$')" == 1 ]] && ok "${route} clears the route mark" || nope "${route} does not clear X-Backstage-Route"
+    cap_k="$(printf '%s\n' "$block" | sed -n 's/^[[:space:]]*client_max_body_size \([0-9]*\)k;.*/\1/p')"
+    [[ "$cap_k" == "$want_k" && -n "$server_bytes" && $((cap_k * 1024)) -eq "$server_bytes" ]] && ok "${route} body cap ${cap_k}k equals the server cap ${server_bytes}" || nope "${route} body cap '${cap_k}k' is not ${want_k}k or differs from the server cap '${server_bytes}'"
+    if printf '%s\n' "$block" | grep -Eq 'auth_request|auth_basic|add_header|access_log'; then nope "${route} carries a gate, a response header or a log change"; else ok "${route} has no gate, response header or log change"; fi
+    [[ "$(printf '%s\n' "$block" | grep -c ';')" == 5 ]] && ok "${route} has exactly its five statements" || nope "${route} has extra or missing statements"
+    extra="$(printf '%s\n' "$snippet" | awk -v h="location = ${route} {" '{ print } $0 == h { print "    proxy_set_header X-Extra 1;" }')"
+    [[ "$(printf '%s\n' "$extra" | backstage_snippet_auth)" == unknown ]] && ok "the classifier refuses an extra statement in ${route}" || nope "the classifier accepted an extra statement in ${route}"
+done
+[[ "$(printf '%s\n' "$snippet" | backstage_snippet_auth)" == session ]] && ok "the committed snippet with the question locations classifies as session" || nope "the committed snippet does not classify as session"
+
 tm="$(printf '%s\n' "$snippet" | sed 's/#.*//' | sed -n '\|^location = /tm/map\.ts {$|,/^}/p')"
 [[ "$(printf '%s\n' "$snippet" | grep -c '^location = /tm/map\.ts {$')" == 1 ]] && ok "exactly one location = /tm/map.ts" || nope "location = /tm/map.ts missing or duplicated"
 [[ "$tm" == *'types { }'* && "$tm" == *'default_type "text/plain; charset=utf-8";'* ]] && ok "/tm/map.ts is served as text/plain, not video/mp2t" || nope "/tm/map.ts keeps the stock .ts MIME type"

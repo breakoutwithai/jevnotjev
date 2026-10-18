@@ -1,6 +1,6 @@
 # Guest questions
 
-Governing issue: #253. Status: specified, not built. Base: `f825b71` (origin/main, 2026-10-18).
+Governing issue: #253. Status: PR 1 (GI-1 to GI-15) built, not deployed. Spec approved at sha256 `f8e446b7`; base `f825b71` (origin/main, 2026-10-18).
 
 A visitor brings one decision question, gets a receipt, and later reads a person-reviewed response. No account, no provider key, no Jev run. Selected guests do the same from Claude Code or Codex with a scoped token. TokenMax usage sharing is a separate optional journey owned by #242 / #243.
 
@@ -214,6 +214,18 @@ env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR bun scripts/
 | 5 | `docs/design/guest-agent-boundary.md` | docs |
 
 Each PR raises floors in `.deploy/tests/expected-counts.json`. Run output and screenshots stay outside the repo.
+
+## PR 1 contract deltas
+
+Differences from the approved text above, made while building PR 1:
+
+- **needs_info message:** `transition <id> needs_info` requires a message file. The public status returns it as `response` with its `response_source`, so the submitter can see what to send. It is cleared on `needs_info -> pending_review`. `declined` and `approved` carry no message.
+- **Status attempts:** the status route has its own per-address attempt limiter, the same 5 per 10 minutes, separate from submit.
+- **Body cap edge:** a 4,096-character question written entirely in 4-byte characters exceeds the 16 KiB body cap and is refused as `too-large`.
+- **Where limits live:** `QUESTION_LIMITS` in `src/guest-intake/contract.ts` holds the proposed defaults. Tests override them through `ServerOptions.questions`; production has no env override yet.
+- **Actor:** events record `operator:cli`.
+- **Shipping order:** the Backstage release can ship before the nginx snippet, because the classifier in `.deploy/backstage-lib.sh` accepts the snippet with or without the two question locations. Until `.deploy/ship.sh --setup --module backstage` installs the new snippet, nginx does not route `/api/questions`.
+- **Public copy:** `/ask/` and the privacy page state that no retention period has been set and that replies are not emailed. The homepage ticket office links to `/ask/`.
 
 ## Open operator decisions
 

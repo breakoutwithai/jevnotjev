@@ -171,7 +171,7 @@ describe("optional usage map", () => {
   function usagePrompt(): string {
     const html = readFileSync(join(SITE, "ask", "index.html"), "utf8");
     const raw = /<pre id="usagePrompt">([\s\S]*?)<\/pre>/.exec(html)?.[1] ?? "";
-    return raw.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    return raw.replace(/<\/?span[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
   }
 
   test("[unit] S4 every flag the usage prompt names is one site/tm/map.ts accepts, with chosen folders and period, and none shares", () => {

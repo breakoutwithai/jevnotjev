@@ -86,7 +86,8 @@ Live, read-only on 2026-10-18: static `/DEPLOYED_SHA` serves `3418769`; `GET /ap
 - `--question-admin delete <id>`: works in every state, `answered` and `declined` included. One transaction reads the row's `scope` and `key_tag`, inserts the tombstone, and deletes the `questions` row and all its `question_events`. Any failure rolls back all three.
 - `--question-admin purge --before <ISO date> [--dry-run]`: the same transaction per row, for rows created before the cutoff. `--dry-run` prints ids and a count only.
 - `--question-admin purge --retention`: reads `retentionDays` from `intake-policy.json` in the state directory (service-user owned, mode 0600, written by the operator once a period is approved). Missing file, wrong mode, or a value that is not a positive integer: refuse, exit 1, nothing deleted. 30 days is proposed, not approved. No timer runs purge in PRs 1 to 3.
-- After deletion: status with the old code is 404 `not-found`, the same answer as a code that never existed; a guest read is 404; a submit replay is 410, for as long as the file exists; the row is absent from `list`, exports and backups taken afterwards.
+- After deletion: status with the old code is 404 `not-found`, the same answer as a code that never existed; a guest read is 404; a submit replay is 410, for as long as the file exists; the row is absent from live queries (`list`, `show`, status and guest reads) and from logical exports taken afterwards.
+- Deletion is logical, not physical erasure. SQLite does not overwrite freed pages by default, the WAL can hold the old page until a checkpoint, and raw copies of `tickets.sqlite` and backups made before (or as raw file copies after) a delete can still contain the row. Those copies need their own retention; no erasure from them is claimed.
 
 ### HTTP
 
@@ -227,6 +228,7 @@ Differences from the approved text above, made while building PR 1:
 - **Actor:** events record `operator:cli`.
 - **Shipping order:** the Backstage release can ship before the nginx snippet, because the classifier in `.deploy/backstage-lib.sh` accepts the snippet with or without the two question locations. Until `.deploy/ship.sh --setup --module backstage` installs the new snippet, nginx does not route `/api/questions`.
 - **Public copy:** `/ask/` and the privacy page state that no retention period has been set and that replies are not emailed. The homepage ticket office links to `/ask/`.
+- **Deletion contact (#256):** `/ask/` (form and receipt) and the privacy page's question paragraph send deletion requests to jev@breakoutwithai.com, quoting the reference only, never the status code; the operator deletes by hand with the CLI. The ticket office keeps its GitHub-issue route.
 
 ## Integration deltas (#256)
 

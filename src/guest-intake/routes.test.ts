@@ -337,4 +337,14 @@ describe("logs and public surfaces", () => {
     const paragraph = page.match(/<p id="questions">[\s\S]*?<\/p>/)?.[0] ?? "";
     for (const phrase of ["question", "email", "status code", "no retention period has been set", "never sent to a model provider"]) expect([phrase, paragraph.includes(phrase)]).toEqual([phrase, true]);
   });
+
+  test("[unit] GI-10c question deletion goes to the private service address and promises no erasure of earlier copies; the ticket text is unchanged", async () => {
+    const page = await Bun.file(join(SITE, "privacy", "index.html")).text();
+    const paragraph = page.match(/<p id="questions">[\s\S]*?<\/p>/)?.[0] ?? "";
+    expect(paragraph).toContain('href="mailto:jev@breakoutwithai.com"');
+    expect(paragraph).toContain("reference only");
+    expect(paragraph).not.toContain("github");
+    expect(paragraph).toContain("Copies made before a deletion, such as backups, are not changed");
+    expect(page).toContain('To request deletion of a ticket office row, <a href="https://github.com/breakoutwithai/jevnotjev/issues/new">open a GitHub issue</a>');
+  });
 });

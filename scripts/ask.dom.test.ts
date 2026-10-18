@@ -15,6 +15,7 @@ let server: ReturnType<typeof Bun.serve>;
 let handler: ReturnType<typeof createHandler>;
 let storePath = "";
 let failNext = 0;
+let clientSeq = 0;
 let conflictNext = 0;
 const sentKeys: string[] = [];
 
@@ -39,7 +40,9 @@ beforeAll(async () => {
         conflictNext -= 1;
         return Response.json({ code: "request-key-reused" }, { status: 409 });
       }
-      return handler(request, { remoteAddress: srv.requestIP(request)?.address ?? "127.0.0.1" });
+      // A synthetic client address per request: these tests check the page, not the per-address limiter (routes.test.ts GI-5a).
+      clientSeq += 1;
+      return handler(request, { remoteAddress: `198.51.100.${(clientSeq % 250) + 1}` });
     },
   });
   handler = createHandler({ version: "test", origin: server.url.origin, staticRoot: SITE, tickets: { path: storePath }, log: () => {}, questions: { limiterCapacity: 10_000, limits: {} } });
@@ -86,6 +89,26 @@ describe("ask page", () => {
       await page.close();
     }
   }, 60_000);
+
+  test("[integration] GI-14a deletion requests go to the private service address with the reference only, before and after sending", async () => {
+    const page = await open(390, 844);
+    const formLinks = await page.locator("#askForm a").evaluateAll((as) => as.map((a) => a.getAttribute("href") ?? ""));
+    expect(formLinks).toContain("mailto:jev@breakoutwithai.com");
+    expect(formLinks.filter((h) => h.includes("github.com"))).toEqual([]);
+    expect(await page.locator("#askForm").innerText()).toContain("never your status code");
+    await page.getByLabel("What decision are you trying to make?").fill("Deletion contact check");
+    await page.getByLabel("Your email").fill("seeded-delete@example.test");
+    await page.locator("#askReply").check();
+    await page.locator("#askSubmit").click();
+    await page.locator("#askReceipt").waitFor({ state: "visible" });
+    const receiptLinks = await page.locator("#askReceipt a").evaluateAll((as) => as.map((a) => a.getAttribute("href") ?? ""));
+    expect(receiptLinks).toContain("mailto:jev@breakoutwithai.com");
+    expect(receiptLinks.filter((h) => h.includes("github.com"))).toEqual([]);
+    const receipt = await page.locator("#askReceipt").innerText();
+    expect(receipt).toContain("quoting only the reference");
+    expect(await page.locator("a[href*='github.com']").count()).toBe(0);
+    await page.close();
+  }, 30_000);
 
   test("[integration] GI-2 missing consent and a bad email show field errors and send nothing", async () => {
     const page = await open(390, 844);

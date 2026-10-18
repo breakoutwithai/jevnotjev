@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { buildBackstage } from "../../scripts/backstage-build.ts";
 import { runQuestionAdmin } from "./admin-cli.ts";
 import { QuestionStore } from "./store.ts";
+import { GuestTokenStore } from "./tokens.ts";
 
 const NOW = Date.parse("2026-10-18T12:00:00.000Z");
 const KEY = "C".repeat(43);
@@ -168,6 +169,101 @@ describe("delete and purge", () => {
   });
 });
 
+describe("guest token commands", () => {
+  const TOKEN_LINE = /^token: (jng_[A-Za-z0-9_-]{43})$/m;
+  const ID_LINE = /^id: (gtk_[a-f0-9]{12})$/m;
+
+  function minted(out: string): { token: string; id: string } {
+    const token = TOKEN_LINE.exec(out)?.[1];
+    const id = ID_LINE.exec(out)?.[1];
+    if (token === undefined || id === undefined) throw new Error("mint printed no token or id");
+    return { token, id };
+  }
+
+  test("[unit] GI-16 token mint prints one jng_ token once with its id and expiry; list shows metadata only", () => {
+    const b = box();
+    const mint = run(b, ["token", "mint", "Guest A"]);
+    expect([mint.code, mint.err]).toEqual([0, ""]);
+    const { token, id } = minted(mint.out);
+    expect(mint.out.split(token)).toHaveLength(2);
+    expect(mint.out).toContain(`expires: ${new Date(NOW + 14 * 86_400_000).toISOString()}`);
+    expect(mint.out).toContain("private channel");
+    const tokens = new GuestTokenStore(b.path, () => NOW);
+    expect(tokens.verify(`Bearer ${token}`)?.tokenId).toBe(id);
+    tokens.close();
+    const short = run(b, ["token", "mint", "Guest B", "--ttl-days", "1"]);
+    expect(short.out).toContain(`expires: ${new Date(NOW + 86_400_000).toISOString()}`);
+    const list = run(b, ["token", "list"]);
+    expect(list.code).toBe(0);
+    expect(list.out).toContain(id);
+    expect(list.out).toContain("Guest A");
+    expect(list.out).toContain("active");
+    expect(list.out).toContain("2 tokens");
+    expect(list.out).not.toContain("jng_");
+    expect(list.out).not.toMatch(/[a-f0-9]{64}/);
+  });
+
+  test("[unit] GI-16 token revoke stops the token at once and keeps its questions; rotate keeps the id and replaces the secret", () => {
+    const b = box();
+    const a = minted(run(b, ["token", "mint", "Guest A"]).out);
+    const c = minted(run(b, ["token", "mint", "Guest C"]).out);
+    const row = b.store.submit(`guest:${a.id}`, { email: null, question: "Guest question", replyConsent: true, marketingConsent: false, requestKey: KEY }, NOW);
+    expect(row.status).toBe("issued");
+    const revoked = run(b, ["token", "revoke", a.id]);
+    expect([revoked.code, revoked.err]).toEqual([0, ""]);
+    expect(revoked.out).toContain(`revoked ${a.id}`);
+    expect(revoked.out).not.toContain("jng_");
+    const tokens = new GuestTokenStore(b.path, () => NOW);
+    expect(tokens.verify(`Bearer ${a.token}`)).toBeNull();
+    expect(b.store.counts().questions).toBe(1);
+    expect(run(b, ["token", "list"]).out).toMatch(new RegExp(`${a.id}.*revoked`));
+    expect(run(b, ["token", "rotate", a.id]).code).toBe(1);
+    const rotated = run(b, ["token", "rotate", c.id, "--ttl-days", "30"]);
+    expect(rotated.code).toBe(0);
+    const next = minted(rotated.out);
+    expect(next.id).toBe(c.id);
+    expect(next.token).not.toBe(c.token);
+    expect(tokens.verify(`Bearer ${c.token}`)).toBeNull();
+    expect(tokens.verify(`Bearer ${next.token}`)?.tokenId).toBe(c.id);
+    tokens.close();
+  });
+
+  test("[unit] GI-16 bad token commands are refused and print no token", () => {
+    const b = box();
+    const cases: [string[], number][] = [
+      [["token"], 2],
+      [["token", "show"], 2],
+      [["token", "mint"], 2],
+      [["token", "mint", "A", "B"], 2],
+      [["token", "mint", "Guest", "--ttl-days", "0"], 2],
+      [["token", "mint", "Guest", "--ttl-days", "91"], 2],
+      [["token", "mint", "Guest", "--ttl-days", "x"], 2],
+      [["token", "mint", " leading space"], 1],
+      [["token", "revoke"], 2],
+      [["token", "revoke", "nope"], 1],
+      [["token", "revoke", "gtk_ffffffffffff"], 1],
+      [["token", "rotate", "gtk_ffffffffffff"], 1],
+      [["token", "list", "extra"], 2],
+    ];
+    for (const [args, code] of cases) {
+      const r = run(b, args);
+      expect([args.join(" "), r.code]).toEqual([args.join(" "), code]);
+      expect(r.out + r.err).not.toContain("jng_");
+    }
+    expect(run(b, ["token", "list"]).out).toContain("0 tokens");
+  });
+
+  test("[unit] GI-14b token commands refuse a state directory wider than 0700", () => {
+    const b = box();
+    chmodSync(b.state, 0o755);
+    const r = run(b, ["token", "mint", "Guest A"]);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("refused");
+    expect(r.out).not.toContain("jng_");
+    chmodSync(b.state, 0o700);
+  });
+});
+
 describe("bundled mode", () => {
   test("[integration] GI-14c the built server.js runs --question-admin against private state and binds no port", async () => {
     const root = join(import.meta.dir, "..", "..");
@@ -206,6 +302,21 @@ describe("bundled mode", () => {
         s.listen(free, "127.0.0.1", () => s.close(() => resolve(false)));
       });
       expect(bound).toBe(false);
+      const admin = async (args: string[]): Promise<[number, string, string]> => {
+        const p = Bun.spawn(["bun", join(out, "server.js"), "--question-admin", ...args], { env: { PATH: process.env.PATH ?? "", HOME: b.state, STATE_DIRECTORY: b.state, PORT: String(free) }, stdout: "pipe", stderr: "pipe" });
+        const exit = await p.exited;
+        return [exit, await new Response(p.stdout).text(), await new Response(p.stderr).text()];
+      };
+      const [mintCode, mintOut, mintErr] = await admin(["token", "mint", "Bundled guest", "--ttl-days", "1"]);
+      expect([mintCode, mintErr]).toEqual([0, ""]);
+      const token = /^token: (jng_[A-Za-z0-9_-]{43})$/m.exec(mintOut)?.[1] ?? "";
+      const tokens = new GuestTokenStore(b.path);
+      expect(tokens.verify(`Bearer ${token}`)).not.toBeNull();
+      tokens.close();
+      const [listCode, listOut] = await admin(["token", "list"]);
+      expect(listCode).toBe(0);
+      expect(listOut).toContain("Bundled guest");
+      expect(listOut).not.toContain("jng_");
       expect(existsSync(called)).toBe(false);
     } finally {
       rmSync(out, { recursive: true, force: true });

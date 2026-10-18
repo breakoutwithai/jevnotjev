@@ -282,6 +282,8 @@ html:not(.motion) .key { display: none; }
 }
 .notes a { display: inline-flex; align-items: center; min-height: 24px; color: inherit; text-decoration: inherit; }
 .trust { margin: 2px 0 0; font: 700 13px/1.35 var(--sans); color: var(--curtain); }
+.ticket .guide-link { display: block; padding: 4px 0; color: #7b1424; font: 700 14px/1.4 var(--sans); }
+.ticket .guide-link:focus-visible { outline-color: #7b1424; }
 .ticket .stub { align-self: stretch; border-left: 2px dashed #b38a3c; }
 .copy {
   flex: none; min-height: 44px; padding: 0 22px; border: 0; cursor: pointer;
@@ -342,11 +344,12 @@ html:not(.motion) .key { display: none; }
   .next a { min-height: 28px; }
   /* Narrow ticket: the command on its own full-width rows, the notes under it, then the trust line beside Copy. */
   .ticket {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "code code" "notes notes" "trust copy";
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "code code" "notes notes" "guide guide" "trust copy";
     column-gap: 10px; row-gap: 2px; padding: 8px 12px 8px 14px;
   }
   .cmdbox { display: contents; }
   .ticket code { grid-area: code; font-size: 12.5px; line-height: 1.5; word-break: break-all; }
+  .ticket .guide-link { grid-area: guide; }
   .notes { grid-area: notes; column-gap: 14px; }
   .trust { grid-area: trust; align-self: center; margin: 0; }
   .ticket .stub { display: none; }

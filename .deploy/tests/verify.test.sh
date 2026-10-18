@@ -17,6 +17,7 @@ set -uo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 REPO_ROOT="$(pwd)"
+source "${REPO_ROOT}/.deploy/tests/git-fixture.sh" || exit 1
 FIX="${REPO_ROOT}/.deploy/tests/fixtures/2026-10-04"
 REAL_GIT="$(command -v git)"
 
@@ -56,7 +57,7 @@ cat > "${FAKEBIN}/git" <<EOF
 #!/usr/bin/env bash
 if [ "\${1:-}" = fetch ] && [ -n "\${FAKE_GIT_FETCH_FAIL:-}" ]; then exit 1; fi
 if [ "\${1:-}" = push ]; then printf 'git %s\n' "\$*" >> "\${FAKE_STATE}/push.log"; exit 1; fi
-exec "${REAL_GIT}" "\$@"
+exec "${REAL_GIT}" -C "\$PWD" "\$@"
 EOF
 chmod +x "${FAKEBIN}/curl" "${FAKEBIN}/ssh" "${FAKEBIN}/git"
 KEY="${FAKEBIN}/key"; : > "$KEY"
@@ -74,21 +75,22 @@ make_fixture() {
     export FAKE_SNIPPET_FILE="${FIXD}/snippet.conf"
     printf '%s\n' 'location ^~ /backstage/ { auth_basic "Backstage"; auth_basic_user_file /tmp/htpasswd; }' 'location ^~ /api/backstage/ { auth_basic "Backstage"; auth_basic_user_file /tmp/htpasswd; }' > "$FAKE_SNIPPET_FILE"
     WORK="${FIXD}/work"
-    "$REAL_GIT" init -q --bare --initial-branch=main "${FIXD}/origin.git"
-    "$REAL_GIT" init -q --initial-branch=main "$WORK"
+    fixture_init "$FIXD" "${FIXD}/origin.git" --bare --initial-branch=main || exit 1
+    fixture_init "$FIXD" "$WORK" --initial-branch=main || exit 1
     (
         cd "$WORK" || exit 1
-        "$REAL_GIT" config commit.gpgsign false; "$REAL_GIT" config tag.gpgsign false
-        echo p > README; "$REAL_GIT" add -A; "$REAL_GIT" commit -qm "chore: previous (#1)"
-        echo m > README; "$REAL_GIT" add -A; "$REAL_GIT" commit -qm "feat: main (#2)"
-        "$REAL_GIT" remote add origin "${FIXD}/origin.git"
-        "$REAL_GIT" push -q origin main
+        "$REAL_GIT" -C "$WORK" config commit.gpgsign false; "$REAL_GIT" -C "$WORK" config tag.gpgsign false
+        echo p > README; "$REAL_GIT" -C "$WORK" add -A; "$REAL_GIT" -C "$WORK" commit -qm "chore: previous (#1)"
+        echo m > README; "$REAL_GIT" -C "$WORK" add -A; "$REAL_GIT" -C "$WORK" commit -qm "feat: main (#2)"
+        "$REAL_GIT" -C "$WORK" remote add origin "${FIXD}/origin.git"
+        "$REAL_GIT" -C "$WORK" push -q origin main
         case "${1:-}" in
-            1) "$REAL_GIT" tag -a v2026.10.04.1 -m "Release v2026.10.04.1" HEAD; "$REAL_GIT" push -q origin refs/tags/v2026.10.04.1 ;;
-            light) "$REAL_GIT" tag v2026.10.04.1 HEAD; "$REAL_GIT" push -q origin refs/tags/v2026.10.04.1 ;;
+            1) "$REAL_GIT" -C "$WORK" tag -a v2026.10.04.1 -m "Release v2026.10.04.1" HEAD; "$REAL_GIT" -C "$WORK" push -q origin refs/tags/v2026.10.04.1 ;;
+            light) "$REAL_GIT" -C "$WORK" tag v2026.10.04.1 HEAD; "$REAL_GIT" -C "$WORK" push -q origin refs/tags/v2026.10.04.1 ;;
         esac
-        "$REAL_GIT" tag -d v2026.10.04.1
-        "$REAL_GIT" fetch -q origin
+        "$REAL_GIT" -C "$WORK" tag -d v2026.10.04.1
+        "$REAL_GIT" -C "$WORK" fetch -q origin
+        mkdir -p .git/info
         printf '%s\n' .deploy/ >> .git/info/exclude
     ) >/dev/null 2>&1
     P="$("$REAL_GIT" -C "$WORK" rev-parse HEAD~1)"

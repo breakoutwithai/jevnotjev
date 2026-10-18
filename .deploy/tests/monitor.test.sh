@@ -2,6 +2,7 @@
 # [T1] Hermetic external monitor. HTTP fixtures are hand-built from docs/design/monitoring.md.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/.deploy/tests/git-fixture.sh" || exit 1
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/jev-monitor-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin" "$TMP/state" "$TMP/archive"
@@ -23,7 +24,7 @@ SH
 cat > "$TMP/bin/git" <<'SH'
 #!/usr/bin/env bash
 if [[ ${FAKE_HANG_GIT:-} == yes && " $* " == *' ls-remote '* ]]; then exec sleep 60; fi
-exec "$REAL_GIT" "$@"
+exec "$REAL_GIT" -C "$PWD" "$@"
 SH
 cat > "$TMP/bin/curl" <<'SH'
 #!/usr/bin/env bash
@@ -83,8 +84,8 @@ REAL_GIT="$(command -v git)"; export REAL_GIT
 export FAKE_STATE="$TMP/state" PATH="$TMP/bin:$PATH" VERIFY_SLEEP=0 VERIFY_ATTEMPTS=1 MONITOR_CMD_TIMEOUT=5
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.test GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.test
-git init -q --bare "$TMP/bare.git"
-git init -q "$TMP/work"
+fixture_init "$TMP" "$TMP/bare.git" --bare || exit 1
+fixture_init "$TMP" "$TMP/work" || exit 1
 git -C "$TMP/work" config commit.gpgsign false
 git -C "$TMP/work" config tag.gpgsign false
 printf a > "$TMP/work/readme"

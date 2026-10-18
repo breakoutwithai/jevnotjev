@@ -592,8 +592,8 @@ async function patternProblems(page: Page): Promise<string[]> {
       else if (svg.querySelector(`defs pattern#${id}`) === null) problems.push(`pattern ${id} is not defined in the chart`);
     }
     if (new Set(ids).size !== ids.length) problems.push("two job kinds share a pattern");
-    const kinds: [string, number][] = [["easy job", 0], ["ordinary job", 1], ["hard job", 2]];
-    for (const [label, index] of kinds) {
+    const rows: [string, number][] = [["easy job", 0], ["ordinary job", 1], ["hard job", 2]];
+    for (const [label, index] of rows) {
       const text = Array.from(svg.querySelectorAll("text")).find((t) => t.textContent === label);
       let swatch: Element | null = text?.previousElementSibling ?? null;
       while (swatch !== null && swatch.tagName !== "rect") swatch = swatch.previousElementSibling;

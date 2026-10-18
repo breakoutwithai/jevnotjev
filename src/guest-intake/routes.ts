@@ -32,10 +32,10 @@ export interface QuestionRoutes {
   readonly close: () => void;
 }
 
-class TooLarge extends Error {}
+export class TooLarge extends Error {}
 
 /** Read at most `cap` bytes of the body within `timeoutMs`; past either, TooLarge. */
-async function boundedBody(request: Request, cap: number, timeoutMs: number): Promise<string> {
+export async function boundedBody(request: Request, cap: number, timeoutMs: number): Promise<string> {
   const reader = request.body?.getReader();
   if (reader === undefined) return "";
   const chunks: Uint8Array[] = [];

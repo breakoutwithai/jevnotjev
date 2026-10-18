@@ -112,6 +112,22 @@ export function checkPublicSubmission(body: unknown, limits: QuestionLimits = QU
   return { ok: true, submission: { email, question: text, replyConsent: true, marketingConsent: marketing === true, requestKey: key } };
 }
 
+const GUEST_KEYS: readonly string[] = ["question", "reply_consent", "marketing_consent", "request_key"];
+
+/** Validate a decoded `POST /api/v1/guest/questions` body. No email, scope, guest or honeypot field: the token is the principal. */
+export function checkGuestSubmission(body: unknown, limits: QuestionLimits = QUESTION_LIMITS): SubmissionCheck {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return { ok: false, reason: "bad-body" };
+  if (Object.keys(body).some((k) => !GUEST_KEYS.includes(k))) return { ok: false, reason: "unknown-field" };
+  const text = question(own(body, "question"), limits.maxQuestionChars);
+  if (text === null) return { ok: false, reason: "bad-question" };
+  if (own(body, "reply_consent") !== true) return { ok: false, reason: "no-consent" };
+  const marketing = own(body, "marketing_consent");
+  if (marketing !== undefined && typeof marketing !== "boolean") return { ok: false, reason: "bad-consent" };
+  const key = own(body, "request_key");
+  if (typeof key !== "string" || !REQUEST_KEY.test(key)) return { ok: false, reason: "bad-request-key" };
+  return { ok: true, submission: { email: null, question: text, replyConsent: true, marketingConsent: marketing === true, requestKey: key } };
+}
+
 /** `{ "code": "<id>.<request_key>" }` and nothing else, or null. */
 export function parseStatusBody(body: unknown): { readonly id: string; readonly key: string } | null {
   if (typeof body !== "object" || body === null || Array.isArray(body)) return null;

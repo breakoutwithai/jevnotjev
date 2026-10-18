@@ -1,5 +1,5 @@
 {
-  "minFiles": 145,
+  "minFiles": 146,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -130,10 +130,11 @@
     "src/format/validate.test.ts": 62,
     "src/guest-intake/admin-cli.test.ts": 10,
     "src/guest-intake/contract.test.ts": 9,
+    "src/guest-intake/guest-routes.test.ts": 16,
     "src/guest-intake/imports.test.ts": 2,
-    "src/guest-intake/mcp.test.ts": 16,
+    "src/guest-intake/mcp.test.ts": 17,
     "src/guest-intake/routes.test.ts": 19,
-    "src/guest-intake/store.test.ts": 18,
+    "src/guest-intake/store.test.ts": 21,
     "src/guest-intake/tokens.test.ts": 15,
     "src/jev-answer.test.ts": 28,
     "src/labels/booking-swap-packs.test.ts": 6,

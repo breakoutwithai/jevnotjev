@@ -23,6 +23,7 @@ import type { ProviderFetch } from "./providers.ts";
 import { openTrial, validTrialInput } from "./trial.ts";
 import { checkTicket, MAX_TICKET_BODY, TicketLimiter, TicketStore } from "./tickets.ts";
 import { createQuestionRoutes, QUESTION_ROUTES } from "../guest-intake/routes.ts";
+import { createGuestRoutes, isGuestPath } from "../guest-intake/guest-routes.ts";
 import { questionAdminArgs, runQuestionAdmin } from "../guest-intake/admin-cli.ts";
 import type { QuestionLimits } from "../guest-intake/contract.ts";
 import { checkDelete, checkMap, createMapLogger, MapStore, MAX_MAP_BODY, MAX_MAP_DELETE_BODY } from "./maps.ts";
@@ -235,6 +236,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   const mapDeleteLimiter = new TicketLimiter(clock);
   const mapLog = createMapLogger(clock, options.log);
   const questions = createQuestionRoutes({ path: options.tickets?.path, origin, clock, log: options.log, limits: options.questions?.limits, limiterCapacity: options.questions?.limiterCapacity });
+  const guests = createGuestRoutes({ path: options.tickets?.path, clock, log: options.log, limits: options.questions?.limits, limiterCapacity: options.questions?.limiterCapacity });
   const tokensPath = options.api?.tokensPath;
   const api = createApiV1({
     tokens: new ApiTokenStore(tokensPath !== undefined && tokensPath !== "" && !isInside(tokensPath, root) ? tokensPath : null),
@@ -685,6 +687,8 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         else activeByok--;
       }
     }
+    // Guest questions (#256) own /api/v1/guest/ and are dispatched first: a guest token never reaches the decide tools.
+    if (isGuestPath(pathname)) return guests.handle(request, pathname, ip, rid);
     if (pathname === API_V1_PREFIX || pathname.startsWith(`${API_V1_PREFIX}/`)) {
       const maxConcurrent = options.maxConcurrent ?? 8;
       const slot = { acquire: (): boolean => { if (active >= maxConcurrent) return false; active++; return true; }, release: (): void => { active--; } };
@@ -806,6 +810,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       if (trial.available) trial.ledger.close();
       ticketStore?.close();
       questions.close();
+      guests.close();
       mapStore?.close();
     },
   });

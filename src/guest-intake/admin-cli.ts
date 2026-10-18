@@ -10,6 +10,7 @@
 //   list                                                     ids, states, versions; no contact or question text
 //   show <id>                                                one row, control characters escaped
 //   transition <id> <state> --version <n> [--file <message>] [--source human_reviewed|template]
+//   transition <id> needs_info --version <n> --template choices|example|outcome|one-decision
 //   answer <id> --version <n> --source human_reviewed|template --file <message>
 //   delete <id>                                              any state; leaves only a tombstone
 //   purge --before <ISO time> [--dry-run]
@@ -20,7 +21,7 @@
 //   token rotate <id> [--ttl-days <n>]                       same id and questions, new secret printed once
 import { lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
-import { isQuestionState, isResponseSource, QUESTION_ID, type ResponseSource } from "./contract.ts";
+import { isQuestionState, isResponseSource, NEEDS_INFO_TEMPLATES, QUESTION_ID, type ResponseSource } from "./contract.ts";
 import { QuestionStore } from "./store.ts";
 import { GuestTokenStore, type GuestMinted, type GuestTokenRecord } from "./tokens.ts";
 
@@ -29,7 +30,7 @@ export interface AdminIo {
   readonly err: (line: string) => void;
 }
 
-const USAGE = "usage: --question-admin list | show <id> | transition <id> <state> --version <n> [--file <path>] [--source <s>] | answer <id> --version <n> --source human_reviewed|template --file <path> | delete <id> | purge (--before <ISO time> | --retention) [--dry-run] | token mint <label> [--ttl-days <n>] | token list | token revoke <id> | token rotate <id> [--ttl-days <n>]";
+const USAGE = `usage: --question-admin list | show <id> | transition <id> <state> --version <n> [--file <path>] [--source <s>] | transition <id> needs_info --version <n> --template ${Object.keys(NEEDS_INFO_TEMPLATES).join("|")} | answer <id> --version <n> --source human_reviewed|template --file <path> | delete <id> | purge (--before <ISO time> | --retention) [--dry-run] | token mint <label> [--ttl-days <n>] | token list | token revoke <id> | token rotate <id> [--ttl-days <n>]`;
 const TOKEN_USAGE = "usage: --question-admin token mint <label> [--ttl-days 1-90] | token list | token revoke <gtk_id> | token rotate <gtk_id> [--ttl-days 1-90]";
 const ACTOR = "operator:cli";
 const MAX_MESSAGE_FILE = 65_536;
@@ -65,7 +66,7 @@ function flags(args: readonly string[]): { positional: string[]; named: Map<stri
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? "";
     if (arg === "--dry-run" || arg === "--retention") switches.add(arg);
-    else if (arg === "--version" || arg === "--file" || arg === "--source" || arg === "--before" || arg === "--ttl-days") {
+    else if (arg === "--version" || arg === "--file" || arg === "--source" || arg === "--before" || arg === "--ttl-days" || arg === "--template") {
       const value = args[i + 1];
       if (value === undefined || named.has(arg)) return null;
       named.set(arg, value);
@@ -213,6 +214,15 @@ export function runQuestionAdmin(args: readonly string[], env: Readonly<Record<s
       source = rawSource;
     }
     const file = parsed.named.get("--file");
+    const template = parsed.named.get("--template");
+    if (template !== undefined) {
+      const text = Object.hasOwn(NEEDS_INFO_TEMPLATES, template) ? NEEDS_INFO_TEMPLATES[template] : undefined;
+      if (command !== "transition" || target !== "needs_info" || file !== undefined || parsed.named.has("--source") || text === undefined) { io.err(USAGE); return 2; }
+      const result = store.transition(id, "needs_info", version, ACTOR, now(), { text, source: "template" });
+      if (!result.ok) { io.err(`refused: ${result.reason}`); return 1; }
+      io.out(`${id} now v${result.version}`);
+      return 0;
+    }
     const text = file === undefined ? undefined : readMessage(file);
     if (text === null) { io.err(`refused: cannot read message file ${file ?? ""}`); return 1; }
     const message = text !== undefined && source !== undefined ? { text, source } : undefined;

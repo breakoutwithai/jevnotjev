@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canTransition, checkPublicSubmission, keyHash, keyTag, normalizeQuestion, parseStatusBody, QUESTION_LIMITS, QUESTION_STATES, requestHash, TRANSITIONS, type SubmissionRejectReason } from "./contract.ts";
+import { canTransition, checkGuestSubmission, checkPublicSubmission, NEEDS_INFO_TEMPLATES, keyHash, keyTag, normalizeQuestion, parseStatusBody, QUESTION_LIMITS, QUESTION_STATES, requestHash, TRANSITIONS, type SubmissionRejectReason } from "./contract.ts";
 
 const KEY = "Ab3_-".repeat(8) + "xyz";
 const valid = { email: " Seeded-q1@Example.test ", question: "Should stock questions get a fixed answer?", reply_consent: true, request_key: KEY, nickname: "" };
@@ -83,5 +83,29 @@ describe("state model", () => {
     const allowed = new Set(["pending_review>needs_info", "pending_review>approved", "pending_review>declined", "approved>answered", "needs_info>pending_review"]);
     expect(new Set(TRANSITIONS.map(([from, to]) => `${from}>${to}`))).toEqual(allowed);
     for (const from of QUESTION_STATES) for (const to of QUESTION_STATES) expect([from, to, canTransition(from, to)]).toEqual([from, to, allowed.has(`${from}>${to}`)]);
+  });
+});
+
+describe("guest submission contract", () => {
+  test("[unit] GI-16 a guest body has no email, scope or honeypot; the submission carries a null email", () => {
+    const body = { question: " Fixed answers? ", reply_consent: true, request_key: KEY };
+    expect(checkGuestSubmission(body)).toEqual({ ok: true, submission: { email: null, question: "Fixed answers?", replyConsent: true, marketingConsent: false, requestKey: KEY } });
+    for (const extra of [{ email: "seeded-q5@example.test" }, { scope: "public" }, { nickname: "" }, { guest: "gtk_000000000000" }]) {
+      expect(checkGuestSubmission({ ...body, ...extra })).toEqual({ ok: false, reason: "unknown-field" });
+    }
+  });
+});
+
+describe("needs_info templates", () => {
+  const names = Object.keys(NEEDS_INFO_TEMPLATES);
+  test("[unit] GI-9b each needs_info template asks for one missing thing and makes no identity, run, accuracy or savings claim", () => {
+    expect(names.sort()).toEqual(["choices", "example", "one-decision", "outcome"]);
+    for (const name of names) {
+      const text = NEEDS_INFO_TEMPLATES[name] ?? "";
+      expect([name, text.length > 40 && [...text].length <= QUESTION_LIMITS.maxResponseChars]).toEqual([name, true]);
+      expect(text).toContain("new question");
+      expect(text.endsWith("No model has assessed this question, its accuracy or any savings.")).toBe(true);
+      expect(text).not.toMatch(/@|https?:|\bverified\b|\byour (account|email|name|company)\b|\bJev (ran|run|answered)\b|\d+\s*%/i);
+    }
   });
 });

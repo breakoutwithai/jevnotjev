@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildBackstage } from "../../scripts/backstage-build.ts";
 import { runQuestionAdmin } from "./admin-cli.ts";
+import { NEEDS_INFO_TEMPLATES } from "./contract.ts";
 import { QuestionStore } from "./store.ts";
 import { GuestTokenStore } from "./tokens.ts";
 
@@ -105,6 +106,18 @@ describe("review commands", () => {
     expect(stale.err).toContain("stale-version");
     expect(run(b, ["transition", id, "pending_review", "--version", "2"]).code).toBe(0);
     expect(b.store.show(id)?.state).toBe("pending_review");
+  });
+
+  test("[unit] GI-9b needs_info can carry a named generic template instead of a file, recorded as source template", () => {
+    const b = box();
+    const id = seed(b);
+    expect(run(b, ["transition", id, "needs_info", "--version", "1", "--template", "nope"]).code).toBe(2);
+    expect(run(b, ["transition", id, "needs_info", "--version", "1", "--template", "choices", "--file", messageFile(b, "x")]).code).toBe(2);
+    expect(run(b, ["transition", id, "approved", "--version", "1", "--template", "choices"]).code).toBe(2);
+    expect(run(b, ["answer", id, "--version", "1", "--source", "template", "--template", "choices"]).code).toBe(2);
+    const ok = run(b, ["transition", id, "needs_info", "--version", "1", "--template", "choices"]);
+    expect([ok.code, ok.err]).toEqual([0, ""]);
+    expect(b.store.publicStatus(id, KEY)).toMatchObject({ state: "needs_info", response: NEEDS_INFO_TEMPLATES.choices, response_source: "template" });
   });
 
   test("[unit] GI-9a answer needs an approved row, a source and a non-empty message within the limit", () => {

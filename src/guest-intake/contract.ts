@@ -33,6 +33,20 @@ export function isResponseSource(value: unknown): value is ResponseSource {
   return value === "human_reviewed" || value === "template";
 }
 
+const NEEDS_INFO_FOOTER = " No model has assessed this question, its accuracy or any savings.";
+
+/**
+ * Generic needs_info notes for `transition <id> needs_info --template <name>` (stored with source `template`). Each asks
+ * for one missing thing, names no person, account or address, and claims no run, accuracy or savings. The submitter
+ * answers with a new question; the operator moves the row back to pending_review once it arrives.
+ */
+export const NEEDS_INFO_TEMPLATES: Readonly<Record<string, string>> = Object.freeze({
+  choices: "Please send the fixed answers this decision may return (for example: stock help or general help) as a new question that starts with your reference." + NEEDS_INFO_FOOTER,
+  example: "Please send one or two made-up example cases, each with the answer you would expect, as a new question that starts with your reference. Do not include real customer, staff or personal data." + NEEDS_INFO_FOOTER,
+  outcome: "Please say what you will do differently once this decision is made, and how you would tell it went well, as a new question that starts with your reference." + NEEDS_INFO_FOOTER,
+  "one-decision": "This reads as more than one decision. Please pick the one you want help with first and send it as a new question that starts with your reference." + NEEDS_INFO_FOOTER,
+});
+
 /** Proposed defaults, not approved policy (docs/product/guest-intake.md, Limits). */
 export interface QuestionLimits {
   readonly maxQuestionChars: number;

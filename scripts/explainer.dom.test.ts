@@ -31,6 +31,7 @@ beforeAll(async () => {
   if ("error" in found) throw new Error(found.error);
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const pathname = decodeURIComponent(new URL(request.url).pathname);
+    if (pathname === "/planted-long/") return new Response(readFileSync(PAGE_FILE, "utf8").replace("Is my week going fine?", "Is my week going fine or is it not going fine at all today?"), { headers: { "content-type": "text/html; charset=utf-8" } });
     if (pathname === "/planted/") return new Response(planted(), { headers: { "content-type": "text/html; charset=utf-8" } });
     const path = join(SITE, pathname.endsWith("/") ? `${pathname}index.html` : pathname);
     if (!path.startsWith(`${SITE}/`)) return new Response("Not found", { status: 404 });
@@ -42,13 +43,14 @@ beforeAll(async () => {
 });
 afterAll(async () => { await browser?.close(); server?.stop(); });
 
-async function pageAt(width: number, height: number, motion: "no-preference" | "reduce", path = "/explainer/"): Promise<Page> {
+async function pageAt(width: number, height: number, motion: "no-preference" | "reduce", path = "/explainer/", allowFonts = false): Promise<Page> {
   const page = await browser.newPage({ viewport: { width, height }, reducedMotion: motion });
   await page.route("**/*", (route) => {
     const url = new URL(route.request().url());
     seen.push(url.origin);
     // Fonts are allowed but not fetched: the tests stay offline-safe and the fallback faces still lay out.
-    return url.origin === `http://127.0.0.1:${server.port}` ? route.continue() : route.abort();
+    const local = url.origin === `http://127.0.0.1:${server.port}`;
+    return local || (allowFonts && url.protocol === "https:" && FONT_HOSTS.has(url.hostname)) ? route.continue() : route.abort();
   });
   await page.goto(`http://127.0.0.1:${server.port}${path}`, { waitUntil: "domcontentloaded" });
   return page;
@@ -127,6 +129,34 @@ test("[unit] E3b the checker itself fails a planted banned word, dash and second
     expect(bannedIn(copy)).toEqual(["token"]);
     expect(dashesIn(copy)).toBeGreaterThan(0);
     expect(helperDefinitions(copy)).toBe(2);
+  } finally { await page.close(); }
+});
+
+for (const [width, height] of VIEWPORTS) {
+  test(`[integration] E13 every SVG text sits inside its sign, ticket or box with 4 units to spare at ${width} px (fallback fonts, then web fonts if reachable)`, async () => {
+    const fallback = await pageAt(width, height, "reduce");
+    try {
+      const report = await fitReport(fallback);
+      expect(report.fontsLoaded).toBe(0);
+      expect(report.checked).toBeGreaterThan(20);
+      expect(report.failures).toEqual([]);
+    } finally { await fallback.close(); }
+    const web = await pageAt(width, height, "reduce", "/explainer/", true);
+    try {
+      const report = await fitReport(web);
+      // Google Fonts may be unreachable here; then the fallback run above is the whole check and this one is a repeat of it.
+      expect(report.checked).toBeGreaterThan(20);
+      expect(report.failures).toEqual([]);
+    } finally { await web.close(); }
+  }, 30000);
+}
+
+test("[unit] E13b the fit checker itself fails a planted overlong string at 390 px", async () => {
+  const page = await pageAt(390, 844, "reduce", "/planted-long/");
+  try {
+    const report = await fitReport(page);
+    expect(report.failures.length).toBeGreaterThan(0);
+    expect(report.failures.some((f) => f.startsWith("Is my week going fine or"))).toBe(true);
   } finally { await page.close(); }
 });
 
@@ -294,6 +324,57 @@ test("[integration] E12 one h1, four kinds of question, every caption 8 words or
     for (const words of captions) expect(words).toBeLessThanOrEqual(8);
   } finally { await page.close(); }
 });
+
+type Fit = { checked: number; failures: string[]; fontsLoaded: number };
+
+// For every visible SVG text: its tspan-aware box must lie inside the nearest enclosing [data-fit] shape with at
+// least 4 user units of padding, and inside its own viewBox. Fonts are awaited first, so a webfont that is wider
+// than the fallback is measured as it renders.
+async function fitReport(page: Page): Promise<Fit> {
+  return page.evaluate(async () => {
+    await document.fonts.ready;
+    const fontsLoaded = Array.from(document.fonts).filter((face) => face.status === "loaded").length;
+    const failures: string[] = [];
+    let checked = 0;
+    for (const text of Array.from(document.querySelectorAll("svg text"))) {
+      if (!(text instanceof SVGTextElement) || text.getClientRects().length === 0) continue;
+      const svg = text.ownerSVGElement;
+      const rootInverse = svg?.getScreenCTM()?.inverse();
+      const textScreen = text.getScreenCTM();
+      if (svg === null || svg === undefined || rootInverse === undefined || textScreen === null) continue;
+      // Coordinates in the picture's own units (its viewBox), whatever size it is drawn at.
+      const matrix = rootInverse.multiply(textScreen);
+      const label = (text.textContent ?? "").trim();
+      const box = text.getBBox();
+      const corners = [new DOMPoint(box.x, box.y), new DOMPoint(box.x + box.width, box.y + box.height)].map((p) => p.matrixTransform(matrix));
+      const [topLeft, bottomRight] = corners;
+      if (topLeft === undefined || bottomRight === undefined) continue;
+      const view = svg.viewBox.baseVal;
+      if (topLeft.x < view.x || topLeft.y < view.y || bottomRight.x > view.x + view.width || bottomRight.y > view.y + view.height) failures.push(`${label}: outside its picture`);
+      const centre = new DOMPoint((topLeft.x + bottomRight.x) / 2, (topLeft.y + bottomRight.y) / 2);
+      let best: { left: number; top: number; right: number; bottom: number } | null = null;
+      let bestArea = Infinity;
+      for (const shape of Array.from(svg.querySelectorAll("[data-fit]"))) {
+        if (!(shape instanceof SVGGraphicsElement)) continue;
+        const shapeScreen = shape.getScreenCTM();
+        if (shapeScreen === null) continue;
+        const shapeMatrix = rootInverse.multiply(shapeScreen);
+        const b = shape.getBBox();
+        const a = new DOMPoint(b.x, b.y).matrixTransform(shapeMatrix);
+        const c = new DOMPoint(b.x + b.width, b.y + b.height).matrixTransform(shapeMatrix);
+        if (centre.x < a.x || centre.x > c.x || centre.y < a.y || centre.y > c.y) continue;
+        const area = (c.x - a.x) * (c.y - a.y);
+        if (area < bestArea) { bestArea = area; best = { left: a.x, top: a.y, right: c.x, bottom: c.y }; }
+      }
+      if (best === null) continue;
+      checked++;
+      const pads = { left: topLeft.x - best.left, right: best.right - bottomRight.x, top: topLeft.y - best.top, bottom: best.bottom - bottomRight.y };
+      const least = Math.min(pads.left, pads.right, pads.top, pads.bottom);
+      if (least < 4) failures.push(`${label}: padding ${least.toFixed(1)} (left ${pads.left.toFixed(1)}, right ${pads.right.toFixed(1)}, top ${pads.top.toFixed(1)}, bottom ${pads.bottom.toFixed(1)})`);
+    }
+    return { checked, failures, fontsLoaded };
+  });
+}
 
 function rgb(color: string): number[] {
   const match = color.match(/rgba?\(([^)]+)\)/);

@@ -14,6 +14,8 @@ let server: ReturnType<typeof Bun.serve>;
 let handler: ReturnType<typeof createHandler>;
 let storePath = "";
 let failNext = 0;
+let conflictNext = 0;
+const sentKeys: string[] = [];
 
 beforeAll(async () => {
   const found = resolveChromium(null, process.env.UAT_CHROMIUM_PATH, chromium.executablePath(), existsSync);
@@ -23,9 +25,18 @@ beforeAll(async () => {
     hostname: "127.0.0.1",
     port: 0,
     async fetch(request, srv) {
+      if (new URL(request.url).pathname === "/api/questions") {
+        const sent: unknown = await request.clone().json().catch(() => null);
+        const key = typeof sent === "object" && sent !== null && "request_key" in sent && typeof sent.request_key === "string" ? sent.request_key : "";
+        sentKeys.push(key);
+      }
       if (failNext > 0 && new URL(request.url).pathname === "/api/questions") {
         failNext -= 1;
         return Response.json({ code: "store-error" }, { status: 503 });
+      }
+      if (conflictNext > 0 && new URL(request.url).pathname === "/api/questions") {
+        conflictNext -= 1;
+        return Response.json({ code: "request-key-reused" }, { status: 409 });
       }
       return handler(request, { remoteAddress: srv.requestIP(request)?.address ?? "127.0.0.1" });
     },
@@ -102,6 +113,27 @@ describe("ask page", () => {
     expect(await page.locator("#askReceipt").isVisible()).toBe(false);
     await page.locator("#askSubmit").click();
     await page.locator("#askReceipt").waitFor({ state: "visible" });
+    expect(new QuestionStore(storePath).counts().questions).toBe(before + 1);
+    await page.close();
+  }, 30_000);
+
+  test("[integration] GI-4b after request-key-reused, sending again uses a fresh attempt and stores one row", async () => {
+    const page = await open(390, 844);
+    const before = new QuestionStore(storePath).counts().questions;
+    await page.getByLabel("What decision are you trying to make?").fill("Draft whose first attempt is refused");
+    await page.getByLabel("Your email").fill("seeded-conflict@example.test");
+    await page.locator("#askReply").check();
+    conflictNext = 1;
+    const from = sentKeys.length;
+    await page.locator("#askSubmit").click();
+    await page.locator("#askFormErr").waitFor({ state: "visible" });
+    expect(await page.locator("#askFormErr").innerText()).toContain("send again");
+    expect(await page.locator("#askQuestion").inputValue()).toBe("Draft whose first attempt is refused");
+    await page.locator("#askSubmit").click();
+    await page.locator("#askReceipt").waitFor({ state: "visible" });
+    const keys = sentKeys.slice(from);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
     expect(new QuestionStore(storePath).counts().questions).toBe(before + 1);
     await page.close();
   }, 30_000);

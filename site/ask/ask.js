@@ -15,7 +15,7 @@
   };
   var FORM_ERRORS = {
     "rate-limited": "Too many tries from your network. Wait ten minutes and send again; your draft is kept.",
-    "request-key-reused": "That attempt was already used for a different draft. Press send again.",
+    "request-key-reused": "That attempt was already used for a different draft. Your draft is kept; press send again to send it as a new question.",
     "deleted": "This question was deleted and cannot be sent again. Change it to send a new one.",
     "capacity": "We cannot take new questions right now. Your draft is kept; try again later.",
     "unknown-field": "The page and server disagree. Reload the page and try again."
@@ -86,6 +86,8 @@
       }
       if (res.ok) { formError("Thanks. Your question was not stored; reload the page if you meant to send it."); return; }
       var code = typeof data.code === "string" ? data.code : "";
+      // The server refused this key for this draft: the next send must be a new attempt, or it is refused again.
+      if (code === "request-key-reused") attempt = { draft: "", key: "" };
       if (code === "bad-email") { show($("askEmailErr"), true); $("askEmail").focus(); return; }
       if (code === "bad-question") { show($("askQuestionErr"), true); $("askQuestion").focus(); return; }
       formError(FORM_ERRORS[code] || "Could not save your question. Your draft is still here; try again.");

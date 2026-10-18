@@ -13,7 +13,7 @@
     ".deploy/tests/verify.test.sh": 58,
     "docs/research/2026-09-29-verdict-minimums/sim.test.ts": 6,
     "scripts/api-token-mint.test.ts": 3,
-    "scripts/ask.dom.test.ts": 4,
+    "scripts/ask.dom.test.ts": 5,
     "scripts/backstage-deps.test.ts": 6,
     "scripts/backstage-journal.test.ts": 5,
     "scripts/backstage-layout.dom.test.ts": 1,

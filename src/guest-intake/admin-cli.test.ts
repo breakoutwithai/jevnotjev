@@ -147,6 +147,43 @@ describe("delete and purge", () => {
     expect(run(b, ["delete", id]).code).toBe(1);
   });
 
+  test("[unit] GI-10a delete --dry-run is refused before any change: the row, its events and the absence of a tombstone stay", () => {
+    const b = box();
+    const id = seed(b);
+    expect(run(b, ["transition", id, "needs_info", "--version", "1", "--file", messageFile(b, "Please send the answer choices.")]).code).toBe(0);
+    const before = b.store.counts();
+    expect(before).toEqual({ questions: 1, events: 1, tombstones: 0 });
+    const r = run(b, ["delete", id, "--dry-run"]);
+    expect(r.code).toBe(2);
+    expect(r.out).not.toContain("deleted");
+    expect(b.store.counts()).toEqual(before);
+    expect(b.store.show(id)?.state).toBe("needs_info");
+  });
+
+  test("[unit] GI-9a every command refuses a flag or argument it does not take, before anything changes", () => {
+    const b = box();
+    const id = seed(b);
+    const file = messageFile(b, "Reviewed reply.");
+    const cases: string[][] = [
+      ["list", "--dry-run"], ["list", "--version", "1"], ["list", "extra"],
+      ["show", id, "--dry-run"], ["show", id, "--before", "2026-10-01T00:00:00.000Z"], ["show", id, "extra"],
+      ["delete", id, "--retention"], ["delete", id, "--version", "1"], ["delete", id, "--file", file], ["delete", id, "--before", "2026-10-01T00:00:00.000Z"], ["delete", id, "extra"],
+      ["transition", id, "approved", "--version", "1", "--dry-run"], ["transition", id, "approved", "--version", "1", "--before", "2026-10-01T00:00:00.000Z"], ["transition", id, "approved", "--version", "1", "--retention"], ["transition", id, "approved", "--version", "1", "--ttl-days", "1"], ["transition", id, "approved", "extra", "--version", "1"],
+      ["answer", id, "--version", "1", "--source", "template", "--file", file, "--dry-run"], ["answer", id, "--version", "1", "--source", "template", "--file", file, "--template", "choices"], ["answer", id, "extra", "--version", "1", "--source", "template", "--file", file],
+      ["purge", "--before", "2099-01-01T00:00:00.000Z", "--version", "1"], ["purge", "--before", "2099-01-01T00:00:00.000Z", "--file", file], ["purge", "extra", "--before", "2099-01-01T00:00:00.000Z"],
+      ["token", "list", "--dry-run"], ["token", "list", "--version", "1"],
+    ];
+    const snapshot = (): unknown => [b.store.counts(), b.store.show(id)?.state, b.store.show(id)?.version];
+    const start = snapshot();
+    for (const args of cases) {
+      const r = run(b, args);
+      expect([args.join(" "), r.code]).toEqual([args.join(" "), 2]);
+      expect(snapshot()).toEqual(start);
+    }
+    expect(run(b, ["purge", "--before", "2099-01-01T00:00:00.000Z", "--dry-run"]).code).toBe(0);
+    expect(snapshot()).toEqual(start);
+  });
+
   test("[unit] GI-10d purge --retention refuses without an approved policy file, and purges by it when present", () => {
     const b = box();
     const old = seed(b, Date.parse("2026-09-01T00:00:00.000Z"));

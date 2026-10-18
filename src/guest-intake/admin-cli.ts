@@ -77,6 +77,28 @@ function flags(args: readonly string[]): { positional: string[]; named: Map<stri
   return { positional, named, switches };
 }
 
+/**
+ * What each command takes: its positional count (the command word included) and its flags. Anything else is refused
+ * before the store is opened, so a flag a command ignores (delete --dry-run) can never run as if it were honoured.
+ */
+const GRAMMAR: Readonly<Record<string, { readonly positional: number; readonly named: readonly string[]; readonly switches: readonly string[] }>> = {
+  list: { positional: 1, named: [], switches: [] },
+  show: { positional: 2, named: [], switches: [] },
+  delete: { positional: 2, named: [], switches: [] },
+  transition: { positional: 3, named: ["--version", "--file", "--source", "--template"], switches: [] },
+  answer: { positional: 2, named: ["--version", "--file", "--source"], switches: [] },
+  purge: { positional: 1, named: ["--before"], switches: ["--dry-run", "--retention"] },
+  // token checks its own subcommand and argument count in runToken.
+  token: { positional: 3, named: ["--ttl-days"], switches: [] },
+};
+
+function fitsGrammar(command: string, parsed: { positional: readonly string[]; named: ReadonlyMap<string, string>; switches: ReadonlySet<string> }): boolean {
+  const grammar = GRAMMAR[command];
+  if (grammar === undefined) return false;
+  const positionalOk = command === "token" ? parsed.positional.length <= grammar.positional : parsed.positional.length === grammar.positional;
+  return positionalOk && [...parsed.named.keys()].every((k) => grammar.named.includes(k)) && [...parsed.switches].every((s) => grammar.switches.includes(s));
+}
+
 function readMessage(path: string): string | null {
   try {
     const stat = lstatSync(path);
@@ -156,7 +178,8 @@ function runToken(positional: readonly string[], named: ReadonlyMap<string, stri
 export function runQuestionAdmin(args: readonly string[], env: Readonly<Record<string, string | undefined>>, io: AdminIo, now: () => number): number {
   const parsed = flags(args);
   const command = parsed?.positional[0];
-  if (parsed === null || command === undefined || !["list", "show", "transition", "answer", "delete", "purge", "token"].includes(command)) { io.err(USAGE); return 2; }
+  if (parsed === null || command === undefined || !Object.hasOwn(GRAMMAR, command)) { io.err(USAGE); return 2; }
+  if (!fitsGrammar(command, parsed)) { io.err(command === "token" ? TOKEN_USAGE : USAGE); return 2; }
   const explicit = env.BACKSTAGE_TICKETS_PATH;
   const stateDir = env.STATE_DIRECTORY;
   const path = explicit !== undefined && explicit !== "" ? explicit : stateDir !== undefined && stateDir !== "" ? join(stateDir, "tickets.sqlite") : null;
@@ -165,7 +188,6 @@ export function runQuestionAdmin(args: readonly string[], env: Readonly<Record<s
   const refused = privateEntry(dir, "directory", 0o700) ?? privateEntry(path, "file", 0o600);
   if (refused !== null) { io.err(`refused: ${refused}`); return 1; }
   if (command === "token") return runToken(parsed.positional, parsed.named, parsed.switches, path, io, now);
-  if (parsed.named.has("--ttl-days")) { io.err(USAGE); return 2; }
 
   const [, id, target] = parsed.positional;
   const version = Number(parsed.named.get("--version"));

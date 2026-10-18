@@ -128,7 +128,7 @@
     "src/format/quote.test.ts": 4,
     "src/format/record-v1-2.test.ts": 25,
     "src/format/validate.test.ts": 62,
-    "src/guest-intake/admin-cli.test.ts": 15,
+    "src/guest-intake/admin-cli.test.ts": 17,
     "src/guest-intake/contract.test.ts": 12,
     "src/guest-intake/guest-routes.test.ts": 16,
     "src/guest-intake/imports.test.ts": 2,

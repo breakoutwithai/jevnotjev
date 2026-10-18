@@ -43,8 +43,9 @@ beforeAll(async () => {
 });
 afterAll(async () => { await browser?.close(); server?.stop(); });
 
-async function pageAt(width: number, height: number, motion: "no-preference" | "reduce", path = "/explainer/", allowFonts = false): Promise<Page> {
+async function pageAt(width: number, height: number, motion: "no-preference" | "reduce", path = "/explainer/", allowFonts = false, fakeClock = false): Promise<Page> {
   const page = await browser.newPage({ viewport: { width, height }, reducedMotion: motion });
+  if (fakeClock) await page.clock.install();
   await page.route("**/*", (route) => {
     const url = new URL(route.request().url());
     seen.push(url.origin);
@@ -101,6 +102,7 @@ for (const [width, height] of VIEWPORTS) {
           return box !== undefined && box.top < innerHeight && box.bottom > 0;
         });
         expect(new URL(page.url()).hash).toBe("#types");
+        expect(await page.evaluate(() => document.activeElement?.id)).toBe("types");
         const box = await page.locator("#types").evaluate((node) => { const r = node.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, inner: innerHeight }; });
         expect(box.top).toBeLessThan(box.inner);
         expect(box.bottom).toBeGreaterThan(0);
@@ -157,6 +159,70 @@ test("[unit] E13b the fit checker itself fails a planted overlong string at 390 
     const report = await fitReport(page);
     expect(report.failures.length).toBeGreaterThan(0);
     expect(report.failures.some((f) => f.startsWith("Is my week going fine or"))).toBe(true);
+  } finally { await page.close(); }
+});
+
+test("[integration] E14 no role=img contains a button, and the four interactive pictures are groups", async () => {
+  const page = await pageAt(1440, 900, "reduce");
+  try {
+    expect(await page.locator('[role="img"] [role="button"], [role="img"] button, [role="img"] a[href]').count()).toBe(0);
+    const interactive = await page.locator("article.poster svg").evaluateAll((nodes) => nodes.map((n) => ({ role: n.getAttribute("role"), buttons: n.querySelectorAll('[role="button"]').length })));
+    expect(interactive.length).toBe(4);
+    for (const svg of interactive) expect(svg).toEqual({ role: "group", buttons: svg.buttons });
+    expect(interactive.every((svg) => svg.buttons > 0)).toBe(true);
+    expect(await page.locator('svg[role="img"]').count()).toBeGreaterThan(6);
+  } finally { await page.close(); }
+});
+
+// The cycle runs on a 2.6 s interval; the page's clock is faked so the test advances it instead of waiting.
+const posterState = (page: Page): Promise<string> => page.evaluate(() => [
+  document.getElementById("noul-read")?.textContent,
+  document.getElementById("choice-read")?.textContent,
+  document.getElementById("pin")?.style.transform,
+  document.getElementById("rungs")?.querySelector('[aria-pressed="true"]')?.getAttribute("data-i"),
+].join("|"));
+
+for (const [width, height] of VIEWPORTS) {
+  test(`[integration] E15 the pause button stops and resumes the poster cycle at ${width} px`, async () => {
+    const page = await pageAt(width, height, "no-preference", "/explainer/", false, true);
+    try {
+      const button = page.locator("#types button.pause");
+      expect(await button.count()).toBe(1);
+      expect(await button.getAttribute("type")).toBe("button");
+      expect(await button.innerText()).toBe("Pause the motion");
+      expect(await button.getAttribute("aria-pressed")).toBe("false");
+      const box = await button.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+      expect((box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? 0) <= width).toBe(true);
+      expect(parseFloat(await button.evaluate((node) => getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(12);
+      const colours = await button.evaluate((node) => { const css = getComputedStyle(node); return { fg: css.color, bg: css.backgroundColor }; });
+      expect(contrast(colours.fg, colours.bg)).toBeGreaterThanOrEqual(4.5);
+      const start = await posterState(page);
+      await page.clock.runFor(2700);
+      const running = await posterState(page);
+      expect(running).not.toBe(start);
+      await button.click();
+      expect(await button.getAttribute("aria-pressed")).toBe("true");
+      expect(await button.innerText()).toBe("Play the motion");
+      const held = await posterState(page);
+      await page.clock.runFor(2700 * 3);
+      expect(await posterState(page)).toBe(held);
+      await button.click();
+      expect(await button.getAttribute("aria-pressed")).toBe("false");
+      expect(await button.innerText()).toBe("Pause the motion");
+      await page.clock.runFor(2700);
+      expect(await posterState(page)).not.toBe(held);
+    } finally { await page.close(); }
+  }, 20000);
+}
+
+test("[integration] E16 under reduced motion there is no pause button and the posters do not cycle", async () => {
+  const page = await pageAt(390, 844, "reduce", "/explainer/", false, true);
+  try {
+    expect(await page.locator("button.pause, #pause-motion").count()).toBe(0);
+    const start = await posterState(page);
+    await page.clock.runFor(2700 * 3);
+    expect(await posterState(page)).toBe(start);
   } finally { await page.close(); }
 });
 

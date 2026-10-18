@@ -71,6 +71,10 @@ a{color:inherit}
 /* ---------- 2 FOUR TYPES ---------- */
 .types{padding:30px 0 34px;border-top:1px solid var(--line);background:
   repeating-linear-gradient(90deg,rgba(109,15,30,.20) 0 38px,rgba(37,4,10,0) 38px 76px)}
+#types:focus{outline:none}
+.pause{display:inline-flex;align-items:center;min-height:44px;margin:0 0 14px;padding:0 18px;font:700 16px/1 var(--sans);color:var(--ink);background:var(--bg-2);border:2px solid var(--brass);cursor:pointer}
+.pause:hover{background:var(--curtain-lo)}
+.pause:focus-visible{outline:3px solid var(--bulb);outline-offset:3px}
 .stage4{display:grid;grid-template-columns:1fr;gap:14px;margin-top:6px}
 @media (min-width:560px){.stage4{grid-template-columns:1fr 1fr;gap:16px}}
 @media (min-width:1000px){.stage4{grid-template-columns:repeat(4,1fr);gap:26px}}
@@ -228,14 +232,14 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
 </header>
 
 <!-- 2 FOUR TYPES -->
-<section class="types" id="types" aria-label="Four kinds of question">
+<section class="types" id="types" tabindex="-1" aria-label="Four kinds of question">
 <div class="wrap">
   <p class="kick">Jev answers four kinds of question</p>
   <div class="stage4">
 
   <article class="poster" aria-labelledby="t-noul">
     <h2 class="p-title" id="t-noul">Yes or no</h2>
-    <svg class="pic4" viewBox="0 0 300 200" role="img" aria-label="A dial with a needle leaning toward YES. Example reading: 78 percent yes. Tap to swing it.">
+    <svg class="pic4" viewBox="0 0 300 200" role="group" aria-label="A dial with a needle leaning toward YES. Example reading: 78 percent yes. Tap to swing it.">
       <g class="hit" id="noul-hit" tabindex="0" role="button" aria-label="Swing the dial between two example readings">
         <rect x="0" y="0" width="300" height="200" fill="transparent"/>
         <g transform="translate(0 -18)">
@@ -256,7 +260,7 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
 
   <article class="poster" aria-labelledby="t-choice">
     <h2 class="p-title" id="t-choice">Pick one</h2>
-    <svg class="pic4" viewBox="0 0 300 200" role="img" aria-label="Three tickets: small, medium and large. One is lit. Example choice. Tap a ticket to light it.">
+    <svg class="pic4" viewBox="0 0 300 200" role="group" aria-label="Three tickets: small, medium and large. One is lit. Example choice. Tap a ticket to light it.">
       <defs><linearGradient id="bm" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe6a6" stop-opacity=".85"/><stop offset="1" stop-color="#ffe6a6" stop-opacity="0"/></linearGradient></defs>
       <rect width="300" height="200" fill="#26070d"/>
       <g id="beams">
@@ -288,7 +292,7 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
 
   <article class="poster" aria-labelledby="t-score">
     <h2 class="p-title" id="t-score">How far up</h2>
-    <svg class="pic4" viewBox="0 0 300 200" role="img" aria-label="A ladder with three rungs: easy, ordinary and hard. A marker sits on ordinary. Example. Tap a rung to move it.">
+    <svg class="pic4" viewBox="0 0 300 200" role="group" aria-label="A ladder with three rungs: easy, ordinary and hard. A marker sits on ordinary. Example. Tap a rung to move it.">
       <rect width="300" height="200" fill="#f1e5c6"/>
       <rect x="86" y="12" width="9" height="180" fill="#5a0f1c"/>
       <rect x="165" y="12" width="9" height="180" fill="#5a0f1c"/>
@@ -321,7 +325,7 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
 
   <article class="poster" aria-labelledby="t-box">
     <h2 class="p-title" id="t-box">Where</h2>
-    <svg class="pic4" viewBox="0 0 300 200" role="img" aria-label="A screenshot-like window with a bar meter. A frame is drawn around the meter. Example. Tap to draw the frame again.">
+    <svg class="pic4" viewBox="0 0 300 200" role="group" aria-label="A screenshot-like window with a bar meter. A frame is drawn around the meter. Example. Tap to draw the frame again.">
       <g class="hit" id="box-hit" tabindex="0" role="button" aria-label="Draw the frame again">
         <rect width="300" height="200" fill="#e4d6b3"/>
         <rect x="18" y="8" width="264" height="184" fill="#fbf6ea" stroke="#1a0508" stroke-width="2"/>
@@ -630,8 +634,18 @@ footer{padding:16px 16px 30px;max-width:1200px;margin:0 auto;font:600 14px/1.4 v
   rungs.forEach(function (r) { bind('s', r, function () { setScore(+r.getAttribute('data-i')); }); });
   bind('b', $('#box-hit'), drawFrame);
   if (!reduce) {
-    var tick = 0; drawFrame();
+    var tick = 0, held = false; drawFrame();
+    var hold = document.createElement('button');
+    hold.type = 'button'; hold.className = 'pause'; hold.id = 'pause-motion';
+    hold.setAttribute('aria-pressed', 'false'); hold.textContent = 'Pause the motion';
+    hold.addEventListener('click', function () {
+      held = !held;
+      hold.setAttribute('aria-pressed', String(held));
+      hold.textContent = held ? 'Play the motion' : 'Pause the motion';
+    });
+    $('#types .kick').insertAdjacentElement('afterend', hold);
     setInterval(function () {
+      if (held) return;
       tick++; var now = Date.now();
       if (!(paused.n > now)) setNoul(tick % 2 ? 1 : 0);
       if (!(paused.c > now)) setChoice(tick % 3);

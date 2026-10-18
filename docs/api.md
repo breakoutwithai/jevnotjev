@@ -250,6 +250,10 @@ bun scripts/api-token-mint.ts --label ci-bot
 - The file is mode 0600 in a 0700 directory, set on every mint even when they already existed. A mint takes an exclusive `api-tokens.json.lock` (a lock older than 30 s is taken over), writes a temp file and renames it into place, so concurrent mints all persist. The server re-reads it when it changes, so a new token works without a restart. To revoke, delete its entry by `id`.
 - The browser routes keep their cookie session: a bearer token opens no `/backstage/` or `/api/backstage/` route, and a session cookie opens no `/api/v1` route.
 
+### Guest question routes are not decide tools
+
+`/api/v1/guest/` belongs to the guest question journey (`src/guest-intake/guest-routes.ts`, `docs/product/guest-intake.md`, `docs/guest-access.md`) and is dispatched before the six tools. It takes only a guest token (`jng_...`, minted with `server.js --question-admin token mint`), never a decide token, and a guest token is 401 on every decide route above. Guest routes submit and read the guest's own questions; they make no provider call.
+
 ### Provider keys: per request, the caller's own
 
 | Header | Arm |

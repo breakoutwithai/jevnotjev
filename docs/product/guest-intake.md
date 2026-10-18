@@ -1,6 +1,6 @@
 # Guest questions
 
-Governing issue: #253. Status: PR 1 (GI-1 to GI-15) built, not deployed. Spec approved at sha256 `f8e446b7`; base `f825b71` (origin/main, 2026-10-18).
+Governing issue: #253. Status: public intake, review CLI, guest tokens, guest HTTP routes, token CLI and guest MCP adapter built on one integration branch (#256) and verified locally; not deployed, no guest token issued. Spec approved at sha256 `f8e446b7`; base `f825b71` (origin/main, 2026-10-18).
 
 A visitor brings one decision question, gets a receipt, and later reads a person-reviewed response. No account, no provider key, no Jev run. Selected guests do the same from Claude Code or Codex with a scoped token. TokenMax usage sharing is a separate optional journey owned by #242 / #243.
 
@@ -41,7 +41,7 @@ Live, read-only on 2026-10-18: static `/DEPLOYED_SHA` serves `3418769`; `GET /ap
 - The only admin surface in PRs 1 to 3 is the operator CLI `src/guest-intake/admin-cli.ts`, shipped inside the existing Backstage bundle.
 - **Delivery path:** the release package admits only `server.js`, `release.json` and `site/` (`.deploy/backstage-package.ts:32-46`), so a separate script would be refused as "Unexpected release file." `server.ts` imports the CLI, and its `import.meta.main` block (`server.ts:805`) checks `process.argv` for `--question-admin` first. When present it runs the CLI and exits before `createHandler` or `Bun.serve`: no port, no trial ledger, no provider key read. The package allowlist and `scripts/backstage-build.ts:8` entrypoints are unchanged.
 - **Host use:** `sudo -u jevnotjev-backstage env STATE_DIRECTORY=/var/lib/jevnotjev-backstage /usr/local/bin/bun /var/www/jevnotjev-backstage-current/server.js --question-admin <command>`. The service user owns the state directory (`.deploy/backstage.service:9-12`, `StateDirectoryMode=0700`). The tickets path resolves as the server does (`server.ts:829`).
-- Commands: `list`, `show <id>`, `transition <id> <to> --version <n>`, `answer <id> --version <n> --source human_reviewed|template --file <path>`, `delete <id>`, `purge`. PR 2 adds `token mint|list|revoke` on the same dispatch.
+- Commands: `list`, `show <id>`, `transition <id> <to> --version <n>`, `answer <id> --version <n> --source human_reviewed|template --file <path>`, `delete <id>`, `purge`. `token mint|list|revoke|rotate` use the same dispatch (#256).
 - The CLI refuses to start unless the state directory is mode 0700 and `tickets.sqlite` is mode 0600, both owned by the running user. It prints only the requested row.
 - **Bundled-mode tests (off-host):** GI-14c builds the release with `scripts/backstage-build.ts`, runs the built `server.js --question-admin` against temporary state, and asserts the command works and no port is bound. The existing `backstage-package.test.ts` still passes with the allowlist unchanged.
 - A Backstage session, password or Google, is not an admin. `operators.json` holds testers (`docs/backstage-deploy.md:24`). PR 1 adds no queue route under `/api/backstage/` or `/backstage/`; a test asserts none exists.
@@ -131,7 +131,7 @@ Public capability boundary: POST /api/questions/status selects only scope = publ
 
 ### Guest tokens (PR 2)
 
-Separate store, never `api-tokens.json`. Prefix `jng_`, which fails the decide token pattern `^jnj_[A-Za-z0-9_-]{43}$` (`api-tokens.ts:15`), so even a rollback to a release without guest support cannot accept one on `ask` or `run`. Record: id, guest label, sha256, created, expires (default 14 days), revoked_at, last_used_at, fixed scopes `questions:submit` and `questions:read-own`. No edit, withdraw or delete scope. `server.js --question-admin token mint|list|revoke` prints the token once, ids otherwise. Guest routes are dispatched before `createApiV1`. Revoking a token leaves its rows in place.
+Separate store, never `api-tokens.json`. Prefix `jng_`, which fails the decide token pattern `^jnj_[A-Za-z0-9_-]{43}$` (`api-tokens.ts:15`), so even a rollback to a release without guest support cannot accept one on `ask` or `run`. Record: id, guest label, sha256, created, expires (default 14 days), revoked_at, last_used_at, fixed scopes `questions:submit` and `questions:read-own`. No edit, withdraw or delete scope. `server.js --question-admin token mint|list|revoke|rotate` prints the token once (mint and rotate), ids otherwise. Guest routes are dispatched before `createApiV1`. Revoking a token leaves its rows in place.
 
 ### Guest MCP adapter (PR 3)
 
@@ -186,7 +186,7 @@ PR 1 covers GI-1 to GI-15.
 
 - GI-12 instruments `globalThis.fetch`, `Bun.spawn`, `Bun.spawnSync` and `node:child_process`; any request to a non-intake host or any model CLI spawn fails the test even when the call would succeed.
 - GI-10a also asserts the tombstone's `key_tag` equals the deleted row's stored `key_tag`, and that no column anywhere holds the raw request key.
-- `bun scripts/guest-intake/verify.ts --local` is an off-host check. In PR 2 it starts the real server on temporary storage and runs HTTP, store and permission checks only: GI-7a, GI-10c, GI-12, GI-16 and GI-17. PR 3 adds the stdio adapter checks (GI-18). Each run prints every named check and a count before `GUEST_INTAKE_PASS`.
+- `bun scripts/guest-intake/verify.ts --local` is an off-host check of the built release: the built `server.js` on temporary storage, the built `--question-admin` CLI, and the guest MCP adapter as a stdio subprocess driven by the MCP SDK client. It covers GI-7a, GI-8, GI-10c, GI-12, GI-16, GI-17 and GI-18 in 33 named checks and prints a count before `GUEST_INTAKE_PASS`.
 
 ## Verification protocol
 
@@ -205,15 +205,16 @@ env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR bun scripts/
 
 ## Delivery
 
-| PR | Story | Ships |
-|---|---|---|
-| 1 | Form, store, status, review CLI (GI-1 to GI-15) | Backstage, static, nginx |
-| 2 | Guest tokens and HTTP (GI-16, GI-17), `verify.ts` | Backstage |
-| 3 | Guest MCP adapter (GI-18), `docs/guest-access.md` | none (client side) |
-| 4 | Optional TokenMax link, after #243 | static |
-| 5 | `docs/design/guest-agent-boundary.md` | docs |
+The pieces were built on separate branches and ship as one user story, so no library ships unused:
 
-Each PR raises floors in `.deploy/tests/expected-counts.json`. Run output and screenshots stay outside the repo.
+| Part | Issue | Ships |
+|---|---|---|
+| Spec, form, store, status, review CLI (GI-1 to GI-15) | #253 | Backstage, static, nginx |
+| `GuestTokenStore` | #255 | Backstage |
+| Guest MCP adapter (GI-18), `docs/guest-access.md` | #254 | none (client side) |
+| Guest HTTP routes, token CLI, needs_info templates, `verify.ts`, optional usage prompt, `docs/design/guest-agent-boundary.md` | #256 | Backstage, static |
+
+One integration branch carries all four, with floors raised in `.deploy/tests/expected-counts.json`. Run output and screenshots stay outside the repo. #253 stays open for rollout and outside-user acceptance.
 
 ## PR 1 contract deltas
 
@@ -227,6 +228,30 @@ Differences from the approved text above, made while building PR 1:
 - **Shipping order:** the Backstage release can ship before the nginx snippet, because the classifier in `.deploy/backstage-lib.sh` accepts the snippet with or without the two question locations. Until `.deploy/ship.sh --setup --module backstage` installs the new snippet, nginx does not route `/api/questions`.
 - **Public copy:** `/ask/` and the privacy page state that no retention period has been set and that replies are not emailed. The homepage ticket office links to `/ask/`.
 
+## Integration deltas (#256)
+
+- **Id shapes:** a guest scope is `guest:gtk_` + 12 lowercase hex (the `GuestTokenStore` id). Question ids are `Q-` + 12 uppercase hex everywhere, the MCP adapter included.
+- **Guest status codes:** unsafe token state or a verify throw is 503 `auth-unavailable`; a bad, expired, revoked or rotated-away token is 401 `unauthenticated` with `WWW-Authenticate: Bearer realm="jevnotjev-guest"`; no tickets store is 503 `questions-unavailable`. Wrong method is 405 with `Allow`.
+- **Re-check before write:** the token is verified when the request arrives and again after the body is read, immediately before the insert. A revoke or rotation in between stores nothing.
+- **Guest attempts:** guest POSTs share the per-address attempt limiter (5 per 10 minutes), counted before the token is checked. Guest GETs have no attempt limiter.
+- **Token store opening:** opened on the first guest request, so an unsafe state directory makes the guest routes 503 rather than stopping the server.
+- **needs_info templates:** `transition <id> needs_info --version <n> --template choices|example|outcome|one-decision` stores a fixed note with source `template` (`NEEDS_INFO_TEMPLATES` in `contract.ts`).
+- **Public retry:** after a 409 `request-key-reused` the `/ask/` page starts a fresh attempt, so sending again works.
+
+## Optional TokenMax usage (S4)
+
+- `/ask/` has an optional section, separate from the question, with one copyable prompt that wraps the existing `site/tm/map.ts`: the user picks the Claude Code and Codex log folders (or none) and the period, the assistant shows the first lines of the script, runs it with `--claude`, `--codex`, `--days` or `--from`/`--to` and `--out`, explains `share-draft.md` without cost or savings estimates, and stops. A test checks every flag in the prompt against the real `parseArgs`.
+- Deferred to #242: private TokenMax storage. Every map the current receiver stores is on the public board (`src/backstage/maps.ts`), and PR #243's hosted preview has no nginx route and no durable private receiver. The page says private sending is not available and that `/maps/` is a separate public step the user takes.
+- No Jev option appears in this journey.
+
 ## Open operator decisions
 
 Proposals until confirmed: retention cutoff (30 days), every limit and the 25,000 cap, token expiry and quota, who reviews and whether any reply time is stated (default: none), the selected guests and their private token handoff (blocks production minting only). The public page states no retention period until one is approved.
+
+## Gate database isolation
+
+Every full gate run needs its own temporary PostgreSQL cluster and unique socket directory, with JNJ_TEST_ADMIN_DSN explicitly set and pg_isready checked before the gate. Do not depend on the shared default /tmp socket on port 5432, and do not restart or stop another project's server. Existing DB tests create and drop their own jnj_test database inside that owned cluster. Stop only the owned temporary cluster after validation. Keep original failure output; no tests are skipped. This prerequisite follows the observed missing-default-socket failures during this delivery.
+
+## Low-friction deletion contact
+
+The new question journey must not require a GitHub account to request deletion. Reuse the existing private service contact, jev@breakoutwithai.com (docs/uat/tester-handoff.md), for a request quoting the reference only; never invite public posting of question text, email or a status code. Operator verification and deletion remain manual through the private CLI. Apply this to the ask page and its question-specific privacy wording; do not rewrite unrelated historical ticket behavior.

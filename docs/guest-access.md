@@ -1,8 +1,8 @@
 # Guest access from Claude Code or Codex
 
-A selected guest can send a decision question to the Jev!Jev team and read the reviewed reply from their own coding agent. The adapter is a local stdio MCP server, `src/guest-intake/mcp.ts` (server name `jevnotjev-guest`). Contract: `docs/product/guest-intake.md` "Guest MCP adapter (PR 3)", from the #253 spec branch (not on main yet). Issues: #253, #254.
+A selected guest can send a decision question to the Jev!Jev team and read the reviewed reply from their own coding agent. The adapter is a local stdio MCP server, `src/guest-intake/mcp.ts` (server name `jevnotjev-guest`). Contract: `docs/product/guest-intake.md` "Guest MCP adapter (PR 3)". Issues: #253, #254, #256.
 
-Status: the adapter is built and tested against a local contract receiver. The guest HTTP routes and the token commands it depends on (#253 PR 2) are not live yet, so no guest token exists and every tool call returns an error until they ship. Steps marked **pending** below wait for that PR.
+Status: the adapter, the guest HTTP routes and the token commands are built and pass an end-to-end check on a local build (`bun scripts/guest-intake/verify.ts --local`). They are not deployed, so no guest token exists yet and every tool call fails against the live site until the operator deploys and issues one. Steps marked **after deployment** wait for that.
 
 ## What it does
 
@@ -32,9 +32,9 @@ bun <checkout>/src/guest-intake/mcp.ts
 
 `<checkout>` is a clone of this repository at a reviewed commit, after `bun install`.
 
-## One-time private handoff (pending)
+## One-time private handoff (after deployment)
 
-1. The operator mints one token for one named guest on the host: `server.js --question-admin token mint` (**pending**, #253 PR 2). It is printed once and not stored in readable form.
+1. The operator mints one token for one named guest on the host: `server.js --question-admin token mint "<guest label>"` (optionally `--ttl-days 1-90`). It is printed once and only its hash is stored.
 2. The operator sends it to the guest once, over a private channel the guest already uses. Never in a GitHub issue or pull request, a shared chat channel, a screenshot, a repository, or a file that syncs to others.
 3. The guest stores it as below and deletes the message. The operator keeps no copy.
 4. If the token is exposed, the guest tells the operator, who revokes it and mints a new one.
@@ -68,10 +68,10 @@ codex mcp add jevnotjev-guest -- bun --env-file="$HOME/.config/jevnotjev/guest.e
 
 Do not pass the token with `--env JNJ_GUEST_TOKEN=...`: that writes it into `~/.codex/config.toml`. Restart Codex after the token file changes.
 
-## Renew or revoke (pending)
+## Renew or revoke (after deployment)
 
-- Tokens expire (proposed default 14 days, not yet approved). To renew, ask the operator: they run `server.js --question-admin token revoke <id>` and `token mint` on the host (**pending**, #253 PR 2) and hand the new token over as above. Replace the line in `guest.env` and reconnect the server.
-- Revoking a token stops its reads and submissions. Questions already sent stay in the queue.
+- Tokens expire (proposed default 14 days, not yet approved). To renew, ask the operator: they run `server.js --question-admin token rotate <id>` on the host and hand the new token over as above. Rotation keeps your id, so your earlier questions stay readable; the old token stops working at once. Replace the line in `guest.env` and reconnect the server.
+- Revoking a token (`token revoke <id>`) stops its reads and submissions on the next request. Questions already sent stay in the queue.
 - There is no self-service renew or revoke from the adapter.
 
 ## Errors
@@ -82,7 +82,9 @@ A failed call returns `{ "error": { "code": ..., "status": ... } }`; `status` is
 |---|---|
 | `token-missing` | `JNJ_GUEST_TOKEN` is not set for the server |
 | `token-invalid` | The value is not `jng_` + 43 base64url characters |
-| server code, 401 | Token unknown, expired or revoked (code set by #253 PR 2) |
+| `unauthenticated` (401) | Token unknown, expired, revoked or replaced by a rotation |
+| `rate-limited` (429) | Too many submissions from your network in 10 minutes; nothing was stored |
+| `auth-unavailable` (503) | The server cannot check tokens right now; nothing was stored |
 | `not-found` (404) | No question with that id for this token |
 | `request-key-reused` (409) | Same `request_key`, different question |
 | `deleted` (410) | That `request_key` belonged to a deleted question |

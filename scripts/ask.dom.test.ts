@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { createHandler } from "../src/backstage/server.ts";
 import { QuestionStore } from "../src/guest-intake/store.ts";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
+import { parseArgs } from "../site/tm/map.ts";
 
 const SITE = join(import.meta.dir, "..", "site");
 const VIEWPORTS: [number, number][] = [[390, 844], [1440, 900]];
@@ -163,4 +164,50 @@ describe("ask page", () => {
     expect(await overflow(page)).toBe(false);
     await page.close();
   }, 30_000);
+});
+
+describe("optional usage map", () => {
+  /** The prompt exactly as the page shows it, with the HTML entities decoded. */
+  function usagePrompt(): string {
+    const html = readFileSync(join(SITE, "ask", "index.html"), "utf8");
+    const raw = /<pre id="usagePrompt">([\s\S]*?)<\/pre>/.exec(html)?.[1] ?? "";
+    return raw.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  }
+
+  test("[unit] S4 every flag the usage prompt names is one site/tm/map.ts accepts, with chosen folders and period, and none shares", () => {
+    const prompt = usagePrompt();
+    expect(prompt.length).toBeGreaterThan(200);
+    const named = [...new Set([...prompt.matchAll(/--[a-z][a-z-]*/g)].map((m) => m[0]))].sort();
+    expect(named).toEqual(["--claude", "--codex", "--days", "--from", "--out", "--to"]);
+    expect(prompt).toContain("https://jevnotjev.breakoutwithai.com/tm/map.ts");
+    const dir = mkdtempSync(join(tmpdir(), "usage-prompt-"));
+    const claude = join(dir, "claude");
+    mkdirSync(claude);
+    const env = { home: dir, now: Date.parse("2026-10-18T12:00:00Z"), cwd: dir };
+    const byDays = parseArgs(["--claude", claude, "--codex", "none", "--days", "7", "--out", join(dir, "a")], env);
+    expect([byDays.claude, byDays.codex, byDays.days, byDays.share]).toEqual([claude, null, 7, false]);
+    const byDates = parseArgs(["--claude", "none", "--codex", claude, "--from", "2026-10-01", "--to", "2026-10-07", "--out", join(dir, "b")], env);
+    expect([byDates.claude, byDates.codex, byDates.days, byDates.share]).toEqual([null, claude, 7, false]);
+    expect(() => parseArgs(["--help"], env)).toThrow("unknown option");
+  });
+
+  test("[integration] S4 the usage section is optional and separate: the full prompt shows before copy, copying sends nothing, and it has no form", async () => {
+    for (const [w, h] of VIEWPORTS) {
+      const page = await open(w, h);
+      const sent: string[] = [];
+      page.on("request", (r) => { if (r.method() !== "GET") sent.push(r.url()); });
+      expect(await page.locator("#usagePrompt").isVisible()).toBe(true);
+      expect((await page.locator("#usagePrompt").innerText()).trim()).toBe(usagePrompt().trim());
+      expect(await page.locator("#usage form, #usage input, #usage textarea").count()).toBe(0);
+      expect(await page.locator("#usage a[href=\"/maps/\"]").count()).toBe(1);
+      expect(await page.locator("#usage a[href=\"/tm/\"]").count()).toBe(1);
+      await page.locator("#usageCopy").focus();
+      await page.keyboard.press("Enter");
+      await page.locator("#usageCopied").filter({ hasText: /\S/ }).waitFor();
+      expect(sent).toEqual([]);
+      expect(await page.locator("#askReceipt").isVisible()).toBe(false);
+      expect(await overflow(page)).toBe(false);
+      await page.close();
+    }
+  }, 60_000);
 });

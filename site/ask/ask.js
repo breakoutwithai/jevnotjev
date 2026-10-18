@@ -98,19 +98,21 @@
     }
   }
 
-  async function copy() {
-    var code = $("askCode").textContent || "";
+  // Copies the text of one element; when the clipboard is refused, selects it for the keyboard instead. Sends nothing.
+  async function copyFrom(sourceId, statusId) {
+    var text = $(sourceId).textContent || "";
     try {
-      await navigator.clipboard.writeText(code);
-      $("askCopied").textContent = "Copied.";
+      await navigator.clipboard.writeText(text);
+      $(statusId).textContent = "Copied.";
     } catch (error) {
       var range = document.createRange();
-      range.selectNodeContents($("askCode"));
+      range.selectNodeContents($(sourceId));
       var selection = window.getSelection();
       if (selection) { selection.removeAllRanges(); selection.addRange(range); }
-      $("askCopied").textContent = "Selected: copy it with your keyboard.";
+      $(statusId).textContent = "Selected: copy it with your keyboard.";
     }
   }
+  function copy() { return copyFrom("askCode", "askCopied"); }
 
   function statusError(text) {
     $("statusErr").textContent = text;
@@ -147,6 +149,7 @@
 
   $("askForm").addEventListener("submit", submit);
   $("askCopy").addEventListener("click", copy);
+  $("usageCopy").addEventListener("click", function () { return copyFrom("usagePrompt", "usageCopied"); });
   $("statusForm").addEventListener("submit", status);
   if (location.hash === "#status") $("statusCode").focus();
 })();

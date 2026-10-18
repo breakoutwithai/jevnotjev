@@ -79,6 +79,27 @@
     <p class="hint">Replies are reviewed by a person. No model has assessed your question, its accuracy or any savings.</p>
   </div>
 </section>
+
+<section class="usage" id="usage" aria-labelledby="usageTitle">
+  <h2 id="usageTitle">Optional: map your AI coding usage on your own computer</h2>
+  <p>Separate from your question and not needed for a reply. The <a href="/tm/">TokenMax mapper</a> reads only the Claude Code and Codex log folders you choose and writes a private report on your computer. It needs <a href="https://bun.sh">Bun</a>. Nothing is sent to us.</p>
+  <p>Paste this into Claude Code or Codex. This is the whole prompt; read it before you copy it.</p>
+  <pre id="usagePrompt">Help me run the TokenMax usage mapper on my own computer. Do not upload anything and do not open any link it prints.
+1. Ask me which logs to read: my Claude Code projects folder (often ~/.claude/projects), my Codex sessions folder (often ~/.codex/sessions), or none for either. Read no other folder.
+2. Ask me for the period: the last N days (7 if I do not say), or a start and an end date.
+3. Download https://jevnotjev.breakoutwithai.com/tm/map.ts into a new empty folder and show me its first 15 lines before running it.
+4. In that folder run: bun map.ts --claude &lt;folder or none&gt; --codex &lt;folder or none&gt; --days &lt;N&gt; --out &lt;a new folder name&gt;
+   For a date range, use --from YYYY-MM-DD --to YYYY-MM-DD instead of --days.
+5. Show me share-draft.md and explain each number, including anything reported as unknown or not covered. Do not estimate cost, savings or remaining allowance from token counts.
+6. Stop there. Sharing anything is a separate choice I make myself.</pre>
+  <p class="code-row"><button id="usageCopy" type="button">Copy prompt</button></p>
+  <p class="hint" id="usageCopied" role="status"></p>
+  <ul class="facts">
+    <li>The report counts sessions, tokens and limit notices. Unknown values stay unknown; it says nothing about cost or savings.</li>
+    <li>Sending your usage to us privately is not available yet.</li>
+    <li>The public board at <a href="/maps/">/maps/</a> is a separate step you take yourself. Numbers there are self-reported and not verified.</li>
+  </ul>
+</section>
 </main>
 </body>
 </html>

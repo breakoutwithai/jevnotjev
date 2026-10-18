@@ -1,5 +1,5 @@
 {
-  "minFiles": 143,
+  "minFiles": 144,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -133,6 +133,7 @@
     "src/guest-intake/imports.test.ts": 2,
     "src/guest-intake/routes.test.ts": 19,
     "src/guest-intake/store.test.ts": 18,
+    "src/guest-intake/tokens.test.ts": 15,
     "src/jev-answer.test.ts": 28,
     "src/labels/booking-swap-packs.test.ts": 6,
     "src/labels/calibration.test.ts": 8,

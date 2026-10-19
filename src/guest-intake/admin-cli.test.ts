@@ -7,7 +7,7 @@ import { buildBackstage } from "../../scripts/backstage-build.ts";
 import { runQuestionAdmin } from "./admin-cli.ts";
 import { NEEDS_INFO_TEMPLATES } from "./contract.ts";
 import { QuestionStore } from "./store.ts";
-import { GuestTokenStore } from "./tokens.ts";
+import { AdminTokenStore, GuestTokenStore } from "./tokens.ts";
 
 const NOW = Date.parse("2026-10-18T12:00:00.000Z");
 const KEY = "C".repeat(43);
@@ -311,6 +311,73 @@ describe("guest token commands", () => {
     expect(r.err).toContain("refused");
     expect(r.out).not.toContain("jng_");
     chmodSync(b.state, 0o700);
+  });
+});
+
+describe("admin token commands (#282)", () => {
+  const TOKEN_LINE = /^token: (jna_[A-Za-z0-9_-]{43})$/m;
+  const ID_LINE = /^id: (atk_[a-f0-9]{12})$/m;
+
+  function minted(out: string): { token: string; id: string } {
+    const token = TOKEN_LINE.exec(out)?.[1];
+    const id = ID_LINE.exec(out)?.[1];
+    if (token === undefined || id === undefined) throw new Error("mint printed no admin token or id");
+    return { token, id };
+  }
+
+  test("[unit] AT-CLI admin-token mint prints one jna_ token once (7 days default); list, revoke and rotate work by atk_ id", () => {
+    const b = box();
+    const mint = run(b, ["admin-token", "mint", "Craig laptop"]);
+    expect([mint.code, mint.err]).toEqual([0, ""]);
+    const a = minted(mint.out);
+    expect(mint.out.split(a.token)).toHaveLength(2);
+    expect(mint.out).toContain(`expires: ${new Date(NOW + 7 * 86_400_000).toISOString()}`);
+    expect(mint.out).toContain("scopes: questions:admin");
+    const admins = new AdminTokenStore(b.path, () => NOW);
+    const guests = new GuestTokenStore(b.path, () => NOW);
+    expect(admins.verify(`Bearer ${a.token}`)?.tokenId).toBe(a.id);
+    expect(guests.verify(`Bearer ${a.token}`)).toBeNull();
+    const c = minted(run(b, ["admin-token", "mint", "Second", "--ttl-days", "30"]).out);
+    const list = run(b, ["admin-token", "list"]);
+    expect(list.out).toContain(a.id);
+    expect(list.out).toContain("2 tokens");
+    expect(list.out).not.toContain("jna_");
+    expect(list.out).not.toMatch(/[a-f0-9]{64}/);
+    // The guest list does not show admin tokens, and the reverse.
+    expect(run(b, ["token", "list"]).out).toContain("0 tokens");
+    expect(run(b, ["admin-token", "revoke", a.id]).code).toBe(0);
+    expect(admins.verify(`Bearer ${a.token}`)).toBeNull();
+    const rotated = minted(run(b, ["admin-token", "rotate", c.id]).out);
+    expect(rotated.id).toBe(c.id);
+    expect(admins.verify(`Bearer ${c.token}`)).toBeNull();
+    expect(admins.verify(`Bearer ${rotated.token}`)?.tokenId).toBe(c.id);
+    admins.close();
+    guests.close();
+  });
+
+  test("[unit] AT-CLI bad admin-token commands are refused, a guest id is not an admin id, and nothing prints a token", () => {
+    const b = box();
+    const guestId = /^id: (gtk_[a-f0-9]{12})$/m.exec(run(b, ["token", "mint", "Guest A"]).out)?.[1] ?? "";
+    expect(guestId).toMatch(/^gtk_/);
+    const cases: [string[], number][] = [
+      [["admin-token"], 2],
+      [["admin-token", "show"], 2],
+      [["admin-token", "mint"], 2],
+      [["admin-token", "mint", "Op", "--ttl-days", "0"], 2],
+      [["admin-token", "mint", "Op", "--ttl-days", "31"], 2],
+      [["admin-token", "mint", "Op", "--version", "1"], 2],
+      [["admin-token", "revoke", guestId], 1],
+      [["admin-token", "revoke", "atk_ffffffffffff"], 1],
+      [["admin-token", "rotate", "atk_ffffffffffff"], 1],
+      [["admin-token", "list", "extra"], 2],
+      [["token", "revoke", "atk_ffffffffffff"], 1],
+    ];
+    for (const [args, code] of cases) {
+      const r = run(b, args);
+      expect([args.join(" "), r.code]).toEqual([args.join(" "), code]);
+      expect(r.out + r.err).not.toContain("jna_");
+    }
+    expect(run(b, ["admin-token", "list"]).out).toContain("0 tokens");
   });
 });
 

@@ -19,19 +19,58 @@
 //   token list                                               ids, labels, expiry, status; never a token or hash
 //   token revoke <id>                                        stops the token at once; its questions stay
 //   token rotate <id> [--ttl-days <n>]                       same id and questions, new secret printed once
+//   admin-token mint|list|revoke|rotate                      the same four for operator jna_ tokens (#282, 1-30 days)
 import { lstatSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { isQuestionState, isResponseSource, NEEDS_INFO_TEMPLATES, QUESTION_ID, type ResponseSource } from "./contract.ts";
 import { QuestionStore } from "./store.ts";
-import { GuestTokenStore, type GuestMinted, type GuestTokenRecord } from "./tokens.ts";
+import { AdminTokenStore, GuestTokenStore, type Minted, type TokenMintOptions, type TokenRecord } from "./tokens.ts";
 
 export interface AdminIo {
   readonly out: (line: string) => void;
   readonly err: (line: string) => void;
 }
 
-const USAGE = `usage: --question-admin list | show <id> | transition <id> <state> --version <n> [--file <path>] [--source <s>] | transition <id> needs_info --version <n> --template ${Object.keys(NEEDS_INFO_TEMPLATES).join("|")} | answer <id> --version <n> --source human_reviewed|template --file <path> | delete <id> | purge (--before <ISO time> | --retention) [--dry-run] | token mint <label> [--ttl-days <n>] | token list | token revoke <id> | token rotate <id> [--ttl-days <n>]`;
+const USAGE = `usage: --question-admin list | show <id> | transition <id> <state> --version <n> [--file <path>] [--source <s>] | transition <id> needs_info --version <n> --template ${Object.keys(NEEDS_INFO_TEMPLATES).join("|")} | answer <id> --version <n> --source human_reviewed|template --file <path> | delete <id> | purge (--before <ISO time> | --retention) [--dry-run] | token mint <label> [--ttl-days <n>] | token list | token revoke <id> | token rotate <id> [--ttl-days <n>] | admin-token mint|list|revoke|rotate`;
 const TOKEN_USAGE = "usage: --question-admin token mint <label> [--ttl-days 1-90] | token list | token revoke <gtk_id> | token rotate <gtk_id> [--ttl-days 1-90]";
+const ADMIN_TOKEN_USAGE = "usage: --question-admin admin-token mint <label> [--ttl-days 1-30] | admin-token list | admin-token revoke <atk_id> | admin-token rotate <atk_id> [--ttl-days 1-30]";
+
+/** What runToken needs from GuestTokenStore or AdminTokenStore (tokens.ts). */
+interface CliTokenStore {
+  list(): readonly TokenRecord<string>[];
+  mint(label: string, options?: TokenMintOptions): Minted<string>;
+  rotate(id: string, options?: TokenMintOptions): Minted<string>;
+  revoke(id: string): TokenRecord<string> | null;
+  close(): void;
+}
+
+interface CliTokenKind {
+  readonly usage: string;
+  readonly maxDays: number;
+  readonly noun: string;
+  readonly open: (path: string, now: () => number) => CliTokenStore;
+  readonly handoff: string;
+  readonly revoked: string;
+}
+
+const TOKEN_KINDS: Readonly<Record<"token" | "admin-token", CliTokenKind>> = {
+  token: {
+    usage: TOKEN_USAGE,
+    maxDays: 90,
+    noun: "guest token",
+    open: (path, now) => new GuestTokenStore(path, now),
+    handoff: "Give this token to the named guest over a private channel you chose. It is not shown again and is not stored; rotate it if it is lost.",
+    revoked: "its questions stay",
+  },
+  "admin-token": {
+    usage: ADMIN_TOKEN_USAGE,
+    maxDays: 30,
+    noun: "admin token",
+    open: (path, now) => new AdminTokenStore(path, now),
+    handoff: "Store this operator token in a private 0600 env file as JNJ_ADMIN_TOKEN (docs/guest-access.md). It is not shown again and is not stored; rotate it if it is lost.",
+    revoked: "the admin API refuses it from the next request",
+  },
+};
 const ACTOR = "operator:cli";
 const MAX_MESSAGE_FILE = 65_536;
 const POLICY_FILE = "intake-policy.json";
@@ -88,14 +127,15 @@ const GRAMMAR: Readonly<Record<string, { readonly positional: number; readonly n
   transition: { positional: 3, named: ["--version", "--file", "--source", "--template"], switches: [] },
   answer: { positional: 2, named: ["--version", "--file", "--source"], switches: [] },
   purge: { positional: 1, named: ["--before"], switches: ["--dry-run", "--retention"] },
-  // token checks its own subcommand and argument count in runToken.
+  // token and admin-token check their own subcommand and argument count in runToken.
   token: { positional: 3, named: ["--ttl-days"], switches: [] },
+  "admin-token": { positional: 3, named: ["--ttl-days"], switches: [] },
 };
 
 function fitsGrammar(command: string, parsed: { positional: readonly string[]; named: ReadonlyMap<string, string>; switches: ReadonlySet<string> }): boolean {
   const grammar = GRAMMAR[command];
   if (grammar === undefined) return false;
-  const positionalOk = command === "token" ? parsed.positional.length <= grammar.positional : parsed.positional.length === grammar.positional;
+  const positionalOk = command === "token" || command === "admin-token" ? parsed.positional.length <= grammar.positional : parsed.positional.length === grammar.positional;
   return positionalOk && [...parsed.named.keys()].every((k) => grammar.named.includes(k)) && [...parsed.switches].every((s) => grammar.switches.includes(s));
 }
 
@@ -124,36 +164,36 @@ function retentionCutoff(dir: string, now: number, io: AdminIo): string | null {
   return new Date(now - days * DAY_MS).toISOString();
 }
 
-function tokenStatus(r: GuestTokenRecord, now: number): string {
+function tokenStatus(r: TokenRecord<string>, now: number): string {
   if (r.revokedAt !== null) return `revoked ${r.revokedAt}`;
   return Date.parse(r.expires) <= now ? "expired" : "active";
 }
 
-/** The one place a guest token is written: stdout, once, for the operator to hand over privately. */
-function printMinted(m: GuestMinted, io: AdminIo): void {
+/** The one place a token is written: stdout, once, for the operator to hand over or store privately. */
+function printMinted(m: Minted<string>, kind: CliTokenKind, io: AdminIo): void {
   io.out(`id: ${m.record.id}`);
   io.out(`label: ${escapeForTerminal(m.record.label)}`);
   io.out(`expires: ${m.record.expires}`);
   io.out(`scopes: ${m.record.scopes.join(" ")}`);
   io.out(`token: ${m.token}`);
-  io.out("Give this token to the named guest over a private channel you chose. It is not shown again and is not stored; rotate it if it is lost.");
+  io.out(kind.handoff);
 }
 
-/** `token mint|list|revoke|rotate` over GuestTokenStore (tokens.ts). Library errors name paths and ids, never a token. */
-function runToken(positional: readonly string[], named: ReadonlyMap<string, string>, switches: ReadonlySet<string>, path: string, io: AdminIo, now: () => number): number {
+/** `token` or `admin-token` mint|list|revoke|rotate over tokens.ts. Library errors name paths and ids, never a token. */
+function runToken(kind: CliTokenKind, positional: readonly string[], named: ReadonlyMap<string, string>, switches: ReadonlySet<string>, path: string, io: AdminIo, now: () => number): number {
   const [, sub, arg, extra] = positional;
   const ttlText = named.get("--ttl-days");
   const otherFlags = [...named.keys()].some((k) => k !== "--ttl-days") || switches.size > 0;
   const ttlDays = ttlText === undefined ? undefined : Number(ttlText);
   const takesTtl = sub === "mint" || sub === "rotate";
   const argCount = sub === "list" ? 0 : 1;
-  if (sub === undefined || !["mint", "list", "revoke", "rotate"].includes(sub) || otherFlags || extra !== undefined || (argCount === 0 ? arg !== undefined : arg === undefined) || (!takesTtl && ttlText !== undefined)) { io.err(TOKEN_USAGE); return 2; }
-  if (ttlDays !== undefined && (!/^\d{1,2}$/.test(ttlText ?? "") || ttlDays < 1 || ttlDays > 90)) { io.err(TOKEN_USAGE); return 2; }
-  if (!isAbsolute(path)) { io.err("refused: the tickets path must be absolute for guest tokens"); return 1; }
+  if (sub === undefined || !["mint", "list", "revoke", "rotate"].includes(sub) || otherFlags || extra !== undefined || (argCount === 0 ? arg !== undefined : arg === undefined) || (!takesTtl && ttlText !== undefined)) { io.err(kind.usage); return 2; }
+  if (ttlDays !== undefined && (!/^\d{1,2}$/.test(ttlText ?? "") || ttlDays < 1 || ttlDays > kind.maxDays)) { io.err(kind.usage); return 2; }
+  if (!isAbsolute(path)) { io.err(`refused: the tickets path must be absolute for ${kind.noun}s`); return 1; }
   const options = ttlDays === undefined ? {} : { ttlMs: ttlDays * DAY_MS };
-  let tokens: GuestTokenStore | null = null;
+  let tokens: CliTokenStore | null = null;
   try {
-    tokens = new GuestTokenStore(path, now);
+    tokens = kind.open(path, now);
     if (sub === "list") {
       const records = tokens.list();
       for (const r of records) io.out(`${r.id}  ${escapeForTerminal(r.label)}  created ${r.created}  expires ${r.expires}  ${tokenStatus(r, now())}  last used ${r.lastUsedAt ?? "-"}`);
@@ -161,14 +201,14 @@ function runToken(positional: readonly string[], named: ReadonlyMap<string, stri
       return 0;
     }
     const target = arg ?? "";
-    if (sub === "mint") { printMinted(tokens.mint(target, options), io); return 0; }
-    if (sub === "rotate") { printMinted(tokens.rotate(target, options), io); return 0; }
+    if (sub === "mint") { printMinted(tokens.mint(target, options), kind, io); return 0; }
+    if (sub === "rotate") { printMinted(tokens.rotate(target, options), kind, io); return 0; }
     const revoked = tokens.revoke(target);
     if (revoked === null) { io.err(`not-found: ${target}`); return 1; }
-    io.out(`revoked ${revoked.id} at ${revoked.revokedAt ?? "-"}; its questions stay`);
+    io.out(`revoked ${revoked.id} at ${revoked.revokedAt ?? "-"}; ${kind.revoked}`);
     return 0;
   } catch (error) {
-    io.err(`refused: ${error instanceof Error ? escapeForTerminal(error.message) : "guest token store error"}`);
+    io.err(`refused: ${error instanceof Error ? escapeForTerminal(error.message) : `${kind.noun} store error`}`);
     return 1;
   } finally {
     tokens?.close();
@@ -179,7 +219,8 @@ export function runQuestionAdmin(args: readonly string[], env: Readonly<Record<s
   const parsed = flags(args);
   const command = parsed?.positional[0];
   if (parsed === null || command === undefined || !Object.hasOwn(GRAMMAR, command)) { io.err(USAGE); return 2; }
-  if (!fitsGrammar(command, parsed)) { io.err(command === "token" ? TOKEN_USAGE : USAGE); return 2; }
+  const tokenKind = command === "token" || command === "admin-token" ? TOKEN_KINDS[command] : undefined;
+  if (!fitsGrammar(command, parsed)) { io.err(tokenKind?.usage ?? USAGE); return 2; }
   const explicit = env.BACKSTAGE_TICKETS_PATH;
   const stateDir = env.STATE_DIRECTORY;
   const path = explicit !== undefined && explicit !== "" ? explicit : stateDir !== undefined && stateDir !== "" ? join(stateDir, "tickets.sqlite") : null;
@@ -187,7 +228,7 @@ export function runQuestionAdmin(args: readonly string[], env: Readonly<Record<s
   const dir = dirname(path);
   const refused = privateEntry(dir, "directory", 0o700) ?? privateEntry(path, "file", 0o600);
   if (refused !== null) { io.err(`refused: ${refused}`); return 1; }
-  if (command === "token") return runToken(parsed.positional, parsed.named, parsed.switches, path, io, now);
+  if (tokenKind !== undefined) return runToken(tokenKind, parsed.positional, parsed.named, parsed.switches, path, io, now);
 
   const [, id, target] = parsed.positional;
   const version = Number(parsed.named.get("--version"));

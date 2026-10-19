@@ -44,9 +44,10 @@ export interface GuestMcpOptions {
   readonly timeoutMs?: number;
 }
 
-type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
+export type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
 
-class Refusal extends Error {
+/** A fixed error code (and HTTP status, when there was one) that a tool returns as { error: { code, status? } }. */
+export class Refusal extends Error {
   constructor(
     readonly code: string,
     readonly status: number | null = null,
@@ -59,8 +60,9 @@ function isRecord(value: unknown): value is { readonly [key: string]: unknown } 
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function checkOrigin(origin: string): string {
-  if (origin === GUEST_ORIGIN) return origin;
+/** `origin` when it is `pinned` or a loopback test receiver (http://127.0.0.1:<port> or http://[::1]:<port>), else throws. */
+export function checkOrigin(origin: string, pinned: string, adapter: string): string {
+  if (origin === pinned) return origin;
   let url: URL | null = null;
   try {
     url = new URL(origin);
@@ -68,25 +70,30 @@ function checkOrigin(origin: string): string {
     url = null;
   }
   const loopback = url !== null && url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "[::1]") && url.port !== "" && url.origin === origin;
-  if (!loopback) throw new Error(`origin refused: the guest adapter talks to ${GUEST_ORIGIN} only (tests may inject a loopback receiver)`);
+  if (!loopback) throw new Error(`origin refused: the ${adapter} adapter talks to ${pinned} only (tests may inject a loopback receiver)`);
   return origin;
 }
 
-/** The request URL for a guest route path; anything that is not exactly origin + /api/v1/guest/... throws. */
-export function guestUrl(origin: string, path: string): URL {
+/** The request URL for `path` under `prefix`; anything that is not exactly origin + prefix... with no query or hash throws. */
+export function pinnedUrl(origin: string, path: string, prefix: string): URL {
   let url: URL | null = null;
   try {
     url = new URL(path, origin);
   } catch {
     url = null;
   }
-  if (url === null || url.origin !== origin || url.pathname !== path || !path.startsWith(GUEST_PATH) || url.search !== "" || url.hash !== "") {
+  if (url === null || url.origin !== origin || url.pathname !== path || !path.startsWith(prefix) || url.search !== "" || url.hash !== "") {
     throw new Error("destination refused");
   }
   return url;
 }
 
-async function readCapped(response: Response, signal: AbortSignal): Promise<Uint8Array> {
+/** The request URL for a guest route path; anything that is not exactly origin + /api/v1/guest/... throws. */
+export function guestUrl(origin: string, path: string): URL {
+  return pinnedUrl(origin, path, GUEST_PATH);
+}
+
+async function readCapped(response: Response, signal: AbortSignal, max: number): Promise<Uint8Array> {
   if (response.body === null) return new Uint8Array();
   const reader = response.body.getReader();
   signal.addEventListener("abort", () => void reader.cancel().catch(() => undefined), { once: true });
@@ -96,7 +103,7 @@ async function readCapped(response: Response, signal: AbortSignal): Promise<Uint
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > RESPONSE_BYTES_MAX) {
+    if (size > max) {
       await reader.cancel().catch(() => undefined);
       throw new Refusal("response-too-large");
     }
@@ -128,22 +135,35 @@ const READ = z.object({
 });
 const LISTED = z.object({ questions: z.array(z.object({ id: ID, state: STATE, created_at: STAMP, updated_at: STAMP })).max(50) });
 
-function shaped<T>(schema: z.ZodType<T>, value: unknown): T {
+/** `value` as `schema` describes it, extra fields dropped; anything else is invalid-response. */
+export function shaped<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) throw new Refusal("invalid-response");
   return parsed.data;
 }
 
-export function createGuestMcp(opts: GuestMcpOptions): McpServer {
-  const origin = checkOrigin(opts.origin ?? GUEST_ORIGIN);
-  const send: GuestFetch = opts.fetch ?? ((url, init) => fetch(url, init));
-  const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) throw new Error("timeoutMs must be a positive integer");
+export interface RequesterOptions {
+  readonly origin: string;
+  readonly send: GuestFetch;
+  readonly timeoutMs: number;
+  /** Every request path must start with this, e.g. /api/v1/guest/. */
+  readonly prefix: string;
+  readonly requestBytesMax: number;
+  readonly responseBytesMax: number;
+}
 
-  const request = async (token: string, method: "GET" | "POST", path: string, payload?: Readonly<Record<string, unknown>>): Promise<unknown> => {
+export type Requester = (token: string, method: "GET" | "POST", path: string, payload?: Readonly<Record<string, unknown>>) => Promise<unknown>;
+
+/**
+ * One bearer request to `origin` + a path under `prefix`: redirect "error" and any 3xx refused, request and response
+ * capped, the whole exchange under `timeoutMs`. A non-2xx is a Refusal with the server's code when it is a plain code.
+ */
+export function createRequester(o: RequesterOptions): Requester {
+  if (!Number.isInteger(o.timeoutMs) || o.timeoutMs <= 0) throw new Error("timeoutMs must be a positive integer");
+  return async (token, method, path, payload) => {
     let url: URL;
     try {
-      url = guestUrl(origin, path);
+      url = pinnedUrl(o.origin, path, o.prefix);
     } catch {
       throw new Refusal("destination-refused");
     }
@@ -151,11 +171,11 @@ export function createGuestMcp(opts: GuestMcpOptions): McpServer {
     let body: string | null = null;
     if (payload !== undefined) {
       body = JSON.stringify(payload);
-      if (new TextEncoder().encode(body).byteLength > REQUEST_BYTES_MAX) throw new Refusal("request-too-large");
+      if (new TextEncoder().encode(body).byteLength > o.requestBytesMax) throw new Refusal("request-too-large");
       headers["content-type"] = "application/json";
     }
     const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), timeoutMs);
+    const timer = setTimeout(() => abort.abort(), o.timeoutMs);
     const deadline = new Promise<never>((_, reject) => {
       abort.signal.addEventListener("abort", () => reject(new Refusal("timeout")), { once: true });
     });
@@ -163,7 +183,7 @@ export function createGuestMcp(opts: GuestMcpOptions): McpServer {
     try {
       let response: Response;
       try {
-        response = await Promise.race([send(url, { method, headers, redirect: "error", signal: abort.signal, ...(body !== null ? { body } : {}) }), deadline]);
+        response = await Promise.race([o.send(url, { method, headers, redirect: "error", signal: abort.signal, ...(body !== null ? { body } : {}) }), deadline]);
       } catch (error) {
         if (error instanceof Refusal) throw error;
         if (abort.signal.aborted) throw new Refusal("timeout");
@@ -173,7 +193,7 @@ export function createGuestMcp(opts: GuestMcpOptions): McpServer {
         await response.body?.cancel().catch(() => undefined);
         throw new Refusal("redirect-refused", response.status);
       }
-      const bytes = await Promise.race([readCapped(response, abort.signal), deadline]);
+      const bytes = await Promise.race([readCapped(response, abort.signal, o.responseBytesMax), deadline]);
       const type = response.headers.get("content-type") ?? "";
       let parsed: unknown = undefined;
       let isJson = false;
@@ -195,17 +215,24 @@ export function createGuestMcp(opts: GuestMcpOptions): McpServer {
       clearTimeout(timer);
     }
   };
+}
 
-  const fail = (code: string, status: number | null, message?: string): ToolResult => ({
+function fail(code: string, status: number | null, message?: string): ToolResult {
+  return {
     content: [{ type: "text", text: JSON.stringify({ error: { code, ...(status !== null ? { status } : {}), ...(message !== undefined ? { message } : {}) } }, null, 2) }],
     isError: true,
-  });
+  };
+}
 
-  // The token is read per call, checked before any request, and scrubbed from whatever comes back.
-  const run = async (fn: (token: string) => Promise<unknown>): Promise<ToolResult> => {
-    const token = opts.env[TOKEN_ENV];
-    if (token === undefined || token === "") return fail("token-missing", null, `Set ${TOKEN_ENV} in this MCP server's environment.`);
-    if (!TOKEN_PATTERN.test(token)) return fail("token-invalid", null, `${TOKEN_ENV} is not a guest token: expected jng_ and 43 base64url characters.`);
+/** A tool body given the checked token. The token is read per call, checked before any request, and scrubbed after. */
+export type TokenRunner = (fn: (token: string) => Promise<unknown>) => Promise<ToolResult>;
+
+/** `kind` names the token in the refusal ("a guest token: expected jng_ and 43 base64url characters"). */
+export function createTokenRunner(env: Readonly<Record<string, string | undefined>>, name: string, pattern: RegExp, kind: string): TokenRunner {
+  return async (fn) => {
+    const token = env[name];
+    if (token === undefined || token === "") return fail("token-missing", null, `Set ${name} in this MCP server's environment.`);
+    if (!pattern.test(token)) return fail("token-invalid", null, `${name} is not ${kind}.`);
     let result: ToolResult;
     try {
       result = { content: [{ type: "text", text: JSON.stringify(await fn(token), null, 2) }] };
@@ -214,6 +241,19 @@ export function createGuestMcp(opts: GuestMcpOptions): McpServer {
     }
     return { ...result, content: result.content.map((c) => ({ ...c, text: c.text.split(token).join(REDACTED) })) };
   };
+}
+
+export function createGuestMcp(opts: GuestMcpOptions): McpServer {
+  const origin = checkOrigin(opts.origin ?? GUEST_ORIGIN, GUEST_ORIGIN, "guest");
+  const request = createRequester({
+    origin,
+    send: opts.fetch ?? ((url, init) => fetch(url, init)),
+    timeoutMs: opts.timeoutMs ?? TIMEOUT_MS,
+    prefix: GUEST_PATH,
+    requestBytesMax: REQUEST_BYTES_MAX,
+    responseBytesMax: RESPONSE_BYTES_MAX,
+  });
+  const run = createTokenRunner(opts.env, TOKEN_ENV, TOKEN_PATTERN, "a guest token: expected jng_ and 43 base64url characters");
 
   const server = new McpServer({ name: "jevnotjev-guest", version: "1.0.0" });
 

@@ -135,35 +135,23 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
     expect(sample.meta.note).toContain(sample.meta.run_id);
   });
 
-  test("[unit] F2-D6 the page's script draws Acts II to V from it: 100 cases, explained verdict and costs", async () => {
+  test("[unit] F2-D6 the page's script draws the recorded result from it: result bars, the verdict and its reason; the retired acts are not drawn", async () => {
     const els = await renderPage();
-    expect(els.get("docket")?.children.filter((c) => c.className.includes("row")).length).toBe(100);
-    expect(els.get("t3")?.textContent).toBe("The trial of 100 messages");
-    expect(els.get("t5")?.textContent).toBe("Use Jev (rule 3)");
+    expect(els.get("t5")).toBeUndefined();
+    for (const id of ["docket", "ledger", "cast", "verdictWhy", "verdictCases", "verdictNext", "verdictEarlier", "caveat"]) expect({ id, drawn: els.has(id) }).toEqual({ id, drawn: false });
+    expect(els.get("resultsTitle")?.textContent).toBe("Kept answers out of 100");
     expect(els.get("heroWhy")?.textContent).toContain("Why: Jev kept 88 right answers and the LLM 86 on these 100 shop messages");
-    expect(els.get("verdictWhy")?.textContent).toContain("Why: Jev kept 88 right answers and the LLM 86 on these 100 shop messages");
-    expect(els.get("verdictCases")?.textContent).toContain("Jev 88 of 100");
-    expect(els.get("verdictNext")?.textContent).toContain("write 30 or more cases");
-    expect(els.get("verdictEarlier")?.textContent).toContain("first 40");
-    expect(els.get("caveat")?.textContent).toContain("lower bound -0.04");
-    const ledger = els.get("ledger")?.innerHTML ?? "";
-    expect(ledger).toContain('data-to="0.01625538"');
-    expect(ledger).toContain('data-to="0.00328442"');
-    expect(ledger).toContain(">$0.0163<");
-    expect(ledger).toContain(">$0.000037<");
-    expect(ledger).toContain("88/100");
-    expect(els.get("cast")?.children.length).toBe(3);
-    expect(els.get("cast")?.children[0]?.innerHTML).toContain("Answer 29");
-    expect(els.get("cast")?.children[0]?.innerHTML).toContain("Hand off 71");
+    expect(els.get("resultBars")?.innerHTML).toContain("88 of 100 kept");
+    expect(els.get("resultBars")?.innerHTML).toContain("86 of 100 kept");
+    expect(els.get("resultBars")?.innerHTML).toContain("49 of 100 kept");
   });
 
   test("[unit] F2-D7 the sample's verdict and copy agree on rule 3", async () => {
     const els = await renderPage();
-    expect(els.get("t5")?.textContent).toBe("Use Jev (rule 3)");
     expect(els.get("heroResult")?.textContent).toEndWith("Verdict: Use Jev (rule 3).");
   });
 
-  test("[unit] F2-D10 a method with no accepted answer has an undefined cost per kept answer, shown as such, with no savings claim or bar", async () => {
+  test("[unit] F2-D10 a method with no accepted answer has an undefined cost per kept answer in the data, and the page still renders its result bar", async () => {
     const csv = (await readFile(SAMPLE_RECORDS, "utf8")).split("\n").map((l) => (l.includes(",jev,") ? l.replace(",accept,", ",reject,") : l)).join("\n");
     await expect(buildSample(csv)).rejects.toThrow("Stage copy disagrees with computed verdict and rule");
     const original = await buildSample(await readFile(SAMPLE_RECORDS, "utf8"));
@@ -177,13 +165,9 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
     expect(sample.summary.C.cpk).toBeNull();
     expect(sample.summary.A.cpk).not.toBeNull();
     const els = await renderPage(sampleScript(sample));
-    const ledger = els.get("ledger")?.innerHTML ?? "";
-    expect(ledger).toContain("undefined (0 kept)");
-    expect(ledger).not.toContain("null");
-    expect(ledger).not.toContain("NaN");
-    expect(els.get("versus")?.innerHTML).toContain("No cost comparison");
-    expect(els.get("versus")?.innerHTML).not.toMatch(/\d+%/);
-    expect(els.get("because")?.innerHTML).toContain("undefined (0 kept)");
+    // The ledger that drew "undefined (0 kept)" is retired with Act III; the page still renders a method that kept nothing.
+    expect(els.get("resultBars")?.innerHTML).toContain("0 of 100 kept");
+    expect(els.get("resultBars")?.innerHTML).not.toContain("NaN");
   });
 
   test("[unit] F2-D8 the user story for the verdict links the written rules and restates none of them", async () => {

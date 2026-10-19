@@ -129,29 +129,15 @@ function fields(source: string, name: string, terms: readonly string[]): Field[]
   return kept.map((term) => ({ term, source }));
 }
 
-/** Labels and headers the sample run shows, from site/index.html's markup and the markup its script builds. */
+/** Labels and headers the sample run shows, from site/index.html's markup. The four acts are retired: their table headers, ledger and timing labels are no longer on the page. */
 async function sampleRunFields(html: string): Promise<Field[]> {
   const src = STAGE;
-  const built = scriptMarkup(html, "ARM_NAME");
-  const g = await grab(built, ["li.case.head span", "dl.fig dt", "thead th", "p.monologue b", "span.t-label", "span.truth"]);
   const page = await grab(html, ["div.sample > span", "#t6", "section.samples h2", ".tk-stages a", "#primaryAction", "#officeOpen"]);
   const list = (map: Map<string, Grabbed[]>, selector: string): string[] => (map.get(selector) ?? []).map((x) => x.text);
-  const marks = /\? "(\w+)" : "(\w+)"\) \+ '<\/span><\/span>'/.exec(html);
-  if (marks === null) throw new Error("answer marks not found");
   return [
     ...fields(src, "sample badge", list(page, "div.sample > span")),
     ...fields(src, "sample cards", [...list(page, "section.samples h2"), ...list(page, ".tk-stages a")]),
-    ...fields(src, "case summary", [`See all ${sampleValues().get("cases")} cases`]),
     ...fields(src, "landing actions", [...list(page, "#primaryAction"), ...list(page, "#officeOpen")]),
-    ...fields(src, "players", objectValues(html, "ARM_NAME")),
-    ...fields(src, "docket header", list(g, "li.case.head span")),
-    ...fields(src, "answer marks", [marks[1] ?? "", marks[2] ?? ""]),
-    ...fields(src, "label tag", list(g, "span.truth").map((t) => t.replace(/:.*$/, ""))),
-    ...fields(src, "spotlight", list(g, "p.monologue b")),
-    ...fields(src, "tally", list(g, "span.t-label")),
-    ...fields(src, "ledger", list(g, "dl.fig dt")),
-    ...fields(src, "timing table", list(g, "thead th")),
-    ...fields(src, "rendered Stage verdict", [str(JSON.parse(capture(/window\.JNJ = (\{[\s\S]*\});\s*$/, read("site/data.js"))), "explained", "verdict")]),
     ...fields(src, "own file", list(page, "#t6")),
     ...fields(OFFICE, "card and ticket controls", ["Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "Get another ticket"]),
   ];
@@ -454,7 +440,7 @@ describe("in-product first-use guide (D18)", () => {
   test("[unit] D18-SITE-GUIDE-EXTRACT the extractors read the real pages, so the glossary check is not vacuous", async () => {
     const sample = (await sampleRunFields(read(STAGE))).map((field) => field.term);
     const backstage = (await backstageFields(read(BACKSTAGE))).map((field) => field.term);
-    for (const term of ["Sample run", "Sample questions", "Tested", "Small test (under 30 cases)", "Idea only, not tested", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "See all 100 cases", "Try it: pick a seat", "Get another ticket", "Open the ticket office", "What you do now", "Case", "Jev said", "label", "Spotlight", "Kept so far", "Cost per kept answer", "Median seconds per call", "Use Jev (rule 3)", "kept", "rejected", "Load your own script (CSV)"]) {
+    for (const term of ["Sample run", "Sample questions", "Tested", "Small test (under 30 cases)", "Idea only, not tested", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "Try it: take your seat", "Get another ticket", "Open the ticket office", "Load your own script (CSV)"]) {
       expect(sample).toContain(term);
     }
     for (const term of ["Judging rule (required)", "Leave out...", "Choose optional comparisons", "Results and downloads", "First choice", "Download run evidence", "Kept / labelled", "Returned confidence", "case_input", "label_source", "Jev-only wins", "Anthropic API key", "xAI API key"]) {
@@ -463,7 +449,7 @@ describe("in-product first-use guide (D18)", () => {
   });
 
   test("[unit] D18-SITE-GUIDE-NESTED a header with nested markup is a field, so a new one without an entry fails", async () => {
-    const stage = mutate(read(STAGE), "<span>Case</span>", "<span>Case</span><span><b>New unexplained field</b></span>");
+    const stage = mutate(read(STAGE), "<section class=\"samples\" aria-label=\"Sample questions\"><h2>Sample questions</h2>", "<section class=\"samples\" aria-label=\"Sample questions\"><h2>Sample questions</h2><h2><b>New unexplained field</b></h2>");
     expect(await glossaryMissing(read(GUIDE), stage, read(BACKSTAGE))).toEqual(["New unexplained field (site/index.html)"]);
   });
 
@@ -659,9 +645,6 @@ describe("in-product first-use guide (D18)", () => {
       if (!stage.includes(onStage)) out.push(`not on the Stage: ${onStage}`);
       if (!guide.includes(inGuide)) out.push(`not in the guide: ${inGuide}`);
     }
-    // Act II's line is built by the page script, so it is read from the script source.
-    if (!stageHtml.includes("Understudies wait in the wings; the stage manager keeps tabs on the subs.")) out.push("not on the Stage: Understudies");
-    if (!guide.includes("Understudies wait in the wings")) out.push("not in the guide: Understudies");
     const ids = [...read("site/data.js").matchAll(/"(UC\d+)"/g)].map((m) => m[1] ?? "");
     if (ids.length < 2 || !guide.includes(`${ids[0] ?? ""} to ${ids[ids.length - 1] ?? ""}`)) out.push("use-case span not in the guide");
     // #203 removed the question box until the live check ships: the Stage has none, and the guide must say so.
@@ -704,10 +687,9 @@ describe("in-product first-use guide (D18)", () => {
     expect(names).toEqual(["Tested", "Small test (under 30 cases)", "Idea only, not tested"]);
     const stage = read(STAGE);
     const cardLabels = (await sampleRunFields(stage)).map((field) => field.term);
-    const fixed = ["Sample questions", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "See all 100 cases", "Try it: pick a seat", "Get another ticket", "Open the ticket office"];
+    const fixed = ["Sample questions", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "Try it: take your seat", "Get another ticket", "Open the ticket office"];
     for (const term of [...names, ...fixed]) expect(cardLabels).toContain(term);
     expect(stage).toContain('<h2>Sample questions</h2>');
-    expect(stage).toContain('"See all " + J.cases.length + " cases"');
     for (const label of ["Why: ", "What the cases show: ", "Next step: ", "Rephrased for Jev: ", "Earlier run: "]) expect(office).toContain(`"${label}"`);
     expect(office).toContain('"Get another ticket"');
     expect(await glossaryMissing(read(GUIDE), stage, read(BACKSTAGE))).toEqual([]);

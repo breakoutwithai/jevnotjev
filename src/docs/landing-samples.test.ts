@@ -738,14 +738,10 @@ test("[integration] #201-5 the page shows each explained part, in view or behind
       }
       if (!stage?.explained) problems.push(`${width}: Stage has no explained copy`);
       await visiblePart(page.locator("body"), "#heroWhy", stage?.explained?.why ?? null, "Stage", problems);
-      const t5 = page.locator("#t5");
-      if (await t5.count() !== 1) problems.push(`${width}: #t5 missing`);
-      else if (stage?.verdictLine && (await t5.innerText()).trim() !== stage.verdictLine) problems.push(`${width}: #t5 differs from Stage verdict`);
-      const stageParts: [string, string | null][] = [["#verdictWhy", stage?.explained?.why ?? null], ["#verdictCases", stage?.explained?.cases ?? null], ["#verdictNext", stage?.explained?.next ?? null], ["#verdictEarlier", stage?.explained?.earlier ?? null]];
-      for (const [selector, value] of stageParts) await visiblePart(page.locator("body"), selector, value, "Stage", problems);
-      const stageOrder = await page.locator(["#t5", ...stageParts.map(([selector]) => selector)].join(", ")).evaluateAll((nodes) => nodes.map((node) => node.id));
-      // #231: the verdict's reason and next step stay in view; the cases and the earlier run follow behind a click.
-      if (stageOrder.join(",") !== ["t5", "verdictWhy", "verdictNext", "verdictCases", "verdictEarlier"].join(",")) problems.push(`${width}: Stage explained parts out of DOM order after #t5`);
+      // The acts are retired: the Stage's verdict line and reason stay readable in About this sample (#heroResult, #heroWhy).
+      const heroResult = (await page.locator("#heroResult").textContent()) ?? "";
+      if (stage?.verdictLine && !heroResult.includes(`Verdict: ${stage.verdictLine}`)) problems.push(`${width}: #heroResult lacks the Stage verdict ${stage.verdictLine}`);
+      for (const id of ["t5", "verdictWhy", "verdictCases", "verdictNext", "verdictEarlier"]) if (await page.locator(`#${id}`).count() !== 0) problems.push(`${width}: #${id} is back on the landing`);
     } finally { await page.close(); }
   }
   requireClean(problems);

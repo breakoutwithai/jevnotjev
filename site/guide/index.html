@@ -164,7 +164,6 @@
   <li><strong>"ADMIT ONE", "ROW J", "SEAT J-EV"</strong> are printed on the entrance card shown before the run. Decoration only: the J is for Jev, and there is nothing to book.</li>
   <li>The link labelled "GO TO THE TICKET OFFICE" jumps to the section headed "Ticket office" at the foot of the page, where a button opens the form to ask to watch a recorded test or for access to the workspace.</li>
   <li>The page has no box for typing your own question until the live check ships.</li>
-  <li>The line "Understudies wait in the wings; the stage manager keeps tabs on the subs." in the second part of the run is decoration. It says nothing about the run.</li>
   <li>The list headed "IN REPERTOIRE" at the end names UC1 to UC10: other decisions Jev could be tested on, each with its question. They are not run on this page.</li>
 </ul>
 
@@ -175,6 +174,7 @@
 <p>Every message has one label, the right answer: <span data-sample="truth-answer">33</span> answer and <span data-sample="truth-hand_off">67</span> hand off. Three AI labellers who never saw any answerer's answer drafted them from the fact sheet, and a person reviewed and approved them, so they are <code>human_reviewed</code>, not blind picks. The acceptance rule is the one quoted under <a href="#label">Label acceptance</a>.</p>
 
 <h3>The cases table</h3>
+<p>The landing page no longer shows the cases table or the cost table below. The recorded run's cases are on the replay page, reached from the "For developers" link at the foot of the landing.</p>
 <p>Each row is one message. <strong>Case</strong> is its id, <strong>Message</strong> its text, and the small <strong>label</strong> tag after the text is the right answer. Under <strong>A now</strong>, <strong>B rule</strong> and <strong>C Jev</strong> each answerer's pick is marked kept if it matches the label, rejected if not. <strong>Jev said</strong> repeats Jev's pick with its confidence and a bar.</p>
 <p>Jev's mistakes come first, highest confidence first. The box marked "Spotlight" is <span data-sample="spot-id">m44</span>, a message asking which counter to visit in the morning. The fact sheet does not settle everything it asks, so the label is hand off. Jev said answer with <span data-sample="spot-confidence">0.88</span> confidence, so its answer was rejected. A high confidence on a rejected answer is why confidence is the model's own score, not measured accuracy. <strong>Kept so far</strong> gives each answerer's total kept answers across all cases.</p>
 
@@ -190,7 +190,7 @@
 <p>Jev kept <span data-sample="kept-C">88</span> answers and the LLM kept <span data-sample="kept-A">86</span>. Against the LLM, Jev won <span data-sample="wins-A">5</span> cases and lost <span data-sample="losses-A">3</span>; against the rule it won <span data-sample="wins-B">43</span> and lost <span data-sample="losses-B">4</span>. Each answer Jev kept cost <span data-sample="save-vs-a">80</span>% less than one the LLM kept. Below it, <strong>Median seconds per call</strong> shows how long each answerer took.</p>
 
 <h3>The verdict</h3>
-<p>The page shows <strong><span data-sample="verdict-word">Use Jev (rule 3)</span></strong> as its verdict line. Rule <span data-sample="verdict-rule">3</span> fired. The final section gives the why, case results, next step and earlier result before the supporting list and caveat. Walking the rules in order:</p>
+<p>The page shows <strong><span data-sample="verdict-word">Use Jev (rule 3)</span></strong> as its verdict line. Rule <span data-sample="verdict-rule">3</span> fired. The reason sits beside it, under "About this sample". Walking the rules in order:</p>
 <ol>
   <li><strong>Rule one passes:</strong> Jev and the LLM have <span data-sample="paired">100</span> paired labelled cases, at least <span data-const="MIN_PAIRED">30</span>, and every paired row has a cost.</li>
   <li><strong>Rule two does not fire.</strong> The rule is not within the margin: the lower bound of the rule minus Jev is <span data-sample="rule-lower">-0.49</span>, not above <span data-const="MARGIN_BOUND">-0.10</span>. Jev is not clearly worse: the upper bound of Jev minus the LLM is <span data-sample="jev-upper">0.08</span>, not below <span data-const="MARGIN_BOUND">-0.10</span>. Jev is not dearer: the cost ratio is <span data-sample="cost-ratio">0.197</span>.</li>
@@ -234,7 +234,7 @@
   <dt>pattern P3</dt><dd>Card rephrase pattern: split a score into one fixed-answer check per item, then let code weight the answers into the score.</dd>
   <dt>Earlier run:</dt><dd>The earlier result when the same question has been tested before.</dd>
   <dt>See all <span data-sample="cases">100</span> cases</dt><dd>The summary that opens the complete list of messages; the number follows the recorded run's case count.</dd>
-  <dt>Try it: pick a seat</dt><dd>The first action links to an interactive example where you choose an answer.</dd>
+  <dt>Try it: take your seat</dt><dd>The first action links to an interactive example where you choose an answer.</dd>
   <dt>Get another ticket</dt><dd>After a request succeeds, clears the form so you can make another request.</dd>
   <dt>Open the ticket office</dt><dd>Opens the form to ask for workspace access, and the file loader.</dd>
   <dt>What you do now</dt><dd>Player A, the baseline: an LLM answering each message from the fact sheet.</dd>

@@ -5,10 +5,11 @@
 (function () {
   "use strict";
   var REPO = "https://github.com/breakoutwithai/jevnotjev";
+  /* The ticket-stub stamp on each poster. A sample with a run is a full poster; an idea with no run is a smaller one. */
   var STAGE = {
-    "show": { name: "Tested", sub: "show" },
-    "rehearsal": { name: "Small test (under 30 cases)", sub: "rehearsal" },
-    "script-reading": { name: "Idea only, not tested", sub: "script reading" }
+    "show": { name: "Tested" },
+    "rehearsal": { name: "Small test" },
+    "script-reading": { name: "Coming" }
   };
   /* Same rule as src/backstage/tickets.ts: RFC 5322 dot-atom local part, dot-separated domain labels. */
   var ATOM = "[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+";
@@ -82,17 +83,17 @@
   }
   function poster(p) {
     var st = STAGE[p.stage];
-    var card = el("article", "tk-poster tk-" + p.stage);
+    var card = el("article", "tk-poster tk-" + p.stage + (p.run ? " tk-full" : " tk-idea"));
     card.setAttribute("data-id", p.id);
-    card.appendChild(el("p", "tk-badge", st.name + " · " + st.sub));
+    card.appendChild(el("p", "tk-stamp", st.name));
     card.appendChild(el("h3", "", p.title));
-    /* In view: badge, title, one figure and the card's action. The explained verdict leads the card's disclosure. */
+    /* In view: stamp, title, one figure and the poster's action. The explained verdict leads the poster's disclosure. */
     if (p.run) {
       var r = p.run;
       var counted = r.methods.some(function (m) { return m.labelled > 0; });
       var jev = r.methods.filter(function (m) { return m.arm === "jev"; })[0];
       card.appendChild(el("p", "tk-figure", counted && jev ? "Jev: " + jev.accepted + " of " + jev.labelled + " right" +
-        (r.cohorts > 1 ? " on one of its " + r.cohorts + " questions" : "") :
+        (r.cohorts > 1 ? " on one question" : "") :
         jev ? "Jev: " + jev.rows + " answers recorded" : "Recorded: " + r.rows + " answers"));
     }
     var primary = el("a", "tk-primary", p.watch ? "Watch now" : p.run ? "Open the evidence" : "Read the idea");
@@ -100,7 +101,9 @@
     primary.setAttribute("aria-label", primary.textContent + ": " + p.title);
     card.appendChild(primary);
     var more = el("details", "tk-more");
-    more.appendChild(el("summary", "", "More about " + p.title));
+    var summary = el("summary", "", "Why this verdict");
+    summary.setAttribute("aria-label", "Why this verdict: " + p.title);
+    more.appendChild(summary);
     more.appendChild(el("p", "tk-verdict", p.verdictLine));
     more.appendChild(el("p", "tk-why", "Why: " + p.explained.why));
     more.appendChild(el("p", "tk-cases", "What the cases show: " + p.explained.cases));
@@ -141,20 +144,13 @@
 
   function render(order) {
     wrap.innerHTML = "";
-    var seen = {};
-    var counts = { "show": 0, "rehearsal": 0, "script-reading": 0 };
     order.slice().sort(function (a, b) { return (b.stage === "show") - (a.stage === "show"); }).slice(0, MAX).forEach(function (p) {
-      var card = poster(p);
-      counts[p.stage]++;
-      if (!seen[p.stage]) { card.id = "stage-" + p.stage; seen[p.stage] = true; }
-      wrap.appendChild(card);
+      wrap.appendChild(poster(p));
     });
-    document.querySelectorAll(".tk-stages [data-count]").forEach(function (s) { s.textContent = "(" + counts[s.getAttribute("data-count")] + ")"; });
   }
 
   function catalogueFailed() {
     wrap.textContent = "The show list did not load. Reload the page to see the recorded shows; you can still ask us to test your own decision.";
-    document.querySelector(".tk-stages").hidden = true;
   }
   fetch("shows/posters.json").then(function (r) {
     if (!r.ok) throw new Error("posters " + r.status);

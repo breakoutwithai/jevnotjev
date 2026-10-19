@@ -215,7 +215,7 @@ describe("little shop seating logic", () => {
     const hosts = loads.filter((u) => /^[a-z]+:/i.test(u)).map((u) => new URL(u).host);
     expect(hosts.length).toBeGreaterThan(0);
     expect(hosts.every((h) => h === "fonts.googleapis.com" || h === "fonts.gstatic.com")).toBe(true);
-    expect(loads.filter((u) => !/^https?:/.test(u))).toEqual(["house.css", "shop-data.js", "seating.js", "verdict.js", "house.js"]);
+    expect(loads.filter((u) => !/^https?:/.test(u))).toEqual(["../page.css", "house.css", "shop-data.js", "seating.js", "verdict.js", "house.js"]);
     const house = await readFile(join(SITE, "house.js"), "utf8");
     const empty = house.slice(house.indexOf('$("emptyHouse")'), house.indexOf("window.addEventListener(\"storage\""));
     expect(empty).toContain("S.emptyHouse(store, ids)");

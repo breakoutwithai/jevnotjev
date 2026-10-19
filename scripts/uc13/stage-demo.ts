@@ -278,7 +278,20 @@ const BACK = '<p class="muted"><a href="../">Back to the stage</a></p>\n';
  */
 export function labelPage(runLabelHtml: string): string {
   if (!runLabelHtml.includes("<main>\n")) throw new Error("label.html has no <main> line to anchor the back link");
-  return runLabelHtml.replace("<main>\n", `<main>\n${BACK}`);
+  return themed(runLabelHtml.replace("<main>\n", `<main>\n${BACK}`));
+}
+
+// Only the relative stylesheet: the label page loads nothing from another host (UC13-STAGE-6), so it keeps the serif fallback.
+const HEAD_LINKS = '<link rel="stylesheet" href="../page.css">\n';
+const PALETTE = /:root \{ --bg:[^\n]*\n@media \(prefers-color-scheme: dark\)[^\n]*\n/;
+
+/** The site's shared look: page.css first, the house palette in place of the template's own, the house body font. */
+function themed(html: string): string {
+  if (!html.includes("<style>\n") || !PALETTE.test(html)) throw new Error("label.html has no <style> block with the template palette to theme");
+  return html
+    .replace("<style>\n", `${HEAD_LINKS}<style>\n`)
+    .replace(PALETTE, ":root { --a:#86cf9f; --h:#f08470; --card:var(--bg-2); }\n")
+    .replace("font:17px/1.5 system-ui, sans-serif;", "font:17px/1.5 var(--serif);");
 }
 
 export interface Built {

@@ -1,0 +1,25 @@
+/* Shared look for every public page: the house colours, fonts, link colour, focus ring and footer. Reading width stays with each page.
+   Linked first on each page, so a page's own stylesheet still wins. Base rules sit in :where() (specificity 0) for
+   the same reason. Tokens are the landing's, as defined in index.html lines 19-36 (dark house default). Pages that
+   have their own theatre styling (explainer, little-shop, maps, replay, tm) override what they need. */
+:root {
+  --bg: #12060a;
+  --bg-2: #1c080d;
+  --ink: #f2e9df;
+  --ink-soft: #d4c3b8;
+  --muted: #9c8580;
+  --line: rgba(242, 233, 223, .13);
+  --curtain: #6d0f1e;
+  --brass: #e0b04e;
+  --keep: #86cf9f;
+  --cut: #f08470;
+  --serif: "Alegreya", "Iowan Old Style", Georgia, serif;
+  --sans: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
+}
+:where(html) { background: var(--bg); }
+:where(body) { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.5 var(--serif); }
+:where(h1, h2, h3) { font-family: var(--serif); }
+:where(a) { color: var(--brass); text-underline-offset: 3px; }
+:where(:focus-visible) { outline: 2px solid var(--brass); outline-offset: 3px; }
+:where(footer) { color: var(--muted); font: 13px/1.5 var(--sans); }

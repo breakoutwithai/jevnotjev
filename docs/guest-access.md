@@ -137,3 +137,41 @@ Reconnect with `/mcp` after the file changes. Do not pass the token with `-e JNJ
 ### Revoke
 
 `server.js --question-admin admin-token revoke <atk_id>` on the host. The admin API refuses the token from the next request; a reply whose body was still uploading is refused too. Then delete the line from `admin.env`.
+
+## Remote connector (#283 phase 1)
+
+The same three tools are served over MCP Streamable HTTP at `https://jevnotjev.breakoutwithai.com/api/v1/admin/mcp` (`src/guest-intake/admin-mcp-http.ts`), for Claude's hosted apps (Cowork, desktop, web), which cannot run the stdio adapter. Tool names, schemas, titles and annotations are the stdio adapter's, from one definition (`createAdminServer` in `admin-mcp.ts`). Status: built and tested locally; not deployed, and no real Cowork connection has been made yet.
+
+- **Auth:** `Authorization: Bearer jna_...`, the operator token from [Mint](#mint-on-the-host-after-deployment), checked by the same code as `/api/v1/admin/questions` on every request (hash lookup, expiry, revoke, scope `questions:admin`), again after the body is read and again before a write. No token, a guest `jng_` or decide `jnj_` token, or a session cookie is 401 `{ "code": "unauthenticated" }` with `WWW-Authenticate: Bearer realm="jevnotjev-admin"`. There is no OAuth, so the challenge carries no `resource_metadata`.
+- **Origin and Host:** an `Origin` header, when sent, must be `https://jevnotjev.breakoutwithai.com`, else 403 `origin-refused` (Claude's servers send none; a browser page on another site does). The Host must be the configured origin's host (`BACKSTAGE_ORIGIN`), else 403 `host-refused`.
+- **Transport:** stateless (no `Mcp-Session-Id`), JSON responses, MCP protocol `2025-11-25` from `@modelcontextprotocol/sdk` 1.32.1. `GET` and `DELETE` are 405 `Allow: POST`: there is no server-initiated stream, which the spec allows and the SDK client accepts.
+- **Limits:** request body 64 KiB (also nginx's `/api/v1/` cap), response 256 KiB, 30 seconds per request. Logs carry event, request id, token id, tool name, question id and reason; never a token, an email, question text or a reply. nginx's `/api/v1/` location has `access_log off`.
+- **Deploy:** none beyond the server. nginx already forwards `^~ /api/v1/` to the server (`.deploy/backstage-nginx.conf`), so the path needs no nginx change.
+
+### Add it in Claude (Cowork, desktop, web)
+
+1. Mint an operator token on the host (above). Give it a label that names the connector, e.g. `"Claude connector"`.
+2. Customize > Connectors > Add custom connector (Team or Enterprise owners: Organization settings > Connectors).
+3. Name: `jevnotjev-admin`. MCP server URL: `https://jevnotjev.breakoutwithai.com/api/v1/admin/mcp`.
+4. Authentication: **No sign-in**.
+5. Request headers: name `authorization`, value `Bearer <jna_ token>` (the scheme is part of the value). Claude stores it and does not show it again.
+6. In a chat, ask it to list submitted questions. `list_questions` and `get_question` are marked read-only; `reply_question` is not.
+
+### Add it to Claude Code over HTTP
+
+```sh
+( printf 'Paste the operator token, then Enter: '; read -rs T; echo
+  claude mcp add --transport http jevnotjev-admin --scope user https://jevnotjev.breakoutwithai.com/api/v1/admin/mcp --header "Authorization: Bearer $T" )
+```
+
+This writes the header, token included, into Claude Code's user config file. On a machine with a checkout, the stdio adapter above keeps the token in a 0600 env file instead.
+
+### Rotate or revoke a connector token
+
+- Revoke: `admin-token revoke <atk_id>` on the host. The next MCP request with it is 401, including from a client that is already connected. Then remove the connector or its header.
+- Renew: `admin-token rotate <atk_id>` prints a new secret for the same id; the old one is refused at once. Edit the connector's `authorization` header (or re-run `claude mcp add`) with the new value. The default lifetime is 7 days (`--ttl-days` up to 30).
+
+### Not built (phase 2)
+
+- **Sign in now** (OAuth): no authorization server, protected-resource metadata, CIMD or DCR exists, so *Sign in now* and *Sign in when needed* have nothing to sign in to (what the dialog shows then is not tested). Use *No sign-in* with the header.
+- MCP protocol `2026-07-28`: the SDK in use speaks up to `2025-11-25`. Whether Claude's clients require the newer protocol is not verified; the SDK v2 upgrade is a separate change.

@@ -1,5 +1,5 @@
 {
-  "minFiles": 156,
+  "minFiles": 157,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -136,6 +136,7 @@
     "src/format/validate.test.ts": 62,
     "src/guest-intake/admin-api.test.ts": 11,
     "src/guest-intake/admin-cli.test.ts": 19,
+    "src/guest-intake/admin-mcp-http.test.ts": 10,
     "src/guest-intake/admin-mcp.test.ts": 8,
     "src/guest-intake/admin-routes.test.ts": 12,
     "src/guest-intake/admin-tokens.test.ts": 7,

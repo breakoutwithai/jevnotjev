@@ -215,8 +215,8 @@ test("[integration] R9 choosing a rung on How hard moves the marker onto that ru
   }
 }, 30000);
 
-test("[integration] R10 every label in the four pictures renders at 14 px or more at 390 and 12 px or more at 1440", async () => {
-  for (const path of ["/"]) for (const [width, floor] of [[390, 14], [1440, 12]] as const) {
+test("[integration] R10 every label in the four pictures renders at 14 px or more at 390 and 12 px or more at 900, 1000, 1200 and 1440", async () => {
+  for (const path of ["/"]) for (const [width, floor] of [[390, 14], [900, 12], [1000, 12], [1200, 12], [1440, 12]] as const) {
     const page = await pageAt(width, 900, "reduce", path);
     try {
       await page.waitForLoadState("load");
@@ -296,4 +296,60 @@ test("[integration] R14 the landing footer carries one plain Little Shop link, s
       if (motion === "reduce") expect(await link.isVisible()).toBe(true);
     } finally { await page.close(); }
   }
+}, 30000);
+
+// Review of #273, round 2: payoff labels on light and dark, focus rings on the page background, and a demonstration
+// that waits for the curtain.
+const BG = { dark: "#12060a", light: "#e8e5df" } as const;
+
+test("[integration] R15 every label on a payoff bar is 4.5:1 or better against its slice, in light and dark", async () => {
+  for (const theme of ["dark", "light"] as const) {
+    const page = await pageAt(1440, 900, "reduce");
+    try {
+      await page.waitForLoadState("load");
+      await page.evaluate((t) => { document.documentElement.setAttribute("data-theme", t); }, theme);
+      const pairs = await page.locator("#payoff .tube .seg span").evaluateAll((nodes) => nodes.map((n) => ({ text: (n.textContent ?? "").trim(), fg: getComputedStyle(n).color, bg: getComputedStyle(n.parentElement ?? n).backgroundColor })));
+      expect(pairs.length).toBeGreaterThanOrEqual(4);
+      const weak = pairs.filter((p) => contrastOf(p.fg, p.bg) < 4.5).map((p) => `${p.text}: ${contrastOf(p.fg, p.bg).toFixed(2)}:1`);
+      expect({ theme, weak }).toEqual({ theme, weak: [] });
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+test("[integration] R16 the keyboard focus ring on the story's page links (week, developers, guide) is 3:1 or better against the page, in light and dark", async () => {
+  for (const theme of ["dark", "light"] as const) {
+    const page = await pageAt(1440, 900, "reduce");
+    try {
+      await page.waitForLoadState("load");
+      await page.evaluate((t) => { document.documentElement.setAttribute("data-theme", t); }, theme);
+      await page.keyboard.press("Tab");
+      const links = page.locator(".jx a.cta, .jx a.dev");
+      const count = await links.count();
+      expect(count).toBe(3);
+      const weak: string[] = [];
+      for (let i = 0; i < count; i++) {
+        await links.nth(i).focus();
+        const seen = await links.nth(i).evaluate((node) => ({ name: (node.textContent ?? "").trim(), visible: node.matches(":focus-visible"), ring: getComputedStyle(node).outlineColor }));
+        if (!seen.visible) weak.push(`${seen.name}: no visible focus`);
+        else if (contrastOf(seen.ring, BG[theme]) < 3) weak.push(`${seen.name}: ${contrastOf(seen.ring, BG[theme]).toFixed(2)}:1`);
+      }
+      expect({ theme, weak }).toEqual({ theme, weak: [] });
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+test("[integration] R17 the demonstration waits for the curtain: nothing plays behind it, and it plays once the curtain opens", async () => {
+  const page = await pageAt(1440, 900, "no-preference", "/", true);
+  try {
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "closed");
+    await page.waitForTimeout(150);
+    const start = await posterState(page);
+    await page.clock.runFor(6000);
+    expect({ behind: await posterState(page) }).toEqual({ behind: start });
+    await page.evaluate(() => { window.location.hash = "types"; });
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "open");
+    await page.waitForTimeout(150);
+    await page.clock.runFor(2000);
+    expect(await posterState(page)).not.toBe(start);
+  } finally { await page.close(); }
 }, 30000);

@@ -22,7 +22,8 @@
   font:800 clamp(16px,4.4vw,21px)/1.15 var(--sans);text-decoration:none;border:3px solid var(--black);box-shadow:0 0 0 2px #e0b04e,0 8px 24px rgba(0,0,0,.5)}
 .jx .cta svg{width:22px;height:22px;flex:none}
 .jx .cta:hover{background:var(--bulb)}
-.jx .cta:focus-visible,.jx .dev:focus-visible{outline:3px solid var(--bulb);outline-offset:3px}
+/* The page links sit on the page background, so their focus ring takes the page ink: light on dark, dark on light. */
+.jx .cta:focus-visible,.jx .dev:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
 .jx .dev{display:inline-flex;align-items:center;min-width:44px;min-height:44px;margin-top:6px;padding:0 4px;font:700 16px/1 var(--sans);color:var(--ink-soft);text-decoration:underline;text-underline-offset:4px}
 @media (min-width:900px){
   .jx .entry{padding:26px 0 34px}
@@ -39,13 +40,13 @@
 .jx #types:focus{outline:none}
 .jx .stage4{display:grid;grid-template-columns:1fr;gap:14px;margin-top:6px}
 @media (min-width:560px){.jx .stage4{grid-template-columns:1fr 1fr;gap:16px}}
-/* Four columns: a tight gap and side padding keep each picture wide enough that its 17-unit labels render at 12 px or
-   more on the landing page's narrower column (#273 review). */
-@media (min-width:1000px){.jx .stage4{grid-template-columns:repeat(4,1fr);gap:14px}}
+/* Four columns from 1200 px only (two below): with a tight gap and side padding each picture stays wide enough that its
+   17-unit labels render at 12 px or more; at 1000 px four columns drew them at 10.7 px (#273 review). */
+@media (min-width:1200px){.jx .stage4{grid-template-columns:repeat(4,1fr);gap:14px}}
 .jx .poster{display:flex;flex-direction:column;gap:6px;color:var(--black);background:var(--paper);font-family:var(--sans);
   border:6px solid var(--black);padding:10px 10px 12px;
   box-shadow:inset 0 0 0 3px var(--paper),inset 0 0 0 5px var(--gold),0 12px 30px rgba(0,0,0,.45)}
-@media (min-width:1000px){.jx .poster{border-width:8px;padding:16px 14px 18px}
+@media (min-width:1200px){.jx .poster{border-width:8px;padding:16px 14px 18px}
   .jx .poster:nth-child(odd){transform:rotate(-1deg)}.jx .poster:nth-child(even){transform:rotate(1.2deg);margin-top:22px}}
 .jx .p-title{font:800 clamp(24px,5.6vw,34px)/.95 var(--serif);color:var(--wine);margin:0}
 .jx .p-cap{font:600 16px/1.3 var(--sans);margin:0}
@@ -126,7 +127,8 @@
 .jx .seg{display:flex;align-items:center;overflow:hidden;white-space:nowrap;flex:0 0 calc(var(--v,0) * 1%);min-width:0;background:var(--c)}
 .jx .seg span{padding:0 8px;font:700 14px/1 var(--sans)}
 .jx .seg.s{min-width:12px}.jx .seg.m{min-width:12px}
-.jx .seg.base{--c:#6a5a57;color:#f2e9df}.jx .seg.s{--c:var(--keep)}.jx .seg.m{--c:var(--brass)}.jx .seg.l{--c:var(--cut);color:var(--black)}
+/* Slice colours are fixed: the tube is dark in both themes, and the light theme's darker red would put the +16% label at 3.3:1. */
+.jx .seg.base{--c:#6a5a57;color:#f2e9df}.jx .seg.s{--c:#86cf9f}.jx .seg.m{--c:#e0b04e}.jx .seg.l{--c:#f08470;color:var(--black)}
 .jx .tube::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),rgba(0,0,0,.35) calc(10% - 1px) 10%)}
 @media (prefers-reduced-motion:no-preference){.motion .jx .payoff:not(.seen) .seg{flex-basis:0}}
 @media (prefers-reduced-motion:no-preference){.motion .jx .payoff .seg{transition:flex-basis 1.1s ease .2s}}
@@ -146,6 +148,6 @@
 .jx .key{display:flex;flex-wrap:wrap;gap:8px 18px;margin:6px 0 0;padding:0;list-style:none;font:600 15px/1.2 var(--sans);color:var(--ink)}
 .jx .key li{display:flex;align-items:center;gap:8px}
 .jx .key i{display:inline-block;width:18px;height:18px;border:2px solid var(--ink-soft);background:var(--c)}
-.jx .k-base{--c:#6a5a57}.jx .k-s{--c:var(--keep)}.jx .k-m{--c:var(--brass)}.jx .k-l{--c:var(--cut)}
+.jx .k-base{--c:#6a5a57}.jx .k-s{--c:#86cf9f}.jx .k-m{--c:#e0b04e}.jx .k-l{--c:#f08470}
 .jx .legend{margin:12px 0 0;font:600 15px/1.4 var(--sans);color:var(--ink-soft)}
 .jx .end{margin:22px 0 0}

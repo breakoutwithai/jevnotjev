@@ -1,6 +1,6 @@
 /* The picture story's behaviour on the landing page (moved from the retired /explainer, as is pictures.css).
  * - The four kinds of question: each picture can be tapped or keyed (Enter, Space). Under motion they play a short
- *   demonstration once they first come into view: two steps 1.6 s apart, all movement over by about 4 s, then still.
+ *   demonstration once they are in view with the opening curtain open: two steps 1.6 s apart, over by about 4 s.
  *   The motion ends by itself, so there is no Pause button; under reduced motion nothing moves by itself.
  * - Reduced motion turned on while the page is open stops the demonstration at once and lays the scenes out still.
  * - "One question...": under reduced motion (or without IntersectionObserver) all three scenes show,
@@ -74,12 +74,28 @@
           if (step >= STEPS) clearInterval(timer);
         }, STEP);
       };
+      // It plays only once the pictures are in view and the opening curtain (theatre.js, html[data-curtain]) is open or
+      // absent, so it never runs out behind a closed curtain.
+      var inView = false, curtainWatch = null;
+      var tryStart = function () {
+        var curtain = root.dataset.curtain;
+        if (started || !inView || (curtain !== undefined && curtain !== 'open')) return;
+        if (seen) seen.disconnect();
+        if (curtainWatch) curtainWatch.disconnect();
+        demo();
+      };
+      if (window.MutationObserver) {
+        curtainWatch = new MutationObserver(tryStart);
+        curtainWatch.observe(root, { attributes: true, attributeFilter: ['data-curtain'] });
+        onCalm(function () { curtainWatch.disconnect(); });
+      }
       if ('IntersectionObserver' in window) {
         seen = new IntersectionObserver(function (es) {
-          es.forEach(function (e) { if (e.isIntersecting) { seen.disconnect(); demo(); } });
+          es.forEach(function (e) { inView = e.isIntersecting; });
+          tryStart();
         }, { rootMargin: '0px 0px -25% 0px' });
         seen.observe(types);
-      } else demo();
+      } else { inView = true; tryStart(); }
     }
   }
 

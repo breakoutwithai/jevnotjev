@@ -26,12 +26,58 @@ function planted(): string {
   return html.replace("</footer>", `<span>token A helper is ${EM_DASH} here</span></footer>`);
 }
 
+// Each planted page forces ONE old state back onto the current page, so an assertion that cannot fail is caught.
+// The patterns match both the shipped markup and the fixed markup.
+function force(html: string, pattern: RegExp, old: string, lenient = false): string {
+  if (html.search(pattern) < 0) {
+    if (lenient) return html;
+    throw new Error(`plant pattern did not match: ${String(pattern)}`);
+  }
+  return html.replace(pattern, old);
+}
+
+const OLD_KEY = `<ul class="key" aria-label="Bar colours">
+    <li class="k-base"><i></i>already used (36%)</li>
+    <li class="k-s"><i></i>small job (adds 1)</li>
+    <li class="k-m"><i></i>medium job (adds 4)</li>
+    <li class="k-l"><i></i>large job (adds 16)</li>
+  </ul>`;
+const OLD_LEGEND = `<p class="legend">EXAMPLE: all numbers are invented for this picture. Thin slices are drawn wider so you can see them.</p>`;
+const OLD_CAPTIONS = ["Jev gives odds on a yes or no.", "Jev picks one from your list.", "Jev rates how hard a job is.", "Jev points to a spot in a picture."];
+
+const PLANTS: Record<string, (html: string) => string> = {
+  "/old-legend/": (html) => {
+    const keyed = force(html, /(<p class="keyhead"[^>]*>[^<]*<\/p>\s*)?<ul class="key"[\s\S]*?<\/ul>/, OLD_KEY);
+    const noted = force(keyed, /<p class="legend">[^<]*<\/p>/, OLD_LEGEND);
+    return noted.replace(/<div class="marks"[\s\S]*?<\/div>/g, "").replace("<span>+16%</span>", "");
+  },
+  "/old-captions/": (html) => {
+    let n = 0;
+    const captioned = html.replace(/<p class="p-cap">[^<]*<\/p>/g, () => `<p class="p-cap">${OLD_CAPTIONS[n++] ?? ""}</p>`);
+    return force(captioned, />(How hard|How far up)<\/h2>/, ">How far up</h2>");
+  },
+  "/small-label/": (html) => {
+    const sized = force(html, /font-size="\d+"( font-weight="700" letter-spacing="2" fill="#8a1a2e">PICK ONE)/g, 'font-size="13"$1');
+    return force(sized, /\.seg span\{padding:0 8px;font:700 \d+px/, ".seg span{padding:0 8px;font:700 13px");
+  },
+  "/hue-only/": (html) => html
+    .replace(/fill="url\(#pat-easy\)"/g, 'fill="#86cf9f"')
+    .replace(/fill="url\(#pat-ordinary\)"/g, 'fill="#e0b04e"')
+    .replace(/fill="url\(#pat-hard\)"/g, 'fill="#f08470"'),
+  "/low-contrast/": (html) => {
+    const dimmed = force(html, /(fill|stroke)="#cdb9b9"/g, '$1="#6a4a4a"');
+    return force(dimmed, /'\.72'/, "'.4'");
+  },
+};
+
 beforeAll(async () => {
   const found = resolveChromium(null, process.env.UAT_CHROMIUM_PATH, chromium.executablePath(), existsSync);
   if ("error" in found) throw new Error(found.error);
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const pathname = decodeURIComponent(new URL(request.url).pathname);
     if (pathname === "/planted-long/") return new Response(readFileSync(PAGE_FILE, "utf8").replace("Is my week going fine?", "Is my week going fine or is it not going fine at all today?"), { headers: { "content-type": "text/html; charset=utf-8" } });
+    const plant = PLANTS[pathname];
+    if (plant !== undefined) return new Response(plant(readFileSync(PAGE_FILE, "utf8")), { headers: { "content-type": "text/html; charset=utf-8" } });
     if (pathname === "/planted/") return new Response(planted(), { headers: { "content-type": "text/html; charset=utf-8" } });
     const path = join(SITE, pathname.endsWith("/") ? `${pathname}index.html` : pathname);
     if (!path.startsWith(`${SITE}/`)) return new Response("Not found", { status: 404 });
@@ -388,6 +434,242 @@ test("[integration] E12 one h1, four kinds of question, every caption 8 words or
     const captions = await page.locator(".p-cap, .cap").evaluateAll((nodes) => nodes.map((n) => (n.textContent ?? "").trim().split(/\s+/).length));
     expect(captions.length).toBe(7);
     for (const words of captions) expect(words).toBeLessThanOrEqual(8);
+  } finally { await page.close(); }
+});
+
+// #267: the payoff legend names its unit, covers every bar kind, labels the stretched slices and needs no footnote.
+async function legendProblems(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const problems: string[] = [];
+    const text = (node: Element | null): string => (node?.textContent ?? "").trim();
+    const head = text(document.querySelector("#payoff .keyhead"));
+    if (!/share of the weekly limit/i.test(head)) problems.push(`legend heading states no unit: "${head}"`);
+    const items = Array.from(document.querySelectorAll("#payoff .key li"));
+    for (const li of items) if (!/\d+%/.test(text(li))) problems.push(`legend entry without a percent: "${text(li)}"`);
+    const gauge = document.querySelector("#payoff .gauge");
+    const kinds = ["base", "s", "m", "l"].filter((kind) => gauge?.querySelector(`.tube .seg.${kind}`) != null);
+    if (kinds.length !== 4) problems.push(`first bar draws ${kinds.length} kinds, expected 4`);
+    for (const kind of kinds) if (document.querySelector(`#payoff .key li.k-${kind}`) === null) problems.push(`no legend entry for ${kind}`);
+    const marks: { kind: string; left: number; right: number }[] = [];
+    for (const kind of ["s", "m"]) {
+      const seg = gauge?.querySelector(`.tube .seg.${kind}`);
+      const mark = gauge?.querySelector(`.marks .mk.${kind}`);
+      const label = text(mark?.querySelector("em") ?? null);
+      const want = kind === "s" ? "+1%" : "+4%";
+      if (seg == null || mark == null) { problems.push(`no label for the ${kind} slice`); continue; }
+      if (label !== want) problems.push(`${kind} slice label is "${label}", expected "${want}"`);
+      const a = seg.getBoundingClientRect();
+      const b = mark.getBoundingClientRect();
+      if (Math.abs(a.left - b.left) > 1 || Math.abs(a.width - b.width) > 1) problems.push(`${kind} label is not aligned with its slice`);
+      const em = mark.querySelector("em")?.getBoundingClientRect();
+      if (em !== undefined) marks.push({ kind, left: em.left, right: em.right });
+    }
+    const [first, second] = marks;
+    if (first !== undefined && second !== undefined && first.right > second.left) problems.push("the +1% and +4% labels overlap");
+    if (!/^\+16%$/.test(text(gauge?.querySelector(".tube .seg.l span") ?? null))) problems.push("the large slice carries no +16% label");
+    const note = text(document.querySelector("#payoff .legend"));
+    if (/thin slices/i.test(note)) problems.push("legend still has the thin-slices footnote");
+    if (!/small and medium slices are drawn wider/i.test(note)) problems.push(`legend does not name the widened slices: "${note}"`);
+    return problems;
+  });
+}
+
+for (const [width, height] of VIEWPORTS) {
+  test(`[integration] E17 the payoff legend states its unit, covers every bar kind and labels the thin slices at ${width} px`, async () => {
+    const page = await pageAt(width, height, "reduce");
+    try {
+      expect(await legendProblems(page)).toEqual([]);
+    } finally { await page.close(); }
+  });
+}
+
+test("[unit] E17b the legend checker fails the shipped legend (no unit, no slice labels, thin-slices footnote)", async () => {
+  const page = await pageAt(390, 844, "reduce", "/old-legend/");
+  try {
+    const problems = await legendProblems(page);
+    expect(problems.some((p) => p.startsWith("legend heading states no unit"))).toBe(true);
+    expect(problems.some((p) => p.startsWith("legend entry without a percent"))).toBe(true);
+    expect(problems).toContain("no label for the s slice");
+    expect(problems).toContain("no label for the m slice");
+    expect(problems).toContain("the large slice carries no +16% label");
+    expect(problems).toContain("legend still has the thin-slices footnote");
+  } finally { await page.close(); }
+});
+
+// #268: each caption names its question in everyday words and matches its heading.
+async function captionProblems(page: Page): Promise<string[]> {
+  const posters = await page.locator("article.poster").evaluateAll((nodes) => nodes.map((node) => {
+    const id = node.getAttribute("aria-labelledby") ?? "";
+    const heading = id === "" ? null : document.getElementById(id);
+    return { heading: (heading?.textContent ?? "").trim(), headingTag: heading?.tagName ?? "", caption: (node.querySelector(".p-cap")?.textContent ?? "").trim() };
+  }));
+  const problems: string[] = [];
+  const wanted = ["Yes or no", "Pick one", "How hard", "Where"];
+  if (JSON.stringify(posters.map((p) => p.heading)) !== JSON.stringify(wanted)) problems.push(`headings are ${JSON.stringify(posters.map((p) => p.heading))}`);
+  for (const poster of posters) {
+    if (poster.headingTag !== "H2") problems.push(`"${poster.heading}": aria-labelledby does not reach an h2`);
+    if (!/^(Will|Which|How|Where|What|Is|Does|Can)\b[^?]*\?/.test(poster.caption)) problems.push(`"${poster.heading}": caption asks no plain question: "${poster.caption}"`);
+    if (/points to a spot|marks a rung/i.test(poster.caption)) problems.push(`"${poster.heading}": caption uses the banned phrasing`);
+  }
+  for (const heading of ["How hard", "Where"]) {
+    const poster = posters.find((p) => p.heading === heading);
+    if (poster !== undefined && !poster.caption.includes(heading)) problems.push(`"${heading}": caption does not use the heading's words`);
+  }
+  const copy = await copyOf(page);
+  for (const phrase of ["How far up", "points to a spot", "marks a rung"]) if (everyString(copy).some((s) => s.includes(phrase))) problems.push(`page still says "${phrase}"`);
+  return problems;
+}
+
+test("[integration] E18 the four poster captions each ask a plain question and match their headings", async () => {
+  const page = await pageAt(1440, 900, "reduce");
+  try {
+    expect(await captionProblems(page)).toEqual([]);
+  } finally { await page.close(); }
+});
+
+test("[unit] E18b the caption checker fails the shipped captions and the old How far up heading", async () => {
+  const page = await pageAt(1440, 900, "reduce", "/old-captions/");
+  try {
+    const problems = await captionProblems(page);
+    expect(problems.some((p) => p.includes("caption asks no plain question"))).toBe(true);
+    expect(problems.some((p) => p.includes("banned phrasing"))).toBe(true);
+    expect(problems).toContain("page still says \"How far up\"");
+    expect(problems).toContain("page still says \"points to a spot\"");
+  } finally { await page.close(); }
+});
+
+// #269: every label inside a picture renders at 14 px or more on a phone (screen size: font size x the picture's scale).
+const PICTURE_TEXT = ".tube span, .key li, .job b, .job i, .gname, .reading small, .legend, .stamp, .keyhead, .marks em";
+async function smallLabels(page: Page): Promise<{ total: number; small: string[] }> {
+  return page.evaluate((selector) => {
+    const found: { text: string; px: number }[] = [];
+    for (const node of Array.from(document.querySelectorAll("svg text"))) {
+      if (!(node instanceof SVGGraphicsElement) || node.getClientRects().length === 0) continue;
+      const matrix = node.getScreenCTM();
+      if (matrix === null) continue;
+      found.push({ text: (node.textContent ?? "").trim(), px: parseFloat(getComputedStyle(node).fontSize) * Math.hypot(matrix.a, matrix.b) });
+    }
+    for (const node of Array.from(document.querySelectorAll(selector))) {
+      if (node.getClientRects().length === 0) continue;
+      found.push({ text: (node.textContent ?? "").trim(), px: parseFloat(getComputedStyle(node).fontSize) });
+    }
+    return { total: found.length, small: found.filter((f) => f.px < 13.95).map((f) => `${f.text}: ${f.px.toFixed(2)}`) };
+  }, PICTURE_TEXT);
+}
+
+test("[integration] E19 every label in the pictures renders at 14 px or more at 390 px", async () => {
+  const page = await pageAt(390, 844, "reduce");
+  try {
+    const report = await smallLabels(page);
+    expect(report.total).toBeGreaterThan(70);
+    expect(report.small).toEqual([]);
+  } finally { await page.close(); }
+});
+
+test("[unit] E19b the size checker fails a planted 13 px SVG label and a planted 13 px payoff label", async () => {
+  const page = await pageAt(390, 844, "reduce", "/small-label/");
+  try {
+    const report = await smallLabels(page);
+    expect(report.small.some((s) => s.startsWith("PICK ONE"))).toBe(true);
+    expect(report.small.some((s) => s.startsWith("already used"))).toBe(true);
+  } finally { await page.close(); }
+});
+
+// #269: the hero chart tells easy, ordinary and hard jobs apart by a second cue, not hue alone.
+async function patternProblems(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const problems: string[] = [];
+    const svg = document.querySelector("header.entry svg");
+    if (svg === null) return ["no hero chart"];
+    const fillOf = (rect: Element): string => rect.getAttribute("fill") ?? "";
+    const idOf = (fill: string): string => fill.match(/^url\(#([^)]+)\)$/)?.[1] ?? "";
+    const blocks = Array.from(svg.querySelectorAll("g[stroke] g rect")).map(fillOf);
+    const kinds = new Set(blocks);
+    if (kinds.size !== 3) problems.push(`blocks use ${kinds.size} distinct fills, expected 3`);
+    const ids = [...kinds].map(idOf);
+    for (const id of ids) {
+      if (id === "") problems.push("a block fill is a plain colour, not a pattern");
+      else if (svg.querySelector(`defs pattern#${id}`) === null) problems.push(`pattern ${id} is not defined in the chart`);
+    }
+    if (new Set(ids).size !== ids.length) problems.push("two job kinds share a pattern");
+    const rows: [string, number][] = [["easy job", 0], ["ordinary job", 1], ["hard job", 2]];
+    for (const [label, index] of rows) {
+      const text = Array.from(svg.querySelectorAll("text")).find((t) => t.textContent === label);
+      let swatch: Element | null = text?.previousElementSibling ?? null;
+      while (swatch !== null && swatch.tagName !== "rect") swatch = swatch.previousElementSibling;
+      const fill = swatch === null ? "" : fillOf(swatch);
+      if (idOf(fill) === "" || idOf(fill) !== ids[index]) problems.push(`legend swatch for ${label} does not use the pattern of its blocks`);
+    }
+    return problems;
+  });
+}
+
+test("[integration] E20 easy, ordinary and hard blocks and their legend swatches use three different patterns", async () => {
+  const page = await pageAt(390, 844, "reduce");
+  try {
+    expect(await patternProblems(page)).toEqual([]);
+  } finally { await page.close(); }
+});
+
+test("[unit] E20b the pattern checker fails a hue-only chart", async () => {
+  const page = await pageAt(390, 844, "reduce", "/hue-only/");
+  try {
+    const problems = await patternProblems(page);
+    expect(problems).toContain("a block fill is a plain colour, not a pattern");
+    expect(problems.some((p) => p.startsWith("legend swatch for hard job"))).toBe(true);
+  } finally { await page.close(); }
+});
+
+// #269: dimmed option text stays at 4.5:1 on the colours as drawn, including the faded paper of the unlit tickets.
+type Dimmed = { what: string; fg: string; bg: string; opacity: number; stage: string };
+async function dimmedOptions(page: Page, wide: boolean): Promise<Dimmed[]> {
+  const out: Dimmed[] = [];
+  for (const i of [0, 1, 2]) {
+    await page.locator(`#tickets .tk[data-i="${i}"]`).click();
+    out.push(...await page.evaluate((lit) => Array.from(document.querySelectorAll("#tickets .tk")).flatMap((group, k) => {
+      const rect = group.querySelector("rect");
+      const label = group.querySelector("text");
+      const stage = group.closest("svg")?.querySelector(":scope > rect");
+      if (k === lit || rect === null || label === null || stage == null) return [];
+      return [{ what: `ticket ${k} while ${lit} is lit`, fg: getComputedStyle(label).fill, bg: getComputedStyle(rect).fill, opacity: parseFloat(getComputedStyle(group).opacity), stage: getComputedStyle(stage).fill }];
+    }), i));
+  }
+  out.push(...await page.evaluate((selector) => Array.from(document.querySelectorAll(`${selector} .lit text`)).flatMap((node) => {
+    const label = node.textContent ?? "";
+    if (label !== "Medium" && label !== "Large") return [];
+    let rect: Element | null = node.previousElementSibling;
+    while (rect !== null && rect.tagName !== "rect") rect = rect.previousElementSibling;
+    if (rect === null || node.getClientRects().length === 0) return [];
+    return [{ what: `${label} in ${selector}`, fg: getComputedStyle(node).fill, bg: getComputedStyle(rect).fill, opacity: 1, stage: getComputedStyle(rect).fill }];
+  }), wide ? "svg.wide" : "svg.narrow"));
+  return out;
+}
+
+const dimmedFailures = (options: Dimmed[]): string[] => options.flatMap((o) => {
+  const stage = rgb(o.stage);
+  const mix = (c: number[]): number[] => c.map((v, i) => o.opacity * v + (1 - o.opacity) * (stage[i] ?? 0));
+  const ratio = contrastRgb(mix(rgb(o.fg)), mix(rgb(o.bg)));
+  return ratio >= 4.5 ? [] : [`${o.what}: ${ratio.toFixed(2)}:1`];
+});
+
+test("[integration] E21 every dimmed option, unlit ticket and dim scene 2 answer is 4.5:1 or better on its blended colours", async () => {
+  const sizes: [number, number, boolean][] = [[390, 844, false], [1440, 900, true]];
+  for (const [width, height, wide] of sizes) {
+    const page = await pageAt(width, height, "reduce");
+    try {
+      const options = await dimmedOptions(page, wide);
+      expect(options.length).toBe(8);
+      expect(dimmedFailures(options)).toEqual([]);
+    } finally { await page.close(); }
+  }
+});
+
+test("[unit] E21b the dimmed-option checker fails a planted faint option colour and a planted 40% ticket", async () => {
+  const page = await pageAt(390, 844, "reduce", "/low-contrast/");
+  try {
+    const failures = dimmedFailures(await dimmedOptions(page, false));
+    expect(failures.some((f) => f.startsWith("Medium in svg.narrow"))).toBe(true);
+    expect(failures.some((f) => f.startsWith("ticket "))).toBe(true);
   } finally { await page.close(); }
 });
 

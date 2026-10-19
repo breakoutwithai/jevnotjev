@@ -41,6 +41,13 @@
     $("officePanel").hidden = false;
     $("officeOpen").setAttribute("aria-expanded", "true");
   }
+  /* Focus a form field but show the playground link and ready prompt first: scroll the link to the top, then only as
+     far as needed to keep the focused field on screen. */
+  function showWith(field) {
+    field.focus({ preventScroll: true });
+    $("tkPlayground").scrollIntoView({ block: "start" });
+    if (field.getBoundingClientRect().bottom > window.innerHeight) field.scrollIntoView({ block: "end" });
+  }
   if ($("tkCopyPrompt")) $("tkCopyPrompt").addEventListener("click", function () {
     if (!navigator.clipboard) { $("tkCopyStatus").textContent = "Select the prompt above to copy it."; return; }
     navigator.clipboard.writeText($("tkReadyPrompt").textContent).then(function () {
@@ -51,19 +58,18 @@
     var open = $("officePanel").hidden;
     $("officePanel").hidden = !open;
     $("officeOpen").setAttribute("aria-expanded", open ? "true" : "false");
-    if (open && !form.hidden) $("tkEmail").focus();
+    if (open && !form.hidden) showWith($("tkEmail"));
   });
   /* One button for anyone with their own decision: opens the office (never toggles it shut), shows the form again if a
-     request was already issued, prefills the idea once, leaves the caret at the end and scrolls the ready prompt into view. It sends nothing. */
+     request was already issued, prefills the idea once, leaves the caret at the end and shows the ready prompt (showWith). It sends nothing. */
   var PREFILL = "Assess my use case: ";
   if ($("tkBring")) $("tkBring").addEventListener("click", function () {
     openPanel();
     reopen();
     var idea = $("tkIdea");
     if (idea.value.trim() === "") idea.value = PREFILL;
-    idea.focus({ preventScroll: true });
     idea.setSelectionRange(idea.value.length, idea.value.length);
-    $("tkPlayground").scrollIntoView({ block: "start" });
+    showWith(idea);
   });
   function openHash() {
     if (window.location.hash !== "#tkForm" && window.location.hash !== "#csv") return;

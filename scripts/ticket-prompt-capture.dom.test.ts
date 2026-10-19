@@ -39,6 +39,23 @@ test("[integration] #138 ready prompt and playground link appear before email en
   } finally { await page.close(); }
 });
 
+test("[integration] #138 both entry buttons keep the focused field and the playground link on screen at 390x844 and 1440x900", async () => {
+  for (const [width, height] of [[390, 844], [1440, 900]] as const) {
+    for (const [button, field] of [["#tkBring", "tkIdea"], ["#officeOpen", "tkEmail"]] as const) {
+      const page = await browser.newPage({ viewport: { width, height }, reducedMotion: "reduce" });
+      try {
+        await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "domcontentloaded" });
+        await page.locator(button).click();
+        const seen = await page.evaluate((id) => {
+          const inView = (node: Element | null) => { if (node === null) return false; const r = node.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; };
+          return { focus: document.activeElement?.id, field: inView(document.getElementById(id)), link: inView(document.getElementById("tkPlayground")) };
+        }, field);
+        expect({ width, button, ...seen }).toEqual({ width, button, focus: field, field: true, link: true });
+      } finally { await page.close(); }
+    }
+  }
+}, 20000);
+
 test("[integration] #138 unchecked consent rejects without a request", async () => {
   const page = await open();
   try {

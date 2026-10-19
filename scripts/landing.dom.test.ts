@@ -723,7 +723,7 @@ test("[integration] L16b the curtain is decided before first paint: closed and c
   }
 }, 30000);
 
-test("[integration] V1 the closed curtain carries the composition: marquee, the Mad TokenMax poster with the ADMIT ONE ticket on it, the Little Shop poster, scroll cue and the sample chip, and no Skip (a short phone curtain sets the cue aside, never clips it)", async () => {
+test("[integration] V1 the closed curtain carries the composition: marquee, the Mad TokenMax poster with the ADMIT ONE ticket on it, the Little Shop poster, Raise the curtain and the sample chip, and no Skip (a short phone curtain sets Raise the curtain aside, never clips it)", async () => {
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
@@ -735,7 +735,7 @@ test("[integration] V1 the closed curtain carries the composition: marquee, the 
       expect(await page.locator("#overture a.poster .p-title").innerText()).toBe("Little Shop of Horrors");
       expect(await page.locator("#overture a.poster").getAttribute("href")).toMatch(/little-shop\/$/);
       expect(await page.locator("#overture a.poster .p-cta").innerText()).toMatch(/^take your seat$/i);
-      expect(await page.locator("#overture .cue-scroll").innerText()).toMatch(/^scroll to raise the curtain$/i);
+      expect(await page.locator("#overture .cue-scroll").innerText()).toMatch(/^raise the curtain$/i);
       expect({ width, skip: await page.locator("#skipOverture").count(), button: await page.getByRole("button", { name: /skip/i }).count() }).toEqual({ width, skip: 0, button: 0 });
       expect(await page.locator("#overture .ticket").evaluate((node) => node.closest("a")?.getAttribute("href") ?? "")).toBe("tm/");
       // The chip carries House lights only: no "Sample run" label (#260).
@@ -794,7 +794,8 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      expect({ width, skip: await page.locator("#skipOverture, #overture button").count() }).toEqual({ width, skip: 0 });
+      // c01 made the scroll cue a button, Raise the curtain (UX2); nothing on the curtain is a Skip.
+      expect({ width, skip: await page.locator("#skipOverture").count(), buttons: await page.locator("#overture button").evaluateAll((nodes) => nodes.map((n) => n.id)) }).toEqual({ width, skip: 0, buttons: ["raise"] });
       await openOntoResults(page);
       const after = await page.evaluate(() => {
         const ov = document.getElementById("overture"), head = document.getElementById("types");
@@ -817,13 +818,63 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
       for (let i = 0; i < 6 && (await curtain(keyed)).state !== "open"; i++) { await keyed.keyboard.press("PageDown"); await keyed.waitForTimeout(150); await frames(keyed); }
       expect({ width, key: "PageDown", state: (await curtain(keyed)).state, focus: await keyed.evaluate(() => document.activeElement?.id ?? "") }).toEqual({ width, key: "PageDown", state: "open", focus: "types" });
     } finally { await keyed.close(); }
-    // Tab only: the two posters and House lights keep it closed; the next Tab lands on the page and opens it.
+    // Tab only: the two posters, Raise the curtain and House lights keep it closed; the next Tab lands on the page and opens it.
     const tabs = await pageAt(width, height, "no-preference");
     try {
-      const stops = await tabStops(tabs, 4);
-      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", "lights:closed", "A.house-link:open"] });
+      const stops = await tabStops(tabs, 5);
+      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", "raise:closed", "lights:closed", "A.house-link:open"] });
       expect(await shownCurtains(tabs)).toBe(0);
     } finally { await tabs.close(); }
+  }
+}, 30000);
+
+/** The ux-swarm c01 pass check: the first screen says what Jev is, in one plain sentence. */
+const PRODUCT_LINE = /^Jev\b.*\b(picks|rates|answers|gives)\b/i;
+const FIRST_SCREENS: [number, number][] = [[1280, 800], [1440, 900], [390, 844]];
+
+test("[integration] UX1 c01 the closed curtain says what Jev is: one plain product sentence under the marquee and above the posters, on screen and reachable at 1280x800, 1440x900 and 390x844", async () => {
+  for (const [width, height] of FIRST_SCREENS) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      expect((await curtain(page)).state).toBe("closed");
+      expect(await page.locator("#overture .pitch").count()).toBe(1);
+      expect({ width, text: PRODUCT_LINE.test(await page.locator("#overture .pitch").innerText()) }).toEqual({ width, text: true });
+      const at = await page.evaluate(() => {
+        const box = (s: string): DOMRect | null => document.querySelector(s)?.getBoundingClientRect() ?? null;
+        const marquee = box("#overture .marquee"), pitch = box("#overture .pitch"), bills = box("#overture .showbills");
+        if (!marquee || !pitch || !bills) return null;
+        return { under: marquee.bottom <= pitch.top, above: pitch.bottom <= bills.top, inView: pitch.top >= 0 && pitch.bottom <= innerHeight && pitch.left >= 0 && pitch.right <= innerWidth,
+          hidden: document.querySelector("#overture .pitch")?.closest("[aria-hidden=true]") !== null };
+      });
+      expect({ width, at }).toEqual({ width, at: { under: true, above: true, inView: true, hidden: false } });
+      expect(await hitsItself(page, "#overture .pitch")).toBe(true);
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+test("[integration] UX2 c01 Raise the curtain is a button on the closed curtain, 24px or more each way, in the Tab order after the two posters; a click or Enter opens it onto the four pictures with focus on them", async () => {
+  for (const [width, height] of CLOSED_VIEWPORTS) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      const raise = page.getByRole("button", { name: "Raise the curtain", exact: true });
+      expect(await raise.count()).toBe(1);
+      expect(await raise.evaluate((node) => node.closest("#overture") !== null && node.closest("[aria-hidden=true]") === null)).toBe(true);
+      const box = await raise.boundingBox();
+      expect({ width, w: (box?.width ?? 0) >= 24, h: (box?.height ?? 0) >= 24 }).toEqual({ width, w: true, h: true });
+      expect(await hitsItself(page, "#overture .cue-scroll")).toBe(true);
+      await raise.click();
+      await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+      const after = await page.evaluate(() => ({ focus: document.activeElement?.id ?? "", top: document.getElementById("types")?.getBoundingClientRect().top ?? NaN }));
+      expect({ width, focus: after.focus, inView: after.top >= -1 && after.top < height }).toEqual({ width, focus: "types", inView: true });
+    } finally { await page.close(); }
+    const keyed = await pageAt(width, height, "no-preference");
+    try {
+      const stops = await tabStops(keyed, 3);
+      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", "raise:closed"] });
+      await keyed.keyboard.press("Enter");
+      await keyed.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+      expect({ width, focus: await keyed.evaluate(() => document.activeElement?.id ?? "") }).toEqual({ width, focus: "types" });
+    } finally { await keyed.close(); }
   }
 }, 30000);
 
@@ -1307,7 +1358,7 @@ test("[integration] L24 the curtain follows the scroll both ways: partial progre
   } finally { await page.close(); }
 }, 15000);
 
-test("[integration] L26 the Mad TokenMax poster is the first tab stop on the curtain (after the first-screen band's three) with a visible focus ring; Tab goes Mad TokenMax, Little Shop, House lights with the curtain closed; focus anywhere else opens it", async () => {
+test("[integration] L26 the Mad TokenMax poster is the first tab stop on the curtain (after the first-screen band's three) with a visible focus ring; Tab goes Mad TokenMax, Little Shop, Raise the curtain (where shown), House lights with the curtain closed; focus anywhere else opens it", async () => {
   stripOn();
   const page = await pageAt(1280, 900, "no-preference");
   try {
@@ -1326,11 +1377,22 @@ test("[integration] L26 the Mad TokenMax poster is the first tab stop on the cur
       state: document.documentElement.dataset.curtain,
     }))).toEqual({ poster: true, state: "closed" });
     const where = () => page.evaluate(() => ({ id: document.activeElement?.id ?? "", state: document.documentElement.dataset.curtain }));
+    // Raise the curtain (c01) follows Little Shop where the curtain has room for it.
+    const raise = await page.evaluate(() => getComputedStyle(document.getElementById("raise") ?? document.body).display !== "none");
     await page.keyboard.press("Tab");
+    if (raise) {
+      expect(await where()).toEqual({ id: "raise", state: "closed" });
+      await page.keyboard.press("Tab");
+    }
     expect(await where()).toEqual({ id: "lights", state: "closed" });
     await page.keyboard.press("Shift+Tab");
+    if (raise) {
+      expect(await where()).toEqual({ id: "raise", state: "closed" });
+      await page.keyboard.press("Shift+Tab");
+    }
     expect(await page.evaluate(() => document.activeElement?.matches("#overture a.poster") ?? false)).toBe(true);
     await page.keyboard.press("Tab");
+    if (raise) await page.keyboard.press("Tab");
     expect(await where()).toEqual({ id: "lights", state: "closed" });
     await page.keyboard.press("Tab");
     expect(await page.evaluate(() => ({
@@ -1876,8 +1938,10 @@ test("[integration] TM5 with the curtain closed the band's controls keep it clos
     } finally { await page.close(); }
     const keys = await pageAt(width, height, "no-preference");
     try {
-      expect({ width, stops: await tabStops(keys, TM_BAND_STOPS.length + 3) })
-        .toEqual({ width, stops: [...TM_BAND_STOPS, "madmax poster", "curtain poster", "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
+      // Raise the curtain is a stop where the curtain has room for it (a short phone curtain sets it aside, V1).
+      const raise = await keys.evaluate(() => getComputedStyle(document.getElementById("raise") ?? document.body).display !== "none") ? ["raise"] : [];
+      expect({ width, stops: await tabStops(keys, TM_BAND_STOPS.length + 3 + raise.length) })
+        .toEqual({ width, stops: [...TM_BAND_STOPS, "madmax poster", "curtain poster", ...raise, "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
     } finally { await keys.close(); }
   }
 }, 30000);

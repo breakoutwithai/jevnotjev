@@ -1,5 +1,5 @@
 /* Theatre frame over the landing page: the opening curtain with its playbill (marquee, the Mad TokenMax poster
-   with its ticket, the Little Shop poster, scroll cue), the valance and drapes, and in the page the marquee band and the house-bar
+   with its ticket, the Little Shop poster, the product line, Raise the curtain), the valance and drapes, and in the page the marquee band and the house-bar
    ticket. Motion only under html.motion (set before first paint when reduced motion is off). */
 
 /* ---------- Opening curtain ----------
@@ -57,7 +57,7 @@
    the pointer and from focus) once it is no longer readable, so it never sits over the result bars. #248: the marquee
    bills the show across the top; under it two posters hang side by side, centred (.showbills): Mad TokenMax with the
    ADMIT ONE ticket tucked over its lower left corner (one link to tm/: the ticket is its way in), and Little Shop of
-   Horrors (little-shop/); under them the scroll cue. There is no Skip button: a scroll, the scroll keys, Tab past the
+   Horrors (little-shop/); under them Raise the curtain (c01: the old scroll cue as a button). There is no Skip: Raise the curtain, a scroll, the scroll keys, Tab past the
    curtain's controls, or a #hash opens the curtain. */
 .playbill {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -70,8 +70,23 @@
 .overture .marquee { padding: 16px 30px 14px; max-width: min(640px, 92vw); box-shadow: 0 10px 40px rgba(0, 0, 0, .5), inset 0 0 0 6px #1a0508, inset 0 0 0 8px #6e4f14; }
 .overture .marquee .kicker { font-size: 11px; letter-spacing: .32em; }
 .overture .marquee .billing { margin-top: 6px; font: 800 clamp(26px, 4.4vw, 46px)/1 var(--serif); }
-.cue-scroll { margin: 0; font: 12px var(--sans); letter-spacing: .22em; text-transform: uppercase; color: #f6e7c8; text-shadow: 0 1px 6px rgba(0, 0, 0, .6); }
-.cue-scroll::after { content: ""; display: block; width: 1px; height: 26px; margin: 8px auto 0; background: #f6e7c8; transform-origin: top; }
+/* c01 (ux-swarm 2026-10-19): one plain sentence under the marquee says what Jev is, on a dark playbill strip so it reads
+   over the drape. Read aloud too (the marquee above it is a decorative copy of the page's h1). */
+.pitch {
+  margin: 0; max-width: min(36em, 92vw); padding: 6px 18px; text-align: center;
+  font: italic 600 clamp(17px, 1.7vw, 24px)/1.25 var(--serif); color: #f6e7c8;
+  background: rgba(26, 5, 8, .78); box-shadow: inset 0 0 0 1px #6e4f14, 0 6px 18px rgba(0, 0, 0, .4);
+}
+/* Raise the curtain: the old scroll cue made a button (c01). theatre.js opens the curtain onto the four pictures from
+   it; the drip hangs under it as before, outside its box, so the button stays its own size. */
+.cue-scroll {
+  position: relative; margin: 0; min-height: 32px; padding: 6px 16px; cursor: pointer;
+  font: 700 12px var(--sans); letter-spacing: .22em; text-transform: uppercase; color: #f6e7c8; text-shadow: 0 1px 6px rgba(0, 0, 0, .6);
+  background: rgba(26, 5, 8, .78); border: 1px solid #b8892a;
+}
+.cue-scroll:hover { background: #5a0f1c; border-color: #ffe6a6; }
+.cue-scroll:focus-visible { outline: 3px solid #ffe6a6; outline-offset: 4px; }
+.cue-scroll::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 26px; margin-top: 8px; background: #f6e7c8; transform-origin: top; }
 @media (prefers-reduced-motion: no-preference) { .motion .cue-scroll::after { animation: drip 1.8s ease-in-out infinite; } }
 @keyframes drip { 0% { transform: scaleY(0); } 60% { transform: scaleY(1); } 100% { transform: scaleY(1); opacity: 0; } }
 /* The two posters. --mm-h is the Mad TokenMax poster's image height (2:3); the poster link is sized from it, so the

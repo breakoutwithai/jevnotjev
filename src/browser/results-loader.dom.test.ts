@@ -408,10 +408,11 @@ describe("results loader: the case-by-method table (F5)", () => {
 });
 
 describe("the Stage tells one story once a file is loaded (F1)", () => {
-  test("[unit] F1-S1 the page has a flag in each of Acts II to V and a current-verdict slot in Act V, all hidden until a file is loaded", async () => {
+  test("[unit] F1-S1 the retired act flags and current-verdict slot are not on the landing, the loader's own result panel is, hidden until a file is loaded", async () => {
     const html = await readFile(join(ROOT, "site", "index.html"), "utf8");
-    for (const id of STAGE_IDS.flags) expect(html).toContain(`<p class="sample-flag" id="${id}" hidden></p>`);
-    expect(new RegExp(`<div[^>]*id="${STAGE_IDS.current}"[^>]* hidden>`).test(html)).toBe(true);
+    for (const id of STAGE_IDS.flags) expect(html).not.toContain(`id="${id}"`);
+    expect(html).not.toContain(`id="${STAGE_IDS.current}"`);
+    expect(html).toContain('<div class="loaded" id="loadedResult" aria-live="polite" hidden></div>');
     const p = page();
     attachLoader(p.doc);
     for (const f of p.flags) expect(f.hidden).toBe(true);

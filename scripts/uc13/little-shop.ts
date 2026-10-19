@@ -92,6 +92,9 @@ export async function bundleVerdict(entry = VERDICT_ENTRY): Promise<string> {
 
 export interface Built { readonly data: string; readonly verdict: string; readonly page: string }
 
+/** One plain sentence under the verdict name, so a first-time visitor reads the meaning before the statistics. */
+const PLAIN_VERDICT: ReadonlyMap<string, string> = new Map([["not enough evidence", "The recorded run cannot yet show that Jev is as good as the LLM."]]);
+
 const RESULT_START = "<!-- BEGIN RECORDED RUN RESULT -->";
 const RESULT_END = "<!-- END RECORDED RUN RESULT -->";
 
@@ -101,10 +104,11 @@ function resultPage(page: string, run: RunSummary): string {
   const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${run.folder.slice(0, 10)}T00:00:00Z`));
   const block = [RESULT_START,
     '<div class="recorded-run" aria-label="Recorded run result">',
-    line("recorded-caption", `Recorded run, ${date}: ${run.labelledPaired} paired cases`),
+    line("recorded-caption", `Recorded run, ${date}: ${run.labelledPaired} cases`),
     run.headline === null ? "" : `<h3 class="recorded-headline">${escapeHtml(run.headline)}</h3>`,
     line("recorded-verdict", run.verdict === null ? null : `Verdict: ${run.verdict}`),
-    line("recorded-why", run.whyNotYet),
+    line("recorded-plain", run.verdict === null ? null : PLAIN_VERDICT.get(run.verdict) ?? null),
+    run.whyNotYet === null ? "" : `<details class="recorded-more"><summary>Why is it not proven yet?</summary>${line("recorded-why", run.whyNotYet)}</details>`,
     "</div>", RESULT_END].filter(Boolean).join("\n        ");
   const start = page.indexOf(RESULT_START);
   const end = page.indexOf(RESULT_END);

@@ -25,16 +25,17 @@ function loadBundle(js: string): unknown {
 }
 
 describe("Little Shop data and verdict bundle (scripts/uc13/little-shop.ts)", () => {
-  test("[integration] S6 recorded result page leads with headline, verdict, then projection", async () => {
+  test("[integration] S6 recorded result page leads with headline, verdict and a plain line, then the reasoning in a disclosure", async () => {
     const source = (await readFile(PAGE, "utf8")).replace(/<div class="recorded-run"[^>]*>[\s\S]*?<\/div>/, "");
     expect(source).not.toContain('class="recorded-run"');
     const built = await build(RUN_DIR, EXAMPLE_DIR, source);
     const block = built.page.match(/<div class="recorded-run"[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? "";
     const children = [...block.matchAll(/<(h3|p) class="([^"]+)">([^<]*)<\/\1>/g)].map((match) => ({ className: match[2], text: match[3] }));
     expect(children).toEqual([
-      { className: "recorded-caption", text: "Recorded run, 1 October 2026: 40 paired cases" },
+      { className: "recorded-caption", text: "Recorded run, 1 October 2026: 40 cases" },
       { className: "recorded-headline", text: "Same accuracy as the LLM (38/40 each) at 1/79th of the cost" },
       { className: "recorded-verdict", text: "Verdict: not enough evidence" },
+      { className: "recorded-plain", text: "The recorded run cannot yet show that Jev is as good as the LLM." },
       { className: "recorded-why", text: "Not proven yet: the lower bound of Jev minus the LLM is -0.11, below the -0.10 margin, on 40 paired cases. If the next cases split the same way, about 6 more paired cases would bring it inside the margin." },
     ]);
     expect(await readFile(PAGE, "utf8")).toBe(built.page);

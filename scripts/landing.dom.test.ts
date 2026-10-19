@@ -63,7 +63,7 @@ async function pageAt(width: number, height: number, motion: "no-preference" | "
 }
 
 for (const motion of MOTIONS) {
-  test(`[integration] L1-L5 the title comes first, then the result bars, the cards and the acts; hero copy sits behind one disclosure (${motion})`, async () => {
+  test(`[integration] L1-L5 the title comes first, then the result bars and the cards; hero copy sits behind one disclosure (${motion})`, async () => {
     for (const [width, height] of ACTION_VIEWPORTS) {
       const page = await pageAt(width, height, motion);
       try {
@@ -82,7 +82,7 @@ for (const motion of MOTIONS) {
         const result = await page.locator("#heroResult").evaluate((node) => node.textContent ?? "");
         for (const word of ["100", "Jev", "LLM", "simple rule", "Verdict: Use Jev (rule 3)."] ) expect(result).toContain(word);
         expect(await page.locator("#heroWhy").evaluate((node) => node.textContent ?? "")).toContain("Why: Jev kept 88 right answers and the LLM 86 on these 100 shop messages");
-        expect(await page.locator("#primaryAction").evaluate((node) => node.textContent ?? "")).toBe("Try it: pick a seat");
+        expect(await page.locator("#primaryAction").evaluate((node) => node.textContent ?? "")).toBe("Try it: take your seat");
         expect(new URL(await page.locator("#primaryAction").getAttribute("href") ?? "", page.url()).pathname).toBe("/little-shop/");
         for (const id of ["heroResult", "heroWhy", "primaryAction"]) expect(await page.locator(`#${id}`).isVisible()).toBe(false);
         if (motion === "reduce") {
@@ -97,7 +97,7 @@ for (const motion of MOTIONS) {
           expect(seat.top >= 0 && seat.top < height && seat.covered).toBe(true);
         }
         expect(await page.evaluate(() => {
-          const ids = ["results", "tkPosters", "tkForm", "act2"].map((id) => document.getElementById(id));
+          const ids = ["results", "tkPosters", "tkForm", "door"].map((id) => document.getElementById(id));
           return ids.every(Boolean) && Boolean(ids[0] && ids[1] && ids[2] && ids[3] &&
             (ids[0].compareDocumentPosition(ids[1]) & Node.DOCUMENT_POSITION_FOLLOWING) &&
             (ids[1].compareDocumentPosition(ids[2]) & Node.DOCUMENT_POSITION_FOLLOWING) &&
@@ -133,42 +133,6 @@ test("[integration] L6-L8 links, cards and removed elements", async () => {
     }
     expect(await page.locator("#tkPosters").innerText()).not.toMatch(/Fit check: .* \/ /);
     expect(await page.locator("#askForm, #askInput, #runway").count()).toBe(0);
-  } finally { await page.close(); }
-});
-
-test("[integration] L9 one spotlight comparison shows; the next miss and the cases sit behind clicks, ordered by confidence", async () => {
-  const page = await pageAt(1440, 900);
-  try {
-    expect(await page.locator("#allCases").getAttribute("open")).toBeNull();
-    expect(await page.locator("#allCases summary").innerText()).toBe("See all 100 cases");
-    expect(await page.locator("#allCases .case.row").count()).toBe(100);
-    const spots = page.locator("#act3 .spotlight");
-    expect(await spots.count()).toBe(2);
-    expect(await spots.nth(0).isVisible()).toBe(true);
-    expect(await spots.nth(1).evaluate((node) => node.closest("details")?.id ?? "")).toBe("moreSpot");
-    expect(await page.locator("#moreSpot").getAttribute("open")).toBeNull();
-    expect(await spots.nth(1).isVisible()).toBe(false);
-    // The visible comparison: the question, the three players' answers each marked kept or rejected, and the label.
-    const first = spots.nth(0);
-    expect(await first.locator(".spot-arm").allInnerTexts()).toHaveLength(3);
-    const arms = (await first.locator(".spot-arm").allInnerTexts()).join(" | ");
-    for (const name of ["LLM", "Simple rule", "Jev"]) expect(arms).toContain(name);
-    expect(arms).toMatch(/kept|rejected/);
-    expect(await first.locator(".truth").innerText()).toMatch(/^label: /);
-    const expected = await page.evaluate(() => window.JNJ.cases.filter((c) => c.arms.C.picked !== c.truth)
-      .sort((a, b) => (b.arms.C.confidence ?? 0) - (a.arms.C.confidence ?? 0)).slice(0, 2)
-      .map((c) => ({ id: c.id, prompt: c.prompt })));
-    await page.locator("#moreSpot").evaluate((node) => { if (node instanceof HTMLDetailsElement) node.open = true; });
-    for (let i = 0; i < expected.length; i++) {
-      expect(await spots.nth(i).innerText()).toContain(expected[i]?.id ?? "");
-      expect(await spots.nth(i).innerText()).toContain(expected[i]?.prompt ?? "");
-      expect(await spots.nth(i).locator(".monologue b").textContent()).toBe(i === 0 ? "Spotlight" : "Next miss");
-    }
-    expect(await page.locator("#allCases .monologue").count()).toBe(0);
-    await page.locator("#allCases").evaluate((node) => { if (node instanceof HTMLDetailsElement) node.open = true; });
-    expect(await page.locator(".case.row .conf").first().evaluate((node) => getComputedStyle(node).height)).toBe("4px");
-    expect(await page.locator(".case.wrong .conf i").first().evaluate((node) => getComputedStyle(node).backgroundColor)).toBe("rgb(240, 132, 112)"); // --cut in the default dark theme
-    expect(await page.locator("#tally").innerText()).not.toContain("heard");
   } finally { await page.close(); }
 });
 
@@ -375,20 +339,6 @@ test("[integration] T-panel-open-measure open office fits both viewports", async
   }
 });
 
-test("[integration] T-figures Acts III and IV name an arm in every numbered sentence", async () => {
-  const page = await pageAt(390, 844);
-  try {
-    for (const selector of ["#versus", "#versusWins", "#because li"]) {
-      // Text content, not rendered text: #versusWins sits in a closed disclosure, which renders no text.
-      for (const text of await page.locator(selector).allTextContents()) {
-        const sentences = text.split(/\.(?!\d)\s*/).filter((sentence) => /\d/.test(sentence));
-        expect(sentences.length).toBeGreaterThan(0);
-        for (const sentence of sentences) expect(sentence).toMatch(/\b(?:LLM|simple rule|Jev)\b/i);
-      }
-    }
-  } finally { await page.close(); }
-});
-
 test("[integration] T-door-replay Play again restarts the animated demo", async () => {
   const page = await pageAt(390, 844, "no-preference");
   try {
@@ -402,31 +352,14 @@ test("[integration] T-door-replay Play again restarts the animated demo", async 
   } finally { await page.close(); }
 }, 15000);
 
-test("[integration] T-csv loaded file shows current verdict and all sample flags without overflow", async () => {
+test("[integration] T-csv a loaded file shows its verdict in the loaded result without overflow", async () => {
   const page = await pageAt(390, 844);
   try {
     await page.locator("#officeOpen").click();
     await page.locator("#csv").setInputFiles({ name: "uc13-records.csv", mimeType: "text/csv", buffer: Buffer.from(RECORDS) });
     await page.locator("#loadedResult").waitFor({ state: "visible" });
-    expect(await page.locator("#currentVerdict").isVisible()).toBe(true);
-    for (const n of [2, 3, 4, 5]) expect(await page.locator(`#sampleFlag${n}`).isVisible()).toBe(true);
+    expect(await page.locator("#loadedResult").innerText()).toMatch(/VERDICT PER QUESTION[\s\S]*not enough evidence/i);
     expect(await measurePage(page)).toEqual({ overflow: 0, outside: [], small: [] });
-  } finally { await page.close(); }
-}, 30000);
-
-test("[integration] T-csv flag names only act numerals present on the page", async () => {
-  const page = await pageAt(390, 844);
-  try {
-    await page.locator("#officeOpen").click();
-    await page.locator("#csv").setInputFiles({ name: "uc13-records.csv", mimeType: "text/csv", buffer: Buffer.from(RECORDS) });
-    await page.locator("#loadedResult").waitFor({ state: "visible" });
-    const { flag, slates } = await page.evaluate(() => ({
-      flag: document.querySelector("#sampleFlag2")?.textContent ?? "",
-      slates: [...document.querySelectorAll(".roman")].map((node) => node.textContent?.trim() ?? ""),
-    }));
-    expect(flag).toContain("verdict section");
-    for (const match of flag.matchAll(/\bAct\s+([IVX]+)\b/g)) expect(slates).toContain(match[1] ?? "");
-    expect(flag).not.toMatch(/\bAct\s+[IVX]+\b/);
   } finally { await page.close(); }
 }, 30000);
 
@@ -1329,20 +1262,6 @@ test("[integration] V15 once the playbill has faded the page in the gap takes th
   } finally { await page.close(); }
 }, 20000);
 
-test("[integration] V16 a case label is escaped where it becomes a class name: a label carrying a quote adds no attribute", async () => {
-  const page = await pageAt(1440, 900, "reduce", "", false, undefined, async (p) => {
-    await p.route("**/data.js", async (route) => {
-      const response = await route.fetch();
-      const patch = "\nwindow.JNJ.cases.forEach(function (c) { Object.keys(c.arms).forEach(function (k) { var a = c.arms[k]; if (a.label === \"reject\") a.label = 'reject\" data-injected=\"1'; }); });\n";
-      await route.fulfill({ response, body: `${await response.text()}${patch}` });
-    });
-  });
-  try {
-    expect(await page.locator("#docket .cell, #spotlights .spot-arm").count()).toBeGreaterThan(0);
-    expect(await page.locator("[data-injected]").count()).toBe(0);
-  } finally { await page.close(); }
-}, 20000);
-
 test("[integration] V17 a scroll that opens the curtain in one go with focus on a curtain poster moves focus to the results heading; the same scroll without focus on the curtain leaves the page at scrollY 0", async () => {
   stripOn();
   for (const [width, height] of CLOSED_VIEWPORTS) for (const how of ["wheel", "scrollTop"]) {
@@ -1482,7 +1401,7 @@ test("[integration] L26 the Mad TokenMax poster is the first tab stop on the cur
 }, 15000);
 
 test("[integration] L27 a #hash deep link loads open, and a hash change opens the curtain at once", async () => {
-  const page = await pageAt(390, 844, "no-preference", "#act3");
+  const page = await pageAt(390, 844, "no-preference", "#tickets");
   try {
     await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
     expect(await shownCurtains(page)).toBe(0);
@@ -1490,19 +1409,19 @@ test("[integration] L27 a #hash deep link loads open, and a hash change opens th
   const later = await pageAt(390, 844, "no-preference");
   try {
     expect((await curtain(later)).state).toBe("closed");
-    await later.evaluate(() => { window.location.hash = "#act2"; });
+    await later.evaluate(() => { window.location.hash = "#door"; });
     await later.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
     expect(await shownCurtains(later)).toBe(0);
   } finally { await later.close(); }
 }, 15000);
 
 test("[integration] L28 a page that loads already scrolled (a restored position) takes the curtain from there: open past the runway, part-way within it", async () => {
-  // 2 screens is past any runway; 60px is inside the runway's floor of a quarter screen.
-  const cases: [number, string][] = [[2 * 844, "open"], [60, "rising"]];
+  // 1 screen (the page is shorter without the acts) is past any runway of 0.7 screens; 60px is inside the runway's floor of a quarter screen.
+  const cases: [number, string][] = [[844, "open"], [60, "rising"]];
   // Scrolled before the curtain script runs: theatre.js is held at the network while the page above it is laid out.
   for (const [top, state] of cases) {
     await onHeld(390, 844, "no-preference", async ({ page, release, ready }) => {
-      await page.waitForFunction(() => document.querySelectorAll("#resultBars li").length === 3 && document.getElementById("act5") !== null);
+      await page.waitForFunction(() => document.querySelectorAll("#resultBars li").length === 3 && document.getElementById("door") !== null);
       await page.evaluate((y) => { window.scrollTo({ top: y, behavior: "instant" }); }, top);
       expect(Math.abs(await page.evaluate(() => scrollY) - top)).toBeLessThan(2);
       release();
@@ -1589,17 +1508,17 @@ for (const motion of MOTIONS) {
   }, 30000);
 }
 
-test("[integration] L20 each Little Shop poster has its own short accessible name, shared by no other link: take your seat on the curtain, pick a seat in the page", async () => {
+test("[integration] L20 each Little Shop poster has its own short accessible name, shared by no other link: take your seat on the curtain, take your seat in the preview card", async () => {
   const page = await pageAt(390, 844, "no-preference");
   try {
-    const inPage = "Little Shop of Horrors: pick a seat", onCurtain = "Little Shop of Horrors: take your seat";
+    const inPage = "Little Shop of Horrors preview: take your seat", onCurtain = "Little Shop of Horrors: take your seat";
     expect(await page.locator(".results a.poster").getAttribute("aria-label")).toBe(inPage);
     expect(await page.locator("#overture a.poster").getAttribute("aria-label")).toBe(onCurtain);
     expect(await page.getByRole("link", { name: inPage, exact: true }).count()).toBe(1);
     expect(await page.getByRole("link", { name: onCurtain, exact: true }).count()).toBe(1);
     expect(await page.getByRole("button", { name: "Take your seat", exact: true }).count()).toBe(0);
     expect(await page.getByRole("link", { name: "Take your seat", exact: true }).count()).toBe(0);
-    expect(await page.locator(".results a.poster .p-cta").innerText()).not.toMatch(/take your seat/i);
+    expect(await page.locator(".results a.poster .p-cta").textContent()).toBe("Take your seat");
     const names = await page.locator("a[href]:visible").evaluateAll((links) => links.map((link) => link.getAttribute("aria-label") || link.textContent?.trim() || ""));
     expect(names.filter((n, i) => names.indexOf(n) !== i)).toEqual([]);
   } finally { await page.close(); }
@@ -1651,7 +1570,7 @@ test("[integration] L29 with JavaScript off the page is fully readable with no c
     expect(await page.locator("html").getAttribute("class")).toBeNull();
     expect(await page.locator("#overture").isVisible()).toBe(false);
     expect(await page.locator(MADMAX).isVisible()).toBe(false);
-    for (const selector of ["#t1", "#resultsTitle", "#t2", "#t3", "#t4", "#officeOpen"]) expect(await page.locator(selector).isVisible()).toBe(true);
+    for (const selector of ["#t1", "#resultsTitle", "#officeOpen"]) expect(await page.locator(selector).isVisible()).toBe(true);
     expect(await hitsItself(page, "#t1")).toBe(true);
   } finally { await context.close(); }
 }, 15000);
@@ -1668,82 +1587,20 @@ test("[integration] L30 when the curtain script never loads, the head script's f
       expect(await shownCurtains(page)).toBe(0);
       expect(await page.locator(MADMAX).isVisible()).toBe(false);
       expect(await hitsItself(page, "#t1")).toBe(true);
-      expect(await page.locator("#t2").isVisible()).toBe(true);
     } finally { await page.close(); }
   }
 }, 20000);
 
-/** Per act: its main visual, the ids of the prose it may show with every disclosure closed, and its secondary blocks. */
-const ACTS: { id: string; visual: string; prose: string[]; behind: string[] }[] = [
-  { id: "act2", visual: "#cast", prose: ["workflowDir"], behind: ["#castMethods", "#understudies"] },
-  { id: "act3", visual: "#spotlights .spotlight", prose: [], behind: ["#moreSpot .spotlight", "#docket"] },
-  { id: "act4", visual: "#ledger", prose: ["versus"], behind: ["#versusWins", "#bench"] },
-  // Act IV keeps the verdict's reason, its one next action and its limitation line in view (decided for #231).
-  { id: "act5", visual: "#t5", prose: ["verdictWhy", "verdictNext", "caveat"], behind: ["#verdictMiss", "#verdictCases", "#verdictEarlier", "#because", "#verdictMore a[href='guide/']"] },
-];
-
-test("[integration] L31 each act shows one plain heading, one main visual and at most one short sentence; its detail opens from the keyboard", async () => {
-  for (const [width, height] of VIEWPORTS) {
-    const page = await pageAt(width, height);
-    try {
-      for (const act of ACTS) {
-        expect({ act: act.id, h2: await page.locator(`#${act.id} h2:visible`).count() }).toEqual({ act: act.id, h2: 1 });
-        expect(await page.locator(`#${act.id} ${act.visual}`).first().isVisible()).toBe(true);
-        const prose = await page.evaluate((id) => {
-          const section = document.getElementById(id);
-          const skip = ".sample-flag, #currentVerdict, .spotlight, .player, .acct, .tally, details";
-          return [...(section?.querySelectorAll("p, li") ?? [])]
-            .filter((node) => node.getClientRects().length > 0 && !node.closest(skip) && (node.textContent ?? "").trim() !== "")
-            .map((node) => ({ id: node.id, sentences: (node.textContent ?? "").trim().split(/(?<=[.?!])\s+(?=[A-Z])/).length }));
-        }, act.id);
-        expect({ act: act.id, prose: prose.map((p) => p.id) }).toEqual({ act: act.id, prose: act.prose });
-        // One sentence each; Act IV's reason, next action and limitation at most two each.
-        for (const p of prose) expect({ act: act.id, id: p.id, short: p.sentences <= (act.id === "act5" ? 2 : 1) ? "yes" : `${p.sentences} sentences` }).toEqual({ act: act.id, id: p.id, short: "yes" });
-        for (const selector of act.behind) {
-          const block = page.locator(`#${act.id} ${selector}`).first();
-          expect({ selector, visible: await block.isVisible() }).toEqual({ selector, visible: false });
-          const holder = await block.evaluate((node) => {
-            const details = node.closest("details");
-            return details && !details.open ? details.id : "";
-          });
-          expect({ selector, inClosedDetails: holder !== "" }).toEqual({ selector, inClosedDetails: true });
-          const summary = page.locator(`#${holder} > summary`);
-          await summary.focus();
-          const ring = await summary.evaluate((node) => {
-            const s = getComputedStyle(node);
-            return node.matches(":focus-visible") && s.outlineStyle !== "none" && parseFloat(s.outlineWidth) >= 2;
-          });
-          expect({ selector, ring }).toEqual({ selector, ring: true });
-          await page.keyboard.press("Enter");
-          expect({ selector, visible: await block.isVisible() }).toEqual({ selector, visible: true });
-          await page.keyboard.press("Enter");
-        }
-      }
-      // Each player card and each account card shows only its default parts; nothing else is visible in it.
-      const cards = await page.evaluate(() => ({
-        player: [...document.querySelectorAll("#cast .player")].map((card) => [...card.children].filter((c) => c.getClientRects().length > 0).map((c) => c.className || c.tagName)),
-        acct: [...document.querySelectorAll("#ledger .acct")].map((card) => [...card.children].filter((c) => c.getClientRects().length > 0).map((c) => c.className || c.tagName)),
-      }));
-      expect({ width, players: cards.player.length, accts: cards.acct.length }).toEqual({ width, players: 3, accts: 3 });
-      for (const card of cards.player) expect({ width, card }).toEqual({ width, card: ["letter", "H3", "player-sub", "picks", "picks-legend num"] });
-      for (const card of cards.acct) expect({ width, card }).toEqual({ width, card: ["who", "fig", "fig", "fig", "bar"] });
-    } finally { await page.close(); }
-  }
-}, 30000);
-
-test("[integration] L32 four numbered acts in order, and every label that counts the acts says four", async () => {
+test("[integration] L32 the retired acts are gone, and the labels that name the play still say four acts until the title is renamed", async () => {
   const page = await pageAt(1440, 900);
   try {
-    expect(await page.locator("section.act .slate .roman").allInnerTexts()).toEqual(["I", "II", "III", "IV"]);
-    expect(await page.locator("section.act").count()).toBe(4);
+    expect(await page.locator("section.act").count()).toBe(0);
     expect(await page.locator("main .marquee").innerText()).toMatch(/in four acts/i);
     expect(await page.locator("#overture .marquee").textContent()).toMatch(/in four acts/i);
-    const text = await page.evaluate(() => `${document.body.textContent ?? ""} ${document.querySelector('meta[name="description"]')?.getAttribute("content") ?? ""}`);
-    expect(text).not.toMatch(/\b(?:one|two|three|five|six|[12356])[ -]acts?\b/i);
   } finally { await page.close(); }
 });
 
-test("[integration] L33 with every disclosure closed the essential context stays in view: units, sample provenance, missing cost, limitation and a loaded file's verdict, undecided and decisive", async () => {
+test("[integration] L33 with every disclosure closed the essential context stays in view: units, sample provenance and a loaded file's verdict, undecided and decisive", async () => {
   const page = await pageAt(390, 844);
   try {
     expect(await page.locator("#results .results-source").textContent()).toContain("Sample run");
@@ -1752,56 +1609,32 @@ test("[integration] L33 with every disclosure closed the essential context stays
     const values = await page.locator("#resultBars .rb-val").allInnerTexts();
     expect(values).toHaveLength(3);
     for (const v of values) expect(v).toMatch(/^\d+ of 100 kept$/);
-    expect(await page.locator("#ledger dt:visible", { hasText: "Cost per kept answer" }).count()).toBe(3);
-    const cpks = await page.locator("#ledger dd.cpk:visible").allInnerTexts();
-    expect(cpks).toHaveLength(3);
-    for (const cpk of cpks) expect(cpk).toMatch(/^\$\d/);
-    expect(await page.locator("#ledger dd:visible", { hasText: "88/100" }).count()).toBe(1);
-    expect(await page.locator("#ledger .bar").first().isVisible()).toBe(true);
-    expect(await page.locator("#caveat").isVisible()).toBe(true);
-    expect(await page.locator("#caveat").innerText()).toContain("not production");
   } finally { await page.close(); }
-  // A method that kept nothing: its cost per kept answer reads undefined, in view, never zero.
-  const missing = await pageAt(390, 844, "reduce", "", false, undefined, async (p) => {
-    await p.route("**/data.js", async (route) => {
-      const response = await route.fetch();
-      await route.fulfill({ response, body: `${await response.text()}\nwindow.JNJ.summary.B.kept = 0; window.JNJ.summary.B.cpk = null;\n` });
-    });
-  });
-  try {
-    const undef = missing.locator("#ledger .cpk.undef");
-    expect(await missing.locator("#ledger dd.cpk:visible").count()).toBe(3);
-    expect(await undef.count()).toBe(1);
-    expect(await undef.innerText()).toBe("undefined (0 kept)");
-    expect(await undef.isVisible()).toBe(true);
-    expect(await missing.locator("#resultBars .rb-val").nth(1).innerText()).toBe("0 of 100 kept");
-  } finally { await missing.close(); }
-  // A loaded file: its verdict (here not enough evidence) shows in Act IV, and every act says it replays the sample.
+  // A loaded file: its verdict (here not enough evidence) shows in the loaded result, outside any disclosure.
   const loaded = await pageAt(390, 844);
   try {
     await loaded.locator("#officeOpen").click();
     await loaded.locator("#csv").setInputFiles({ name: "uc13-records.csv", mimeType: "text/csv", buffer: Buffer.from(RECORDS) });
     await loaded.locator("#loadedResult").waitFor({ state: "visible" });
-    const current = loaded.locator("#currentVerdict");
+    const current = loaded.locator("#loadedResult");
     expect(await current.isVisible()).toBe(true);
-    expect(await current.evaluate((node) => node.closest("details") === null && node.closest("#act5") !== null)).toBe(true);
-    expect(await current.innerText()).toMatch(/not enough evidence/i);
-    for (const n of [2, 3, 4, 5]) expect(await loaded.locator(`#sampleFlag${n}`).isVisible()).toBe(true);
+    expect(await current.evaluate((node) => node.closest("details") === null)).toBe(true);
+    expect(await current.innerText()).toMatch(/VERDICT PER QUESTION[\s\S]*not enough evidence/i);
   } finally { await loaded.close(); }
   // A loaded file with a decisive verdict: the recorded 100-message shop-bot run (the sample's own source records), whose
-  // loader verdict is use Jev. Act IV names the file and its run beside the verdict, outside any disclosure.
+  // loader verdict is use Jev. The loaded result names the file and its run beside the verdict, outside any disclosure.
   const decisive = await pageAt(390, 844);
   try {
     await decisive.locator("#officeOpen").click();
     await decisive.locator("#csv").setInputFiles({ name: "shop-bot-100-records.csv", mimeType: "text/csv", buffer: Buffer.from(RECORDS_100) });
     await decisive.locator("#loadedResult").waitFor({ state: "visible" });
-    const current = decisive.locator("#currentVerdict");
+    const current = decisive.locator("#loadedResult");
     expect(await current.isVisible()).toBe(true);
-    expect(await current.evaluate((node) => node.closest("details") === null && node.closest("#act5") !== null)).toBe(true);
+    expect(await current.evaluate((node) => node.closest("details") === null)).toBe(true);
     const text = await current.innerText();
-    expect(text).toMatch(/your file shop-bot-100-records\.csv/i);
+    expect(text).toMatch(/shop-bot-100-records\.csv: VALID/i);
     expect(text).toContain("run-shopbot-2026-10-11");
-    expect(text).toMatch(/: use Jev \(/);
+    expect(text).toMatch(/\buse Jev: Jev is within 10 points/);
     expect(text).not.toMatch(/not enough evidence/i);
   } finally { await decisive.close(); }
 }, 30000);
@@ -2122,7 +1955,7 @@ test("[integration] TM6 the curtain still opens every way with the band above it
       const after = await skipped.evaluate(() => ({ state: document.documentElement.dataset.curtain, active: document.activeElement?.id, top: document.getElementById("results")?.getBoundingClientRect().top ?? NaN }));
       expect({ width, state: after.state, active: after.active, top: Math.abs(after.top) < 2 }).toEqual({ width, state: "open", active: "resultsTitle", top: true });
     } finally { await skipped.close(); }
-    const hashed = await pageAt(width, height, "no-preference", "#act3");
+    const hashed = await pageAt(width, height, "no-preference", "#tickets");
     try {
       await hashed.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
       expect(await shownCurtains(hashed)).toBe(0);
@@ -2401,7 +2234,7 @@ test("[integration] L41 scrolling back to the top closes the curtains again, on 
 
 const CUES = ["rise", "swish", "slide-l", "slide-r", "wipe"];
 
-test("[integration] L42 the light animations run under motion (stage-door swish, rising acts, sliding players, verdict wipe, marquee chase, drape sway) and stop under reduced motion", async () => {
+test("[integration] L42 the light animations run under motion (stage-door swish, marquee chase, drape sway) and stop under reduced motion", async () => {
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference", "", false, undefined, async (p) => { await p.addInitScript({ content: OPEN_ON_LOAD }); });
     try {
@@ -2413,8 +2246,12 @@ test("[integration] L42 the light animations run under motion (stage-door swish,
         await page.evaluate((sel) => { document.querySelector(sel)?.scrollIntoView({ block: "center", behavior: "instant" }); }, selector);
         await page.waitForFunction((sel) => document.querySelector(sel)?.classList.contains("in") === true, selector, { timeout: 4000 });
       };
-      // Nothing is lit before it is seen: the door, off screen at load, waits hidden, without .in.
-      expect(await page.evaluate(() => { const door = document.getElementById("door"); return door ? { lit: door.classList.contains("in"), opacity: getComputedStyle(door).opacity } : null; })).toEqual({ lit: false, opacity: "0" });
+      // Nothing is lit before it is seen: the door waits hidden until .in lights it (the page is short without the acts,
+      // so on some screens it is in view at load and lit at once; into() below checks it is lit once scrolled to).
+      expect(await page.evaluate(() => {
+        const door = document.getElementById("door");
+        return door ? door.classList.contains("in") || getComputedStyle(door).opacity === "0" : null;
+      })).toBe(true);
       expect(await page.evaluate((wanted) => {
         const found = new Set<string>();
         for (const sheet of document.styleSheets) {
@@ -2424,19 +2261,13 @@ test("[integration] L42 the light animations run under motion (stage-door swish,
         }
         return wanted.filter((name) => !found.has(name));
       }, CUES)).toEqual([]);
-      await into("#act2 > .stage");
-      expect(await names("#act2 > .stage")).toBe("rise");
-      await into("#cast");
-      expect(await page.locator("#cast .player").evaluateAll((nodes) => nodes.map((n) => getComputedStyle(n).animationName))).toEqual(["slide-l", "slide-l", "slide-r"]);
-      await into("#act5 > .stage");
-      expect(await names("#act5 .verdict-word")).toBe("wipe");
       await into("#door");
       expect(await names("#door")).toBe("swish");
       expect(await names(".marquee-band .marquee", "::before")).toBe("chase");
       expect(await names(".drape.l")).toBe(width >= 1300 ? "sway" : "none");
       await page.emulateMedia({ reducedMotion: "reduce" });
-      expect({ door: await names("#door"), stage: await names("#act2 > .stage"), chase: await names(".marquee-band .marquee", "::before"), sway: await names(".drape.l"), opacity: await page.evaluate(() => getComputedStyle(document.getElementById("door") ?? document.body).opacity) })
-        .toEqual({ door: "none", stage: "none", chase: "none", sway: "none", opacity: "1" });
+      expect({ door: await names("#door"), chase: await names(".marquee-band .marquee", "::before"), sway: await names(".drape.l"), opacity: await page.evaluate(() => getComputedStyle(document.getElementById("door") ?? document.body).opacity) })
+        .toEqual({ door: "none", chase: "none", sway: "none", opacity: "1" });
     } finally { await page.close(); }
   }
   for (const [width, height] of VIEWPORTS) {
@@ -2444,7 +2275,7 @@ test("[integration] L42 the light animations run under motion (stage-door swish,
     try {
       const shown = await page.evaluate(() => ({
         cues: document.documentElement.classList.contains("cues"),
-        hidden: [...document.querySelectorAll("#door, #act2 > .stage, #act5 .verdict-word, #cast .player")].filter((n) => getComputedStyle(n).opacity !== "1" || getComputedStyle(n).animationName !== "none").length,
+        hidden: [...document.querySelectorAll("#door")].filter((n) => getComputedStyle(n).opacity !== "1" || getComputedStyle(n).animationName !== "none").length,
       }));
       expect({ width, ...shown }).toEqual({ width, cues: false, hidden: 0 });
     } finally { await page.close(); }
@@ -2699,3 +2530,108 @@ test("[integration] MM8 a very short phone curtain shows no posters (390x500, 66
   } finally { await page.close(); }
   }
 }, 20000);
+
+// Story and seat triage (#260): the picture story replaces the four acts; the 100-message evidence stays on /replay/.
+test("[integration] TR1 the landing has no act sections and none of their content, in both motions and viewports", async () => {
+  for (const motion of MOTIONS) for (const [width, height] of VIEWPORTS) {
+    const page = await pageAt(width, height, motion);
+    try {
+      expect({ width, motion, acts: await page.locator("section.act").count() }).toEqual({ width, motion, acts: 0 });
+      for (const id of ["act2", "act3", "act4", "act5", "currentVerdict", "docket", "ledger", "cast", "spotlights"]) expect({ id, found: await page.locator(`#${id}`).count() }).toEqual({ id, found: 0 });
+      expect(await page.locator("body").evaluate((node) => node.textContent ?? "")).not.toMatch(/The three players|The trial of 100 messages|What a kept answer cost/);
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+test("[integration] TR2 one For developers link on the landing reaches the 100-message evidence page", async () => {
+  for (const [width, height] of VIEWPORTS) {
+    const page = await pageAt(width, height);
+    try {
+      const link = page.getByRole("link", { name: "For developers", exact: true });
+      expect({ width, links: await link.count() }).toEqual({ width, links: 1 });
+      expect(await link.isVisible()).toBe(true);
+      const url = new URL(await link.getAttribute("href") ?? "", page.url());
+      expect(url.pathname + url.search).toBe("/replay/?run=uc13-100");
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+test("[integration] TR3 the evidence page still shows the 100 cases, each method's accepted count and cost, and a case the Jev arm missed", async () => {
+  const page = await pageAt(1440, 900);
+  try {
+    await page.goto(`http://127.0.0.1:${server.port}/replay/?run=uc13-100`, { waitUntil: "load" });
+    expect(await page.locator("#counter").innerText()).toMatch(/Case 01\s+of 100/);
+    expect(await page.locator("#headline").innerText()).toMatch(/What you do now 86 of 100 .* A simple rule 49 of 100 .* Jev decides 88 of 100/);
+    const totals = await page.locator("#totals").innerText();
+    for (const figure of ["86 of 100", "49 of 100", "88 of 100", "$0.016255", "$0.003284"]) expect(totals).toContain(figure);
+    // Case 44 (m44) is the miss the retired Act II spotlighted: Jev answered where the label says hand off.
+    await page.locator("#strip button", { hasText: "41-50" }).click();
+    expect(await page.locator("#pageList").innerText()).toMatch(/^44\t.*\t✕$/m);
+  } finally { await page.close(); }
+}, 30000);
+
+test("[integration] TR4 the recorded verdict stays readable without the acts: the landing's About this sample, and a loaded file's own verdict", async () => {
+  const page = await pageAt(390, 844);
+  try {
+    await page.locator("#aboutSample > summary").click();
+    expect(await page.locator("#heroResult").innerText()).toContain("Verdict: Use Jev (rule 3).");
+    expect(await page.locator("#heroWhy").innerText()).toContain("Why: Jev kept 88 right answers and the LLM 86 on these 100 shop messages");
+    await page.locator("#officeOpen").click();
+    await page.locator("#csv").setInputFiles({ name: "shop-bot-100-records.csv", mimeType: "text/csv", buffer: Buffer.from(RECORDS_100) });
+    await page.locator("#loadedResult").waitFor({ state: "visible" });
+    const loaded = await page.locator("#loadedResult").innerText();
+    expect(loaded).toContain("run-shopbot-2026-10-11");
+    expect(loaded).toMatch(/VERDICT PER QUESTION[\s\S]*use Jev: Jev is within 10 points of the LLM \(lower bound -0\.04\)/i);
+    expect(await measurePage(page)).toEqual({ overflow: 0, outside: [], small: [] });
+  } finally { await page.close(); }
+  const undecided = await pageAt(390, 844);
+  try {
+    await undecided.locator("#officeOpen").click();
+    await undecided.locator("#csv").setInputFiles({ name: "uc13-records.csv", mimeType: "text/csv", buffer: Buffer.from(RECORDS) });
+    await undecided.locator("#loadedResult").waitFor({ state: "visible" });
+    expect(await undecided.locator("#loadedResult").innerText()).toMatch(/not enough evidence/i);
+  } finally { await undecided.close(); }
+}, 30000);
+
+test("[integration] TR5 one seat call-to-action label, Take your seat, on the curtain poster, the page card and the page's own link", async () => {
+  for (const motion of MOTIONS) {
+    const page = await pageAt(1440, 900, motion);
+    try {
+      const labels = await page.locator(".poster .p-cta").allTextContents();
+      expect({ motion, labels }).toEqual({ motion, labels: ["Take your seat", "Take your seat"] });
+      expect(await page.locator("#primaryAction").textContent()).toBe("Try it: take your seat");
+      expect(await page.locator("body").evaluate((node) => (node.textContent ?? "").toLowerCase())).not.toContain("pick a seat");
+      // Both posters name their label (WCAG label in name) and still differ from each other.
+      const names = await page.locator("a.poster").evaluateAll((nodes) => nodes.map((n) => n.getAttribute("aria-label") ?? ""));
+      expect(new Set(names).size).toBe(names.length);
+      for (const name of names) expect(name.toLowerCase()).toContain("take your seat");
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+test("[integration] TR6 the seat page's programme leads with a plain verdict line; the technical reasoning sits in a closed disclosure with every number unchanged", async () => {
+  for (const [width, height] of VIEWPORTS) {
+    const page = await pageAt(width, height);
+    try {
+      await page.goto(`http://127.0.0.1:${server.port}/little-shop/`, { waitUntil: "load" });
+      const run = page.locator(".recorded-run");
+      const visible = await run.evaluate((node) => [...node.querySelectorAll("p, h3")].filter((n) => n.checkVisibility()).map((n) => n.textContent?.trim() ?? ""));
+      expect({ width, visible }).toEqual({ width, visible: [
+        "Recorded run, 1 October 2026: 40 cases",
+        "Same accuracy as the LLM (38/40 each) at 1/79th of the cost",
+        "Verdict: not enough evidence",
+        "The recorded run cannot yet show that Jev is as good as the LLM.",
+      ] });
+      for (const line of visible) expect(line).not.toMatch(/lower bound|margin|paired/i);
+      const more = run.locator("details.recorded-more");
+      expect(await more.count()).toBe(1);
+      expect(await more.evaluate((node) => node instanceof HTMLDetailsElement && !node.open)).toBe(true);
+      expect(await more.locator("summary").innerText()).toBe("Why is it not proven yet?");
+      const why = (await more.locator(".recorded-why").textContent()) ?? "";
+      for (const kept of ["-0.11", "-0.10 margin", "40 paired cases", "about 6 more paired cases"]) expect(why).toContain(kept);
+      await more.locator("summary").click();
+      expect(await more.locator(".recorded-why").isVisible()).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    } finally { await page.close(); }
+  }
+}, 30000);

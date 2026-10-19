@@ -138,6 +138,8 @@ h1 { margin: 0; font-family: var(--serif); font-weight: 800; font-size: clamp(32
 .recorded-headline { font: 700 19px/1.2 var(--serif); }
 .recorded-verdict { font-weight: 700; }
 .recorded-why { color: var(--ink-soft); font-size: 13px; }
+.recorded-more summary { min-height: 32px; padding: 5px 0; color: var(--gold); cursor: pointer; font-size: 13px; font-weight: 700; }
+.recorded-more[open] summary { margin-bottom: 4px; }
 .arms { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 14px; }
 .arm-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 14px; }
 .arm-head b { font-family: var(--serif); font-size: 18px; }

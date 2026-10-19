@@ -156,7 +156,7 @@
 
 <h2 id="example">5. Worked example: the sample run</h2>
 <p>Open the <a href="../">sample run page</a> and scroll. Below the sample cards, the shop-bot sections show a recorded run, flagged <strong>Sample run</strong> in the corner: <span data-sample="cases">100</span> made-up messages to a ski shop's bot, and one decision, "can the bot answer this from its fact sheet, or must it hand off to staff?" The first forty were used in the earlier run; five AI persona writers wrote the next sixty before the answerers ran.</p>
-<p>The "Sample questions" cards begin with a plain status label: "Tested", "Small test (under <span data-const="MIN_PAIRED">30</span> cases)", or "Idea only, not tested". Each card visibly gives the verdict, why, what the cases show and the next step. Cards also show a rephrased question where one helps, and an earlier result where one exists. Open "More about ..." for methods, labels, story, date and evidence.</p>
+<p>The "Sample questions" are a row of posters. Each poster carries a ticket stamp: "Tested", "Small test" (a run under <span data-const="MIN_PAIRED">30</span> cases) or "Coming" (an idea not yet tested). A poster with a run shows Jev's count and a Watch now button; an idea shows no number. Open "Why this verdict" on any poster for the verdict, why, what the cases show and the next step, a rephrased question where one helps, an earlier result where one exists, and the methods, labels, story, date and evidence.</p>
 
 <h3>Captions that are not results</h3>
 <p>Some captions on the sample run page are decoration or navigation, not results:</p>
@@ -221,10 +221,11 @@
 <dl id="glossary">
   <dt>On the sample run page</dt><dd>The public page at <a href="../">/</a>.</dd>
   <dt>Sample run</dt><dd>The badge in the corner identifies the recorded shop-bot run below the sample cards. The cards also include questions that have not been tested.</dd>
-  <dt>Sample questions</dt><dd>The cards near the top, each summarizing a different decision.</dd>
-  <dt>Tested</dt><dd>A card with a recorded run and checked results.</dd>
-  <dt>Small test (under <span data-const="MIN_PAIRED">30</span> cases)</dt><dd>A card with a run too small for a verdict.</dd>
-  <dt>Idea only, not tested</dt><dd>A question without a run or verdict yet.</dd>
+  <dt>Sample questions</dt><dd>The row of posters near the top, each a different decision.</dd>
+  <dt>Tested</dt><dd>The stamp on a poster with a recorded run and checked results.</dd>
+  <dt>Small test</dt><dd>The stamp on a poster whose run has under <span data-const="MIN_PAIRED">30</span> paired cases, too few for a verdict.</dd>
+  <dt>Coming</dt><dd>The stamp on a smaller poster: an idea without a run or verdict yet.</dd>
+  <dt>Why this verdict</dt><dd>Opens a poster's explained verdict and its evidence.</dd>
   <dt>Why:</dt><dd>Why the card has its verdict, including the condition the current evidence meets or does not meet.</dd>
   <dt>What the cases show:</dt><dd>The current Jev, LLM and rule results, or plainly that no cases have been run.</dd>
   <dt>Next step:</dt><dd>The next set of cases to label, or another way to test the question.</dd>

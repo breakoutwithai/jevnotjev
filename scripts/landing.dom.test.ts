@@ -304,7 +304,7 @@ test("[integration] T-catalogue failed catalogue still takes a request", async (
     await page.locator("#officeOpen").click();
     expect(await page.locator("#tkForm .tk-submit").isEnabled()).toBe(true);
     expect(await page.locator("#tkPosters").innerText()).toContain("The show list did not load");
-    expect(await page.locator(".tk-stages").isVisible()).toBe(false);
+    expect(await page.locator(".tk-stages").count()).toBe(0);
     expect(errors).toEqual([]);
   } finally { await page.close(); }
 }, 15000);
@@ -371,7 +371,7 @@ test("[integration] T-contrast visible links, buttons and badges meet 4.5:1 in b
     await page.locator(".tk-more").evaluateAll((details) => details.forEach((node) => node.setAttribute("open", "")));
     for (const theme of ["light", "dark"]) {
       await page.evaluate((value) => document.documentElement.setAttribute("data-theme", value), theme);
-      const failures = await page.locator("a[href]:visible, button:visible, .tk-badge:visible").evaluateAll((links) => {
+      const failures = await page.locator("a[href]:visible, button:visible, .tk-stamp:visible").evaluateAll((links) => {
         const rgb = (s: string) => (s.match(/[\d.]+/g) ?? []).map(Number);
         const lum = (a: number[]) => a.slice(0, 3).map((v) => { const c = v / 255; return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i]!, 0);
         return links.flatMap((link) => {
@@ -410,12 +410,13 @@ test("[integration] L12-L14 page dimensions and tap targets", async () => {
   }
 }, 30000);
 
-test("[integration] L15 cards use plain stage labels first", async () => {
+test("[integration] L15 each poster leads with its plain stamp: Tested, Small test, or Coming for an idea", async () => {
   const page = await pageAt(1440, 900);
   try {
-    for (const [stage, label] of [["show", "Tested"], ["rehearsal", "Small test (under 30 cases)"], ["script-reading", "Idea only, not tested"]]) {
-      const badge = await page.locator(`.tk-${stage} .tk-badge`).first().innerText();
-      expect(badge.startsWith(label ?? "")).toBe(true);
+    for (const [stage, label] of [["show", "Tested"], ["rehearsal", "Small test"], ["script-reading", "Coming"]]) {
+      const stamp = page.locator(`.tk-${stage} > .tk-stamp`).first();
+      expect(await stamp.textContent()).toBe(label ?? "");
+      expect(await stamp.evaluate((node) => node.parentElement?.firstElementChild === node)).toBe(true);
     }
   } finally { await page.close(); }
 });
@@ -1670,7 +1671,7 @@ test("[integration] L34 at 390x844 no horizontal scroll closed, mid-way or open;
   } finally { await page.close(); }
 }, 15000);
 
-test("[integration] L35 each card shows only its badge, title, one figure and its action outside the closed disclosure", async () => {
+test("[integration] L35 each poster shows only its stamp, title, one figure and its action outside the closed disclosure", async () => {
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height);
     try {
@@ -1681,7 +1682,7 @@ test("[integration] L35 each card shows only its badge, title, one figure and it
       })));
       expect(cards.length).toBeGreaterThan(0);
       for (const card of cards) {
-        const expected = card.stage.includes("tk-script-reading") ? ["tk-badge", "H3", "tk-primary"] : ["tk-badge", "H3", "tk-figure", "tk-primary"];
+        const expected = card.stage.includes("tk-script-reading") ? ["tk-stamp", "H3", "tk-primary"] : ["tk-stamp", "H3", "tk-figure", "tk-primary"];
         expect({ width, stage: card.stage, outside: card.outside, closed: card.closed }).toEqual({ width, stage: card.stage, outside: expected, closed: true });
       }
     } finally { await page.close(); }

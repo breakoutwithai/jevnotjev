@@ -981,6 +981,66 @@ test("[integration] UX5 c02 under reduced motion there is no follow-spot and not
   }
 }, 30000);
 
+/** Whether each of the four tiles could be seen (CSS visibility and opacity, not occlusion). */
+async function tilesShown(page: Page): Promise<boolean[]> {
+  return page.locator("#types article.poster").evaluateAll((nodes) => nodes.map((n) => n.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })));
+}
+
+test("[integration] UX6 c03 while the curtain parts the four tiles wait hidden, so no panel crops them: hidden at reveal 0.2, 0.4, 0.6 and 0.8 by a real scroll and when --reveal is set directly; all four show once it is open", async () => {
+  for (const [width, height] of FIRST_SCREENS) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      expect({ width, closed: await tilesShown(page) }).toEqual({ width, closed: [false, false, false, false] });
+      for (const fraction of [0.2, 0.4, 0.6, 0.8]) {
+        await scrollToRunway(page, fraction);
+        expect({ width, fraction, state: (await curtain(page)).state, tiles: await tilesShown(page) }).toEqual({ width, fraction, state: "rising", tiles: [false, false, false, false] });
+      }
+      // The rule reads html[data-curtain], not the script's progress: set from outside, it still holds.
+      await page.evaluate(() => { document.documentElement.style.setProperty("--reveal", "0.5"); document.documentElement.dataset.curtain = "rising"; });
+      expect({ width, direct: await tilesShown(page) }).toEqual({ width, direct: [false, false, false, false] });
+      await scrollToRunway(page, 1.2);
+      await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+      expect({ width, open: await tilesShown(page) }).toEqual({ width, open: [true, true, true, true] });
+    } finally { await page.close(); }
+  }
+}, 40000);
+
+test("[integration] UX7 c04 a scene not yet lit stays readable (its lit parts at opacity 0.6 or more, each with a box, lighting after 0.15 s); the scene nearest the middle of the screen gets the lamp (a warm heading glow and a gold bar), and a passed scene settles at 0.85", async () => {
+  for (const [width, height] of [[1280, 800], [390, 844]] as [number, number][]) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      const unlit = await page.evaluate(() => [...document.querySelectorAll("#story .frame:not(.on) .lit")].map((n) => {
+        const r = n.getBoundingClientRect(), s = getComputedStyle(n);
+        return { opacity: Number(s.opacity), box: r.width > 0 && r.height > 0 && s.display !== "none", delay: s.transitionDelay };
+      }));
+      expect({ width, count: unlit.length > 0, low: unlit.filter((u) => u.opacity < 0.6).length, boxless: unlit.filter((u) => !u.box).length, delays: [...new Set(unlit.map((u) => u.delay))] })
+        .toEqual({ width, count: true, low: 0, boxless: 0, delays: ["0.15s"] });
+      await openOntoResults(page);
+      const lamp = async (i: number): Promise<{ lit: number[]; glow: boolean; bar: string; passed: number[] }> => {
+        await page.evaluate((n) => { document.querySelectorAll("#story .frame")[n]?.scrollIntoView({ block: "center", behavior: "instant" }); }, i);
+        await page.waitForTimeout(1300);
+        return page.evaluate((n) => {
+          const frames = [...document.querySelectorAll("#story .frame")];
+          const cap = frames[n]?.querySelector(".cap");
+          const words = frames[n]?.querySelector(".words");
+          return {
+            lit: frames.flatMap((f, k) => f.hasAttribute("data-lit") ? [k] : []),
+            glow: cap ? getComputedStyle(cap).textShadow !== "none" : false,
+            bar: words ? getComputedStyle(words, "::before").backgroundColor : "",
+            passed: frames.slice(0, n).flatMap((f) => [...f.querySelectorAll(".lit")].map((p) => Number(getComputedStyle(p).opacity))),
+          };
+        }, i);
+      };
+      const first = await lamp(0);
+      expect({ width, lit: first.lit, glow: first.glow, bar: first.bar }).toEqual({ width, lit: [0], glow: true, bar: "rgb(224, 176, 78)" });
+      const second = await lamp(1);
+      expect({ width, lit: second.lit, glow: second.glow }).toEqual({ width, lit: [1], glow: true });
+      const third = await lamp(2);
+      expect({ width, lit: third.lit, passed: [...new Set(third.passed)] }).toEqual({ width, lit: [2], passed: [0.85] });
+    } finally { await page.close(); }
+  }
+}, 40000);
+
 test("[integration] V4 the curtain poster opens Little Shop", async () => {
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
@@ -991,7 +1051,7 @@ test("[integration] V4 the curtain poster opens Little Shop", async () => {
   }
 }, 30000);
 
-test("[integration] V5 mid-reveal the four pictures show in the gap between the parting curtains: at reveal 0.4 and 0.7 the pointer in the gap reaches them, at 1280, 1440 and 390, in both themes", async () => {
+test("[integration] V5 mid-reveal the pictures' section shows in the gap between the parting curtains and its four tiles wait hidden (c03): at reveal 0.4 and 0.7 the pointer in the gap reaches the section, never a tile, at 1280, 1440 and 390, in both themes", async () => {
   const checks: [number, number, number, string][] = [[1280, 900, 0.4, "light"], [1440, 900, 0.4, "light"], [390, 844, 0.4, "light"], [1440, 900, 0.7, "light"], [390, 844, 0.7, "light"], [1440, 900, 0.7, "dark"]];
   for (const [width, height, fraction, theme] of checks) {
     const page = await pageAt(width, height, "no-preference");
@@ -1000,7 +1060,7 @@ test("[integration] V5 mid-reveal the four pictures show in the gap between the 
       await scrollToRunway(page, fraction);
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "rising");
       expect(Math.abs((await curtain(page)).reveal - fraction)).toBeLessThan(0.02);
-      expect({ width, fraction, theme, hit: await gapHit(page) }).toEqual({ width, fraction, theme, hit: "pictures" });
+      expect({ width, fraction, theme, hit: await gapHit(page), tiles: await tilesShown(page) }).toEqual({ width, fraction, theme, hit: "pictures", tiles: [false, false, false, false] });
     } finally { await page.close(); }
   }
 }, 30000);
@@ -1353,13 +1413,14 @@ test("[integration] V14 a resize mid-reveal keeps the curtain's scroll in step w
   } finally { await page.close(); }
 }, 20000);
 
-test("[integration] V15 once the playbill has faded the page in the gap takes the pointer: the four pictures are what the pointer reaches, and a click on a picture there opens the curtain", async () => {
+test("[integration] V15 once the playbill has faded the page in the gap takes the pointer: the pictures' section is what the pointer reaches (its tiles wait hidden, c03), and a click on it there opens the curtain", async () => {
   const page = await pageAt(1440, 900, "no-preference");
   try {
     await scrollToRunway(page, 0.5);
     await page.waitForFunction(() => document.documentElement.dataset.curtain === "rising" && document.getElementById("overture")?.classList.contains("faded") === true);
     expect(await gapHit(page)).toBe("pictures");
-    // A picture control showing in the gap: a click there focuses it, and focus on the page opens the curtain.
+    // Where a picture control sits in the gap (hidden while the curtain parts, c03): a click there lands on the section,
+    // which takes focus (tabindex -1), and focus on the page opens the curtain.
     const point = await page.evaluate(() => {
       const [cl, cr] = [...document.querySelectorAll(".overture .curtain")].map((node) => node.getBoundingClientRect());
       const left = cl ? cl.right : 0, right = cr ? cr.left : innerWidth;

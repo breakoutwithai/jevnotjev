@@ -132,11 +132,20 @@
 .motion .jx .frame.on .pop{opacity:1;transform:rotate(-8deg)}
 .motion .jx .frame.open .door-l,.motion .jx .frame.open .door-r{transform:none;transition:transform .8s ease .4s}
 .motion .jx .frame.open.on .door-l,.motion .jx .frame.open.on .door-r{transform:scaleX(.16)}
-.motion .jx .frame .lit{opacity:.25;transition:opacity .5s ease .5s}
-.motion .jx .frame.on .lit{opacity:1}
+/* c04: a scene not yet lit stays readable (0.6, not 0.25) and lights after 0.15 s; the scroll lamp (data-lit, pictures.js)
+   brings the scene nearest the middle of the screen to full light, and a scene already passed settles at 0.85. */
+.motion .jx .frame .lit{opacity:.6;transition:opacity .5s ease .15s}
+.motion .jx .frame.on:not([data-lit]) .lit{opacity:.85}
+.motion .jx .frame.on[data-lit] .lit{opacity:1}
+.jx .frame .cap{transition:text-shadow .4s ease}
 .motion .jx .frame .draw{stroke-dasharray:300;stroke-dashoffset:300;transition:stroke-dashoffset .9s ease .5s}
 .motion .jx .frame.on .draw{stroke-dashoffset:0}
 }
+/* The scroll lamp (c04): a warm glow on the lit scene's heading and a thin gold bar in the gutter to its left. Under reduced
+   motion it is a class toggle only (the glow's transition above is motion-gated). */
+.jx .words{position:relative}
+.jx .frame[data-lit] .cap{text-shadow:0 0 22px rgba(255,214,120,.45),0 0 2px rgba(255,214,120,.3)}
+.jx .frame[data-lit] .words::before{content:"";position:absolute;left:-14px;top:0;bottom:0;width:3px;background:var(--brass)}
 
 /* ---------- 4 PAYOFF: one week, two ways. Bar and stamp colours are fixed, as their backgrounds are fixed in both themes. ---------- */
 .jx #payoff:focus{outline:none}

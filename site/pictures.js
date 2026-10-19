@@ -199,6 +199,37 @@
   /* ---- story: reduced motion = static layout, final state ---- */
   var frames = $$('#story .frame');
   if (!frames.length) return;
+  // Each scene draws one of two pictures (svg.narrow under 900 px, svg.wide from 900 px; the other is display:none).
+  // Only the drawn picture's parts carry .lit, so the lit floor and its timing apply to what is on screen (c04).
+  var parts = $$('#story .lit'), wideQ = window.matchMedia ? window.matchMedia('(min-width:900px)') : null;
+  var syncParts = function () {
+    var wide = wideQ ? wideQ.matches : true;
+    parts.forEach(function (p) { p.classList.toggle('lit', !!p.closest('svg.wide') === wide); });
+  };
+  syncParts();
+  if (wideQ) {
+    if (wideQ.addEventListener) wideQ.addEventListener('change', syncParts);
+    else if (wideQ.addListener) wideQ.addListener(syncParts);
+  }
+  // The scroll lamps (c04): the scene nearest the middle of the screen (inside its middle 30%) is data-lit. Under reduced
+  // motion this is a class toggle only.
+  if ('IntersectionObserver' in window) {
+    var inBand = frames.map(function () { return false; });
+    var lamp = function () {
+      var mid = window.innerHeight / 2, best = -1, gap = Infinity;
+      frames.forEach(function (f, i) {
+        if (!inBand[i]) return;
+        var r = f.getBoundingClientRect(), d = Math.abs(r.top + r.height / 2 - mid);
+        if (d < gap) { gap = d; best = i; }
+      });
+      frames.forEach(function (f, i) { if (i === best) f.setAttribute('data-lit', ''); else f.removeAttribute('data-lit'); });
+    };
+    var lamps = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { inBand[frames.indexOf(e.target)] = e.isIntersecting; });
+      lamp();
+    }, { rootMargin: '-35% 0px -35% 0px' });
+    frames.forEach(function (f) { lamps.observe(f); });
+  }
   if (reduce || !('IntersectionObserver' in window)) {
     frames.forEach(function (f) { f.classList.add('on'); });
     return;

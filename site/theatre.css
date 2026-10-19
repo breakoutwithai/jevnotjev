@@ -31,6 +31,12 @@
    routes a wheel or swipe off the curtain and the scroll keys to it), so the page is still at its first screen when the
    curtain opens. */
 .motion.overture-play:not([data-curtain="open"]) { overflow: hidden; }
+/* c03 (ux-swarm 2026-10-19): the four tiles wait hidden until the curtain is open, so the parting panels never crop
+   them; the section and the marquee band still show in the gap. Read off html[data-curtain] (and, before theatre.js
+   reports, off overture-play alone), never off the script's progress. Live-gated like the curtain itself. */
+@media (prefers-reduced-motion: no-preference) {
+  .motion.overture-play:not([data-curtain="open"]) #types .poster { visibility: hidden; }
+}
 /* Once the playbill has faded, the page in the gap takes the pointer (the result bars, About this sample); only the
    two curtain panels still do. */
 .motion.overture-play .overture.faded, .overture.faded .overture-stage { pointer-events: none; }

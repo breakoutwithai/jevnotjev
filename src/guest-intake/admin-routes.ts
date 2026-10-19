@@ -78,7 +78,16 @@ export function parseReplyBody(value: unknown): ReplyBody | null {
   return { version, to, text, source };
 }
 
-const CHANGE_STATUS: Readonly<Record<string, number>> = { "not-found": 404, "stale-version": 409, "bad-transition": 409, "message-required": 400, "bad-message": 400 };
+/** HTTP status per store refusal, shared with the bearer API (admin-api.ts). */
+export const CHANGE_STATUS: Readonly<Record<string, number>> = { "not-found": 404, "stale-version": 409, "bad-transition": 409, "message-required": 400, "bad-message": 400 };
+
+/** One reply body applied through the store, as the CLI does: a message without a named source is human_reviewed. */
+export function applyReply(store: QuestionStore, id: string, body: ReplyBody, actor: string, now: number): ChangeResult {
+  const message = body.text === undefined ? undefined : { text: body.text, source: body.source ?? "human_reviewed" };
+  return body.to === "answered" && message !== undefined
+    ? store.answer(id, body.version, actor, now, message.text, message.source)
+    : store.transition(id, body.to, body.version, actor, now, message);
+}
 
 /** The CLI's list(), newest first. */
 function newestFirst(store: QuestionStore): QueueEntry[] {
@@ -151,11 +160,8 @@ export function createAdminRoutes(opts: AdminRoutesOptions): AdminRoutes {
     if (body === null) return reject("bad-body", 400, id);
     let result: ChangeResult;
     try {
-      // As in the CLI, a message without a named source is human_reviewed; the store orders the refusals.
-      const message = body.text === undefined ? undefined : { text: body.text, source: body.source ?? "human_reviewed" };
-      result = body.to === "answered" && message !== undefined
-        ? store.answer(id, body.version, ACTOR, opts.clock(), message.text, message.source)
-        : store.transition(id, body.to, body.version, ACTOR, opts.clock(), message);
+      // The store orders the refusals.
+      result = applyReply(store, id, body, ACTOR, opts.clock());
     } catch {
       return reject("store-error", 503, id);
     }

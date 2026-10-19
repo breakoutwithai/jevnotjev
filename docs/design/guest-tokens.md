@@ -46,6 +46,12 @@ class GuestTokenStore {
 - A `jnj_` token fails the guest pattern, even when its hash sits in `guest_tokens` (tested).
 - The module imports `bun:sqlite`, `node:crypto`, `node:fs` and `node:path` only, reads no environment, and makes no network call or spawn (tested).
 
+## Admin tokens (#282)
+
+- `AdminTokenStore` shares the lifecycle, file rules and API above through one internal class; only the kind differs: prefix `jna_`, table `admin_tokens`, ids `atk_` + 12 hex, fixed scope text `questions:admin`, TTL default 7 days, minimum 1 hour, maximum 30 days. Its principal is `{ tokenId, scopes }`.
+- The `guest_tokens` `CREATE TABLE` text is byte-identical to the first release (tested), so an existing `tickets.sqlite` opens unchanged.
+- Separation is tested both ways: `jna_` fails the guest and decide verifiers, and `jng_` and `jnj_` fail the admin verifier, each with the foreign token's hash planted in the other table.
+
 ## Fail closed
 
 - The path must be absolute. Its directory must be a real directory, mode 0700 or narrower, owned by the running user. The file, and any `-wal` or `-shm` beside it, must be a regular file, mode 0600 or narrower, owned by the running user, and not a symlink.

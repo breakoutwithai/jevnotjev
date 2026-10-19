@@ -308,17 +308,18 @@ describe("logs and public surfaces", () => {
     expect(logs.join("\n")).not.toContain(MARKER);
   });
 
-  test("[integration] GI-15b a signed-in tester session reaches no question queue route", async () => {
+  test("[integration] GI-15b a signed-in tester session without the admin flag reaches no question queue route", async () => {
     const { handler } = setup({ session: true });
     await handler(...post("/api/questions", body()));
     const now = Date.now();
     const session = signSession({ email: "tester@example.test", auth: "google", iat: now, exp: now + 3_600_000, sid: "sid-test-0001", cred: credentialFingerprint("google") }, SECRET);
     const sessionCookie = cookie(ORIGIN, "session", session, 3600).split(";")[0] ?? "";
-    const probes: [string, string][] = [["GET", "/api/backstage/questions"], ["POST", "/api/backstage/questions"], ["GET", "/backstage/questions/"], ["GET", "/api/questions/admin"], ["POST", "/api/questions/admin"], ["GET", "/api/questions/list"]];
-    for (const [method, path] of probes) {
+    // #278: the two admin routes now exist and refuse a non-admin with 403; the other two paths still do not exist.
+    const probes: [string, string, number][] = [["GET", "/api/backstage/questions", 403], ["POST", "/api/backstage/questions", 403], ["GET", "/backstage/questions/", 403], ["GET", "/api/questions/admin", 404], ["POST", "/api/questions/admin", 404], ["GET", "/api/questions/list", 404]];
+    for (const [method, path, status] of probes) {
       const res = await handler(new Request(`${ORIGIN}${path}`, { method, headers: { cookie: sessionCookie, origin: ORIGIN, "content-type": "application/json" }, ...(method === "POST" ? { body: "{}" } : {}) }), { remoteAddress: "203.0.113.31" });
       const text = await res.text();
-      expect([method, path, res.status === 200, text.includes(MARKER), text.includes(EMAIL)]).toEqual([method, path, false, false, false]);
+      expect([method, path, res.status, text.includes(MARKER), text.includes(EMAIL)]).toEqual([method, path, status, false, false]);
     }
   });
 

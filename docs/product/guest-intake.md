@@ -1,6 +1,6 @@
 # Guest questions
 
-Governing issue: #253. Status: public intake, review CLI, guest tokens, guest HTTP routes, token CLI and guest MCP adapter built on one integration branch (#256) and verified locally; not deployed, no guest token issued. Spec approved at sha256 `f8e446b7`; base `f825b71` (origin/main, 2026-10-18).
+Governing issue: #253. Status: public intake, review CLI, guest tokens, guest HTTP routes, token CLI and guest MCP adapter built on one integration branch (#256) and verified locally; not deployed, no guest token issued. A web admin page and API for operators whose `operators.json` row has `"admin": true` (#278) sits beside the CLI. Spec approved at sha256 `f8e446b7`; base `f825b71` (origin/main, 2026-10-18).
 
 A visitor brings one decision question, gets a receipt, and later reads a person-reviewed response. No account, no provider key, no Jev run. Selected guests do the same from Claude Code or Codex with a scoped token. TokenMax usage sharing is a separate optional journey owned by #242 / #243.
 
@@ -16,7 +16,7 @@ A visitor brings one decision question, gets a receipt, and later reads a person
 | Decide API tokens | `src/backstage/api-tokens.ts:15,21-26` | `jnj_` + 43 chars; id, label, sha256, created; no scope, expiry or revocation | Guest tokens must not live here: any valid entry can call `ask` and `run` (`api-v1.ts:198-209`). |
 | `/api/v1` routing | `src/backstage/server.ts:682-688`; `.deploy/backstage-nginx.conf:88-99` | nginx forwards all of `^~ /api/v1/` raw, no access log, 64k cap | Guest HTTP routes under `/api/v1/guest/` need no nginx change and leave no access-log line. |
 | Decide MCP | `src/mcp/server.ts:1-12,52` | Local stdio, six tools, reads provider keys from process env, can call providers | Not reused for guests. A separate adapter registers only question tools. |
-| Sessions | `src/backstage/auth.ts:57`; `docs/backstage-deploy.md:24` | `Operator` has email, displayName, password_hash; no role. `operators.json` holds testers | A signed-in session is not an admin. No web admin in the first PR. |
+| Sessions | `src/backstage/auth.ts:57`; `docs/backstage-deploy.md:24` | `Operator` has email, displayName, password_hash and, since #278, an optional `admin` set only by the boolean true. `operators.json` holds testers | A signed-in session is not an admin unless its row has `"admin": true`. |
 | Public nginx routes | `.deploy/backstage-nginx.conf:43-69` | Exact `location =` per public API route | `/api/questions` needs two new locations: a snippet change, so `.deploy/ship.sh --setup --module backstage` before deploy (`docs/process/pipeline.md:53`). |
 | Map receiver | `src/backstage/maps.ts:235-297` | Every stored map is on the public board | No private TokenMax storage exists; S4 builds one or defers private upload. |
 | Backstage build | `scripts/backstage-build.ts:8` | Bundles `src/backstage/server.ts` and its imports | New `src/guest-intake/` modules ship inside the Backstage release. |
@@ -32,19 +32,21 @@ Live, read-only on 2026-10-18: static `/DEPLOYED_SHA` serves `3418769`; `GET /ap
 
 **Selected guest.** The operator mints one token for a named person. The guest submits and reads their own questions over HTTP or through the guest MCP adapter. Same queue, guest identity set by the server. Guests cannot edit, withdraw or delete; there is no guest edit scope.
 
-**Operator.** A CLI on the host lists the queue, shows one item, moves state with a version check, records a written response, deletes one item, and purges by retention cutoff.
+**Operator.** A CLI on the host lists the queue, shows one item, moves state with a version check, records a written response, deletes one item, and purges by retention cutoff. An admin operator can also list, read, move state and answer from `/backstage/questions/` (#278); delete and purge stay CLI-only.
 
 ## Contract
 
 ### Admin model
 
-- The only admin surface in PRs 1 to 3 is the operator CLI `src/guest-intake/admin-cli.ts`, shipped inside the existing Backstage bundle.
+- Two admin surfaces share one store: the operator CLI `src/guest-intake/admin-cli.ts` (PRs 1 to 3) and, from #278, the web admin `src/guest-intake/admin-routes.ts` with its page `admin-page.ts`. Both ship inside the existing Backstage bundle and call the same `QuestionStore` methods (`list`, `show`, `transition`, `answer`), so they see one state and one version (AQ-9).
 - **Delivery path:** the release package admits only `server.js`, `release.json` and `site/` (`.deploy/backstage-package.ts:32-46`), so a separate script would be refused as "Unexpected release file." `server.ts` imports the CLI, and its `import.meta.main` block (`server.ts:805`) checks `process.argv` for `--question-admin` first. When present it runs the CLI and exits before `createHandler` or `Bun.serve`: no port, no trial ledger, no provider key read. The package allowlist and `scripts/backstage-build.ts:8` entrypoints are unchanged.
 - **Host use:** `sudo -u jevnotjev-backstage env STATE_DIRECTORY=/var/lib/jevnotjev-backstage /usr/local/bin/bun /var/www/jevnotjev-backstage-current/server.js --question-admin <command>`. The service user owns the state directory (`.deploy/backstage.service:9-12`, `StateDirectoryMode=0700`). The tickets path resolves as the server does (`server.ts:829`).
 - Commands: `list`, `show <id>`, `transition <id> <to> --version <n>`, `answer <id> --version <n> --source human_reviewed|template --file <path>`, `delete <id>`, `purge`. `token mint|list|revoke|rotate` use the same dispatch (#256).
 - The CLI refuses to start unless the state directory is mode 0700 and `tickets.sqlite` is mode 0600, both owned by the running user. It prints only the requested row.
 - **Bundled-mode tests (off-host):** GI-14c builds the release with `scripts/backstage-build.ts`, runs the built `server.js --question-admin` against temporary state, and asserts the command works and no port is bound. The existing `backstage-package.test.ts` still passes with the allowlist unchanged.
-- A Backstage session, password or Google, is not an admin. `operators.json` holds testers (`docs/backstage-deploy.md:24`). PR 1 adds no queue route under `/api/backstage/` or `/backstage/`; a test asserts none exists.
+- A Backstage session, password or Google, is not an admin by itself. `operators.json` holds testers (`docs/backstage-deploy.md:24`). Only a row with `"admin": true` (the JSON boolean; `"true"` or `1` do not count) opens the admin routes. The row is re-read per request, so adding or removing the flag needs no restart.
+- **Web admin (#278):** page `GET /backstage/questions/` (list, newest first) and `GET /backstage/questions/?id=<id>` (one question with its form); API `GET /api/backstage/questions` (id, state, version, scope, created and updated time; no email or text), `GET /api/backstage/questions/<id>` (adds email, text, consents and reply) and `POST /api/backstage/questions/<id>/reply` with `{version, to, text?, source?}`. A stale version is 409 `stale-version` and a forbidden move 409 `bad-transition`, the reasons the CLI prints.
+- **Web admin access:** the handlers check the session and the flag themselves, with or without nginx's gate header. No session: 401 `{"code":"unauthenticated"}` on every route (behind nginx an anonymous page request is redirected to sign-in first). A session without the flag: 403 `{"code":"forbidden"}`, no question data. POST requires a same-origin request. The page escapes every stored value and runs only its own inline script, pinned by hash in its CSP. Logs carry event, request id, question id and reason only. Delete, purge and guest tokens stay CLI-only.
 
 ### Contact and response rules
 

@@ -25,6 +25,7 @@ import { checkTicket, MAX_TICKET_BODY, TicketLimiter, TicketStore } from "./tick
 import { createQuestionRoutes, QUESTION_ROUTES } from "../guest-intake/routes.ts";
 import { createGuestRoutes, isGuestPath } from "../guest-intake/guest-routes.ts";
 import { questionAdminArgs, runQuestionAdmin } from "../guest-intake/admin-cli.ts";
+import { createAdminRoutes, isAdminPath, type AdminAccess } from "../guest-intake/admin-routes.ts";
 import type { QuestionLimits } from "../guest-intake/contract.ts";
 import { checkDelete, checkMap, createMapLogger, MapStore, MAX_MAP_BODY, MAX_MAP_DELETE_BODY } from "./maps.ts";
 import { rankPosters, type Poster } from "../shows/posters.ts";
@@ -237,6 +238,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   const mapLog = createMapLogger(clock, options.log);
   const questions = createQuestionRoutes({ path: options.tickets?.path, origin, clock, log: options.log, limits: options.questions?.limits, limiterCapacity: options.questions?.limiterCapacity });
   const guests = createGuestRoutes({ path: options.tickets?.path, clock, log: options.log, limits: options.questions?.limits, limiterCapacity: options.questions?.limiterCapacity });
+  const questionAdmin = createAdminRoutes({ path: options.tickets?.path, origin, clock, log: options.log, limits: options.questions?.limits });
   const tokensPath = options.api?.tokensPath;
   const api = createApiV1({
     tokens: new ApiTokenStore(tokensPath !== undefined && tokensPath !== "" && !isInside(tokensPath, root) ? tokensPath : null),
@@ -401,6 +403,16 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     if ((options.requireSession === true || request.headers.get("x-backstage-gate") === "session") && gatedPrefix && !sessionFrom(request, emitAuth)) {
       if (gatedPrefix === "/api/backstage/") return denied();
       return redirect(signInLocation(pathname, url.search), 302);
+    }
+    // Question admin (#278): the handlers check the session and the operators.json admin flag on every request,
+    // whether or not nginx sent the gate header.
+    if (isAdminPath(pathname)) {
+      const access = (): AdminAccess => {
+        const session = sessionFrom(request, emitAuth);
+        if (!session) return "anonymous";
+        return operators.get(session.email)?.admin === true ? "admin" : "forbidden";
+      };
+      return questionAdmin.handle(request, pathname, rid, access);
     }
     const trialHeld = trial.available && (fundingHeld || trial.ledger.held());
     if (pathname === "/api/backstage/health")
@@ -811,6 +823,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       ticketStore?.close();
       questions.close();
       guests.close();
+      questionAdmin.close();
       mapStore?.close();
     },
   });

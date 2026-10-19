@@ -2,7 +2,7 @@
  *
  * The head script in index.html decides before first paint: html.overture-play (motion on, first page of the tab
  * session) closes the curtain over the page, carrying the playbill: marquee, the Mad TokenMax poster with its ticket
- * (one link to tm/), the Little Shop poster and the scroll cue (#248: no Skip button). This script then drives it and
+ * (one link to tm/), the Little Shop poster, the product line and Raise the curtain (#248 removed Skip; c01 made the old scroll cue a button that opens it). This script then drives it and
  * records html[data-curtain] (closed, rising or open), the root's --reveal (0 to 1) and html[data-runway] (the scroll distance, in px, over which it parts):
  * - scrolling parts it in step. The curtain is its own scroller (theatre.css): a wheel or a swipe over it scrolls it
  *   through a runway of 0.7 of the screen height. Until it is open the page itself does not scroll (theatre.css locks
@@ -45,6 +45,8 @@
   var heading = results;
   var band = document.getElementById("tmFirst");
   var lights = document.getElementById("lights");
+  // Raise the curtain (the old scroll cue made a button): opens it onto the four pictures, as a scroll past the fade does.
+  var raise = document.getElementById("raise");
   var reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
   var progress = 0, done = false, distance = 1, ghost = null;
 
@@ -184,6 +186,7 @@
       if (!done && e.target instanceof Node && !onCurtain(e.target)) open();
     });
     window.addEventListener("hashchange", function () { if (window.location.hash) open(); });
+    if (raise) raise.addEventListener("click", function () { if (!done) toResults(); });
     ov.addEventListener("scroll", update, { passive: true });
     window.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", function () {

@@ -48,7 +48,38 @@
   box-shadow:inset 0 0 0 3px var(--paper),inset 0 0 0 5px var(--gold),0 12px 30px rgba(0,0,0,.45)}
 @media (min-width:1200px){.jx .poster{border-width:8px;padding:16px 14px 18px}
   .jx .poster:nth-child(odd){transform:rotate(-1deg)}.jx .poster:nth-child(even){transform:rotate(1.2deg);margin-top:22px}}
+@media (min-width:1200px){.jx .poster:nth-child(odd):hover,.jx .poster:nth-child(odd):focus-within,.jx .poster:nth-child(even):hover,.jx .poster:nth-child(even):focus-within,.jx .poster[data-lit]{transform:rotate(0)}}
 .jx .p-title{font:800 clamp(24px,5.6vw,34px)/.95 var(--serif);color:var(--wine);margin:0}
+/* c02 (ux-swarm 2026-10-19): each tile is a control. Its title is a button (it lights the tile and opens a one-line
+   example); hover, focus or a tap lights it (pictures.js sets data-lit): a gold ring, the tile straightened, the others
+   slightly desaturated, and the follow-spot (#types::before) moves onto it. The chip and the example are laid over the
+   tile, so nothing changes the page's height (#203). */
+.jx .poster{position:relative}
+.jx .p-name{display:inline-flex;align-items:center;min-height:24px;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.jx .p-name:focus-visible{outline:3px solid var(--wine);outline-offset:3px}
+.jx .poster:hover,.jx .poster:focus-within{border-color:var(--wine)}
+.jx .poster[data-lit]{box-shadow:inset 0 0 0 3px var(--paper),inset 0 0 0 5px var(--gold),0 0 0 3px var(--bulb),0 0 34px rgba(255,214,120,.45),0 12px 30px rgba(0,0,0,.45)}
+.jx .stage4[data-has-lit] .poster:not([data-lit]){filter:saturate(.8)}
+.jx .p-chip{position:absolute;top:0;right:12px;z-index:2;padding:3px 9px;transform:translateY(-60%) rotate(2deg);background:var(--bulb);color:var(--black);
+  font:800 11px/1.3 var(--sans);letter-spacing:.12em;text-transform:uppercase;box-shadow:0 0 0 2px var(--black),0 4px 10px rgba(0,0,0,.4)}
+.jx .p-ex{position:absolute;left:10px;right:10px;bottom:10px;z-index:2;margin:0;padding:8px 10px;background:var(--black);color:var(--bulb);
+  font:600 15px/1.3 var(--sans);box-shadow:0 0 0 2px var(--gold)}
+@media (prefers-reduced-motion:no-preference){
+  .jx .poster{transition:transform .35s ease,box-shadow .35s ease,filter .35s ease,border-color .35s ease}
+  .jx .poster:hover,.jx .poster:focus-within{transform:translateY(-4px)}
+}
+@media (prefers-reduced-motion:no-preference) and (min-width:1200px){
+  .jx .poster:nth-child(odd):hover,.jx .poster:nth-child(odd):focus-within,.jx .poster:nth-child(even):hover,.jx .poster:nth-child(even):focus-within{transform:translateY(-4px) rotate(0)}
+}
+/* The follow-spot: one gold radial light (screen blend, about 18% at its centre, 520 px) over the four tiles. pictures.js
+   switches it on (data-spot) once the curtain is at 0.6, on the marquee, then moves it with --spot-x, --spot-y (its centre,
+   in the viewport) over --spot-dur: 900 ms to Yes or no once the curtain is open, 350 ms between tiles.
+   Fixed (viewport coordinates; pictures.js re-aims it on scroll), so it never takes room or widens the page. */
+.jx .types::before{content:"";position:fixed;left:0;top:0;z-index:3;width:520px;height:520px;margin:-260px 0 0 -260px;border-radius:50%;pointer-events:none;
+  background:radial-gradient(closest-side,rgba(255,214,120,.18),rgba(255,214,120,.08) 55%,rgba(255,214,120,0));mix-blend-mode:screen;opacity:0;
+  transform:translate(var(--spot-x,50vw),var(--spot-y,0px));transition:transform var(--spot-dur,0ms) cubic-bezier(.3,.7,.2,1),opacity .4s ease}
+.jx .types[data-spot]::before{opacity:1}
+@media (prefers-reduced-motion:reduce){.jx .types::before{display:none}}
 .jx .p-cap{font:600 16px/1.3 var(--sans);margin:0}
 .jx .pic4{display:block;width:100%;height:auto;background:#f1e5c6;border:2px solid var(--black);touch-action:manipulation}
 .jx .pic4 text{font-family:var(--sans)}
@@ -101,11 +132,20 @@
 .motion .jx .frame.on .pop{opacity:1;transform:rotate(-8deg)}
 .motion .jx .frame.open .door-l,.motion .jx .frame.open .door-r{transform:none;transition:transform .8s ease .4s}
 .motion .jx .frame.open.on .door-l,.motion .jx .frame.open.on .door-r{transform:scaleX(.16)}
-.motion .jx .frame .lit{opacity:.25;transition:opacity .5s ease .5s}
-.motion .jx .frame.on .lit{opacity:1}
+/* c04: a scene not yet lit stays readable (0.6, not 0.25) and lights after 0.15 s; the scroll lamp (data-lit, pictures.js)
+   brings the scene nearest the middle of the screen to full light, and a scene already passed settles at 0.85. */
+.motion .jx .frame .lit{opacity:.6;transition:opacity .5s ease .15s}
+.motion .jx .frame.on:not([data-lit]) .lit{opacity:.85}
+.motion .jx .frame.on[data-lit] .lit{opacity:1}
+.jx .frame .cap{transition:text-shadow .4s ease}
 .motion .jx .frame .draw{stroke-dasharray:300;stroke-dashoffset:300;transition:stroke-dashoffset .9s ease .5s}
 .motion .jx .frame.on .draw{stroke-dashoffset:0}
 }
+/* The scroll lamp (c04): a warm glow on the lit scene's heading and a thin gold bar in the gutter to its left. Under reduced
+   motion it is a class toggle only (the glow's transition above is motion-gated). */
+.jx .words{position:relative}
+.jx .frame[data-lit] .cap{text-shadow:0 0 22px rgba(255,214,120,.45),0 0 2px rgba(255,214,120,.3)}
+.jx .frame[data-lit] .words::before{content:"";position:absolute;left:-14px;top:0;bottom:0;width:3px;background:var(--brass)}
 
 /* ---------- 4 PAYOFF: one week, two ways. Bar and stamp colours are fixed, as their backgrounds are fixed in both themes. ---------- */
 .jx #payoff:focus{outline:none}

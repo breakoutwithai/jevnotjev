@@ -723,7 +723,7 @@ test("[integration] L16b the curtain is decided before first paint: closed and c
   }
 }, 30000);
 
-test("[integration] V1 the closed curtain carries the composition: marquee, the Mad TokenMax poster with the ADMIT ONE ticket on it, the Little Shop poster, scroll cue and the sample chip, and no Skip (a short phone curtain sets the cue aside, never clips it)", async () => {
+test("[integration] V1 the closed curtain carries the composition: marquee, the Mad TokenMax poster with the ADMIT ONE ticket on it, the Little Shop poster, Raise the curtain and the sample chip, and no Skip (a short phone curtain sets Raise the curtain aside, never clips it)", async () => {
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
@@ -735,7 +735,7 @@ test("[integration] V1 the closed curtain carries the composition: marquee, the 
       expect(await page.locator("#overture a.poster .p-title").innerText()).toBe("Little Shop of Horrors");
       expect(await page.locator("#overture a.poster").getAttribute("href")).toMatch(/little-shop\/$/);
       expect(await page.locator("#overture a.poster .p-cta").innerText()).toMatch(/^take your seat$/i);
-      expect(await page.locator("#overture .cue-scroll").innerText()).toMatch(/^scroll to raise the curtain$/i);
+      expect(await page.locator("#overture .cue-scroll").innerText()).toMatch(/^raise the curtain$/i);
       expect({ width, skip: await page.locator("#skipOverture").count(), button: await page.getByRole("button", { name: /skip/i }).count() }).toEqual({ width, skip: 0, button: 0 });
       expect(await page.locator("#overture .ticket").evaluate((node) => node.closest("a")?.getAttribute("href") ?? "")).toBe("tm/");
       // The chip carries House lights only: no "Sample run" label (#260).
@@ -794,7 +794,8 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      expect({ width, skip: await page.locator("#skipOverture, #overture button").count() }).toEqual({ width, skip: 0 });
+      // c01 made the scroll cue a button, Raise the curtain (UX2); nothing on the curtain is a Skip.
+      expect({ width, skip: await page.locator("#skipOverture").count(), buttons: await page.locator("#overture button").evaluateAll((nodes) => nodes.map((n) => n.id)) }).toEqual({ width, skip: 0, buttons: ["raise"] });
       await openOntoResults(page);
       const after = await page.evaluate(() => {
         const ov = document.getElementById("overture"), head = document.getElementById("types");
@@ -817,15 +818,228 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
       for (let i = 0; i < 6 && (await curtain(keyed)).state !== "open"; i++) { await keyed.keyboard.press("PageDown"); await keyed.waitForTimeout(150); await frames(keyed); }
       expect({ width, key: "PageDown", state: (await curtain(keyed)).state, focus: await keyed.evaluate(() => document.activeElement?.id ?? "") }).toEqual({ width, key: "PageDown", state: "open", focus: "types" });
     } finally { await keyed.close(); }
-    // Tab only: the two posters and House lights keep it closed; the next Tab lands on the page and opens it.
+    // Tab only: the two posters, Raise the curtain and House lights keep it closed; the next Tab lands on the page and opens it.
     const tabs = await pageAt(width, height, "no-preference");
     try {
-      const stops = await tabStops(tabs, 4);
-      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", "lights:closed", "A.house-link:open"] });
+      const stops = await tabStops(tabs, 5);
+      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", "raise:closed", "lights:closed", "A.house-link:open"] });
       expect(await shownCurtains(tabs)).toBe(0);
     } finally { await tabs.close(); }
   }
 }, 30000);
+
+/** The ux-swarm c01 pass check: the first screen says what Jev is, in one plain sentence. */
+const PRODUCT_LINE = /^Jev\b.*\b(picks|rates|answers|gives)\b/i;
+const FIRST_SCREENS: [number, number][] = [[1280, 800], [1440, 900], [390, 844]];
+
+test("[integration] UX1 c01 the closed curtain says what Jev is: one plain product sentence under the marquee and above the posters, on screen and reachable at 1280x800, 1440x900 and 390x844", async () => {
+  for (const [width, height] of FIRST_SCREENS) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      expect((await curtain(page)).state).toBe("closed");
+      expect(await page.locator("#overture .pitch").count()).toBe(1);
+      expect({ width, text: PRODUCT_LINE.test(await page.locator("#overture .pitch").innerText()) }).toEqual({ width, text: true });
+      const at = await page.evaluate(() => {
+        const box = (s: string): DOMRect | null => document.querySelector(s)?.getBoundingClientRect() ?? null;
+        const marquee = box("#overture .marquee"), pitch = box("#overture .pitch"), bills = box("#overture .showbills");
+        if (!marquee || !pitch || !bills) return null;
+        return { under: marquee.bottom <= pitch.top, above: pitch.bottom <= bills.top, inView: pitch.top >= 0 && pitch.bottom <= innerHeight && pitch.left >= 0 && pitch.right <= innerWidth,
+          hidden: document.querySelector("#overture .pitch")?.closest("[aria-hidden=true]") !== null };
+      });
+      expect({ width, at }).toEqual({ width, at: { under: true, above: true, inView: true, hidden: false } });
+      expect(await hitsItself(page, "#overture .pitch")).toBe(true);
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+test("[integration] UX2 c01 Raise the curtain is a button on the closed curtain, 24px or more each way, in the Tab order after the two posters; a click or Enter opens it onto the four pictures with focus on them", async () => {
+  for (const [width, height] of CLOSED_VIEWPORTS) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      const raise = page.getByRole("button", { name: "Raise the curtain", exact: true });
+      expect(await raise.count()).toBe(1);
+      expect(await raise.evaluate((node) => node.closest("#overture") !== null && node.closest("[aria-hidden=true]") === null)).toBe(true);
+      const box = await raise.boundingBox();
+      expect({ width, w: (box?.width ?? 0) >= 24, h: (box?.height ?? 0) >= 24 }).toEqual({ width, w: true, h: true });
+      expect(await hitsItself(page, "#overture .cue-scroll")).toBe(true);
+      await raise.click();
+      await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+      const after = await page.evaluate(() => ({ focus: document.activeElement?.id ?? "", top: document.getElementById("types")?.getBoundingClientRect().top ?? NaN }));
+      expect({ width, focus: after.focus, inView: after.top >= -1 && after.top < height }).toEqual({ width, focus: "types", inView: true });
+    } finally { await page.close(); }
+    const keyed = await pageAt(width, height, "no-preference");
+    try {
+      const stops = await tabStops(keyed, 3);
+      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", "raise:closed"] });
+      await keyed.keyboard.press("Enter");
+      await keyed.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+      expect({ width, focus: await keyed.evaluate(() => document.activeElement?.id ?? "") }).toEqual({ width, focus: "types" });
+    } finally { await keyed.close(); }
+  }
+}, 30000);
+
+/** The four tiles' titles, in order (c02: each tile's title is a real button with that name). */
+const TILE_NAMES = ["Yes or no", "Pick one", "How hard", "Where"];
+
+/** Per tile: whether it is lit, its named controls, whether its one-line example shows, and the page height. */
+async function tileState(page: Page): Promise<{ lit: boolean[]; names: string[]; example: boolean[]; height: number }> {
+  return page.evaluate(() => {
+    const tiles = [...document.querySelectorAll("#types article.poster")];
+    return {
+      lit: tiles.map((t) => t.hasAttribute("data-lit")),
+      names: tiles.map((t) => [...t.querySelectorAll("button, a[href]")].map((b) => (b.textContent ?? "").trim()).join("|")),
+      example: tiles.map((t) => { const ex = t.querySelector(".p-ex"); return ex !== null && ex.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }); }),
+      height: document.documentElement.scrollHeight,
+    };
+  });
+}
+
+/** The follow-spot (#types::before): its computed look and whether it is switched on. */
+async function spot(page: Page): Promise<{ on: boolean; display: string; position: string; blend: string; width: string; image: string; duration: string }> {
+  return page.evaluate(() => {
+    const types = document.getElementById("types");
+    const s = getComputedStyle(types ?? document.body, "::before");
+    return { on: types?.hasAttribute("data-spot") ?? false, display: s.display, position: s.position, blend: s.mixBlendMode, width: s.width, image: s.backgroundImage.slice(0, 15), duration: s.transitionDuration };
+  });
+}
+
+test("[integration] UX3 c02 the four tiles are controls: each title is a button named for its tile; the gold follow-spot travels from the marquee to Yes or no once the curtain opens and holds there with a ring and a Start here chip; hover or focus moves it", async () => {
+  for (const [width, height] of [[1280, 900], [390, 844]] as [number, number][]) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      expect({ width, names: (await tileState(page)).names }).toEqual({ width, names: TILE_NAMES });
+      // Nothing is lit behind the closed curtain.
+      expect({ width, spot: (await spot(page)).on, lit: (await tileState(page)).lit }).toEqual({ width, spot: false, lit: [false, false, false, false] });
+      await openOntoResults(page);
+      await page.waitForFunction(() => document.querySelector("#types article.poster")?.hasAttribute("data-lit") === true, undefined, { timeout: 3000 });
+      await page.waitForTimeout(400);
+      // It travelled there over 900 ms and holds.
+      expect(await spot(page)).toEqual({ on: true, display: "block", position: "fixed", blend: "screen", width: "520px", image: "radial-gradient", duration: "0.9s, 0.4s" });
+      const start = await page.evaluate(() => {
+        const tile = document.querySelector("#types article.poster");
+        const chip = tile?.querySelector(".p-chip");
+        return { chip: chip?.textContent ?? "", shown: chip?.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) ?? false, ring: getComputedStyle(tile ?? document.body).boxShadow.includes("rgb(255, 230, 166)") };
+      });
+      expect({ width, start }).toEqual({ width, start: { chip: "Start here: Yes or no", shown: true, ring: true } });
+      const before = (await tileState(page)).height;
+      // Hover moves the light to the tile under the pointer in 350 ms and changes a computed style on every tile.
+      for (let i = 0; i < 4; i++) {
+        const tile = page.locator("#types article.poster").nth(i);
+        await tile.scrollIntoViewIfNeeded();
+        await page.mouse.move(1, 1);
+        await page.waitForTimeout(400);
+        const look = (): Promise<string> => tile.evaluate((n) => { const s = getComputedStyle(n); return [s.transform, s.boxShadow, s.borderTopColor, s.filter].join("|"); });
+        const was = await look();
+        const s0 = (await spot(page)).duration;
+        await tile.hover({ position: { x: 20, y: 20 } });
+        await page.waitForTimeout(500);
+        expect({ width, i, changed: (await look()) !== was, lit: (await tileState(page)).lit[i], dur: await spot(page).then((s) => s.duration) }).toEqual({ width, i, changed: true, lit: true, dur: i === 0 ? s0 : "0.35s, 0.4s" });
+      }
+      // Focus moves it too; the title button opens the tile's one-line example, which takes no room on the page.
+      await page.locator("#types article.poster").nth(1).locator("button.p-name").focus();
+      expect((await tileState(page)).lit).toEqual([false, true, false, false]);
+      await page.keyboard.press("Enter");
+      const opened = await tileState(page);
+      expect({ width, example: opened.example, expanded: await page.locator("#types article.poster").nth(1).locator("button.p-name").getAttribute("aria-expanded"), height: opened.height }).toEqual({ width, example: [false, true, false, false], expanded: "true", height: before });
+      expect(await page.locator("#types article.poster").nth(1).locator(".p-ex").innerText()).toMatch(/^Example: /);
+      // Lighting another tile closes the first one's example.
+      await page.locator("#types article.poster").nth(3).locator("button.p-name").focus();
+      expect((await tileState(page)).example).toEqual([false, false, false, false]);
+    } finally { await page.close(); }
+  }
+}, 40000);
+
+test("[integration] UX4 c02 on a touch screen a tap on a tile moves the light there and shows its one-line example; the picture's own tap still works", async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: "no-preference" });
+  const page = await context.newPage();
+  try {
+    await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
+    await page.goto(`http://127.0.0.1:${server.port}/#types`, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+    const caption = page.locator("#types article.poster").nth(2).locator(".p-cap");
+    await caption.scrollIntoViewIfNeeded();
+    await caption.tap();
+    const after = await tileState(page);
+    expect({ lit: after.lit, example: after.example }).toEqual({ lit: [false, false, true, false], example: [false, false, true, false] });
+    const pin = await page.evaluate(() => document.getElementById("pin")?.style.transform ?? "");
+    await page.locator('#rungs [data-i="2"]').tap();
+    expect(await page.evaluate(() => document.getElementById("pin")?.style.transform ?? "")).not.toBe(pin);
+  } finally { await context.close(); }
+}, 20000);
+
+test("[integration] UX5 c02 under reduced motion there is no follow-spot and nothing travels: Yes or no carries a static ring and the Start here chip from load, and the tiles have no transitions", async () => {
+  for (const [width, height] of [[1280, 900], [390, 844]] as [number, number][]) {
+    const page = await pageAt(width, height, "reduce");
+    try {
+      expect({ width, display: (await spot(page)).display }).toEqual({ width, display: "none" });
+      const look = await page.evaluate(() => [...document.querySelectorAll("#types article.poster")].map((t) => ({
+        lit: t.hasAttribute("data-lit"), chip: t.querySelector(".p-chip") !== null, moves: getComputedStyle(t).transitionDuration.split(",").some((d) => parseFloat(d) > 0),
+      })));
+      expect({ width, look }).toEqual({ width, look: [{ lit: true, chip: true, moves: false }, ...[1, 2, 3].map(() => ({ lit: false, chip: false, moves: false }))] });
+      expect(await page.locator("#types article.poster").first().evaluate((n) => getComputedStyle(n).boxShadow.includes("rgb(255, 230, 166)"))).toBe(true);
+    } finally { await page.close(); }
+  }
+}, 30000);
+
+/** Whether each of the four tiles could be seen (CSS visibility and opacity, not occlusion). */
+async function tilesShown(page: Page): Promise<boolean[]> {
+  return page.locator("#types article.poster").evaluateAll((nodes) => nodes.map((n) => n.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })));
+}
+
+test("[integration] UX6 c03 while the curtain parts the four tiles wait hidden, so no panel crops them: hidden at reveal 0.2, 0.4, 0.6 and 0.8 by a real scroll and when --reveal is set directly; all four show once it is open", async () => {
+  for (const [width, height] of FIRST_SCREENS) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      expect({ width, closed: await tilesShown(page) }).toEqual({ width, closed: [false, false, false, false] });
+      for (const fraction of [0.2, 0.4, 0.6, 0.8]) {
+        await scrollToRunway(page, fraction);
+        expect({ width, fraction, state: (await curtain(page)).state, tiles: await tilesShown(page) }).toEqual({ width, fraction, state: "rising", tiles: [false, false, false, false] });
+      }
+      // The rule reads html[data-curtain], not the script's progress: set from outside, it still holds.
+      await page.evaluate(() => { document.documentElement.style.setProperty("--reveal", "0.5"); document.documentElement.dataset.curtain = "rising"; });
+      expect({ width, direct: await tilesShown(page) }).toEqual({ width, direct: [false, false, false, false] });
+      await scrollToRunway(page, 1.2);
+      await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+      expect({ width, open: await tilesShown(page) }).toEqual({ width, open: [true, true, true, true] });
+    } finally { await page.close(); }
+  }
+}, 40000);
+
+test("[integration] UX7 c04 a scene not yet lit stays readable (its lit parts at opacity 0.6 or more, each with a box, lighting after 0.15 s); the scene nearest the middle of the screen gets the lamp (a warm heading glow and a gold bar), and a passed scene settles at 0.85", async () => {
+  for (const [width, height] of [[1280, 800], [390, 844]] as [number, number][]) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      const unlit = await page.evaluate(() => [...document.querySelectorAll("#story .frame:not(.on) .lit")].map((n) => {
+        const r = n.getBoundingClientRect(), s = getComputedStyle(n);
+        return { opacity: Number(s.opacity), box: r.width > 0 && r.height > 0 && s.display !== "none", delay: s.transitionDelay };
+      }));
+      expect({ width, count: unlit.length > 0, low: unlit.filter((u) => u.opacity < 0.6).length, boxless: unlit.filter((u) => !u.box).length, delays: [...new Set(unlit.map((u) => u.delay))] })
+        .toEqual({ width, count: true, low: 0, boxless: 0, delays: ["0.15s"] });
+      await openOntoResults(page);
+      const lamp = async (i: number): Promise<{ lit: number[]; glow: boolean; bar: string; passed: number[] }> => {
+        await page.evaluate((n) => { document.querySelectorAll("#story .frame")[n]?.scrollIntoView({ block: "center", behavior: "instant" }); }, i);
+        await page.waitForTimeout(1300);
+        return page.evaluate((n) => {
+          const frames = [...document.querySelectorAll("#story .frame")];
+          const cap = frames[n]?.querySelector(".cap");
+          const words = frames[n]?.querySelector(".words");
+          return {
+            lit: frames.flatMap((f, k) => f.hasAttribute("data-lit") ? [k] : []),
+            glow: cap ? getComputedStyle(cap).textShadow !== "none" : false,
+            bar: words ? getComputedStyle(words, "::before").backgroundColor : "",
+            passed: frames.slice(0, n).flatMap((f) => [...f.querySelectorAll(".lit")].map((p) => Number(getComputedStyle(p).opacity))),
+          };
+        }, i);
+      };
+      const first = await lamp(0);
+      expect({ width, lit: first.lit, glow: first.glow, bar: first.bar }).toEqual({ width, lit: [0], glow: true, bar: "rgb(224, 176, 78)" });
+      const second = await lamp(1);
+      expect({ width, lit: second.lit, glow: second.glow }).toEqual({ width, lit: [1], glow: true });
+      const third = await lamp(2);
+      expect({ width, lit: third.lit, passed: [...new Set(third.passed)] }).toEqual({ width, lit: [2], passed: [0.85] });
+    } finally { await page.close(); }
+  }
+}, 40000);
 
 test("[integration] V4 the curtain poster opens Little Shop", async () => {
   for (const [width, height] of CLOSED_VIEWPORTS) {
@@ -837,7 +1051,7 @@ test("[integration] V4 the curtain poster opens Little Shop", async () => {
   }
 }, 30000);
 
-test("[integration] V5 mid-reveal the four pictures show in the gap between the parting curtains: at reveal 0.4 and 0.7 the pointer in the gap reaches them, at 1280, 1440 and 390, in both themes", async () => {
+test("[integration] V5 mid-reveal the pictures' section shows in the gap between the parting curtains and its four tiles wait hidden (c03): at reveal 0.4 and 0.7 the pointer in the gap reaches the section, never a tile, at 1280, 1440 and 390, in both themes", async () => {
   const checks: [number, number, number, string][] = [[1280, 900, 0.4, "light"], [1440, 900, 0.4, "light"], [390, 844, 0.4, "light"], [1440, 900, 0.7, "light"], [390, 844, 0.7, "light"], [1440, 900, 0.7, "dark"]];
   for (const [width, height, fraction, theme] of checks) {
     const page = await pageAt(width, height, "no-preference");
@@ -846,7 +1060,7 @@ test("[integration] V5 mid-reveal the four pictures show in the gap between the 
       await scrollToRunway(page, fraction);
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "rising");
       expect(Math.abs((await curtain(page)).reveal - fraction)).toBeLessThan(0.02);
-      expect({ width, fraction, theme, hit: await gapHit(page) }).toEqual({ width, fraction, theme, hit: "pictures" });
+      expect({ width, fraction, theme, hit: await gapHit(page), tiles: await tilesShown(page) }).toEqual({ width, fraction, theme, hit: "pictures", tiles: [false, false, false, false] });
     } finally { await page.close(); }
   }
 }, 30000);
@@ -1199,13 +1413,14 @@ test("[integration] V14 a resize mid-reveal keeps the curtain's scroll in step w
   } finally { await page.close(); }
 }, 20000);
 
-test("[integration] V15 once the playbill has faded the page in the gap takes the pointer: the four pictures are what the pointer reaches, and a click on a picture there opens the curtain", async () => {
+test("[integration] V15 once the playbill has faded the page in the gap takes the pointer: the pictures' section is what the pointer reaches (its tiles wait hidden, c03), and a click on it there opens the curtain", async () => {
   const page = await pageAt(1440, 900, "no-preference");
   try {
     await scrollToRunway(page, 0.5);
     await page.waitForFunction(() => document.documentElement.dataset.curtain === "rising" && document.getElementById("overture")?.classList.contains("faded") === true);
     expect(await gapHit(page)).toBe("pictures");
-    // A picture control showing in the gap: a click there focuses it, and focus on the page opens the curtain.
+    // Where a picture control sits in the gap (hidden while the curtain parts, c03): a click there lands on the section,
+    // which takes focus (tabindex -1), and focus on the page opens the curtain.
     const point = await page.evaluate(() => {
       const [cl, cr] = [...document.querySelectorAll(".overture .curtain")].map((node) => node.getBoundingClientRect());
       const left = cl ? cl.right : 0, right = cr ? cr.left : innerWidth;
@@ -1307,7 +1522,7 @@ test("[integration] L24 the curtain follows the scroll both ways: partial progre
   } finally { await page.close(); }
 }, 15000);
 
-test("[integration] L26 the Mad TokenMax poster is the first tab stop on the curtain (after the first-screen band's three) with a visible focus ring; Tab goes Mad TokenMax, Little Shop, House lights with the curtain closed; focus anywhere else opens it", async () => {
+test("[integration] L26 the Mad TokenMax poster is the first tab stop on the curtain (after the first-screen band's three) with a visible focus ring; Tab goes Mad TokenMax, Little Shop, Raise the curtain (where shown), House lights with the curtain closed; focus anywhere else opens it", async () => {
   stripOn();
   const page = await pageAt(1280, 900, "no-preference");
   try {
@@ -1326,11 +1541,22 @@ test("[integration] L26 the Mad TokenMax poster is the first tab stop on the cur
       state: document.documentElement.dataset.curtain,
     }))).toEqual({ poster: true, state: "closed" });
     const where = () => page.evaluate(() => ({ id: document.activeElement?.id ?? "", state: document.documentElement.dataset.curtain }));
+    // Raise the curtain (c01) follows Little Shop where the curtain has room for it.
+    const raise = await page.evaluate(() => getComputedStyle(document.getElementById("raise") ?? document.body).display !== "none");
     await page.keyboard.press("Tab");
+    if (raise) {
+      expect(await where()).toEqual({ id: "raise", state: "closed" });
+      await page.keyboard.press("Tab");
+    }
     expect(await where()).toEqual({ id: "lights", state: "closed" });
     await page.keyboard.press("Shift+Tab");
+    if (raise) {
+      expect(await where()).toEqual({ id: "raise", state: "closed" });
+      await page.keyboard.press("Shift+Tab");
+    }
     expect(await page.evaluate(() => document.activeElement?.matches("#overture a.poster") ?? false)).toBe(true);
     await page.keyboard.press("Tab");
+    if (raise) await page.keyboard.press("Tab");
     expect(await where()).toEqual({ id: "lights", state: "closed" });
     await page.keyboard.press("Tab");
     expect(await page.evaluate(() => ({
@@ -1876,8 +2102,10 @@ test("[integration] TM5 with the curtain closed the band's controls keep it clos
     } finally { await page.close(); }
     const keys = await pageAt(width, height, "no-preference");
     try {
-      expect({ width, stops: await tabStops(keys, TM_BAND_STOPS.length + 3) })
-        .toEqual({ width, stops: [...TM_BAND_STOPS, "madmax poster", "curtain poster", "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
+      // Raise the curtain is a stop where the curtain has room for it (a short phone curtain sets it aside, V1).
+      const raise = await keys.evaluate(() => getComputedStyle(document.getElementById("raise") ?? document.body).display !== "none") ? ["raise"] : [];
+      expect({ width, stops: await tabStops(keys, TM_BAND_STOPS.length + 3 + raise.length) })
+        .toEqual({ width, stops: [...TM_BAND_STOPS, "madmax poster", "curtain poster", ...raise, "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
     } finally { await keys.close(); }
   }
 }, 30000);

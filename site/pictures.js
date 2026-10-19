@@ -58,6 +58,92 @@
     tks.forEach(function (t) { bind('c', t, function () { setChoice(+t.getAttribute('data-i')); }); });
     rungs.forEach(function (r) { bind('s', r, function () { setScore(+r.getAttribute('data-i')); }); });
     bind('b', $('#box-hit'), drawFrame);
+
+    /* ---- the tiles as controls and the follow-spot (ux-swarm c02) ----
+       Lighting a tile (data-lit) gives it the gold ring and moves the spot onto it. Hover and focus light it; the title
+       button, or a tap on a touch screen, also opens its one-line example (one at a time). The light stays on the last
+       tile touched. Under motion the spot comes on over the marquee once the curtain is at 0.6 and travels to Yes or no
+       (900 ms) once it is open; under reduced motion there is no spot and Yes or no is lit from the start. */
+    var stage = $('.stage4', types), tiles = $$('article.poster', types), marquee = $('main .marquee');
+    var aimed = null, settle = 0, tapped = false;
+    var aim = function (el, ms) {
+      if (!el) return;
+      aimed = el;
+      var r = el.getBoundingClientRect();
+      types.style.setProperty('--spot-dur', ms + 'ms');
+      types.style.setProperty('--spot-x', Math.round(r.left + r.width / 2) + 'px');
+      types.style.setProperty('--spot-y', Math.round(r.top + r.height / 2) + 'px');
+    };
+    // The spot is fixed, so a scroll re-aims it at once (once per frame) to stay on its tile.
+    var follow = false;
+    window.addEventListener('scroll', function () {
+      if (!aimed || follow) return;
+      follow = true;
+      requestAnimationFrame(function () { follow = false; aim(aimed, 0); });
+    }, { passive: true });
+    var example = function (tile, show) {
+      var ex = $('.p-ex', tile), name = $('.p-name', tile);
+      if (ex) ex.hidden = !show;
+      if (name) name.setAttribute('aria-expanded', show ? 'true' : 'false');
+    };
+    var light = function (tile, ms) {
+      clearTimeout(settle);
+      tiles.forEach(function (t) {
+        if (t === tile) t.setAttribute('data-lit', '');
+        else { t.removeAttribute('data-lit'); example(t, false); }
+      });
+      stage.setAttribute('data-has-lit', '');
+      aim(tile, ms);
+    };
+    tiles.forEach(function (tile) {
+      tile.addEventListener('pointerenter', function () { if (!tile.hasAttribute('data-lit')) light(tile, 350); });
+      tile.addEventListener('focusin', function () { if (!tile.hasAttribute('data-lit')) light(tile, 350); });
+      tile.addEventListener('pointerdown', function (e) { tapped = e.pointerType === 'touch'; });
+      tile.addEventListener('click', function (e) {
+        var name = $('.p-name', tile), ex = $('.p-ex', tile);
+        var onName = !!name && e.target instanceof Node && name.contains(e.target);
+        if (!onName && !tapped) return;
+        if (!tile.hasAttribute('data-lit')) light(tile, 350);
+        example(tile, onName ? !!ex && ex.hidden : true);
+      });
+    });
+    if (window.ResizeObserver) new ResizeObserver(function () { if (aimed) aim(aimed, 0); }).observe(stage);
+    if (reduce) light(tiles[0], 0);
+    else {
+      var spotOn = false, spotWatch = null;
+      var curtainOpen = function () {
+        var c = root.dataset.curtain;
+        return c === 'open' || (c === undefined && !root.classList.contains('overture-play'));
+      };
+      var spotStep = function () {
+        if (!spotOn && (curtainOpen() || parseFloat(root.style.getPropertyValue('--reveal')) >= 0.6)) {
+          spotOn = true;
+          aim(marquee || tiles[0], 0);
+          types.setAttribute('data-spot', '');
+        }
+        if (!spotOn || !curtainOpen()) return;
+        if (spotWatch) spotWatch.disconnect();
+        // Two frames, so the spot is drawn on the marquee before it travels.
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            if (stage.hasAttribute('data-has-lit')) return;
+            aim(tiles[0], 900);
+            settle = setTimeout(function () { if (!stage.hasAttribute('data-has-lit')) light(tiles[0], 900); }, 900);
+          });
+        });
+      };
+      if (window.MutationObserver) {
+        spotWatch = new MutationObserver(spotStep);
+        spotWatch.observe(root, { attributes: true, attributeFilter: ['data-curtain', 'style'] });
+      }
+      spotStep();
+      onCalm(function () {
+        if (spotWatch) spotWatch.disconnect();
+        clearTimeout(settle);
+        types.removeAttribute('data-spot');
+        if (!stage.hasAttribute('data-has-lit')) light(tiles[0], 0);
+      });
+    }
     if (!reduce) {
       var STEP = 1600, STEPS = 2, started = false, timer = 0, seen = null;
       onCalm(function () { started = true; clearInterval(timer); if (seen) seen.disconnect(); frame4.classList.remove('draw'); });
@@ -113,6 +199,37 @@
   /* ---- story: reduced motion = static layout, final state ---- */
   var frames = $$('#story .frame');
   if (!frames.length) return;
+  // Each scene draws one of two pictures (svg.narrow under 900 px, svg.wide from 900 px; the other is display:none).
+  // Only the drawn picture's parts carry .lit, so the lit floor and its timing apply to what is on screen (c04).
+  var parts = $$('#story .lit'), wideQ = window.matchMedia ? window.matchMedia('(min-width:900px)') : null;
+  var syncParts = function () {
+    var wide = wideQ ? wideQ.matches : true;
+    parts.forEach(function (p) { p.classList.toggle('lit', !!p.closest('svg.wide') === wide); });
+  };
+  syncParts();
+  if (wideQ) {
+    if (wideQ.addEventListener) wideQ.addEventListener('change', syncParts);
+    else if (wideQ.addListener) wideQ.addListener(syncParts);
+  }
+  // The scroll lamps (c04): the scene nearest the middle of the screen (inside its middle 30%) is data-lit. Under reduced
+  // motion this is a class toggle only.
+  if ('IntersectionObserver' in window) {
+    var inBand = frames.map(function () { return false; });
+    var lamp = function () {
+      var mid = window.innerHeight / 2, best = -1, gap = Infinity;
+      frames.forEach(function (f, i) {
+        if (!inBand[i]) return;
+        var r = f.getBoundingClientRect(), d = Math.abs(r.top + r.height / 2 - mid);
+        if (d < gap) { gap = d; best = i; }
+      });
+      frames.forEach(function (f, i) { if (i === best) f.setAttribute('data-lit', ''); else f.removeAttribute('data-lit'); });
+    };
+    var lamps = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { inBand[frames.indexOf(e.target)] = e.isIntersecting; });
+      lamp();
+    }, { rootMargin: '-35% 0px -35% 0px' });
+    frames.forEach(function (f) { lamps.observe(f); });
+  }
   if (reduce || !('IntersectionObserver' in window)) {
     frames.forEach(function (f) { f.classList.add('on'); });
     return;

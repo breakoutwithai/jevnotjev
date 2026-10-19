@@ -86,7 +86,8 @@ test("[integration] R2 the curtain opens onto the four pictures: they are the fi
       });
       expect({ width, order: order.slice(0, 3) }).toEqual({ width, order: ["types", "story", "week"] });
       expect(await page.locator("#types article.poster").count()).toBe(4);
-      expect(await page.locator("#types .poster .p-title").allInnerTexts()).toEqual(["Yes or no", "Pick one", "How hard", "Where"]);
+      // textContent, not innerText: behind the closed curtain the tiles wait hidden (c03), and innerText of a hidden box is "".
+      expect((await page.locator("#types .poster .p-title").allTextContents()).map((t) => t.trim())).toEqual(["Yes or no", "Pick one", "How hard", "Where"]);
       expect((await page.locator("#story .kick").innerText()).toLowerCase()).toBe("one question...");
       expect(await page.locator("#week h2").innerText()).toBe("Where does your week go?");
       expect(await page.locator("#results, #resultBars, #resultsTitle").count()).toBe(0);

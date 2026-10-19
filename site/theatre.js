@@ -6,26 +6,26 @@
  * records html[data-curtain] (closed, rising or open), the root's --reveal (0 to 1) and html[data-runway] (the scroll distance, in px, over which it parts):
  * - scrolling parts it in step. The curtain is its own scroller (theatre.css): a wheel or a swipe over it scrolls it
  *   through a runway of 0.7 of the screen height. Until it is open the page itself does not scroll (theatre.css locks
- *   it), so the results heading and the result bars hold still and grow in the gap. Every other way of scrolling drives
- *   the same runway: a wheel or a swipe over the sample chip or the page in the gap, and the scroll keys (PageDown,
+ *   it), so the four pictures under it hold still in the gap. Every other way of scrolling drives
+ *   the same runway: a wheel or a swipe over the House lights chip or the page in the gap, and the scroll keys (PageDown,
  *   Space, ArrowDown, End) with focus on the page; with focus on a curtain link they scroll the curtain natively. A position the page already had when this script ran (a restored
  *   scroll) counts too. Scrolling back down the runway lowers the progress again, and once the page is open and has
  *   been scrolled away from its top, coming back to the top closes the curtain again (it swings shut), on the first
  *   page of a session and on a later one alike, so the curtain follows the scroll both ways;
- * - when the playbill fades with focus still on it, the curtain opens at once, scrolls to the result bars and moves
- *   focus to their heading, so focus is never dropped;
+ * - when the playbill fades with focus still on it, the curtain opens at once, scrolls to the four pictures (#types) and moves
+ *   focus to them, so focus is never dropped;
  * - the two posters are links (Mad TokenMax, Little Shop); focus on them or on House lights leaves the curtain closed
  *   (Tab goes Mad TokenMax, Little Shop, House lights, and the next Tab opens it), while focus anywhere else, focus already elsewhere when this script runs, a #hash on
  *   load or a hash change opens it at once, so nothing is focused or linked to behind it;
  * - once open the overture is display:none, and the page is where it was;
- * - the sample chip is lifted onto the curtain while it is closed and returns to the house bar once it starts to part;
+ * - the House lights chip is lifted onto the curtain while it is closed and returns to the house bar once it starts to part;
  *   a hidden copy holds its place in the house bar meanwhile, so its return moves nothing;
  * - turning reduced motion on drops it (theatre.css hides it at once; this records the page as open);
  * - the first-screen band (#tmFirst: the promise, Copy, the script link, Watch it run) sits above the curtain, which
  *   starts at its bottom (the root's --tm-first-h, kept in step with the band's height); focus on its controls keeps the
  *   curtain closed, so Tab goes Copy, the script link, Watch it run, the two posters, House lights.
  * With no curtain at load (reduced motion, a later page, missing markup, or the head script's watchdog already opened the
- * page) the page is open and --reveal is 1, so the result bars are full. If this script never runs or stalls, the head
+ * page) the page is open and --reveal is 1. If this script never runs or stalls, the head
  * script opens the page.
  * The light scroll cues (theatre.css, html.cues): one IntersectionObserver marks the acts (their stage holds the verdict
  * word), the cast, the samples and the stage door .in as they scroll into view and the CSS animates them (transform and opacity only). Without motion, or
@@ -40,8 +40,9 @@
   var first = ov ? ov.querySelector("a[href]") : null;
   var badge = document.getElementById("sampleBadge");
   var brand = document.querySelector(".house .brand");
-  var results = document.getElementById("results");
-  var heading = document.getElementById("resultsTitle");
+  // The curtain opens onto the four kinds of question (#types, focusable with tabindex=-1).
+  var results = document.getElementById("types");
+  var heading = results;
   var band = document.getElementById("tmFirst");
   var lights = document.getElementById("lights");
   var reduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
@@ -61,7 +62,7 @@
     if (ov) ov.classList.add("gone");
     if (brand) brand.removeAttribute("tabindex");
   }
-  // The first-screen band (#tmFirst) sits above the curtain: the curtain, the lifted sample chip and the valance start
+  // The first-screen band (#tmFirst) sits above the curtain: the curtain, the lifted House lights chip and the valance start
   // at its bottom (theatre.css reads --tm-first-h; 0 when there is no band).
   function bandHeight() {
     root.style.setProperty("--tm-first-h", (band ? band.offsetHeight : 0) + "px");
@@ -72,7 +73,7 @@
     root.dataset.runway = String(distance);
     root.style.setProperty("--runway", distance + "px");
   }
-  // Open, bring the result bars to the top and put focus on their heading.
+  // Open, bring the four pictures to the top and put focus on them.
   function toResults() {
     open();
     var top = results ? results.getBoundingClientRect().top + window.scrollY : window.innerHeight;
@@ -91,7 +92,7 @@
     return !!at && at !== document.body && at !== root && !onCurtain(at) && at.matches(":focus-visible");
   }
 
-  // The hidden copy of the sample chip that holds its place in the house bar while the chip is on the curtain.
+  // The hidden copy of the House lights chip that holds its place in the house bar while the chip is on the curtain.
   function liftChip() {
     if (ghost || !badge) return;
     ghost = badge.cloneNode(true);
@@ -148,7 +149,7 @@
     if (next === progress) return;
     if (root.dataset.closing) { window.clearTimeout(closing); delete root.dataset.closing; }
     // Past the fade (or open in one go) the playbill is hidden; focus on a poster would fall to the page, so open onto
-    // the results and focus their heading. Without focus on the curtain the page stays where it is.
+    // the four pictures and focus them. Without focus on the curtain the page stays where it is.
     if (next >= FADED && ov.contains(document.activeElement)) { toResults(); return; }
     if (next >= 1) { open(); return; }
     setCurtain(next);
@@ -191,7 +192,7 @@
       ov.scrollTop = progress * distance;
       update();
     });
-    // The page is locked while the curtain is closed, so a wheel or a swipe that starts off the curtain (the sample chip,
+    // The page is locked while the curtain is closed, so a wheel or a swipe that starts off the curtain (the House lights chip,
     // or the page in the gap) moves the curtain's runway instead. Passive: nothing is cancelled.
     document.addEventListener("wheel", function (e) {
       if (done || (e.target instanceof Node && ov.contains(e.target))) return;
@@ -269,5 +270,4 @@
     sync();
   });
   sync();
-  if (window.JNJ && window.JNJ.meta) document.getElementById("sampleBadge").title = window.JNJ.meta.note;
 })();

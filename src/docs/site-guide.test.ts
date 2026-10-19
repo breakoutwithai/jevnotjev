@@ -132,14 +132,13 @@ function fields(source: string, name: string, terms: readonly string[]): Field[]
 /** Labels and headers the sample run shows, from site/index.html's markup. The four acts are retired: their table headers, ledger and timing labels are no longer on the page. */
 async function sampleRunFields(html: string): Promise<Field[]> {
   const src = STAGE;
-  const page = await grab(html, ["div.sample > span", "#t6", "section.samples h2", "#primaryAction", "#officeOpen"]);
+  const page = await grab(html, ["#t6", "section.samples h2", "#officeOpen"]);
   const stamps = [...read(OFFICE).matchAll(/\bname: "([^"]+)"/g)].map((match) => match[1] ?? "");
   const list = (map: Map<string, Grabbed[]>, selector: string): string[] => (map.get(selector) ?? []).map((x) => x.text);
   return [
-    ...fields(src, "sample badge", list(page, "div.sample > span")),
     ...fields(src, "sample cards", list(page, "section.samples h2")),
     ...fields(OFFICE, "poster stamps", stamps),
-    ...fields(src, "landing actions", [...list(page, "#primaryAction"), ...list(page, "#officeOpen")]),
+    ...fields(src, "landing actions", list(page, "#officeOpen")),
     ...fields(src, "own file", list(page, "#t6")),
     ...fields(OFFICE, "card and ticket controls", ["Why this verdict", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "Get another ticket"]),
   ];
@@ -442,7 +441,7 @@ describe("in-product first-use guide (D18)", () => {
   test("[unit] D18-SITE-GUIDE-EXTRACT the extractors read the real pages, so the glossary check is not vacuous", async () => {
     const sample = (await sampleRunFields(read(STAGE))).map((field) => field.term);
     const backstage = (await backstageFields(read(BACKSTAGE))).map((field) => field.term);
-    for (const term of ["Sample run", "Sample questions", "Tested", "Small test", "Coming", "Why this verdict", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "Try it: take your seat", "Get another ticket", "Open the ticket office", "Load your own script (CSV)"]) {
+    for (const term of ["Sample questions", "Tested", "Small test", "Coming", "Why this verdict", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "Get another ticket", "Open the ticket office", "Load your own script (CSV)"]) {
       expect(sample).toContain(term);
     }
     for (const term of ["Judging rule (required)", "Leave out...", "Choose optional comparisons", "Results and downloads", "First choice", "Download run evidence", "Kept / labelled", "Returned confidence", "case_input", "label_source", "Jev-only wins", "Anthropic API key", "xAI API key"]) {
@@ -689,7 +688,7 @@ describe("in-product first-use guide (D18)", () => {
     expect(names).toEqual(["Tested", "Small test", "Coming"]);
     const stage = read(STAGE);
     const cardLabels = (await sampleRunFields(stage)).map((field) => field.term);
-    const fixed = ["Sample questions", "Why this verdict", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "Try it: take your seat", "Get another ticket", "Open the ticket office"];
+    const fixed = ["Sample questions", "Why this verdict", "Why:", "What the cases show:", "Next step:", "Rephrased for Jev:", "Earlier run:", "Get another ticket", "Open the ticket office"];
     for (const term of [...names, ...fixed]) expect(cardLabels).toContain(term);
     expect(stage).toContain('<h2>Sample questions</h2>');
     for (const label of ["Why: ", "What the cases show: ", "Next step: ", "Rephrased for Jev: ", "Earlier run: "]) expect(office).toContain(`"${label}"`);

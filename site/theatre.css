@@ -1,6 +1,6 @@
-/* Theatre frame over the result-first page: the opening curtain with its playbill (marquee, the Mad TokenMax poster
-   with its ticket, the Little Shop poster, scroll cue), the valance and drapes, and in the page the marquee band, the house-bar
-   ticket and the Little Shop poster. Motion only under html.motion (set before first paint when reduced motion is off). */
+/* Theatre frame over the landing page: the opening curtain with its playbill (marquee, the Mad TokenMax poster
+   with its ticket, the Little Shop poster, scroll cue), the valance and drapes, and in the page the marquee band and the house-bar
+   ticket. Motion only under html.motion (set before first paint when reduced motion is off). */
 
 /* ---------- Opening curtain ----------
    html.overture-play is set before first paint, with html.motion, only on the first page of a tab session. Then the
@@ -306,34 +306,24 @@
 .marquee .billing { display: block; max-width: none; margin: 3px 0 0; font: 800 clamp(22px, 2.2vw, 28px)/1.05 var(--serif); letter-spacing: -.01em; }
 .marquee .billing em { font-weight: 500; color: #e0b04e; }
 
-/* ---------- Little Shop of Horrors preview poster: shared look; in the page left of the result bars (below them on a phone) ---------- */
-.poster {
+/* ---------- Little Shop of Horrors preview poster on the curtain: shared look (a.poster, so the picture story's article.poster
+   posters in pictures.css are never touched) ---------- */
+a.poster {
   display: flex; flex-direction: column; gap: 6px; width: min(440px, 100%); margin: 22px 0 6px;
   text-decoration: none; color: #1a0508; background: #e9d9b4; font-family: var(--sans);
   border: 8px solid #1a0508; padding: 14px 18px; transform: rotate(1deg);
   box-shadow: inset 0 0 0 4px #e9d9b4, inset 0 0 0 6px #b8892a, 0 12px 30px rgba(0, 0, 0, .35);
 }
-.results .poster:focus-visible { outline: 3px solid var(--brass); outline-offset: 4px; }
-.poster .p-kicker { font-size: 11px; font-weight: 700; letter-spacing: .32em; text-transform: uppercase; color: #8a2233; }
-.poster .p-who { font: italic 20px/1 var(--serif); }
-.poster .p-title { font: 800 26px/.95 var(--serif); color: #5a0f1c; }
-.poster .p-rule { height: 2px; background: #1a0508; margin: 2px 0; }
-.poster .p-seats { font-size: 14px; line-height: 1.4; font-weight: 600; }
-.poster .p-cta {
+a.poster .p-kicker { font-size: 11px; font-weight: 700; letter-spacing: .32em; text-transform: uppercase; color: #8a2233; }
+a.poster .p-who { font: italic 20px/1 var(--serif); }
+a.poster .p-title { font: 800 26px/.95 var(--serif); color: #5a0f1c; }
+a.poster .p-rule { height: 2px; background: #1a0508; margin: 2px 0; }
+a.poster .p-seats { font-size: 14px; line-height: 1.4; font-weight: 600; }
+a.poster .p-cta {
   align-self: flex-start; margin-top: 4px; font-size: 12px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase;
   color: #f6e7c8; background: #1a0508; padding: 9px 14px;
 }
-.poster:hover .p-cta { background: #5a0f1c; }
-/* Wide screens: the poster takes the left column and the result bars the right, so the bars sit under the curtain's
-   seam and their coloured fill shows in the gap from early in the reveal (#231). DOM order is unchanged. */
-@media (min-width: 900px) {
-  .results { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 0 44px; align-items: start; }
-  .results > .results-main { grid-column: 2; grid-row: 1; }
-  .results > .poster { grid-column: 1; grid-row: 1; }
-  .results > .poster { width: 300px; margin: 4px 0 0; padding: 18px 20px; gap: 7px; transform: rotate(2deg); }
-  .results .poster .p-who { font-size: 22px; }
-  .results .poster .p-title { font-size: 32px; }
-}
+a.poster:hover .p-cta { background: #5a0f1c; }
 @media (max-width: 720px) {
   .valance {
     height: 16px; background-size: 120px 16px, auto;
@@ -344,9 +334,6 @@
   .marquee { padding: 8px 16px 7px; }
   .marquee .kicker { font-size: 10px; letter-spacing: .24em; }
   .marquee .billing { font-size: 20px; }
-  .results .poster { gap: 4px; padding: 10px 14px; margin-top: 18px; }
-  .results .poster .p-who, .results .poster .p-rule { display: none; }
-  .results .poster .p-title { font-size: 22px; }
   /* Phone spacing, so the framed page stays under issue #203's 8,000 px at 390: tighter section padding, card gaps and
      paragraph margins, and section titles on one line. No copy is removed. */
   .samples, .office, .door-area { padding: 18px 0; }
@@ -376,7 +363,6 @@
   /* Scrolled back to the top: the curtains swing shut (theatre.js sets html[data-closing] for the swing). */
   [data-closing] .curtain { transition: transform .8s cubic-bezier(.2, .7, .2, 1); }
   [data-closing] .playbill { transition: opacity .5s ease .3s, transform .8s cubic-bezier(.2, .7, .2, 1); }
-  [data-closing] .rbars .bar i { transition: width .8s cubic-bezier(.2, .7, .2, 1); }
 }
 @keyframes rise { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
 @keyframes slide-l { from { opacity: 0; transform: translateX(-60px); } to { opacity: 1; transform: none; } }

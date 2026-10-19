@@ -63,31 +63,22 @@ async function pageAt(width: number, height: number, motion: "no-preference" | "
 }
 
 for (const motion of MOTIONS) {
-  test(`[integration] L1-L5 the title comes first, then the result bars and the cards; hero copy sits behind one disclosure (${motion})`, async () => {
+  test(`[integration] L1-L5 the title comes first, then the four pictures and the cards; no result bars or sample hero (${motion})`, async () => {
     for (const [width, height] of ACTION_VIEWPORTS) {
       const page = await pageAt(width, height, motion);
       try {
         expect(await page.locator(":is(h1,h2,h3)").first().getAttribute("id")).toBe("t1");
         // The page h1 is the billing in the marquee band, in the page and never on the curtain.
-        expect(await page.locator("#t1").innerText()).toBe("To Jev or not to Jev in four acts");
+        expect(await page.locator("#t1").innerText()).toBe("To Jev or not to Jev in four questions");
         if (width >= 1280) expect(await page.locator("#t1").evaluate((node) => {
           // Lines, not inline fragments: the billing's em is its own box on the same line.
           return Math.round(node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight));
         })).toBeLessThanOrEqual(2);
-        // The hero paragraphs keep their words, moved behind the one "About this sample" disclosure.
-        const about = page.locator("#aboutSample");
-        expect(await about.evaluate((node) => node.tagName === "DETAILS" && !node.hasAttribute("open"))).toBe(true);
-        for (const id of ["heroResult", "heroWhy", "primaryAction"]) expect(await page.locator(`#aboutSample #${id}`).count()).toBe(1);
-        expect(await page.locator("#aboutSample .hero-note, #aboutSample .hero-guide").count()).toBe(2);
-        const result = await page.locator("#heroResult").evaluate((node) => node.textContent ?? "");
-        for (const word of ["100", "Jev", "LLM", "simple rule", "Verdict: Use Jev (rule 3)."] ) expect(result).toContain(word);
-        expect(await page.locator("#heroWhy").evaluate((node) => node.textContent ?? "")).toContain("Why: Jev kept 88 right answers and the LLM 86 on these 100 shop messages");
-        expect(await page.locator("#primaryAction").evaluate((node) => node.textContent ?? "")).toBe("Try it: take your seat");
-        expect(new URL(await page.locator("#primaryAction").getAttribute("href") ?? "", page.url()).pathname).toBe("/little-shop/");
-        for (const id of ["heroResult", "heroWhy", "primaryAction"]) expect(await page.locator(`#${id}`).isVisible()).toBe(false);
+        // The curtain opens onto the picture story (#260): the Kept answers panel and its sample hero are gone.
+        expect(await page.locator("#results, #resultBars, #aboutSample, #heroResult").count()).toBe(0);
         if (motion === "reduce") {
-          // No curtain: the result bars are on the first screen.
-          expect(await page.locator("#resultBars").evaluate((node) => node.getBoundingClientRect().top < innerHeight)).toBe(true);
+          // No curtain: the four pictures start on the first screen.
+          expect(await page.locator("#types").evaluate((node) => node.getBoundingClientRect().top < innerHeight)).toBe(true);
         } else {
           const seat = await page.locator(MADMAX).evaluate((node) => {
             const box = node.getBoundingClientRect();
@@ -97,7 +88,7 @@ for (const motion of MOTIONS) {
           expect(seat.top >= 0 && seat.top < height && seat.covered).toBe(true);
         }
         expect(await page.evaluate(() => {
-          const ids = ["results", "tkPosters", "tkForm", "door"].map((id) => document.getElementById(id));
+          const ids = ["types", "tkPosters", "tkForm", "door"].map((id) => document.getElementById(id));
           return ids.every(Boolean) && Boolean(ids[0] && ids[1] && ids[2] && ids[3] &&
             (ids[0].compareDocumentPosition(ids[1]) & Node.DOCUMENT_POSITION_FOLLOWING) &&
             (ids[1].compareDocumentPosition(ids[2]) & Node.DOCUMENT_POSITION_FOLLOWING) &&
@@ -536,49 +527,6 @@ function isCurtainRed([r, g, b]: [number, number, number]): boolean {
 }
 
 /**
- * Each result bar's painted fill (`.rbars .bar i`) against the gap between the parting curtains: its final share of the
- * track (--w, %), the px of fill inside the gap, whether the fill lies wholly inside the viewport's height, whether
- * nothing stacked over the middle of that in-gap stretch paints there, the fill's effective opacity, whether its
- * computed background colour is opaque, and whether the screenshot at that point is the fill's colour (it paints).
- */
-interface FillInGap { name: string; share: number; inGap: number; inView: boolean; onTop: boolean; opacity: number; opaqueColour: boolean; paints: boolean }
-
-async function fillsInGap(page: Page): Promise<FillInGap[]> {
-  const found = await page.evaluate(() => {
-    const [cl, cr] = [...document.querySelectorAll(".overture .curtain")].map((node) => node.getBoundingClientRect());
-    const gapLeft = Math.max(0, cl ? cl.right : 0), gapRight = Math.min(innerWidth, cr ? cr.left : innerWidth);
-    return [...document.querySelectorAll(".rbars .rbar")].map((row) => {
-      const fill = row.querySelector(".bar i"), r = fill ? fill.getBoundingClientRect() : new DOMRect();
-      const left = Math.max(r.left, gapLeft), right = Math.min(r.right, gapRight);
-      const mid: [number, number] = [(left + right) / 2, r.top + r.height / 2];
-      // Everything stacked over the fill at that point paints nothing there: no background and no text of its own.
-      const stack = right > left && fill ? document.elementsFromPoint(mid[0], mid[1]) : [];
-      const over = stack.slice(0, stack.indexOf(fill ?? document.body));
-      const clear = (el: Element): boolean => {
-        const s = getComputedStyle(el);
-        const ownText = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim() !== "");
-        return s.backgroundImage === "none" && /^(transparent|rgba\(.*,\s*0\))$/.test(s.backgroundColor) && !ownText;
-      };
-      let opacity = 1;
-      for (let el: Element | null = fill; el; el = el.parentElement) opacity *= Number(getComputedStyle(el).opacity);
-      const bg = fill ? getComputedStyle(fill).backgroundColor : "";
-      const rgb = (bg.match(/\d+(\.\d+)?/g) ?? []).map(Number);
-      return {
-        name: row.querySelector(".rb-name")?.textContent ?? "", share: fill instanceof HTMLElement ? parseFloat(fill.style.getPropertyValue("--w")) : NaN,
-        inGap: Math.round(Math.max(0, right - left)), inView: r.height > 0 && r.top >= 0 && r.bottom <= innerHeight,
-        onTop: fill !== null && stack.includes(fill) && over.every(clear), opacity, opaqueColour: /^rgb\(/.test(bg), colour: rgb.slice(0, 3), mid, drawn: right > left,
-      };
-    });
-  });
-  const shot = await pixelsAt(page, found.map((f) => f.mid));
-  return found.map((f, i) => {
-    const px = shot[i] ?? [0, 0, 0];
-    const near = f.drawn && f.colour.length === 3 && f.colour.every((c, k) => Math.abs(c - (px[k] ?? 0)) <= 24);
-    return { name: f.name, share: f.share, inGap: f.inGap, inView: f.inView, onTop: f.onTop, opacity: f.opacity, opaqueColour: f.opaqueColour, paints: near };
-  });
-}
-
-/**
  * What a viewer sees of one curtain: on-screen width, whether it spans the screen's height under the first-screen band
  * (from the band's bottom, or the top with no band, to the bottom edge), effective opacity, visibility.
  */
@@ -659,19 +607,32 @@ async function curtain(page: Page): Promise<{ state: string; reveal: number }> {
   }));
 }
 
-/** Each result bar's target width (its --w, in %) and drawn width (in % of its track). */
-async function bars(page: Page): Promise<{ target: number; drawn: number }[]> {
-  return page.locator("#resultBars .bar").evaluateAll((nodes) => nodes.map((bar) => {
-    const fill = bar.querySelector("i");
-    const track = bar.getBoundingClientRect().width;
-    return { target: parseFloat(fill instanceof HTMLElement ? fill.style.getPropertyValue("--w") : "NaN"), drawn: fill && track > 0 ? fill.getBoundingClientRect().width / track * 100 : NaN };
+/** The four pictures the curtain opens onto (#260): whether each poster is laid out with a box, fully opaque. */
+async function pictureBoxes(page: Page): Promise<boolean[]> {
+  return page.locator("#types article.poster").evaluateAll((nodes) => nodes.map((node) => {
+    const box = node.getBoundingClientRect();
+    let opacity = 1;
+    for (let el: Element | null = node; el; el = el.parentElement) opacity *= Number(getComputedStyle(el).opacity);
+    return box.width > 0 && box.height > 0 && opacity === 1;
   }));
 }
 
-function fullBars(list: { target: number; drawn: number }[]): boolean {
-  return list.length === 3 && list.every((b) => b.target > 0 ? Math.abs(b.drawn - b.target) < 1 : b.drawn < 1);
+function allShown(list: boolean[]): boolean {
+  return list.length === 4 && list.every(Boolean);
 }
 
+/** What the pointer reaches in the middle of the gap between the parting curtains, level with the first picture. */
+async function gapHit(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const [cl, cr] = [...document.querySelectorAll(".overture .curtain")].map((node) => node.getBoundingClientRect());
+    const left = Math.max(0, cl ? cl.right : 0), right = Math.min(innerWidth, cr ? cr.left : innerWidth);
+    const first = document.querySelector("#types article.poster")?.getBoundingClientRect();
+    if (!first || right <= left) return "no gap";
+    const y = Math.min(innerHeight - 4, Math.max(4, first.top + Math.min(first.height, innerHeight - first.top) / 2));
+    const node = document.elementFromPoint((left + right) / 2, y);
+    return node?.closest("#types") ? "pictures" : node ? `${node.tagName}.${node.className}` : "none";
+  });
+}
 /** Scrolls to a fraction of the viewport height at once, then lets two frames pass so the curtain script has run. */
 async function scrollToVh(page: Page, fraction: number): Promise<void> {
   await page.evaluate((f) => { window.scrollTo({ top: f * innerHeight, behavior: "instant" }); }, fraction);
@@ -696,7 +657,7 @@ async function held(width: number, height: number, motion: "no-preference" | "re
     await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
     await page.route("**/theatre.js", async (route) => { await gate; await route.continue(); });
     await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "commit" });
-    await page.waitForFunction(() => document.querySelector('#overture a[href="tm/"]') !== null && document.getElementById("results") !== null && document.querySelectorAll(".overture .curtain").length === 2);
+    await page.waitForFunction(() => document.querySelector('#overture a[href="tm/"]') !== null && document.getElementById("types") !== null && document.querySelectorAll(".overture .curtain").length === 2);
   } catch (error) {
     open();
     await page.close();
@@ -767,7 +728,7 @@ test("[integration] V1 the closed curtain carries the composition: marquee, the 
     const page = await pageAt(width, height, "no-preference");
     try {
       expect((await curtain(page)).state).toBe("closed");
-      expect(await page.locator("#overture .marquee").innerText()).toMatch(/Jev!Jev presents[\s\S]*To Jev or not to Jev in four acts/i);
+      expect(await page.locator("#overture .marquee").innerText()).toMatch(/Jev!Jev presents[\s\S]*To Jev or not to Jev in four questions/i);
       expect(await page.locator("#overture .marquee").getAttribute("aria-hidden")).toBe("true");
       const ticket = await page.locator("#overture .ticket").textContent() ?? "";
       for (const word of ["ADMIT ONE", "J-EV", "No. 0042"]) expect(ticket).toContain(word);
@@ -777,7 +738,8 @@ test("[integration] V1 the closed curtain carries the composition: marquee, the 
       expect(await page.locator("#overture .cue-scroll").innerText()).toMatch(/^scroll to raise the curtain$/i);
       expect({ width, skip: await page.locator("#skipOverture").count(), button: await page.getByRole("button", { name: /skip/i }).count() }).toEqual({ width, skip: 0, button: 0 });
       expect(await page.locator("#overture .ticket").evaluate((node) => node.closest("a")?.getAttribute("href") ?? "")).toBe("tm/");
-      expect(await page.locator("#sampleBadge").innerText()).toMatch(/^sample run/i);
+      // The chip carries House lights only: no "Sample run" label (#260).
+      expect(await page.locator("#sampleBadge").innerText()).toMatch(/^house lights (up|down)$/i);
       const parts = await curtainParts(page);
       // #238 pass 2: with the band's notes and trust line, a phone curtain of 520px of stage or less (390x844 now) is
       // theatre.css's short phone curtain: the scroll cue steps out (display none, never clipped).
@@ -835,26 +797,25 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
       expect({ width, skip: await page.locator("#skipOverture, #overture button").count() }).toEqual({ width, skip: 0 });
       await openOntoResults(page);
       const after = await page.evaluate(() => {
-        const ov = document.getElementById("overture"), head = document.getElementById("resultsTitle");
+        const ov = document.getElementById("overture"), head = document.getElementById("types");
         return {
           state: document.documentElement.dataset.curtain, active: document.activeElement?.id, overture: ov ? getComputedStyle(ov).display : "missing",
-          top: document.getElementById("results")?.getBoundingClientRect().top ?? NaN, headTop: head?.getBoundingClientRect().top ?? NaN, y: scrollY,
+          top: document.getElementById("types")?.getBoundingClientRect().top ?? NaN, headTop: head?.getBoundingClientRect().top ?? NaN, y: scrollY,
         };
       });
-      expect({ width, state: after.state, active: after.active, overture: after.overture }).toEqual({ width, state: "open", active: "resultsTitle", overture: "none" });
+      expect({ width, state: after.state, active: after.active, overture: after.overture }).toEqual({ width, state: "open", active: "types", overture: "none" });
       expect(after.y).toBeGreaterThan(0);
       expect(Math.abs(after.top)).toBeLessThan(2);
       expect(after.headTop >= 0 && after.headTop < height).toBe(true);
       expect(await shownCurtains(page)).toBe(0);
-      expect(fullBars(await bars(page))).toBe(true);
-      expect(await page.locator("#resultBars").isVisible()).toBe(true);
+      expect(allShown(await pictureBoxes(page))).toBe(true);
     } finally { await page.close(); }
     // A real key: PageDown with focus on the Mad TokenMax poster scrolls the curtain and opens it onto the results.
     const keyed = await pageAt(width, height, "no-preference");
     try {
       await keyed.locator(MADMAX).focus();
       for (let i = 0; i < 6 && (await curtain(keyed)).state !== "open"; i++) { await keyed.keyboard.press("PageDown"); await keyed.waitForTimeout(150); await frames(keyed); }
-      expect({ width, key: "PageDown", state: (await curtain(keyed)).state, focus: await keyed.evaluate(() => document.activeElement?.id ?? "") }).toEqual({ width, key: "PageDown", state: "open", focus: "resultsTitle" });
+      expect({ width, key: "PageDown", state: (await curtain(keyed)).state, focus: await keyed.evaluate(() => document.activeElement?.id ?? "") }).toEqual({ width, key: "PageDown", state: "open", focus: "types" });
     } finally { await keyed.close(); }
     // Tab only: the two posters and House lights keep it closed; the next Tab lands on the page and opens it.
     const tabs = await pageAt(width, height, "no-preference");
@@ -876,24 +837,16 @@ test("[integration] V4 the curtain poster opens Little Shop", async () => {
   }
 }, 30000);
 
-test("[integration] V5 mid-reveal every result bar's coloured fill shows in the gap between the parting curtains: by reveal 0.4 at least 24px at 1280 and 1440 and 16px at 390; at 0.7 40px at 1440 and 16px at 390; the fill paints its own opaque colour there, in both themes", async () => {
-  // Bars whose final value is at least 30% of the track; the sample run has three bars. The last case runs dark.
-  const checks: [number, number, number, number, string][] = [[1280, 900, 0.4, 24, "light"], [1440, 900, 0.4, 24, "light"], [390, 844, 0.4, 16, "light"], [1440, 900, 0.7, 40, "light"], [390, 844, 0.7, 16, "light"], [1440, 900, 0.7, 40, "dark"]];
-  for (const [width, height, fraction, need, theme] of checks) {
+test("[integration] V5 mid-reveal the four pictures show in the gap between the parting curtains: at reveal 0.4 and 0.7 the pointer in the gap reaches them, at 1280, 1440 and 390, in both themes", async () => {
+  const checks: [number, number, number, string][] = [[1280, 900, 0.4, "light"], [1440, 900, 0.4, "light"], [390, 844, 0.4, "light"], [1440, 900, 0.7, "light"], [390, 844, 0.7, "light"], [1440, 900, 0.7, "dark"]];
+  for (const [width, height, fraction, theme] of checks) {
     const page = await pageAt(width, height, "no-preference");
     try {
       await page.evaluate((t) => { document.documentElement.setAttribute("data-theme", t); }, theme);
       await scrollToRunway(page, fraction);
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "rising");
       expect(Math.abs((await curtain(page)).reveal - fraction)).toBeLessThan(0.02);
-      const fills = await fillsInGap(page);
-      expect(fills.length).toBe(3);
-      const counted = fills.filter((f) => f.share >= 30);
-      expect(counted.length).toBeGreaterThan(0);
-      for (const f of counted) {
-        expect({ width, fraction, theme, bar: f.name, inView: f.inView, onTop: f.onTop, inGap: f.inGap >= need ? `>=${need}` : `${f.inGap}px`, opacity: f.opacity, opaqueColour: f.opaqueColour, paints: f.paints })
-          .toEqual({ width, fraction, theme, bar: f.name, inView: true, onTop: true, inGap: `>=${need}`, opacity: 1, opaqueColour: true, paints: true });
-      }
+      expect({ width, fraction, theme, hit: await gapHit(page) }).toEqual({ width, fraction, theme, hit: "pictures" });
     } finally { await page.close(); }
   }
 }, 30000);
@@ -918,7 +871,7 @@ test("[integration] V6 once open nothing of the opening is left: back at the top
         }).map((node) => `${node.tagName}#${node.id}.${node.className}`);
         const top = (selector: string): number => document.querySelector(selector)?.getBoundingClientRect().top ?? NaN;
         const ov = document.getElementById("overture");
-        return { blocks, overture: ov ? getComputedStyle(ov).display : "missing", house: top(".house"), band: document.getElementById("tmFirst")?.getBoundingClientRect().bottom ?? NaN, marquee: top("main .marquee"), results: top("#resultsTitle"), y: scrollY };
+        return { blocks, overture: ov ? getComputedStyle(ov).display : "missing", house: top(".house"), band: document.getElementById("tmFirst")?.getBoundingClientRect().bottom ?? NaN, marquee: top("main .marquee"), results: top("#types .kick"), y: scrollY };
       });
       expect({ width, how, blocks: view.blocks, overture: view.overture, y: view.y }).toEqual({ width, how, blocks: [], overture: "none", y: 0 });
       // The house bar follows the first-screen band directly: nothing of the opening is left between them.
@@ -931,7 +884,7 @@ test("[integration] V6 once open nothing of the opening is left: back at the top
 /** The results heading's top and bottom on screen, and any horizontal overflow of the page. */
 async function headingView(page: Page): Promise<{ top: number; bottom: number; overflow: number }> {
   return page.evaluate(() => {
-    const r = document.getElementById("resultsTitle")?.getBoundingClientRect();
+    const r = document.querySelector("#types .kick")?.getBoundingClientRect();
     return { top: r ? r.top : NaN, bottom: r ? r.bottom : NaN, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
   });
 }
@@ -1077,7 +1030,7 @@ async function swipe(page: Page, x: number, fromY: number, toY: number): Promise
 
 /** Where the page stands: its scrollY, the curtain's state, and the results heading's top. */
 async function stand(page: Page): Promise<{ y: number; state: string; top: number }> {
-  return page.evaluate(() => ({ y: scrollY, state: document.documentElement.dataset.curtain ?? "unset", top: document.getElementById("resultsTitle")?.getBoundingClientRect().top ?? NaN }));
+  return page.evaluate(() => ({ y: scrollY, state: document.documentElement.dataset.curtain ?? "unset", top: document.getElementById("types")?.getBoundingClientRect().top ?? NaN }));
 }
 
 /**
@@ -1090,7 +1043,7 @@ async function stepToOpen(page: Page, step: () => Promise<void>, limit: number):
     const root = document.documentElement;
     new MutationObserver(() => {
       if (root.dataset.curtain !== "open" || root.dataset.testOpen) return;
-      root.dataset.testOpen = `${scrollY} ${document.getElementById("resultsTitle")?.getBoundingClientRect().top ?? NaN}`;
+      root.dataset.testOpen = `${scrollY} ${document.getElementById("types")?.getBoundingClientRect().top ?? NaN}`;
     }).observe(root, { attributes: true, attributeFilter: ["data-curtain"] });
   });
   const closed = await stand(page);
@@ -1146,7 +1099,7 @@ test("[integration] V10 every way of scrolling drives the curtain's runway and t
       await tabToCurtain(arrows);
       const run = await stepToOpen(arrows, async () => { await arrows.keyboard.press("ArrowDown"); await arrows.waitForTimeout(40); await frames(arrows); }, 40);
       expect({ width, key: "ArrowDown", yBefore: run.yBefore, moved: run.moved, state: run.open.state, inView: run.open.top >= -1 && run.open.top < height, focus: await arrows.evaluate(() => document.activeElement?.id) })
-        .toEqual({ width, key: "ArrowDown", yBefore: 0, moved: 0, state: "open", inView: true, focus: "resultsTitle" });
+        .toEqual({ width, key: "ArrowDown", yBefore: 0, moved: 0, state: "open", inView: true, focus: "types" });
     } finally { await arrows.close(); }
   }
   // A wheel over the sample chip (off the curtain) moves the runway, never the page; then a real wheel over the curtain.
@@ -1187,8 +1140,8 @@ test("[integration] V11 when the playbill fades with focus on a curtain poster, 
       await tabToCurtain(page);
       await scrollToRunway(page, 0.5);
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
-      const after = await page.evaluate(() => ({ focus: document.activeElement?.id ?? "BODY", top: document.getElementById("resultsTitle")?.getBoundingClientRect().top ?? NaN }));
-      expect({ width, focus: after.focus, inView: after.top >= -1 && after.top < height }).toEqual({ width, focus: "resultsTitle", inView: true });
+      const after = await page.evaluate(() => ({ focus: document.activeElement?.id ?? "BODY", top: document.getElementById("types")?.getBoundingClientRect().top ?? NaN }));
+      expect({ width, focus: after.focus, inView: after.top >= -1 && after.top < height }).toEqual({ width, focus: "types", inView: true });
     } finally { await page.close(); }
   }
 }, 30000);
@@ -1246,20 +1199,22 @@ test("[integration] V14 a resize mid-reveal keeps the curtain's scroll in step w
   } finally { await page.close(); }
 }, 20000);
 
-test("[integration] V15 once the playbill has faded the page in the gap takes the pointer: a result bar is what the pointer reaches, and About this sample opens on a click", async () => {
+test("[integration] V15 once the playbill has faded the page in the gap takes the pointer: the four pictures are what the pointer reaches, and a click on a picture there opens the curtain", async () => {
   const page = await pageAt(1440, 900, "no-preference");
   try {
     await scrollToRunway(page, 0.5);
     await page.waitForFunction(() => document.documentElement.dataset.curtain === "rising" && document.getElementById("overture")?.classList.contains("faded") === true);
-    const hit = await page.evaluate(() => {
-      const fill = document.querySelector("#resultBars .bar i")?.getBoundingClientRect();
-      if (!fill) return "none";
-      const node = document.elementFromPoint(fill.left + 4, fill.top + fill.height / 2);
-      return node?.closest("#resultBars") ? "result bars" : node ? `${node.tagName}.${node.className}` : "none";
+    expect(await gapHit(page)).toBe("pictures");
+    // A picture control showing in the gap: a click there focuses it, and focus on the page opens the curtain.
+    const point = await page.evaluate(() => {
+      const [cl, cr] = [...document.querySelectorAll(".overture .curtain")].map((node) => node.getBoundingClientRect());
+      const left = cl ? cl.right : 0, right = cr ? cr.left : innerWidth;
+      const control = [...document.querySelectorAll("#types .hit")].map((n) => n.getBoundingClientRect()).find((r) => r.right > left + 8 && r.left < right - 8 && r.bottom > 8 && r.top < innerHeight - 8);
+      return control ? { x: (Math.max(left, control.left) + Math.min(right, control.right)) / 2, y: (Math.max(0, control.top) + Math.min(innerHeight, control.bottom)) / 2 } : null;
     });
-    expect(hit).toBe("result bars");
-    await page.locator("#aboutSample > summary").click();
-    expect(await page.evaluate(() => ({ open: document.getElementById("aboutSample")?.hasAttribute("open"), state: document.documentElement.dataset.curtain }))).toEqual({ open: true, state: "open" });
+    expect(point).not.toBeNull();
+    if (point) await page.mouse.click(point.x, point.y);
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
   } finally { await page.close(); }
 }, 20000);
 
@@ -1279,8 +1234,8 @@ test("[integration] V17 a scroll that opens the curtain in one go with focus on 
       }
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
       await page.waitForTimeout(200);
-      const after = await page.evaluate(() => ({ focus: document.activeElement?.id || document.activeElement?.tagName || "", top: document.getElementById("resultsTitle")?.getBoundingClientRect().top ?? NaN }));
-      expect({ width, how, focus: after.focus, inView: after.top >= -1 && after.top < height }).toEqual({ width, how, focus: "resultsTitle", inView: true });
+      const after = await page.evaluate(() => ({ focus: document.activeElement?.id || document.activeElement?.tagName || "", top: document.getElementById("types")?.getBoundingClientRect().top ?? NaN }));
+      expect({ width, how, focus: after.focus, inView: after.top >= -1 && after.top < height }).toEqual({ width, how, focus: "types", inView: true });
     } finally { await page.close(); }
   }
   for (const [width, height] of CLOSED_VIEWPORTS) {
@@ -1297,11 +1252,11 @@ test("[integration] V17 a scroll that opens the curtain in one go with focus on 
   }
 }, 40000);
 
-test("[integration] L23 scrolling parts the curtain in step with the scroll, and the result bars grow with it", async () => {
+test("[integration] L23 scrolling parts the curtain in step with the scroll, and the four pictures show once it is open", async () => {
   for (const [width, height] of CURTAIN_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      expect((await bars(page)).every((b) => b.drawn < 1)).toBe(true);
+      expect((await curtain(page)).reveal === 0).toBe(true);
       await scrollToRunway(page, 0.3);
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "rising");
       const mid = await curtain(page);
@@ -1309,11 +1264,10 @@ test("[integration] L23 scrolling parts the curtain in step with the scroll, and
       const view = await viewCurtains(page);
       expect(view).toHaveLength(2);
       for (const c of view) expect(c.onScreen > 0 && c.onScreen < width / 2).toBe(true);
-      for (const b of await bars(page)) expect(Math.abs(b.drawn - b.target * mid.reveal)).toBeLessThan(1.5);
       await scrollToRunway(page, 1);
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "open");
       expect(await shownCurtains(page)).toBe(0);
-      expect(fullBars(await bars(page))).toBe(true);
+      expect(allShown(await pictureBoxes(page))).toBe(true);
     } finally { await page.close(); }
   }
 }, 30000);
@@ -1337,7 +1291,7 @@ test("[integration] L24 the curtain follows the scroll both ways: partial progre
     expect(await page.evaluate(() => scrollY)).toBe(0);
     expect((await curtain(page)).state).toBe("open");
     expect(await shownCurtains(page)).toBe(0);
-    expect(fullBars(await bars(page))).toBe(true);
+    expect(allShown(await pictureBoxes(page))).toBe(true);
     // The reverse scroll keys move the runway back, as the wheel does (the page is reloaded closed first).
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.evaluate(() => { try { window.sessionStorage.removeItem("jnj-overture"); } catch (e) { /* ignore */ } });
@@ -1422,7 +1376,7 @@ test("[integration] L28 a page that loads already scrolled (a restored position)
   // Scrolled before the curtain script runs: theatre.js is held at the network while the page above it is laid out.
   for (const [top, state] of cases) {
     await onHeld(390, 844, "no-preference", async ({ page, release, ready }) => {
-      await page.waitForFunction(() => document.querySelectorAll("#resultBars li").length === 3 && document.getElementById("door") !== null);
+      await page.waitForFunction(() => document.querySelectorAll("#types article.poster").length === 4 && document.getElementById("door") !== null);
       await page.evaluate((y) => { window.scrollTo({ top: y, behavior: "instant" }); }, top);
       expect(Math.abs(await page.evaluate(() => scrollY) - top)).toBeLessThan(2);
       release();
@@ -1456,7 +1410,7 @@ test("[integration] L17 under reduced motion there is no curtain, even before th
       await ready();
       expect((await curtain(page)).state).toBe("open");
       expect(await shownCurtains(page)).toBe(0);
-      expect(fullBars(await bars(page))).toBe(true);
+      expect(allShown(await pictureBoxes(page))).toBe(true);
       expect(await hitsItself(page, "#t1")).toBe(true);
     });
   }
@@ -1478,48 +1432,41 @@ test("[integration] L19 turning on reduced motion stops the marquee and drapes, 
     expect(await coversViewport(mid)).toBe(true);
     await mid.emulateMedia({ reducedMotion: "reduce" });
     expect(await shownCurtains(mid)).toBe(0);
-    expect(fullBars(await bars(mid))).toBe(true);
+    expect(allShown(await pictureBoxes(mid))).toBe(true);
     await mid.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
   } finally { await mid.close(); }
 }, 30000);
 
 for (const motion of MOTIONS) {
-  test(`[integration] L18 the theatre frame stays once open: valance, marquee, ADMIT ONE ticket and the Little Shop poster (${motion})`, async () => {
+  test(`[integration] L18 the theatre frame stays once open: valance, marquee and ADMIT ONE ticket, with the marquee above the four pictures (${motion})`, async () => {
     for (const [width, height] of ACTION_VIEWPORTS) {
       const page = await pageAt(width, height, motion);
       try {
         if (motion === "no-preference") await openOntoResults(page);
         await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
-        for (const selector of [".valance", "main .marquee", ".house .ticket .admit", ".house .ticket .stub", ".results a.poster"]) expect(await page.locator(selector).isVisible()).toBe(true);
+        for (const selector of [".valance", "main .marquee", ".house .ticket .admit", ".house .ticket .stub"]) expect(await page.locator(selector).isVisible()).toBe(true);
         expect(await page.locator(".valance").evaluate((node) => getComputedStyle(node).pointerEvents)).toBe("none");
         expect(await page.locator("main .marquee").innerText()).toMatch(/Jev!Jev presents[\s\S]*To Jev or not to Jev/i);
         expect(await page.locator(".house .ticket .admit").innerText()).toBe("ADMIT ONE");
-        const poster = page.locator(".results a.poster");
-        expect(await poster.innerText()).toContain("Little Shop of Horrors");
-        expect(new URL(await poster.getAttribute("href") ?? "", page.url()).pathname).toBe("/little-shop/");
-        // The marquee bills the show above the results; on a phone the poster never sits above the result bars.
-        const order = await page.evaluate(() => {
-          const box = (selector: string) => document.querySelector(selector)?.getBoundingClientRect() ?? null;
-          const marquee = box("main .marquee"), head = box("#resultsTitle"), barsBox = box("#resultBars"), poster = box(".results a.poster");
-          return { marqueeAbove: Boolean(marquee && head && marquee.bottom <= head.top), posterBelow: Boolean(poster && barsBox && (innerWidth >= 900 || poster.top >= barsBox.bottom)) };
-        });
-        expect(order).toEqual({ marqueeAbove: true, posterBelow: true });
+        // The marquee bills the show above the four pictures.
+        expect(await page.evaluate(() => {
+          const marquee = document.querySelector("main .marquee")?.getBoundingClientRect(), first = document.querySelector("#types article.poster")?.getBoundingClientRect();
+          return Boolean(marquee && first && marquee.bottom <= first.top);
+        })).toBe(true);
       } finally { await page.close(); }
     }
   }, 30000);
 }
 
-test("[integration] L20 each Little Shop poster has its own short accessible name, shared by no other link: take your seat on the curtain, take your seat in the preview card", async () => {
+test("[integration] L20 the curtain's Little Shop poster has its own short accessible name, shared by no other link; the page itself carries no second Little Shop poster", async () => {
   const page = await pageAt(390, 844, "no-preference");
   try {
-    const inPage = "Little Shop of Horrors preview: take your seat", onCurtain = "Little Shop of Horrors: take your seat";
-    expect(await page.locator(".results a.poster").getAttribute("aria-label")).toBe(inPage);
+    const onCurtain = "Little Shop of Horrors: take your seat";
     expect(await page.locator("#overture a.poster").getAttribute("aria-label")).toBe(onCurtain);
-    expect(await page.getByRole("link", { name: inPage, exact: true }).count()).toBe(1);
+    expect(await page.locator('main a[href="little-shop/"]').count()).toBe(0);
     expect(await page.getByRole("link", { name: onCurtain, exact: true }).count()).toBe(1);
     expect(await page.getByRole("button", { name: "Take your seat", exact: true }).count()).toBe(0);
     expect(await page.getByRole("link", { name: "Take your seat", exact: true }).count()).toBe(0);
-    expect(await page.locator(".results a.poster .p-cta").textContent()).toBe("Take your seat");
     const names = await page.locator("a[href]:visible").evaluateAll((links) => links.map((link) => link.getAttribute("aria-label") || link.textContent?.trim() || ""));
     expect(names.filter((n, i) => names.indexOf(n) !== i)).toEqual([]);
   } finally { await page.close(); }
@@ -1537,7 +1484,7 @@ test("[integration] L21 the curtain plays once per tab session, and a page whose
     }));
     expect(again).toEqual({ motion: true, play: false, curtain: "open" });
     expect(await shownCurtains(page)).toBe(0);
-    expect(fullBars(await bars(page))).toBe(true);
+    expect(allShown(await pictureBoxes(page))).toBe(true);
     expect(await page.locator(MADMAX).isVisible()).toBe(false);
   } finally { await page.close(); }
 
@@ -1571,7 +1518,7 @@ test("[integration] L29 with JavaScript off the page is fully readable with no c
     expect(await page.locator("html").getAttribute("class")).toBeNull();
     expect(await page.locator("#overture").isVisible()).toBe(false);
     expect(await page.locator(MADMAX).isVisible()).toBe(false);
-    for (const selector of ["#t1", "#resultsTitle", "#officeOpen"]) expect(await page.locator(selector).isVisible()).toBe(true);
+    for (const selector of ["#t1", "#types", "#officeOpen"]) expect(await page.locator(selector).isVisible()).toBe(true);
     expect(await hitsItself(page, "#t1")).toBe(true);
   } finally { await context.close(); }
 }, 15000);
@@ -1592,24 +1539,18 @@ test("[integration] L30 when the curtain script never loads, the head script's f
   }
 }, 20000);
 
-test("[integration] L32 the retired acts are gone, and the labels that name the play still say four acts until the title is renamed", async () => {
+test("[integration] L32 the retired acts are gone, and the labels that name the play say four questions", async () => {
   const page = await pageAt(1440, 900);
   try {
     expect(await page.locator("section.act").count()).toBe(0);
-    expect(await page.locator("main .marquee").innerText()).toMatch(/in four acts/i);
-    expect(await page.locator("#overture .marquee").textContent()).toMatch(/in four acts/i);
+    expect(await page.locator("main .marquee").innerText()).toMatch(/in four questions/i);
+    expect(await page.locator("#overture .marquee").textContent()).toMatch(/in four questions/i);
   } finally { await page.close(); }
 });
 
-test("[integration] L33 with every disclosure closed the essential context stays in view: units, sample provenance and a loaded file's verdict, undecided and decisive", async () => {
+test("[integration] L33 with every disclosure closed a loaded file's verdict stays in view, undecided and decisive", async () => {
   const page = await pageAt(390, 844);
   try {
-    expect(await page.locator("#results .results-source").textContent()).toContain("Sample run");
-    expect(await page.locator("#results .results-source").isVisible()).toBe(true);
-    expect(await page.locator("#resultBars .rb-name").allInnerTexts()).toEqual(["LLM", "Simple rule", "Jev"]);
-    const values = await page.locator("#resultBars .rb-val").allInnerTexts();
-    expect(values).toHaveLength(3);
-    for (const v of values) expect(v).toMatch(/^\d+ of 100 kept$/);
   } finally { await page.close(); }
   // A loaded file: its verdict (here not enough evidence) shows in the loaded result, outside any disclosure.
   const loaded = await pageAt(390, 844);
@@ -1953,8 +1894,8 @@ test("[integration] TM6 the curtain still opens every way with the band above it
     const skipped = await pageAt(width, height, "no-preference");
     try {
       await openOntoResults(skipped);
-      const after = await skipped.evaluate(() => ({ state: document.documentElement.dataset.curtain, active: document.activeElement?.id, top: document.getElementById("results")?.getBoundingClientRect().top ?? NaN }));
-      expect({ width, state: after.state, active: after.active, top: Math.abs(after.top) < 2 }).toEqual({ width, state: "open", active: "resultsTitle", top: true });
+      const after = await skipped.evaluate(() => ({ state: document.documentElement.dataset.curtain, active: document.activeElement?.id, top: document.getElementById("types")?.getBoundingClientRect().top ?? NaN }));
+      expect({ width, state: after.state, active: after.active, top: Math.abs(after.top) < 2 }).toEqual({ width, state: "open", active: "types", top: true });
     } finally { await skipped.close(); }
     const hashed = await pageAt(width, height, "no-preference", "#tickets");
     try {
@@ -2224,10 +2165,10 @@ test("[integration] L41 scrolling back to the top closes the curtains again, on 
         const closed = await curtain(page);
         expect({ later, width, state: closed.state, reveal: closed.reveal, shown: await shownCurtains(page), covers: await coversViewport(page), locked: await page.evaluate(() => getComputedStyle(document.documentElement).overflowY) })
           .toEqual({ later, width, state: "closed", reveal: 0, shown: 2, covers: true, locked: "hidden" });
-        expect((await bars(page)).every((b) => b.drawn < 1)).toBe(true);
+        expect((await curtain(page)).reveal === 0).toBe(true);
         await scrollToRunway(page, 1.2);
         await page.waitForFunction(() => document.documentElement.dataset.curtain === "open");
-        expect(fullBars(await bars(page))).toBe(true);
+        expect(allShown(await pictureBoxes(page))).toBe(true);
       } finally { await page.close(); }
     }
   }
@@ -2293,8 +2234,8 @@ test("[integration] L43 keyboard: Shift+Tab to the header link after opening ont
       const link = await page.evaluate(() => ({ state: document.documentElement.dataset.curtain, focus: document.activeElement?.className ?? "" }));
       expect({ width, ...link }).toEqual({ width, state: "open", focus: "house-link" });
       // A clicked control is not keyboard focus: scrolling back to the top closes the curtain and moves focus to the curtain's first control.
-      await page.evaluate(() => { window.scrollTo({ top: document.getElementById("results")?.offsetTop ?? 600, behavior: "instant" }); });
-      await page.locator("#aboutSample > summary").click();
+      await page.evaluate(() => { window.scrollTo({ top: document.getElementById("types")?.offsetTop ?? 600, behavior: "instant" }); });
+      await page.locator("#noul-hit").click();
       await page.evaluate(() => { window.scrollTo({ top: 0, behavior: "instant" }); });
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "closed", undefined, { timeout: 4000 });
       expect({ width, madmax: await page.evaluate(() => document.activeElement?.matches('#overture a[href="tm/"]') ?? false) }).toEqual({ width, madmax: true });
@@ -2523,8 +2464,8 @@ test("[integration] MM8 a very short phone curtain shows no posters (390x500, 66
     await page.mouse.move(width / 2, height / 2);
     await page.mouse.wheel(0, 1200);
     await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
-    await page.evaluate(() => { window.scrollTo({ top: document.getElementById("results")?.offsetTop ?? 600, behavior: "instant" }); });
-    await page.locator("#aboutSample > summary").click();
+    await page.evaluate(() => { window.scrollTo({ top: document.getElementById("types")?.offsetTop ?? 600, behavior: "instant" }); });
+    await page.locator("#noul-hit").click();
     await page.evaluate(() => { window.scrollTo({ top: 0, behavior: "instant" }); });
     await page.waitForFunction(() => document.documentElement.dataset.curtain === "closed", undefined, { timeout: 4000 });
     expect({ width, focus: await page.evaluate(() => document.activeElement?.id || document.activeElement?.tagName || "") }).toEqual({ width, focus: "lights" });
@@ -2571,12 +2512,10 @@ test("[integration] TR3 the evidence page still shows the 100 cases, each method
   } finally { await page.close(); }
 }, 30000);
 
-test("[integration] TR4 the recorded verdict stays readable without the acts: the landing's About this sample, and a loaded file's own verdict", async () => {
+test("[integration] TR4 without the acts or the Kept answers panel, a loaded file's own verdict stays readable (the sample's verdict is on /replay/, TR3)", async () => {
   const page = await pageAt(390, 844);
   try {
-    await page.locator("#aboutSample > summary").click();
-    expect(await page.locator("#heroResult").innerText()).toContain("Verdict: Use Jev (rule 3).");
-    expect(await page.locator("#heroWhy").innerText()).toContain("Why: Jev kept 88 right answers and the LLM 86 on these 100 shop messages");
+    expect(await page.locator("#aboutSample, #heroResult, #heroWhy").count()).toBe(0);
     await page.locator("#officeOpen").click();
     await page.locator("#csv").setInputFiles({ name: "shop-bot-100-records.csv", mimeType: "text/csv", buffer: Buffer.from(RECORDS_100) });
     await page.locator("#loadedResult").waitFor({ state: "visible" });
@@ -2594,15 +2533,15 @@ test("[integration] TR4 the recorded verdict stays readable without the acts: th
   } finally { await undecided.close(); }
 }, 30000);
 
-test("[integration] TR5 one seat call-to-action label, Take your seat, on the curtain poster, the page card and the page's own link", async () => {
+test("[integration] TR5 one seat call-to-action label, Take your seat, on the curtain poster; the page's own way in is the footer's Little Shop link", async () => {
   for (const motion of MOTIONS) {
     const page = await pageAt(1440, 900, motion);
     try {
-      const labels = await page.locator(".poster .p-cta").allTextContents();
-      expect({ motion, labels }).toEqual({ motion, labels: ["Take your seat", "Take your seat"] });
-      expect(await page.locator("#primaryAction").textContent()).toBe("Try it: take your seat");
+      const labels = await page.locator("a.poster .p-cta").allTextContents();
+      expect({ motion, labels }).toEqual({ motion, labels: ["Take your seat"] });
+      expect(await page.locator('footer.site-foot a[href="little-shop/"]').textContent()).toBe("Little Shop");
       expect(await page.locator("body").evaluate((node) => (node.textContent ?? "").toLowerCase())).not.toContain("pick a seat");
-      // Both posters name their label (WCAG label in name) and still differ from each other.
+      // The poster names its label (WCAG label in name) and no other link shares its name.
       const names = await page.locator("a.poster").evaluateAll((nodes) => nodes.map((n) => n.getAttribute("aria-label") ?? ""));
       expect(new Set(names).size).toBe(names.length);
       for (const name of names) expect(name.toLowerCase()).toContain("take your seat");

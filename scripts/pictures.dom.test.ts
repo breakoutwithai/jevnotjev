@@ -5,7 +5,8 @@ import { chromium, type Browser, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 
 const SITE = join(import.meta.dir, "..", "site");
-const PAGE_FILE = join(SITE, "explainer", "index.html");
+// The picture story lives on the landing page (the retired /explainer redirects there); these checks cover its .jx block.
+const PAGE_FILE = join(SITE, "index.html");
 const VIEWPORTS: [number, number][] = [[390, 844], [1440, 900]];
 const MOTIONS: ("no-preference" | "reduce")[] = ["no-preference", "reduce"];
 const FONT_HOSTS = new Set(["fonts.googleapis.com", "fonts.gstatic.com"]);
@@ -23,7 +24,7 @@ const seen: string[] = [];
 // A planted copy of the page: one banned word, one dash glyph and a second "A helper is" definition.
 function planted(): string {
   const html = readFileSync(PAGE_FILE, "utf8");
-  return html.replace("</footer>", `<span>token A helper is ${EM_DASH} here</span></footer>`);
+  return force(html, /<section class="entry" id="week"/, `<span>token A helper is ${EM_DASH} here</span><section class="entry" id="week"`);
 }
 
 // Each planted page forces ONE old state back onto the current page, so an assertion that cannot fail is caught.
@@ -58,7 +59,8 @@ const PLANTS: Record<string, (html: string) => string> = {
   },
   "/small-label/": (html) => {
     const sized = force(html, /font-size="\d+"( font-weight="700" letter-spacing="2" fill="#8a1a2e">PICK ONE)/g, 'font-size="13"$1');
-    return force(sized, /\.seg span\{padding:0 8px;font:700 \d+px/, ".seg span{padding:0 8px;font:700 13px");
+    // The payoff label size lives in pictures.css: this plant loads a copy of it with 13 px labels.
+    return force(sized, /href="pictures\.css"/, 'href="/planted-css/small-label.css"');
   },
   "/hue-only/": (html) => html
     .replace(/fill="url\(#pat-easy\)"/g, 'fill="#86cf9f"')
@@ -66,19 +68,27 @@ const PLANTS: Record<string, (html: string) => string> = {
     .replace(/fill="url\(#pat-hard\)"/g, 'fill="#f08470"'),
   "/low-contrast/": (html) => {
     const dimmed = force(html, /(fill|stroke)="#cdb9b9"/g, '$1="#6a4a4a"');
-    return force(dimmed, /'\.72'/, "'.4'");
+    // The unlit ticket's opacity lives in pictures.js: this plant loads a copy of it with the old 40%.
+    return force(dimmed, /src="[^"]*pictures\.js"/, 'src="/planted-js/low-contrast.js"');
   },
 };
+
+// A planted page is served from another path, so its relative links (scripts, styles, data) resolve from the site root.
+const shared = (html: string): string => html.replace("<head>", '<head><base href="/">');
+const PICTURES_JS = join(SITE, "pictures.js");
+const PICTURES_CSS = join(SITE, "pictures.css");
 
 beforeAll(async () => {
   const found = resolveChromium(null, process.env.UAT_CHROMIUM_PATH, chromium.executablePath(), existsSync);
   if ("error" in found) throw new Error(found.error);
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const pathname = decodeURIComponent(new URL(request.url).pathname);
-    if (pathname === "/planted-long/") return new Response(readFileSync(PAGE_FILE, "utf8").replace("Is my week going fine?", "Is my week going fine or is it not going fine at all today?"), { headers: { "content-type": "text/html; charset=utf-8" } });
+    if (pathname === "/planted-js/low-contrast.js") return new Response(force(readFileSync(PICTURES_JS, "utf8"), /'\.72'/, "'.4'"), { headers: { "content-type": "text/javascript" } });
+    if (pathname === "/planted-css/small-label.css") return new Response(force(readFileSync(PICTURES_CSS, "utf8"), /\.seg span\{padding:0 8px;font:700 \d+px/, ".seg span{padding:0 8px;font:700 13px"), { headers: { "content-type": "text/css" } });
+    if (pathname === "/planted-long/") return new Response(shared(readFileSync(PAGE_FILE, "utf8")).replace("Is my week going fine?", "Is my week going fine or is it not going fine at all today?"), { headers: { "content-type": "text/html; charset=utf-8" } });
     const plant = PLANTS[pathname];
-    if (plant !== undefined) return new Response(plant(readFileSync(PAGE_FILE, "utf8")), { headers: { "content-type": "text/html; charset=utf-8" } });
-    if (pathname === "/planted/") return new Response(planted(), { headers: { "content-type": "text/html; charset=utf-8" } });
+    if (plant !== undefined) return new Response(plant(shared(readFileSync(PAGE_FILE, "utf8"))), { headers: { "content-type": "text/html; charset=utf-8" } });
+    if (pathname === "/planted/") return new Response(shared(planted()), { headers: { "content-type": "text/html; charset=utf-8" } });
     const path = join(SITE, pathname.endsWith("/") ? `${pathname}index.html` : pathname);
     if (!path.startsWith(`${SITE}/`)) return new Response("Not found", { status: 404 });
     const file = Bun.file(path);
@@ -89,7 +99,7 @@ beforeAll(async () => {
 });
 afterAll(async () => { await browser?.close(); server?.stop(); });
 
-async function pageAt(width: number, height: number, motion: "no-preference" | "reduce", path = "/explainer/", allowFonts = false, fakeClock = false): Promise<Page> {
+async function pageAt(width: number, height: number, motion: "no-preference" | "reduce", path = "/", allowFonts = false, fakeClock = false): Promise<Page> {
   const page = await browser.newPage({ viewport: { width, height }, reducedMotion: motion });
   if (fakeClock) await page.clock.install();
   await page.route("**/*", (route) => {
@@ -108,11 +118,13 @@ type Copy = { text: string; labels: string[]; pageTitle: string; meta: string[] 
 // Every string a visitor can read or hear: the text, each aria-label, the title and the meta content.
 async function copyOf(page: Page): Promise<Copy> {
   return page.evaluate(() => {
-    const clone = document.body.cloneNode(true);
-    if (!(clone instanceof HTMLElement)) throw new Error("body is not an element");
+    const block = document.querySelector(".jx");
+    if (block === null) throw new Error("no picture story (.jx) on the page");
+    const clone = block.cloneNode(true);
+    if (!(clone instanceof HTMLElement)) throw new Error(".jx is not an element");
     clone.querySelectorAll("script,style").forEach((node) => node.remove());
     const pageTitle = document.title;
-    const labels = Array.from(document.querySelectorAll("[aria-label]")).map((node) => node.getAttribute("aria-label") ?? "");
+    const labels = Array.from(document.querySelectorAll(".jx [aria-label]")).map((node) => node.getAttribute("aria-label") ?? "");
     const meta = Array.from(document.querySelectorAll("meta[content]")).map((node) => node.getAttribute("content") ?? "");
     return { text: clone.textContent ?? "", labels, pageTitle, meta };
   });
@@ -138,20 +150,19 @@ for (const [width, height] of VIEWPORTS) {
 
 for (const [width, height] of VIEWPORTS) {
   for (const motion of MOTIONS) {
-    test(`[integration] E2 the entry button scrolls to the four kinds of question at ${width} px (${motion})`, async () => {
-      const page = await pageAt(width, height, motion);
+    test(`[integration] E2 the week button scrolls to one week, two ways at ${width} px (${motion})`, async () => {
+      // #week opens the curtain at once under motion, so the button is reachable.
+      const page = await pageAt(width, height, motion, "/#week");
       try {
-        expect(await page.locator("a.cta").first().getAttribute("href")).toBe("#types");
-        await page.locator("a.cta").first().click();
+        const cta = page.locator("#week a.cta");
+        expect(await cta.getAttribute("href")).toBe("#payoff");
+        await cta.click();
         await page.waitForFunction(() => {
-          const box = document.getElementById("types")?.getBoundingClientRect();
+          const box = document.getElementById("payoff")?.getBoundingClientRect();
           return box !== undefined && box.top < innerHeight && box.bottom > 0;
         });
-        expect(new URL(page.url()).hash).toBe("#types");
-        expect(await page.evaluate(() => document.activeElement?.id)).toBe("types");
-        const box = await page.locator("#types").evaluate((node) => { const r = node.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, inner: innerHeight }; });
-        expect(box.top).toBeLessThan(box.inner);
-        expect(box.bottom).toBeGreaterThan(0);
+        expect(new URL(page.url()).hash).toBe("#payoff");
+        expect(await page.evaluate(() => document.activeElement?.id)).toBe("payoff");
       } finally { await page.close(); }
     }, 20000);
   }
@@ -189,7 +200,7 @@ for (const [width, height] of VIEWPORTS) {
       expect(report.checked).toBeGreaterThan(20);
       expect(report.failures).toEqual([]);
     } finally { await fallback.close(); }
-    const web = await pageAt(width, height, "reduce", "/explainer/", true);
+    const web = await pageAt(width, height, "reduce", "/", true);
     try {
       const report = await fitReport(web);
       // Google Fonts may be unreachable here; then the fallback run above is the whole check and this one is a repeat of it.
@@ -211,16 +222,17 @@ test("[unit] E13b the fit checker itself fails a planted overlong string at 390 
 test("[integration] E14 no role=img contains a button, and the four interactive pictures are groups", async () => {
   const page = await pageAt(1440, 900, "reduce");
   try {
-    expect(await page.locator('[role="img"] [role="button"], [role="img"] button, [role="img"] a[href]').count()).toBe(0);
+    expect(await page.locator('.jx [role="img"] [role="button"], .jx [role="img"] button, .jx [role="img"] a[href]').count()).toBe(0);
     const interactive = await page.locator("article.poster svg").evaluateAll((nodes) => nodes.map((n) => ({ role: n.getAttribute("role"), buttons: n.querySelectorAll('[role="button"]').length })));
     expect(interactive.length).toBe(4);
     for (const svg of interactive) expect(svg).toEqual({ role: "group", buttons: svg.buttons });
     expect(interactive.every((svg) => svg.buttons > 0)).toBe(true);
-    expect(await page.locator('svg[role="img"]').count()).toBeGreaterThan(6);
+    expect(await page.locator('.jx svg[role="img"]').count()).toBeGreaterThan(6);
   } finally { await page.close(); }
 });
 
-// The cycle runs on a 2.6 s interval; the page's clock is faked so the test advances it instead of waiting.
+// The demonstration steps every 1.6 s, twice, once the pictures come into view; the page's clock is faked so the test
+// advances it instead of waiting.
 const posterState = (page: Page): Promise<string> => page.evaluate(() => [
   document.getElementById("noul-read")?.textContent,
   document.getElementById("choice-read")?.textContent,
@@ -229,41 +241,29 @@ const posterState = (page: Page): Promise<string> => page.evaluate(() => [
 ].join("|"));
 
 for (const [width, height] of VIEWPORTS) {
-  test(`[integration] E15 the pause button stops and resumes the poster cycle at ${width} px`, async () => {
-    const page = await pageAt(width, height, "no-preference", "/explainer/", false, true);
+  test(`[integration] E15 there is no pause button; the posters move once in view and stop by themselves within 5 s, and a tap still works after at ${width} px`, async () => {
+    const page = await pageAt(width, height, "no-preference", "/#types", false, true);
     try {
-      const button = page.locator("#types button.pause");
-      expect(await button.count()).toBe(1);
-      expect(await button.getAttribute("type")).toBe("button");
-      expect(await button.innerText()).toBe("Pause the motion");
-      expect(await button.getAttribute("aria-pressed")).toBe("false");
-      const box = await button.boundingBox();
-      expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
-      expect((box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? 0) <= width).toBe(true);
-      expect(parseFloat(await button.evaluate((node) => getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(12);
-      const colours = await button.evaluate((node) => { const css = getComputedStyle(node); return { fg: css.color, bg: css.backgroundColor }; });
-      expect(contrast(colours.fg, colours.bg)).toBeGreaterThanOrEqual(4.5);
+      expect(await page.locator("button.pause, #pause-motion").count()).toBe(0);
+      await page.locator("#types").scrollIntoViewIfNeeded();
+      // The faked clock does not let the page render, so give it real time to report the pictures in view.
+      await page.waitForTimeout(150);
+      await page.clock.runFor(100);
       const start = await posterState(page);
-      await page.clock.runFor(2700);
-      const running = await posterState(page);
-      expect(running).not.toBe(start);
-      await button.click();
-      expect(await button.getAttribute("aria-pressed")).toBe("true");
-      expect(await button.innerText()).toBe("Play the motion");
-      const held = await posterState(page);
-      await page.clock.runFor(2700 * 3);
-      expect(await posterState(page)).toBe(held);
-      await button.click();
-      expect(await button.getAttribute("aria-pressed")).toBe("false");
-      expect(await button.innerText()).toBe("Pause the motion");
-      await page.clock.runFor(2700);
-      expect(await posterState(page)).not.toBe(held);
+      await page.clock.runFor(2000);
+      expect(await posterState(page)).not.toBe(start);
+      await page.clock.runFor(3000);
+      const settled = await posterState(page);
+      await page.clock.runFor(2700 * 6);
+      expect(await posterState(page)).toBe(settled);
+      await page.locator("#noul-hit").click();
+      expect(await posterState(page)).not.toBe(settled);
     } finally { await page.close(); }
   }, 20000);
 }
 
 test("[integration] E16 under reduced motion there is no pause button and the posters do not cycle", async () => {
-  const page = await pageAt(390, 844, "reduce", "/explainer/", false, true);
+  const page = await pageAt(390, 844, "reduce", "/", false, true);
   try {
     expect(await page.locator("button.pause, #pause-motion").count()).toBe(0);
     const start = await posterState(page);
@@ -275,11 +275,11 @@ test("[integration] E16 under reduced motion there is no pause button and the po
 test("[integration] E4 every card or region with a number carries the word EXAMPLE", async () => {
   const page = await pageAt(1440, 900, "reduce");
   try {
-    const regions = await page.evaluate(() => Array.from(document.querySelectorAll("header.entry .pic, article.poster, section.payoff, footer")).map((node) => {
+    const regions = await page.evaluate(() => Array.from(document.querySelectorAll("#week .pic, .jx article.poster, section.payoff")).map((node) => {
       const text = node.textContent ?? "";
       return { name: node.className || node.tagName, numbers: /\d/.test(text), example: /example/i.test(text) };
     }));
-    expect(regions.length).toBe(7);
+    expect(regions.length).toBe(6);
     expect(regions.filter((r) => r.numbers).length).toBeGreaterThanOrEqual(2);
     for (const region of regions) if (region.numbers) expect({ name: region.name, example: region.example }).toEqual({ name: region.name, example: true });
     // The two cards that show a figure are labelled on the picture itself, not only in a caption.
@@ -292,7 +292,7 @@ for (const [width, height] of VIEWPORTS) {
   test(`[integration] E5 every SVG text renders at 12 px or more at ${width} px`, async () => {
     const page = await pageAt(width, height, "reduce");
     try {
-      const sizes = await page.evaluate(() => Array.from(document.querySelectorAll("svg text")).flatMap((node) => {
+      const sizes = await page.evaluate(() => Array.from(document.querySelectorAll(".jx svg text")).flatMap((node) => {
         if (!(node instanceof SVGGraphicsElement) || node.getClientRects().length === 0) return [];
         const matrix = node.getScreenCTM();
         if (matrix === null) return [];
@@ -312,15 +312,15 @@ test("[unit] E6 'A helper is' is defined exactly once", async () => {
   } finally { await page.close(); }
 });
 
-test("[integration] E7 the payoff links to the guide, For developers is a 44 px target, and links resolve under /explainer/", async () => {
+test("[integration] E7 the payoff links to the guide, For developers is a 44 px target, and the picture story's links resolve", async () => {
   const page = await pageAt(390, 844, "reduce");
   try {
     const payoff = await page.locator("#payoff a.cta").getAttribute("href");
-    expect(payoff?.endsWith("/guide/")).toBe(true);
+    expect(new URL(payoff ?? "", page.url()).pathname).toBe("/guide/");
     const dev = await page.locator("a.dev").boundingBox();
     expect(dev?.width ?? 0).toBeGreaterThanOrEqual(44);
     expect(dev?.height ?? 0).toBeGreaterThanOrEqual(44);
-    const hrefs = await page.locator("a[href]").evaluateAll((nodes) => nodes.map((n) => n.getAttribute("href") ?? ""));
+    const hrefs = await page.locator(".jx a[href]").evaluateAll((nodes) => nodes.map((n) => n.getAttribute("href") ?? ""));
     expect(hrefs.length).toBe(3);
     for (const href of hrefs) {
       if (href.startsWith("#")) continue;
@@ -335,7 +335,7 @@ test("[integration] E8 reduced motion shows all three scenes, fully drawn", asyn
   for (const [width, height] of VIEWPORTS) {
     const page = await pageAt(width, height, "reduce");
     try {
-      const scenes = await page.locator(".frame").evaluateAll((nodes) => nodes.map((n) => {
+      const scenes = await page.locator("#story .frame").evaluateAll((nodes) => nodes.map((n) => {
         const box = n.getBoundingClientRect();
         const hidden = Array.from(n.querySelectorAll(".in,.pop,.lit")).filter((p) => getComputedStyle(p).opacity !== "1").length;
         return { height: box.height, position: getComputedStyle(n).position, opacity: getComputedStyle(n).opacity, hidden };
@@ -400,7 +400,7 @@ test("[integration] E10 plain scene 3 labels, brightened wait line, dimmed optio
     expect(dim.length).toBe(2);
     for (const p of dim) expect(contrast(p.fg, p.bg)).toBeGreaterThanOrEqual(4.5);
     // The unlit tickets in the Pick one card are faded, not erased: ink on a faded paper stays at 4.5:1.
-    const opacity = await page.locator("#tickets .tk").nth(0).evaluate((node) => parseFloat(getComputedStyle(node).opacity));
+    const opacity = await page.locator("#choice-tickets .tk").nth(0).evaluate((node) => parseFloat(getComputedStyle(node).opacity));
     expect(opacity).toBeGreaterThanOrEqual(0.7);
     const paper = rgb("rgb(239, 226, 196)");
     const ink = rgb("rgb(26, 5, 8)");
@@ -423,7 +423,8 @@ test("[integration] E11 no request leaves the served origin except the Google Fo
     const url = new URL(origin);
     expect(origin === `http://127.0.0.1:${server.port}` || (url.protocol === "https:" && FONT_HOSTS.has(url.hostname))).toBe(true);
   }
-  expect(readFileSync(PAGE_FILE, "utf8")).not.toMatch(/<script[^>]+src=/i);
+  // Scripts come only from the page's own folder (pictures.js), never from another host.
+  expect(readFileSync(PAGE_FILE, "utf8")).not.toMatch(/<script[^>]+src="(https?:)?\/\//i);
 });
 
 test("[integration] E12 one h1, four kinds of question, every caption 8 words or fewer", async () => {
@@ -431,7 +432,7 @@ test("[integration] E12 one h1, four kinds of question, every caption 8 words or
   try {
     expect(await page.locator("h1").count()).toBe(1);
     expect(await page.locator("article.poster").count()).toBe(4);
-    const captions = await page.locator(".p-cap, .cap").evaluateAll((nodes) => nodes.map((n) => (n.textContent ?? "").trim().split(/\s+/).length));
+    const captions = await page.locator(".jx .p-cap, .jx .cap").evaluateAll((nodes) => nodes.map((n) => (n.textContent ?? "").trim().split(/\s+/).length));
     expect(captions.length).toBe(7);
     for (const words of captions) expect(words).toBeLessThanOrEqual(8);
   } finally { await page.close(); }
@@ -543,7 +544,7 @@ const PICTURE_TEXT = ".tube span, .key li, .job b, .job i, .gname, .reading smal
 async function smallLabels(page: Page): Promise<{ total: number; small: string[] }> {
   return page.evaluate((selector) => {
     const found: { text: string; px: number }[] = [];
-    for (const node of Array.from(document.querySelectorAll("svg text"))) {
+    for (const node of Array.from(document.querySelectorAll(".jx svg text"))) {
       if (!(node instanceof SVGGraphicsElement) || node.getClientRects().length === 0) continue;
       const matrix = node.getScreenCTM();
       if (matrix === null) continue;
@@ -579,7 +580,7 @@ test("[unit] E19b the size checker fails a planted 13 px SVG label and a planted
 async function patternProblems(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const problems: string[] = [];
-    const svg = document.querySelector("header.entry svg");
+    const svg = document.querySelector("#week svg");
     if (svg === null) return ["no hero chart"];
     const fillOf = (rect: Element): string => rect.getAttribute("fill") ?? "";
     const idOf = (fill: string): string => fill.match(/^url\(#([^)]+)\)$/)?.[1] ?? "";
@@ -625,8 +626,8 @@ type Dimmed = { what: string; fg: string; bg: string; opacity: number; stage: st
 async function dimmedOptions(page: Page, wide: boolean): Promise<Dimmed[]> {
   const out: Dimmed[] = [];
   for (const i of [0, 1, 2]) {
-    await page.locator(`#tickets .tk[data-i="${i}"]`).click();
-    out.push(...await page.evaluate((lit) => Array.from(document.querySelectorAll("#tickets .tk")).flatMap((group, k) => {
+    await page.locator(`#choice-tickets .tk[data-i="${i}"]`).click();
+    out.push(...await page.evaluate((lit) => Array.from(document.querySelectorAll("#choice-tickets .tk")).flatMap((group, k) => {
       const rect = group.querySelector("rect");
       const label = group.querySelector("text");
       const stage = group.closest("svg")?.querySelector(":scope > rect");
@@ -684,7 +685,7 @@ async function fitReport(page: Page): Promise<Fit> {
     const fontsLoaded = Array.from(document.fonts).filter((face) => face.status === "loaded").length;
     const failures: string[] = [];
     let checked = 0;
-    for (const text of Array.from(document.querySelectorAll("svg text"))) {
+    for (const text of Array.from(document.querySelectorAll(".jx svg text"))) {
       if (!(text instanceof SVGTextElement) || text.getClientRects().length === 0) continue;
       const svg = text.ownerSVGElement;
       const rootInverse = svg?.getScreenCTM()?.inverse();

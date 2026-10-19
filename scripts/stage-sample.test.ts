@@ -135,23 +135,19 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
     expect(sample.meta.note).toContain(sample.meta.run_id);
   });
 
-  test("[unit] F2-D6 the page's script draws the recorded result from it: result bars, the verdict and its reason; the retired acts are not drawn", async () => {
+  test("[unit] F2-D6 the page's script draws only the repertoire and the run note from it; the retired result panel and acts are not drawn (#260)", async () => {
     const els = await renderPage();
-    expect(els.get("t5")).toBeUndefined();
-    for (const id of ["docket", "ledger", "cast", "verdictWhy", "verdictCases", "verdictNext", "verdictEarlier", "caveat"]) expect({ id, drawn: els.has(id) }).toEqual({ id, drawn: false });
-    expect(els.get("resultsTitle")?.textContent).toBe("Kept answers out of 100");
-    expect(els.get("heroWhy")?.textContent).toContain("Why: Jev kept 88 right answers and the LLM 86 on these 100 shop messages");
-    expect(els.get("resultBars")?.innerHTML).toContain("88 of 100 kept");
-    expect(els.get("resultBars")?.innerHTML).toContain("86 of 100 kept");
-    expect(els.get("resultBars")?.innerHTML).toContain("49 of 100 kept");
+    for (const id of ["t5", "docket", "ledger", "cast", "verdictWhy", "verdictCases", "verdictNext", "verdictEarlier", "caveat", "resultsTitle", "heroResult", "heroWhy", "resultBars"]) expect({ id, drawn: els.has(id) }).toEqual({ id, drawn: false });
+    expect(els.get("repertoire")?.innerHTML).toContain('<span class="uc">');
+    expect(els.get("fin")?.textContent).toContain("recorded");
   });
 
   test("[unit] F2-D7 the sample's verdict and copy agree on rule 3", async () => {
-    const els = await renderPage();
-    expect(els.get("heroResult")?.textContent).toEndWith("Verdict: Use Jev (rule 3).");
+    const sample = await buildSample(await readFile(SAMPLE_RECORDS, "utf8"));
+    expect(sample.explained.verdict).toBe("Use Jev (rule 3)");
   });
 
-  test("[unit] F2-D10 a method with no accepted answer has an undefined cost per kept answer in the data, and the page still renders its result bar", async () => {
+  test("[unit] F2-D10 a method with no accepted answer has an undefined cost per kept answer in the data, and the page still renders", async () => {
     const csv = (await readFile(SAMPLE_RECORDS, "utf8")).split("\n").map((l) => (l.includes(",jev,") ? l.replace(",accept,", ",reject,") : l)).join("\n");
     await expect(buildSample(csv)).rejects.toThrow("Stage copy disagrees with computed verdict and rule");
     const original = await buildSample(await readFile(SAMPLE_RECORDS, "utf8"));
@@ -164,10 +160,9 @@ describe("Stage sample: the recorded shop-bot run (F2)", () => {
     const sample = { ...original, summary: { ...original.summary, C: armTotal(rejected, "C") } };
     expect(sample.summary.C.cpk).toBeNull();
     expect(sample.summary.A.cpk).not.toBeNull();
+    // The ledger and the result bars that drew this are retired (#260); the page still renders with a method that kept nothing.
     const els = await renderPage(sampleScript(sample));
-    // The ledger that drew "undefined (0 kept)" is retired with Act III; the page still renders a method that kept nothing.
-    expect(els.get("resultBars")?.innerHTML).toContain("0 of 100 kept");
-    expect(els.get("resultBars")?.innerHTML).not.toContain("NaN");
+    expect(els.get("fin")?.textContent).not.toContain("NaN");
   });
 
   test("[unit] F2-D8 the user story for the verdict links the written rules and restates none of them", async () => {

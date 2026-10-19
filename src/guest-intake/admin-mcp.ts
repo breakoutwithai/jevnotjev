@@ -12,6 +12,7 @@
 // request and response caps, a deadline, fixed error codes, and the token scrubbed from every result. The read-only
 // hints on list_questions and get_question are hints to the client; the server enforces what each route may do through
 // the token's scope and the route's method. This module makes no model call and starts no process. stdout carries MCP only.
+// createAdminServer holds the tool definitions; the remote endpoint (admin-mcp-http.ts, #283) serves the same server.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { checkOrigin, createRequester, createTokenRunner, GUEST_ORIGIN, pinnedUrl, Refusal, serveStdio, shaped, TIMEOUT_MS, type GuestFetch, type ToolResult } from "./mcp.ts";
@@ -77,7 +78,23 @@ export function createAdminMcp(opts: AdminMcpOptions): McpServer {
     requestBytesMax: ADMIN_REQUEST_BYTES_MAX,
     responseBytesMax: ADMIN_RESPONSE_BYTES_MAX,
   });
-  const run = createTokenRunner(opts.env, ADMIN_TOKEN_ENV, TOKEN_PATTERN, "an operator token: expected jna_ and 43 base64url characters");
+  const tokenRun = createTokenRunner(opts.env, ADMIN_TOKEN_ENV, TOKEN_PATTERN, "an operator token: expected jna_ and 43 base64url characters");
+  return createAdminServer((_tool, _id, fn) => tokenRun((token) => fn((method, path, payload) => request(token, method, path, payload))));
+}
+
+/** One admin route request: a path under /api/v1/admin/questions, the parsed 2xx body, or a thrown Refusal(code, status). */
+export type AdminSend = (method: "GET" | "POST", path: string, payload?: Readonly<Record<string, unknown>>) => Promise<unknown>;
+
+/**
+ * Runs one tool body with a sender. The adapter owns the credential, the transport and the error mapping: the stdio
+ * adapter sends over HTTPS with the env token, the remote endpoint (admin-mcp-http.ts) calls the admin API in process.
+ */
+export type AdminToolRunner = (tool: AdminToolName, id: string | undefined, fn: (send: AdminSend) => Promise<unknown>) => Promise<ToolResult>;
+
+export type AdminToolName = "get_question" | "list_questions" | "reply_question";
+
+/** The three admin tools, defined once for both adapters: names, titles, schemas, annotations and result shapes. */
+export function createAdminServer(run: AdminToolRunner): McpServer {
   const server = new McpServer({ name: "jevnotjev-admin", version: "1.0.0" });
 
   server.registerTool(
@@ -88,7 +105,7 @@ export function createAdminMcp(opts: AdminMcpOptions): McpServer {
       inputSchema: z.strictObject({}),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (): Promise<ToolResult> => run(async (token) => shaped(LISTED, await request(token, "GET", QUESTIONS_PATH))),
+    async (): Promise<ToolResult> => run("list_questions", undefined, async (send) => shaped(LISTED, await send("GET", QUESTIONS_PATH))),
   );
 
   server.registerTool(
@@ -102,8 +119,8 @@ export function createAdminMcp(opts: AdminMcpOptions): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (a): Promise<ToolResult> =>
-      run(async (token) => {
-        const read = shaped(READ, await request(token, "GET", `${QUESTIONS_PATH}/${a.id}`));
+      run("get_question", a.id, async (send) => {
+        const read = shaped(READ, await send("GET", `${QUESTIONS_PATH}/${a.id}`));
         if (read.id !== a.id) throw new Refusal("invalid-response");
         return read;
       }),
@@ -127,9 +144,9 @@ export function createAdminMcp(opts: AdminMcpOptions): McpServer {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async (a): Promise<ToolResult> =>
-      run(async (token) => {
+      run("reply_question", a.id, async (send) => {
         const body = { version: a.version, to: a.to, ...(a.text !== undefined ? { text: a.text } : {}), ...(a.source !== undefined ? { source: a.source } : {}) };
-        const replied = shaped(REPLIED, await request(token, "POST", `${QUESTIONS_PATH}/${a.id}/reply`, body));
+        const replied = shaped(REPLIED, await send("POST", `${QUESTIONS_PATH}/${a.id}/reply`, body));
         if (replied.id !== a.id) throw new Refusal("invalid-response");
         return replied;
       }),

@@ -27,6 +27,7 @@ import { createGuestRoutes, isGuestPath } from "../guest-intake/guest-routes.ts"
 import { questionAdminArgs, runQuestionAdmin } from "../guest-intake/admin-cli.ts";
 import { createAdminRoutes, isAdminPath, type AdminAccess } from "../guest-intake/admin-routes.ts";
 import { createAdminApi, isAdminApiPath } from "../guest-intake/admin-api.ts";
+import { ADMIN_MCP_PATH, createAdminMcpHttp } from "../guest-intake/admin-mcp-http.ts";
 import type { QuestionLimits } from "../guest-intake/contract.ts";
 import { checkDelete, checkMap, createMapLogger, MapStore, MAX_MAP_BODY, MAX_MAP_DELETE_BODY } from "./maps.ts";
 import { rankPosters, type Poster } from "../shows/posters.ts";
@@ -241,6 +242,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   const guests = createGuestRoutes({ path: options.tickets?.path, clock, log: options.log, limits: options.questions?.limits, limiterCapacity: options.questions?.limiterCapacity });
   const questionAdmin = createAdminRoutes({ path: options.tickets?.path, origin, clock, log: options.log, limits: options.questions?.limits });
   const adminApi = createAdminApi({ path: options.tickets?.path, clock, log: options.log, limits: options.questions?.limits });
+  const adminMcp = createAdminMcpHttp({ api: adminApi, origin, clock, log: options.log });
   const tokensPath = options.api?.tokensPath;
   const api = createApiV1({
     tokens: new ApiTokenStore(tokensPath !== undefined && tokensPath !== "" && !isInside(tokensPath, root) ? tokensPath : null),
@@ -704,6 +706,8 @@ export function createHandler(options: ServerOptions): BackstageHandler {
     // Guest questions (#256) own /api/v1/guest/ and are dispatched first: a guest token never reaches the decide tools.
     if (isGuestPath(pathname)) return guests.handle(request, pathname, ip, rid);
     // The operator bearer API (#282) owns /api/v1/admin/, also ahead of decide: a jna_ token reaches only these routes.
+    // The remote admin MCP (#283) is the one path under /api/v1/admin/ that speaks MCP; its tools call adminApi in process.
+    if (pathname === ADMIN_MCP_PATH) return adminMcp.handle(request, rid);
     if (isAdminApiPath(pathname)) return adminApi.handle(request, pathname, rid);
     if (pathname === API_V1_PREFIX || pathname.startsWith(`${API_V1_PREFIX}/`)) {
       const maxConcurrent = options.maxConcurrent ?? 8;

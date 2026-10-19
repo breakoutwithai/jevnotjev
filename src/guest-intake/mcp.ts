@@ -217,7 +217,8 @@ export function createRequester(o: RequesterOptions): Requester {
   };
 }
 
-function fail(code: string, status: number | null, message?: string): ToolResult {
+/** A tool error result: { error: { code, status?, message? } }. */
+export function fail(code: string, status: number | null, message?: string): ToolResult {
   return {
     content: [{ type: "text", text: JSON.stringify({ error: { code, ...(status !== null ? { status } : {}), ...(message !== undefined ? { message } : {}) } }, null, 2) }],
     isError: true,

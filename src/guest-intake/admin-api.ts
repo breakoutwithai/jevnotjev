@@ -56,13 +56,43 @@ export interface AdminApiOptions {
   readonly limits?: Partial<QuestionLimits> | undefined;
 }
 
+/** The verified operator, null for a missing or bad token, or "unsafe" when the token state cannot be trusted. */
+export type AdminAuth = AdminPrincipal | null | "unsafe";
+
+/** A decoded request body, or the refusal reading it produced. */
+export type AdminBody = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly reason: string; readonly status: number };
+
+/** One admin route call by an already verified operator: what the HTTP routes and the remote MCP (#283) both run. */
+export interface AdminCall {
+  readonly principal: AdminPrincipal;
+  /** Re-verifies the same credential just before a write; it must still be the same operator. */
+  readonly recheck: () => AdminAuth;
+  readonly method: string;
+  readonly pathname: string;
+  /** Read only for the reply route. */
+  readonly body: () => Promise<AdminBody>;
+  readonly rid: string;
+}
+
+export interface AdminOutcome {
+  readonly status: number;
+  readonly body: unknown;
+  readonly headers?: Readonly<Record<string, string>>;
+}
+
 export interface AdminApi {
   readonly handle: (request: Request, pathname: string, rid: string) => Promise<Response>;
+  /** The bearer check every admin route uses, exposed for the remote MCP endpoint. */
+  readonly authenticate: (request: Request) => AdminAuth;
+  /** Route one call without HTTP: same scope check, store calls, refusal codes and logs as handle. */
+  readonly perform: (call: AdminCall) => Promise<AdminOutcome>;
   readonly close: () => void;
 }
 
 const HEADERS = { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" };
-const CHALLENGE = 'Bearer realm="jevnotjev-admin"';
+/** No resource_metadata: there is no OAuth authorization server (#283 phase 1). */
+export const ADMIN_CHALLENGE = 'Bearer realm="jevnotjev-admin"';
+const CHALLENGE = ADMIN_CHALLENGE;
 const BODY_TIMEOUT_MS = 5000;
 /** The states whose transition stores the text; any other target refuses text rather than dropping it (#281). */
 const CARRIES_TEXT = new Set(["needs_info", "answered"]);
@@ -100,8 +130,7 @@ export function createAdminApi(opts: AdminApiOptions): AdminApi {
   };
   const reply = (body: unknown, status = 200, extra: Record<string, string> = {}): Response => Response.json(body, { status, headers: { ...HEADERS, ...extra } });
 
-  /** The verified operator, null for a bad token, or "unsafe" when the token state cannot be trusted. */
-  const authenticate = (request: Request): AdminPrincipal | null | "unsafe" => {
+  const authenticate = (request: Request): AdminAuth => {
     if (path === undefined) return "unsafe";
     try {
       tokens ??= new AdminTokenStore(path, opts.clock);
@@ -111,69 +140,90 @@ export function createAdminApi(opts: AdminApiOptions): AdminApi {
     }
   };
 
-  const handle = async (request: Request, pathname: string, rid: string): Promise<Response> => {
-    const reject = (reason: string, status: number, token: string | null, id?: string, extra: Record<string, string> = {}): Response => {
-      log(id === undefined ? { event: "question.api.rejected", rid, token, reason } : { event: "question.api.rejected", rid, token, id, reason });
-      return reply({ code: reason }, status, extra);
-    };
-    if (questions === null) return reject("questions-unavailable", 503, null);
-    const principal = authenticate(request);
-    if (principal === "unsafe") return reject("auth-unavailable", 503, null);
-    if (principal === null) return reject("unauthenticated", 401, null, undefined, { "www-authenticate": CHALLENGE });
+  const perform = async (call: AdminCall): Promise<AdminOutcome> => {
+    const { principal, rid } = call;
     const token = principal.tokenId;
-    const target = targetOf(pathname);
-    if (target.kind === "none") return reject("not-found", 404, token);
-    if (request.method !== target.route.method) return reject("method-not-allowed", 405, token, undefined, { allow: target.route.method });
-    if (!principal.scopes.includes(target.route.scope)) return reject("forbidden", 403, token);
+    const reject = (reason: string, status: number, id?: string, headers: Readonly<Record<string, string>> = {}): AdminOutcome => {
+      log(id === undefined ? { event: "question.api.rejected", rid, token, reason } : { event: "question.api.rejected", rid, token, id, reason });
+      return { status, body: { code: reason }, headers };
+    };
+    if (questions === null) return reject("questions-unavailable", 503);
+    const target = targetOf(call.pathname);
+    if (target.kind === "none") return reject("not-found", 404);
+    if (call.method !== target.route.method) return reject("method-not-allowed", 405, undefined, { allow: target.route.method });
+    if (!principal.scopes.includes(target.route.scope)) return reject("forbidden", 403);
 
     if (target.kind === "list") {
       try {
         const rows = questions.list();
         const newest = rows.slice(-ADMIN_LIST_MAX).reverse().map((r) => ({ id: r.id, state: r.state, created_at: r.created_at, updated_at: r.updated_at, version: r.version }));
         log({ event: "question.api.list", rid, token });
-        return reply({ total: rows.length, questions: newest });
+        return { status: 200, body: { total: rows.length, questions: newest } };
       } catch {
-        return reject("store-error", 503, token);
+        return reject("store-error", 503);
       }
     }
     const id = target.id;
     if (target.kind === "one") {
       let row;
       try { row = questions.show(id); }
-      catch { return reject("store-error", 503, token, id); }
-      if (row === null) return reject("not-found", 404, token, id);
+      catch { return reject("store-error", 503, id); }
+      if (row === null) return reject("not-found", 404, id);
       log({ event: "question.api.read", rid, token, id });
-      return reply({
-        id: row.id, created_at: row.created_at, updated_at: row.updated_at, email: row.email, question: row.question,
-        state: row.state, version: row.version, response: row.response, response_source: row.response_source,
-      });
+      return {
+        status: 200,
+        body: {
+          id: row.id, created_at: row.created_at, updated_at: row.updated_at, email: row.email, question: row.question,
+          state: row.state, version: row.version, response: row.response, response_source: row.response_source,
+        },
+      };
     }
 
-    if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") return reject("json-required", 415, token, id);
-    if (Number(request.headers.get("content-length") ?? 0) > bodyCap) return reject("too-large", 413, token, id);
-    let decoded: unknown;
-    try {
-      decoded = JSON.parse(await boundedBody(request, bodyCap, BODY_TIMEOUT_MS));
-    } catch (error) {
-      return error instanceof TooLarge || !(error instanceof SyntaxError) ? reject("too-large", 413, token, id) : reject("bad-json", 400, token, id);
-    }
-    const body = parseReplyBody(decoded);
-    if (body === null) return reject("bad-body", 400, token, id);
-    if (!CARRIES_TEXT.has(body.to) && (body.text !== undefined || body.source !== undefined)) return reject("text-not-stored", 400, token, id);
+    const decoded = await call.body();
+    if (!decoded.ok) return reject(decoded.reason, decoded.status, id);
+    const body = parseReplyBody(decoded.value);
+    if (body === null) return reject("bad-body", 400, id);
+    if (!CARRIES_TEXT.has(body.to) && (body.text !== undefined || body.source !== undefined)) return reject("text-not-stored", 400, id);
     // The upload can take seconds: the token must still be live, and the same operator, at the moment of writing.
-    const again = authenticate(request);
-    if (again === "unsafe") return reject("auth-unavailable", 503, token, id);
-    if (again === null || again.tokenId !== token) return reject("unauthenticated", 401, token, id, { "www-authenticate": CHALLENGE });
+    const again = call.recheck();
+    if (again === "unsafe") return reject("auth-unavailable", 503, id);
+    if (again === null || again.tokenId !== token) return reject("unauthenticated", 401, id, { "www-authenticate": CHALLENGE });
     let result: ChangeResult;
     try { result = applyReply(questions, id, body, `operator:api:${token}`, opts.clock()); }
-    catch { return reject("store-error", 503, token, id); }
-    if (!result.ok) return reject(result.reason, CHANGE_STATUS[result.reason] ?? 400, token, id);
+    catch { return reject("store-error", 503, id); }
+    if (!result.ok) return reject(result.reason, CHANGE_STATUS[result.reason] ?? 400, id);
     log({ event: "question.api.changed", rid, token, id });
-    return reply({ id, state: body.to, version: result.version });
+    return { status: 200, body: { id, state: body.to, version: result.version } };
+  };
+
+  /** The reply route's body as the HTTP API reads it: JSON content type, the byte cap and the upload deadline. */
+  const readBody = async (request: Request): Promise<AdminBody> => {
+    if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") return { ok: false, reason: "json-required", status: 415 };
+    if (Number(request.headers.get("content-length") ?? 0) > bodyCap) return { ok: false, reason: "too-large", status: 413 };
+    try {
+      return { ok: true, value: JSON.parse(await boundedBody(request, bodyCap, BODY_TIMEOUT_MS)) };
+    } catch (error) {
+      return error instanceof TooLarge || !(error instanceof SyntaxError) ? { ok: false, reason: "too-large", status: 413 } : { ok: false, reason: "bad-json", status: 400 };
+    }
+  };
+
+  const handle = async (request: Request, pathname: string, rid: string): Promise<Response> => {
+    const reject = (reason: string, status: number, extra: Record<string, string> = {}): Response => {
+      log({ event: "question.api.rejected", rid, token: null, reason });
+      return reply({ code: reason }, status, extra);
+    };
+    if (questions === null) return reject("questions-unavailable", 503);
+    const principal = authenticate(request);
+    if (principal === "unsafe") return reject("auth-unavailable", 503);
+    if (principal === null) return reject("unauthenticated", 401, { "www-authenticate": CHALLENGE });
+    const done = await perform({ principal, recheck: () => authenticate(request), method: request.method, pathname, body: () => readBody(request), rid });
+    return reply(done.body, done.status, { ...done.headers });
   };
 
   return {
     handle,
+    authenticate,
+    perform,
     close: () => {
       questions?.close();
       tokens?.close();

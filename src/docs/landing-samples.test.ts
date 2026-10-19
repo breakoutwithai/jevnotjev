@@ -737,11 +737,10 @@ test("[integration] #201-5 the page shows each explained part, in view or behind
         if (poster.verdictLine && await card.locator(".tk-verdict").count() === 1 && (await card.locator(".tk-verdict").innerText()).trim() !== poster.verdictLine) problems.push(`${width}: ${poster.id} .tk-verdict differs from verdictLine`);
       }
       if (!stage?.explained) problems.push(`${width}: Stage has no explained copy`);
-      await visiblePart(page.locator("body"), "#heroWhy", stage?.explained?.why ?? null, "Stage", problems);
-      // The acts are retired: the Stage's verdict line and reason stay readable in About this sample (#heroResult, #heroWhy).
-      const heroResult = (await page.locator("#heroResult").textContent()) ?? "";
-      if (stage?.verdictLine && !heroResult.includes(`Verdict: ${stage.verdictLine}`)) problems.push(`${width}: #heroResult lacks the Stage verdict ${stage.verdictLine}`);
-      for (const id of ["t5", "verdictWhy", "verdictCases", "verdictNext", "verdictEarlier"]) if (await page.locator(`#${id}`).count() !== 0) problems.push(`${width}: #${id} is back on the landing`);
+      // The acts and the Kept answers panel are retired (#260): the Stage's verdict now lives on the 100-message replay
+      // (the For developers link), so none of its parts is back on the landing.
+      for (const id of ["t5", "verdictWhy", "verdictCases", "verdictNext", "verdictEarlier", "heroResult", "heroWhy", "resultBars"]) if (await page.locator(`#${id}`).count() !== 0) problems.push(`${width}: #${id} is back on the landing`);
+      if (await page.locator('.dev-link a[href="replay/?run=uc13-100"]').count() !== 1) problems.push(`${width}: no link to the 100-message replay`);
     } finally { await page.close(); }
   }
   requireClean(problems);

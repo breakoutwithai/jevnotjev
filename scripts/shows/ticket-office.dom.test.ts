@@ -47,7 +47,7 @@ test("[integration] #136 the ticket-office link is on the plain first screen wit
   for (const [width, height] of VIEWPORTS) for (const motion of MOTIONS) {
     const page = await pageAt(width, height, motion);
     try {
-      expect(await page.locator("#t1").innerText()).toBe("To Jev or not to Jev in four acts");
+      expect(await page.locator("#t1").innerText()).toBe("To Jev or not to Jev in four questions");
       const jump = page.getByRole("link", { name: "Go to the ticket office" });
       expect(await jump.isVisible()).toBe(true);
       if (CAPTURE && motion === "no-preference") { mkdirSync(CAPTURE, { recursive: true }); await page.screenshot({ path: join(CAPTURE, `first-${width}.png`) }); }
@@ -74,14 +74,12 @@ test("[integration] #136 the ticket-office link is on the plain first screen wit
   }
 }, 20000);
 
-test("[integration] #136 the title is in the page and the fixed-answer explanation sits in About this sample", async () => {
+test("[integration] #136 the title is in the page and the picture story says Jev picks from a short list you write", async () => {
   for (const [width, height] of VIEWPORTS) for (const motion of MOTIONS) {
     const page = await pageAt(width, height, motion);
     try {
-      expect(await page.locator("#t1").innerText()).toBe("To Jev or not to Jev in four acts");
-      const what = page.locator("#aboutSample .hero-what");
-      expect(await what.textContent()).toBe("Jev picks one answer from a fixed list. It does not write text.");
-      expect(await what.evaluate((node) => node.closest("details")?.id ?? "")).toBe("aboutSample");
+      expect(await page.locator("#t1").innerText()).toBe("To Jev or not to Jev in four questions");
+      expect(await page.locator("#week .lede").textContent()).toBe("Jev picks from a short list of answers you write. For people who hit their Claude weekly limit.");
     } finally { await page.close(); }
   }
 }, 20000);

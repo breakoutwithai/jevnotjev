@@ -54,7 +54,8 @@ export async function verifyPasswordHash(password: string, stored: string | unde
   return Boolean(stored && valid && password) && timingSafeEqual(actual, expected);
 }
 
-export interface Operator { readonly email: string; readonly displayName?: string; readonly password_hash?: string }
+/** `admin` is present only when the operators.json row carries the boolean true; it opens the question admin routes (#278). */
+export interface Operator { readonly email: string; readonly displayName?: string; readonly password_hash?: string; readonly admin?: boolean }
 export function credentialFingerprint(credential: string): string { return createHash("sha256").update(credential).digest("hex").slice(0, 16); }
 
 // Ported from groit apps/booth/server.js:1060-1094 at bb29d8cc. No env or bootstrap fallback.
@@ -81,7 +82,8 @@ export class OperatorStore {
             if (!key || !key.includes("@")) continue;
             const row: Operator = { email: key,
               ...( "displayName" in value && typeof value.displayName === "string" ? { displayName: value.displayName.trim() } : {}),
-              ...( "password_hash" in value && typeof value.password_hash === "string" ? { password_hash: value.password_hash.trim() } : {}) };
+              ...( "password_hash" in value && typeof value.password_hash === "string" ? { password_hash: value.password_hash.trim() } : {}),
+              ...( "admin" in value && value.admin === true ? { admin: true } : {}) };
             this.rows.set(key, row);
           }
         } catch { this.rows.clear(); }

@@ -55,7 +55,8 @@ const PLANTS: Record<string, (html: string) => string> = {
   "/old-captions/": (html) => {
     let n = 0;
     const captioned = html.replace(/<p class="p-cap">[^<]*<\/p>/g, () => `<p class="p-cap">${OLD_CAPTIONS[n++] ?? ""}</p>`);
-    return force(captioned, />(How hard|How far up)<\/h2>/, ">How far up</h2>");
+    // c02 put each title in a button: the plant keeps the button and swaps its words.
+    return force(captioned, />(How hard|How far up)(<\/button>)?<\/h2>/, ">How far up$2</h2>");
   },
   "/small-label/": (html) => {
     const sized = force(html, /font-size="\d+"( font-weight="700" letter-spacing="2" fill="#8a1a2e">PICK ONE)/g, 'font-size="13"$1');

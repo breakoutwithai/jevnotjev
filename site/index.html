@@ -348,7 +348,8 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
   <div class="stage4">
 
   <article class="poster" aria-labelledby="t-noul">
-    <h2 class="p-title" id="t-noul">Yes or no</h2>
+    <h2 class="p-title" id="t-noul"><button class="p-name" type="button" aria-expanded="false" aria-controls="ex-noul">Yes or no</button></h2>
+    <span class="p-chip">Start here: Yes or no</span>
     <svg class="pic4" viewBox="0 0 300 200" role="group" aria-label="A dial with a needle leaning toward YES. Example reading: 78 percent yes. Tap to swing it.">
       <g class="hit" id="noul-hit" tabindex="0" role="button" aria-label="Swing the dial between two example readings">
         <rect x="0" y="0" width="300" height="200" fill="transparent"/>
@@ -366,10 +367,11 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
       </g>
     </svg>
     <p class="p-cap">Will it happen? Jev gives the odds.</p>
+    <p class="p-ex" id="ex-noul" hidden>Example: will this job hit my weekly limit?</p>
   </article>
 
   <article class="poster" aria-labelledby="t-choice">
-    <h2 class="p-title" id="t-choice">Pick one</h2>
+    <h2 class="p-title" id="t-choice"><button class="p-name" type="button" aria-expanded="false" aria-controls="ex-choice">Pick one</button></h2>
     <svg class="pic4" viewBox="0 0 300 200" role="group" aria-label="Three tickets: small, medium and large. One is lit. Example choice. Tap a ticket to light it.">
       <defs><linearGradient id="bm" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe6a6" stop-opacity=".85"/><stop offset="1" stop-color="#ffe6a6" stop-opacity="0"/></linearGradient></defs>
       <rect width="300" height="200" fill="#26070d"/>
@@ -398,10 +400,11 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
       <text x="150" y="190" font-size="18" font-weight="800" fill="#ffe6a6" text-anchor="middle" id="choice-read">Medium is lit</text>
     </svg>
     <p class="p-cap">Which one fits? Jev picks from your list.</p>
+    <p class="p-ex" id="ex-choice" hidden>Example: a small, medium or large helper for this job?</p>
   </article>
 
   <article class="poster" aria-labelledby="t-score">
-    <h2 class="p-title" id="t-score">How hard</h2>
+    <h2 class="p-title" id="t-score"><button class="p-name" type="button" aria-expanded="false" aria-controls="ex-score">How hard</button></h2>
     <svg class="pic4" viewBox="0 0 300 200" role="group" aria-label="A ladder with three rungs: easy, ordinary and hard. A marker sits on ordinary. Example. Tap a rung to move it.">
       <rect width="300" height="200" fill="#f1e5c6"/>
       <rect x="86" y="12" width="9" height="180" fill="#5a0f1c"/>
@@ -431,10 +434,11 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
       </g>
     </svg>
     <p class="p-cap">How hard is this job? Jev rates it.</p>
+    <p class="p-ex" id="ex-score" hidden>Example: is this job easy, ordinary or hard?</p>
   </article>
 
   <article class="poster" aria-labelledby="t-box">
-    <h2 class="p-title" id="t-box">Where</h2>
+    <h2 class="p-title" id="t-box"><button class="p-name" type="button" aria-expanded="false" aria-controls="ex-box">Where</button></h2>
     <svg class="pic4" viewBox="0 0 300 200" role="group" aria-label="A screenshot-like window with a bar meter. A frame is drawn around the meter. Example. Tap to draw the frame again.">
       <g class="hit" id="box-hit" tabindex="0" role="button" aria-label="Draw the frame again">
         <rect width="300" height="200" fill="#e4d6b3"/>
@@ -456,6 +460,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
       </g>
     </svg>
     <p class="p-cap">Where is my limit? Jev finds the meter.</p>
+    <p class="p-ex" id="ex-box" hidden>Example: where is the limit meter on this screen?</p>
   </article>
 
   </div>

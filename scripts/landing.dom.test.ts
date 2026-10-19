@@ -878,6 +878,109 @@ test("[integration] UX2 c01 Raise the curtain is a button on the closed curtain,
   }
 }, 30000);
 
+/** The four tiles' titles, in order (c02: each tile's title is a real button with that name). */
+const TILE_NAMES = ["Yes or no", "Pick one", "How hard", "Where"];
+
+/** Per tile: whether it is lit, its named controls, whether its one-line example shows, and the page height. */
+async function tileState(page: Page): Promise<{ lit: boolean[]; names: string[]; example: boolean[]; height: number }> {
+  return page.evaluate(() => {
+    const tiles = [...document.querySelectorAll("#types article.poster")];
+    return {
+      lit: tiles.map((t) => t.hasAttribute("data-lit")),
+      names: tiles.map((t) => [...t.querySelectorAll("button, a[href]")].map((b) => (b.textContent ?? "").trim()).join("|")),
+      example: tiles.map((t) => { const ex = t.querySelector(".p-ex"); return ex !== null && ex.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }); }),
+      height: document.documentElement.scrollHeight,
+    };
+  });
+}
+
+/** The follow-spot (#types::before): its computed look and whether it is switched on. */
+async function spot(page: Page): Promise<{ on: boolean; display: string; position: string; blend: string; width: string; image: string; duration: string }> {
+  return page.evaluate(() => {
+    const types = document.getElementById("types");
+    const s = getComputedStyle(types ?? document.body, "::before");
+    return { on: types?.hasAttribute("data-spot") ?? false, display: s.display, position: s.position, blend: s.mixBlendMode, width: s.width, image: s.backgroundImage.slice(0, 15), duration: s.transitionDuration };
+  });
+}
+
+test("[integration] UX3 c02 the four tiles are controls: each title is a button named for its tile; the gold follow-spot travels from the marquee to Yes or no once the curtain opens and holds there with a ring and a Start here chip; hover or focus moves it", async () => {
+  for (const [width, height] of [[1280, 900], [390, 844]] as [number, number][]) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      expect({ width, names: (await tileState(page)).names }).toEqual({ width, names: TILE_NAMES });
+      // Nothing is lit behind the closed curtain.
+      expect({ width, spot: (await spot(page)).on, lit: (await tileState(page)).lit }).toEqual({ width, spot: false, lit: [false, false, false, false] });
+      await openOntoResults(page);
+      await page.waitForFunction(() => document.querySelector("#types article.poster")?.hasAttribute("data-lit") === true, undefined, { timeout: 3000 });
+      await page.waitForTimeout(400);
+      // It travelled there over 900 ms and holds.
+      expect(await spot(page)).toEqual({ on: true, display: "block", position: "fixed", blend: "screen", width: "520px", image: "radial-gradient", duration: "0.9s, 0.4s" });
+      const start = await page.evaluate(() => {
+        const tile = document.querySelector("#types article.poster");
+        const chip = tile?.querySelector(".p-chip");
+        return { chip: chip?.textContent ?? "", shown: chip?.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) ?? false, ring: getComputedStyle(tile ?? document.body).boxShadow.includes("rgb(255, 230, 166)") };
+      });
+      expect({ width, start }).toEqual({ width, start: { chip: "Start here: Yes or no", shown: true, ring: true } });
+      const before = (await tileState(page)).height;
+      // Hover moves the light to the tile under the pointer in 350 ms and changes a computed style on every tile.
+      for (let i = 0; i < 4; i++) {
+        const tile = page.locator("#types article.poster").nth(i);
+        await tile.scrollIntoViewIfNeeded();
+        await page.mouse.move(1, 1);
+        await page.waitForTimeout(400);
+        const look = (): Promise<string> => tile.evaluate((n) => { const s = getComputedStyle(n); return [s.transform, s.boxShadow, s.borderTopColor, s.filter].join("|"); });
+        const was = await look();
+        const s0 = (await spot(page)).duration;
+        await tile.hover({ position: { x: 20, y: 20 } });
+        await page.waitForTimeout(500);
+        expect({ width, i, changed: (await look()) !== was, lit: (await tileState(page)).lit[i], dur: await spot(page).then((s) => s.duration) }).toEqual({ width, i, changed: true, lit: true, dur: i === 0 ? s0 : "0.35s, 0.4s" });
+      }
+      // Focus moves it too; the title button opens the tile's one-line example, which takes no room on the page.
+      await page.locator("#types article.poster").nth(1).locator("button.p-name").focus();
+      expect((await tileState(page)).lit).toEqual([false, true, false, false]);
+      await page.keyboard.press("Enter");
+      const opened = await tileState(page);
+      expect({ width, example: opened.example, expanded: await page.locator("#types article.poster").nth(1).locator("button.p-name").getAttribute("aria-expanded"), height: opened.height }).toEqual({ width, example: [false, true, false, false], expanded: "true", height: before });
+      expect(await page.locator("#types article.poster").nth(1).locator(".p-ex").innerText()).toMatch(/^Example: /);
+      // Lighting another tile closes the first one's example.
+      await page.locator("#types article.poster").nth(3).locator("button.p-name").focus();
+      expect((await tileState(page)).example).toEqual([false, false, false, false]);
+    } finally { await page.close(); }
+  }
+}, 40000);
+
+test("[integration] UX4 c02 on a touch screen a tap on a tile moves the light there and shows its one-line example; the picture's own tap still works", async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: "no-preference" });
+  const page = await context.newPage();
+  try {
+    await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
+    await page.goto(`http://127.0.0.1:${server.port}/#types`, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+    const caption = page.locator("#types article.poster").nth(2).locator(".p-cap");
+    await caption.scrollIntoViewIfNeeded();
+    await caption.tap();
+    const after = await tileState(page);
+    expect({ lit: after.lit, example: after.example }).toEqual({ lit: [false, false, true, false], example: [false, false, true, false] });
+    const pin = await page.evaluate(() => document.getElementById("pin")?.style.transform ?? "");
+    await page.locator('#rungs [data-i="2"]').tap();
+    expect(await page.evaluate(() => document.getElementById("pin")?.style.transform ?? "")).not.toBe(pin);
+  } finally { await context.close(); }
+}, 20000);
+
+test("[integration] UX5 c02 under reduced motion there is no follow-spot and nothing travels: Yes or no carries a static ring and the Start here chip from load, and the tiles have no transitions", async () => {
+  for (const [width, height] of [[1280, 900], [390, 844]] as [number, number][]) {
+    const page = await pageAt(width, height, "reduce");
+    try {
+      expect({ width, display: (await spot(page)).display }).toEqual({ width, display: "none" });
+      const look = await page.evaluate(() => [...document.querySelectorAll("#types article.poster")].map((t) => ({
+        lit: t.hasAttribute("data-lit"), chip: t.querySelector(".p-chip") !== null, moves: getComputedStyle(t).transitionDuration.split(",").some((d) => parseFloat(d) > 0),
+      })));
+      expect({ width, look }).toEqual({ width, look: [{ lit: true, chip: true, moves: false }, ...[1, 2, 3].map(() => ({ lit: false, chip: false, moves: false }))] });
+      expect(await page.locator("#types article.poster").first().evaluate((n) => getComputedStyle(n).boxShadow.includes("rgb(255, 230, 166)"))).toBe(true);
+    } finally { await page.close(); }
+  }
+}, 30000);
+
 test("[integration] V4 the curtain poster opens Little Shop", async () => {
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");

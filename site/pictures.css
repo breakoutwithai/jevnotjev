@@ -1,5 +1,5 @@
 /* The picture story on the landing page (moved from the retired /explainer): the four kinds of question (.types),
-   "One question, start to finish" (.story), the week chart (.entry) and one week, two ways (.payoff). Every rule sits
+   "One question..." (.story), the week chart (.entry) and one week, two ways (.payoff). Every rule sits
    under the .jx wrapper so it never reaches the page's own posters, stages or acts. Colours the page does not define
    are set on .jx; the rest come from the page, so House lights works here too. */
 .jx{--brass-dim:#8a6a26;--gold:#b8892a;--bulb:#ffe6a6;--cream:#efe2c4;--cream-ink:#2a1408;--paper:#e9d9b4;--black:#1a0508;--wine:#5a0f1c}
@@ -105,14 +105,6 @@
 .motion .jx .frame .draw{stroke-dasharray:300;stroke-dashoffset:300;transition:stroke-dashoffset .9s ease .5s}
 .motion .jx .frame.on .draw{stroke-dashoffset:0}
 }
-/* motion, desktop: one pinned stage */
-.pinned .jx .story-body{position:relative;height:calc(var(--n) * 100svh)}
-.pinned .jx .stage{position:sticky;top:0;height:100svh;overflow:hidden}
-.pinned .jx .frames{position:relative;height:100%}
-.pinned .jx .frame{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .45s ease;margin:0 auto;align-content:center}
-.pinned .jx .frame.on{opacity:1;pointer-events:auto}
-.pinned .jx .frame .pic{max-height:78svh}
-.pinned .jx .frame .pic svg{max-height:76svh}
 
 /* ---------- 4 PAYOFF: one week, two ways. Bar and stamp colours are fixed, as their backgrounds are fixed in both themes. ---------- */
 .jx #payoff:focus{outline:none}

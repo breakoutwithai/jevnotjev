@@ -1,5 +1,5 @@
 // The curtain opens onto the four-questions pictures (#260 first-visit clarity). These tests pin the reveal: no
-// "Sample run" chip in the nav, the four pictures first after the curtain, then "One question, start to finish" and
+// "Sample run" chip in the nav, the four pictures first after the curtain, then "One question..." and
 // "Where does your week go?", no Pause button, motion that honours reduced motion and ends by
 // itself within 5 seconds, and the four captions identical in both pages.
 import { afterAll, beforeAll, expect, test } from "bun:test";
@@ -74,7 +74,7 @@ for (const motion of ["no-preference", "reduce"] as const) {
   }, 30000);
 }
 
-test("[integration] R2 the curtain opens onto the four pictures: they are the first content after the marquee, in view once open, then One question, start to finish, then Where does your week go?", async () => {
+test("[integration] R2 the curtain opens onto the four pictures: they are the first content after the marquee, in view once open, then One question..., then Where does your week go?", async () => {
   for (const [width, height] of WIDTHS) {
     const page = await pageAt(width, height, "no-preference");
     try {
@@ -87,7 +87,7 @@ test("[integration] R2 the curtain opens onto the four pictures: they are the fi
       expect({ width, order: order.slice(0, 3) }).toEqual({ width, order: ["types", "story", "week"] });
       expect(await page.locator("#types article.poster").count()).toBe(4);
       expect(await page.locator("#types .poster .p-title").allInnerTexts()).toEqual(["Yes or no", "Pick one", "How hard", "Where"]);
-      expect((await page.locator("#story .kick").innerText()).toLowerCase()).toBe("one question, start to finish");
+      expect((await page.locator("#story .kick").innerText()).toLowerCase()).toBe("one question...");
       expect(await page.locator("#week h2").innerText()).toBe("Where does your week go?");
       expect(await page.locator("#results, #resultBars, #resultsTitle").count()).toBe(0);
       // Open the curtain the way a visitor does: scroll over it until it is open.

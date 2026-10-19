@@ -3,9 +3,8 @@
  *   demonstration once they first come into view: two steps 1.6 s apart, all movement over by about 4 s, then still.
  *   The motion ends by itself, so there is no Pause button; under reduced motion nothing moves by itself.
  * - Reduced motion turned on while the page is open stops the demonstration at once and lays the scenes out still.
- * - "One question, start to finish": under reduced motion (or without IntersectionObserver) all three scenes show,
- *   fully drawn; otherwise each scene draws as it arrives on a phone, and from 900 px one stage is pinned and the
- *   scenes change with the scroll.
+ * - "One question...": under reduced motion (or without IntersectionObserver) all three scenes show,
+ *   fully drawn; otherwise each scene draws as it arrives, at every width (nothing is pinned).
  * - One week, two ways (#payoff): the bars fill once it is a third in view; under reduced motion they start full.
  */
 (function () {
@@ -103,31 +102,15 @@
     return;
   }
   root.classList.add('motion');
+  // Every width reveals the scenes in flow, each as it arrives (no pinned stage: it added about 2700 px at 1440, #273).
   var watchers = [];
   onCalm(function () {
     watchers.forEach(function (o) { o.disconnect(); });
-    root.classList.remove('pinned');
-    var marks = $('#sents');
-    if (marks) { marks.textContent = ''; marks.removeAttribute('style'); }
     frames.forEach(function (f) { f.classList.add('on'); });
   });
-  var obs = function (el, cb, opts) { var o = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) cb(e.target, o); }); }, opts); o.observe(el); watchers.push(o); return o; };
-  if (window.matchMedia('(min-width: 900px)').matches) {
-    root.classList.add('pinned');
-    var j = $('#journey'), sents = $('#sents');
-    j.style.setProperty('--n', frames.length);
-    sents.style.cssText = 'position:absolute;inset:0;pointer-events:none';
-    var show = function (i) { frames.forEach(function (f, k) { f.classList.toggle('on', k === i); }); };
-    frames.forEach(function (_, k) {
-      var s = document.createElement('div'); s.dataset.i = k;
-      s.style.cssText = 'position:absolute;left:0;right:0;height:100svh;top:' + (k * 100) + 'svh';
-      sents.appendChild(s);
-    });
-    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) show(+e.target.dataset.i); }); }, { rootMargin: '-50% 0px -50% 0px' });
-    watchers.push(io);
-    $$('#sents > div').forEach(function (s) { io.observe(s); });
-    show(0);
-  } else {
-    frames.forEach(function (f) { obs(f, function (t, o) { t.classList.add('on'); o.disconnect(); }, { threshold: 0.4 }); });
-  }
+  frames.forEach(function (f) {
+    var o = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('on'); o.disconnect(); } }); }, { threshold: 0.4 });
+    o.observe(f);
+    watchers.push(o);
+  });
 })();

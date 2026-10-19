@@ -41,6 +41,12 @@
     $("officePanel").hidden = false;
     $("officeOpen").setAttribute("aria-expanded", "true");
   }
+  if ($("tkCopyPrompt")) $("tkCopyPrompt").addEventListener("click", function () {
+    if (!navigator.clipboard) { $("tkCopyStatus").textContent = "Select the prompt above to copy it."; return; }
+    navigator.clipboard.writeText($("tkReadyPrompt").textContent).then(function () {
+      $("tkCopyStatus").textContent = "Copied.";
+    }).catch(function () { $("tkCopyStatus").textContent = "Select the prompt above to copy it."; });
+  });
   if ($("officeOpen")) $("officeOpen").addEventListener("click", function () {
     var open = $("officePanel").hidden;
     $("officePanel").hidden = !open;
@@ -48,15 +54,16 @@
     if (open && !form.hidden) $("tkEmail").focus();
   });
   /* One button for anyone with their own decision: opens the office (never toggles it shut), shows the form again if a
-     request was already issued, prefills the idea once, and leaves the caret at the end. It sends nothing. */
+     request was already issued, prefills the idea once, leaves the caret at the end and scrolls the ready prompt into view. It sends nothing. */
   var PREFILL = "Assess my use case: ";
   if ($("tkBring")) $("tkBring").addEventListener("click", function () {
     openPanel();
     reopen();
     var idea = $("tkIdea");
     if (idea.value.trim() === "") idea.value = PREFILL;
-    idea.focus();
+    idea.focus({ preventScroll: true });
     idea.setSelectionRange(idea.value.length, idea.value.length);
+    $("tkPlayground").scrollIntoView({ block: "start" });
   });
   function openHash() {
     if (window.location.hash !== "#tkForm" && window.location.hash !== "#csv") return;
@@ -236,6 +243,7 @@
     h.tabIndex = -1;
     box.appendChild(h);
     box.appendChild(el("p", "", "Keep this number; we do not email it. Quote it if you ask us to delete your details."));
+    box.appendChild(el("p", "", "Stored on our server: your ticket number, submission time, request type, email, optional website and decision, follow-up choice, consent, and a code to prevent a second submission. To delete these details, open a GitHub issue quoting only your ticket number. Do not put your email or decision in that issue."));
     box.appendChild(el("p", "", "A person reads each request and replies to your email address. If your decision suits a test, the reply explains how to sign in to Backstage; the request alone does not open it."));
     var another = el("button", "tk-submit", "Get another ticket");
     another.type = "button";

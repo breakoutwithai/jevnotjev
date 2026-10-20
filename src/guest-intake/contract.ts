@@ -2,6 +2,7 @@
 // Pure: no storage, no network, no provider. A question is untrusted text; nothing here reads it as an instruction.
 import { createHash } from "node:crypto";
 import { EMAIL } from "../backstage/tickets.ts";
+import { checkSharePayload, type MapPayload } from "../backstage/maps.ts";
 
 /** Public submit body cap (bytes); nginx `location = /api/questions` matches it (16k). */
 export const MAX_QUESTION_BODY = 16_384;
@@ -78,13 +79,13 @@ export interface Submission {
   readonly requestKey: string;
 }
 
-export type SubmissionRejectReason = "bad-body" | "unknown-field" | "bad-email" | "bad-question" | "no-consent" | "bad-consent" | "bad-request-key";
+export type SubmissionRejectReason = "bad-body" | "unknown-field" | "bad-email" | "bad-question" | "bad-usage" | "no-consent" | "bad-consent" | "bad-request-key";
 export type SubmissionCheck =
   | { readonly ok: true; readonly submission: Submission }
   | { readonly ok: true; readonly trap: true }
   | { readonly ok: false; readonly reason: SubmissionRejectReason };
 
-const PUBLIC_KEYS: readonly string[] = ["email", "question", "reply_consent", "marketing_consent", "request_key", "nickname"];
+const PUBLIC_KEYS: readonly string[] = ["email", "question", "reply_consent", "marketing_consent", "request_key", "nickname", "usage"];
 export const REQUEST_KEY = /^[A-Za-z0-9_-]{43}$/;
 export const QUESTION_ID = /^Q-[0-9A-F]{12}$/;
 // C0 controls other than tab and newline, DEL, and C1 controls.
@@ -106,6 +107,26 @@ function question(value: unknown, limit: number): string | null {
   return text;
 }
 
+/** Stable plain-text usage block kept inside the reviewed question. */
+export function renderUsage(payload: MapPayload): string {
+  return [
+    "TokenMax usage (tm-share/1, self-reported, not verified)",
+    `v: ${payload.v}`,
+    `skill: ${payload.skill}`,
+    `days: ${payload.days}`,
+    `sources: ${payload.sources}`,
+    `sessions: ${payload.sessions}`,
+    `subagent_sessions: ${payload.subagent_sessions}`,
+    `caps.short: ${payload.caps.short}`,
+    `caps.weekly: ${payload.caps.weekly}`,
+    `caps.unknown: ${payload.caps.unknown}`,
+    `output_tokens.claude: ${payload.output_tokens.claude}`,
+    `output_tokens.codex: ${payload.output_tokens.codex}`,
+    `opus_share_pct: ${payload.opus_share_pct}`,
+    `codex_weekly_pct: ${payload.codex_weekly_pct === null ? "null" : payload.codex_weekly_pct}`,
+  ].join("\n");
+}
+
 /** Validate a decoded `POST /api/questions` body. A filled honeypot (`nickname`) is accepted and never stored. */
 export function checkPublicSubmission(body: unknown, limits: QuestionLimits = QUESTION_LIMITS): SubmissionCheck {
   if (typeof body !== "object" || body === null || Array.isArray(body)) return { ok: false, reason: "bad-body" };
@@ -118,12 +139,15 @@ export function checkPublicSubmission(body: unknown, limits: QuestionLimits = QU
   if (email === "" || email.length > 254 || !EMAIL.test(email)) return { ok: false, reason: "bad-email" };
   const text = question(own(body, "question"), limits.maxQuestionChars);
   if (text === null) return { ok: false, reason: "bad-question" };
+  const rawUsage = own(body, "usage");
+  const usage = Object.prototype.hasOwnProperty.call(body, "usage") ? checkSharePayload(rawUsage) : null;
+  if (usage !== null && !usage.ok) return { ok: false, reason: "bad-usage" };
   if (own(body, "reply_consent") !== true) return { ok: false, reason: "no-consent" };
   const marketing = own(body, "marketing_consent");
   if (marketing !== undefined && typeof marketing !== "boolean") return { ok: false, reason: "bad-consent" };
   const key = own(body, "request_key");
   if (typeof key !== "string" || !REQUEST_KEY.test(key)) return { ok: false, reason: "bad-request-key" };
-  return { ok: true, submission: { email, question: text, replyConsent: true, marketingConsent: marketing === true, requestKey: key } };
+  return { ok: true, submission: { email, question: usage === null ? text : `${text}\n\n${renderUsage(usage.payload)}`, replyConsent: true, marketingConsent: marketing === true, requestKey: key } };
 }
 
 const GUEST_KEYS: readonly string[] = ["question", "reply_consent", "marketing_consent", "request_key"];

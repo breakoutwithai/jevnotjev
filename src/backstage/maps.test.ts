@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHandler } from "./server.ts";
-import { BOARD_CACHE_MS, checkMap, MAP_BOUNDS, MapStore, MAX_MAP_BODY } from "./maps.ts";
+import { BOARD_CACHE_MS, checkMap, checkSharePayload, MAP_BOUNDS, MapStore, MAX_MAP_BODY } from "./maps.ts";
 import { addClaude, buildShare, newClaudeState, newCodexState, parseClaudeLine, RANGES, summarise } from "../../skills/tokenmax-map/scripts/map.ts";
 
 const ORIGIN = "http://localhost:3456";
@@ -117,6 +117,14 @@ const REJECTED: { name: string; body: unknown; code: string; field?: string }[] 
 ];
 
 describe("checkMap schema", () => {
+  test("[unit] VP-5 share payload check matches every accepted and rejected map fixture", () => {
+    expect(checkSharePayload(payload)).toMatchObject({ ok: true, payload });
+    expect(checkSharePayload({ ...payload, codex_weekly_pct: null }).ok).toBe(true);
+    for (const row of REJECTED.filter((item) => item.code === "bad-payload")) {
+      const candidate = typeof row.body === "object" && row.body !== null ? Reflect.get(row.body, "payload") : undefined;
+      expect(checkSharePayload(candidate).ok, row.name).toBe(false);
+    }
+  });
   test("[unit] the contract example is accepted and re-serialised in contract order", () => {
     const shuffled = { ...body, payload: { codex_weekly_pct: 42, ...without(payload, "codex_weekly_pct") } };
     const checked = checkMap(shuffled);

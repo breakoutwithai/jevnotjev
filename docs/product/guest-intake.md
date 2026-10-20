@@ -18,7 +18,7 @@ A visitor brings one decision question, gets a receipt, and later reads a person
 | Decide MCP | `src/mcp/server.ts:1-12,52` | Local stdio, six tools, reads provider keys from process env, can call providers | Not reused for guests. A separate adapter registers only question tools. |
 | Sessions | `src/backstage/auth.ts:57`; `docs/backstage-deploy.md:24` | `Operator` has email, displayName, password_hash and, since #278, an optional `admin` set only by the boolean true. `operators.json` holds testers | A signed-in session is not an admin unless its row has `"admin": true`. |
 | Public nginx routes | `.deploy/backstage-nginx.conf:43-69` | Exact `location =` per public API route | `/api/questions` needs two new locations: a snippet change, so `.deploy/ship.sh --setup --module backstage` before deploy (`docs/process/pipeline.md:53`). |
-| Map receiver | `src/backstage/maps.ts:235-297` | Every stored map is on the public board | No private TokenMax storage exists; S4 builds one or defers private upload. |
+| Map receiver | `src/backstage/maps.ts` | Every stored map is on the public board | Private usage sends use the guest-question queue instead. |
 | Backstage build | `scripts/backstage-build.ts:8` | Bundles `src/backstage/server.ts` and its imports | New `src/guest-intake/` modules ship inside the Backstage release. |
 | Static site | `.deploy/deploy.sh:5-14` | nginx serves `site/` from `/var/www/jevnotjev` | `site/ask/` ships with the static module. |
 | Deploy gate | `.deploy/backstage-deploy.sh:38-41` | Requires HEAD == origin/main and a merged PR for HEAD | Unchanged. |
@@ -244,11 +244,11 @@ Differences from the approved text above, made while building PR 1:
 - **needs_info templates:** `transition <id> needs_info --version <n> --template choices|example|outcome|one-decision` stores a fixed note with source `template` (`NEEDS_INFO_TEMPLATES` in `contract.ts`).
 - **Public retry:** after a 409 `request-key-reused` the `/ask/` page starts a fresh attempt, so sending again works.
 
-## Optional TokenMax usage (S4)
+## Private usage send
 
-- `/ask/` has an optional section, separate from the question, with one copyable prompt that wraps the existing `site/tm/map.ts`: the user picks the Claude Code and Codex log folders (or none) and the period, the assistant shows the first lines of the script, runs it with `--claude`, `--codex`, `--days` or `--from`/`--to` and `--out`, explains `share-draft.md` without cost or savings estimates, and stops. A test checks every flag in the prompt against the real `parseArgs`.
-- Deferred to #242: private TokenMax storage. Every map the current receiver stores is on the public board (`src/backstage/maps.ts`), and PR #243's hosted preview has no nginx route and no durable private receiver. The page says private sending is not available and that `/maps/` is a separate public step the user takes.
-- No Jev option appears in this journey.
+- `/ask/` gives a copyable prompt to run `site/tm/map.ts` with `--share` on the visitor's workstation. The visitor opens the printed `/maps/#m=` review link and chooses a private send, public share, or neither. The assistant does not open the link or send anything.
+- The private form posts to the existing `POST /api/questions` route with email, typed note, consent, request key and a `usage` object. The server validates `usage` with the tm-share/1 validator before composing the stored question text. The typed note keeps its 4,096 character limit. The stored question and request hash include the fixed, ordered usage block.
+- The same queue, person review and reply path handles the submission. The visitor keeps the status code shown once and reads the reply at `/ask/#status`. The public map board is not written. There is no automatic analysis, provider call, new route or new table.
 
 ## Open operator decisions
 

@@ -28,6 +28,13 @@ const REAL: SharePayload = {
 };
 const MOTIONS: ("no-preference" | "reduce")[] = ["no-preference", "reduce"];
 
+test("[unit] VP-6 skip link names the sample and marks its fragment", () => {
+  const html = readFileSync(join(SITE, "tm", "index.html"), "utf8");
+  const link = /<a href="([^"]+)"[^>]*>(See a sample card)<\/a>/.exec(html);
+  expect(link?.[1]).toMatch(/\/maps\/#m=[A-Za-z0-9_-]+&sample$/);
+  expect(link?.[2]).toBe("See a sample card");
+});
+
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
 
@@ -637,7 +644,7 @@ test("[integration] in motion mode the keyboard reaches /maps/ and this week's c
       if (focused) reached.push(focused);
     }
     expect(reached.filter((f) => f.href === "/maps/").map((f) => f.inView)).toEqual([true]);
-    expect(reached.filter((f) => f.href === shareLink(REAL)).map((f) => f.inView)).toEqual([true]);
+    expect(reached.filter((f) => f.href === `${shareLink(REAL)}&sample`).map((f) => f.inView)).toEqual([true]);
   } finally { await close(page); }
 }, 30000);
 

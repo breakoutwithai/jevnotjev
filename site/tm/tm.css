@@ -267,6 +267,9 @@ html:not(.motion) .key { display: none; }
                 radial-gradient(circle 9px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
 }
 .cmdbox { flex: 1; min-width: 0; }
+.ticket .setup { margin: 0 0 4px; font: 600 12px/1.25 var(--sans); color: #3a1a0c; }
+.ticket .setup a { display: inline-block; min-width: 24px; min-height: 24px; color: #7b1424; font-size: 13px; line-height: 24px; }
+.ticket .setup code { display: inline; font: inherit; color: inherit; white-space: nowrap; }
 /* The whole command, wrapped, never clipped: what you copy is what you read. */
 .ticket code { display: block; font: 500 14px/1.6 var(--mono); color: #3a1a0c; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ticket code b { color: var(--brass); font-weight: 500; }
@@ -344,10 +347,11 @@ html:not(.motion) .key { display: none; }
   .next a { min-height: 28px; }
   /* Narrow ticket: the command on its own full-width rows, the notes under it, then the trust line beside Copy. */
   .ticket {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "code code" "notes notes" "guide guide" "trust copy";
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "setup setup" "code code" "notes notes" "guide guide" "trust copy";
     column-gap: 10px; row-gap: 2px; padding: 8px 12px 8px 14px;
   }
   .cmdbox { display: contents; }
+  .ticket .setup { grid-area: setup; }
   .ticket code { grid-area: code; font-size: 12.5px; line-height: 1.5; word-break: break-all; }
   .ticket .guide-link { grid-area: guide; }
   .notes { grid-area: notes; column-gap: 14px; }

@@ -1,5 +1,5 @@
 {
-  "minFiles": 157,
+  "minFiles": 158,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -61,6 +61,7 @@
     "scripts/uat/backstage-simplified-flow.test.ts": 14,
     "scripts/uat/fresh-clone.test.ts": 22,
     "scripts/uat/happy-path-lib.test.ts": 62,
+    "scripts/uat/prototype-shots.dom.test.ts": 5,
     "scripts/uat/scan-run-note.test.ts": 281,
     "scripts/uc13/arms.test.ts": 28,
     "scripts/uc13/calls.test.ts": 8,

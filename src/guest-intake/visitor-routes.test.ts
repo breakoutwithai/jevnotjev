@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cookie, cookieName, credentialFingerprint, signSession } from "../backstage/auth.ts";
+import { cookie, cookieName, credentialFingerprint, SESSION_TTL_MS, signSession } from "../backstage/auth.ts";
 import { createHandler } from "../backstage/server.ts";
 import * as contract from "./contract.ts";
 import { QuestionStore } from "./store.ts";
@@ -47,8 +47,9 @@ function position(value: unknown): number {
   return value;
 }
 
-function profileFor(n: number): Record<string, unknown> {
-  return { email: `v${n}@example.com`, email_verified: true, aud: CLIENT_ID, iss: "https://accounts.google.com", sub: `sub-${n}` };
+/** Profile n; with `renamed` the same Google sub reports a new email, `v<n>-renamed@example.com`. */
+function profileFor(n: number, renamed = false): Record<string, unknown> {
+  return { email: renamed ? `v${n}-renamed@example.com` : `v${n}@example.com`, email_verified: true, aud: CLIENT_ID, iss: "https://accounts.google.com", sub: `sub-${n}` };
 }
 
 async function fakeGoogle(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -56,12 +57,12 @@ async function fakeGoogle(input: RequestInfo | URL, init?: RequestInit): Promise
   if (url.pathname === "/token") {
     const body = init?.body;
     const code = body instanceof URLSearchParams ? body.get("code") ?? "" : "";
-    const match = /^c(\d+)$/.exec(code);
-    return match ? Response.json({ id_token: `t${match[1]}` }) : Response.json({ error: "invalid_grant" }, { status: 400 });
+    const match = /^c(\d+)(r?)$/.exec(code);
+    return match ? Response.json({ id_token: `t${match[1]}${match[2]}` }) : Response.json({ error: "invalid_grant" }, { status: 400 });
   }
   if (url.pathname === "/tokeninfo") {
-    const match = /^t(\d+)$/.exec(url.searchParams.get("id_token") ?? "");
-    return match ? Response.json(profileFor(Number(match[1]))) : Response.json({ error: "invalid_token" }, { status: 400 });
+    const match = /^t(\d+)(r?)$/.exec(url.searchParams.get("id_token") ?? "");
+    return match ? Response.json(profileFor(Number(match[1]), match[2] === "r")) : Response.json({ error: "invalid_token" }, { status: 400 });
   }
   return Response.json({ error: "unexpected" }, { status: 404 });
 }
@@ -156,13 +157,13 @@ interface Visitor {
 
 let visitorSeq = 0;
 
-/** Real Google start + callback for profile n. */
-async function signIn(b: Box, n: number): Promise<{ response: Response; location: string | null; value: string | null }> {
+/** Real Google start + callback for profile n (`renamed`: same sub, new email). */
+async function signIn(b: Box, n: number, renamed = false): Promise<{ response: Response; location: string | null; value: string | null }> {
   const start = await send(b, new Request(`${ORIGIN}/api/auth/google?next=/backstage/`));
   if (start.status !== 302) throw new Error(`google start: ${start.status}`);
   const state = new URL(start.headers.get("location") ?? "https://invalid.test/").searchParams.get("state") ?? "";
   const nonce = setCookieValue(start, OAUTH_COOKIE) ?? "";
-  const response = await send(b, new Request(`${ORIGIN}/api/auth/google/callback?state=${encodeURIComponent(state)}&code=c${n}`, { headers: { cookie: `${OAUTH_COOKIE}=${nonce}` } }));
+  const response = await send(b, new Request(`${ORIGIN}/api/auth/google/callback?state=${encodeURIComponent(state)}&code=c${n}${renamed ? "r" : ""}`, { headers: { cookie: `${OAUTH_COOKIE}=${nonce}` } }));
   return { response, location: response.headers.get("location"), value: setCookieValue(response, VISITOR_COOKIE) };
 }
 
@@ -704,19 +705,17 @@ describe("visitor sign-out", () => {
     expect(store(b).counts().questions).toBe(0);
   });
 
-  test("[integration] VR23 sign-out when the visitor store fails is 503 store-error and still sends the clearing cookie", async () => {
+  test("[integration] VR23 sign-out when the visitor store fails is 503 store-error with no clearing cookie, so the retry still revokes the session", async () => {
     const b = box();
     const v = await visitor(b);
-    const cleared = (res: Response): string => res.headers.getSetCookie().find((h) => h.startsWith(`${VISITOR_COOKIE}=`)) ?? "";
+    const visitorSetCookies = (res: Response): string[] => res.headers.getSetCookie().filter((h) => h.startsWith(`${VISITOR_COOKIE}=`));
     // The row cannot be read (authenticate is unsafe): the visitors table is renamed away by another connection.
     const other = new Database(b.path);
     other.exec("PRAGMA busy_timeout=5000");
     other.exec("ALTER TABLE visitors RENAME TO visitors_away");
     try {
       const unread = await send(b, vPost(v.cookie, "", { path: `${BASE}/sign-out` }));
-      expect([unread.status, (await obj(unread)).code]).toEqual([503, "store-error"]);
-      expect(cleared(unread)).toStartWith(`${VISITOR_COOKIE}=;`);
-      expect(cleared(unread)).toContain("Max-Age=0");
+      expect([unread.status, (await obj(unread)).code, visitorSetCookies(unread)]).toEqual([503, "store-error", []]);
     } finally {
       other.exec("ALTER TABLE visitors_away RENAME TO visitors");
     }
@@ -724,14 +723,17 @@ describe("visitor sign-out", () => {
     other.exec("BEGIN IMMEDIATE");
     try {
       const unwritten = await send(b, vPost(v.cookie, "", { path: `${BASE}/sign-out` }));
-      expect([unwritten.status, (await obj(unwritten)).code]).toEqual([503, "store-error"]);
-      expect(cleared(unwritten)).toContain("Max-Age=0");
+      expect([unwritten.status, (await obj(unwritten)).code, visitorSetCookies(unwritten)]).toEqual([503, "store-error", []]);
     } finally {
       other.exec("ROLLBACK");
       other.close();
     }
-    // Neither failure rotated the generation, so the client was told the sign-out did not happen server-side.
+    // Neither failure rotated the generation and the browser kept its cookie, so the retry carries it and revokes.
     expect((await send(b, vGet(v.cookie, `${BASE}/me`))).status).toBe(200);
+    const retry = await send(b, vPost(v.cookie, "", { path: `${BASE}/sign-out` }));
+    expect(retry.status).toBe(204);
+    expect(visitorSetCookies(retry).join("")).toContain("Max-Age=0");
+    expect((await send(b, vGet(v.cookie, `${BASE}/me`))).status).toBe(401);
   }, 30_000);
 
   test("[integration] VR24 sign-out is neither counted nor refused by the per-address submit limiter", async () => {
@@ -790,6 +792,58 @@ describe("visitor session re-checked inside the write", () => {
     }
     expect(store(b).counts().questions).toBe(0);
   }, 30_000);
+
+  /** A submit whose body stops after 10 bytes until `release` is called. */
+  function slowSubmit(b: Box, cookieHeader: string, data: Record<string, unknown>): { readonly pending: Promise<Response>; readonly release: () => void } {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const request = new Request(`${ORIGIN}${QUESTIONS}`, { method: "POST", headers: { cookie: cookieHeader, origin: ORIGIN, "content-type": "application/json" }, body: streamed(JSON.stringify(data), gate) });
+    return { pending: send(b, request), release };
+  }
+
+  test("[integration] VR26 a signed-out or disabled session replaying an existing key during the upload is 401, not a replay", async () => {
+    const b = box();
+    const hows: readonly ("sign-out" | "disabled")[] = ["sign-out", "disabled"];
+    for (const how of hows) {
+      const v = await visitor(b);
+      const first = submitBody();
+      await submitOk(b, v, first);
+      const slow = slowSubmit(b, v.cookie, first);
+      await Bun.sleep(20);
+      if (how === "sign-out") expect((await send(b, vPost(v.cookie, "", { path: `${BASE}/sign-out` }))).status).toBe(204);
+      else disable(b.path, v.sub, b.clock.now);
+      slow.release();
+      const res = await slow.pending;
+      expect([how, res.status, (await obj(res)).code]).toEqual([how, 401, "unauthenticated"]);
+    }
+    expect(store(b).counts().questions).toBe(2);
+  });
+
+  test("[integration] VR27 a token that expires while the body is still uploading is 401 and stores nothing", async () => {
+    const b = box();
+    const v = await visitor(b);
+    const slow = slowSubmit(b, v.cookie, submitBody());
+    await Bun.sleep(20);
+    b.clock.now += SESSION_TTL_MS + 1;
+    slow.release();
+    const res = await slow.pending;
+    expect([res.status, (await obj(res)).code]).toEqual([401, "unauthenticated"]);
+    expect(store(b).counts().questions).toBe(0);
+  });
+
+  test("[integration] VR28 the same Google account signing in with a new email during the upload stores the new email", async () => {
+    const b = box();
+    const v = await visitor(b);
+    const slow = slowSubmit(b, v.cookie, submitBody());
+    await Bun.sleep(20);
+    const renamed = await signIn(b, v.n, true);
+    expect([renamed.response.status, renamed.location]).toEqual([303, "/ask/mine/"]);
+    slow.release();
+    const res = await slow.pending;
+    const out = await obj(res);
+    expect(res.status).toBe(200);
+    expect(store(b).show(str(out.id))?.email).toBe(`v${v.n}-renamed@example.com`);
+  });
 });
 
 describe("free waitlist position", () => {

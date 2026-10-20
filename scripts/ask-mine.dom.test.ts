@@ -26,16 +26,22 @@ interface Fake {
   signOutStatus: number;
   questionsStatus: number;
   questionsBody: unknown;
+  /** Sent verbatim as the /questions body when set (for a literal `null`). */
+  questionsRaw: string | null;
+  /** When set, a /questions response is decided on arrival and sent only once this resolves. */
+  questionsGate: Promise<void> | null;
+  /** Called when a /questions request arrives. */
+  onQuestions: (() => void) | null;
 }
 
-const fake: Fake = { signedIn: false, email: "", canAsk: false, reason: null, waitlistPosition: null, questions: [], submitStatus: 200, submitBody: {}, signOutStatus: 204, questionsStatus: 200, questionsBody: null };
+const fake: Fake = { signedIn: false, email: "", canAsk: false, reason: null, waitlistPosition: null, questions: [], submitStatus: 200, submitBody: {}, signOutStatus: 204, questionsStatus: 200, questionsBody: null, questionsRaw: null, questionsGate: null, onQuestions: null };
 const posts: { path: string; contentType: string | null; body: unknown }[] = [];
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
 let handler: ReturnType<typeof createHandler>;
 
 function reset(patch: Partial<Fake>): void {
-  Object.assign(fake, { signedIn: false, email: "", canAsk: false, reason: null, waitlistPosition: null, questions: [], submitStatus: 200, submitBody: { id: "Q-0123456789AB", state: "pending_review", replay: false }, signOutStatus: 204, questionsStatus: 200, questionsBody: null }, patch);
+  Object.assign(fake, { signedIn: false, email: "", canAsk: false, reason: null, waitlistPosition: null, questions: [], submitStatus: 200, submitBody: { id: "Q-0123456789AB", state: "pending_review", replay: false }, signOutStatus: 204, questionsStatus: 200, questionsBody: null, questionsRaw: null, questionsGate: null, onQuestions: null }, patch);
   posts.length = 0;
 }
 
@@ -61,8 +67,14 @@ beforeAll(async () => {
         }
         if (!fake.signedIn) return Response.json({ code: "unauthenticated" }, { status: 401 });
         if (path.endsWith("/me")) return Response.json({ email: fake.email, can_ask: fake.canAsk, reason: fake.reason, waitlist_position: fake.waitlistPosition });
-        if (fake.questionsStatus !== 200) return Response.json({ code: "store-error" }, { status: fake.questionsStatus });
-        return Response.json(fake.questionsBody ?? { questions: fake.questions });
+        fake.onQuestions?.();
+        const response = fake.questionsStatus !== 200
+          ? Response.json({ code: "store-error" }, { status: fake.questionsStatus })
+          : fake.questionsRaw !== null
+            ? new Response(fake.questionsRaw, { headers: { "content-type": "application/json" } })
+            : Response.json(fake.questionsBody ?? { questions: fake.questions });
+        if (fake.questionsGate !== null) await fake.questionsGate;
+        return response;
       }
       return handler(request, { remoteAddress: "198.51.100.7" });
     },
@@ -77,8 +89,9 @@ afterAll(async () => {
   handler?.close();
 });
 
-async function open(): Promise<Page> {
+async function open(before?: (page: Page) => Promise<void>): Promise<Page> {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  if (before !== undefined) await before(page);
   await page.goto(`${server.url.origin}/ask/mine/`);
   return page;
 }
@@ -279,6 +292,68 @@ describe("my questions page", () => {
         expect(await page.locator("#mineSignOut").isEnabled()).toBe(true);
       } finally { await page.close(); }
     }
+  });
+
+  test("[integration] VM-13 a load still in flight at a confirmed sign-out never repaints the signed-in view", async () => {
+    reset({ signedIn: true, email: "visitor@example.test", canAsk: false, reason: "one-question", questions: [answered], questionsStatus: 503 });
+    const page = await open();
+    try {
+      await page.locator("#mineListErr").waitFor({ state: "visible" });
+      let release: () => void = () => {};
+      fake.questionsGate = new Promise<void>((resolve) => { release = resolve; });
+      const arrived = new Promise<void>((resolve) => { fake.onQuestions = resolve; });
+      fake.questionsStatus = 200;
+      await page.locator("#mineRetry").click();
+      await arrived;
+      // The older load now waits on /questions; the visitor signs out (the button is in the hidden signed-in view).
+      await page.evaluate(() => { document.getElementById("mineSignOut")?.click(); });
+      await page.locator("#mineSignedOut").waitFor({ state: "visible" });
+      fake.questionsGate = null;
+      release();
+      await page.waitForTimeout(300);
+      expect(await page.locator("#mineSignedOut").isVisible()).toBe(true);
+      expect(await page.locator("#mineSignedIn").isVisible()).toBe(false);
+      expect(await page.locator("#mineEmail").textContent()).toBe("");
+      expect(await page.locator("#mineList article").count()).toBe(0);
+      expect(await page.content()).not.toContain("Route shop questions to stock help");
+    } finally { await page.close(); }
+  });
+
+  test("[integration] VM-14 a failed, null or malformed /questions after /me keeps the signed-in view with the list error and sign-out", async () => {
+    const cases: [string, Partial<Fake>, ((page: Page) => Promise<void>) | undefined][] = [
+      ["rejected fetch", {}, async (page) => { await page.route("**/api/v1/visitor/questions", (route) => route.abort()); }],
+      ["null body", { questionsRaw: "null" }, undefined],
+      ["null entry", { questionsBody: { questions: [null] } }, undefined],
+    ];
+    for (const [label, patch, before] of cases) {
+      reset({ signedIn: true, email: "visitor@example.test", canAsk: false, reason: "one-question", questions: [answered], ...patch });
+      const page = await open(before);
+      try {
+        await page.waitForFunction(() => document.getElementById("mineSignedIn")?.hidden === false || document.getElementById("mineSignedOut")?.hidden === false);
+        expect([label, await page.locator("#mineSignedIn").isVisible(), await page.locator("#mineSignedOut").isVisible()]).toEqual([label, true, false]);
+        expect([label, await page.locator("#mineListErr").isVisible()]).toEqual([label, true]);
+        expect([label, await page.locator("#mineSignOut").isVisible(), await page.locator("#mineEmail").innerText()]).toEqual([label, true, "visitor@example.test"]);
+        expect([label, await page.locator("#mineList article").count(), await page.locator("#mineEmpty").isVisible()]).toEqual([label, 0, false]);
+        expect([label, await page.locator("#mineError").isVisible()]).toEqual([label, false]);
+      } finally { await page.close(); }
+    }
+  });
+
+  test("[integration] VM-15 a needs_info question shows how to send the missing information, quoting its id", async () => {
+    const needsInfo: FakeQuestion = { ...answered, id: "Q-BBBBBBBBBBBB", state: "needs_info", response: "Which shop is this for?", response_source: "template" };
+    reset({ signedIn: true, email: "visitor@example.test", canAsk: false, reason: "one-question", questions: [needsInfo, answered] });
+    const page = await open();
+    try {
+      await page.locator("#mineList article").first().waitFor({ state: "visible" });
+      const cards = page.locator("#mineList article");
+      const text = await cards.nth(0).innerText();
+      const note = "To add the missing information, write to jev@breakoutwithai.com quoting your reference.";
+      expect(text).toContain("Which shop is this for?");
+      expect(text).toContain(note);
+      expect(text).toContain("Your reference: Q-BBBBBBBBBBBB");
+      expect(text.indexOf(note)).toBeGreaterThan(text.indexOf("Which shop is this for?"));
+      expect(await cards.nth(1).innerText()).not.toContain("To add the missing information");
+    } finally { await page.close(); }
   });
 
   test("[unit] VM-8 the page links the shared stylesheet first and uses no inline script or innerHTML", () => {

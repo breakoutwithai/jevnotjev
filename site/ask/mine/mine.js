@@ -89,6 +89,11 @@
         box.appendChild(el("pre", "", q.response));
         box.appendChild(el("p", "hint", "Replies are reviewed by a person. No model has assessed your question, its accuracy or any savings."));
       }
+      // One question per visitor, so missing information goes by email, quoting the question id.
+      if (q.state === "needs_info") {
+        box.appendChild(el("p", "", "To add the missing information, write to jev@breakoutwithai.com quoting your reference."));
+        box.appendChild(el("p", "hint", "Your reference: " + String(q.id)));
+      }
       list.appendChild(box);
     });
   }
@@ -99,27 +104,50 @@
     return { status: res.status, ok: res.ok, data: data };
   }
 
+  // A list is an array of objects; anything else (null, a null entry, a string) is a failed list.
+  function validList(data) {
+    if (data === null || typeof data !== "object" || !Array.isArray(data.questions)) return null;
+    for (var i = 0; i < data.questions.length; i++) {
+      var q = data.questions[i];
+      if (q === null || typeof q !== "object" || Array.isArray(q)) return null;
+    }
+    return data.questions;
+  }
+
+  // Each load and each confirmed sign-out takes a new generation; a load that is no longer current renders nothing.
+  var generation = 0;
+
   async function load() {
+    var mine = ++generation;
+    var current = function () { return mine === generation; };
     setText($("mineError"), "");
     view("loading");
+    var me;
     try {
-      var me = await getJson("/me");
-      if (me.status === 401) { view("out"); return; }
-      if (!me.ok || typeof me.data.email !== "string") { view("out"); setText($("mineError"), "Could not check your sign-in right now. Try again later."); return; }
-      var qs = await getJson("/questions");
-      if (qs.status === 401) { view("out"); return; }
-      $("mineEmail").textContent = me.data.email;
-      var reason = typeof me.data.reason === "string" ? me.data.reason : "";
-      setText($("mineMessage"), reason !== "" && REASONS[reason] ? reasonText(reason, "", me.data.waitlist_position) : "");
-      show($("mineForm"), me.data.can_ask === true);
-      setText($("mineSignOutErr"), "");
-      if (qs.ok && Array.isArray(qs.data.questions)) renderQuestions(qs.data.questions);
-      else listFailed();
-      view("in");
+      me = await getJson("/me");
     } catch (error) {
+      if (!current()) return;
       view("out");
       setText($("mineError"), "Could not reach the server. Try again later.");
+      return;
     }
+    if (!current()) return;
+    if (me.status === 401) { view("out"); return; }
+    if (!me.ok || me.data === null || typeof me.data !== "object" || typeof me.data.email !== "string") { view("out"); setText($("mineError"), "Could not check your sign-in right now. Try again later."); return; }
+    // /me succeeded: from here the visitor is signed in, and a failed list never shows the signed-out view.
+    var qs = null;
+    try { qs = await getJson("/questions"); } catch (error) { qs = null; }
+    if (!current()) return;
+    if (qs !== null && qs.status === 401) { view("out"); return; }
+    $("mineEmail").textContent = me.data.email;
+    var reason = typeof me.data.reason === "string" ? me.data.reason : "";
+    setText($("mineMessage"), reason !== "" && REASONS[reason] ? reasonText(reason, "", me.data.waitlist_position) : "");
+    show($("mineForm"), me.data.can_ask === true);
+    setText($("mineSignOutErr"), "");
+    var list = qs !== null && qs.ok ? validList(qs.data) : null;
+    if (list !== null) renderQuestions(list);
+    else listFailed();
+    view("in");
   }
 
   function formError(text) { setText($("mineFormErr"), text); }
@@ -183,7 +211,8 @@
       setText($("mineSignOutErr"), "Could not confirm that you signed out. You may still be signed in; try again.");
       return;
     }
-    // Confirmed: drop everything of the signed-in visitor from the page and the script state.
+    // Confirmed: no older load may render after this, and everything of the signed-in visitor leaves the page and state.
+    generation++;
     $("mineEmail").textContent = "";
     $("mineList").replaceChildren();
     setText($("mineMessage"), "");

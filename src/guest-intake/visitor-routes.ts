@@ -63,7 +63,13 @@ export interface VisitorRoutes {
   readonly close: () => void;
 }
 
-type Target = { readonly kind: "me" } | { readonly kind: "list" } | { readonly kind: "one"; readonly id: string } | { readonly kind: "sign-out" } | { readonly kind: "none" };
+/** An authenticated visitor: its row as read at request start and the cookie token's expiry. */
+interface Principal {
+  readonly row: VisitorRow;
+  readonly exp: number;
+}
+
+type Target ={ readonly kind: "me" } | { readonly kind: "list" } | { readonly kind: "one"; readonly id: string } | { readonly kind: "sign-out" } | { readonly kind: "none" };
 
 function targetOf(pathname: string): Target {
   if (pathname === ME_PATH) return { kind: "me" };
@@ -93,8 +99,9 @@ export function createVisitorRoutes(opts: VisitorRoutesOptions): VisitorRoutes {
   const reply = (body: unknown, status = 200, extra: Record<string, string> = {}): Response => Response.json(body, { status, headers: { ...HEADERS, ...extra } });
   const scopeOf = (vid: string): string => `visitor:${vid}`;
 
-  /** The live row for the request's visitor cookie, null when unauthenticated, or "unsafe" when the store threw. */
-  const authenticate = (request: Request): VisitorRow | null | "unsafe" => {
+  /** The live row plus the token's expiry for the request's visitor cookie, null when unauthenticated, or "unsafe" when
+   * the store threw. */
+  const authenticate = (request: Request): Principal | null | "unsafe" => {
     if (visitors === null || !secretOk) return null;
     const value = parseCookie(request.headers.get("cookie"), visitorCookieName(opts.origin));
     if (!value) return null;
@@ -103,7 +110,7 @@ export function createVisitorRoutes(opts: VisitorRoutesOptions): VisitorRoutes {
     try {
       const row = visitors.get(token.vid);
       if (row === null || row.disabled_at !== null || generationFingerprint(row.generation) !== token.gen) return null;
-      return row;
+      return { row, exp: token.exp };
     } catch {
       return "unsafe";
     }
@@ -149,23 +156,23 @@ export function createVisitorRoutes(opts: VisitorRoutesOptions): VisitorRoutes {
     if (target.kind === "sign-out") {
       if (request.method !== "POST") return reject("method-not-allowed", 405, null, { allow: "POST" });
       if (!sameOrigin(request)) return reject("cross-origin", 403, null);
-      const clear = { "set-cookie": visitorCookie(opts.origin, "", 0) };
-      // A store that cannot read or rotate the row is 503, not a 204 that leaves the session valid; the cookie is still cleared.
+      // A store that cannot read or rotate the row is 503, not a 204 that leaves the session valid. The 503 keeps the
+      // cookie, so the retry still carries it and can revoke; only a 204 clears it.
       const principal = authenticate(request);
-      if (principal === "unsafe") return reject("store-error", 503, null, clear);
-      const vid = principal === null ? null : principal.id;
+      if (principal === "unsafe") return reject("store-error", 503, null);
+      const vid = principal === null ? null : principal.row.id;
       if (vid !== null) {
         try { visitors.rotate(vid); }
-        catch { return reject("store-error", 503, vid, clear); }
+        catch { return reject("store-error", 503, vid); }
       }
       log({ event: "visitor.signout", rid, vid });
-      return new Response(null, { status: 204, headers: { ...HEADERS, ...clear } });
+      return new Response(null, { status: 204, headers: { ...HEADERS, "set-cookie": visitorCookie(opts.origin, "", 0) } });
     }
 
     const principal = authenticate(request);
     if (principal === "unsafe") return reject("store-error", 503, null);
     if (principal === null) return reject("unauthenticated", 401, null);
-    const vid = principal.id;
+    const vid = principal.row.id;
     const scope = scopeOf(vid);
     if (target.kind === "none") return reject("not-found", 404, vid);
     const methods = methodsOf(target);
@@ -175,7 +182,7 @@ export function createVisitorRoutes(opts: VisitorRoutesOptions): VisitorRoutes {
       try {
         if (target.kind === "me") {
           const { reason, position } = standing(vid);
-          return reply({ email: principal.email, can_ask: reason === null, reason, waitlist_position: position });
+          return reply({ email: principal.row.email, can_ask: reason === null, reason, waitlist_position: position });
         }
         if (target.kind === "list") {
           const rows = questions.visitorList(scope);
@@ -203,14 +210,16 @@ export function createVisitorRoutes(opts: VisitorRoutesOptions): VisitorRoutes {
     const checked = checkGuestSubmission(decoded, limits);
     if (!checked.ok) return reject(checked.reason, 400, vid);
     if ("trap" in checked) return reject("bad-body", 400, vid);
-    // The upload can take seconds and the write may wait for the lock: the row is re-read inside the write transaction,
-    // so a sign-out (new generation) or a disable committed by any connection before the insert refuses it.
-    const stillSignedIn = (): boolean => {
+    // The upload can take seconds and the write may wait for the lock: the session is re-checked as the first statement
+    // inside the write transaction, so a sign-out (new generation), a disable or a token expiry that lands before the
+    // write refuses it, replays included. The stored email is the row's email read there, not the one read at the start.
+    const verifiedEmail = (): string | null => {
       const row = visitors.get(vid);
-      return row !== null && row.disabled_at === null && row.generation === principal.generation;
+      if (row === null || row.disabled_at !== null || row.generation !== principal.row.generation) return null;
+      return principal.exp > opts.clock() ? row.email : null;
     };
     let result: VisitorSubmitResult;
-    try { result = questions.visitorSubmit(scope, { ...checked.submission, email: principal.email }, opts.clock(), stillSignedIn); }
+    try { result = questions.visitorSubmit(scope, checked.submission, opts.clock(), verifiedEmail); }
     catch { return reject("store-error", 503, vid); }
     if (result.status === "unauthenticated") return reject("unauthenticated", 401, vid);
     if (result.status === "conflict") return reject("request-key-reused", 409, vid);

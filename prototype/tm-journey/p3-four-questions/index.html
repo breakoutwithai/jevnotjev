@@ -39,9 +39,12 @@ figcaption { font: 500 clamp(19px, 2.6vw, 25px)/1.3 var(--serif); color: var(--i
 .s1 { min-height: 100vh; min-height: 100svh; display: grid; gap: 16px; align-content: center; justify-items: start;
   grid-template-columns: minmax(0, 1fr); grid-template-areas: "h" "f" "b"; padding: 20px 16px; max-width: 1180px; margin: 0 auto; }
 .s1 h1 { grid-area: h; margin: 0; font: 800 clamp(34px, 8.5vw, 64px)/1.02 var(--serif); }
-.s1 figure { grid-area: f; width: 100%; }
-.s1 figcaption { margin-top: 12px; }
+.s1 figure { grid-area: f; width: 100%; position: relative; }
 .s1 .btn { grid-area: b; }
+/* Visible label on User 2's half: HTML text, 13px or more at every width. */
+.dlabel { position: absolute; left: 69.5%; right: 1%; bottom: 3.5%; display: flex; flex-direction: column; gap: 3px; padding: 7px 7px 8px;
+  background: rgba(20, 6, 10, .94); border: 2px dashed var(--brass); border-radius: 6px; font: 700 13px/1.25 var(--sans); color: var(--ink); }
+.dlabel strong { font: 800 15px/1 var(--sans); letter-spacing: .08em; color: var(--brass); }
 
 /* Stage 2 and 4 pairs */
 .pair figure { display: grid; gap: 18px; align-items: center; }
@@ -53,11 +56,12 @@ figcaption { font: 500 clamp(19px, 2.6vw, 25px)/1.3 var(--serif); color: var(--i
 .qcard { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 8px 12px; background: var(--house-2);
   border: 2px solid var(--line); border-radius: 10px; color: var(--ink); text-align: center; }
 .qcard svg { max-width: 168px; }
-.qcard span { font: 800 18px/1.1 var(--sans); letter-spacing: .02em; }
 .js .qcard { cursor: pointer; }
 .js .qcard:hover { border-color: var(--gold-dim); }
 .qcard[aria-pressed="true"] { border-color: var(--brass); background: #2c0f16; box-shadow: 0 0 0 3px rgba(224, 176, 78, .25); }
-.s3 figcaption { margin-top: 16px; max-width: 34ch; }
+.gate { margin-top: 14px; max-width: 520px; }
+.ans { margin: 12px 0 0; min-height: 1.5em; padding: 0; color: var(--brass); font: 800 19px/1.3 var(--sans); }
+.s3 figcaption { margin-top: 10px; max-width: 34ch; }
 
 /* Stage 4 actions */
 .actions { margin-top: 22px; display: grid; gap: 14px; justify-items: start; }
@@ -84,8 +88,9 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
 .door.built::after { content: ""; position: absolute; right: 14px; top: 58%; width: 14px; height: 14px; border-radius: 50%; background: var(--brass); }
 .door.design { background: repeating-linear-gradient(135deg, rgba(242, 233, 223, .07) 0 2px, transparent 2px 14px), var(--house);
   border: 3px dashed var(--gold-dim); }
-.door .num { font: 700 17px/1 var(--sans); color: var(--ink-soft); }
-.doors figcaption { grid-column: 2; margin: 0; font: 700 clamp(17px, 4vw, 22px)/1.25 var(--sans); color: var(--brass); }
+.door .tag { font: 800 14px/1 var(--sans); letter-spacing: .1em; color: var(--brass); }
+.door .note { font: 700 14px/1.2 var(--sans); color: var(--ink-soft); }
+.door .title { font: 800 clamp(17px, 4.4vw, 24px)/1.15 var(--serif); }
 .door.built:hover { filter: brightness(1.08); }
 
 .foot { padding: 28px 16px 44px; border-top: 1px solid var(--line); color: var(--ink-soft); font: 15px/1.5 var(--sans); }
@@ -118,8 +123,8 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
 <body>
 
 <section class="s1" data-stage="1" id="stage1" aria-label="Stage 1 of 6: the limit hits">
-  <h1>Hit your Claude limit again?</h1>
-  <figure data-visual aria-label="User 1 at a laptop as the curtain drops: the limit sign is lit, the meter is empty and the work stopped mid-sentence. The second stage, still closed, is only a design.">
+  <h1>Map your Claude Code and Codex week with one prompt</h1>
+  <figure data-visual aria-label="User 1 at a laptop as the curtain drops: the warning sign is lit, the meter is empty and the work stopped mid-sentence. The second stage, still closed behind curtains, is a design for a pacing tool, in rehearsal, not run.">
     <svg viewBox="0 0 520 440" aria-hidden="true" focusable="false">
       <defs>
         <linearGradient id="s1cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a3263a"/><stop offset=".6" stop-color="#7b1424"/><stop offset="1" stop-color="#3e0710"/></linearGradient>
@@ -160,7 +165,7 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
       <rect x="202" y="118" width="128" height="52" rx="6" fill="#2a0e14" stroke="#e0b04e" stroke-width="3"/>
       <g fill="#e0b04e"><circle cx="214" cy="118" r="3.2"/><circle cx="234" cy="118" r="3.2"/><circle cx="254" cy="118" r="3.2"/><circle cx="274" cy="118" r="3.2"/><circle cx="294" cy="118" r="3.2"/><circle cx="314" cy="118" r="3.2"/>
         <circle cx="214" cy="170" r="3.2"/><circle cx="234" cy="170" r="3.2"/><circle cx="254" cy="170" r="3.2"/><circle cx="274" cy="170" r="3.2"/><circle cx="294" cy="170" r="3.2"/><circle cx="314" cy="170" r="3.2"/></g>
-      <text x="266" y="153" text-anchor="middle" font-family="'Schibsted Grotesk','Helvetica Neue',Arial,sans-serif" font-size="25" font-weight="800" letter-spacing="3" fill="#ff6a58">LIMIT</text>
+      <path d="M266 128V147M266 159V159.5" fill="none" stroke="#ff6a58" stroke-width="9" stroke-linecap="round"/>
       <!-- dropping curtain -->
       <g class="curtain">
         <path d="M3 3H337V84Q310 116 282 84Q254 116 226 84Q198 116 170 84Q142 116 114 84Q86 116 58 84Q30 116 3 84Z" fill="url(#s1cg)"/>
@@ -179,9 +184,9 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
         <rect x="3" y="3" width="158" height="14" rx="4" fill="#3e0710"/>
       </g>
     </svg>
-    <figcaption>We are designing a tool that paces it.</figcaption>
+    <div class="dlabel"><strong>DESIGN</strong><span>pacing tool, in rehearsal, not run</span></div>
   </figure>
-  <a class="btn" href="#stage5">See an example</a>
+  <a class="btn" href="#stage5" aria-label="See an example week">Example</a>
 </section>
 
 <section class="stage pair s2" data-stage="2" id="stage2" aria-label="Stage 2 of 6: the second week is a design">
@@ -221,8 +226,8 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
         <path class="dial-pointer" d="M404 330V308" stroke="#e0b04e" stroke-width="5" stroke-linecap="round"/>
         <path d="M431 283A54 54 0 0 1 457 339" fill="none" stroke="#e0b04e" stroke-width="3" stroke-linecap="round"/>
         <polygon points="457,350 449,335 464,335" fill="#e0b04e"/>
-        <rect x="288" y="317" width="84" height="26" rx="4" fill="#e0b04e"/>
-        <text x="330" y="336" text-anchor="middle" font-family="'Schibsted Grotesk','Helvetica Neue',Arial,sans-serif" font-size="16" font-weight="800" letter-spacing="1.5" fill="#2a1408">DESIGN</text>
+        <rect x="274" y="313" width="112" height="34" rx="4" fill="#e0b04e"/>
+        <text x="330" y="337" text-anchor="middle" font-family="'Schibsted Grotesk','Helvetica Neue',Arial,sans-serif" font-size="20" font-weight="800" letter-spacing="1.5" fill="#2a1408">DESIGN</text>
         <rect x="20" y="372" width="440" height="36" rx="6" fill="#12060a" stroke="#e0b04e" stroke-width="2" stroke-dasharray="6 5"/>
         <text x="240" y="396" text-anchor="middle" font-family="'Schibsted Grotesk','Helvetica Neue',Arial,sans-serif" font-size="20" font-weight="700" fill="#e0b04e">Next, in rehearsal, not run yet</text>
       </svg>
@@ -231,51 +236,76 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
   </div>
 </section>
 
-<section class="stage s3" data-stage="3" id="stage3" aria-label="Stage 3 of 6: your week stays yours until you press Share">
+<section class="stage s3" data-stage="3" id="stage3" aria-label="Stage 3 of 6: four questions about your week">
   <div class="wrap">
-    <figure data-visual aria-label="Four questions you can tap: which tool, which plan, which day it ran out, and whether you have pasted a prompt before.">
+    <figure data-visual aria-label="Four questions you can tap: which tool, which plan, which day it ran out, and have you pasted a prompt before. Below them a padlock gate with a Share button. Per the caption, the map sends nothing and only Share sends your week's totals and a nickname you choose.">
       <div class="cards">
-        <div class="qcard" data-note="Reads both histories.">
-          <svg viewBox="0 0 120 90" aria-hidden="true" focusable="false">
+        <div class="qcard" role="group" aria-label="Which tool?" data-note="Reads both histories.">
+          <svg viewBox="0 0 136 90" aria-hidden="true" focusable="false">
             <rect x="8" y="10" width="62" height="46" rx="5" fill="#0c0305" stroke="#d4c3b8" stroke-width="3"/>
             <path d="M18 26L28 33L18 40" fill="none" stroke="#e0b04e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
             <path d="M34 42H50" stroke="#e0b04e" stroke-width="4" stroke-linecap="round"/>
             <rect x="48" y="32" width="64" height="48" rx="5" fill="#1c080d" stroke="#86cf9f" stroke-width="3"/>
             <path d="M64 48L57 56L64 64M96 48L103 56L96 64M85 46L75 66" fill="none" stroke="#86cf9f" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="124" cy="14" r="11" fill="#e0b04e"/>
+            <path d="M119.8 11A4.4 4.4 0 1 1 126 15.6C124.6 16.4 124 17.2 124 18.8M124 22.4V22.5" fill="none" stroke="#2a1408" stroke-width="2.8" stroke-linecap="round"/>
           </svg>
-          <span>Tool</span>
         </div>
-        <div class="qcard" data-note="Plan not read.">
-          <svg viewBox="0 0 120 90" aria-hidden="true" focusable="false">
+        <div class="qcard" role="group" aria-label="Which plan?" data-note="Plan not read.">
+          <svg viewBox="0 0 136 90" aria-hidden="true" focusable="false">
             <rect x="14" y="52" width="24" height="26" rx="3" fill="#3a1a22" stroke="#d4c3b8" stroke-width="3"/>
             <rect x="48" y="34" width="24" height="44" rx="3" fill="#3a1a22" stroke="#d4c3b8" stroke-width="3"/>
             <rect x="82" y="14" width="24" height="64" rx="3" fill="#e0b04e" stroke="#d4c3b8" stroke-width="3"/>
             <path d="M8 82H112" stroke="#9c8580" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="124" cy="14" r="11" fill="#e0b04e"/>
+            <path d="M119.8 11A4.4 4.4 0 1 1 126 15.6C124.6 16.4 124 17.2 124 18.8M124 22.4V22.5" fill="none" stroke="#2a1408" stroke-width="2.8" stroke-linecap="round"/>
           </svg>
-          <span>Plan</span>
         </div>
-        <div class="qcard" data-note="Shows recorded hits.">
-          <svg viewBox="0 0 120 90" aria-hidden="true" focusable="false">
+        <div class="qcard" role="group" aria-label="Which day?" data-note="Shows recorded hits.">
+          <svg viewBox="0 0 136 90" aria-hidden="true" focusable="false">
             <defs><pattern id="s3dp" width="12" height="12" patternUnits="userSpaceOnUse"><rect width="8" height="8" rx="2" fill="#3a1a22"/></pattern></defs>
             <rect x="12" y="12" width="96" height="68" rx="6" fill="#1c080d" stroke="#d4c3b8" stroke-width="3"/>
             <path d="M12 18A6 6 0 0 1 18 12H102A6 6 0 0 1 108 18V28H12Z" fill="#7b1424"/>
             <rect x="22" y="36" width="84" height="36" fill="url(#s3dp)"/>
             <rect x="46" y="48" width="8" height="8" rx="2" fill="#ff6a58"/>
+            <circle cx="124" cy="14" r="11" fill="#e0b04e"/>
+            <path d="M119.8 11A4.4 4.4 0 1 1 126 15.6C124.6 16.4 124 17.2 124 18.8M124 22.4V22.5" fill="none" stroke="#2a1408" stroke-width="2.8" stroke-linecap="round"/>
           </svg>
-          <span>Day</span>
         </div>
-        <div class="qcard" data-note="It explains first.">
-          <svg viewBox="0 0 120 90" aria-hidden="true" focusable="false">
+        <div class="qcard" role="group" aria-label="Pasted a prompt before?" data-note="Prompt asks first.">
+          <svg viewBox="0 0 136 90" aria-hidden="true" focusable="false">
             <rect x="8" y="10" width="100" height="52" rx="8" fill="#1c080d" stroke="#d4c3b8" stroke-width="3"/>
             <polygon points="28,62 28,80 48,62" fill="#1c080d" stroke="#d4c3b8" stroke-width="3" stroke-linejoin="round"/>
             <path d="M20 26H80M20 38H66" stroke="#d4c3b8" stroke-width="4" stroke-linecap="round" opacity=".8"/>
             <rect x="20" y="46" width="7" height="9" fill="#e0b04e"/>
             <path d="M94 26V44M87 38L94 46L101 38" fill="none" stroke="#e0b04e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="124" cy="14" r="11" fill="#e0b04e"/>
+            <path d="M119.8 11A4.4 4.4 0 1 1 126 15.6C124.6 16.4 124 17.2 124 18.8M124 22.4V22.5" fill="none" stroke="#2a1408" stroke-width="2.8" stroke-linecap="round"/>
           </svg>
-          <span>Prompt</span>
         </div>
       </div>
-      <figcaption>The map sends nothing. Only Share sends your week's totals and a chosen nickname.</figcaption>
+      <p class="ans" id="ans" role="status" aria-live="polite" aria-atomic="true"></p>
+      <!-- The privacy beat: the week stays on this side of the gate; the Share button is the only way through. -->
+      <svg class="gate" viewBox="0 0 480 130" aria-hidden="true" focusable="false">
+        <rect x="6" y="22" width="92" height="62" rx="6" fill="#0c0305" stroke="#d4c3b8" stroke-width="3"/>
+        <path d="M22 70V52M38 70V40M54 70V58M70 70V36M86 70V48" stroke="#e0b04e" stroke-width="7" stroke-linecap="round"/>
+        <path d="M0 96H104L96 88H8Z" fill="#241014" stroke="#d4c3b8" stroke-width="2"/>
+        <path d="M108 53H176" fill="none" stroke="#86cf9f" stroke-width="4" stroke-dasharray="9 7" stroke-linecap="round"/>
+        <rect x="186" y="14" width="12" height="104" rx="4" fill="#a07a2c"/>
+        <rect x="282" y="14" width="12" height="104" rx="4" fill="#a07a2c"/>
+        <rect x="198" y="36" width="84" height="8" fill="#a07a2c" opacity=".7"/>
+        <path d="M222 66V58A18 18 0 0 1 258 58V66" fill="none" stroke="#e0b04e" stroke-width="7" stroke-linecap="round"/>
+        <rect x="214" y="64" width="52" height="38" rx="6" fill="#e0b04e" stroke="#a07a2c" stroke-width="3"/>
+        <circle cx="240" cy="80" r="5" fill="#2a1408"/>
+        <path d="M240 82V91" stroke="#2a1408" stroke-width="4" stroke-linecap="round"/>
+        <rect x="204" y="106" width="72" height="18" rx="9" fill="#efe2c4" stroke="#a07a2c" stroke-width="2.5"/>
+        <path d="M232 115H248M243 110L248 115L243 120" fill="none" stroke="#2a1408" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M302 53H366" fill="none" stroke="#e0b04e" stroke-width="4" stroke-dasharray="9 7" stroke-linecap="round"/>
+        <polygon points="364,44 380,53 364,62" fill="#e0b04e"/>
+        <rect x="388" y="22" width="86" height="62" rx="6" fill="#1c080d" stroke="#e0b04e" stroke-width="3"/>
+        <path d="M398 40H464M398 54H464M398 68H440" stroke="#d4c3b8" stroke-width="4" stroke-linecap="round" opacity=".8"/>
+      </svg>
+      <figcaption>The map sends nothing. Only Share sends your week's totals and a nickname you choose.</figcaption>
     </figure>
   </div>
 </section>
@@ -314,7 +344,7 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
 
 <section class="stage s5" data-stage="5" id="stage5" aria-label="Stage 5 of 6: the sample week">
   <div class="wrap">
-    <figure data-visual aria-label="One builder's real sample week: 2 recorded limit hits, 1 on a short window and 1 on an unnamed window, Wed 14 Oct from 16:20 UTC; 3,993 sessions; 87% of Claude output on the big model; Codex week 15% used. Opens the sample card.">
+    <figure data-visual aria-label="Sample week, one builder's real week: 2 recorded limit hits, 1 on a short window and 1 on an unnamed window, Wed 14 Oct from 16:20 UTC; 3,993 sessions; 87% of Claude output on the big model; Codex week 15% used. Opens the sample card.">
       <a class="card" href="https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9&sample" aria-label="Open the sample card">
         <svg viewBox="0 0 480 400" aria-hidden="true" focusable="false">
           <defs><pattern id="s5dots" width="12" height="12" patternUnits="userSpaceOnUse"><rect width="8" height="8" rx="2" fill="#7b1424" opacity=".85"/></pattern></defs>
@@ -332,15 +362,19 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
           <path d="M28 142H452M28 224H452M28 306H452" stroke="#a07a2c" stroke-width="1.5" opacity=".6"/>
           <text x="28" y="188" font-family="'Schibsted Grotesk','Helvetica Neue',Arial,sans-serif" font-size="26" font-weight="800" fill="#2a1408">3,993 sessions</text>
           <rect x="262" y="156" width="190" height="48" fill="url(#s5dots)"/>
-          <text x="28" y="270" font-family="'Schibsted Grotesk','Helvetica Neue',Arial,sans-serif" font-size="26" font-weight="800" fill="#2a1408">87% big model</text>
-          <rect x="262" y="244" width="190" height="26" rx="4" fill="#d6c39a" stroke="#a07a2c" stroke-width="2"/>
-          <rect x="262" y="244" width="165" height="26" rx="4" fill="#7b1424"/>
-          <text x="28" y="360" font-family="'Schibsted Grotesk','Helvetica Neue',Arial,sans-serif" font-size="26" font-weight="800" fill="#2a1408">Codex week 15%</text>
+          <text x="28" y="258" font-family="'Schibsted Grotesk','Helvetica Neue',Arial,sans-serif" font-size="23" font-weight="800" fill="#2a1408">87% Claude output: big model</text>
+          <rect x="28" y="268" width="424" height="22" rx="4" fill="#d6c39a" stroke="#a07a2c" stroke-width="2"/>
+          <rect x="28" y="268" width="369" height="22" rx="4" fill="#7b1424"/>
+          <text x="28" y="354" font-family="'Schibsted Grotesk','Helvetica Neue',Arial,sans-serif" font-size="23" font-weight="800" fill="#2a1408">Codex week 15% used</text>
+          <g transform="rotate(-4 396 98)">
+            <rect x="324" y="80" width="140" height="36" rx="4" fill="none" stroke="#7b1424" stroke-width="3"/>
+            <text x="394" y="105" text-anchor="middle" font-family="'Schibsted Grotesk','Helvetica Neue',Arial,sans-serif" font-size="19" font-weight="800" letter-spacing="1" fill="#7b1424">SAMPLE WEEK</text>
+          </g>
           <path d="M320 366A52 52 0 0 1 424 366" fill="none" stroke="#d6c39a" stroke-width="18"/>
           <path d="M320 366A52 52 0 0 1 424 366" fill="none" stroke="#7b1424" stroke-width="18" stroke-dasharray="24.5 300"/>
         </svg>
       </a>
-      <figcaption>2 recorded limit hits, Wed 14 Oct, 16:20 UTC</figcaption>
+      <figcaption>2 recorded limit hits</figcaption>
     </figure>
     <a class="guide" id="tokenmaxGuide" href="/guide/#tokenmax" aria-label="Guide: understand your TokenMax map">Guide</a>
   </div>
@@ -348,10 +382,9 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
 
 <section class="stage s6" data-stage="6" id="stage6" aria-label="Stage 6 of 6: two ways forward">
   <div class="wrap">
-    <figure class="doors" data-visual aria-label="Two doors. Run the map and share your week is built today. Follow the pacing work is a design, next, in rehearsal, not run yet.">
-      <a class="door built" href="#stage4">Run the map and share your week</a>
-      <div class="door design"><span>Follow the pacing work</span><span class="num">#236</span></div>
-      <figcaption>Next, in rehearsal, not run yet</figcaption>
+    <figure class="doors" data-visual aria-label="Two doors. The built door, run the map and share your week, works today. The design door, follow the router design, issue 236, is in rehearsal, not run.">
+      <a class="door built" href="#stage4"><span class="tag">BUILT</span><span class="title">Run the map, share your week</span></a>
+      <div class="door design"><span class="tag">DESIGN</span><span class="title">Follow the router design (issue 236)</span><span class="note">in rehearsal, not run</span></div>
     </figure>
   </div>
 </section>
@@ -361,11 +394,9 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
 <script>
 (function () {
   document.documentElement.classList.add("js");
-  var chip = document.getElementById("chip");
-  var base = chip.getAttribute("data-default") || "";
-  var current = base;
-  var timer = 0;
-  function show(text) { current = text; chip.textContent = text; }
+  var ans = document.getElementById("ans");
+  var hint = "Tap a question.";
+  ans.textContent = hint;
   var cards = Array.prototype.slice.call(document.querySelectorAll(".qcard"));
   cards.forEach(function (card) {
     card.setAttribute("role", "button");
@@ -375,9 +406,7 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
       var turnOn = card.getAttribute("aria-pressed") !== "true";
       cards.forEach(function (other) { other.setAttribute("aria-pressed", "false"); });
       card.setAttribute("aria-pressed", turnOn ? "true" : "false");
-      window.clearTimeout(timer);
-      show(turnOn ? (card.getAttribute("data-note") || base) : base);
-      chip.scrollIntoView({ block: "nearest" });
+      ans.textContent = turnOn ? (card.getAttribute("data-note") || hint) : hint;
     }
     card.addEventListener("click", pick);
     card.addEventListener("keydown", function (event) {
@@ -385,8 +414,12 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
     });
   });
 
+  var chip = document.getElementById("chip");
+  var base = chip.getAttribute("data-default") || "";
+  var timer = 0;
   var button = document.getElementById("copy");
   var prompt = document.querySelector("[data-prompt]");
+  var details = prompt.closest("details");
   button.hidden = false;
   function fallbackCopy(text) {
     var area = document.createElement("textarea");
@@ -411,10 +444,10 @@ summary { cursor: pointer; font: 700 17px/1.3 var(--sans); color: var(--link); m
   button.addEventListener("click", function () {
     var text = (prompt.textContent || "").replace(/\s+/g, " ").trim();
     copyText(text).then(function (ok) {
-      var keep = current;
-      chip.textContent = ok ? "Copied" : "Not copied";
+      chip.textContent = ok ? "Copied." : "Copy by hand.";
+      if (!ok && details) details.open = true;
       window.clearTimeout(timer);
-      timer = window.setTimeout(function () { chip.textContent = keep; }, 2200);
+      timer = window.setTimeout(function () { chip.textContent = base; }, 2200);
     });
   });
 }());

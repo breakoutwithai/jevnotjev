@@ -4,18 +4,18 @@ A theatre scene lets visitors explore one recorded sample week before they decid
 
 ## Six pictures
 
-1. A falling curtain interrupts a laptop sentence at a lit LIMIT sign. 18 visible words.
-2. A Monday to Sunday strip places the recorded Wednesday hit beside a concept gauge and dial. 18 visible words.
-3. A private report approaches a Share door, with the sharing boundary in its caption. 16 visible words.
+1. A falling curtain interrupts a laptop sentence at a lit LIMIT sign; a line under the picture says how to map your week. 15 words in the stage, 10 in the line.
+2. User 1's recorded week on a Fri 9 to Fri 16 Oct 2026 strip with the Wednesday hit marked; User 2 sits in a separate DESIGN panel, in rehearsal, not run, with no values. 18 words.
+3. A report approaches a Share door; the caption says what the map sends and what only Share sends. 16 words.
 4. A prompt card enters a laptop; a copy button and closed prompt disclosure sit below it. 15 visible words, excluding the prompt.
-5. Four panels show the real sample figures and the map guide. 18 visible words.
-6. Two doors lead to the built map and the pacing design. 18 visible words.
+5. A SAMPLE WEEK label over four panels with the real sample figures, and the guide link. 18 words.
+6. Two doors: BUILT leads to the map; DESIGN is plain text about the router design (issue 236), in rehearsal, not run. 18 words.
 
-The sample-card link, recorded window types and the exact invitation sit immediately alongside their scenes. Total page text is under 250 words excluding the closed prompt. The spotlight range control changes the caption; with JavaScript off, the full strip and Wednesday mark remain visible.
+"See sample" goes to picture 5. The ask sits beside picture 2. The range control moves a spotlight along the strip and sets the day text, a polite live region mirrored in the control's aria-valuetext; with JavaScript off, the strip and the Wednesday mark remain visible.
 
 ## Capture status
 
-The strict screenshot runner could not launch Chromium in this sandbox (Chromium exited with SIGABRT). Previous-round PNGs were removed because they no longer represented this rebuild. The current page has static word and source checks, but its layout still needs browser capture.
+Captured with `bun scripts/uat/prototype-shots.ts prototype/tm-journey/p4-sample-first --scroll --strict` (exit 0): first viewport 25 words at 390x844 and 1440x900; stages at most 18 words each; page 130 words excluding the prompt. The four PNGs in this folder are from that run.
 
 ## Cost to ship as the real /tm/
 

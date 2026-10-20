@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Limit Rescue</title>
-<meta name="description" content="Prototype p1, split-screen cinema: hit your Claude limit again? The map of your week is built; a tool that paces it is in design.">
+<meta name="description" content="Prototype p1, split-screen cinema: hit your limit? One prompt maps your Claude Code and Codex week; pacing is in design.">
 <style>
 /* Tokens copied from site/page.css:5-20, then site/tm/tm.css:6-25 (the /tm/ values win where both define one). No remote fonts. */
 :root {
@@ -59,6 +59,15 @@ svg .mono { font-family: var(--mono); }
 .ask:hover { background: var(--spot); }
 @media (min-width: 640px) { .ask { width: calc(50% - 4px); } }
 @media (max-width: 639px) { .hero-pic svg { height: 330px; } }
+.hero .lede a { color: var(--gold); font-weight: 700; }
+.panel { position: relative; }
+.tag { position: absolute; top: 10px; right: 10px; left: 10px; margin: 0; padding: 6px 8px; border-radius: 6px; background: var(--gold); color: #14060a;
+  font: 600 15px/1.3 var(--sans); text-align: center; }
+.tag b { display: block; font-weight: 800; letter-spacing: .08em; }
+@media (min-width: 640px) { .tag { font-size: 17px; } }
+@media (max-width: 639px) { .tag { position: static; margin-top: 6px; } }
+.slate { display: block; width: max-content; margin: 0 auto 14px; padding: 6px 14px; border-radius: 6px; background: var(--cream); color: var(--cream-ink);
+  font: 800 16px/1.3 var(--sans); letter-spacing: .1em; }
 
 /* The six frames. */
 main { padding: 0 16px 24px; }
@@ -134,9 +143,9 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
 </svg>
 
 <header class="hero" id="top">
-  <h1>Hit your Claude limit again?</h1>
-  <p class="lede">We're designing a tool that paces it.</p>
-  <figure class="hero-pic" aria-label="Split screen. Left: you at a laptop, the sentence on screen stopped half way, a red LIMIT sign lit, the curtain coming down and the meter empty. Right: the same desk with a gauge that fills slowly and a dial, marked DESIGN: the pacing tool we are designing.">
+  <h1>Hit your limit?</h1>
+  <p class="lede">One prompt maps your Claude Code and Codex week <a href="#example">(example)</a></p>
+  <figure class="hero-pic" aria-label="Split screen. Left: you at a laptop, the sentence on screen stopped half way, a red LIMIT sign lit, the curtain coming down and the meter empty. Right: the same desk with a gauge and a dial, labelled DESIGN: pacing, in rehearsal, not run.">
     <div class="split">
       <svg viewBox="0 0 400 560" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
         <rect width="400" height="560" rx="8" fill="#0f0407"/>
@@ -162,6 +171,7 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
           <text x="200" y="252" text-anchor="middle" font-size="40" font-weight="800" letter-spacing="4" fill="#14060a">LIMIT</text>
         </g>
       </svg>
+      <div class="panel">
       <svg viewBox="0 0 400 560" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
         <rect width="400" height="560" rx="8" fill="#170a0c"/>
         <ellipse cx="200" cy="0" rx="260" ry="420" fill="url(#spot)"/>
@@ -170,8 +180,6 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
         <rect x="0" y="0" width="400" height="26" fill="url(#pleat)"/>
         <line x1="0" y1="26" x2="400" y2="26" stroke="#e0b04e" stroke-width="3"/>
         <rect x="40" y="40" width="320" height="500" rx="6" fill="none" stroke="#e0b04e" stroke-width="2" stroke-dasharray="10 9" opacity=".75"/>
-        <rect x="188" y="52" width="144" height="48" rx="6" fill="#e0b04e"/>
-        <text x="260" y="86" text-anchor="middle" font-size="27" font-weight="800" letter-spacing="2" fill="#14060a">DESIGN</text>
         <path d="M86 200A84 84 0 0 1 254 200" fill="none" stroke="#3a2420" stroke-width="18" stroke-linecap="round"/>
         <path class="gfill" d="M86 200A84 84 0 0 1 254 200" pathLength="100" stroke-dasharray="100 100" stroke-dashoffset="45" fill="none" stroke="#e0b04e" stroke-width="18" stroke-linecap="round"/>
         <g stroke="#a07a2c" stroke-width="3">
@@ -193,14 +201,16 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
         <rect class="blink" x="202" y="412" width="11" height="20" fill="#e0b04e"/>
         <use href="#back" x="214" y="440" width="160" height="117"/>
       </svg>
+      <p class="tag"><b>DESIGN: pacing</b>in rehearsal, not run</p>
+      </div>
     </div>
-    <a class="ask" href="#run">Help us decide if it is worth building: share your week.</a>
+    <a class="ask" href="#run">Help decide: share your week.</a>
   </figure>
 </header>
 
 <main>
   <section class="stage" data-stage="1" aria-label="Stage 1, arrive: the limit ran out">
-    <figure class="frame" data-visual aria-label="Working along, then mid-sentence the screen says usage limit reached and the curtain drops, Wednesday 14 October at 16:20 UTC.">
+    <figure class="frame" data-visual aria-label="Working along, then mid-sentence the screen says You've hit your limit and the curtain drops, Wednesday 14 October at 16:20 UTC.">
       <div class="split">
         <svg viewBox="0 0 400 360" aria-hidden="true" focusable="false">
           <rect width="400" height="360" rx="6" fill="#170a0c"/>
@@ -222,8 +232,8 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
           <ellipse cx="200" cy="200" rx="200" ry="160" fill="url(#redwash)"/>
           <use href="#lap" x="40" y="60" width="320" height="190"/>
           <rect x="80" y="70" width="240" height="140" rx="4" fill="#2a0a0e"/>
-          <text class="mono" x="200" y="132" text-anchor="middle" font-size="30" font-weight="700" fill="#ff6a58">usage limit</text>
-          <text class="mono" x="200" y="172" text-anchor="middle" font-size="30" font-weight="700" fill="#ff6a58">reached</text>
+          <text class="mono" x="200" y="132" text-anchor="middle" font-size="30" font-weight="700" fill="#ff6a58">You've hit</text>
+          <text class="mono" x="200" y="172" text-anchor="middle" font-size="30" font-weight="700" fill="#ff6a58">your limit</text>
           <rect x="0" y="0" width="62" height="360" fill="url(#pleat)"/>
           <rect x="338" y="0" width="62" height="360" fill="url(#pleat)"/>
           <g class="drop">
@@ -240,7 +250,7 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
   </section>
 
   <section class="stage" data-stage="2" aria-label="Stage 2, understand: what is built and what is in design">
-    <figure class="frame" data-visual aria-label="Left, built today: a map on your laptop of where your week went. Right, in design: a gauge and a dial that would pace the week, next, in rehearsal, not run yet.">
+    <figure class="frame" data-visual aria-label="Left, built today: a map on your laptop of where your week went. Right, in design: a gauge and a dial for pacing, in rehearsal, not run.">
       <div class="split">
         <svg viewBox="0 0 400 360" aria-hidden="true" focusable="false">
           <rect width="400" height="360" rx="6" fill="#170a0c"/>
@@ -282,18 +292,18 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
           <path d="M272 120A42 42 0 0 1 344 120" fill="none" stroke="#e0b04e" stroke-width="2" stroke-dasharray="4 6"/>
           <circle cx="308" cy="140" r="26" fill="#2a1a14" stroke="#e0b04e" stroke-width="3"/>
           <line class="dial" x1="308" y1="140" x2="308" y2="120" stroke="#ffeec8" stroke-width="5" stroke-linecap="round" style="transform-origin: 308px 140px"/>
-          <text x="308" y="198" text-anchor="middle" font-size="22" font-weight="700" fill="#ffeec8">pace it</text>
+          <text x="308" y="198" text-anchor="middle" font-size="22" font-weight="700" fill="#ffeec8">pacing</text>
           <rect x="52" y="222" width="296" height="96" rx="6" fill="#0c0305" stroke="#e0b04e" stroke-width="2" stroke-dasharray="6 5"/>
-          <text x="200" y="262" text-anchor="middle" font-size="26" font-weight="700" fill="#e0b04e">Next, in rehearsal,</text>
-          <text x="200" y="298" text-anchor="middle" font-size="26" font-weight="700" fill="#e0b04e">not run yet</text>
+          <text x="200" y="262" text-anchor="middle" font-size="26" font-weight="700" fill="#e0b04e">in rehearsal,</text>
+          <text x="200" y="298" text-anchor="middle" font-size="26" font-weight="700" fill="#e0b04e">not run</text>
         </svg>
       </div>
-      <figcaption>A map shows where your week went.</figcaption>
+      <figcaption><a href="#run">Help us decide if it is worth building: share your week.</a></figcaption>
     </figure>
   </section>
 
   <section class="stage" data-stage="3" aria-label="Stage 3, decide to try: what is sent and when">
-    <figure class="frame" data-visual aria-label="The map stays locked on your laptop and sends nothing. Only when you press Share do your week's totals and a nickname you choose travel to the shared board.">
+    <figure class="frame" data-visual aria-label="The map sends nothing. Only Share sends your week's totals and a nickname you choose.">
       <div class="split">
         <svg viewBox="0 0 400 360" aria-hidden="true" focusable="false">
           <rect width="400" height="360" rx="6" fill="#170a0c"/>
@@ -348,7 +358,7 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
           <rect x="214" y="292" width="74" height="56" rx="18" fill="#d4c3b8" transform="rotate(-24 214 320)"/>
         </svg>
       </div>
-      <figcaption>The map sends nothing. Your week's totals and a nickname you choose go only when you press Share.</figcaption>
+      <figcaption>The map sends nothing. Only Share sends your week's totals and a nickname you choose.</figcaption>
     </figure>
   </section>
 
@@ -420,6 +430,7 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
 
   <section class="stage" id="example" data-stage="5" aria-label="Stage 5, read your result: the sample week">
     <figure class="frame" data-visual aria-label="The sample week, one builder's real week: 2 recorded limit hits on Wednesday 14 October from 16:20 UTC, one short window and one unknown; 3,993 sessions; 87 percent of Claude output on the big model; the Codex week 15 percent used.">
+      <a class="slate" href="https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9&sample">SAMPLE WEEK</a>
       <div class="split">
         <svg viewBox="0 0 400 360" aria-hidden="true" focusable="false">
           <rect width="400" height="360" rx="6" fill="#0f0407"/>
@@ -439,8 +450,7 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
           </g>
           <text x="200" y="124" text-anchor="middle" font-size="40" font-weight="800" fill="#14060a">2 recorded</text>
           <text x="200" y="170" text-anchor="middle" font-size="40" font-weight="800" fill="#14060a">limit hits</text>
-          <rect x="66" y="232" width="268" height="54" rx="8" fill="#0c0305" stroke="#ff6a58" stroke-width="2"/>
-          <text x="200" y="267" text-anchor="middle" font-size="24" font-weight="700" fill="#ffeec8">14 Oct 16:20 UTC</text>
+          <use href="#back" x="126" y="236" width="148" height="108"/>
         </svg>
         <svg viewBox="0 0 400 360" aria-hidden="true" focusable="false">
           <rect width="400" height="360" rx="6" fill="#170a0c"/>
@@ -453,19 +463,20 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
           <circle cx="116" cy="222" r="52" fill="none" stroke="#3a2420" stroke-width="14"/>
           <circle cx="116" cy="222" r="52" fill="none" stroke="#e0b04e" stroke-width="14" pathLength="100" stroke-dasharray="87 100" transform="rotate(-90 116 222)"/>
           <text x="116" y="232" text-anchor="middle" font-size="28" font-weight="800" fill="#ffeec8">87%</text>
-          <text x="116" y="314" text-anchor="middle" font-size="22" fill="#d4c3b8">big model</text>
-          <text x="288" y="196" text-anchor="middle" font-size="22" fill="#d4c3b8">Codex</text>
+          <text x="116" y="312" text-anchor="middle" font-size="20" fill="#d4c3b8">Claude output:</text>
+          <text x="116" y="338" text-anchor="middle" font-size="20" fill="#d4c3b8">big model</text>
+          <text x="288" y="196" text-anchor="middle" font-size="22" fill="#d4c3b8">Codex week</text>
           <rect x="214" y="210" width="148" height="22" rx="11" fill="#0c0305" stroke="#9fd8b4" stroke-width="2"/>
           <rect x="214" y="210" width="22" height="22" rx="11" fill="#9fd8b4"/>
-          <text x="288" y="270" text-anchor="middle" font-size="28" font-weight="800" fill="#ffeec8">15%</text>
+          <text x="288" y="270" text-anchor="middle" font-size="28" font-weight="800" fill="#ffeec8">15% used</text>
         </svg>
       </div>
-      <figcaption class="links"><a href="https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9&sample">Sample week</a><a id="tokenmaxGuide" href="/guide/#tokenmax">Guide</a></figcaption>
+      <figcaption class="links"><a id="tokenmaxGuide" href="/guide/#tokenmax">Guide</a></figcaption>
     </figure>
   </section>
 
   <section class="stage" data-stage="6" aria-label="Stage 6, next step: two doors">
-    <figure class="frame" data-visual aria-label="Two doors. Left, lit and built: run the map and share your week. Right, dim and in design: follow the pacing work, next, in rehearsal, not run yet, issue 236.">
+    <figure class="frame" data-visual aria-label="Two doors. Left, lit, marked BUILT: run the map and share your week. Right, dim, marked DESIGN, in rehearsal, not run: follow the router design, issue 236.">
       <div class="split">
         <svg viewBox="0 0 400 360" aria-hidden="true" focusable="false">
           <rect width="400" height="360" rx="6" fill="#170a0c"/>
@@ -480,6 +491,8 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
             <circle cx="200" cy="40" r="5"/><circle cx="219" cy="40" r="5"/><circle cx="238" cy="40" r="5"/><circle cx="257" cy="40" r="5"/><circle cx="276" cy="40" r="5"/>
           </g>
           <line x1="0" y1="300" x2="400" y2="300" stroke="#a07a2c" stroke-width="2"/>
+          <rect x="152" y="312" width="96" height="36" rx="6" fill="#86cf9f"/>
+          <text x="200" y="338" text-anchor="middle" font-size="22" font-weight="800" letter-spacing="2" fill="#0c0305">BUILT</text>
         </svg>
         <svg viewBox="0 0 400 360" aria-hidden="true" focusable="false">
           <rect width="400" height="360" rx="6" fill="#120709"/>
@@ -491,13 +504,12 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
           <rect x="120" y="60" width="160" height="240" fill="#24100f"/>
           <circle cx="262" cy="190" r="6" fill="#a07a2c"/>
           <rect x="56" y="126" width="288" height="94" rx="6" fill="#0c0305" stroke="#e0b04e" stroke-width="2"/>
-          <text x="200" y="164" text-anchor="middle" font-size="25" font-weight="700" fill="#e0b04e">Next, in rehearsal,</text>
-          <text x="200" y="200" text-anchor="middle" font-size="25" font-weight="700" fill="#e0b04e">not run yet</text>
-          <text x="200" y="272" text-anchor="middle" font-size="26" font-weight="700" fill="#d4c3b8">#236</text>
+          <text x="200" y="164" text-anchor="middle" font-size="25" font-weight="800" letter-spacing="2" fill="#e0b04e">DESIGN</text>
+          <text x="200" y="200" text-anchor="middle" font-size="23" font-weight="700" fill="#e0b04e">in rehearsal, not run</text>
           <line x1="0" y1="300" x2="400" y2="300" stroke="#6e4f14" stroke-width="2"/>
         </svg>
       </div>
-      <figcaption class="doors"><a href="#run">Run the map and share your week</a><span class="next">Follow the pacing work</span></figcaption>
+      <figcaption class="doors"><a href="#run">Run the map, share your week</a><span class="next">Follow the router design (issue 236)</span></figcaption>
     </figure>
   </section>
 </main>
@@ -523,7 +535,7 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
     var ok = false;
     try { ok = document.execCommand("copy"); } catch (error) { ok = false; }
     document.body.removeChild(area);
-    if (ok) { say("Copied"); return; }
+    if (ok) { say("Copied."); return; }
     var details = prompt.closest("details");
     if (details) details.open = true;
     var range = document.createRange();
@@ -531,11 +543,11 @@ footer { padding: 16px 16px 40px; text-align: center; color: var(--muted); font:
     var selection = window.getSelection();
     selection.removeAllRanges();
     selection.addRange(range);
-    say("Selected: press Ctrl+C or Cmd+C");
+    say("Copy by hand.");
   }
   button.addEventListener("click", function () {
     if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(function () { say("Copied"); }, fallback);
+      navigator.clipboard.writeText(text).then(function () { say("Copied."); }, fallback);
     } else {
       fallback();
     }

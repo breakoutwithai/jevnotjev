@@ -199,6 +199,15 @@ function payloadFrom(value: unknown): MapPayload {
   };
 }
 
+/** Validate a standalone tm-share/1 payload without public-board fields. */
+export function checkSharePayload(value: unknown): { readonly ok: true; readonly payload: MapPayload } | { readonly ok: false; readonly field: string; readonly reason: string } {
+  try { return { ok: true, payload: payloadFrom(value) }; }
+  catch (error) {
+    if (error instanceof Rejected) return { ok: false, field: error.field, reason: error.reason };
+    throw error;
+  }
+}
+
 /**
  * Validate a decoded POST /api/maps body against the contract: exactly payload, alias, request_key and the optional
  * nickname honeypot. A filled honeypot on an otherwise valid body is a trap: answered ok, never stored.

@@ -1,5 +1,5 @@
 /* The /maps/ share page and board (tm-share/1).
-   #m=<base64url JSON>: decode and check the payload in this browser and show it; nothing is sent until Share.
+   #m=<base64url JSON>: decode and check the payload in this browser and show it; nothing is sent until Share or Send privately.
    #delete=<id>.<key>: one Delete my row button.
    No fragment: read the board.
    Data from the link or the server is written with textContent only. */
@@ -237,7 +237,7 @@
   }
 
   /* ---------- Share ---------- */
-  function showPreview(payload) {
+  function showPreview(payload, sample) {
     var body = el("mapFields");
     body.textContent = "";
     // One element per payload leaf: data-field names it, data-value holds exactly what is sent, the text is what a person reads.
@@ -284,6 +284,78 @@
     var alias = el("mapAlias");
     alias.value = randomAlias();
     el("mapPreview").hidden = false;
+    if (sample) {
+      el("mapPreviewTitle").textContent = "Sample card";
+      el("mapSampleLabel").hidden = false;
+      el("mapTrust").textContent = "These are example numbers from a recorded run.";
+      el("mapPublicForm").hidden = true;
+      el("mapPrivateForm").hidden = true;
+      return;
+    }
+
+    var privateForm = el("mapPrivateForm");
+    var privateButton = el("mapPrivateSend");
+    var privateAttempt = { draft: "", key: "" };
+    var privateBusy = false;
+    function privateError(message) {
+      el("mapPrivateError").textContent = message;
+      el("mapPrivateError").hidden = message === "";
+    }
+    privateForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      if (privateBusy) return;
+      privateError("");
+      var email = el("mapPrivateEmail");
+      var consent = el("mapPrivateConsent");
+      var note = el("mapPrivateNote");
+      if (!email.checkValidity()) { privateError("Enter an email address like name@example.com."); email.focus(); return; }
+      if (!consent.checked) { privateError("Tick the consent box to send your usage."); consent.focus(); return; }
+      var question = note.value.trim() || "Please review my TokenMax usage.";
+      if (Array.from(question).length > 4096) { privateError("Keep your note under 4,096 characters."); note.focus(); return; }
+      var body = { email: email.value.trim(), question: question, reply_consent: true, nickname: el("mapPrivateTrap").value, usage: payload };
+      var draft = JSON.stringify(body);
+      if (draft !== privateAttempt.draft) privateAttempt = { draft: draft, key: b64url(crypto.getRandomValues(new Uint8Array(32))) };
+      body.request_key = privateAttempt.key;
+      privateBusy = true;
+      privateButton.disabled = true;
+      postJson("/api/questions", body).then(function (res) {
+        if (res.ok && isObj(res.body) && typeof res.body.id === "string" && typeof res.body.status_code === "string" && /^Q-[0-9A-F]{12}\.[A-Za-z0-9_-]{43}$/.test(res.body.status_code)) {
+          el("mapPrivateRef").textContent = res.body.id;
+          el("mapPrivateCode").textContent = res.body.status_code;
+          el("mapPreview").hidden = true;
+          el("mapPrivateReceipt").hidden = false;
+          el("mapPrivateReceipt").focus();
+          history.replaceState(null, "", location.pathname + location.search);
+          return;
+        }
+        if (res.status === 409 || res.status === 410) privateAttempt = { draft: "", key: "" };
+        if (res.ok) { privateError("Thanks. Your question was not stored; reload the page if you meant to send it."); return; }
+        var errors = {
+          400: "The usage or note was refused. Check the fields and try again.",
+          409: "That attempt was already used for different details. Press send again for a new attempt.",
+          410: "That question was deleted. Press send again as a new question.",
+          413: "Your message is too large. Shorten the note and send again.",
+          429: "Too many tries from this network. Wait ten minutes and try again.",
+          503: "Questions are unavailable right now. Try again later."
+        };
+        privateError(errors[res.status] || "Could not save your usage. Try again later.");
+      }, function () {
+        privateError("Could not reach the server. Your details are still here; try again.");
+      }).then(function () {
+        privateBusy = false;
+        privateButton.disabled = false;
+      });
+    });
+    el("mapPrivateCopy").addEventListener("click", function () {
+      var code = el("mapPrivateCode").textContent || "";
+      navigator.clipboard.writeText(code).then(function () { el("mapPrivateCopied").textContent = "Copied."; }, function () {
+        var range = document.createRange();
+        range.selectNodeContents(el("mapPrivateCode"));
+        var selection = window.getSelection();
+        if (selection) { selection.removeAllRanges(); selection.addRange(range); }
+        el("mapPrivateCopied").textContent = "Selected: copy it with your keyboard.";
+      });
+    });
 
     // One key per opened link: a retry after a network error sends the same key, so the server replays instead of adding a row.
     var requestKey = b64url(crypto.getRandomValues(new Uint8Array(32)));
@@ -375,8 +447,9 @@
   function start() {
     var hash = location.hash;
     if (hash.indexOf("#m=") === 0) {
-      var payload = decode(hash.slice(3));
-      if (payload) showPreview(payload);
+      var sample = hash.endsWith("&sample");
+      var payload = decode(sample ? hash.slice(3, -7) : hash.slice(3));
+      if (payload) showPreview(payload, sample);
       else el("mapInvalid").hidden = false;
       return;
     }

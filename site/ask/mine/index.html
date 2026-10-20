@@ -26,7 +26,7 @@
   <h2 id="mineSignedOutTitle">Sign in</h2>
   <ul class="facts">
     <li>We keep your Google account id and verified email so your questions stay yours. No email is sent to you.</li>
-    <li>The first 10 visitors get one free question each. After that you can still sign in and you are put on a waitlist; the page shows your place. No email is sent.</li>
+    <li>The first 10 visitors to send a question get one free question each. After that you can still sign in and you are put on a waitlist; the page shows your place. No email is sent.</li>
   </ul>
   <p><a id="mineGoogle" href="/api/auth/google">Continue with Google</a></p>
   <p class="hint"><a href="/privacy/">How we handle data</a>.</p>
@@ -35,6 +35,7 @@
 <section id="mineSignedIn" aria-labelledby="mineSignedInTitle" hidden>
   <h2 id="mineSignedInTitle">Signed in</h2>
   <p>Signed in as <strong id="mineEmail"></strong>. <button id="mineSignOut" type="button">Sign out</button></p>
+  <p class="err" id="mineSignOutErr" role="alert" hidden></p>
   <p class="hint" id="mineMessage" role="status" hidden></p>
 
   <form class="ask-form" id="mineForm" novalidate hidden>
@@ -58,6 +59,10 @@
   </form>
 
   <h2>Your questions</h2>
+  <div id="mineListErr" hidden>
+    <p class="err" role="alert">Could not load your questions. Try again.</p>
+    <button id="mineRetry" type="button">Try again</button>
+  </div>
   <p class="hint" id="mineEmpty" hidden>You have not sent a question yet.</p>
   <div id="mineList" aria-live="polite"></div>
   <p class="hint">Replies appear here. We do not email them. To have a question deleted, email <a href="mailto:jev@breakoutwithai.com">jev@breakoutwithai.com</a> quoting only the reference (Q-...). Sign-in rows are removed by hand on request, and nothing is deleted automatically. <a href="/privacy/">How we handle data</a>.</p>

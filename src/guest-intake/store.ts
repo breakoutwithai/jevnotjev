@@ -67,7 +67,7 @@ function visitorScope(scope: string): string {
 }
 
 /** A visitor submit adds the free-question refusals to the shared statuses. */
-export type VisitorSubmitResult = SubmitResult | { readonly status: "one-question" } | { readonly status: "free-slots-used" };
+export type VisitorSubmitResult = SubmitResult | { readonly status: "one-question" } | { readonly status: "free-slots-used" } | { readonly status: "unauthenticated" };
 
 /** Why a visitor cannot ask now, or null when it can. */
 export type VisitorStanding = null | "one-question" | "free-slots-used";
@@ -157,18 +157,23 @@ export class QuestionStore {
   }
 
   /**
-   * One immediate transaction, in order: tombstone for the key, same-key replay or conflict, this visitor already holds
-   * a question (a row or a tombstone), distinct holders at the free cap, write quota and retention cap, insert.
+   * One immediate transaction, in order: tombstone for the key, same-key replay or conflict, `stillSignedIn` (false is
+   * "unauthenticated"), this visitor already holds a question (a row or a tombstone), distinct holders at the free cap,
+   * write quota and retention cap, insert. `stillSignedIn` runs inside the write lock, so a sign-out or disable that
+   * another connection commits while this request waits for the lock is seen before anything is written; it must only
+   * read, and a throw aborts the submit. The request hash omits the email: the scope already names the visitor, and the
+   * row's Google email can change between an attempt and its retry. The stored email is the one passed in.
    */
-  visitorSubmit(scope: string, submission: Submission, now: number): VisitorSubmitResult {
+  visitorSubmit(scope: string, submission: Submission, now: number, stillSignedIn: () => boolean): VisitorSubmitResult {
     visitorScope(scope);
     const tag = keyTag(scope, submission.requestKey);
     const hash = keyHash(submission.requestKey);
-    const request = requestHash(scope, submission.email, submission.question, submission.replyConsent, submission.marketingConsent);
+    const request = requestHash(scope, null, submission.question, submission.replyConsent, submission.marketingConsent);
     const run = this.#db.transaction((): VisitorSubmitResult => {
       if (this.#db.query<{ n: number }, [string, string]>("SELECT count(*) n FROM question_tombstones WHERE scope = ? AND key_tag = ?").get(scope, tag)?.n) return { status: "deleted" };
       const prior = this.#db.query<{ id: string; state: QuestionState; request_hash: string }, [string, string]>("SELECT id, state, request_hash FROM questions WHERE scope = ? AND key_hash = ?").get(scope, hash);
       if (prior) return prior.request_hash === request ? { status: "replay", id: prior.id, state: prior.state } : { status: "conflict" };
+      if (!stillSignedIn()) return { status: "unauthenticated" };
       if (this.#holds(scope)) return { status: "one-question" };
       if (this.#heldCount() >= this.#limits.freeVisitorSlots) return { status: "free-slots-used" };
       if (this.#overQuota(scope, now)) return { status: "capacity" };
@@ -201,10 +206,11 @@ export class QuestionStore {
     return n > 0;
   }
 
-  /** Distinct visitor scopes holding a question, rows and tombstones together. */
+  /** Distinct visitor scopes holding a question, rows and tombstones together. A range (';' follows ':'), not LIKE, so
+   * both halves can use the scope index. */
   #heldCount(): number {
     return this.#db
-      .query<{ n: number }, []>("SELECT count(*) n FROM (SELECT scope FROM questions WHERE scope LIKE 'visitor:%' UNION SELECT scope FROM question_tombstones WHERE scope LIKE 'visitor:%')")
+      .query<{ n: number }, []>("SELECT count(*) n FROM (SELECT scope FROM questions WHERE scope >= 'visitor:' AND scope < 'visitor;' UNION SELECT scope FROM question_tombstones WHERE scope >= 'visitor:' AND scope < 'visitor;')")
       .get()?.n ?? 0;
   }
 

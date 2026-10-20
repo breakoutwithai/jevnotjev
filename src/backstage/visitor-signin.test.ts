@@ -8,6 +8,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { signVisitorToken, verifyVisitorToken, type VisitorToken } from "../guest-intake/visitors.ts";
 import { ADMIN_API_ROUTES } from "../guest-intake/admin-api.ts";
 import { ADMIN_MCP_PATH } from "../guest-intake/admin-mcp-http.ts";
 import { ADMIN_ROUTES } from "../guest-intake/admin-routes.ts";
@@ -592,6 +593,52 @@ test("[integration] VS17 visitor sign-in never logs an email, sub, token, code o
     expect(ok).toBeDefined();
     expect(String(ok?.vid)).toMatch(/^vis_[a-f0-9]{12}$/);
   } finally { b.cleanup(); }
+});
+
+test("[integration] VS18 after the same Google account signs in with a new email, an identical retry with the original key is a 200 replay", async () => {
+  const b = box();
+  try {
+    const body = JSON.stringify({ question: "Which desk answers stock questions for visitor 307-18?", reply_consent: true, request_key: randomBytes(32).toString("base64url").slice(0, 43) });
+    const post = (value: string): Promise<Response> => b.handler(new Request(`${b.origin}/api/v1/visitor/questions`, {
+      method: "POST",
+      headers: { cookie: `${visitorCookieName(b.origin)}=${value}`, origin: b.origin, "sec-fetch-site": "same-origin", "content-type": "application/json" },
+      body,
+    }));
+    const original = await post(await signedInVisitor(b, visitorProfile(18)));
+    expect(original.status).toBe(200);
+    const id = (await jsonRecord(original)).id;
+    const renamed = await signedInVisitor(b, visitorProfile(18, { email: "visitor-307-18-renamed@example.test" }));
+    const retry = await post(renamed);
+    expect([retry.status, await jsonRecord(retry)]).toEqual([200, { id, state: "pending_review", replay: true }]);
+    expect(withDb(b.ticketsPath, (db) => sqlRows(db.query("SELECT email FROM questions").all()))).toEqual([{ email: "visitor-307-18@example.test" }]);
+  } finally { b.cleanup(); }
+});
+
+test("[integration] VS19 a visitor sign-in that fails because the store is missing or throws logs visitor-unavailable and keeps error=google", async () => {
+  const noStore = box({ tickets: false });
+  const broken = box();
+  try {
+    await signedInVisitor(broken, visitorProfile("19-first"));
+    withDb(broken.ticketsPath, (db) => db.exec("ALTER TABLE visitors RENAME TO visitors_away"));
+    const cases: readonly (readonly [string, Box])[] = [["no store", noStore], ["store throws", broken]];
+    for (const [label, b] of cases) {
+      const response = await signIn(b, visitorProfile(`19-${label}`));
+      expect([label, response.headers.get("location"), setsAnySession(response, ORIGIN)]).toEqual([label, GOOGLE_ERROR, false]);
+      const reasons = b.logs.map((line): unknown => JSON.parse(line)).filter(isRecord).filter((line) => line.event === "signin.google.denied").map((line) => line.reason);
+      expect([label, reasons]).toEqual([label, ["visitor-unavailable"]]);
+    }
+  } finally { noStore.cleanup(); broken.cleanup(); }
+});
+
+test("[unit] VS20 a visitor token is signed over \"visitor:\" + payload, and a token signed without the prefix is refused", () => {
+  const token: VisitorToken = { role: "visitor", vid: "vis_0123456789ab", iat: T0, exp: T0 + TWELVE_HOURS, sid: "sid-vs20", gen: "0123456789abcdef" };
+  const signed = signVisitorToken(token, SECRET);
+  const [encoded = "", signature = ""] = signed.split(".");
+  const plain = createHmac("sha256", SECRET).update(encoded).digest("base64url");
+  expect(signature).not.toBe(plain);
+  expect(signature).toBe(createHmac("sha256", SECRET).update(`visitor:${encoded}`).digest("base64url"));
+  expect(verifyVisitorToken(signed, SECRET, T0)).toEqual(token);
+  expect(verifyVisitorToken(`${encoded}.${plain}`, SECRET, T0)).toBeNull();
 });
 
 // ---- Criterion 2: no visitor outcome ever carries the operator cookie (runs last; reads every outcome above) ----

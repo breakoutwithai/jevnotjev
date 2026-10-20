@@ -35,7 +35,7 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - No consented outside user's own run from start to verdict is documented yet; the next step is to invite one and document it. [Source](RELEASE-v0.1.0.md) <!-- claim: no-outside-run -->
 - A remote admin MCP request can run past its 30-second deadline by a database lock wait; a call whose client disconnects still runs until it completes or reaches the deadline, and a reply answered 504 may still have been stored. [Source](guest-access.md) <!-- claim: admin-deadline -->
 - The admin token header must spell the scheme `Bearer`; `bearer` or `BEARER` is refused. [Source](guest-access.md) <!-- claim: bearer-scheme -->
-- A signed-in visitor gets one free question, and only the first 10 visitors get one (`FREE_QUESTION_VISITORS`); past that cap sign-in still works and a submit answers 409 `free-slots-used`. [Source](product/guest-intake.md) <!-- claim: free-question-cap -->
+- A signed-in visitor gets one free question, and only the first 10 visitors to send a question get one (`FREE_QUESTION_VISITORS`); past that cap sign-in still works and a submit answers 409 `free-slots-used`. [Source](product/guest-intake.md) <!-- claim: free-question-cap -->
 - A visitor who meets the cap is put on a waitlist (`waitlisted_at` on the visitors row) and sees a place on the My questions page; no email is sent, and a place opens only when the cap is raised by a code change or the limits option. [Source](product/guest-intake.md) <!-- claim: waitlist -->
 
 ## 4. Data and trust

@@ -140,22 +140,26 @@ export function createVisitorRoutes(opts: VisitorRoutesOptions): VisitorRoutes {
       log({ event: "visitor.question.rejected", rid, vid, reason });
       return reply({ code: reason }, status, extra);
     };
-    if (request.method === "POST" && !limiter.allow(ip)) return reject("rate-limited", 429, null);
+    const target = targetOf(pathname);
+    // Sign-out is never counted or refused by the submit limiter: five submits must not keep a session alive.
+    if (request.method === "POST" && target.kind !== "sign-out" && !limiter.allow(ip)) return reject("rate-limited", 429, null);
     if (questions === null || visitors === null) return reject("questions-unavailable", 503, null);
     if (!secretOk) return reject("auth-unavailable", 503, null);
-    const target = targetOf(pathname);
 
     if (target.kind === "sign-out") {
       if (request.method !== "POST") return reject("method-not-allowed", 405, null, { allow: "POST" });
       if (!sameOrigin(request)) return reject("cross-origin", 403, null);
+      const clear = { "set-cookie": visitorCookie(opts.origin, "", 0) };
+      // A store that cannot read or rotate the row is 503, not a 204 that leaves the session valid; the cookie is still cleared.
       const principal = authenticate(request);
-      const vid = principal !== null && principal !== "unsafe" ? principal.id : null;
+      if (principal === "unsafe") return reject("store-error", 503, null, clear);
+      const vid = principal === null ? null : principal.id;
       if (vid !== null) {
         try { visitors.rotate(vid); }
-        catch { return reject("store-error", 503, vid); }
+        catch { return reject("store-error", 503, vid, clear); }
       }
       log({ event: "visitor.signout", rid, vid });
-      return new Response(null, { status: 204, headers: { ...HEADERS, "set-cookie": visitorCookie(opts.origin, "", 0) } });
+      return new Response(null, { status: 204, headers: { ...HEADERS, ...clear } });
     }
 
     const principal = authenticate(request);
@@ -199,13 +203,16 @@ export function createVisitorRoutes(opts: VisitorRoutesOptions): VisitorRoutes {
     const checked = checkGuestSubmission(decoded, limits);
     if (!checked.ok) return reject(checked.reason, 400, vid);
     if ("trap" in checked) return reject("bad-body", 400, vid);
-    // The upload can take seconds: the visitor must still be signed in, and the same visitor, at the moment of writing.
-    const again = authenticate(request);
-    if (again === "unsafe") return reject("store-error", 503, vid);
-    if (again === null || again.id !== vid) return reject("unauthenticated", 401, vid);
+    // The upload can take seconds and the write may wait for the lock: the row is re-read inside the write transaction,
+    // so a sign-out (new generation) or a disable committed by any connection before the insert refuses it.
+    const stillSignedIn = (): boolean => {
+      const row = visitors.get(vid);
+      return row !== null && row.disabled_at === null && row.generation === principal.generation;
+    };
     let result: VisitorSubmitResult;
-    try { result = questions.visitorSubmit(scope, { ...checked.submission, email: again.email }, opts.clock()); }
+    try { result = questions.visitorSubmit(scope, { ...checked.submission, email: principal.email }, opts.clock(), stillSignedIn); }
     catch { return reject("store-error", 503, vid); }
+    if (result.status === "unauthenticated") return reject("unauthenticated", 401, vid);
     if (result.status === "conflict") return reject("request-key-reused", 409, vid);
     if (result.status === "deleted") return reject("deleted", 410, vid);
     if (result.status === "capacity") return reject("capacity", 503, vid);

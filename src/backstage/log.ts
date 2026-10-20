@@ -2,7 +2,7 @@ import type { Provider } from "./contracts.ts";
 
 export type AuthEvent = "signin.password.ok" | "signin.password.fail" | "signin.lockout" | "signin.google.ok" | "signin.google.denied" | "signout" | "session.rejected";
 export type RunEvent = "run.start" | "run.done" | "run.error";
-export type GoogleDeniedReason = "not-allowlisted" | "unverified-email" | "bad-state" | "provider-error" | "invalid-token" | "visitor-closed";
+export type GoogleDeniedReason = "not-allowlisted" | "unverified-email" | "bad-state" | "provider-error" | "invalid-token" | "visitor-closed" | "visitor-unavailable";
 export type SessionRejectedReason = "expired" | "revoked" | "bad-signature";
 type PlainAuthEvent = Exclude<AuthEvent, "signin.google.denied" | "session.rejected">;
 /** A visitor sign-in (#307) logs its visitor id only: never an email or Google sub. */

@@ -88,7 +88,7 @@ function box(opts: { limits?: Partial<contract.QuestionLimits>; tickets?: boolea
 
 /** A handler on an existing tickets file, operators file, clock and log, with the same origin and secret, so a cookie
  * issued by one handler is valid on the other. */
-function handlerOn(at: Omit<Box, "handler">, opts: { limits?: Partial<contract.QuestionLimits>; tickets?: boolean } = {}): Box {
+function handlerOn(at: Omit<Box, "handler">, opts: { limits?: Partial<contract.QuestionLimits>; tickets?: boolean; secret?: string } = {}): Box {
   const { path, operatorsPath, logs, clock } = at;
   const handler = createHandler({
     version: "test",
@@ -97,7 +97,7 @@ function handlerOn(at: Omit<Box, "handler">, opts: { limits?: Partial<contract.Q
     ...(opts.tickets === false ? {} : { tickets: { path } }),
     log: (line) => logs.push(line),
     questions: { limiterCapacity: 10_000, ...(opts.limits ? { limits: opts.limits } : {}) },
-    auth: { sessionSecret: SECRET, operatorsPath, googleClientId: CLIENT_ID, googleClientSecret: "google-secret", fetch: fakeGoogle, clock: () => clock.now },
+    auth: { sessionSecret: opts.secret ?? SECRET, operatorsPath, googleClientId: CLIENT_ID, googleClientSecret: "google-secret", fetch: fakeGoogle, clock: () => clock.now },
   });
   cleanup.push(() => handler.close());
   return { handler, path, operatorsPath, logs, clock };
@@ -258,6 +258,74 @@ function waitlistedAt(path: string, sub: string): string | null {
   } finally {
     db.close();
   }
+}
+
+function vidForSub(path: string, sub: string): string {
+  const db = new Database(path, { readonly: true });
+  try {
+    const row = db.query<{ id: string }, [string]>("SELECT id FROM visitors WHERE google_sub = ?").get(sub);
+    if (row === null) throw new Error(`no visitors row for ${sub}`);
+    return row.id;
+  } finally {
+    db.close();
+  }
+}
+
+/** Sets disabled_at on the visitor's row from a separate connection, as an operator would by hand. */
+function disable(path: string, sub: string, now: number): void {
+  const db = new Database(path);
+  try {
+    db.exec("PRAGMA busy_timeout=5000");
+    db.query("UPDATE visitors SET disabled_at = ? WHERE google_sub = ?").run(new Date(now).toISOString(), sub);
+  } finally {
+    db.close();
+  }
+}
+
+/** The first 10 bytes now, the rest once `gate` resolves (guest-routes.test.ts GI-16 pattern). */
+function streamed(text: string, gate: Promise<void>): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      controller.enqueue(encoder.encode(text.slice(0, 10)));
+      await gate;
+      controller.enqueue(encoder.encode(text.slice(10)));
+      controller.close();
+    },
+  });
+}
+
+const WRITER_SCRIPT = `import { Database } from "bun:sqlite";
+const db = new Database(process.env.WRITER_DB ?? "");
+db.exec("PRAGMA busy_timeout=5000");
+db.exec("BEGIN IMMEDIATE");
+db.query(process.env.WRITER_SQL ?? "").run(...JSON.parse(process.env.WRITER_PARAMS ?? "[]"));
+console.log("locked");
+await Bun.sleep(Number(process.env.WRITER_HOLD_MS ?? "0"));
+db.exec("COMMIT");
+db.close();`;
+
+/**
+ * Another process takes the tickets.sqlite write lock, runs `sql` inside it and commits after `holdMs`. Resolves once
+ * the lock is held; `done` is the child's exit code. A separate process, because bun:sqlite blocks this thread while it
+ * waits for a lock, so nothing in this process could commit in the meantime.
+ */
+async function otherWriter(path: string, sql: string, params: readonly string[], holdMs: number): Promise<{ readonly done: Promise<number> }> {
+  const child = Bun.spawn([process.execPath, "-e", WRITER_SCRIPT], {
+    env: { ...process.env, WRITER_DB: path, WRITER_SQL: sql, WRITER_PARAMS: JSON.stringify(params), WRITER_HOLD_MS: String(holdMs) },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const reader = child.stdout.getReader();
+  const decoder = new TextDecoder();
+  let seen = "";
+  while (!seen.includes("locked")) {
+    const next = await reader.read();
+    if (next.done) throw new Error(`writer exited before locking: ${await new Response(child.stderr).text()}`);
+    seen += decoder.decode(next.value);
+  }
+  reader.releaseLock();
+  return { done: child.exited };
 }
 
 /** Visitor A submits; the admin approves then answers it through the existing admin web routes. */
@@ -585,8 +653,6 @@ describe("first FREE_QUESTION_VISITORS (10) visitors: one free question each, th
     const blocked = await send(b, vPost(w1.cookie, submitBody()));
     expect([blocked.status, await obj(blocked)]).toEqual([409, { code: "free-slots-used", message: FREE_SLOTS_USED, waitlist_position: 1 }]);
     expect(store(b).counts().questions).toBe(cap);
-    // Built as a variable, not a literal, so this file type-checks before `freeVisitorSlots` joins QuestionLimits;
-    // maxRetained is the default and changes nothing.
     const raised = { maxRetained: contract.QUESTION_LIMITS.maxRetained, freeVisitorSlots: cap + 1 };
     const b2 = handlerOn(b, { limits: raised });
     const accepted = await send(b2, vPost(w1.cookie, submitBody()));
@@ -636,5 +702,188 @@ describe("visitor sign-out", () => {
     const submit = await send(b, vPost(v.cookie, submitBody()));
     expect([submit.status, (await obj(submit)).code]).toEqual([401, "unauthenticated"]);
     expect(store(b).counts().questions).toBe(0);
+  });
+
+  test("[integration] VR23 sign-out when the visitor store fails is 503 store-error and still sends the clearing cookie", async () => {
+    const b = box();
+    const v = await visitor(b);
+    const cleared = (res: Response): string => res.headers.getSetCookie().find((h) => h.startsWith(`${VISITOR_COOKIE}=`)) ?? "";
+    // The row cannot be read (authenticate is unsafe): the visitors table is renamed away by another connection.
+    const other = new Database(b.path);
+    other.exec("PRAGMA busy_timeout=5000");
+    other.exec("ALTER TABLE visitors RENAME TO visitors_away");
+    try {
+      const unread = await send(b, vPost(v.cookie, "", { path: `${BASE}/sign-out` }));
+      expect([unread.status, (await obj(unread)).code]).toEqual([503, "store-error"]);
+      expect(cleared(unread)).toStartWith(`${VISITOR_COOKIE}=;`);
+      expect(cleared(unread)).toContain("Max-Age=0");
+    } finally {
+      other.exec("ALTER TABLE visitors_away RENAME TO visitors");
+    }
+    // The row reads but the rotation cannot be written: another connection holds the write lock.
+    other.exec("BEGIN IMMEDIATE");
+    try {
+      const unwritten = await send(b, vPost(v.cookie, "", { path: `${BASE}/sign-out` }));
+      expect([unwritten.status, (await obj(unwritten)).code]).toEqual([503, "store-error"]);
+      expect(cleared(unwritten)).toContain("Max-Age=0");
+    } finally {
+      other.exec("ROLLBACK");
+      other.close();
+    }
+    // Neither failure rotated the generation, so the client was told the sign-out did not happen server-side.
+    expect((await send(b, vGet(v.cookie, `${BASE}/me`))).status).toBe(200);
+  }, 30_000);
+
+  test("[integration] VR24 sign-out is neither counted nor refused by the per-address submit limiter", async () => {
+    const b = box();
+    const ip = "203.0.113.24";
+    const a = await visitor(b);
+    for (let i = 0; i < 6; i++) {
+      const res = await send(b, vPost(a.cookie, "", { path: `${BASE}/sign-out` }), ip);
+      expect([i, res.status]).toEqual([i, 204]);
+    }
+    const v = await visitor(b);
+    const first = await send(b, vPost(v.cookie, submitBody()), ip);
+    expect(first.status).toBe(200);
+    for (let i = 1; i < 5; i++) await send(b, vPost(v.cookie, submitBody()), ip);
+    const limited = await send(b, vPost(v.cookie, submitBody()), ip);
+    expect([limited.status, (await obj(limited)).code]).toEqual([429, "rate-limited"]);
+    const out = await send(b, vPost(v.cookie, "", { path: `${BASE}/sign-out` }), ip);
+    expect(out.status).toBe(204);
+    const me = await send(b, vGet(v.cookie, `${BASE}/me`));
+    expect([me.status, (await obj(me)).code]).toEqual([401, "unauthenticated"]);
+  });
+});
+
+describe("visitor session re-checked inside the write", () => {
+  test("[integration] VR17 a sign-out or a disable while the body is still uploading is 401 and stores nothing", async () => {
+    const b = box();
+    const hows: readonly ("sign-out" | "disabled")[] = ["sign-out", "disabled"];
+    for (const how of hows) {
+      const v = await visitor(b);
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const request = new Request(`${ORIGIN}${QUESTIONS}`, { method: "POST", headers: { cookie: v.cookie, origin: ORIGIN, "content-type": "application/json" }, body: streamed(JSON.stringify(submitBody()), gate) });
+      const pending = send(b, request);
+      await Bun.sleep(20);
+      if (how === "sign-out") expect((await send(b, vPost(v.cookie, "", { path: `${BASE}/sign-out` }))).status).toBe(204);
+      else disable(b.path, v.sub, b.clock.now);
+      release();
+      const res = await pending;
+      expect([how, res.status, (await obj(res)).code]).toEqual([how, 401, "unauthenticated"]);
+    }
+    expect(store(b).counts().questions).toBe(0);
+  });
+
+  test("[integration] VR18 a sign-out or a disable committed by another connection while the submit waits for the write lock is 401 and stores nothing", async () => {
+    const b = box();
+    const cases: readonly (readonly [string, string, string])[] = [
+      ["sign-out", "UPDATE visitors SET generation = ? WHERE google_sub = ?", "f".repeat(64)],
+      ["disabled", "UPDATE visitors SET disabled_at = ? WHERE google_sub = ?", new Date(T0).toISOString()],
+    ];
+    for (const [how, sql, value] of cases) {
+      const v = await visitor(b);
+      const writer = await otherWriter(b.path, sql, [value, v.sub], 400);
+      const res = await send(b, vPost(v.cookie, submitBody()));
+      expect([how, await writer.done]).toEqual([how, 0]);
+      expect([how, res.status, (await obj(res)).code]).toEqual([how, 401, "unauthenticated"]);
+    }
+    expect(store(b).counts().questions).toBe(0);
+  }, 30_000);
+});
+
+describe("free waitlist position", () => {
+  /** CAP holders, then W1 and W2 signed in a second apart at the cap. */
+  async function waitlisted(b: Box): Promise<{ w1: Visitor; w2: Visitor }> {
+    await seedHolders(b, freeCap());
+    b.clock.now += 1000;
+    const w1 = await visitor(b);
+    b.clock.now += 1000;
+    const w2 = await visitor(b);
+    return { w1, w2 };
+  }
+
+  async function mePosition(b: Box, v: Visitor): Promise<unknown> {
+    const me = await send(b, vGet(v.cookie, `${BASE}/me`));
+    expect(me.status).toBe(200);
+    return (await obj(me)).waitlist_position;
+  }
+
+  test("[integration] VR19 free waitlist: disabling the waitlisted visitor ahead moves W2 from 2 to 1", async () => {
+    const b = box();
+    const { w1, w2 } = await waitlisted(b);
+    expect(await mePosition(b, w2)).toBe(2);
+    disable(b.path, w1.sub, b.clock.now);
+    expect(await mePosition(b, w2)).toBe(1);
+  }, 120_000);
+
+  test("[integration] VR20 free waitlist: a visitor admitted by a raised cap whose question is then removed (tombstone only) does not count ahead", async () => {
+    const b = box();
+    const { w1, w2 } = await waitlisted(b);
+    expect(await mePosition(b, w2)).toBe(2);
+    const b2 = handlerOn(b, { limits: { freeVisitorSlots: freeCap() + 1 } });
+    const id = await submitOk(b2, w1);
+    expect(store(b).remove(id, "operator", b.clock.now)).toBe(true);
+    expect(store(b).show(id)).toBeNull();
+    expect(await mePosition(b, w2)).toBe(1);
+  }, 120_000);
+
+  test("[integration] VR21 free waitlist: two visitors waitlisted at the same instant get positions 1 and 2 ordered by id", async () => {
+    const b = box();
+    await seedHolders(b, freeCap());
+    b.clock.now += 1000;
+    const x = await visitor(b);
+    const y = await visitor(b);
+    expect(waitlistedAt(b.path, x.sub)).toBe(waitlistedAt(b.path, y.sub));
+    const [low, high] = vidForSub(b.path, x.sub) < vidForSub(b.path, y.sub) ? [x, y] : [y, x];
+    expect([await mePosition(b, low), await mePosition(b, high)]).toEqual([1, 2]);
+  }, 120_000);
+
+  test("[integration] VR22 free waitlist: /me of an already waitlisted visitor answers while another connection holds the write lock", async () => {
+    const b = box();
+    const { w1 } = await waitlisted(b);
+    const lock = new Database(b.path);
+    lock.exec("PRAGMA busy_timeout=0");
+    lock.exec("BEGIN IMMEDIATE");
+    try {
+      const started = Date.now();
+      const me = await send(b, vGet(w1.cookie, `${BASE}/me`));
+      expect([me.status, (await obj(me)).waitlist_position]).toEqual([200, 1]);
+      expect(Date.now() - started).toBeLessThan(1000);
+    } finally {
+      lock.exec("ROLLBACK");
+      lock.close();
+    }
+  }, 120_000);
+});
+
+describe("visitor contract outcomes", () => {
+  test("[integration] VR25 503 auth-unavailable, 405 with allow, 404 under the prefix, 413 too-large, 400 bad-json, 409 request-key-reused and the visitor-closed log reason", async () => {
+    const b = box();
+    const v = await visitor(b);
+    const first = submitBody();
+    await submitOk(b, v, first);
+    const short = handlerOn(b, { secret: "s".repeat(31) });
+    const cases: readonly (readonly [string, Box, Request, number, string, string | null])[] = [
+      ["secret of 31", short, vGet(v.cookie, `${BASE}/me`), 503, "auth-unavailable", null],
+      ["GET sign-out", b, vGet(v.cookie, `${BASE}/sign-out`), 405, "method-not-allowed", "POST"],
+      ["DELETE questions", b, new Request(`${ORIGIN}${QUESTIONS}`, { method: "DELETE", headers: { cookie: v.cookie, origin: ORIGIN } }), 405, "method-not-allowed", "GET, POST"],
+      ["POST me", b, vPost(v.cookie, {}, { path: `${BASE}/me` }), 405, "method-not-allowed", "GET"],
+      ["unknown path", b, vGet(v.cookie, `${BASE}/nope`), 404, "not-found", null],
+      ["the prefix", b, vGet(v.cookie, BASE), 404, "not-found", null],
+      ["too large", b, vPost(v.cookie, "x".repeat(contract.MAX_QUESTION_BODY + 1)), 413, "too-large", null],
+      ["bad json", b, vPost(v.cookie, "{not json"), 400, "bad-json", null],
+      ["key reused", b, vPost(v.cookie, { ...first, question: "A different question under the same key" }), 409, "request-key-reused", null],
+    ];
+    for (const [label, on, request, status, code, allow] of cases) {
+      const res = await send(on, request);
+      expect([label, res.status, (await obj(res)).code, res.headers.get("allow")]).toEqual([label, status, code, allow]);
+    }
+    expect(store(b).counts().questions).toBe(1);
+    disable(b.path, v.sub, b.clock.now);
+    const closed = await signIn(b, v.n);
+    expect([closed.response.status, closed.location, closed.value]).toEqual([303, "/backstage/sign-in?error=google-access", null]);
+    const denied = b.logs.map((line): unknown => JSON.parse(line)).filter((line) => typeof line === "object" && line !== null && Reflect.get(line, "event") === "signin.google.denied");
+    expect(denied.map((line) => typeof line === "object" && line !== null ? Reflect.get(line, "reason") : null)).toEqual(["visitor-closed"]);
   });
 });

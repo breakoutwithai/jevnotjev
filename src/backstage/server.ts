@@ -282,7 +282,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       if (event === "session.rejected") {
         logger.auth({ event, email, ip, rid, reason: reason === "expired" || reason === "revoked" ? reason : "bad-signature" });
       } else if (event === "signin.google.denied") {
-        logger.auth({ event, email, ip, rid, reason: reason === "not-allowlisted" || reason === "unverified-email" || reason === "bad-state" || reason === "invalid-token" || reason === "visitor-closed" ? reason : "provider-error" });
+        logger.auth({ event, email, ip, rid, reason: reason === "not-allowlisted" || reason === "unverified-email" || reason === "bad-state" || reason === "invalid-token" || reason === "visitor-closed" || reason === "visitor-unavailable" ? reason : "provider-error" });
       } else logger.auth({ event, email, ip, rid });
     };
     const emitRun = (event: RunEvent, provider: Provider, armId: string): void => {
@@ -414,7 +414,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
           const signed = visitorRoutes.signIn(checked.sub, checked.email);
           if (!signed.ok) {
             const closed = signed.reason === "disabled" || signed.reason === "full";
-            emitAuth("signin.google.denied", "unknown", closed ? "visitor-closed" : "provider-error");
+            emitAuth("signin.google.denied", "unknown", closed ? "visitor-closed" : "visitor-unavailable");
             const refused = closed ? authError("google-access") : responseError;
             refused.headers.append("set-cookie", clear);
             return refused;

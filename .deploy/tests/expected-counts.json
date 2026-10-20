@@ -158,8 +158,8 @@
     "src/mcp/broken-paths.test.ts": 25,
     "src/mcp/server.test.ts": 8,
     "src/shows/posters.test.ts": 19,
-    "scripts/ask-mine.dom.test.ts": 9,
-    "src/guest-intake/visitor-routes.test.ts": 20,
-    "src/backstage/visitor-signin.test.ts": 17
+    "scripts/ask-mine.dom.test.ts": 12,
+    "src/guest-intake/visitor-routes.test.ts": 29,
+    "src/backstage/visitor-signin.test.ts": 20
   }
 }

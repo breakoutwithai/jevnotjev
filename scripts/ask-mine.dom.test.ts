@@ -23,16 +23,19 @@ interface Fake {
   questions: FakeQuestion[];
   submitStatus: number;
   submitBody: Record<string, unknown>;
+  signOutStatus: number;
+  questionsStatus: number;
+  questionsBody: unknown;
 }
 
-const fake: Fake = { signedIn: false, email: "", canAsk: false, reason: null, waitlistPosition: null, questions: [], submitStatus: 200, submitBody: {} };
+const fake: Fake = { signedIn: false, email: "", canAsk: false, reason: null, waitlistPosition: null, questions: [], submitStatus: 200, submitBody: {}, signOutStatus: 204, questionsStatus: 200, questionsBody: null };
 const posts: { path: string; contentType: string | null; body: unknown }[] = [];
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
 let handler: ReturnType<typeof createHandler>;
 
 function reset(patch: Partial<Fake>): void {
-  Object.assign(fake, { signedIn: false, email: "", canAsk: false, reason: null, waitlistPosition: null, questions: [], submitStatus: 200, submitBody: { id: "Q-0123456789AB", state: "pending_review", replay: false } }, patch);
+  Object.assign(fake, { signedIn: false, email: "", canAsk: false, reason: null, waitlistPosition: null, questions: [], submitStatus: 200, submitBody: { id: "Q-0123456789AB", state: "pending_review", replay: false }, signOutStatus: 204, questionsStatus: 200, questionsBody: null }, patch);
   posts.length = 0;
 }
 
@@ -50,12 +53,16 @@ beforeAll(async () => {
           let body: unknown = text;
           try { body = JSON.parse(text); } catch { body = text; }
           posts.push({ path, contentType: request.headers.get("content-type"), body });
-          if (path.endsWith("/sign-out")) { fake.signedIn = false; return new Response(null, { status: 204 }); }
+          if (path.endsWith("/sign-out")) {
+            if (fake.signOutStatus === 204) fake.signedIn = false;
+            return fake.signOutStatus === 204 ? new Response(null, { status: 204 }) : Response.json({ code: "store-error" }, { status: fake.signOutStatus });
+          }
           return Response.json(fake.submitBody, { status: fake.submitStatus });
         }
         if (!fake.signedIn) return Response.json({ code: "unauthenticated" }, { status: 401 });
         if (path.endsWith("/me")) return Response.json({ email: fake.email, can_ask: fake.canAsk, reason: fake.reason, waitlist_position: fake.waitlistPosition });
-        return Response.json({ questions: fake.questions });
+        if (fake.questionsStatus !== 200) return Response.json({ code: "store-error" }, { status: fake.questionsStatus });
+        return Response.json(fake.questionsBody ?? { questions: fake.questions });
       }
       return handler(request, { remoteAddress: "198.51.100.7" });
     },
@@ -213,6 +220,65 @@ describe("my questions page", () => {
       await page.locator("#mineSignedOut").waitFor({ state: "visible" });
       expect(posts.map((p) => p.path)).toEqual(["/api/v1/visitor/sign-out"]);
     } finally { await page.close(); }
+  });
+
+  test("[integration] VM-10 a 503 or malformed questions response shows a retryable error and no list, then recovers", async () => {
+    const cases: Partial<Fake>[] = [{ questionsStatus: 503 }, { questionsBody: { questions: "not a list" } }];
+    for (const patch of cases) {
+      reset({ signedIn: true, email: "visitor@example.test", canAsk: false, reason: "one-question", questions: [answered], ...patch });
+      const page = await open();
+      try {
+        await page.locator("#mineListErr").waitFor({ state: "visible" });
+        expect(await page.locator("#mineEmpty").isVisible()).toBe(false);
+        expect(await page.locator("#mineList article").count()).toBe(0);
+        expect(await page.locator("#mineListErr").innerText()).toContain("Could not load your questions");
+        expect(await page.locator("#mineMessage").innerText()).toContain("already used your free question");
+        fake.questionsStatus = 200;
+        fake.questionsBody = null;
+        await page.locator("#mineRetry").click();
+        await page.locator("#mineList article").waitFor({ state: "visible" });
+        expect(await page.locator("#mineListErr").isVisible()).toBe(false);
+      } finally { await page.close(); }
+    }
+  });
+
+  test("[integration] VM-11 a confirmed 204 sign-out clears the email, questions, replies and draft", async () => {
+    reset({ signedIn: true, email: "visitor@example.test", canAsk: true, reason: null, questions: [answered], submitStatus: 503, submitBody: { code: "store-error" } });
+    const page = await open();
+    try {
+      await page.locator("#mineForm").waitFor({ state: "visible" });
+      await page.locator("#mineQuestion").fill("A draft kept across a failed send");
+      await page.locator("#mineReply").check();
+      await page.locator("#mineSubmit").click();
+      await page.locator("#mineFormErr").waitFor({ state: "visible" });
+      await page.locator("#mineSignOut").click();
+      await page.locator("#mineSignedOut").waitFor({ state: "visible" });
+      const html = await page.content();
+      expect(await page.locator("#mineEmail").textContent()).toBe("");
+      expect(await page.locator("#mineList article").count()).toBe(0);
+      expect(await page.locator("#mineQuestion").inputValue()).toBe("");
+      expect(await page.locator("#mineReply").isChecked()).toBe(false);
+      expect(html).not.toContain("Route shop questions to stock help");
+      expect(html).not.toContain("State it as a fixed choice");
+      expect(html).not.toContain("A draft kept across a failed send");
+    } finally { await page.close(); }
+  });
+
+  test("[integration] VM-12 a sign-out that does not return 204 shows a message and keeps the signed-in view", async () => {
+    for (const status of [503, 429]) {
+      reset({ signedIn: true, email: "visitor@example.test", canAsk: false, reason: "one-question", questions: [answered], signOutStatus: status });
+      const page = await open();
+      try {
+        await page.locator("#mineSignedIn").waitFor({ state: "visible" });
+        await page.locator("#mineSignOut").click();
+        await page.locator("#mineSignOutErr").waitFor({ state: "visible" });
+        expect(await page.locator("#mineSignOutErr").innerText()).toContain("Could not confirm that you signed out");
+        expect(await page.locator("#mineSignedIn").isVisible()).toBe(true);
+        expect(await page.locator("#mineSignedOut").isVisible()).toBe(false);
+        expect(await page.locator("#mineEmail").innerText()).toBe("visitor@example.test");
+        expect(await page.locator("#mineSignOut").isEnabled()).toBe(true);
+      } finally { await page.close(); }
+    }
   });
 
   test("[unit] VM-8 the page links the shared stylesheet first and uses no inline script or innerHTML", () => {

@@ -84,21 +84,22 @@ export class VisitorStore {
 
   /**
    * Mark a visitor that holds no question as waitlisted (the earliest time is kept) and return its position: 1 plus the
-   * other waitlisted, enabled visitors still holding no question, ordered by (waitlisted_at, id), ahead of it.
+   * other waitlisted, enabled visitors still holding no question, ordered by (waitlisted_at, id), ahead of it. Only the
+   * first sighting writes (its own short statement, guarded by `waitlisted_at IS NULL`); every later call is a plain
+   * read, so GET /me at the cap takes no write lock.
    */
   waitlist(id: string, now: number): number {
-    const run = this.#db.transaction((): number => {
-      this.#db.query("UPDATE visitors SET waitlisted_at = ? WHERE id = ? AND waitlisted_at IS NULL").run(new Date(now).toISOString(), id);
-      const ahead = this.#db
-        .query<{ n: number }, [string, string]>(`SELECT count(*) n FROM visitors v, visitors me
-          WHERE me.id = ? AND v.id <> me.id AND v.waitlisted_at IS NOT NULL AND v.disabled_at IS NULL
-            AND (v.waitlisted_at < me.waitlisted_at OR (v.waitlisted_at = me.waitlisted_at AND v.id < ?))
-            AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.scope = 'visitor:' || v.id)
-            AND NOT EXISTS (SELECT 1 FROM question_tombstones t WHERE t.scope = 'visitor:' || v.id)`)
-        .get(id, id)?.n ?? 0;
-      return ahead + 1;
-    });
-    return run.immediate();
+    const row = this.#db.query<{ waitlisted_at: string | null }, [string]>("SELECT waitlisted_at FROM visitors WHERE id = ?").get(id);
+    if (row === null) throw new Error("unknown visitor");
+    if (row.waitlisted_at === null) this.#db.query("UPDATE visitors SET waitlisted_at = ? WHERE id = ? AND waitlisted_at IS NULL").run(new Date(now).toISOString(), id);
+    const ahead = this.#db
+      .query<{ n: number }, [string, string]>(`SELECT count(*) n FROM visitors v, visitors me
+        WHERE me.id = ? AND v.id <> me.id AND v.waitlisted_at IS NOT NULL AND v.disabled_at IS NULL
+          AND (v.waitlisted_at < me.waitlisted_at OR (v.waitlisted_at = me.waitlisted_at AND v.id < ?))
+          AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.scope = 'visitor:' || v.id)
+          AND NOT EXISTS (SELECT 1 FROM question_tombstones t WHERE t.scope = 'visitor:' || v.id)`)
+      .get(id, id)?.n ?? 0;
+    return ahead + 1;
   }
 
   close(): void {

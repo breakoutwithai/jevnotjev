@@ -63,9 +63,17 @@
     return node;
   }
 
+  // A failed or malformed list is not an empty list: show a retryable error and no list.
+  function listFailed() {
+    $("mineList").replaceChildren();
+    show($("mineEmpty"), false);
+    show($("mineListErr"), true);
+  }
+
   function renderQuestions(questions) {
     var list = $("mineList");
     list.replaceChildren();
+    show($("mineListErr"), false);
     show($("mineEmpty"), questions.length === 0);
     questions.forEach(function (q) {
       var info = STATES[q.state] || [String(q.state), ""];
@@ -104,7 +112,9 @@
       var reason = typeof me.data.reason === "string" ? me.data.reason : "";
       setText($("mineMessage"), reason !== "" && REASONS[reason] ? reasonText(reason, "", me.data.waitlist_position) : "");
       show($("mineForm"), me.data.can_ask === true);
-      renderQuestions(qs.ok && Array.isArray(qs.data.questions) ? qs.data.questions : []);
+      setText($("mineSignOutErr"), "");
+      if (qs.ok && Array.isArray(qs.data.questions)) renderQuestions(qs.data.questions);
+      else listFailed();
       view("in");
     } catch (error) {
       view("out");
@@ -159,17 +169,37 @@
 
   async function signOut() {
     $("mineSignOut").disabled = true;
+    setText($("mineSignOutErr"), "");
+    var done = false;
     try {
-      await fetch(API + "/sign-out", { method: "POST", credentials: "same-origin" });
+      var res = await fetch(API + "/sign-out", { method: "POST", credentials: "same-origin" });
+      done = res.status === 204;
     } catch (error) {
-      // The next load shows the true state.
+      done = false;
     } finally {
       $("mineSignOut").disabled = false;
     }
+    if (!done) {
+      setText($("mineSignOutErr"), "Could not confirm that you signed out. You may still be signed in; try again.");
+      return;
+    }
+    // Confirmed: drop everything of the signed-in visitor from the page and the script state.
+    $("mineEmail").textContent = "";
+    $("mineList").replaceChildren();
+    setText($("mineMessage"), "");
+    show($("mineEmpty"), false);
+    show($("mineListErr"), false);
+    show($("mineForm"), false);
+    $("mineQuestion").value = "";
+    $("mineReply").checked = false;
+    $("mineMarketing").checked = false;
+    formError("");
+    attempt = { draft: "", key: "" };
     await load();
   }
 
   $("mineForm").addEventListener("submit", submit);
   $("mineSignOut").addEventListener("click", signOut);
+  $("mineRetry").addEventListener("click", load);
   load();
 })();

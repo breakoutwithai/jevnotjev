@@ -64,28 +64,38 @@ async function scrollShare(page: Page, share: number): Promise<void> {
 
 const termLines = (page: Page): Promise<string[]> => page.locator("#out .ln").evaluateAll((nodes) => nodes.map((node) => node.textContent ?? ""));
 
-test("[integration] intro shows terminal and Bun before the command", async () => {
-  const page = await open(390, 844, "reduce");
+for (const motion of MOTIONS) test(`[integration] setup line shows terminal and Bun before the command (${motion})`, async () => {
+  const page = await open(390, 844, motion);
   try {
-    const intro = page.locator("header.intro");
-    expect(await intro.isVisible()).toBe(true);
-    const copy = await intro.innerText();
+    const line = page.locator("p:has(code)").filter({ hasText: "--days 30" });
+    const box = await line.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box?.width).toBeGreaterThan(1);
+    expect(box?.height).toBeGreaterThan(1);
+    expect(box?.y).toBeGreaterThanOrEqual(0);
+    expect((box?.y ?? 844) + (box?.height ?? 0)).toBeLessThanOrEqual(844);
+    const copy = await line.innerText();
     expect(copy).toContain("terminal");
     expect(copy).toContain("Bun");
-    expect(await intro.locator('a[href="https://bun.sh"]').isVisible()).toBe(true);
-    expect(await intro.evaluate((node) => {
+    expect(await line.locator('a[href="https://bun.sh"]').isVisible()).toBe(true);
+    expect(await line.evaluate((node) => {
       const command = document.querySelector("#cmd");
       return command !== null && Boolean(node.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING);
     })).toBe(true);
   } finally { await close(page); }
 });
 
-test("[integration] intro shows the seven-day default and a month option", async () => {
-  const page = await open(390, 844, "reduce");
+for (const motion of MOTIONS) test(`[integration] setup line shows the seven-day default and a month option (${motion})`, async () => {
+  const page = await open(390, 844, motion);
   try {
-    const intro = page.locator("header.intro");
-    expect(await intro.isVisible()).toBe(true);
-    const copy = await intro.innerText();
+    const line = page.locator("p:has(code)").filter({ hasText: "--days 30" });
+    const box = await line.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box?.width).toBeGreaterThan(1);
+    expect(box?.height).toBeGreaterThan(1);
+    expect(box?.y).toBeGreaterThanOrEqual(0);
+    expect((box?.y ?? 844) + (box?.height ?? 0)).toBeLessThanOrEqual(844);
+    const copy = await line.innerText();
     expect(copy).toContain("last 7 days by default");
     expect(copy).toContain("--days 30");
     expect(copy).toContain("90");

@@ -122,7 +122,12 @@ test("[integration] board lede shows the default and longer window", async () =>
   try {
     const lede = page.locator(".map-lede");
     expect(await lede.isVisible()).toBe(true);
+    const box = await lede.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box?.width).toBeGreaterThan(1);
+    expect(box?.height).toBeGreaterThan(1);
     const copy = await lede.innerText();
+    expect(copy).toContain("Builders share a map of their Claude Code and Codex use");
     expect(copy).toContain("7 days by default");
     expect(copy).toContain("90");
     expect(copy).toContain("--days");
@@ -137,6 +142,7 @@ test("[integration] board lede shows how to add a map", async () => {
     const copy = await lede.innerText();
     expect(copy).toContain("--share");
     expect(copy).toContain("open the link it prints");
+    expect(await lede.locator('a[href="/tm/"]').isVisible()).toBe(true);
   } finally { await context.close(); }
 });
 

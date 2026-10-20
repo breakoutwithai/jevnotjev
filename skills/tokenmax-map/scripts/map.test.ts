@@ -25,9 +25,28 @@ test("[integration] --help and -h print usage without reading logs or making a r
     expect(stdout).toContain("curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share");
     expect(stdout).toContain("last 7 days");
     expect(stdout).toContain("--days N");
+    expect(stdout).toContain("[-h|--help]");
     expect(stdout).toContain("90");
     expect(stdout).toContain("--from YYYY-MM-DD --to YYYY-MM-DD");
     expect(readdirSync(cwd)).toEqual([]);
+  }
+});
+
+test("[integration] help anywhere overrides other flags without reading available logs or making a report", async () => {
+  for (const argv of [["--days", "30", "--help"], ["--help", "--days", "30"], ["--share", "-h"], ["--share", "--help"]]) {
+    const cwd = mkdtempSync(join(tmpdir(), "tmx-help-mixed-"));
+    const home = join(cwd, "home");
+    mkdirSync(join(home, ".claude", "projects"), { recursive: true });
+    const piped = argv[0] === "--share" && argv[1] === "--help";
+    const run = Bun.spawn(piped ? ["bun", "run", "-", ...argv] : ["bun", join(import.meta.dir, "map.ts"), ...argv], {
+      cwd, env: { ...process.env, HOME: home }, stdin: piped ? Bun.file(join(import.meta.dir, "map.ts")) : "ignore", stdout: "pipe", stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([new Response(run.stdout).text(), new Response(run.stderr).text(), run.exited]);
+    expect(code).toBe(0);
+    expect(stderr).toBe("");
+    expect(stdout).toContain("Usage: bun map.ts");
+    expect(readdirSync(cwd)).toEqual(["home"]);
+    expect(readdirSync(join(home, ".claude", "projects"))).toEqual([]);
   }
 });
 

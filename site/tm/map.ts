@@ -1,7 +1,7 @@
 // tokenmax-map metadata mapper (skill 0.3.0). Deterministic, local, Node built-ins only.
 //
 //   bun map.ts [--claude DIR|none] [--codex DIR|none] [--days N | --from YYYY-MM-DD --to YYYY-MM-DD]
-//                      [--out DIR] [--by-project] [--alias NAME] [--now ISO] [--share]
+//              [--out DIR] [--by-project] [--alias NAME] [--now ISO] [--share] [-h|--help]
 //   curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share
 //
 // Defaults: the Claude Code projects folder and the Codex sessions folder in your home folder when present, the last 7 days, and a new
@@ -794,7 +794,7 @@ const VALUE_FLAGS = ["--claude", "--codex", "--days", "--from", "--to", "--out",
 const BOOL_FLAGS = ["--by-project", "--share"];
 const USAGE = [
   "Usage: bun map.ts [--claude DIR|none] [--codex DIR|none] [--days N | --from YYYY-MM-DD --to YYYY-MM-DD]",
-  "                  [--out DIR] [--by-project] [--alias NAME] [--now ISO] [--share]",
+  "                  [--out DIR] [--by-project] [--alias NAME] [--now ISO] [--share] [-h|--help]",
   "       curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share",
   "Reads the last 7 days by default. Use --days N for a longer window; shared maps allow up to 90 days.",
   "Use --from YYYY-MM-DD --to YYYY-MM-DD for a date range.",
@@ -869,7 +869,7 @@ function reserve(out: string): boolean {
 }
 
 export async function main(argv: string[]): Promise<number> {
-  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
+  if (argv.includes("--help") || argv.includes("-h")) {
     console.log(USAGE);
     return 0;
   }

@@ -33,8 +33,9 @@ const SAMPLE_RECORDS = "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.c
 
 test("[unit] TokenMax guide states the default and selectable map window", async () => {
   const paragraphs = await texts(read(GUIDE), "#tokenmax p");
-  expect(paragraphs.some((text) => text.includes("7 days by default") && text.includes("--days N") && text.includes("90"))).toBe(true);
+  expect(paragraphs.some((text) => text.includes("7 days by default") && text.includes("--days N for a longer window (up to 90 days for a shared map)"))).toBe(true);
   expect(parseArgs(["--claude", "none", "--codex", "none"], { home: "/missing", now: Date.parse("2026-10-20T12:00:00Z"), cwd: "/tmp" }).days).toBe(7);
+  expect(parseArgs(["--claude", "none", "--codex", "none", "--days", "91"], { home: "/missing", now: Date.parse("2026-10-20T12:00:00Z"), cwd: "/tmp" }).days).toBe(91);
   expect(RANGES.find(([name]) => name === "days")).toEqual(["days", 1, 90]);
 });
 
@@ -359,7 +360,7 @@ async function marked(html: string, values: Known): Promise<Marked[]> {
  * is checked against the mapper below; other thresholds and sample figures need validated marks.
  */
 const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
-  ["7 days by default; use --days N for up to 90 days", "mapper default and shared-map range"],
+  ["7 days by default; use --days N for a longer window (up to 90 days for a shared map)", "mapper default and shared-map range"],
   ["sections 1 to 4", "reading order"],
   ["with section 5 open", "reading order"],
   ["1. Prepare test cases", "section heading"],

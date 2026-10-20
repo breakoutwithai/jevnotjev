@@ -62,6 +62,23 @@ async function pageAt(width: number, height: number, motion: "no-preference" | "
   return page;
 }
 
+async function guideAt(width: number, height: number): Promise<Page> {
+  const page = await browser.newPage({ viewport: { width, height } });
+  await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
+  await page.goto(`http://127.0.0.1:${server.port}/guide/`, { waitUntil: "domcontentloaded" });
+  return page;
+}
+
+test("[integration] VP8 guide pages load without any request leaving the local server", async () => {
+  const reached: string[] = [];
+  const page = await guideAt(1440, 900);
+  try {
+    page.on("requestfinished", (request) => { if (!request.url().startsWith(`http://127.0.0.1:${server.port}/`)) reached.push(request.url()); });
+    await page.reload();
+    expect(reached).toEqual([]);
+  } finally { await page.close(); }
+});
+
 test("[integration] VP1 returning visitors can see the status path beside Ask", async () => {
   const page = await pageAt(1440, 900);
   try {
@@ -115,9 +132,8 @@ test("[integration] VP9 the playground link has no pending image placeholder", a
 });
 
 test("[integration] VP8 the guide footer offers feedback and the glossary describes it", async () => {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const page = await guideAt(1440, 900);
   try {
-    await page.goto(`http://127.0.0.1:${server.port}/guide/`);
     const feedback = page.locator("footer").getByRole("link", { name: "Send feedback" });
     expect(await feedback.isVisible()).toBe(true);
     expect(await feedback.getAttribute("href")).toBe("mailto:jev@breakoutwithai.com?subject=Jev!Jev%20feedback");
@@ -129,9 +145,8 @@ test("[integration] VP8 the guide footer offers feedback and the glossary descri
 });
 
 test("[integration] VP9 the field guide announces that it opens and reveals its body", async () => {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const page = await guideAt(1440, 900);
   try {
-    await page.goto(`http://127.0.0.1:${server.port}/guide/`);
     const summary = page.locator("#reference > summary");
     expect(await summary.isVisible()).toBe(true);
     expect(await summary.innerText()).toMatch(/^Open field guide:/);

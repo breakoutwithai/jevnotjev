@@ -1,20 +1,22 @@
 // Operator bearer API for submitted /ask/ questions (#282). Every test goes through the real createHandler with real
 // AdminTokenStore, GuestTokenStore and QuestionStore on one temporary tickets.sqlite.
+import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mintToken } from "../backstage/api-tokens.ts";
 import { cookie, credentialFingerprint, signSession } from "../backstage/auth.ts";
 import { createHandler } from "../backstage/server.ts";
 import { runQuestionAdmin } from "./admin-cli.ts";
-import { ADMIN_API_ROUTES, ADMIN_LIST_MAX, ADMIN_QUESTIONS_PATH } from "./admin-api.ts";
+import { ADMIN_API_ROUTES, ADMIN_LIST_MAX, ADMIN_QUESTIONS_PATH, createAdminApi } from "./admin-api.ts";
 import { QUESTION_LIMITS } from "./contract.ts";
 import { QuestionStore } from "./store.ts";
 import { AdminTokenStore, GuestTokenStore } from "./tokens.ts";
 
 const ORIGIN = "http://localhost:3456";
-const SITE = join(import.meta.dir, "..", "..", "site");
+const ROOT = join(import.meta.dir, "..", "..");
+const SITE = join(ROOT, "site");
 const SECRET = "b".repeat(48);
 const OPERATOR = "admin-api@example.test";
 const EMAIL = "visitor-q282@example.test";
@@ -194,6 +196,40 @@ describe("admin API credentials", () => {
     expect(b.questions.show(id)?.version).toBe(1);
     expect((await b.handler(get(minted.token, ADMIN_QUESTIONS_PATH), at())).status).toBe(401);
   });
+
+  test("[integration] AQ-API-RACE the token re-check and the reply write share one transaction: a revoke cannot commit between them (#285)", async () => {
+    const b = box();
+    const id = seed(b);
+    const minted = b.admins.mint("Operator");
+    const api = createAdminApi({ path: b.path, clock: () => b.clock.now, log: () => {} });
+    cleanup.push(() => api.close());
+    const principal = api.authenticate(get(minted.token, ADMIN_QUESTIONS_PATH));
+    if (principal === null || principal === "unsafe") throw new Error("the operator token did not verify");
+    // Another connection, as the CLI's revoke uses, that fails at once instead of waiting for a lock.
+    const other = new Database(b.path, { strict: true });
+    cleanup.push(() => other.close());
+    other.exec("PRAGMA busy_timeout=0;");
+    let revoke = "not tried";
+    const done = await api.perform({
+      principal,
+      recheck: () => {
+        try {
+          other.query("UPDATE admin_tokens SET revoked_at = ? WHERE id = ?").run(b.clock.now, minted.record.id);
+          revoke = "committed";
+        } catch (error) {
+          revoke = error instanceof Error && /locked|busy/i.test(error.message) ? "blocked" : "other-error";
+        }
+        return principal;
+      },
+      method: "POST",
+      pathname: `${ADMIN_QUESTIONS_PATH}/${id}/reply`,
+      body: async () => ({ ok: true, value: { version: 1, to: "approved" } }),
+      rid: "rid-race",
+    });
+    // Never a revoke committed after the check followed by the write it should have stopped.
+    expect({ revoke, status: done.status, version: b.questions.show(id)?.version }).toEqual({ revoke: "blocked", status: 200, version: 2 });
+    expect(b.admins.verify(`Bearer ${minted.token}`)?.tokenId).toBe(minted.record.id);
+  });
 });
 
 describe("admin API reads and replies", () => {
@@ -270,23 +306,18 @@ describe("admin API reads and replies", () => {
     expect([missing.status, (await json(missing)).code]).toEqual([404, "not-found"]);
   });
 
-  test("[integration] AQ-API-5 a maximum-length reply passes as raw UTF-8 or JSON unicode escapes, astral included; an oversize body is 413", async () => {
+  test("[integration] AQ-API-5 a maximum-length reply passes as raw UTF-8 (astral included) or BMP unicode escapes; an oversize body is 413", async () => {
     const b = box();
     const { token } = b.admins.mint("Operator");
     const max = QUESTION_LIMITS.maxResponseChars;
     const escape = (text: string): string => [...text].map((c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`).join("");
-    const surrogates = (c: string): string => {
-      const hi = c.charCodeAt(0).toString(16);
-      const lo = c.charCodeAt(1).toString(16);
-      return `\\u${hi}\\u${lo}`;
-    };
     const cjk = "中".repeat(max);
     const astral = "\u{1F600}".repeat(max);
+    // An all-astral reply sent as surrogate escapes is over the 64 KiB edge cap: AQ-API-EDGE.
     const bodies: [string, string][] = [
       [cjk, JSON.stringify({ version: 2, to: "answered", text: cjk })],
       [cjk, `{"version":2,"to":"answered","text":"${escape(cjk)}"}`],
       [astral, JSON.stringify({ version: 2, to: "answered", text: astral })],
-      [astral, `{"version":2,"to":"answered","text":"${surrogates("\u{1F600}").repeat(max)}"}`],
     ];
     for (const [text, body] of bodies) {
       const id = seed(b);
@@ -301,6 +332,41 @@ describe("admin API reads and replies", () => {
     expect([big.status, (await json(big)).code]).toEqual([413, "too-large"]);
     expect(b.questions.show(id)?.version).toBe(1);
   });
+
+  test("[integration] AQ-API-EDGE the reply body cap is the 64 KiB that Bun.serve and nginx apply; an all-astral reply as surrogate escapes is 413 (#285)", async () => {
+    const server = readFileSync(join(ROOT, "src", "backstage", "server.ts"), "utf8");
+    expect(server).toContain("maxRequestBodySize: 65536,");
+    const nginx = readFileSync(join(ROOT, ".deploy", "backstage-nginx.conf"), "utf8");
+    const v1 = nginx.slice(nginx.indexOf("location ^~ /api/v1/ {"));
+    expect(v1.slice(0, v1.indexOf("}"))).toContain("client_max_body_size 64k;");
+    const b = box();
+    const { token } = b.admins.mint("Operator");
+    const send = async (body: string): Promise<[number, unknown]> => {
+      const id = seed(b);
+      const res = await b.handler(post(token, `${ADMIN_QUESTIONS_PATH}/${id}/reply`, body), at());
+      const out = await json(res);
+      return [res.status, res.status === 200 ? b.questions.show(id)?.version : out.code];
+    };
+    const padded = (bytes: number): string => {
+      const head = '{"version":1,"to":"approved"';
+      return `${head}${" ".repeat(bytes - head.length - 1)}}`;
+    };
+    expect(await send(padded(65_536))).toEqual([200, 2]);
+    expect(await send(padded(65_537))).toEqual([413, "too-large"]);
+    const astral = `{"version":1,"to":"approved","text":"${"\\ud83d\\ude00".repeat(QUESTION_LIMITS.maxResponseChars)}"}`;
+    expect(astral.length).toBeGreaterThan(65_536);
+    expect(await send(astral)).toEqual([413, "too-large"]);
+  });
+
+  test("[integration] AQ-API-SLOWBODY a reply body still incomplete after 5 s is 408 body-timeout, not 413 too-large", async () => {
+    const b = box();
+    const id = seed(b);
+    const { token } = b.admins.mint("Operator");
+    const stall = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new TextEncoder().encode('{"version":')); } });
+    const res = await b.handler(new Request(`${ORIGIN}${ADMIN_QUESTIONS_PATH}/${id}/reply`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: stall }), at());
+    expect([res.status, (await json(res)).code]).toEqual([408, "body-timeout"]);
+    expect(b.questions.show(id)?.version).toBe(1);
+  }, 15_000);
 
   test("[integration] AQ-API-E2E a public submit is read with an admin token, answered, and the public status lookup shows the reply", async () => {
     const b = box();
@@ -325,16 +391,52 @@ describe("admin API reads and replies", () => {
     const b = box();
     const id = seed(b);
     const { token } = b.admins.mint("Operator");
+    const session = signSession({ email: OPERATOR, auth: "google", iat: T0, exp: T0 + 3_600_000, sid: "a".repeat(32), cred: credentialFingerprint("google") }, SECRET);
+    const sessionCookie = cookie(ORIGIN, "session", session, 3600).split(";")[0] ?? "";
+    const pageRead = async (): Promise<Record<string, unknown>> => json(await b.handler(new Request(`${ORIGIN}/api/backstage/questions/${id}`, { headers: { cookie: sessionCookie } }), at()));
+    const pageReply = async (body: unknown): Promise<[number, unknown]> => {
+      const res = await b.handler(new Request(`${ORIGIN}/api/backstage/questions/${id}/reply`, { method: "POST", headers: { cookie: sessionCookie, origin: ORIGIN, "content-type": "application/json" }, body: JSON.stringify(body) }), at());
+      const out = await json(res);
+      return [res.status, res.status === 200 ? out.version : out.code];
+    };
+    const bearerReply = async (body: unknown): Promise<[number, unknown]> => {
+      const res = await b.handler(post(token, `${ADMIN_QUESTIONS_PATH}/${id}/reply`, body), at());
+      const out = await json(res);
+      return [res.status, res.status === 200 ? out.version : out.code];
+    };
+    const cliShow = (): string[] => {
+      const cli: string[] = [];
+      runQuestionAdmin(["show", id], b.env, { out: (s) => cli.push(s), err: (s) => cli.push(s) }, () => T0);
+      return cli;
+    };
+    // CLI change: stale on the bearer API and the page API; both read version 2.
     const out: string[] = [];
     expect(runQuestionAdmin(["transition", id, "approved", "--version", "1"], b.env, { out: (s) => out.push(s), err: (s) => out.push(s) }, () => T0)).toBe(0);
-    const stale = await b.handler(post(token, `${ADMIN_QUESTIONS_PATH}/${id}/reply`, { version: 1, to: "answered", text: REPLY }), at());
-    expect([stale.status, (await json(stale)).code]).toEqual([409, "stale-version"]);
+    expect(await bearerReply({ version: 1, to: "answered", text: REPLY })).toEqual([409, "stale-version"]);
+    expect(await pageReply({ version: 1, to: "answered", text: REPLY })).toEqual([409, "stale-version"]);
     expect((await json(await b.handler(get(token, `${ADMIN_QUESTIONS_PATH}/${id}`), at()))).version).toBe(2);
-    expect((await b.handler(post(token, `${ADMIN_QUESTIONS_PATH}/${id}/reply`, { version: 2, to: "answered", text: REPLY }), at())).status).toBe(200);
+    expect((await pageRead()).version).toBe(2);
+    // Page change: the bearer API and the CLI read version 3.
+    expect(await pageReply({ version: 2, to: "answered", text: REPLY })).toEqual([200, 3]);
+    expect(await json(await b.handler(get(token, `${ADMIN_QUESTIONS_PATH}/${id}`), at()))).toMatchObject({ state: "answered", version: 3, response: REPLY });
+    expect(cliShow()).toContain("version: 3");
+    // Page change on a fresh row: stale on the bearer API.
+    const third = seed(b);
+    const pageMove = await b.handler(new Request(`${ORIGIN}/api/backstage/questions/${third}/reply`, { method: "POST", headers: { cookie: sessionCookie, origin: ORIGIN, "content-type": "application/json" }, body: JSON.stringify({ version: 1, to: "approved" }) }), at());
+    expect(pageMove.status).toBe(200);
+    const staleBearer = await b.handler(post(token, `${ADMIN_QUESTIONS_PATH}/${third}/reply`, { version: 1, to: "answered", text: REPLY }), at());
+    expect([staleBearer.status, (await json(staleBearer)).code]).toEqual([409, "stale-version"]);
+    // Bearer change on a second row: stale on the page API; the page API and the CLI read it.
+    const second = seed(b);
+    expect((await b.handler(post(token, `${ADMIN_QUESTIONS_PATH}/${second}/reply`, { version: 1, to: "approved" }), at())).status).toBe(200);
+    const stalePage = await b.handler(new Request(`${ORIGIN}/api/backstage/questions/${second}/reply`, { method: "POST", headers: { cookie: sessionCookie, origin: ORIGIN, "content-type": "application/json" }, body: JSON.stringify({ version: 1, to: "answered", text: REPLY }) }), at());
+    expect([stalePage.status, (await json(stalePage)).code]).toEqual([409, "stale-version"]);
+    const pageSecond = await json(await b.handler(new Request(`${ORIGIN}/api/backstage/questions/${second}`, { headers: { cookie: sessionCookie } }), at()));
+    expect([pageSecond.state, pageSecond.version]).toEqual(["approved", 2]);
     const cli: string[] = [];
-    runQuestionAdmin(["show", id], b.env, { out: (s) => cli.push(s), err: (s) => cli.push(s) }, () => T0);
-    expect(cli).toContain("version: 3");
-    expect(cli).toContain("state: answered");
+    runQuestionAdmin(["show", second], b.env, { out: (s) => cli.push(s), err: (s) => cli.push(s) }, () => T0);
+    expect(cli).toContain("state: approved");
+    expect(cli).toContain("version: 2");
   });
 
   test("[integration] AQ-API-LOG logs carry event, rid, token id, question id and reason; never the token, question text, email or reply", async () => {

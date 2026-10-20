@@ -81,12 +81,15 @@ export function parseReplyBody(value: unknown): ReplyBody | null {
 /** HTTP status per store refusal, shared with the bearer API (admin-api.ts). */
 export const CHANGE_STATUS: Readonly<Record<string, number>> = { "not-found": 404, "stale-version": 409, "bad-transition": 409, "message-required": 400, "bad-message": 400 };
 
-/** One reply body applied through the store, as the CLI does: a message without a named source is human_reviewed. */
-export function applyReply(store: QuestionStore, id: string, body: ReplyBody, actor: string, now: number): ChangeResult {
+/**
+ * One reply body applied through the store, as the CLI does: a message without a named source is human_reviewed.
+ * `guard` runs inside the store's write transaction (QuestionStore.transition).
+ */
+export function applyReply(store: QuestionStore, id: string, body: ReplyBody, actor: string, now: number, guard?: () => void): ChangeResult {
   const message = body.text === undefined ? undefined : { text: body.text, source: body.source ?? "human_reviewed" };
   return body.to === "answered" && message !== undefined
-    ? store.answer(id, body.version, actor, now, message.text, message.source)
-    : store.transition(id, body.to, body.version, actor, now, message);
+    ? store.answer(id, body.version, actor, now, message.text, message.source, guard)
+    : store.transition(id, body.to, body.version, actor, now, message, guard);
 }
 
 /** The CLI's list(), newest first. */

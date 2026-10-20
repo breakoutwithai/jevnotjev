@@ -12,7 +12,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { JSONRPCMessage, MessageExtraInfo } from "@modelcontextprotocol/sdk/types.js";
 import { mintToken } from "../backstage/api-tokens.ts";
 import { createHandler } from "../backstage/server.ts";
-import { createAdminApi } from "./admin-api.ts";
+import { createAdminApi, type AdminApi } from "./admin-api.ts";
 import { ADMIN_MCP_PATH, ADMIN_MCP_REQUEST_BYTES_MAX, createAdminMcpHttp } from "./admin-mcp-http.ts";
 import { ADMIN_TOKEN_ENV, ADMIN_TOOL_NAMES, createAdminMcp } from "./admin-mcp.ts";
 import { QuestionStore } from "./store.ts";
@@ -367,7 +367,61 @@ describe("remote admin MCP limits", () => {
     expect([big.status, await json(big)]).toEqual([502, { code: "response-too-large" }]);
     const stall = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new TextEncoder().encode('{"jsonrpc":')); } });
     const slow = await tiny.handle(new Request(URL_MCP, { method: "POST", headers: { "content-type": "application/json", accept: ACCEPT, authorization: `Bearer ${token}` }, body: stall }), "rid-2");
-    expect([slow.status, await json(slow)]).toEqual([413, { code: "too-large" }]);
+    expect([slow.status, await json(slow)]).toEqual([408, { code: "body-timeout" }]);
     expect(logs.join("\n")).not.toContain(token);
+  });
+
+  test("[integration] AM-HTTP-DEADLINE the deadline starts at request entry: a slow body leaves less time for the tool, not a fresh allowance (#289)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "admin-mcp-http-deadline-"));
+    const state = join(root, "state");
+    mkdirSync(state, { mode: 0o700 });
+    chmodSync(state, 0o700);
+    const path = join(state, "tickets.sqlite");
+    const api = createAdminApi({ path, clock: () => T0, log: () => {} });
+    const admins = new AdminTokenStore(path, () => T0);
+    cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    cleanup.push(() => { api.close(); admins.close(); });
+    const { token } = admins.mint("Operator");
+    // The real admin API, with 250 ms added before each tool call reaches it.
+    const slowApi: AdminApi = { ...api, perform: async (c) => { await Bun.sleep(250); return api.perform(c); } };
+    const mcp = createAdminMcpHttp({ api: slowApi, origin: ORIGIN, clock: () => T0, log: () => {}, timeoutMs: 400 });
+    const body = new TextEncoder().encode(rpc("tools/call", { name: "list_questions", arguments: {} }));
+    const send = async (bodyDelayMs: number): Promise<[number, unknown]> => {
+      const stream = new ReadableStream<Uint8Array>({
+        async start(c) {
+          c.enqueue(body.slice(0, 10));
+          await Bun.sleep(bodyDelayMs);
+          c.enqueue(body.slice(10));
+          c.close();
+        },
+      });
+      const headers = { "content-type": "application/json", accept: ACCEPT, authorization: `Bearer ${token}`, "mcp-protocol-version": "2025-11-25" };
+      const res = await mcp.handle(new Request(URL_MCP, { method: "POST", headers, body: stream }), "rid-deadline");
+      return [res.status, res.status === 200 ? field(await json(res), "result", "isError") ?? false : await json(res)];
+    };
+    // Negative control: a prompt body and the slow tool finish inside 400 ms.
+    expect(await send(0)).toEqual([200, false]);
+    // 300 ms of upload plus 250 ms of tool is past 400 ms from entry.
+    expect(await send(300)).toEqual([504, { code: "timeout" }]);
+  });
+
+  test("[integration] AM-HTTP-SCRUB the caller's bearer token is redacted from tool results, as the stdio adapter does (#289)", async () => {
+    const b = box();
+    const minted = b.admins.mint("Operator");
+    const r = b.questions.submit("public", { email: EMAIL, question: `Pasted by mistake: ${minted.token} ${MARKER}`, replyConsent: true, marketingConsent: false, requestKey: freshKey() }, T0);
+    if (r.status !== "issued") throw new Error(`seed failed: ${r.status}`);
+    const client = await sdkClient(b, minted.token);
+    const got = await call(client, "get_question", { id: r.id });
+    expect(got.isError).toBe(false);
+    expect(got.text).not.toContain(minted.token);
+    expect(field(got.body, "question")).toBe(`Pasted by mistake: [redacted] ${MARKER}`);
+    // The stdio adapter, on the same row, returns the same redacted text.
+    const stdio = createAdminMcp({ env: { [ADMIN_TOKEN_ENV]: minted.token }, origin: "http://127.0.0.1:9", fetch: async (url, init) => b.fetch(url, init) });
+    const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();
+    await stdio.connect(serverSide);
+    const local = new Client({ name: "stdio-scrub", version: "0.0.0" });
+    await local.connect(clientSide);
+    cleanup.push(() => local.close());
+    expect((await call(local, "get_question", { id: r.id })).text).toBe(got.text);
   });
 });

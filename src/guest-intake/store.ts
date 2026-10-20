@@ -185,9 +185,14 @@ export class QuestionStore {
     return this.#db.query<QuestionRow, [string]>(`SELECT ${ROW_COLUMNS} FROM questions WHERE id = ?`).get(id);
   }
 
-  /** Move a row along the state model. needs_info and answered carry an operator message; the others clear it. */
-  transition(id: string, to: QuestionState, version: number, actor: string, now: number, message?: OperatorMessage): ChangeResult {
+  /**
+   * Move a row along the state model. needs_info and answered carry an operator message; the others clear it. `guard`
+   * runs first inside the write transaction, so nothing another connection writes can land between it and the change;
+   * it must only read, and a throw aborts the change.
+   */
+  transition(id: string, to: QuestionState, version: number, actor: string, now: number, message?: OperatorMessage, guard?: () => void): ChangeResult {
     const run = this.#db.transaction((): ChangeResult => {
+      guard?.();
       const row = this.#db.query<{ state: QuestionState; version: number }, [string]>("SELECT state, version FROM questions WHERE id = ?").get(id);
       if (!row) return { ok: false, reason: "not-found" };
       if (!canTransition(row.state, to)) return { ok: false, reason: "bad-transition" };
@@ -207,8 +212,8 @@ export class QuestionStore {
     return run.immediate();
   }
 
-  answer(id: string, version: number, actor: string, now: number, text: string, source: ResponseSource): ChangeResult {
-    return this.transition(id, "answered", version, actor, now, { text, source });
+  answer(id: string, version: number, actor: string, now: number, text: string, source: ResponseSource, guard?: () => void): ChangeResult {
+    return this.transition(id, "answered", version, actor, now, { text, source }, guard);
   }
 
   /** Delete in any state: tombstone in, events and row out, all or nothing. False when there is no such row. */

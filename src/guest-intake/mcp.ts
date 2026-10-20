@@ -225,6 +225,11 @@ export function fail(code: string, status: number | null, message?: string): Too
   };
 }
 
+/** `result` with every occurrence of `token` in its text replaced by [redacted]. */
+export function redact(result: ToolResult, token: string): ToolResult {
+  return { ...result, content: result.content.map((c) => ({ ...c, text: c.text.split(token).join(REDACTED) })) };
+}
+
 /** A tool body given the checked token. The token is read per call, checked before any request, and scrubbed after. */
 export type TokenRunner = (fn: (token: string) => Promise<unknown>) => Promise<ToolResult>;
 
@@ -240,7 +245,7 @@ export function createTokenRunner(env: Readonly<Record<string, string | undefine
     } catch (error) {
       result = error instanceof Refusal ? fail(error.code, error.status) : fail("internal-error", null);
     }
-    return { ...result, content: result.content.map((c) => ({ ...c, text: c.text.split(token).join(REDACTED) })) };
+    return redact(result, token);
   };
 }
 

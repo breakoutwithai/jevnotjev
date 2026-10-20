@@ -9,18 +9,19 @@
 // so no credential is forwarded anywhere and the route, scope and store refusals are the HTTP API's own.
 //
 // Order of checks, each refused before the next runs: Host must be the configured origin's host (403 host-refused);
-// an Origin header, when present, must equal the configured origin (403 origin-refused; Claude's hosted apps send none
-// from their servers, a browser does); `Authorization: Bearer jna_...` verified by the same AdminTokenStore check as
-// /api/v1/admin/questions (hash lookup, TTL, revoke, scope questions:admin), else 401 with `WWW-Authenticate: Bearer`
-// and no resource_metadata, since there is no OAuth server in phase 1; POST only; a JSON body of at most 64 KiB read
-// within the deadline; the token is re-verified after the body is read and again before any write.
-// Responses are capped and the whole exchange runs under a deadline. Logs carry event, rid, token id, tool name, question
-// id and reason only: never a token, an email, question text or a reply.
+// an Origin header, when present, must equal the configured origin (403 origin-refused; a browser on another site sends
+// one; whether Claude's hosted apps send one is not verified); `Authorization: Bearer jna_...` verified by the same
+// AdminTokenStore check as /api/v1/admin/questions (hash lookup, TTL, revoke, scope questions:admin), else 401 with
+// `WWW-Authenticate: Bearer` and no resource_metadata, since there is no OAuth server in phase 1; POST only; a JSON body
+// of at most 64 KiB read within the deadline (408 body-timeout past it); the token is re-verified after the body is read
+// and again inside any write's transaction. Results have the caller's token scrubbed, as the stdio adapter does.
+// Responses are capped and the whole exchange runs under a deadline counted from request entry. Logs carry event, rid,
+// token id, tool name, question id and reason only: never a token, an email, question text or a reply.
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { ADMIN_API_PREFIX, ADMIN_CHALLENGE, type AdminApi, type AdminAuth } from "./admin-api.ts";
 import { createAdminServer, type AdminSend, type AdminToolName, type AdminToolRunner } from "./admin-mcp.ts";
-import { fail, Refusal, type ToolResult } from "./mcp.ts";
-import { boundedBody, TooLarge } from "./routes.ts";
+import { fail, redact, Refusal, type ToolResult } from "./mcp.ts";
+import { BodyTimeout, boundedBody, TooLarge } from "./routes.ts";
 import type { AdminPrincipal } from "./tokens.ts";
 
 export const ADMIN_MCP_PATH = `${ADMIN_API_PREFIX}/mcp`;
@@ -71,8 +72,11 @@ export function createAdminMcpHttp(opts: AdminMcpHttpOptions): AdminMcpHttp {
     catch { /* Logging cannot affect a request. */ }
   };
 
-  /** Each tool call goes to the admin API in process as the verified operator; the API re-verifies before a write. */
-  const runner = (principal: AdminPrincipal, recheck: () => AdminAuth, rid: string): AdminToolRunner => {
+  /**
+   * Each tool call goes to the admin API in process as the verified operator; the API re-verifies inside the write.
+   * `bearer` is scrubbed from every result, as the stdio adapter's createTokenRunner does (#289).
+   */
+  const runner = (principal: AdminPrincipal, recheck: () => AdminAuth, rid: string, bearer: string): AdminToolRunner => {
     const send: AdminSend = async (method, pathname, payload) => {
       const done = await opts.api.perform({ principal, recheck, method, pathname, body: async () => ({ ok: true, value: payload ?? null }), rid });
       if (done.status >= 200 && done.status < 300) return done.body;
@@ -81,15 +85,19 @@ export function createAdminMcpHttp(opts: AdminMcpHttpOptions): AdminMcpHttp {
     };
     return async (tool, id, fn): Promise<ToolResult> => {
       log(id === undefined ? { event: "admin.mcp.call", rid, token: principal.tokenId, tool } : { event: "admin.mcp.call", rid, token: principal.tokenId, tool, id });
+      let result: ToolResult;
       try {
-        return { content: [{ type: "text", text: JSON.stringify(await fn(send), null, 2) }] };
+        result = { content: [{ type: "text", text: JSON.stringify(await fn(send), null, 2) }] };
       } catch (error) {
-        return error instanceof Refusal ? fail(error.code, error.status) : fail("internal-error", null);
+        result = error instanceof Refusal ? fail(error.code, error.status) : fail("internal-error", null);
       }
+      return redact(result, bearer);
     };
   };
 
   const handle = async (request: Request, rid: string): Promise<Response> => {
+    // The whole-request deadline counts from here, so a slow body leaves less time for the tools (#289).
+    const started = performance.now();
     const refuse = (reason: string, status: number, token: string | null, extra: Record<string, string> = {}): Response => {
       log({ event: "admin.mcp.rejected", rid, token, reason });
       return Response.json({ code: reason }, { status, headers: { ...HEADERS, ...extra } });
@@ -111,6 +119,7 @@ export function createAdminMcpHttp(opts: AdminMcpHttpOptions): AdminMcpHttp {
     try {
       parsed = JSON.parse(await boundedBody(request, ADMIN_MCP_REQUEST_BYTES_MAX, Math.min(BODY_TIMEOUT_MS, timeoutMs)));
     } catch (error) {
+      if (error instanceof BodyTimeout) return refuse("body-timeout", 408, token);
       return error instanceof TooLarge || !(error instanceof SyntaxError) ? refuse("too-large", 413, token) : refuse("bad-json", 400, token);
     }
     // The upload can take seconds: a revoke during it applies here.
@@ -118,14 +127,16 @@ export function createAdminMcpHttp(opts: AdminMcpHttpOptions): AdminMcpHttp {
     if (again === "unsafe") return refuse("auth-unavailable", 503, token);
     if (again === null || again.tokenId !== token) return refuse("unauthenticated", 401, token, { "www-authenticate": ADMIN_CHALLENGE });
 
-    const server = createAdminServer(runner(principal, verify, rid));
+    // Verified above, so the header is exactly "Bearer jna_...".
+    const bearer = (request.headers.get("authorization") ?? "").slice("Bearer ".length);
+    const server = createAdminServer(runner(principal, () => opts.api.check(request), rid, bearer));
     // No sessionIdGenerator: stateless, one transport per request, no Mcp-Session-Id.
     const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await server.connect(transport);
-      const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Timeout()), timeoutMs); });
+      const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Timeout()), Math.max(0, timeoutMs - (performance.now() - started))); });
       deadline.catch(() => undefined);
+      await Promise.race([server.connect(transport), deadline]);
       const response = await Promise.race([transport.handleRequest(request, { parsedBody: parsed }), deadline]);
       const bytes = response.body === null ? null : new Uint8Array(await Promise.race([response.arrayBuffer(), deadline]));
       if (bytes !== null && bytes.byteLength > responseMax) return refuse("response-too-large", 502, token);

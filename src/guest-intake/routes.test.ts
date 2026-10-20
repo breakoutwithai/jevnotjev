@@ -63,6 +63,35 @@ function str(value: unknown): string {
 }
 
 describe("public submit", () => {
+  test("[integration] VP-5 private usage is stored, readable by status code, replayed, and conflicts on changed usage", async () => {
+    const { handler, path } = setup();
+    const usage = { v: "tm-share/1", skill: "0.3.0", days: 7, sources: "codex", sessions: 3, subagent_sessions: 1, caps: { short: 0, weekly: 1, unknown: 0 }, output_tokens: { claude: 0, codex: 42 }, opus_share_pct: 0, codex_weekly_pct: null };
+    const data = body({ usage });
+    const first = await json(await handler(...post("/api/questions", data)));
+    expect(first.id).toMatch(/^Q-/);
+    const status = await json(await handler(...post("/api/questions/status", { code: first.status_code })));
+    expect(status.state).toBe("pending_review");
+    const store = new QuestionStore(path);
+    expect(store.show(str(first.id))?.question).toContain("TokenMax usage (tm-share/1, self-reported, not verified)");
+    expect((await json(await handler(...post("/api/questions", data)))).id).toBe(first.id);
+    const conflict = await handler(...post("/api/questions", { ...data, usage: { ...usage, sessions: 4 } }));
+    expect(conflict.status).toBe(409);
+    expect(store.counts().questions).toBe(1);
+    expect(store.transition(str(first.id), "approved", 1, "operator", Date.now()).ok).toBe(true);
+    expect(store.answer(str(first.id), 2, "operator", Date.now(), "A reviewed analysis.", "human_reviewed").ok).toBe(true);
+    const answered = await json(await handler(...post("/api/questions/status", { code: first.status_code })));
+    expect([answered.state, answered.response]).toEqual(["answered", "A reviewed analysis."]);
+    store.close();
+  });
+
+  test("[integration] VP-5 invalid usage answers 400 and stores no row", async () => {
+    const { handler, path } = setup();
+    const response = await handler(...post("/api/questions", body({ usage: { v: "tm-share/2" } })));
+    expect([response.status, (await json(response)).code]).toEqual([400, "bad-usage"]);
+    const store = new QuestionStore(path);
+    expect(store.counts().questions).toBe(0);
+    store.close();
+  });
   test("[integration] GI-1 a valid submit stores one row and returns its id and private status code", async () => {
     const { handler, path } = setup();
     const data = body();

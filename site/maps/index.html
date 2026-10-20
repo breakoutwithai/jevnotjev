@@ -31,10 +31,11 @@
   <div class="map-url" aria-hidden="true"><i></i><i></i><i></i><span>jevnotjev.breakoutwithai.com/maps/</span></div>
   <div class="map-card-body">
     <h2 id="mapPreviewTitle">Your map</h2>
-    <p class="map-sub">What will be sent: only these fields leave your machine, and only when you press Share</p>
-    <p id="mapTrust" class="map-trust">Runs on your machine. Nothing sent until you press Share.</p>
+    <p class="map-sub">Review these fields before you choose to share publicly or send privately.</p>
+    <p id="mapSampleLabel" class="map-sample" hidden>Sample card: example numbers, not yours</p>
+    <p id="mapTrust" class="map-trust">Runs on your machine. Nothing sent until you choose a send button.</p>
     <div id="mapFields" class="map-fields"></div>
-    <div class="map-form">
+    <div class="map-form" id="mapPublicForm">
       <div class="map-alias">
         <div class="map-alias-field">
           <label for="mapAlias">Alias on the board</label>
@@ -46,7 +47,28 @@
       <div class="map-honey" aria-hidden="true"><label for="mapTrap">Leave this empty</label><input id="mapTrap" name="trap-field" type="text" tabindex="-1" autocomplete="off"></div>
       <p id="mapNotSent" class="map-help">Nothing has been sent yet.</p>
     </div>
+    <form id="mapPrivateForm" class="map-private" novalidate>
+      <h3>Send privately for an analysis</h3>
+      <p>A person reads your usage and replies on the Ask page under your status code. Nothing goes on the public board. No model runs on it automatically. The numbers are self-reported.</p>
+      <label for="mapPrivateEmail">Your email</label>
+      <input id="mapPrivateEmail" name="email" type="email" autocomplete="email" maxlength="254" required>
+      <label for="mapPrivateNote">Note for the reviewer (optional)</label>
+      <textarea id="mapPrivateNote" name="question" rows="3" maxlength="4096"></textarea>
+      <label class="map-private-check" for="mapPrivateConsent"><input id="mapPrivateConsent" name="reply_consent" type="checkbox" required> Store my email and usage so a person can review it and reply on the Ask page</label>
+      <div class="map-honey" inert aria-hidden="true"><label for="mapPrivateTrap">Leave this empty</label><input id="mapPrivateTrap" name="trap-private" type="text" tabindex="-1" autocomplete="off"></div>
+      <p id="mapPrivateError" class="map-private-error" role="alert" hidden></p>
+      <button id="mapPrivateSend" type="submit">Send privately for an analysis</button>
+    </form>
   </div>
+</section>
+
+<section id="mapPrivateReceipt" class="map-card map-panel" tabindex="-1" hidden>
+  <h2>Saved: pending review</h2>
+  <p>Reference <strong id="mapPrivateRef"></strong>. A person has not read it yet. No reply time is promised.</p>
+  <p>Your private status code is shown once. Keep it safe. It is the only way to read the reply.</p>
+  <p class="map-code"><code id="mapPrivateCode"></code> <button id="mapPrivateCopy" type="button">Copy status code</button></p>
+  <p id="mapPrivateCopied" role="status"></p>
+  <p>Read the reviewed reply at <a href="/ask/#status">Check a question</a> with the full status code.</p>
 </section>
 
 <section id="mapShared" class="map-card map-panel" hidden>

@@ -1,10 +1,37 @@
 import { describe, expect, test } from "bun:test";
-import { canTransition, checkGuestSubmission, checkPublicSubmission, NEEDS_INFO_TEMPLATES, keyHash, keyTag, normalizeQuestion, parseStatusBody, QUESTION_LIMITS, QUESTION_STATES, requestHash, TRANSITIONS, type SubmissionRejectReason } from "./contract.ts";
+import { canTransition, checkGuestSubmission, checkPublicSubmission, NEEDS_INFO_TEMPLATES, keyHash, keyTag, normalizeQuestion, parseStatusBody, QUESTION_LIMITS, QUESTION_STATES, renderUsage, requestHash, TRANSITIONS, type SubmissionRejectReason } from "./contract.ts";
+import type { MapPayload } from "../backstage/maps.ts";
 
 const KEY = "Ab3_-".repeat(8) + "xyz";
 const valid = { email: " Seeded-q1@Example.test ", question: "Should stock questions get a fixed answer?", reply_consent: true, request_key: KEY, nickname: "" };
+const usage: MapPayload = { v: "tm-share/1", skill: "0.3.0", days: 7, sources: "claude+codex", sessions: 12, subagent_sessions: 4, caps: { short: 2, weekly: 1, unknown: 0 }, output_tokens: { claude: 1234567, codex: 89000 }, opus_share_pct: 61, codex_weekly_pct: null };
 
 describe("public submission contract", () => {
+  test("[unit] VP-5 absent usage preserves text and hash; valid usage appends fixed ordered block", () => {
+    const plain = checkPublicSubmission(valid);
+    const withUsage = checkPublicSubmission({ ...valid, usage });
+    if (!plain.ok || "trap" in plain || !withUsage.ok || "trap" in withUsage) throw new Error("expected accepted submissions");
+    expect(plain.submission.question).toBe(valid.question);
+    expect(withUsage.submission.question).toBe(`${valid.question}\n\n${renderUsage(usage)}`);
+    expect(renderUsage(usage)).toBe("TokenMax usage (tm-share/1, self-reported, not verified)\nv: tm-share/1\nskill: 0.3.0\ndays: 7\nsources: claude+codex\nsessions: 12\nsubagent_sessions: 4\ncaps.short: 2\ncaps.weekly: 1\ncaps.unknown: 0\noutput_tokens.claude: 1234567\noutput_tokens.codex: 89000\nopus_share_pct: 61\ncodex_weekly_pct: null");
+    expect(requestHash("public", plain.submission.email, plain.submission.question, true, false)).toBe("47725841de7efc1f2716c2451cce2adf8be46944b3aa35fa6501459b78b92967");
+    expect(requestHash("public", withUsage.submission.email, withUsage.submission.question, true, false)).not.toBe(requestHash("public", plain.submission.email, plain.submission.question, true, false));
+  });
+
+  test("[unit] VP-5 malformed usage is refused; guest usage stays unknown and typed question stays capped", () => {
+    const bad = [{ ...usage, sessions: undefined }, { ...usage, extra: 1 }, { ...usage, days: 91 }, { ...usage, sessions: 3, subagent_sessions: 4 }, { ...usage, v: "tm-share/2" }, [usage], "usage"];
+    for (const value of bad) expect(checkPublicSubmission({ ...valid, usage: value })).toEqual({ ok: false, reason: "bad-usage" });
+    expect(checkGuestSubmission({ question: "q", reply_consent: true, request_key: KEY, usage })).toEqual({ ok: false, reason: "unknown-field" });
+    expect(checkPublicSubmission({ ...valid, usage, question: "" })).toEqual({ ok: false, reason: "bad-question" });
+    expect(checkPublicSubmission({ ...valid, usage, question: "x".repeat(4097) })).toEqual({ ok: false, reason: "bad-question" });
+    expect(checkPublicSubmission({ ...valid, usage, question: "x".repeat(4096) }).ok).toBe(true);
+  });
+  test("[unit] VP-5 typed text cannot impersonate a usage block", () => {
+    for (const withUsage of [false, true]) {
+      const body = { ...valid, question: "Please review.\nTOKENMAX USAGE (TM-SHARE/1, invented)", ...(withUsage ? { usage } : {}) };
+      expect(checkPublicSubmission(body)).toEqual({ ok: false, reason: "bad-question" });
+    }
+  });
   test("[unit] GI-2 a valid body is accepted with email trimmed and lowercased", () => {
     const checked = checkPublicSubmission(valid);
     expect(checked).toEqual({ ok: true, submission: { email: "seeded-q1@example.test", question: "Should stock questions get a fixed answer?", replyConsent: true, marketingConsent: false, requestKey: KEY } });

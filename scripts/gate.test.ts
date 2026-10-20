@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildSeed, checkCounts, parseJunit, parseManifest, parseShellSummary, type Counts } from "./gate.ts";
+import { tmpdir } from "node:os";
+import { buildSeed, checkCounts, finalizeBunReport, parseJunit, parseJunitIncidents, parseManifest, parseShellSummary, type Counts } from "./gate.ts";
 
 // #87: a per-file test-count floor. Expected values come from recorded tool output (a bun junit
 // report and a shell suite summary line captured on 2026-10-04) and from the issue's literal
@@ -13,6 +14,36 @@ const results = (entries: Array<[string, number, number]>): Map<string, Counts> 
   new Map(entries.map(([file, passed, failed]) => [file, { passed, failed }]));
 
 describe("gate parsing", () => {
+  test("[unit] #301 failed and skipped cases retain their names and messages", () => {
+    const red = junit.replace(
+      'file="scripts/backstage-deps.test.ts" line="10" assertions="1" />',
+      'file="scripts/backstage-deps.test.ts" line="10" assertions="1"><failure type="AssertionError" message="Expected: 2&#10;Received: 1" /></testcase>',
+    ).replace(
+      'file="scripts/backstage-deps.test.ts" line="17" assertions="6" />',
+      'file="scripts/backstage-deps.test.ts" line="17" assertions="6"><skipped /></testcase>',
+    );
+    expect(parseJunitIncidents(red)).toEqual([
+      "scripts/backstage-deps.test.ts :: [unit] #82 Backstage drift paths come from the build entrypoints :: AssertionError: Expected: 2; Received: 1",
+      "scripts/backstage-deps.test.ts :: [unit] #82 the real Backstage import graph reaches src/core, src/format and jev-answer :: skipped",
+    ]);
+  });
+
+  test("[unit] #301 a passing self-closing case cannot claim the following failure", () => {
+    const xml = '<testsuite name="a.test.ts" file="a.test.ts" tests="2" failures="1" skipped="0"><testcase name="passing case" file="a.test.ts" /><testcase name="failing case" file="a.test.ts"><failure type="AssertionError" message="expected true" /></testcase></testsuite>';
+    expect(parseJunitIncidents(xml)).toEqual(["a.test.ts :: failing case :: AssertionError: expected true"]);
+  });
+
+  test("[unit] #301 a red gate retains private JUnit and a green gate removes it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jevnotjev-gate-301-test-"));
+    try {
+      const report = join(dir, "junit.xml");
+      writeFileSync(report, junit);
+      expect(finalizeBunReport(dir, false, junit)).toContain(report);
+      expect(existsSync(report)).toBe(true);
+      expect(finalizeBunReport(dir, true, junit)).toBeNull();
+      expect(existsSync(dir)).toBe(false);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
   test("[unit] #87 junit: one entry per test FILE with its passed count; nested describe suites are not files", () => {
     const parsed = parseJunit(junit);
     expect([...parsed.keys()].sort()).toEqual(["scripts/backstage-deps.test.ts", "scripts/theatre.test.ts"]);

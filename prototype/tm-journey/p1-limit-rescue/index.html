@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Limit Ran Out</title>
+<meta name="description" content="Hit your Claude Code or Codex limit mid-task? TokenMax is a tool we are designing to pace your week. Help decide if it is worth building: share your week.">
+<style>
+/* Tokens copied from site/page.css:5-20 and site/tm/tm.css:6-25. Local font fallbacks only: nothing is fetched. */
+:root {
+  --bg: #12060a;
+  --bg-2: #1c080d;
+  --ink: #f2e9df;
+  --ink-soft: #d4c3b8;
+  --muted: #9c8580;
+  --line: rgba(242, 233, 223, .13);
+  --keep: #86cf9f;
+  --cut: #f08470;
+  --curtain: #7b1424;
+  --curtain-hi: #a3263a;
+  --curtain-lo: #3e0710;
+  --serif: "Iowan Old Style", Georgia, serif;
+  --sans: "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, Menlo, monospace;
+  --house: #14060a;
+  --house-2: #1f090e;
+  --gold: #e0b04e;
+  --gold-dim: #a07a2c;
+  --cream: #efe2c4;
+  --cream-ink: #2a1408;
+  --exit: #ff6a58;
+  --spot: #ffeec8;
+  --link: #9fd8b4;
+  --cmdbg: #0c0305;
+  --drape: clamp(6px, calc((100vw - 1180px) / 2), 150px);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--house); }
+body { margin: 0; background: var(--house); color: var(--ink); font: 500 16px/1.5 var(--sans); overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+a { color: var(--link); text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid #ffe6a6; outline-offset: 3px; }
+h1, h2, h3 { font-family: var(--serif); margin: 0; }
+p { margin: 0; }
+code, .mono { font-family: var(--mono); }
+
+/* Status badges: BUILT is solid green, DESIGN is a dashed outline. Every router or pacing mention carries DESIGN. */
+.built, .design { display: inline-block; padding: 2px 7px; font: 700 11px/1.3 var(--sans); letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
+.built { background: var(--keep); color: #0f2a19; }
+.design { color: var(--spot); border: 1px dashed var(--spot); }
+
+/* ---------- Stage 1: the house, curtain, marquee and split stage ---------- */
+.hero {
+  position: relative; overflow: hidden; min-height: 100vh;
+  padding: 24px 16px 26px;
+  background:
+    radial-gradient(ellipse 60% 45% at 50% 30%, rgba(255, 214, 140, .07), transparent 70%),
+    linear-gradient(180deg, var(--house) 0, var(--house-2) calc(100% - 40px), #2b1209 calc(100% - 39px), #3a1a0c 100%);
+}
+.valance {
+  position: absolute; top: 0; left: 0; right: 0; height: 18px; z-index: 2;
+  background:
+    radial-gradient(circle at 50% 0, var(--curtain) 0 11px, var(--curtain-lo) 12px 13px, transparent 14px) 0 4px / 28px 14px repeat-x,
+    linear-gradient(var(--curtain-lo), var(--curtain)) 0 0 / 100% 5px no-repeat;
+}
+.drape {
+  position: absolute; top: 0; bottom: 0; width: var(--drape); z-index: 1;
+  background: repeating-linear-gradient(90deg, var(--curtain-lo) 0, var(--curtain) 12px, var(--curtain-hi) 20px, var(--curtain) 28px, var(--curtain-lo) 38px);
+}
+.drape.l { left: 0; box-shadow: 6px 0 18px rgba(0, 0, 0, .5); }
+.drape.r { right: 0; box-shadow: -6px 0 18px rgba(0, 0, 0, .5); }
+.hero-in { position: relative; z-index: 3; max-width: 1120px; margin: 0 auto; }
+
+.marquee {
+  position: relative; padding: 14px 14px 12px; background: var(--house-2);
+  border: 2px solid var(--gold); box-shadow: inset 0 0 0 4px var(--house-2), inset 0 0 0 5px var(--gold-dim);
+}
+.marquee::before, .marquee::after {
+  content: ""; position: absolute; left: 8px; right: 8px; height: 6px;
+  background: radial-gradient(circle, #ffe6a6 0 2px, transparent 2.6px) 0 0 / 16px 6px repeat-x;
+}
+.marquee::before { top: -4px; }
+.marquee::after { bottom: -4px; }
+.kicker { font: 700 12px/1.3 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--gold); }
+.marquee h1 { margin-top: 6px; font: 800 clamp(24px, 3.6vw, 40px)/1.08 var(--serif); color: var(--spot); }
+.lead { margin-top: 12px; max-width: 62ch; font: 500 16px/1.42 var(--serif); color: var(--ink); }
+.lead b { color: var(--spot); }
+
+.split { margin-top: 12px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border: 1px solid var(--line); }
+.side { padding: 11px 10px 13px; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.u1 {
+  background: radial-gradient(ellipse 90% 60% at 50% 0, rgba(255, 106, 88, .14), transparent 75%), #170508;
+  border-right: 2px solid var(--gold-dim);
+}
+.u2 { background: radial-gradient(ellipse 90% 60% at 50% 0, rgba(255, 238, 200, .13), transparent 75%), #1f0d0b; outline: 1px dashed var(--gold-dim); outline-offset: -5px; }
+.who { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font: 700 11px/1.3 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); }
+.tag { padding: 2px 6px; border: 1px solid currentColor; color: var(--exit); }
+.u2 .tag { color: var(--gold); }
+.nw { white-space: nowrap; }
+.side h2 { font: 800 19px/1.15 var(--serif); color: var(--spot); }
+.tape { display: flex; align-items: center; gap: 3px; }
+.tape i { height: 8px; flex: 1; background: var(--gold-dim); }
+.tape i.cut { flex: .6; background: repeating-linear-gradient(90deg, var(--exit) 0 3px, transparent 3px 6px); }
+.tape .stop { flex: 0 0 auto; width: 3px; height: 18px; background: var(--exit); }
+.notice {
+  padding: 6px 8px; font: 700 12px/1.3 var(--mono); color: var(--exit);
+  background: #2a0806; border: 1px solid var(--exit); box-shadow: 0 0 14px rgba(255, 106, 88, .35);
+}
+.fig { font: 500 13px/1.3 var(--sans); color: var(--ink-soft); }
+.fig b { color: var(--exit); font: 800 22px/1 var(--serif); }
+.paced { font: italic 500 15px/1.35 var(--serif); color: var(--ink); }
+.nores { font: 500 12px/1.35 var(--sans); color: var(--muted); }
+.ask {
+  display: block; margin-top: auto; padding: 9px 10px; font: 700 14px/1.3 var(--sans); text-decoration: none;
+  color: var(--cream-ink); background: var(--gold); border: 2px solid var(--gold);
+}
+.ask:hover { background: #f0c468; }
+.see { margin-top: auto; font: 700 14px/1.3 var(--sans); }
+
+.below { margin-top: 12px; display: grid; gap: 8px; }
+.safe { font: 500 14px/1.4 var(--sans); color: var(--ink-soft); }
+.safe b { color: var(--keep); }
+.today { font: 500 14px/1.4 var(--sans); color: var(--ink-soft); }
+.whose { font: italic 500 13px/1.35 var(--serif); color: var(--muted); }
+
+/* ---------- Stages 2 to 6: the acts ---------- */
+.act { max-width: 1120px; margin: 0 auto; padding: 44px 16px; border-top: 1px solid var(--line); }
+.eyebrow { font: 700 12px/1.3 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--gold); }
+.act h2 { margin-top: 6px; font: 800 clamp(26px, 3.2vw, 38px)/1.1 var(--serif); color: var(--spot); }
+.act .intro { margin-top: 10px; max-width: 62ch; font: 500 18px/1.5 var(--serif); color: var(--ink); }
+.cols { margin-top: 20px; display: grid; gap: 16px; }
+.panel { padding: 16px; border: 1px solid var(--line); background: var(--bg-2); }
+.panel h3 { font: 800 20px/1.2 var(--serif); color: var(--spot); }
+.panel ul { margin: 10px 0 0; padding-left: 20px; }
+.panel li { margin-top: 6px; }
+.panel li::marker { color: var(--gold); }
+.panel.no li::marker { color: var(--cut); }
+.exists { margin-top: 20px; display: grid; gap: 12px; }
+.door { padding: 16px; border: 1px solid var(--line); background: var(--bg); }
+.door.notyet { border-style: dashed; border-color: var(--gold-dim); }
+.door h3 { margin-top: 8px; font: 800 20px/1.2 var(--serif); color: var(--spot); }
+.door p { margin-top: 6px; color: var(--ink-soft); }
+.more { margin-top: 18px; }
+.why { margin-top: 20px; padding: 14px 16px; border-left: 4px solid var(--gold); background: rgba(224, 176, 78, .07); font: 500 17px/1.5 var(--serif); }
+
+/* Ticket (stage 3): notched stub */
+.ticket {
+  position: relative; margin-top: 20px; padding: 18px 20px; background: #2a1408; color: var(--cream);
+  border: 2px solid var(--gold-dim);
+}
+.ticket::before, .ticket::after {
+  content: ""; position: absolute; top: 50%; width: 22px; height: 22px; margin-top: -11px; border-radius: 50%;
+  background: var(--house); border: 2px solid var(--gold-dim);
+}
+.ticket::before { left: -12px; clip-path: inset(0 0 0 50%); }
+.ticket::after { right: -12px; clip-path: inset(0 50% 0 0); }
+.ticket .admit { font: 800 13px/1.2 var(--sans); letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
+.ticket ul { margin: 10px 0 0; padding-left: 20px; font: 500 17px/1.5 var(--serif); }
+.ticket li::marker { color: var(--gold); }
+
+/* Stage 4: plain words, then the folds, then the one line last */
+.calm { margin-top: 20px; padding: 16px; border-left: 4px solid var(--keep); background: rgba(134, 207, 159, .07); max-width: 760px; }
+.calm p + p { margin-top: 8px; }
+.folds { margin-top: 18px; display: grid; gap: 8px; max-width: 760px; }
+details { border: 1px solid var(--line); background: var(--bg-2); }
+summary { padding: 10px 14px; cursor: pointer; font: 700 15px/1.3 var(--sans); color: var(--spot); }
+details > div { padding: 0 14px 14px; color: var(--ink-soft); }
+details > div > * + * { margin-top: 8px; }
+.how { margin-top: 22px; max-width: 760px; font: 500 17px/1.5 var(--serif); }
+.copyrow { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.copy { padding: 10px 16px; font: 700 15px/1 var(--sans); color: var(--cream-ink); background: var(--gold); border: 0; cursor: pointer; }
+.copy:hover { background: #f0c468; }
+.copymsg { font: 500 14px/1.4 var(--sans); color: var(--keep); }
+.cmd {
+  margin: 10px 0 0; padding: 12px; font: 600 14px/1.45 var(--mono); color: var(--spot); max-width: 760px;
+  background: var(--cmdbg); border: 1px solid var(--gold-dim); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* Playbill (stage 5) */
+.playbill { margin-top: 20px; padding: 22px 20px; background: var(--cream); color: var(--cream-ink); border: 3px double var(--gold-dim); max-width: 760px; }
+.playbill .pb-title { font: 800 26px/1.15 var(--serif); }
+.playbill .pb-sub { margin-top: 4px; font: italic 500 15px/1.4 var(--serif); color: #5a3a22; }
+.playbill section { margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(42, 20, 8, .25); }
+.playbill h3 { font: 700 12px/1.3 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--curtain); }
+.playbill p, .playbill li { margin-top: 6px; font: 500 16px/1.45 var(--serif); }
+.playbill ul { margin: 0; padding-left: 20px; }
+.playbill b { font-weight: 800; }
+.playbill a { color: var(--curtain); font-weight: 700; }
+.playbill .pnote { font: italic 500 14px/1.4 var(--serif); color: #5a3a22; }
+
+.btn {
+  display: inline-block; padding: 11px 16px; font: 700 15px/1.2 var(--sans); text-decoration: none;
+  color: var(--cream-ink); background: var(--gold); border: 2px solid var(--gold);
+}
+.btn:hover { background: #f0c468; }
+.askline { margin-top: 14px; font: 800 22px/1.25 var(--serif); color: var(--spot); max-width: 40ch; }
+
+.foot { padding: 28px 16px 40px; max-width: 1120px; margin: 0 auto; color: var(--muted); font: 500 13px/1.5 var(--sans); border-top: 1px solid var(--line); }
+
+/* ---------- Wider screens ---------- */
+@media (min-width: 720px) {
+  .hero { padding: 34px 24px 34px; display: flex; flex-direction: column; justify-content: center; }
+  .hero-in { width: 100%; }
+  .nores { font-size: 14px; }
+  .marquee { padding: 16px 18px 14px; }
+  .side { padding: 18px 22px 20px; gap: 10px; }
+  .side h2 { font-size: 27px; }
+  .who { font-size: 12px; }
+  .fig { font-size: 16px; }
+  .fig b { font-size: 40px; display: block; }
+  .notice { font-size: 15px; }
+  .paced { font-size: 19px; }
+  .ask { font-size: 16px; padding: 11px 14px; }
+  .see { font-size: 16px; }
+  .lead { font-size: 19px; }
+  .safe, .today { font-size: 15px; }
+  .cols { grid-template-columns: 1fr 1fr; }
+  .exists { grid-template-columns: 1fr 1fr 1fr; }
+  .doors { grid-template-columns: 1fr 1fr; }
+  .act { padding: 56px 24px; }
+}
+
+/* ---------- Motion: one looping flicker on User 1's limit notice; off for reduced motion ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+  .notice { animation: flicker 3.2s steps(1) infinite; }
+  @keyframes flicker { 0%, 88%, 100% { opacity: 1; } 90% { opacity: .55; } 93% { opacity: 1; } 95% { opacity: .7; } }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<main>
+<!-- Stage 1: arrive in pain. User 1 stops at the limit; User 2 is what we are designing, with the ask. -->
+<section class="hero" data-stage="1" id="pain" aria-labelledby="h-pain">
+  <div class="valance" aria-hidden="true"></div>
+  <div class="drape l" aria-hidden="true"></div>
+  <div class="drape r" aria-hidden="true"></div>
+  <div class="hero-in">
+    <header class="marquee">
+      <p class="kicker">For Claude Code and Codex users who keep running out</p>
+      <h1 id="h-pain">Your limit ran out <span class="nw">mid-task</span></h1>
+    </header>
+    <p class="lead"><b>TokenMax</b> is a tool we are designing that would pace your Claude Code and Codex use so you do not hit your weekly limit. It is not built yet.</p>
+
+    <div class="split" role="group" aria-label="Two illustrative weeks side by side">
+      <article class="side u1" aria-labelledby="h-u1">
+        <p class="who"><span class="tag">User 1</span> today</p>
+        <h2 id="h-u1">Stops <span class="nw">mid-task</span></h2>
+        <div class="tape" aria-hidden="true"><i></i><i></i><i></i><span class="stop"></span><i class="cut"></i></div>
+        <p class="notice">You've hit your limit</p>
+        <p class="fig"><b>2</b> limit hits, Wed 14 Oct, from 16:20 UTC</p>
+        <a class="see" href="#example">See the example week</a>
+      </article>
+      <article class="side u2" aria-labelledby="h-u2">
+        <p class="who"><span class="tag">User 2</span> <span class="design">Design, not built</span></p>
+        <h2 id="h-u2">What we are designing</h2>
+        <p class="paced">The same week, paced, so the allowance is used rather than hit.</p>
+        <p class="nores">Nothing has run, so there is no result to show.</p>
+        <a class="ask" href="#run">Help us decide if it is worth building: share your week.</a>
+      </article>
+    </div>
+
+    <div class="below">
+      <p class="safe"><b>Your map is made on your own computer and sends nothing.</b> Sharing is a separate choice: only your week's totals leave, when you press Share.</p>
+      <p class="today"><span class="built">Built today</span> the map of your own week, the share link, the shared board and an example week.</p>
+      <p class="whose">Two illustrative weeks. User 1's limit hits are from one builder's real week, 16 Oct 2026.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Stage 2: understand what this is. Below the first viewport at every size (the hero is at least one screen tall). -->
+<section class="act" data-stage="2" id="what" aria-labelledby="h-what">
+  <p class="eyebrow">Act 1 &middot; What this is</p>
+  <h2 id="h-what">Jev is the product: TokenMax is one use of it</h2>
+  <p class="intro">TokenMax is the flagship example for Jev!Jev. It is being designed, and might be built if enough people need it. Part of it you can use today; the rest is still on paper.</p>
+  <div class="exists">
+    <div class="door notyet">
+      <span class="design">Design, not built</span>
+      <h3>The TokenMax router</h3>
+      <p>A token router that would keep you from hitting your weekly limit by pacing the week. Fixed rules would send most jobs; Jev would pick the cheaper door for the jobs the rules cannot route. In rehearsal, not run (issue 236). No result yet.</p>
+    </div>
+    <div class="door">
+      <span class="built">Built today</span>
+      <h3>The map</h3>
+      <p>Your last 7 days of Claude Code and Codex, drawn on your own computer, in two reports.</p>
+    </div>
+    <div class="door">
+      <span class="built">Built today</span>
+      <h3>The share link and the board</h3>
+      <p>Your map prints a link; open it and press Share to post your week's totals to the board. Newest first, self-reported, not verified. <a href="https://jevnotjev.breakoutwithai.com/maps/">See the board</a></p>
+    </div>
+  </div>
+  <p class="why">Through jevnotjev, TokenMax is gathering weeks from willing people. Each week shared helps decide whether the router gets built.</p>
+  <div class="cols">
+    <div class="panel">
+      <h3>Your map shows</h3>
+      <ul>
+        <li>How many sessions you ran in Claude Code and in Codex, and how many had helper work running alongside.</li>
+        <li>Each time you hit a limit: the short window, the weekly window, or unknown, and when it first hit (UTC).</li>
+        <li>How much output each tool wrote, and what share of Claude output came from the big Opus model.</li>
+        <li>How much of the Codex week was used at the last reading.</li>
+      </ul>
+    </div>
+    <div class="panel no">
+      <h3>It does not</h3>
+      <ul>
+        <li>Say what caused a limit.</li>
+        <li>Turn counts into a cost or a percent of your plan.</li>
+        <li>Read your messages. The only text it reads is Claude Code's own limit notice.</li>
+        <li>Send anything anywhere.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="more"><a href="https://jevnotjev.breakoutwithai.com/guide/#tokenmax">Understand your TokenMax map</a></p>
+</section>
+
+<!-- Stage 3: decide to try. -->
+<section class="act" data-stage="3" id="try" aria-labelledby="h-try">
+  <p class="eyebrow">Act 2 &middot; Your ticket</p>
+  <h2 id="h-try">Should you share your week?</h2>
+  <div class="ticket">
+    <p class="admit">Admit one</p>
+    <ul>
+      <li>You use Claude Code or Codex on this computer.</li>
+      <li>You have run out mid-task and would rather pace it and use it all.</li>
+      <li>You want a say in whether the router gets built.</li>
+    </ul>
+  </div>
+  <div class="cols">
+    <div class="panel">
+      <h3>What it asks of you</h3>
+      <ul>
+        <li>One line to paste, shown in the next act.</li>
+        <li>It looks at your last 7 days unless you ask for more.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>What stays yours</h3>
+      <ul>
+        <li>Two reports in a new folder on your computer. Nothing is sent.</li>
+        <li>If you share, only your week's totals go: no paths, project names, ids or times.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="more">Not sure yet? <a href="#example">See the example week</a> first.</p>
+</section>
+
+<!-- Stage 4: run it with reassurance. The one line appears here, once, as the last thing in this stage. -->
+<section class="act" data-stage="4" id="run" aria-labelledby="h-run">
+  <p class="eyebrow">Act 3 &middot; Curtain up</p>
+  <h2 id="h-run">Make your map</h2>
+  <div class="calm">
+    <p><b>What the line does:</b> it reads the Claude Code and Codex history on your own computer and writes two reports into a new folder there. It never overwrites an earlier report.</p>
+    <p><b>What leaves:</b> nothing, until you open the link it prints and press Share. Then only your week's totals go: counts, with no paths, project names, ids or times.</p>
+  </div>
+  <div class="folds">
+    <details>
+      <summary>Nothing happens, or it asks for Bun?</summary>
+      <div>
+        <p>The line needs Bun, a program that runs it. Paste this first, press Enter, then come back for the line below.</p>
+        <pre class="cmd">curl -fsSL https://bun.sh/install | bash</pre>
+      </div>
+    </details>
+    <details>
+      <summary>Want more than a week?</summary>
+      <div>
+        <p>It reads the last 7 days unless you ask. Add <code>--days 30</code> to the end of the line for 30 days. Shared maps go up to 90 days.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Want to read it before you run it?</summary>
+      <div>
+        <p>The line fetches one file from this site and runs it. <a href="https://jevnotjev.breakoutwithai.com/tm/map.ts">Read map.ts</a>.</p>
+      </div>
+    </details>
+  </div>
+  <p class="how">Open a terminal on the computer where you use Claude Code or Codex, paste this line and press Enter.</p>
+  <div class="copyrow">
+    <button type="button" class="copy" data-copy="cmdMap">Copy the line</button>
+    <span class="copymsg" id="copyMsg" role="status" aria-live="polite"></span>
+  </div>
+  <pre class="cmd" id="cmdMap">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share</pre>
+</section>
+
+<!-- Stage 5: read your result, shown on the example week (built). -->
+<section class="act" data-stage="5" id="example" aria-labelledby="h-example" tabindex="-1">
+  <p class="eyebrow">Act 4 &middot; The playbill</p>
+  <h2 id="h-example">Read your result</h2>
+  <p class="intro"><span class="built">Built today</span> Your new folder holds <code>private-report.md</code>, for you only, and <code>share-draft.md</code>, to review before any sharing. Here is the example week, read the way your report reads.</p>
+  <div class="playbill">
+    <p class="pb-title">The example week</p>
+    <p class="pb-sub">One builder's real week, 7 days to 16 Oct 2026</p>
+    <section>
+      <h3>Limits</h3>
+      <p><b>2 limit hits</b>: 1 short window, 1 unknown window. Both on Wed 14 Oct, from 16:20 UTC.</p>
+      <p class="pnote">The report says when, not why.</p>
+    </section>
+    <section>
+      <h3>Claude Code</h3>
+      <p><b>515 sessions</b> &middot; 9,977,232 output tokens &middot; <b>87%</b> of that output on Opus, the big model.</p>
+    </section>
+    <section>
+      <h3>Codex</h3>
+      <p><b>3,478 sessions</b> &middot; 7,503,143 output tokens &middot; weekly window <b>15%</b> used.</p>
+    </section>
+    <section>
+      <h3>Helper work</h3>
+      <p><b>444 sessions</b> had helper work running alongside.</p>
+    </section>
+    <section>
+      <h3>Proposals (not measured savings)</h3>
+      <p>For a week like this, the report proposes:</p>
+      <ul>
+        <li>2 limit episodes: put must-deliver work early in the window and queue optional work for after the reset.</li>
+        <li>87% of Claude output came from Opus-class models: test whether routine helper work holds quality on a smaller model before moving it.</li>
+      </ul>
+    </section>
+    <section>
+      <h3>Not covered</h3>
+      <p>Token counts are not a percent of your plan or a cost.</p>
+    </section>
+    <section>
+      <h3>The share card</h3>
+      <p>Totals only, the card a shared week shows: <a href="https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9&sample">Open the sample card</a></p>
+    </section>
+  </div>
+</section>
+
+<!-- Stage 6: next step. The two ways forward: the map (built) or the router work (design). -->
+<section class="act" data-stage="6" id="next" aria-labelledby="h-next">
+  <p class="eyebrow">Act 5 &middot; Exit through the lobby</p>
+  <h2 id="h-next">Your next step</h2>
+  <p class="askline">Help us decide if it is worth building: share your week.</p>
+  <div class="exists doors">
+    <div class="door">
+      <span class="built">Built today</span>
+      <h3>Run the map now and share your week</h3>
+      <p>See your own week, then open the link it prints and press Share to add it to the board: newest first, self-reported, not verified.</p>
+      <p><a class="btn" href="#run">Make your map</a> <a href="https://jevnotjev.breakoutwithai.com/maps/">See the board</a></p>
+    </div>
+    <div class="door notyet">
+      <span class="design">Design, not built</span>
+      <h3>Follow the router work</h3>
+      <p>Jev picking the cheaper door for the jobs the rules cannot route, so the week is paced and used rather than hit. In rehearsal, not run: issue 236 in the jevnotjev repository. Nothing to run yet.</p>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="foot">Prototype p1, limit-hit rescue. A static page: it loads nothing from anywhere.</footer>
+
+<script>
+(function () {
+  var msg = document.getElementById('copyMsg');
+  document.querySelectorAll('[data-copy]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var source = document.getElementById(button.getAttribute('data-copy'));
+      var text = source ? source.textContent : '';
+      function selectIt() {
+        var range = document.createRange();
+        range.selectNodeContents(source);
+        var sel = getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        msg.textContent = 'Selected: press Cmd+C or Ctrl+C to copy.';
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { msg.textContent = 'Copied. Paste it and press Enter.'; }, selectIt);
+      } else selectIt();
+    });
+  });
+})();
+</script>
+</body>
+</html>

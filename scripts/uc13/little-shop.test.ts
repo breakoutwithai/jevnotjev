@@ -3,7 +3,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CASE_IDS, parseRecords, type RecordRow } from "./arms.ts";
-import { DATA_OUT, PAGE, RUN_URL, VERDICT_OUT, build, buildData, readShopScript } from "./little-shop.ts";
+import { DATA_OUT, PAGE, RUN_URL, VERDICT_OUT, build, buildData, readShopScript, resultPage } from "./little-shop.ts";
+import { summariseRun } from "../shows/build-posters.ts";
 import { EXAMPLE_DIR, RUN_DIR } from "./stage-demo.ts";
 import { shopVerdict } from "../../src/browser/shop-verdict.ts";
 
@@ -33,7 +34,7 @@ describe("Little Shop data and verdict bundle (scripts/uc13/little-shop.ts)", ()
     const children = [...block.matchAll(/<(h3|p) class="([^"]+)">([^<]*)<\/\1>/g)].map((match) => ({ className: match[2], text: match[3] }));
     expect(children).toEqual([
       { className: "recorded-caption", text: "Recorded run, 1 October 2026: 40 cases" },
-      { className: "recorded-headline", text: "Same accuracy as the LLM (38/40 each) at 1/79th of the cost" },
+      { className: "recorded-headline", text: "Jev and the LLM: 38 of 40 each, Jev at about 1/79th of the LLM&#39;s cost. 40 messages were too few to prove Jev is as good." },
       { className: "recorded-verdict", text: "Verdict: not enough evidence" },
       { className: "recorded-plain", text: "The recorded run cannot yet show that Jev is as good as the LLM." },
       { className: "recorded-why", text: "Not proven yet: the lower bound of Jev minus the LLM is -0.11, below the -0.10 margin, on 40 paired cases. If the next cases split the same way, about 6 more paired cases would bring it inside the margin." },
@@ -43,6 +44,17 @@ describe("Little Shop data and verdict bundle (scripts/uc13/little-shop.ts)", ()
 
   test("[integration] S6 resolved run directory spelling gives the same result", async () => {
     expect(await build(`${RUN_DIR}/.`)).toEqual(await build(RUN_DIR));
+  });
+
+  test("[unit] S6 a second summary changes the rendered headline and rounds its cost ratio", async () => {
+    const summary = await summariseRun(join(import.meta.dir, "..", ".."), "2026-10-01-uc13-shop-bot");
+    if (summary === null) throw new Error("recorded run summary is missing");
+    const llmSpend = summary.methods.find((method) => method.arm === "llm")?.spendUsd;
+    if (llmSpend === null || llmSpend === undefined) throw new Error("LLM spend is missing");
+    const second = { ...summary, methods: summary.methods.map((method) => method.arm === "jev" ? { ...method, spendUsd: llmSpend / 80.6 } : method) };
+    const rendered = resultPage(await readFile(PAGE, "utf8"), second);
+    expect(rendered).toContain("Jev at about 1/81st of the LLM&#39;s cost");
+    expect(rendered).not.toContain("Jev at about 1/79th of the LLM&#39;s cost");
   });
 
   test("[integration] S6 a different run directory supplies its own headline", async () => {

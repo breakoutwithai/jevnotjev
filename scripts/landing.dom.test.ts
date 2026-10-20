@@ -2881,6 +2881,16 @@ test("[integration] TR5 one seat call-to-action label, Take your seat, on the cu
       const labels = await page.locator("a.poster .p-cta").allTextContents();
       expect({ motion, labels }).toEqual({ motion, labels: ["Take your seat"] });
       expect(await page.locator('footer.site-foot a[href="little-shop/"]').textContent()).toBe("Little Shop");
+      const seats = page.locator('a.poster[href="little-shop/"] .p-seats');
+      if (motion === "reduce") {
+        expect(await seats.isVisible()).toBe(false);
+      } else {
+        expect(await seats.isVisible()).toBe(true);
+        const box = await seats.boundingBox();
+        expect(box?.width ?? 0).toBeGreaterThan(1);
+        expect(box?.height ?? 0).toBeGreaterThan(1);
+        expect((await seats.innerText()).trim()).toBe("40 messages, three clerks each. You decide.");
+      }
       expect(await page.locator("body").evaluate((node) => (node.textContent ?? "").toLowerCase())).not.toContain("pick a seat");
       // The poster names its label (WCAG label in name) and no other link shares its name.
       const names = await page.locator("a.poster").evaluateAll((nodes) => nodes.map((n) => n.getAttribute("aria-label") ?? ""));
@@ -2895,11 +2905,19 @@ test("[integration] TR6 the seat page's programme leads with a plain verdict lin
     const page = await pageAt(width, height);
     try {
       await page.goto(`http://127.0.0.1:${server.port}/little-shop/`, { waitUntil: "load" });
+      const og = await page.locator('meta[property="og:description"]').getAttribute("content");
+      const counter = page.locator(".count");
+      expect(await counter.isVisible()).toBe(true);
+      expect((await counter.locator(".n").innerText()).replace(/\s+/g, " ").trim()).toBe("0 of 120");
+      const caption = counter.locator(".cap");
+      expect(await caption.isVisible()).toBe(true);
+      expect((await caption.textContent() ?? "").trim()).toBe("clerks seated");
+      expect(og).toBe("40 messages, three clerks each. You decide.");
       const run = page.locator(".recorded-run");
       const visible = await run.evaluate((node) => [...node.querySelectorAll("p, h3")].filter((n) => n.checkVisibility()).map((n) => n.textContent?.trim() ?? ""));
       expect({ width, visible }).toEqual({ width, visible: [
         "Recorded run, 1 October 2026: 40 cases",
-        "Same accuracy as the LLM (38/40 each) at 1/79th of the cost",
+        "Jev and the LLM: 38 of 40 each, Jev at about 1/79th of the LLM's cost. 40 messages were too few to prove Jev is as good.",
         "Verdict: not enough evidence",
         "The recorded run cannot yet show that Jev is as good as the LLM.",
       ] });

@@ -159,6 +159,49 @@ test("[unit] M0 the share link is built by the mapper's own shareLink against SH
   expect(link().startsWith(`${origin}/maps/#m=`)).toBe(true);
 });
 
+test("[integration] M0b the board link on an invalid share opens the visible board", async () => {
+  const { page, context } = await open(`${origin}/maps/#m=invalid`);
+  try {
+    expect(await page.locator("#mapInvalid").isVisible()).toBe(true);
+    const boardLink = page.locator("#mapInvalid a[href='/maps/']");
+    expect(await boardLink.isVisible()).toBe(true);
+    expect((await boardLink.innerText()).trim()).toBe("open the board");
+    await boardLink.click();
+    await page.locator("#mapBoardSection").waitFor({ state: "visible" });
+    expect(new URL(page.url()).hash).toBe("");
+    expect(await page.locator("#mapBoardSection").isVisible()).toBe(true);
+  } finally { await context.close(); }
+});
+
+test("[integration] M-null weekly usage distinguishes an unread Codex log from a missing weekly snapshot", async () => {
+  rows = [
+    boardRow("TM-0000000000A1", "codex-read", { ...PAYLOAD, codex_weekly_pct: null }),
+    boardRow("TM-0000000000A2", "codex-unread", { ...PAYLOAD, sources: "claude", codex_weekly_pct: null }),
+  ];
+  const { page, context } = await open(`${origin}/maps/`);
+  try {
+    const read = page.locator('[data-map-id="TM-0000000000A1"]');
+    const unread = page.locator('[data-map-id="TM-0000000000A2"]');
+    await unread.waitFor({ state: "visible" });
+    const weekly = (row: typeof read) => row.locator(".map-fig").filter({ has: page.locator("dt", { hasText: "Codex weekly used" }) }).locator("dd");
+    expect(await weekly(read).innerText()).toBe("not in the logs");
+    expect(await weekly(unread).innerText()).toBe("not collected");
+    expect(await read.isVisible()).toBe(true);
+    expect(await unread.isVisible()).toBe(true);
+  } finally { await context.close(); }
+});
+
+test("[integration] M-null a shared Codex log without weekly usage shows not in the logs in the preview", async () => {
+  const payload = { ...PAYLOAD, codex_weekly_pct: null };
+  const { page, context } = await open(shareLink(payload, `${origin}/maps/`));
+  try {
+    await page.locator("#mapShare").waitFor();
+    const weekly = page.locator('#mapPreview [data-field="codex_weekly_pct"]');
+    expect(await weekly.isVisible()).toBe(true);
+    expect((await weekly.innerText()).trim()).toBe("not in the logs");
+  } finally { await context.close(); }
+});
+
 test("[integration] 1 a valid link shows every payload field with its value and a prefilled alias", async () => {
   const { page, context } = await open(link());
   try {
@@ -489,7 +532,8 @@ test("[integration] 10 with no fragment the page reads the board once and labels
     expect(first).toContain("1.2M");
     expect(await rowsShown.nth(0).locator('[title="1,234,567 output tokens"]').count()).toBe(1);
     expect(second.replace(/\s+/g, " ")).toContain("0 / 0 / 1");
-    expect(second).toContain("none read");
+    expect(second).toContain("not in the logs");
+    expect(second).not.toContain("none read");
   } finally { await context.close(); }
 });
 
@@ -906,7 +950,7 @@ async function followExplanation(page: Page, capture = false): Promise<void> {
     const explanation = page.locator("#tokenmax");
     expect(await explanation.isVisible()).toBe(true);
     const text = await explanation.innerText();
-    for (const meaning of ["TokenMax", "self-reported", "not collected", "labelled evidence", "optional"]) expect(text).toContain(meaning);
+    for (const meaning of ["TokenMax", "self-reported", "not collected", "not in the logs", "labelled evidence", "optional"]) expect(text).toContain(meaning);
     expect(await explanation.locator('a[href="/maps/"]').isVisible()).toBe(true);
     const artifacts = process.env.JNJ_JOURNEY_ARTIFACTS;
     if (artifacts && capture) { mkdirSync(artifacts, { recursive: true }); await page.screenshot({ path: join(artifacts, `guide-${page.viewportSize()?.width}.png`) }); }

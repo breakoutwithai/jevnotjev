@@ -99,13 +99,26 @@ const RESULT_START = "<!-- BEGIN RECORDED RUN RESULT -->";
 const RESULT_END = "<!-- END RECORDED RUN RESULT -->";
 
 /** Replace the generated official-run summary; the visitor's own verdict below still comes from their calls. */
-function resultPage(page: string, run: RunSummary): string {
+export function resultPage(page: string, run: RunSummary): string {
   const line = (className: string, value: string | null): string => value === null ? "" : `<p class="${className}">${escapeHtml(value)}</p>`;
+  let headline = run.headline;
+  if (run.verdict === "not enough evidence" && run.reason?.includes("lower bound")) {
+    const jev = run.methods.find((method) => method.arm === "jev");
+    const llm = run.methods.find((method) => method.arm === "llm");
+    if (!jev || !llm || jev.spendUsd === null || llm.spendUsd === null || jev.spendUsd <= 0 ||
+        jev.accepted !== llm.accepted || run.labelledPaired <= 0) {
+      throw new Error("shop result needs comparable Jev and LLM counts and spend");
+    }
+    const ratio = Math.round(llm.spendUsd / jev.spendUsd);
+    if (!Number.isFinite(ratio) || ratio < 2) throw new Error("shop result needs a measured cost ratio");
+    const suffix = ratio % 100 >= 11 && ratio % 100 <= 13 ? "th" : ratio % 10 === 1 ? "st" : ratio % 10 === 2 ? "nd" : ratio % 10 === 3 ? "rd" : "th";
+    headline = `Jev and the LLM: ${jev.accepted} of ${run.labelledPaired} each, Jev at about 1/${ratio}${suffix} of the LLM's cost. ${run.labelledPaired} messages were too few to prove Jev is as good.`;
+  }
   const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${run.folder.slice(0, 10)}T00:00:00Z`));
   const block = [RESULT_START,
     '<div class="recorded-run" aria-label="Recorded run result">',
     line("recorded-caption", `Recorded run, ${date}: ${run.labelledPaired} cases`),
-    run.headline === null ? "" : `<h3 class="recorded-headline">${escapeHtml(run.headline)}</h3>`,
+    headline === null ? "" : `<h3 class="recorded-headline">${escapeHtml(headline)}</h3>`,
     line("recorded-verdict", run.verdict === null ? null : `Verdict: ${run.verdict}`),
     line("recorded-plain", run.verdict === null ? null : PLAIN_VERDICT.get(run.verdict) ?? null),
     run.whyNotYet === null ? "" : `<details class="recorded-more"><summary>Why is it not proven yet?</summary>${line("recorded-why", run.whyNotYet)}</details>`,

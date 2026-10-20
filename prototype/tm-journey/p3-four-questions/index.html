@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TokenMax four questions</title>
+<meta name="description" content="Hit your Claude Code or Codex limit again? We are designing a tool that would pace your use. Share your week to help decide if it is worth building.">
+<style>
+/* Tokens copied from site/page.css:5-20 and site/tm/tm.css:6-25. Local font fallbacks only: no remote font, no @import, no linked stylesheet. */
+:root {
+  --bg: #12060a;
+  --bg-2: #1c080d;
+  --ink: #f2e9df;
+  --ink-soft: #d4c3b8;
+  --muted: #a8918b;
+  --line: rgba(242, 233, 223, .16);
+  --curtain: #7b1424;
+  --curtain-hi: #a3263a;
+  --curtain-lo: #3e0710;
+  --brass: #e0b04e;
+  --brass-dark: #8a5f10;
+  --gold: #e0b04e;
+  --gold-dim: #a07a2c;
+  --cream: #efe2c4;
+  --cream-ink: #2a1408;
+  --exit: #ff6a58;
+  --spot: #ffeec8;
+  --link: #9fd8b4;
+  --keep: #86cf9f;
+  --termbg: #0c0305;
+  --house: #14060a;
+  --house-2: #1f090e;
+  --serif: "Alegreya", "Iowan Old Style", Georgia, serif;
+  --sans: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.5 var(--serif); overflow-x: hidden; }
+h1, h2, h3, h4 { font-family: var(--serif); margin: 0; }
+p { margin: 0; }
+a { color: var(--brass); text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--brass); outline-offset: 3px; }
+code, pre, .mono { font-family: var(--mono); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+
+.skip { position: absolute; left: 8px; top: -60px; z-index: 20; background: var(--brass); color: var(--cream-ink); padding: 10px 14px; font: 700 15px/1 var(--sans); border-radius: 2px; }
+.skip:focus { top: 8px; }
+
+/* ---------- marquee strip ---------- */
+.marquee { background: linear-gradient(var(--curtain-hi), var(--curtain) 55%, var(--curtain-lo)); border-bottom: 3px solid var(--gold-dim); padding: 8px 0 3px; }
+.marquee .wrap { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+.marquee b { font: 800 15px/1 var(--sans); letter-spacing: .14em; text-transform: uppercase; color: #f6e7c8; }
+.marquee span { font: 500 13px/1.2 var(--sans); color: #f0d9b0; text-align: right; }
+.bulbs { height: 8px; margin-top: 3px; background: radial-gradient(circle at 6px 4px, var(--spot) 0 2.2px, transparent 3px) 0 0 / 18px 8px repeat-x; opacity: .9; }
+.motion .bulbs { animation: twinkle 2.4s ease-in-out infinite; }
+@keyframes twinkle { 50% { opacity: .5; } }
+
+/* ---------- generic act ---------- */
+.act { padding: 28px 0 36px; border-bottom: 1px solid var(--line); }
+.playbill { font: 700 12px/1 var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--gold); margin-bottom: 10px; }
+.act h2 { font: 800 clamp(26px, 4.4vw, 40px)/1.08 var(--serif); color: #f6e7c8; max-width: 24ch; }
+.lede { margin-top: 10px; max-width: 62ch; color: var(--ink-soft); font: italic 500 19px/1.4 var(--serif); }
+.small { font: 500 14px/1.4 var(--sans); color: var(--muted); }
+.btn { display: inline-block; background: var(--brass); color: var(--cream-ink); font: 800 16px/1.1 var(--sans); padding: 14px 18px; border: 0; border-radius: 3px; text-decoration: none; cursor: pointer; min-height: 48px; text-align: center; }
+.btn:hover { background: #f0c566; }
+.btn.ghost { background: transparent; color: var(--brass); box-shadow: inset 0 0 0 2px var(--gold-dim); }
+.btn.ghost:hover { background: rgba(224, 176, 78, .1); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.tag { display: inline-block; font: 800 12px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; padding: 5px 7px; border-radius: 2px; }
+.tag.built { background: var(--keep); color: #0d2316; }
+.tag.soon { background: transparent; color: var(--exit); box-shadow: inset 0 0 0 2px var(--exit); }
+
+/* ---------- stage 1: the split stage ---------- */
+#stage1 { padding-top: 20px; background:
+  radial-gradient(ellipse 60% 40% at 25% 0%, rgba(255, 106, 88, .10), transparent 70%),
+  radial-gradient(ellipse 60% 40% at 75% 0%, rgba(255, 238, 200, .10), transparent 70%); }
+#stage1 h1 { font: 800 clamp(30px, 6.2vw, 56px)/1.04 var(--serif); color: #f6e7c8; max-width: 20ch; }
+.plain { margin-top: 10px; max-width: 60ch; font: 500 18px/1.4 var(--serif); color: var(--ink); }
+.plain strong { color: var(--gold); font-weight: 700; }
+.ctas { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: center; }
+.stage { position: relative; margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 2px solid var(--gold-dim); border-radius: 3px; background: var(--house); overflow: hidden; }
+.stage::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 12px; background: linear-gradient(var(--curtain-hi), var(--curtain-lo)); z-index: 1; }
+.half { position: relative; padding: 22px 12px 14px; min-width: 0; }
+.half + .half { border-left: 2px dashed rgba(224, 176, 78, .5); }
+.half.u1 { background: radial-gradient(ellipse 90% 70% at 50% 0%, rgba(255, 106, 88, .20), transparent 75%), var(--house); }
+.half.u2 { background: radial-gradient(ellipse 90% 70% at 50% 0%, rgba(255, 238, 200, .16), transparent 75%), var(--house-2); }
+.who { font: 800 12px/1 var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--gold); }
+.half h3 { margin-top: 6px; font: 800 clamp(18px, 3.2vw, 26px)/1.1 var(--serif); color: #f6e7c8; }
+.fig { margin-top: 8px; font: 500 14px/1.3 var(--sans); color: var(--ink-soft); }
+.fig b { display: block; font: 800 clamp(22px, 4vw, 32px)/1 var(--serif); color: var(--cream); }
+.u1 .fig b { color: var(--exit); }
+.exitsign { display: inline-block; margin-top: 10px; border: 2px solid var(--exit); background: #2a0806; color: var(--exit); font: 800 15px/1 var(--sans); letter-spacing: .12em; padding: 5px 9px; border-radius: 2px; box-shadow: 0 0 12px rgba(255, 106, 88, .5); }
+.motion .exitsign { animation: glow 2.6s ease-in-out infinite; }
+@keyframes glow { 50% { box-shadow: 0 0 4px rgba(255, 106, 88, .3); } }
+.half .tag { margin-top: 10px; }
+.eg { margin-top: 8px; }
+.u2 .tag { margin-top: 8px; }
+.ask { margin-top: 10px; font: 700 15px/1.3 var(--serif); color: var(--cream); }
+.u2 .btn { margin-top: 10px; width: 100%; padding: 12px 10px; font-size: 15px; }
+.designbox { margin-top: 18px; padding: 16px; border: 2px dashed var(--exit); border-radius: 3px; background: rgba(255, 106, 88, .05); }
+.designbox h3 { margin-top: 8px; font: 800 22px/1.1 var(--serif); color: #f6e7c8; }
+.designbox p { margin-top: 8px; max-width: 70ch; font: 500 15px/1.45 var(--sans); color: var(--ink-soft); }
+.lede .tag { margin-right: 6px; font-style: normal; vertical-align: 2px; }
+.more { margin-top: 12px; border: 1px solid var(--line); border-radius: 3px; background: var(--bg-2); padding: 0 12px; }
+.more summary { cursor: pointer; padding: 12px 0; min-height: 44px; font: 700 15px/1.3 var(--sans); color: var(--gold); }
+.more[open] { padding-bottom: 12px; }
+.more p { margin-top: 4px; font: 500 15px/1.42 var(--sans); color: var(--ink-soft); }
+.theline { margin-top: 18px; padding: 14px; border: 2px solid var(--gold-dim); border-radius: 3px; background: var(--house-2); }
+.theline h3 { font: 800 21px/1.1 var(--serif); color: #f6e7c8; }
+.theline p { margin-top: 6px; font: 500 15px/1.42 var(--sans); color: var(--ink-soft); }
+
+/* ---------- stage 2: tickets ---------- */
+.tickets { margin: 18px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.tickets li { background: var(--cream); color: var(--cream-ink); padding: 14px 14px 14px 18px; border-radius: 3px; border-left: 6px dotted var(--curtain); }
+.tickets h3 { font: 800 21px/1.1 var(--serif); }
+.tickets p { margin-top: 6px; font: 500 15px/1.4 var(--sans); }
+.tickets .num { font: 800 12px/1 var(--sans); letter-spacing: .14em; color: var(--curtain); margin-bottom: 6px; display: block; }
+.facts { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fact { padding: 14px; border: 1px solid var(--line); border-radius: 3px; background: var(--bg-2); }
+.fact h3 { font: 800 19px/1.1 var(--serif); color: var(--gold); }
+.fact p, .fact li { margin-top: 6px; font: 500 15px/1.42 var(--sans); color: var(--ink-soft); }
+.fact ul { margin: 0; padding-left: 18px; }
+
+/* ---------- stage 3: the four questions ---------- */
+#stage3 { background: linear-gradient(var(--bg), var(--bg-2)); }
+.booth { margin-top: 18px; border: 2px solid var(--gold-dim); border-radius: 3px; background: var(--house-2); padding: 14px; }
+.progress { margin: 0 0 12px; padding: 0; list-style: none; display: none; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.js .progress { display: grid; }
+.progress li { padding: 6px 7px; border: 1px solid var(--line); border-radius: 2px; font: 700 12px/1.25 var(--sans); color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+.progress li small { display: block; font: 500 12px/1.25 var(--sans); color: var(--ink-soft); margin-top: 2px; min-height: 15px; }
+.progress li.now { border-color: var(--brass); color: var(--gold); }
+.progress li.done { border-color: var(--keep); color: var(--keep); }
+.qs { margin: 0; padding: 0; list-style: none; }
+.q { padding: 4px 0 6px; }
+.q + .q { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 14px; }
+.q h3 { font: 800 clamp(22px, 3.6vw, 30px)/1.1 var(--serif); color: #f6e7c8; }
+.q .changes { margin-top: 6px; font: 500 15px/1.4 var(--sans); color: var(--muted); max-width: 64ch; }
+.opts { margin: 10px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.opts li { padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; font: 600 16px/1.3 var(--sans); color: var(--ink); }
+.js .opts li { padding: 0; border: 0; }
+.opts label { display: block; position: relative; cursor: pointer; }
+.opts input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.opts .face { display: block; padding: 12px 14px; min-height: 52px; background: var(--cream); color: var(--cream-ink); border-radius: 3px; border-left: 6px dotted var(--curtain); font: 700 16px/1.25 var(--sans); }
+.opts input:checked + .face { background: var(--brass); box-shadow: 0 0 0 3px var(--spot); }
+.opts input:focus-visible + .face { outline: 3px solid var(--spot); outline-offset: 3px; }
+.js .q[hidden] { display: none; }
+.js .q + .q { border-top: 0; margin-top: 0; padding-top: 4px; }
+.nav { display: none; margin-top: 12px; gap: 10px; flex-wrap: wrap; align-items: center; }
+.js .nav { display: flex; }
+.statichint { margin-top: 12px; padding: 10px 12px; border: 1px dashed var(--gold-dim); border-radius: 3px; font: 500 15px/1.4 var(--sans); color: var(--ink-soft); }
+.js .statichint { display: none; }
+fieldset.fs { border: 0; margin: 0; padding: 0; min-width: 0; }
+.fs legend { position: absolute; left: -9999px; }
+
+/* ---------- stage 4: steps ---------- */
+#h4:focus { outline: none; }
+.forline { margin-top: 10px; font: 700 15px/1.35 var(--sans); color: var(--gold); }
+.steps { margin: 16px 0 0; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 10px; }
+.steps > li { counter-increment: s; position: relative; padding: 12px 12px 12px 54px; border: 1px solid var(--line); border-radius: 3px; background: var(--bg-2); min-width: 0; }
+.steps > li::before { content: counter(s); position: absolute; left: 12px; top: 10px; width: 30px; height: 30px; border-radius: 50%; background: var(--brass); color: var(--cream-ink); font: 800 16px/30px var(--sans); text-align: center; }
+.steps h3 { font: 800 19px/1.15 var(--serif); color: #f6e7c8; }
+.steps p { margin-top: 4px; font: 500 15px/1.42 var(--sans); color: var(--ink-soft); }
+.cmd { margin-top: 8px; display: flex; gap: 8px; align-items: stretch; }
+.cmd code { flex: 1; min-width: 0; background: var(--termbg); border: 1px solid var(--line); border-radius: 3px; padding: 10px 12px; font: 500 14px/1.5 var(--mono); color: var(--link); overflow-wrap: anywhere; word-break: break-all; }
+.cmd .copy { flex: 0 0 auto; }
+.js-only { display: none; }
+.js .js-only { display: inline-block; }
+.assure { margin-top: 14px; padding: 14px; border: 2px solid var(--keep); border-radius: 3px; background: rgba(134, 207, 159, .07); }
+.assure h3 { font: 800 19px/1.15 var(--serif); color: var(--keep); }
+.assure p { margin-top: 6px; font: 500 15px/1.42 var(--sans); color: var(--ink); }
+.expect { margin-top: 14px; }
+.expect h3 { font: 800 19px/1.15 var(--serif); color: var(--gold); }
+.expect ul { margin: 6px 0 0; padding-left: 18px; font: 500 15px/1.42 var(--sans); color: var(--ink-soft); }
+.expect li { margin-top: 3px; }
+[hidden] { display: none !important; }
+.helpbox { margin-top: 8px; padding: 10px 12px; border-left: 4px solid var(--exit); background: rgba(255, 106, 88, .06); font: 500 15px/1.42 var(--sans); color: var(--ink-soft); }
+
+/* ---------- stage 5: the example ---------- */
+#stage5 { background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(255, 238, 200, .08), transparent 70%); }
+.paper { margin-top: 18px; display: grid; grid-template-columns: 1.35fr 1fr; gap: 14px; align-items: start; }
+.sheet { background: var(--cream); color: var(--cream-ink); padding: 16px; border-radius: 3px; min-width: 0; }
+.sheet h3 { font: 800 22px/1.1 var(--serif); color: var(--curtain); }
+.sheet .cap { margin-top: 4px; font: 700 12px/1.3 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: #5a4030; }
+.sheet h4 { margin-top: 14px; font: 800 17px/1.1 var(--serif); border-bottom: 2px solid var(--curtain); padding-bottom: 3px; }
+.sheet p, .sheet li { margin-top: 5px; font: 500 15px/1.4 var(--sans); }
+.sheet ul { margin: 0; padding-left: 18px; }
+.sheet li[data-src] { padding: 2px 4px; }
+.sheet li[data-src].mine { background: rgba(224, 176, 78, .55); outline: 2px solid var(--brass-dark); }
+.sheet .yours { display: none; font: 800 11px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--curtain); }
+.sheet .mine .yours { display: inline; }
+.sheet dl { margin: 8px 0 0; display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; font: 500 15px/1.35 var(--sans); }
+.sheet dt { color: #3d2616; }
+.sheet dd { margin: 0; font-weight: 800; text-align: right; }
+.sheet .link { display: inline-block; margin-top: 12px; color: var(--curtain); font: 800 15px/1.2 var(--sans); }
+.note { margin-top: 12px; font: 500 14px/1.4 var(--sans); color: var(--muted); max-width: 70ch; }
+
+/* ---------- stage 6: two ways forward ---------- */
+.doors { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.door { position: relative; padding: 16px; border-radius: 3px; min-width: 0; }
+.door.real { background: var(--cream); color: var(--cream-ink); border-left: 8px dotted var(--curtain); }
+.door.rehearsal { border: 2px dashed var(--exit); background: rgba(255, 106, 88, .05); }
+.door h3 { font: 800 25px/1.08 var(--serif); }
+.door.rehearsal h3 { color: #f6e7c8; }
+.door p, .door li { margin-top: 7px; font: 500 15px/1.42 var(--sans); }
+.door ul { margin: 0; padding-left: 18px; }
+.door.real .cmd code { background: #2a1408; color: #cfeedb; }
+.door .tag { margin-bottom: 8px; }
+.door.real a { color: var(--curtain); font-weight: 700; }
+.door.real .ask { color: var(--cream-ink); font: 700 18px/1.3 var(--serif); }
+.door.real .btn { color: var(--cream-ink); }
+.door.rehearsal .big { font: 800 20px/1.15 var(--serif); color: var(--exit); }
+
+footer { padding: 22px 0 40px; font: 500 14px/1.5 var(--sans); color: var(--muted); }
+.live { position: absolute; left: -9999px; }
+
+@media (max-width: 760px) {
+  body { font-size: 16px; }
+  .marquee span { display: none; }
+  .tickets, .facts, .paper, .doors { grid-template-columns: 1fr; }
+  .plain { font-size: 17px; }
+  #stage1 { padding-top: 14px; }
+  #stage1 .playbill { margin-bottom: 6px; }
+  .half { padding: 20px 9px 10px; }
+  .half h3 { font-size: 18px; }
+  .fig { font-size: 13px; }
+  .fig b { font-size: 24px; }
+  .who { font-size: 11px; letter-spacing: .12em; }
+  .progress li small { display: none; }
+  .ctas .btn { flex: 1 1 100%; }
+  .nav .btn { flex: 1 1 140px; }
+  .cmd { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .bulbs, .exitsign { animation: none !important; }
+}
+</style>
+</head>
+<body>
+<script>
+  (function () {
+    document.documentElement.classList.add('js');
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.classList.add('motion');
+  })();
+</script>
+<a class="skip" href="#stage5">Skip to the example</a>
+
+<div class="marquee">
+  <div class="wrap"><b>TokenMax</b><span>A map of your week, built. A pacing tool, in design.</span></div>
+  <div class="bulbs" aria-hidden="true"></div>
+</div>
+
+<main>
+
+<!-- STAGE 1: arrive in pain -->
+<section class="act" id="stage1" data-stage="1" aria-labelledby="h1">
+  <div class="wrap">
+    <p class="playbill">Act 1 &middot; Two people, one limit</p>
+    <h1 id="h1">Hit your Claude Code or Codex limit again?</h1>
+    <p class="plain"><strong>Built today:</strong> a map of your own last week of Claude Code and Codex use, drawn on your own computer. Nothing leaves until you press Share, and only the week's totals are shared.</p>
+    <p class="plain"><strong>We are designing</strong> a tool that would pace that use so you do not hit your weekly limit. It might be built if enough people want it.</p>
+    <p class="ctas">
+      <a class="btn" href="#stage5" id="seeExample">See an example, no setup</a>
+    </p>
+
+    <div class="stage" role="group" aria-label="Two people on one stage">
+      <article class="half u1">
+        <p class="who">User 1</p>
+        <h3>Hits the limit mid-task and stops</h3>
+        <p class="fig"><b>2 limit hits</b>Wed 14 Oct, from 16:20 UTC</p>
+        <span class="exitsign" aria-hidden="true">STOP</span>
+      </article>
+      <article class="half u2">
+        <p class="who">User 2</p>
+        <h3>The same week, paced so it is used, not hit</h3>
+        <span class="tag soon">What we are designing</span>
+        <p class="ask">Help us decide if it is worth building: share your week.</p>
+        <a class="btn" href="#stage3" id="shareWeek">Share your week</a>
+      </article>
+    </div>
+    <p class="small eg">Two illustrative weeks. User 1's figure is one builder's real week, 16 Oct 2026. User 2 is a design, not a result.</p>
+  </div>
+</section>
+
+<!-- STAGE 2: understand what this is -->
+<section class="act" id="stage2" data-stage="2" aria-labelledby="h2">
+  <div class="wrap">
+    <p class="playbill">Act 2 &middot; What this is</p>
+    <h2 id="h2">What you get today, and what we are designing</h2>
+    <p class="lede"><span class="tag built">Built today</span> The map reads the Claude Code and Codex history your tools already keep in your home folder, and writes a private report in a new folder on your computer.</p>
+    <ol class="tickets">
+      <li>
+        <span class="num">1</span>
+        <h3>When you hit a limit</h3>
+        <p>Each limit hit, and whether it was a short window, a weekly window or a window the notice does not name.</p>
+      </li>
+      <li>
+        <span class="num">2</span>
+        <h3>Where the week went</h3>
+        <p>Sessions, how much each tool wrote, how much of Claude's output ran on the big model, how much of the Codex week is used.</p>
+      </li>
+      <li>
+        <span class="num">3</span>
+        <h3>What to change</h3>
+        <p>Up to three proposals. They are proposals, not measured savings.</p>
+      </li>
+    </ol>
+    <div class="facts">
+      <div class="fact">
+        <h3>What leaves your computer</h3>
+        <p>Nothing, until you open the link and press Share. Even then only totals go: sessions, limit hits, output, big-model share, Codex week used. No folder names, project names or times.</p>
+      </div>
+      <div class="fact">
+        <h3>What the map does not do</h3>
+        <ul>
+          <li>It does not say why you hit a limit.</li>
+          <li>It does not read your plan, or show cost or savings.</li>
+          <li>It can miss a limit that appears only in message text.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="designbox">
+      <span class="tag soon">Design, not built</span>
+      <h3>What we are designing: a token router</h3>
+      <p>A token router that would help you avoid hitting your weekly limits: plain rules first, and Jev picking the cheaper door for the jobs the rules cannot route. Next, in rehearsal, not run yet (issue 236). No result and no number yet.</p>
+      <p>Through jevnotjev, TokenMax is gathering weeks from willing people. Each week shared helps decide whether the router gets built. TokenMax is one use of Jev, the flagship example for Jev!Jev.</p>
+    </div>
+  </div>
+</section>
+
+<!-- STAGE 3: decide to try -->
+<section class="act" id="stage3" data-stage="3" aria-labelledby="h3">
+  <div class="wrap">
+    <p class="playbill">Act 3 &middot; Four questions</p>
+    <h2 id="h3">Share your week: four answers give you exact steps</h2>
+    <p class="lede">Your answers change the wording and the exact line you type. The map itself never reads your plan.</p>
+    <div class="booth" id="booth">
+      <ol class="progress" id="progress" aria-hidden="true">
+        <li data-p="tool">1 Tool<small></small></li>
+        <li data-p="plan">2 Plan<small></small></li>
+        <li data-p="when">3 When<small></small></li>
+        <li data-p="exp">4 Typing<small></small></li>
+      </ol>
+      <ol class="qs" id="qs">
+        <li class="q" data-q="tool">
+          <h3>1. Which tool ran out?</h3>
+          <p class="changes">Changes: which lines of the result to look at first. The map reads both tools whenever their history is on this computer.</p>
+          <ul class="opts">
+            <li data-v="claude">Claude Code</li>
+            <li data-v="codex">Codex</li>
+            <li data-v="both">Both</li>
+          </ul>
+        </li>
+        <li class="q" data-q="plan">
+          <h3>2. Which plan are you on?</h3>
+          <p class="changes">Changes: the reassurance wording only. The map does not read your plan, and nothing here is plan-specific analysis.</p>
+          <ul class="opts">
+            <li data-v="personal">A personal plan</li>
+            <li data-v="bigger">A bigger personal plan</li>
+            <li data-v="work">A work or team plan</li>
+            <li data-v="unsure">Not sure</li>
+          </ul>
+        </li>
+        <li class="q" data-q="when">
+          <h3>3. When did it last run out?</h3>
+          <p class="changes">Changes: how far back the line reads. Weeks ago needs a longer look than the default 7 days.</p>
+          <ul class="opts">
+            <li data-v="today">Today</li>
+            <li data-v="week">This week</li>
+            <li data-v="weeks">Weeks ago</li>
+            <li data-v="unsure">Not sure</li>
+          </ul>
+        </li>
+        <li class="q" data-q="exp">
+          <h3>4. Have you ever typed a command to run a program?</h3>
+          <p class="changes">Changes: how much hand-holding the steps give you.</p>
+          <ul class="opts">
+            <li data-v="never">Never</li>
+            <li data-v="some">A few times</li>
+            <li data-v="daily">Most days</li>
+          </ul>
+        </li>
+      </ol>
+      <div class="nav" id="nav">
+        <button type="button" class="btn ghost" id="back" disabled>Back</button>
+        <button type="button" class="btn" id="next" disabled>Next</button>
+        <a class="btn ghost" href="#stage4" id="skipq">Skip, show the default steps</a>
+      </div>
+      <p class="statichint">With scripts off, the questions above are a plain list and the steps below show the default: both tools, any plan, the last 7 days. Everything on this page still reads top to bottom.</p>
+    </div>
+  </div>
+</section>
+
+<!-- STAGE 4: run it with reassurance -->
+<section class="act" id="stage4" data-stage="4" aria-labelledby="h4">
+  <div class="wrap">
+    <p class="playbill">Act 4 &middot; Run it</p>
+    <h2 id="h4" tabindex="-1">Your steps</h2>
+    <p class="forline" id="forline">Steps for: both tools &middot; any plan &middot; the last 7 days (default).</p>
+    <p class="lede">You paste one line into your computer's command window. It reads your Claude Code and Codex history on your own computer, writes a private report in a new folder, and prints a link. Nothing leaves your computer until you press Share on that page, and only the week's totals are shared.</p>
+
+    <ol class="steps">
+      <li>
+        <h3>Open a terminal</h3>
+        <p>It is the window where you type a command. On a Mac, press Command and Space, type Terminal, press Enter.</p>
+        <div class="helpbox" data-for="exp" data-v="never">You do not need to know what the line means. You paste one line, press Enter, and wait. If anything looks wrong, close the window.</div>
+      </li>
+      <li>
+        <h3>Paste the line from the bottom of this section and press Enter</h3>
+        <p>It is the last thing in this section, with a Copy button.</p>
+      </li>
+      <li>
+        <h3>Wait for it to finish</h3>
+        <p>It writes a new folder named tokenmax-report plus the date and time, in the folder you ran it from. The last thing it prints is a link.</p>
+      </li>
+      <li>
+        <h3>Open the link and decide about Share</h3>
+        <p>The link shows your totals first. Press Share only if you want your week on the board, to help decide if the router is worth building.</p>
+      </li>
+    </ol>
+
+    <div class="assure">
+      <h3>Before you press Enter</h3>
+      <p>The link it prints carries your totals after a # sign, a part of the address that never reaches a server until you open the page and press Share.</p>
+      <p id="assurePlan">It reads history, not your plan, so not knowing your plan changes nothing. You decide about Share, and you can stop at the link.</p>
+    </div>
+
+    <div class="expect" id="expect">
+      <h3>What you will see</h3>
+      <ul>
+        <li>Lines starting "wrote" naming the private report and the share draft.</li>
+        <li data-for="tool" data-v="claude both">For Claude Code: sessions, limit hits, and a table of models with how much each wrote.</li>
+        <li data-for="tool" data-v="codex both">For Codex: sessions, limit hits, and the last reading of the weekly window as a percent used.</li>
+        <li data-for="when" data-v="weeks">If even 30 days shows no limit hits, the limit may sit only in message text, which the map can miss.</li>
+        <li data-for="when" data-v="unsure">If the last 7 days show no limit hits, open "I want to look back further than a week" below and run it once more.</li>
+      </ul>
+    </div>
+
+    <details class="more">
+      <summary>It says Bun is not found</summary>
+      <p>The map runs on <a href="https://bun.sh/">Bun</a>, a free tool. Paste this once, then run the line again:</p>
+      <div class="cmd"><code>curl -fsSL https://bun.sh/install | bash</code></div>
+    </details>
+    <details class="more">
+      <summary>I want to look back further than a week</summary>
+      <p>It reads the last 7 days by default. Add --days 30 to the end of the line below for a month, up to 90 days for a shared map.</p>
+    </details>
+
+    <div class="theline">
+      <h3>The line</h3>
+      <p id="cmdWhy">It reads the last 7 days.</p>
+      <p class="small">Want to read the script first? <a href="https://jevnotjev.breakoutwithai.com/tm/map.ts">Open the script, readable</a>.</p>
+      <div class="cmd"><code id="cmdLine">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share</code><button type="button" class="btn js-only copy" data-copy="cmdLine">Copy</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- STAGE 5: read your result -->
+<section class="act" id="stage5" data-stage="5" aria-labelledby="h5">
+  <div class="wrap">
+    <p class="playbill">Act 5 &middot; Read your result</p>
+    <h2 id="h5">Read your result: one builder's real week</h2>
+    <p class="lede"><span class="tag built">Built today</span> The example. Left, the private report that stays on your computer. Right, the card you open and share only if you choose. Figures are one builder's real week, 16 Oct 2026, the week behind User 1's limit hits.</p>
+    <div class="paper">
+      <article class="sheet" aria-label="Sample private report">
+        <h3>Private report from one week</h3>
+        <p class="cap">Sample: one builder, 7 days to 16 Oct 2026</p>
+
+        <h4>Limits</h4>
+        <ul>
+          <li data-src="both"><span class="yours">Look here first. </span><b>2 limit hits</b>: 1 short window, 1 window the notice does not name. Both Wed 14 Oct, from 16:20 UTC.</li>
+        </ul>
+
+        <h4>Claude Code usage</h4>
+        <ul>
+          <li data-src="claude"><span class="yours">Look here first. </span>515 sessions. Output 9,977,232. <b>87%</b> of Claude output ran on the big model (Opus).</li>
+        </ul>
+
+        <h4>Codex usage</h4>
+        <ul>
+          <li data-src="codex"><span class="yours">Look here first. </span>3,478 sessions. Output 7,503,143. Weekly window <b>15%</b> used.</li>
+        </ul>
+
+        <h4>Coverage</h4>
+        <ul><li>3,993 sessions in all; 444 had helper work inside them.</li></ul>
+
+        <h4>Proposals (not measured savings)</h4>
+        <ul>
+          <li>2 limit episodes in the period: put must-deliver work early in the window and queue optional work for after the reset reading.</li>
+          <li>1 episode has no named window: the live TokenMax band can tell the five-hour from the weekly window when the limit fires.</li>
+          <li>The big model wrote 87% of Claude output: test whether routine helper work holds quality on a smaller model before moving it.</li>
+        </ul>
+      </article>
+
+      <article class="sheet" aria-label="Sample share card">
+        <h3>The share card</h3>
+        <p class="cap">Only these totals, only if you press Share</p>
+        <dl>
+          <dt>Sessions</dt><dd>3,993</dd>
+          <dt>Limit hits</dt><dd>2</dd>
+          <dt>Claude output</dt><dd>9,977,232</dd>
+          <dt>Codex output</dt><dd>7,503,143</dd>
+          <dt>Big-model share</dt><dd>87%</dd>
+          <dt>Codex week used</dt><dd>15%</dd>
+        </dl>
+        <a class="link" id="sampleCard" href="https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9&sample">Open the sample card</a>
+      </article>
+    </div>
+    <p class="note">Counts of what ran, not a bill and not a cause. The report does not say that earlier work caused a limit, and the proposals are not measured savings.</p>
+  </div>
+</section>
+
+<!-- STAGE 6: next step -->
+<section class="act" id="stage6" data-stage="6" aria-labelledby="h6" style="border-bottom:0">
+  <div class="wrap">
+    <p class="playbill">Act 6 &middot; Next step</p>
+    <h2 id="h6">Run the map now and share your week, or follow the router work</h2>
+    <div class="doors">
+      <article class="door real">
+        <span class="tag built">Built today</span>
+        <h3>Run the map now and share your week</h3>
+        <p class="ask">Help us decide if it is worth building: share your week.</p>
+        <p>Your own last week, in a few minutes.</p>
+        <p><a class="btn" href="#stage4">Go to the steps</a></p>
+        <ul>
+          <li>Open the link it prints to review your totals. Press Share only if you want them on the board.</li>
+          <li><a href="https://jevnotjev.breakoutwithai.com/maps/">See the shared board</a>: newest first, self-reported, not verified.</li>
+          <li><a href="https://jevnotjev.breakoutwithai.com/guide/#tokenmax">Understand your TokenMax map</a></li>
+        </ul>
+      </article>
+      <article class="door rehearsal">
+        <span class="tag soon">Design, not built</span>
+        <h3>Follow the router work</h3>
+        <p class="big">Next, in rehearsal, not run yet. No result yet. No number yet.</p>
+        <p>What we are designing: Jev picks the cheaper door for the jobs the rules cannot route, so your allowance would be paced and used rather than hit. It is planned as issue 236 and has not been run.</p>
+        <p>To follow it, watch issue 236 on the jevnotjev repository: "TokenMax router: Jev on the jobs rules cannot route".</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">Illustrative User 1 and User 2. User 2 is a design, not a result. Figures are one builder's real week, 16 Oct 2026. Nothing on this page was measured on you.</div>
+</footer>
+<p class="live" id="live" role="status" aria-live="polite"></p>
+
+<script>
+(function () {
+  var order = ['tool', 'plan', 'when', 'exp'];
+  var labels = {
+    tool: { claude: 'Claude Code', codex: 'Codex', both: 'Both tools' },
+    plan: { personal: 'Personal', bigger: 'Bigger personal', work: 'Work or team', unsure: 'Not sure' },
+    when: { today: 'Today', week: 'This week', weeks: 'Weeks ago', unsure: 'Not sure' },
+    exp: { never: 'Never', some: 'A few times', daily: 'Most days' }
+  };
+  var forWords = {
+    tool: { claude: 'Claude Code', codex: 'Codex', both: 'both tools' },
+    plan: { personal: 'a personal plan', bigger: 'a bigger personal plan', work: 'a work or team plan', unsure: 'any plan' },
+    when: { today: 'the last 7 days', week: 'the last 7 days', weeks: 'the last 30 days', unsure: 'the last 7 days' }
+  };
+  var assure = {
+    personal: 'It reads history already on this computer and writes one new folder here. You decide about Share, and you can stop at the link.',
+    bigger: 'However big the week, it only counts what is already on this computer. You decide about Share, and you can stop at the link.',
+    work: 'It only reads history on this computer, and the script is readable before you run it. If this is a work computer, check with whoever looks after it first. Share is your call, and you can stop at the link.',
+    unsure: 'It reads history, not your plan, so not knowing your plan changes nothing. You decide about Share, and you can stop at the link.'
+  };
+  var base = 'curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share';
+  var answers = {};
+  var idx = 0;
+  var qs = Array.prototype.slice.call(document.querySelectorAll('#qs .q'));
+  var back = document.getElementById('back');
+  var next = document.getElementById('next');
+  var live = document.getElementById('live');
+  var progress = document.getElementById('progress');
+  progress.removeAttribute('aria-hidden');
+
+  /* Turn each static list of options into radio tickets. */
+  qs.forEach(function (q) {
+    var key = q.getAttribute('data-q');
+    var ul = q.querySelector('.opts');
+    var fs = document.createElement('fieldset');
+    fs.className = 'fs';
+    var lg = document.createElement('legend');
+    lg.textContent = q.querySelector('h3').textContent;
+    fs.appendChild(lg);
+    ul.parentNode.insertBefore(fs, ul);
+    fs.appendChild(ul);
+    Array.prototype.forEach.call(ul.querySelectorAll('li'), function (li) {
+      var v = li.getAttribute('data-v');
+      var text = li.textContent;
+      li.textContent = '';
+      var label = document.createElement('label');
+      var input = document.createElement('input');
+      input.type = 'radio'; input.name = 'q-' + key; input.value = v;
+      var face = document.createElement('span');
+      face.className = 'face'; face.textContent = text;
+      label.appendChild(input); label.appendChild(face); li.appendChild(label);
+      input.addEventListener('change', function () { answers[key] = v; sync(); });
+    });
+  });
+
+  function show(i, focusIt) {
+    idx = i;
+    qs.forEach(function (q, n) { q.hidden = n !== i; });
+    back.disabled = i === 0;
+    next.textContent = i === qs.length - 1 ? 'Show my steps' : 'Next';
+    sync();
+    if (focusIt) {
+      var pick = qs[i].querySelector('input:checked') || qs[i].querySelector('input');
+      if (pick) pick.focus();
+    }
+  }
+  function sync() {
+    var key = order[idx];
+    next.disabled = !answers[key];
+    Array.prototype.forEach.call(progress.children, function (li, n) {
+      var k = order[n];
+      li.className = answers[k] ? 'done' : (n === idx ? 'now' : '');
+      li.querySelector('small').textContent = answers[k] ? labels[k][answers[k]] : '';
+    });
+  }
+  function render() {
+    var tool = answers.tool || 'both', plan = answers.plan || 'unsure', when = answers.when || 'week';
+    var cmd = when === 'weeks' ? base + ' --days 30' : base;
+    document.getElementById('cmdLine').textContent = cmd;
+    document.getElementById('cmdWhy').textContent = when === 'weeks'
+      ? 'You said it ran out weeks ago, so this line reads the last 30 days instead of 7.'
+      : (when === 'unsure' ? 'It reads the last 7 days. If that shows no limit hits, look back further (see above) and run it once more.'
+        : 'It reads the last 7 days, which covers ' + (when === 'today' ? 'today.' : 'this week.'));
+    document.getElementById('forline').textContent = 'Steps for: ' + forWords.tool[tool] + ' · ' + forWords.plan[plan] + ' · ' + forWords.when[when] + (answers.tool ? '.' : ' (default).');
+    document.getElementById('assurePlan').textContent = assure[plan];
+    Array.prototype.forEach.call(document.querySelectorAll('#expect [data-for], .helpbox[data-for]'), function (el) {
+      var key = el.getAttribute('data-for');
+      var vals = el.getAttribute('data-v').split(' ');
+      var a = answers[key];
+      el.hidden = !(a && vals.indexOf(a) !== -1);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.sheet [data-src]'), function (el) {
+      var s = el.getAttribute('data-src');
+      var t = answers.tool;
+      el.classList.toggle('mine', !!t && (s === 'both' || t === 'both' || s === t));
+    });
+  }
+  back.addEventListener('click', function () { if (idx > 0) show(idx - 1, true); });
+  next.addEventListener('click', function () {
+    if (idx < qs.length - 1) { show(idx + 1, true); return; }
+    render();
+    live.textContent = 'Your steps are ready below.';
+    var h = document.getElementById('h4');
+    h.scrollIntoView({ block: 'start' });
+    h.focus({ preventScroll: true });
+  });
+  document.getElementById('skipq').addEventListener('click', render);
+
+  /* Copy buttons: copy where allowed, otherwise select the line so it can be copied by hand. */
+  Array.prototype.forEach.call(document.querySelectorAll('.copy'), function (btn) {
+    btn.addEventListener('click', function () {
+      var el = document.getElementById(btn.getAttribute('data-copy'));
+      var range = document.createRange(); range.selectNodeContents(el);
+      var sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      var done = function (ok) {
+        live.textContent = ok ? 'Copied.' : 'Line selected: press Ctrl or Command and C to copy.';
+        btn.textContent = ok ? 'Copied' : 'Selected';
+        setTimeout(function () { btn.textContent = 'Copy'; }, 1800);
+      };
+      try { navigator.clipboard.writeText(el.textContent).then(function () { done(true); }, function () { done(false); }); } catch (e) { done(false); }
+    });
+  });
+
+  show(0, false);
+  render();
+})();
+</script>
+</body>
+</html>

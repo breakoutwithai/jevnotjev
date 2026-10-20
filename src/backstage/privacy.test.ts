@@ -182,3 +182,28 @@ test("[unit] #128 trial network value is described as a keyed hash of the full I
   expect(page).toContain("a keyed hash of your IP address");
   expect(page).not.toMatch(/coarse network/i);
 });
+
+function visitorParagraph(page: string): string {
+  return page.match(/<p id="visitor-sign-in">[\s\S]*?<\/p>/)?.[0] ?? "";
+}
+function deletionSection(page: string): string {
+  return page.match(/<h2>How to get your data deleted<\/h2>[\s\S]*?(?=<h2>)/)?.[0] ?? "";
+}
+
+test("[unit] #307 the privacy page states what visitor Google sign-in stores, its use, retention and deletion", async () => {
+  const page = await Bun.file(privacyPath).text();
+  const paragraph = visitorParagraph(page);
+  for (const phrase of ["Google account id (sub)", "verified email", "your own questions and replies", "waitlist", "__Host-jnj_visitor", "12 hours", "no automatic deletion", "jev@breakoutwithai.com"]) {
+    expect(paragraph).toContain(phrase);
+  }
+  expect(visitorParagraph(page.replace('<p id="visitor-sign-in">', "<p>"))).toBe("");
+});
+
+test("[unit] #307 a visitor with no GitHub account can ask for deletion by email, quoting the reference only", async () => {
+  const page = await Bun.file(privacyPath).text();
+  const section = deletionSection(page);
+  expect(section).toContain("jev@breakoutwithai.com");
+  expect(section).toContain("no GitHub account");
+  expect(section).toContain("reference only, never the status code");
+  expect(deletionSection(page.replaceAll("jev@breakoutwithai.com", "someone@example.com"))).not.toContain("jev@breakoutwithai.com");
+});

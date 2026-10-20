@@ -53,11 +53,37 @@ export const GUEST_LIST_MAX = 50;
 
 /** `guest:` plus a GuestTokenStore id (tokens.ts): the only guest scope a row can carry. */
 const GUEST_SCOPE = /^guest:gtk_[a-f0-9]{12}$/;
+/** `visitor:` plus a VisitorStore id (visitors.ts, #307): accepted only by the visitor methods. */
+export const VISITOR_SCOPE = /^visitor:vis_[a-f0-9]{12}$/;
 
 function guestScope(scope: string): string {
   if (!GUEST_SCOPE.test(scope)) throw new Error("unknown scope");
   return scope;
 }
+
+function visitorScope(scope: string): string {
+  if (!VISITOR_SCOPE.test(scope)) throw new Error("unknown scope");
+  return scope;
+}
+
+/** A visitor submit adds the free-question refusals to the shared statuses. */
+export type VisitorSubmitResult = SubmitResult | { readonly status: "one-question" } | { readonly status: "free-slots-used" };
+
+/** Why a visitor cannot ask now, or null when it can. */
+export type VisitorStanding = null | "one-question" | "free-slots-used";
+
+/** A visitor's own row: its question and the reply, never the email or events. */
+export interface VisitorQuestionView {
+  readonly id: string;
+  readonly state: QuestionState;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly question: string;
+  readonly response: string | null;
+  readonly response_source: ResponseSource | null;
+}
+
+const VISITOR_VIEW_COLUMNS = "id, state, created_at, updated_at, question, response, response_source";
 
 export interface QueueEntry {
   readonly id: string;
@@ -125,21 +151,77 @@ export class QuestionStore {
       const prior = this.#db.query<{ id: string; state: QuestionState; request_hash: string }, [string, string]>("SELECT id, state, request_hash FROM questions WHERE scope = ? AND key_hash = ?").get(scope, hash);
       if (prior) return prior.request_hash === request ? { status: "replay", id: prior.id, state: prior.state } : { status: "conflict" };
       if (this.#overQuota(scope, now)) return { status: "capacity" };
-      const at = new Date(now).toISOString();
-      for (let attempt = 0; ; attempt++) {
-        const id = `Q-${randomBytes(6).toString("hex").toUpperCase()}`;
-        try {
-          this.#db
-            .query("INSERT INTO questions (id, created_at, updated_at, scope, email, question, reply_consent, marketing_consent, state, version, response, response_source, key_hash, key_tag, request_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', 1, NULL, NULL, ?, ?, ?)")
-            .run(id, at, at, scope, submission.email, submission.question, submission.replyConsent ? 1 : 0, submission.marketingConsent ? 1 : 0, hash, tag, request);
-          return { status: "issued", id, state: "pending_review" };
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "";
-          if (!/UNIQUE constraint failed: questions\.id/.test(message) || attempt >= 3) throw error;
-        }
-      }
+      return this.#insert(scope, submission, hash, tag, request, now);
     });
     return run.immediate();
+  }
+
+  /**
+   * One immediate transaction, in order: tombstone for the key, same-key replay or conflict, this visitor already holds
+   * a question (a row or a tombstone), distinct holders at the free cap, write quota and retention cap, insert.
+   */
+  visitorSubmit(scope: string, submission: Submission, now: number): VisitorSubmitResult {
+    visitorScope(scope);
+    const tag = keyTag(scope, submission.requestKey);
+    const hash = keyHash(submission.requestKey);
+    const request = requestHash(scope, submission.email, submission.question, submission.replyConsent, submission.marketingConsent);
+    const run = this.#db.transaction((): VisitorSubmitResult => {
+      if (this.#db.query<{ n: number }, [string, string]>("SELECT count(*) n FROM question_tombstones WHERE scope = ? AND key_tag = ?").get(scope, tag)?.n) return { status: "deleted" };
+      const prior = this.#db.query<{ id: string; state: QuestionState; request_hash: string }, [string, string]>("SELECT id, state, request_hash FROM questions WHERE scope = ? AND key_hash = ?").get(scope, hash);
+      if (prior) return prior.request_hash === request ? { status: "replay", id: prior.id, state: prior.state } : { status: "conflict" };
+      if (this.#holds(scope)) return { status: "one-question" };
+      if (this.#heldCount() >= this.#limits.freeVisitorSlots) return { status: "free-slots-used" };
+      if (this.#overQuota(scope, now)) return { status: "capacity" };
+      return this.#insert(scope, submission, hash, tag, request, now);
+    });
+    return run.immediate();
+  }
+
+  /** null when the visitor may ask; "one-question" once it holds one; "free-slots-used" when the free places are taken. */
+  visitorStanding(scope: string): VisitorStanding {
+    if (this.#holds(visitorScope(scope))) return "one-question";
+    return this.#heldCount() >= this.#limits.freeVisitorSlots ? "free-slots-used" : null;
+  }
+
+  /** One visitor's own rows, newest first, at most GUEST_LIST_MAX. */
+  visitorList(scope: string): VisitorQuestionView[] {
+    return this.#db
+      .query<VisitorQuestionView, [string, number]>(`SELECT ${VISITOR_VIEW_COLUMNS} FROM questions WHERE scope = ? ORDER BY created_at DESC, id DESC LIMIT ?`)
+      .all(visitorScope(scope), GUEST_LIST_MAX);
+  }
+
+  /** One of the visitor's own rows; another scope's row, a deleted row and an unknown id all read as null. */
+  visitorRead(scope: string, id: string): VisitorQuestionView | null {
+    return this.#db.query<VisitorQuestionView, [string, string]>(`SELECT ${VISITOR_VIEW_COLUMNS} FROM questions WHERE id = ? AND scope = ?`).get(id, visitorScope(scope));
+  }
+
+  /** A row or a tombstone under this scope: deleting a question never frees it. */
+  #holds(scope: string): boolean {
+    const n = this.#db.query<{ n: number }, [string, string]>("SELECT (SELECT count(*) FROM questions WHERE scope = ?) + (SELECT count(*) FROM question_tombstones WHERE scope = ?) n").get(scope, scope)?.n ?? 0;
+    return n > 0;
+  }
+
+  /** Distinct visitor scopes holding a question, rows and tombstones together. */
+  #heldCount(): number {
+    return this.#db
+      .query<{ n: number }, []>("SELECT count(*) n FROM (SELECT scope FROM questions WHERE scope LIKE 'visitor:%' UNION SELECT scope FROM question_tombstones WHERE scope LIKE 'visitor:%')")
+      .get()?.n ?? 0;
+  }
+
+  #insert(scope: string, submission: Submission, hash: string, tag: string, request: string, now: number): SubmitResult {
+    const at = new Date(now).toISOString();
+    for (let attempt = 0; ; attempt++) {
+      const id = `Q-${randomBytes(6).toString("hex").toUpperCase()}`;
+      try {
+        this.#db
+          .query("INSERT INTO questions (id, created_at, updated_at, scope, email, question, reply_consent, marketing_consent, state, version, response, response_source, key_hash, key_tag, request_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', 1, NULL, NULL, ?, ?, ?)")
+          .run(id, at, at, scope, submission.email, submission.question, submission.replyConsent ? 1 : 0, submission.marketingConsent ? 1 : 0, hash, tag, request);
+        return { status: "issued", id, state: "pending_review" };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (!/UNIQUE constraint failed: questions\.id/.test(message) || attempt >= 3) throw error;
+      }
+    }
   }
 
   #overQuota(scope: string, now: number): boolean {

@@ -294,7 +294,9 @@ export class GoogleStates {
 }
 
 // Ported from groit apps/booth/server.js:1767-1774 at bb29d8cc.
-export function validateGoogleProfile(value: unknown, clientId: string, operators: OperatorStore): { ok: true; email: string } | { ok: false; reason: "invalid-token" | "unverified-email" | "not-allowlisted"; email: string } {
+// A verified account with no operators.json row is a visitor (#307) when Google gave it a non-empty string `sub`;
+// without one it keeps the earlier not-allowlisted refusal.
+export function validateGoogleProfile(value: unknown, clientId: string, operators: OperatorStore): { ok: true; email: string } | { ok: "visitor"; email: string; sub: string } | { ok: false; reason: "invalid-token" | "unverified-email" | "not-allowlisted"; email: string } {
   if (typeof value !== "object" || value === null || Array.isArray(value) ||
     !("email" in value) || typeof value.email !== "string" || !value.email ||
     !("aud" in value) || value.aud !== clientId ||
@@ -302,5 +304,6 @@ export function validateGoogleProfile(value: unknown, clientId: string, operator
   const email = normalizeEmail(value.email);
   const row = operators.get(email);
   if (!("email_verified" in value) || (value.email_verified !== true && value.email_verified !== "true")) return { ok: false, reason: "unverified-email", email: "unknown" };
-  return row ? { ok: true, email: row.email } : { ok: false, reason: "not-allowlisted", email: "unknown" };
+  if (row) return { ok: true, email: row.email };
+  return "sub" in value && typeof value.sub === "string" && value.sub !== "" ? { ok: "visitor", email, sub: value.sub } : { ok: false, reason: "not-allowlisted", email: "unknown" };
 }

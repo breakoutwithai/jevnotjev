@@ -295,7 +295,7 @@ test("[integration] AR4 Google start and callback validates profile and state", 
     ]) {
       profile = invalid;
       const next = await start();
-      expect((await handler(new Request(`${ORIGIN}/api/auth/google/callback?state=${next.state}&code=code`, { headers: { cookie: next.cookie } }))).headers.get("location")).toBe("/backstage/sign-in?error=google");
+      expect((await handler(new Request(`${ORIGIN}/api/auth/google/callback?state=${next.state}&code=code`, { headers: { cookie: next.cookie } }))).headers.get("location")).toBe(invalid.email_verified === true ? "/backstage/sign-in?error=google" : "/backstage/sign-in?error=google-access");
     }
     tokenStatus = 500;
     const failed = await start();

@@ -1,0 +1,8 @@
+curl
+bun
+terminal
+logs
+subagent
+JSONL
+router
+rule

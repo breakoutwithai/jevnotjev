@@ -1,0 +1,287 @@
+{
+  "claude-opus-5-5-A": {
+    "counted": [
+      true,
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "score": 3,
+    "where": [
+      "1",
+      "1",
+      null,
+      "3",
+      "5",
+      "6"
+    ]
+  },
+  "claude-opus-5-5-B": {
+    "counted": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      true
+    ],
+    "score": 2,
+    "where": [
+      "1",
+      null,
+      null,
+      "3",
+      null,
+      "6"
+    ]
+  },
+  "claude-opus-5-5-C": {
+    "counted": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "score": 2,
+    "where": [
+      null,
+      "1",
+      "2",
+      "3",
+      "5",
+      "6"
+    ]
+  },
+  "claude-opus-5-5-D": {
+    "counted": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "score": 2,
+    "where": [
+      null,
+      null,
+      "2",
+      "3",
+      "5",
+      "6"
+    ]
+  },
+  "claude-opus-5-5-E": {
+    "counted": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "score": 2,
+    "where": [
+      null,
+      "1",
+      "2",
+      "3",
+      "5",
+      "6"
+    ]
+  },
+  "gpt-6-astra-A": {
+    "counted": [
+      true,
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "score": 3,
+    "where": [
+      "1",
+      null,
+      "1",
+      "3",
+      "5",
+      "6"
+    ]
+  },
+  "gpt-6-astra-B": {
+    "counted": [
+      true,
+      false,
+      true,
+      true,
+      false,
+      false
+    ],
+    "score": 3,
+    "where": [
+      "1",
+      null,
+      "3",
+      "4",
+      null,
+      "2"
+    ]
+  },
+  "gpt-6-astra-C": {
+    "counted": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ],
+    "score": 3,
+    "where": [
+      null,
+      "1",
+      null,
+      "4",
+      "5",
+      "6"
+    ]
+  },
+  "gpt-6-astra-D": {
+    "counted": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "score": 2,
+    "where": [
+      null,
+      null,
+      "2",
+      "3",
+      "5",
+      "6"
+    ]
+  },
+  "gpt-6-astra-E": {
+    "counted": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ],
+    "score": 4,
+    "where": [
+      null,
+      "1",
+      "3",
+      "4",
+      "5",
+      "6"
+    ]
+  },
+  "gpt-6-sol-A": {
+    "counted": [
+      true,
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "score": 3,
+    "where": [
+      "1",
+      "1",
+      null,
+      "3",
+      "5",
+      "6"
+    ]
+  },
+  "gpt-6-sol-B": {
+    "counted": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      true
+    ],
+    "score": 2,
+    "where": [
+      "1",
+      null,
+      null,
+      "3",
+      null,
+      "6"
+    ]
+  },
+  "gpt-6-sol-C": {
+    "counted": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "score": 2,
+    "where": [
+      null,
+      "1",
+      "4",
+      "3",
+      "5",
+      "6"
+    ]
+  },
+  "gpt-6-sol-D": {
+    "counted": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "score": 2,
+    "where": [
+      null,
+      null,
+      null,
+      "3",
+      "5",
+      "6"
+    ]
+  },
+  "gpt-6-sol-E": {
+    "counted": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ],
+    "score": 2,
+    "where": [
+      null,
+      "1",
+      "4",
+      "3",
+      "5",
+      "6"
+    ]
+  }
+}

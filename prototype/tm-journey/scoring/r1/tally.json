@@ -1,0 +1,78 @@
+{
+  "rows": [
+    "| Letter | Prototype | Reader | Q1 | Q2 | Q3 | Q4 | Q5 | Stage walk | Status | Total |",
+    "|---|---|---|---|---|---|---|---|---|---|---|",
+    "| A | p4-sample-first | claude-opus-5-5 | 0 | 1 | 1 | 0 | 1 | 5 | 6 | 14 |",
+    "| A | p4-sample-first | gpt-6-sol | 0 | 1 | 1 | 0 | 1 | 5 | 6 | 14 |",
+    "| A | p4-sample-first | gpt-6-astra | 0 | 1 | 1 | 0 | 1 | 6 | 6 | 15 |",
+    "| B | p5-before-after | claude-opus-5-5 | 0 | 1 | 1 | 1 | 1 | 6 | 6 | 16 |",
+    "| B | p5-before-after | gpt-6-sol | 0 | 1 | 1 | 1 | 1 | 5 | 6 | 15 |",
+    "| B | p5-before-after | gpt-6-astra | 0 | 1 | 1 | 1 | 1 | 6 | 6 | 16 |",
+    "| C | p3-four-questions | claude-opus-5-5 | 0 | 1 | 1 | 1 | 1 | 6 | 6 | 16 |",
+    "| C | p3-four-questions | gpt-6-sol | 0 | 1 | 1 | 1 | 0 | 6 | 6 | 15 |",
+    "| C | p3-four-questions | gpt-6-astra | 0 | 1 | 1 | 1 | 1 | 6 | 6 | 16 |",
+    "| D | p1-limit-rescue | claude-opus-5-5 | 0 | 1 | 1 | 1 | 1 | 6 | 6 | 16 |",
+    "| D | p1-limit-rescue | gpt-6-sol | 0 | 1 | 1 | 1 | 1 | 6 | 6 | 16 |",
+    "| D | p1-limit-rescue | gpt-6-astra | 0 | 1 | 1 | 1 | 1 | 6 | 6 | 16 |",
+    "| E | p2-receipt | claude-opus-5-5 | 0 | 1 | 1 | 0 | 1 | 6 | 6 | 15 |",
+    "| E | p2-receipt | gpt-6-sol | 0 | 1 | 1 | 0 | 1 | 5 | 6 | 14 |",
+    "| E | p2-receipt | gpt-6-astra | 0 | 1 | 1 | 0 | 1 | 6 | 6 | 15 |"
+  ],
+  "summary": [
+    {
+      "L": "D",
+      "p": "p1-limit-rescue",
+      "mean": 16,
+      "words": 167,
+      "totals": {
+        "claude-opus-5-5": 16,
+        "gpt-6-sol": 16,
+        "gpt-6-astra": 16
+      }
+    },
+    {
+      "L": "C",
+      "p": "p3-four-questions",
+      "mean": 15.666666666666666,
+      "words": 187,
+      "totals": {
+        "claude-opus-5-5": 16,
+        "gpt-6-sol": 15,
+        "gpt-6-astra": 16
+      }
+    },
+    {
+      "L": "B",
+      "p": "p5-before-after",
+      "mean": 15.666666666666666,
+      "words": 257,
+      "totals": {
+        "claude-opus-5-5": 16,
+        "gpt-6-sol": 15,
+        "gpt-6-astra": 16
+      }
+    },
+    {
+      "L": "E",
+      "p": "p2-receipt",
+      "mean": 14.666666666666666,
+      "words": 127,
+      "totals": {
+        "claude-opus-5-5": 15,
+        "gpt-6-sol": 14,
+        "gpt-6-astra": 15
+      }
+    },
+    {
+      "L": "A",
+      "p": "p4-sample-first",
+      "mean": 14.333333333333334,
+      "words": 143.5,
+      "totals": {
+        "claude-opus-5-5": 14,
+        "gpt-6-sol": 14,
+        "gpt-6-astra": 15
+      }
+    }
+  ]
+}

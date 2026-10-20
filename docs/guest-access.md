@@ -45,12 +45,12 @@ Keep the token in a private env file that only your user can read, and point Bun
 
 ```sh
 mkdir -p "$HOME/.config/jevnotjev" && chmod 700 "$HOME/.config/jevnotjev"
-install -m 600 /dev/null "$HOME/.config/jevnotjev/guest.env"
-( umask 077; printf 'Paste the guest token, then Enter: '; read -rs T; echo; printf 'JNJ_GUEST_TOKEN=%s\n' "$T" > "$HOME/.config/jevnotjev/guest.env" )
+( umask 077; printf 'Paste the guest token, then Enter: '; read -rs T; echo; [ -n "$T" ] || exit 1
+  install -m 600 /dev/null "$HOME/.config/jevnotjev/guest.env"; printf 'JNJ_GUEST_TOKEN=%s\n' "$T" > "$HOME/.config/jevnotjev/guest.env" )
 ```
 
 - `read -s` keeps the token off the screen and out of shell history.
-- The file is mode 0600 inside a 0700 directory. `install -m 600` sets that even when the file already exists with a wider mode, which `umask` alone does not. `AM-ENVFILE-MODE` in `src/guest-intake/admin-mcp.test.ts` runs both recipes in this document over an existing 0644 file. Do not commit it or put it in a synced folder.
+- The file is mode 0600 inside a 0700 directory. `install -m 600` sets that even when the file already exists with a wider mode, which `umask` alone does not. It runs only after a token is read, so a cancelled or empty prompt leaves an existing file unchanged. `AM-ENVFILE-MODE` in `src/guest-intake/admin-mcp.test.ts` runs both recipes in this document over an existing 0644 file. Do not commit it or put it in a synced folder.
 - `GI-18-ENVFILE` in `src/guest-intake/mcp.test.ts` runs this exact form (`bun --env-file=<file> src/guest-intake/mcp.ts`) and checks the token reaches only the fixed origin.
 
 ## Claude Code
@@ -132,8 +132,8 @@ Run `bun install` in `<checkout>` first: `admin-mcp.ts` imports the MCP SDK and 
 
 ```sh
 mkdir -p "$HOME/.config/jevnotjev" && chmod 700 "$HOME/.config/jevnotjev"
-install -m 600 /dev/null "$HOME/.config/jevnotjev/admin.env"
-( umask 077; printf 'Paste the operator token, then Enter: '; read -rs T; echo; printf 'JNJ_ADMIN_TOKEN=%s\n' "$T" > "$HOME/.config/jevnotjev/admin.env" )
+( umask 077; printf 'Paste the operator token, then Enter: '; read -rs T; echo; [ -n "$T" ] || exit 1
+  install -m 600 /dev/null "$HOME/.config/jevnotjev/admin.env"; printf 'JNJ_ADMIN_TOKEN=%s\n' "$T" > "$HOME/.config/jevnotjev/admin.env" )
 claude mcp add jevnotjev-admin --scope user -- bun --env-file="$HOME/.config/jevnotjev/admin.env" <checkout>/src/guest-intake/admin-mcp.ts
 ```
 

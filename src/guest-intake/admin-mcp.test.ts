@@ -216,7 +216,7 @@ describe("admin MCP tools against the real admin API", () => {
 });
 
 describe("operator token storage recipe", () => {
-  test("[integration] AM-ENVFILE-MODE the documented env-file recipes leave the token file 0600 even when it already exists as 0644 (#289)", async () => {
+  test("[integration] AM-ENVFILE-MODE the documented env-file recipes leave the token file 0600 even when it already exists as 0644, and a prompt ended with no token keeps the existing file (#289)", async () => {
     const doc = readFileSync(join(ROOT, "docs", "guest-access.md"), "utf8");
     const blocks = [...doc.matchAll(/```sh\n([\s\S]*?)```/g)].map((m) => m[1] ?? "").filter((s) => s.includes("read -rs T") && /\.env"/.test(s));
     expect(blocks).toHaveLength(2);
@@ -232,6 +232,10 @@ describe("operator token storage recipe", () => {
       writeFileSync(file, "OLD=1\n", { mode: 0o644 });
       chmodSync(file, 0o644);
       const script = block.split("\n").filter((line) => !line.startsWith("claude ") && !line.startsWith("codex ")).join("\n");
+      // A prompt ended with no token (EOF, as when the operator cancels) must leave the working file as it was.
+      const cancelled = Bun.spawn(["bash", "-c", script], { env: { PATH: process.env.PATH ?? "", HOME: home }, stdin: new Uint8Array(0), stdout: "pipe", stderr: "pipe" });
+      await cancelled.exited;
+      expect([name, readFileSync(file, "utf8")]).toEqual([name, "OLD=1\n"]);
       const proc = Bun.spawn(["bash", "-c", script], { env: { PATH: process.env.PATH ?? "", HOME: home }, stdin: new TextEncoder().encode(`${CANARY}\n`), stdout: "pipe", stderr: "pipe" });
       expect([name, await proc.exited]).toEqual([name, 0]);
       expect([name, (statSync(file).mode & 0o777).toString(8), (statSync(dir).mode & 0o777).toString(8)]).toEqual([name, "600", "700"]);

@@ -8,7 +8,7 @@
 //   bun scripts/gate.ts --seed   run everything and print the manifest JSON of what passed
 //
 // Raising a floor is part of the PR that adds tests.
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -36,6 +36,53 @@ export function parseJunit(xml: string): Map<string, Counts> {
     out.set(file, { passed: tests - failed - skipped, failed });
   }
   return out;
+}
+
+// Bun's JUnit includes the test name and assertion message inside a non-self-closing testcase.
+// Keep this diagnostic separate from the count parser: malformed XML must still fail the gate.
+export function parseJunitIncidents(xml: string): string[] {
+  const incidents: string[] = [];
+  for (const match of xml.matchAll(/<testcase\s([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g)) {
+    const testcaseAttrs = match[1];
+    const testcaseBody = match[2];
+    if (testcaseAttrs === undefined || testcaseBody === undefined) continue;
+    const file = decodeXml(attr(` ${testcaseAttrs}`, "file") ?? "unknown file");
+    const name = decodeXml(attr(` ${testcaseAttrs}`, "name") ?? "unknown case");
+    for (const incident of testcaseBody.matchAll(/<(failure|error|skipped)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/g)) {
+      const kind = incident[1];
+      if (kind === undefined) continue;
+      const attributes = incident[2] ?? "";
+      const detail = decodeXml(attr(attributes, "message") ?? attr(attributes, "type") ?? kind)
+        .replace(/\s*\n\s*/g, "; ").replace(/\s+/g, " ").trim().slice(0, 500);
+      incidents.push(`${file} :: ${name} :: ${kind === "skipped" ? "skipped" : `${attr(attributes, "type") ?? kind}: ${detail}`}`);
+    }
+  }
+  return incidents;
+}
+
+function decodeXml(value: string): string {
+  return value.replace(/&#(x[\da-fA-F]+|\d+);|&(amp|lt|gt|quot|apos);/g, (entity, numeric: string | undefined, named: string | undefined) => {
+    if (numeric !== undefined) {
+      const point = numeric.startsWith("x") ? Number.parseInt(numeric.slice(1), 16) : Number.parseInt(numeric, 10);
+      return point >= 0 && point <= 0x10ffff ? String.fromCodePoint(point) : entity;
+    }
+    const names: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+    return named === undefined ? entity : names[named] ?? entity;
+  });
+}
+
+// A green run cleans its temporary report. Any red gate retains the original JUnit plus a
+// readable summary in a private 0700 temporary directory, including floor-only failures.
+export function finalizeBunReport(dir: string, passed: boolean, xml: string | null): string | null {
+  if (passed) {
+    rmSync(dir, { recursive: true, force: true });
+    return null;
+  }
+  chmodSync(dir, 0o700);
+  const report = join(dir, "junit.xml");
+  const incidents = xml === null ? [] : parseJunitIncidents(xml);
+  writeFileSync(join(dir, "incidents.txt"), `${incidents.length ? incidents.join("\n") : "No testcase failure or skip encoded; inspect JUnit and gate counts."}\n`, { mode: 0o600 });
+  return report;
 }
 
 // A count attribute must be a whole number written in digits; anything else (NaN, a fraction, a
@@ -97,7 +144,7 @@ export function checkCounts(manifest: Manifest, results: Map<string, Counts>): s
   return problems;
 }
 
-function runBun(root: string): { results: Map<string, Counts>; ok: boolean; tail: string; error: string | null } {
+function runBun(root: string): { results: Map<string, Counts>; ok: boolean; tail: string; error: string | null; artifactDir: string; xml: string | null } {
   const dir = mkdtempSync(join(tmpdir(), "jevnotjev-gate-"));
   const report = join(dir, "junit.xml");
   const run = Bun.spawnSync(["bun", "test", "--reporter=junit", `--reporter-outfile=${report}`], { cwd: root, stdout: "pipe", stderr: "pipe" });
@@ -117,8 +164,7 @@ function runBun(root: string): { results: Map<string, Counts>; ok: boolean; tail
       error = `bun junit report rejected: ${e instanceof Error ? e.message : String(e)}`;
     }
   }
-  rmSync(dir, { recursive: true, force: true });
-  return { results, ok: run.exitCode === 0 && error === null, tail, error };
+  return { results, ok: run.exitCode === 0 && error === null, tail, error, artifactDir: dir, xml };
 }
 
 function runShell(root: string): Map<string, Counts> {
@@ -148,8 +194,10 @@ function main(): number {
     const built = buildSeed(bun, shell);
     if ("error" in built) {
       console.error(`gate --seed: ${built.error}${bun.error ? ` (${bun.error})` : ""}\n${bun.tail}`);
+      console.error(`gate: retained private JUnit ${finalizeBunReport(bun.artifactDir, false, bun.xml)}`);
       return 1;
     }
+    finalizeBunReport(bun.artifactDir, true, bun.xml);
     console.log(JSON.stringify(built.manifest, null, 2));
     return 0;
   }
@@ -168,8 +216,12 @@ function main(): number {
   if (problems.length > 0) {
     console.log(`gate: FAIL (${problems.length} problem${problems.length === 1 ? "" : "s"})`);
     for (const p of problems) console.log(`  ${p}`);
+    const report = finalizeBunReport(bun.artifactDir, false, bun.xml);
+    for (const incident of bun.xml === null ? [] : parseJunitIncidents(bun.xml)) console.log(`  case: ${incident}`);
+    console.log(`gate: retained private JUnit ${report}`);
     return 1;
   }
+  finalizeBunReport(bun.artifactDir, true, bun.xml);
   console.log(`gate: PASS files=${results.size} tests=${total}`);
   return 0;
 }

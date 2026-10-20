@@ -506,11 +506,14 @@ describe("in-product first-use guide (D18)", () => {
 
   test("[unit] D18-SWARM-C01 every Backstage control the swarm could not read has a glossary entry and is still on the page", async () => {
     const page = clean(`${read(BACKSTAGE)} ${read("src/backstage/main.ts")}`);
-    const entries = [...(await glossary(read(GUIDE))).keys()];
+    const glossaryEntries = await glossary(read(GUIDE));
+    const entries = [...glossaryEntries.keys()];
     for (const label of ["Edit the question", "Theme", "Send feedback", "Try first case", "Try one small Jev query", "Prefer the Playground?", "Catalog checked"]) {
       expect(page).toContain(label);
       expect(entries).toContain(label);
     }
+    expect(glossaryEntries.get("Send feedback")).toContain("in Backstage it opens a new issue on the project's GitHub");
+    expect(glossaryEntries.get("Send feedback")).toContain("on the home page and this guide it opens an email to the Jev!Jev team");
   });
 
   // l02 (persona swarm 2026-10-12): Backstage controls and captions a tester met with no glossary entry.

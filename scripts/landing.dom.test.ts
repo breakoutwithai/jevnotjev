@@ -71,12 +71,36 @@ test("[integration] VP1 returning visitors can see the status path beside Ask", 
   } finally { await page.close(); }
 });
 
+test("[integration] VP1 the status link has a visible box on a 390px home page after the curtain opens", async () => {
+  const page = await pageAt(390, 844);
+  try {
+    expect((await curtain(page)).state).toBe("open");
+    const status = page.getByRole("link", { name: "Asked a question already? Check its status" });
+    expect(await status.isVisible()).toBe(true);
+    const box = await status.boundingBox();
+    expect(box?.width).toBeGreaterThan(1);
+    expect(box?.height).toBeGreaterThan(1);
+  } finally { await page.close(); }
+});
+
 test("[integration] VP8 feedback is visible in the home footer", async () => {
   const page = await pageAt(1440, 900);
   try {
     const feedback = page.locator("footer").getByRole("link", { name: "Send feedback" });
     expect(await feedback.isVisible()).toBe(true);
     expect(await feedback.getAttribute("href")).toBe("mailto:jev@breakoutwithai.com?subject=Jev!Jev%20feedback");
+  } finally { await page.close(); }
+});
+
+test("[integration] VP8 the feedback link has a visible box on a 390px home page after the curtain opens", async () => {
+  const page = await pageAt(390, 844);
+  try {
+    expect((await curtain(page)).state).toBe("open");
+    const feedback = page.locator("footer").getByRole("link", { name: "Send feedback" });
+    expect(await feedback.isVisible()).toBe(true);
+    const box = await feedback.boundingBox();
+    expect(box?.width).toBeGreaterThan(1);
+    expect(box?.height).toBeGreaterThan(1);
   } finally { await page.close(); }
 });
 
@@ -98,7 +122,9 @@ test("[integration] VP8 the guide footer offers feedback and the glossary descri
     expect(await feedback.isVisible()).toBe(true);
     expect(await feedback.getAttribute("href")).toBe("mailto:jev@breakoutwithai.com?subject=Jev!Jev%20feedback");
     await page.locator("#reference > summary").click();
-    expect(await page.locator("#reference dd").filter({ hasText: "The footer link" }).innerText()).toContain("email");
+    const meaning = await page.locator("#reference dd").filter({ hasText: "A footer link for feedback or a problem" }).innerText();
+    expect(meaning).toContain("in Backstage it opens a new issue on the project's GitHub");
+    expect(meaning).toContain("on the home page and this guide it opens an email to the Jev!Jev team");
   } finally { await page.close(); }
 });
 
@@ -115,7 +141,7 @@ test("[integration] VP9 the field guide announces that it opens and reveals its 
   } finally { await page.close(); }
 });
 
-test("[integration] VP9 Raise the curtain opens on first and later visits in one tab", async () => {
+test("[integration] VP9 Raise the curtain opens on first visit and stays hidden on reload and with reduced motion", async () => {
   const page = await pageAt(1440, 900, "no-preference");
   try {
     const raise = page.getByRole("button", { name: "Raise the curtain" });
@@ -126,6 +152,11 @@ test("[integration] VP9 Raise the curtain opens on first and later visits in one
     await page.reload({ waitUntil: "domcontentloaded" });
     expect((await curtain(page)).state).toBe("open");
     expect(await page.locator("#types").isVisible()).toBe(true);
+    expect(await raise.isVisible()).toBe(false);
+    const reduced = await pageAt(1440, 900, "reduce");
+    try {
+      expect(await reduced.getByRole("button", { name: "Raise the curtain" }).isVisible()).toBe(false);
+    } finally { await reduced.close(); }
   } finally { await page.close(); }
 });
 

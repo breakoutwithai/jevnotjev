@@ -1,0 +1,78 @@
+{
+  "rows": [
+    "| Letter | Prototype | Reader | Q1 | Q2 | Q3 | Q4 | Q5 | Q6 | Stage walk | Status | Total |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|",
+    "| A | p4-sample-first | claude-opus-5-5 | 0 | 1 | 0 | 0 | 1 | 1 | 3 | 5 | 11 |",
+    "| A | p4-sample-first | gpt-6-sol | 0 | 1 | 0 | 0 | 0 | 0 | 3 | 5 | 9 |",
+    "| A | p4-sample-first | gpt-6-astra | 0 | 1 | 0 | 0 | 0 | 0 | 3 | 4 | 8 |",
+    "| B | p5-before-after | claude-opus-5-5 | 0 | 1 | 0 | 0 | 1 | 1 | 2 | 5 | 10 |",
+    "| B | p5-before-after | gpt-6-sol | 0 | 1 | 0 | 0 | 0 | 1 | 2 | 5 | 9 |",
+    "| B | p5-before-after | gpt-6-astra | 0 | 1 | 0 | 0 | 1 | 1 | 3 | 5 | 11 |",
+    "| C | p2-receipt | claude-opus-5-5 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 5 | 7 |",
+    "| C | p2-receipt | gpt-6-sol | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 4 | 6 |",
+    "| C | p2-receipt | gpt-6-astra | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 5 | 8 |",
+    "| D | p1-limit-rescue | claude-opus-5-5 | 0 | 1 | 0 | 0 | 1 | 1 | 2 | 5 | 10 |",
+    "| D | p1-limit-rescue | gpt-6-sol | 0 | 1 | 0 | 0 | 1 | 1 | 2 | 5 | 10 |",
+    "| D | p1-limit-rescue | gpt-6-astra | 0 | 1 | 0 | 0 | 0 | 1 | 2 | 5 | 9 |",
+    "| E | p3-four-questions | claude-opus-5-5 | 0 | 1 | 0 | 0 | 1 | 0 | 2 | 5 | 9 |",
+    "| E | p3-four-questions | gpt-6-sol | 0 | 1 | 0 | 0 | 0 | 0 | 2 | 5 | 8 |",
+    "| E | p3-four-questions | gpt-6-astra | 0 | 1 | 0 | 0 | 0 | 0 | 4 | 5 | 10 |"
+  ],
+  "summary": [
+    {
+      "L": "B",
+      "p": "p5-before-after",
+      "mean": 10,
+      "words": 25,
+      "totals": {
+        "claude-opus-5-5": 10,
+        "gpt-6-sol": 9,
+        "gpt-6-astra": 11
+      }
+    },
+    {
+      "L": "D",
+      "p": "p1-limit-rescue",
+      "mean": 9.666666666666666,
+      "words": 25,
+      "totals": {
+        "claude-opus-5-5": 10,
+        "gpt-6-sol": 10,
+        "gpt-6-astra": 9
+      }
+    },
+    {
+      "L": "A",
+      "p": "p4-sample-first",
+      "mean": 9.333333333333334,
+      "words": 25,
+      "totals": {
+        "claude-opus-5-5": 11,
+        "gpt-6-sol": 9,
+        "gpt-6-astra": 8
+      }
+    },
+    {
+      "L": "E",
+      "p": "p3-four-questions",
+      "mean": 9,
+      "words": 18,
+      "totals": {
+        "claude-opus-5-5": 9,
+        "gpt-6-sol": 8,
+        "gpt-6-astra": 10
+      }
+    },
+    {
+      "L": "C",
+      "p": "p2-receipt",
+      "mean": 7,
+      "words": 20,
+      "totals": {
+        "claude-opus-5-5": 7,
+        "gpt-6-sol": 6,
+        "gpt-6-astra": 8
+      }
+    }
+  ]
+}

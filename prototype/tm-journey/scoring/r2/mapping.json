@@ -1,0 +1,11 @@
+{
+  "seed": 20261021,
+  "prng": "mulberry32 Fisher-Yates over sorted folder names",
+  "mapping": {
+    "A": "p4-sample-first",
+    "B": "p5-before-after",
+    "C": "p2-receipt",
+    "D": "p1-limit-rescue",
+    "E": "p3-four-questions"
+  }
+}

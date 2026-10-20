@@ -79,13 +79,20 @@ export interface Submission {
   readonly requestKey: string;
 }
 
-export type SubmissionRejectReason = "bad-body" | "unknown-field" | "bad-email" | "bad-question" | "bad-usage" | "no-consent" | "bad-consent" | "bad-request-key";
+export type SubmissionRejectReason = "bad-body" | "unknown-field" | "bad-email" | "bad-question" | "bad-usage" | "no-consent" | "bad-consent" | "bad-request-key" | "bad-topic";
+
+/**
+ * The /guide/ "Ask for a model or provider" dialog sends `topic` with this value. For this topic only the email is
+ * optional (stored as null), and the server prefixes the stored text so the operator can tell it apart in the admin.
+ */
+export const PROVIDER_REQUEST_TOPIC = "provider-request";
+export const PROVIDER_REQUEST_PREFIX = "[Provider request] ";
 export type SubmissionCheck =
   | { readonly ok: true; readonly submission: Submission }
   | { readonly ok: true; readonly trap: true }
   | { readonly ok: false; readonly reason: SubmissionRejectReason };
 
-const PUBLIC_KEYS: readonly string[] = ["email", "question", "reply_consent", "marketing_consent", "request_key", "nickname", "usage"];
+const PUBLIC_KEYS: readonly string[] = ["email", "question", "reply_consent", "marketing_consent", "request_key", "nickname", "usage", "topic"];
 export const REQUEST_KEY = /^[A-Za-z0-9_-]{43}$/;
 export const QUESTION_ID = /^Q-[0-9A-F]{12}$/;
 // C0 controls other than tab and newline, DEL, and C1 controls.
@@ -134,21 +141,26 @@ export function checkPublicSubmission(body: unknown, limits: QuestionLimits = QU
   const trap = own(body, "nickname");
   if (typeof trap === "string" && trap.trim() !== "") return { ok: true, trap: true };
   if (trap !== undefined && typeof trap !== "string") return { ok: false, reason: "bad-body" };
+  const topic = own(body, "topic");
+  if (topic !== undefined && topic !== PROVIDER_REQUEST_TOPIC) return { ok: false, reason: "bad-topic" };
+  const providerRequest = topic === PROVIDER_REQUEST_TOPIC;
   const rawEmail = own(body, "email");
   const email = typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
-  if (email === "" || email.length > 254 || !EMAIL.test(email)) return { ok: false, reason: "bad-email" };
-  const text = question(own(body, "question"), limits.maxQuestionChars);
-  if (text === null) return { ok: false, reason: "bad-question" };
-  if (/TokenMax usage \(tm-share\/1/i.test(text)) return { ok: false, reason: "bad-question" };
+  const noEmail = providerRequest && email === "" && (rawEmail === undefined || typeof rawEmail === "string");
+  if (!noEmail && (email === "" || email.length > 254 || !EMAIL.test(email))) return { ok: false, reason: "bad-email" };
+  const asked = question(own(body, "question"), limits.maxQuestionChars);
+  if (asked === null) return { ok: false, reason: "bad-question" };
+  if (/TokenMax usage \(tm-share\/1/i.test(asked)) return { ok: false, reason: "bad-question" };
   const rawUsage = own(body, "usage");
   const usage = Object.prototype.hasOwnProperty.call(body, "usage") ? checkSharePayload(rawUsage) : null;
   if (usage !== null && !usage.ok) return { ok: false, reason: "bad-usage" };
+  const text = providerRequest ? PROVIDER_REQUEST_PREFIX + asked : asked;
   if (own(body, "reply_consent") !== true) return { ok: false, reason: "no-consent" };
   const marketing = own(body, "marketing_consent");
   if (marketing !== undefined && typeof marketing !== "boolean") return { ok: false, reason: "bad-consent" };
   const key = own(body, "request_key");
   if (typeof key !== "string" || !REQUEST_KEY.test(key)) return { ok: false, reason: "bad-request-key" };
-  return { ok: true, submission: { email, question: usage === null ? text : `${text}\n\n${renderUsage(usage.payload)}`, replyConsent: true, marketingConsent: marketing === true, requestKey: key } };
+  return { ok: true, submission: { email: noEmail ? null : email, question: usage === null ? text : `${text}\n\n${renderUsage(usage.payload)}`, replyConsent: true, marketingConsent: marketing === true, requestKey: key } };
 }
 
 const GUEST_KEYS: readonly string[] = ["question", "reply_consent", "marketing_consent", "request_key"];

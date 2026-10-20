@@ -1,5 +1,5 @@
 {
-  "minFiles": 157,
+  "minFiles": 160,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -31,6 +31,7 @@
     "scripts/pictures.dom.test.ts": 38,
     "scripts/gate.test.ts": 14,
     "scripts/git-fixture.test.ts": 11,
+    "scripts/guide-provider.dom.test.ts": 5,
     "scripts/hand-check.test.ts": 24,
     "scripts/landing-reveal.dom.test.ts": 18,
     "scripts/landing.dom.test.ts": 103,
@@ -119,6 +120,7 @@
     "src/decide/decide.test.ts": 34,
     "src/decide/rescore.test.ts": 17,
     "src/docs/flow-metrics.test.ts": 26,
+    "src/docs/guide-provider.test.ts": 7,
     "src/docs/guide.test.ts": 8,
     "src/docs/labelling-card.test.ts": 4,
     "src/docs/landing-samples.test.ts": 102,
@@ -144,6 +146,7 @@
     "src/guest-intake/guest-routes.test.ts": 16,
     "src/guest-intake/imports.test.ts": 2,
     "src/guest-intake/mcp.test.ts": 17,
+    "src/guest-intake/provider-request.test.ts": 6,
     "src/guest-intake/routes.test.ts": 22,
     "src/guest-intake/store.test.ts": 21,
     "src/guest-intake/tokens.test.ts": 15,

@@ -22,6 +22,7 @@ import { CHEAPER, MARGIN, MIN_PAIRED } from "../core/verdict.ts";
 import { COLUMNS_V1_2, SUGGESTION_COLUMNS } from "../format/validate.ts";
 import { JEV_PIN } from "../jev-answer.ts";
 import { parseArgs, RANGES } from "../../skills/tokenmax-map/scripts/map.ts";
+import { parseArgs as parseMapArgs, VERSION as TM_VERSION } from "../../site/tm/map.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const GUIDE = "site/guide/index.html";
@@ -219,6 +220,8 @@ function constants(): Map<string, string> {
     ["BACKSTAGE_CATALOG_CHECKED_DATE", CATALOG_CHECKED_DATE],
     ["BACKSTAGE_JEV_INPUT_USD_PER_MTOK", String(backstageJev.pricing.inputUsdPerMillion)],
     ["JEV_PIN", JEV_PIN],
+    ["TM_VERSION", TM_VERSION],
+    ["TM_DEFAULT_DAYS", String(parseMapArgs([], { home: "/nonexistent-home", now: Date.UTC(2026, 0, 1), cwd: "/nonexistent-cwd" }).days)],
   ]);
 }
 

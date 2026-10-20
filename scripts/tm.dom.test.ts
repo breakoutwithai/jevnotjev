@@ -64,6 +64,34 @@ async function scrollShare(page: Page, share: number): Promise<void> {
 
 const termLines = (page: Page): Promise<string[]> => page.locator("#out .ln").evaluateAll((nodes) => nodes.map((node) => node.textContent ?? ""));
 
+test("[integration] intro shows terminal and Bun before the command", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    const intro = page.locator("header.intro");
+    expect(await intro.isVisible()).toBe(true);
+    const copy = await intro.innerText();
+    expect(copy).toContain("terminal");
+    expect(copy).toContain("Bun");
+    expect(await intro.locator('a[href="https://bun.sh"]').isVisible()).toBe(true);
+    expect(await intro.evaluate((node) => {
+      const command = document.querySelector("#cmd");
+      return command !== null && Boolean(node.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING);
+    })).toBe(true);
+  } finally { await close(page); }
+});
+
+test("[integration] intro shows the seven-day default and a month option", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    const intro = page.locator("header.intro");
+    expect(await intro.isVisible()).toBe(true);
+    const copy = await intro.innerText();
+    expect(copy).toContain("last 7 days by default");
+    expect(copy).toContain("--days 30");
+    expect(copy).toContain("90");
+  } finally { await close(page); }
+});
+
 for (const motion of MOTIONS) {
   test(`[integration] no horizontal scroll at 390x844 at 0, 50 and 100% of the scroll (${motion})`, async () => {
     const errors: string[] = [];

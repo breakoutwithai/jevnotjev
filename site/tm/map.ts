@@ -1,6 +1,6 @@
 // tokenmax-map metadata mapper (skill 0.3.0). Deterministic, local, Node built-ins only.
 //
-//   bun scripts/map.ts [--claude DIR|none] [--codex DIR|none] [--days N | --from YYYY-MM-DD --to YYYY-MM-DD]
+//   bun map.ts [--claude DIR|none] [--codex DIR|none] [--days N | --from YYYY-MM-DD --to YYYY-MM-DD]
 //                      [--out DIR] [--by-project] [--alias NAME] [--now ISO] [--share]
 //   curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share
 //
@@ -792,6 +792,13 @@ export type Args = { claude: string | null; codex: string | null; from: number; 
 
 const VALUE_FLAGS = ["--claude", "--codex", "--days", "--from", "--to", "--out", "--alias", "--now"];
 const BOOL_FLAGS = ["--by-project", "--share"];
+const USAGE = [
+  "Usage: bun map.ts [--claude DIR|none] [--codex DIR|none] [--days N | --from YYYY-MM-DD --to YYYY-MM-DD]",
+  "                  [--out DIR] [--by-project] [--alias NAME] [--now ISO] [--share]",
+  "       curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share",
+  "Reads the last 7 days by default. Use --days N for a longer window; shared maps allow up to 90 days.",
+  "Use --from YYYY-MM-DD --to YYYY-MM-DD for a date range.",
+].join("\n");
 const isDir = (p: string): boolean => {
   try { return statSync(p).isDirectory(); } catch { return false; }
 };
@@ -862,6 +869,10 @@ function reserve(out: string): boolean {
 }
 
 export async function main(argv: string[]): Promise<number> {
+  if (argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h")) {
+    console.log(USAGE);
+    return 0;
+  }
   let args: Args;
   try {
     args = parseArgs(argv, { home: homedir(), now: Date.now(), cwd: process.cwd() });
@@ -874,7 +885,7 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   if (existsSync(args.out) || !reserve(args.out)) {
-    console.error(`refusing to overwrite ${args.out}`);
+    console.error(`refusing to overwrite ${args.out}: pass a new folder name with --out (it is created for you), or leave --out off for a dated folder`);
     return 2;
   }
   const c = args.claude ? await scanClaude(args.claude, args.from, args.to) : null;

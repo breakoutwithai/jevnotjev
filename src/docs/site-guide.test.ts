@@ -21,6 +21,7 @@ import { RESAMPLES } from "../core/calc.ts";
 import { CHEAPER, MARGIN, MIN_PAIRED } from "../core/verdict.ts";
 import { COLUMNS_V1_2, SUGGESTION_COLUMNS } from "../format/validate.ts";
 import { JEV_PIN } from "../jev-answer.ts";
+import { parseArgs, RANGES } from "../../skills/tokenmax-map/scripts/map.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const GUIDE = "site/guide/index.html";
@@ -29,6 +30,13 @@ const OFFICE = "site/shows/office.js";
 const POSTERS = "site/shows/posters.json";
 const BACKSTAGE = "site/backstage/index.html";
 const SAMPLE_RECORDS = "docs/product/runs/2026-10-11-uc13-shop-bot-100/records.csv";
+
+test("[unit] TokenMax guide states the default and selectable map window", async () => {
+  const paragraphs = await texts(read(GUIDE), "#tokenmax p");
+  expect(paragraphs.some((text) => text.includes("7 days by default") && text.includes("--days N") && text.includes("90"))).toBe(true);
+  expect(parseArgs(["--claude", "none", "--codex", "none"], { home: "/missing", now: Date.parse("2026-10-20T12:00:00Z"), cwd: "/tmp" }).days).toBe(7);
+  expect(RANGES.find(([name]) => name === "days")).toEqual(["days", 1, 90]);
+});
 
 function read(path: string): string {
   if (path === GUIDE && process.env.SITE_GUIDE_TEST_GUIDE) return readFileSync(process.env.SITE_GUIDE_TEST_GUIDE, "utf8");
@@ -347,10 +355,11 @@ async function marked(html: string, values: Known): Promise<Marked[]> {
 }
 
 /**
- * Numbers that may appear unmarked anywhere in the guide, each as the exact phrase it sits in. None is a threshold
- * or a sample figure; anything else with a digit must be a validated mark.
+ * Numbers that may appear unmarked anywhere in the guide, each as the exact phrase it sits in. The map window
+ * is checked against the mapper below; other thresholds and sample figures need validated marks.
  */
 const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
+  ["7 days by default; use --days N for up to 90 days", "mapper default and shared-map range"],
   ["sections 1 to 4", "reading order"],
   ["with section 5 open", "reading order"],
   ["1. Prepare test cases", "section heading"],

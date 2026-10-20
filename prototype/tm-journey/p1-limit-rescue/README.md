@@ -1,22 +1,36 @@
-# p1 Limit-hit rescue
+# p1 limit rescue: split-screen cinema
 
-The page opens on the moment of pain: User 1 stops mid-task at the limit, with the real cap-hit time from one builder's week, and beside them User 2 shows what TokenMax is being designed to do (the same week, paced), marked "Design, not built" and carrying the one ask: "Help us decide if it is worth building: share your week." The real figures live in the example the visitor can open (stage 5), and the command waits until the last line of stage 4.
+The page opens on the moment the limit runs out, told as a film split screen: on the left you stop mid-sentence as the curtain drops under a lit LIMIT sign; on the right a gauge fills slowly beside a dial, marked DESIGN. Each of the six journey stages is one cinema frame with one picture and one caption, so the built map and the not-yet-run pacing idea never share a sentence.
 
-Files: `index.html` (self-contained, offline), `claims.md` (every on-screen number and promise with its status, BUILT or DESIGN, and its source line), `shot-390x844.png`, `shot-1440x900.png`, and the two after-one-scroll shots written by `prototype-shots.ts --scroll`.
+## First viewport (poster frame, outside the six stages)
 
-## The six stages, as they appear
+Headline "Hit your Claude limit again?", one line "We're designing a tool that paces it.", the split-screen picture (LIMIT left, DESIGN right) and one control beside User 2: "Help us decide if it is worth building: share your week." (jumps to stage 4). 25 words at 390x844 and at 1440x900.
 
-1. **Arrive in pain** (`#pain`, at least one screen tall): marquee "Your limit ran out mid-task", one plain sentence (TokenMax is a tool we are designing that would pace your Claude Code and Codex use so you do not hit your weekly limit; not built yet), then the split stage. Left, User 1 "today": "You've hit your limit", 2 limit hits, Wed 14 Oct from 16:20 UTC, and a link to the example week. Right, User 2, "Design, not built", "What we are designing": the same week, paced, no numbers, nothing has run; the ask button. Below: the map is made on your own computer and sends nothing, only totals leave when you press Share; a "Built today" line (map, share link, board, example); the illustrative-weeks note.
-2. **Understand what this is** (`#what`): "Jev is the product: TokenMax is one use of it"; three doors: the router (Design, not built, issue 236, in rehearsal, not run), the map (Built today), the share link and the board (Built today); why your week matters; what the map shows and does not.
-3. **Decide to try** (`#try`): "Should you share your week?", an Admit One ticket, what it asks of you, what stays yours, and a link to the example. No command, no tool names.
-4. **Run it with reassurance** (`#run`): "Make your map": what the line does and what leaves, in plain words; three details controls (no Bun yet, more than a week, read it first); then "Open a terminal...", a Copy button, and the command as the last element.
-5. **Read your result** (`#example`, Built today): a cream playbill of the example week laid out like `private-report.md` (Limits, Claude Code, Codex, helper work, Proposals (not measured savings), Not covered) and the sample card link from `site/tm/index.html:31`.
-6. **Next step** (`#next`): the ask again, then two ways forward: run the map now and share your week (Built today), or follow the router work (Design, not built).
+## The six stages as pictures
+
+| Stage | Left half | Right half | Caption or controls | Words |
+|---|---|---|---|---|
+| 1 Arrive | laptop, "working..." | curtain drops, "usage limit reached", Wed 14 Oct, 16:20 UTC | You, mid-sentence: the limit ran out. | 15 |
+| 2 Understand | BUILT: your week drawn on the laptop | DESIGN: gauge, "pace it" dial, Next, in rehearsal, not run yet | A map shows where your week went. | 17 |
+| 3 Decide | map on the laptop under a padlock | Share button sends a totals card and a nickname tag to the board | The map sends nothing. Your week's totals and a nickname you choose go only when you press Share. | 18 |
+| 4 Run | prompt card pasted into an assistant window, Enter | the window shows the report tiles and a link | Open Claude Code or Codex, paste this, press Enter. Copy the prompt; See the prompt (closed) | 15 |
+| 5 Read | marquee: 2 recorded limit hits, 14 Oct 16:20 UTC | 3,993 sessions; 87% big model; Codex 15% | Sample week (sample card); Guide (/guide/#tokenmax) | 18 |
+| 6 Next | lit, open door | dim scaffolded door: Next, in rehearsal, not run yet, #236 | Run the map and share your week; Follow the pacing work | 18 |
+
+Halves sit side by side from 640 px and stack top over bottom below it. Every picture is drawn in its end state; motion (curtain drop, slow gauge, dial, sign glow) runs only under `prefers-reduced-motion: no-preference`, and nothing blinks faster than once per 1.2 s. Without JS every frame and the prompt are visible; JS only adds Copy.
+
+## Budget (from `bun scripts/uat/prototype-shots.ts prototype/tm-journey/p1-limit-rescue --scroll --strict`, exit 0)
+
+| Budget | Limit | Actual |
+|---|---|---|
+| First viewport 390x844 | 25 | 25 |
+| First viewport 1440x900 | 25 | 25 |
+| Stages 1 to 6 words | 18 each | 15, 17, 18, 15, 18, 18 |
+| Visuals per stage | 1 | 1 each, all labelled |
+| Page words (prompt excluded) | 250 | 140 |
 
 ## Cost to ship as the real /tm/
 
-What would change in `site/tm`: `index.html` is replaced by this page's markup. The page uses `../page.css` for the house tokens, so the inline token block shrinks to the few `tm.css` additions. `tm.css` drops the scroll-story rules (the sticky 900vh track, the curtain halves, the `.motion .intro` hiding at line 49) and gains the hero, split, status badge, details, playbill, ticket and command rules from this file (about 210 lines in place of today's 367). `tm.js` is reduced to the copy button, about 20 lines in place of today's 235-line scroll engine. The web-font `<link>` can stay on the real page; this prototype only uses local fallbacks because it must load nothing.
-
-Tests touched: `scripts/tm.dom.test.ts` asserts the scroll story (terminal lines, `#openCard`, `#term .bar`, `#sceneB`, two `a[href="/maps/"]` links, motion and reduced-motion runs). Most of those selectors go away, so the file is rewritten around this page: six `data-stage` sections in order, a jargon-free first viewport at 390 and 1440, no command text before stage 4 and the command as stage 4's last element, the sample link equal to `shareLink(REAL)` plus `&sample`, the command text equal to SKILL.md's line, a "Design, not built" badge on every router or pacing block with no digits inside it except the issue id, and no horizontal scroll at 390. `scripts/uat/prototype-shots.ts` can be pointed at `site/tm` as an extra gate. Any site-wide link or OG test that reads `/tm/` titles needs its expected strings updated.
-
-Rough size: one PR, about 460 changed lines in `site/tm` plus about 260 in the rewritten DOM test; no change to `skills/tokenmax-map` or the map script.
+- **Files:** replace `site/tm/index.html` (204 lines), `site/tm/tm.css` (367) and `site/tm/tm.js` (235) with one page of about 550 lines, mostly inline SVG; `site/tm/map.ts` is untouched. Move the CSS to `tm.css` and the copy script to `tm.js` to match the site's layout, and link `site/page.css` instead of copying its tokens.
+- **Tests:** `scripts/tm.dom.test.ts` runs 34 tests (floor in `.deploy/tests/expected-counts.json:55`). Reading the test titles, about 10 runs carry over with small edits (no horizontal scroll, no dashes, text size, target size, sample-link marking, reduced motion); the rest are bound to the scroll story (terminal output, wires, ticket, curtain, router card, motion-mode switching, the copied shell command) and would be rewritten for frames, the prompt copy and the stage word budgets. The floor in `expected-counts.json` changes with them.
+- **Open item before shipping:** whether Claude Code and Codex each complete the prompt is UNTESTED (FRAMING.md:26, W9).

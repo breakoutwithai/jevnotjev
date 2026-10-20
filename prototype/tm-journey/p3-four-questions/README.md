@@ -1,26 +1,29 @@
-# p3 Four questions
+# p3 Four picture cards
 
-A theatre-styled page that puts the plain explanation and the two-person split screen on stage in the first viewport: User 1 hits the limit and stops (the sample's 2 limit hits, Wed 14 Oct from 16:20 UTC), and User 2 is a picture of what we are designing, the same week paced so it is used rather than hit, with no numbers. The one ask, "Help us decide if it is worth building: share your week.", sits with User 2; four questions (tool, plan, when it ran out, how used to typing a command) then rewrite the exact steps, and the map never reads the plan, so the plan answer only changes one reassurance sentence.
+A picture story with captions: User 1 hits the limit and the curtain drops, User 2 is only a design (a gauge and a dial, labelled DESIGN), and four large picture cards (Tool, Plan, Day, Prompt) change one reassurance line when tapped. Without JavaScript all four cards, the default line and the prompt in a closed `<details>` still show.
 
-Without JavaScript the four questions are a plain list and all six stages, the default steps and the example still read top to bottom.
+Status words follow prototype/tm-journey/FRAMING.md; every on-screen claim is a row in claims.md.
 
-Status words, on screen and in claims.md: BUILT is the map, the share link, the shared board and the example; DESIGN is the router, pacing and Jev picking the cheaper door (issue 236, "in rehearsal, not run"), always marked "What we are designing" or "Design, not built", with no number and no result. Framing source: prototype/tm-journey/FRAMING.md.
+## The six stages as pictures
 
-## The six stages as they appear
+| Stage | Picture | Words |
+|---|---|---|
+| 1 Arrive in pain | Diptych: User 1 at a laptop, lit LIMIT sign, empty meter, work stopped mid-sentence; a closed second stage beside it | 17 (also the whole first viewport at both sizes) |
+| 2 Understand what this is | User 2 concept: gauge that fills slowly, dial, tags "DESIGN" and "Next, in rehearsal, not run yet", the ask as caption | 18 |
+| 3 Decide to try | Four tappable picture cards, caption says the map sends nothing and only Share sends the totals and a nickname | 18 |
+| 4 Run it | Clipboard, agent window with the pasted block, Enter key; one reassurance chip, "Copy the prompt", closed "See the prompt" | 18 |
+| 5 Read your result | Cream sample card: two recorded hits (one solid, one dashed), clock, sessions, big-model bar, Codex gauge; the card is the sample link | 18 |
+| 6 Next step | Two doors: lit "Run the map and share your week", dashed "Follow the pacing work #236" | 18 |
 
-1. **Arrive in pain:** "Hit your Claude Code or Codex limit again?", what is built today (a map of your own week, nothing leaves until Share, only totals), what we are designing (a tool that would pace your use, might be built if enough people want it), the control "See an example, no setup" (to stage 5), and the split stage: User 1 stops with 2 limit hits; User 2 is "What we are designing", the ask and the button "Share your week". No command, no jargon word, in the first viewport.
-2. **Understand what this is:** what the map shows (three tickets), what leaves your computer, what the map does not do, then the dashed "Design, not built" box: the token router, "Next, in rehearsal, not run yet", why weeks are being gathered, TokenMax as one use of Jev.
-3. **Decide to try:** the four questions as one-at-a-time ticket choices with Back, Next and "Skip, show the default steps". No command here.
-4. **Run it with reassurance:** a plain paragraph of what the line does and what leaves the computer, four steps, the reassurance box, "What you will see", two `<details>` (Bun not found; look back further than a week), and the exact command as the last thing, with a Copy button.
-5. **Read your result:** the built example: the sample private report and share card from one builder's real week (87% big model, 15% Codex week, 3,993 sessions); rows matching the tool answer get "Look here first"; the sample card link (site/tm/index.html:31).
-6. **Next step:** "Run the map now and share your week" (built; points back to stage 4, the board, the guide) beside "Follow the router work" (design, not built: "Next, in rehearsal, not run yet", no result, no number, issue 236).
-
-## Checks (run 2026-10-20, from the tree root)
-
-- `bun scripts/uat/prototype-shots.ts prototype/tm-journey/p3-four-questions --scroll --full`: jargon none at both sizes, stages 1 to 6, no blocked requests, no page errors.
-- `grep -niE 'curl|--share|--days|bun run|terminal'` hits only inside data-stage="4" and the script after stage 6.
-- No horizontal scroll at 390 px with or without JavaScript (scrollWidth 390 of 390). Stepper run in Chromium through all four questions: the line gains `--days 30` for "Weeks ago", reassurance changes with the plan, two report rows highlighted for "Claude Code".
+Page total 119 visible words (budget 250); one `data-visual` figure per stage; no horizontal scroll at 390 or 1440.
 
 ## Cost to ship as the real /tm/
 
-Replace `site/tm/index.html` (204 lines) and `site/tm/tm.css` (367 lines) with this page's markup and inline or split styles, and replace `site/tm/tm.js` (235 lines, the scroll story) with the roughly 100 line stepper script here. `scripts/tm.dom.test.ts` (713 lines) is built around the scroll story (curtain, scenes, ticket, wires), so most of it is rewritten: keep the sample-link test (VP-6) and the figure test against `renderShareBlock()`, replace the scene and motion tests with tests of the stepper (answers change the command and the reassurance), the static fallback, the six `data-stage` markers and the rule that the command appears once, last in stage 4. The page makes no remote font request, which also removes the Google Fonts links in today's head. Rough size: one PR of about 750 lines of page, 150 of script, and 300 to 400 lines of test churn. The `/tm/map.ts` copy and its parity test are untouched.
+Replace site/tm/index.html, site/tm/tm.css and site/tm/tm.js (the scroll story) with this markup, one inline style block and about 60 lines of script (cards, copy). scripts/tm.dom.test.ts runs 34 tests (floor in .deploy/tests/expected-counts.json:55), most bound to the scroll story (curtain, scenes, ticket, wires), so most would be rewritten; the sample-link test and the share-figure tests carry over. New tests would cover the six `data-stage` markers, the word budgets, the prompt text, the copy button and the card chip. Rough size: one PR of about 450 lines of page plus script and 250 to 350 lines of test churn. /tm/map.ts and its parity test are untouched.
+
+## Known gaps
+
+- The chip that cards change sits in stage 4, below the cards, to keep stage 3 at 18 words; `scrollIntoView` brings it into view on tap.
+- "1 short window, 1 unknown" is drawn and spoken (aria-label) but not printed, because of the 18-word stage 5 budget.
+- Door B "Follow the pacing work" has no link; no public follow page is sourced.
+- Whether Claude Code or Codex completes the prompt is UNTESTED here (FRAMING.md:26, W9).

@@ -1,20 +1,28 @@
-# p5 Before and after
+# p5 Before and after: a six-panel comic strip
 
-Two illustrative weeks share one split stage: User 1 hits the limit on Wed 14 Oct from 16:20 UTC and stops; User 2 is "What we are designing", the same week paced so the allowance is used rather than hit, marked "Design, not built" and carrying no number. The ask sits with User 2 ("Help us decide if it is worth building: share your week."), and the only thing built today, the map of your own week, sits directly under the stage with a link to the real example week.
+The cover shows two stages side by side: User 1 at a laptop under a lit LIMIT sign, and User 2 drawn as a dashed blueprint stamped DESIGN, with the ask beside it. Six comic panels follow, one per journey stage: User 1 runs out at the recorded moment, the pacing tool appears only as a blueprint ("Next, in rehearsal, not run yet"), and the strip ends at the map you can run today and its sample card.
 
-Open `index.html` directly; it is self-contained and fetches nothing at load. Every number and promise is sourced in `claims.md`, each row marked BUILT or DESIGN per `../FRAMING.md:11-14`. Rebuilt for operator Amendment 2 (product framing, status words, technical block confined to stage 4).
+Open `index.html` directly; it is self-contained and fetches nothing at load. Every fact on screen is sourced in `claims.md` (BUILT or DESIGN per row).
 
-## The six stages, as they appear
+## First viewport (cover, outside the stages)
 
-1. **Arrive in pain** (`data-stage="1"`, header): "Ran out before the week was over?", the plain sentence (TokenMax is a tool we are designing, not built yet, that would pace your Claude Code and Codex use so you do not hit your weekly limit), the split stage (User 1 "How it goes now", 2 limit hits, "Stops." / User 2 "What we are designing", "Design, not built.", the ask button), the "Built today" strip (a map of your own last 7 days, sends nothing by itself, only the week's totals if you share), "See an example week" and "Open a sample card", the illustrative-weeks caption. No command, no tool name.
-2. **Understand what this is** ("What exists today, and what we are designing"): TokenMax as one use case of Jev; four boards: the map, the share link and the board, an example week (all "Built today"), the pacing tool ("Design, not built", in rehearsal, not run yet). The word "router" is not used here because stage 2 shows in the 1440 first viewport.
-3. **Decide to try** ("What you give, and what you keep"): made on your computer, sends nothing by itself, sharing is a separate choice and only totals go (the field list), last 7 days, what it will not tell you, and why share (the router, tagged "Design, not built").
-4. **Run it with reassurance** ("One line, and nothing is sent"): what it does, where it runs (the one mention of a terminal), what leaves, what is shared; what the example week printed; a details control "It says bun is not found, or I want more than a week" holding the Bun install line and `--days 30`; then the command with a Copy button as the last thing in the stage, its only appearance on the page.
-5. **Read your result** ("The example week, as the map shows it"): the sample week's real figures as a playbill page with the three "Proposals (not measured savings)", then Built today / Not on this map / What we are designing (no number).
-6. **Next step** ("Share your week"): the ask again, then three tickets: Run the map now and share your week (Built today, links back to stage 4), See the shared board (Built today), Follow the router work ("Design, not built", "Next, in rehearsal, not run yet", issue 236).
+Picture: two theatre stages. Left: curtain dropping, lit LIMIT sign, empty meter, the sentence on screen stopped at a cursor. Right: dashed User 2, a gauge filling slowly, a dashed dial, a DESIGN stamp. Text: "Hit your Claude Code limit? We're designing a pacing tool." The ask: "Help us decide if it is worth building: share your week." Control: "Example week" (in-page link to stage 5). 25 words at 390x844 and at 1440x900, no jargon.
+
+## The six stages as pictures
+
+| Stage | Picture | Caption and labels | Words |
+|---|---|---|---|
+| 1 Arrive in pain | Two-beat meme: "working..." with a half-full meter, then curtain down, LIMIT lit, meter empty, "again?" | User 1 ran out: 2 recorded limit hits, Wed 14 Oct from 16:20 UTC. | 17 |
+| 2 What this is | Blueprint grid: dashed User 2, gauge filling slowly, dashed dial, DESIGN stamp, banner | Next, in rehearsal, not run yet / User 2: a tool that would pace the week. Not built. | 18 |
+| 3 Decide to try | Laptop with a map inside a dashed, padlocked line; a finger on Share; one card with a name tag flies to the board | The map sends nothing. Your week's totals and a nickname you choose go only when you press Share. | 18 |
+| 4 Run it | Prompt card stamped BUILT goes into a laptop chat; a short report comes out | Open Claude Code or Codex, paste this, press Enter. Button "Copy the prompt", closed "See the prompt" | 16 |
+| 5 Read your result | The sample card as a ticket (the whole card links to it): 3,993 sessions, 87% big model, Codex week 15%, two stop marks | 2 recorded limit hits, Wed 14 Oct from 16:20 UTC. | 18 |
+| 6 Next step | A lit open door with User 1 walking in; a dashed, crossed-out door with User 2 behind it | BUILT Run the map and share your week / DESIGN Follow the pacing work, issue 236 / The map guide | 18 |
+
+Page total: 143 words, prompt excluded (budget 250). Counts are from `bun scripts/uat/prototype-shots.ts prototype/tm-journey/p5-before-after --scroll --strict`, which exits 0.
 
 ## Cost to ship as the real /tm/
 
-- **site/tm:** replace `index.html` (204 lines) with this page's markup; replace `tm.css` (367 lines) with this page's ~300 lines of CSS, linked after `../page.css` instead of inline, and add the site's web fonts back; drop `tm.js` (235 lines, the scroll story) for a ~20-line copy-button script. Net: smaller than today. The served `site/tm/map.ts` is untouched.
-- **Tests touched:** `scripts/tm.dom.test.ts` (713 lines, 16 tests) is written around the scroll story (`#term`, `#openCard`, `#sceneB`, `#sceneD` router poster, motion modes) and needs most tests rewritten against the six stages: the sample-card href, the REAL figures in stage 5 only, User 2 and every router or pacing mention carrying a design label and no digit, the command appearing once and last in stage 4, no jargon in the first viewport, no horizontal scroll at 390. `scripts/page-style.test.ts` (tm is in its PAGES list) and `scripts/maps.dom.test.ts:969` (390/1440 checks on `/tm/`) should pass unchanged but must be re-run. `landing.dom.test.ts`, `ask.dom.test.ts` and `src/docs/site-guide.test.ts` only link to `/tm/` and are unaffected.
-- **Rough size:** one PR, about 400 lines of site change and a ~300-line test rewrite. Unverified until the suites run against it.
+- **site/tm:** replace `index.html` and `tm.css` with this page's markup and about 150 lines of CSS (linked after `../page.css`, web fonts restored), and replace `tm.js`, the scroll story, with the 25-line copy script. The served `site/tm/map.ts` is untouched.
+- **Tests:** `scripts/tm.dom.test.ts` runs 34 tests (floor in `.deploy/tests/expected-counts.json:55`). Most are bound to the scroll story (`#term`, `#openCard`, `#sceneB`, `#sceneD`, the motion modes) and would be rewritten against the six panels: the sample-card href, the REAL figures only in stages 1 and 5, every DESIGN label free of digits, the prompt text and the Copy button, no jargon in the first viewport. The floor in `expected-counts.json` changes with the rewrite.
+- **Rough size:** one PR, about 450 lines of site change plus a test-file rewrite of similar size. UNVERIFIED until the suites run against it.

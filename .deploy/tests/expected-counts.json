@@ -33,7 +33,7 @@
     "scripts/git-fixture.test.ts": 11,
     "scripts/hand-check.test.ts": 24,
     "scripts/landing-reveal.dom.test.ts": 18,
-    "scripts/landing.dom.test.ts": 94,
+    "scripts/landing.dom.test.ts": 103,
     "scripts/little-shop-seating.test.ts": 14,
     "scripts/maps.dom.test.ts": 46,
     "scripts/math-check.test.ts": 28,

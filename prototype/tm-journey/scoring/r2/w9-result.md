@@ -11,7 +11,7 @@ Tree: <primary checkout>-wt/20261020-tm-journey-prototypes (branch feat/tm-journ
 
 ## Fixture and direct mapper run (exit 0)
 
-Fixture at w9/home/ (generator: w9/gen.py):
+Fixture at w9/home/ (written by a throwaway generator script outside the repo):
 - `.claude/projects/fixture-proj/11111111-2222-4333-8444-555555555555.jsonl`: 3 assistant records (2026-10-17, -18, -19; claude-opus-5-5 x2, claude-sonnet-5-5 x1) plus one cap record (`isApiErrorMessage: true`, `error: "rate_limit"`, `message.model: "<synthetic>"`, text `You've hit your session limit · resets 10:10pm (UTC)`).
 - `.codex/sessions/2026/10/18/rollout-x.jsonl`: session meta record, a turn_context (gpt-6-sol), two token_count events.
 

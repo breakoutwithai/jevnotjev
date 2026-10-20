@@ -62,6 +62,119 @@ async function pageAt(width: number, height: number, motion: "no-preference" | "
   return page;
 }
 
+async function guideAt(width: number, height: number): Promise<Page> {
+  const page = await browser.newPage({ viewport: { width, height } });
+  await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
+  await page.goto(`http://127.0.0.1:${server.port}/guide/`, { waitUntil: "domcontentloaded" });
+  return page;
+}
+
+test("[integration] VP8 guide pages load without any request leaving the local server", async () => {
+  const reached: string[] = [];
+  const page = await guideAt(1440, 900);
+  try {
+    page.on("requestfinished", (request) => { if (!request.url().startsWith(`http://127.0.0.1:${server.port}/`)) reached.push(request.url()); });
+    await page.reload();
+    expect(reached).toEqual([]);
+  } finally { await page.close(); }
+});
+
+test("[integration] VP1 returning visitors can see the status path beside Ask", async () => {
+  const page = await pageAt(1440, 900);
+  try {
+    const status = page.getByRole("link", { name: "Asked a question already? Check its status" });
+    expect(await status.isVisible()).toBe(true);
+    expect(await status.getAttribute("href")).toBe("/ask/#status");
+  } finally { await page.close(); }
+});
+
+test("[integration] VP1 the status link has a visible box on a 390px home page after the curtain opens", async () => {
+  const page = await pageAt(390, 844);
+  try {
+    expect((await curtain(page)).state).toBe("open");
+    const status = page.getByRole("link", { name: "Asked a question already? Check its status" });
+    expect(await status.isVisible()).toBe(true);
+    const box = await status.boundingBox();
+    expect(box?.width).toBeGreaterThan(1);
+    expect(box?.height).toBeGreaterThan(1);
+  } finally { await page.close(); }
+});
+
+test("[integration] VP8 feedback is visible in the home footer", async () => {
+  const page = await pageAt(1440, 900);
+  try {
+    const feedback = page.locator("footer").getByRole("link", { name: "Send feedback" });
+    expect(await feedback.isVisible()).toBe(true);
+    expect(await feedback.getAttribute("href")).toBe("mailto:jev@breakoutwithai.com?subject=Jev!Jev%20feedback");
+  } finally { await page.close(); }
+});
+
+test("[integration] VP8 the feedback link has a visible box on a 390px home page after the curtain opens", async () => {
+  const page = await pageAt(390, 844);
+  try {
+    expect((await curtain(page)).state).toBe("open");
+    const feedback = page.locator("footer").getByRole("link", { name: "Send feedback" });
+    expect(await feedback.isVisible()).toBe(true);
+    const box = await feedback.boundingBox();
+    expect(box?.width).toBeGreaterThan(1);
+    expect(box?.height).toBeGreaterThan(1);
+  } finally { await page.close(); }
+});
+
+test("[integration] VP9 the playground link has no pending image placeholder", async () => {
+  const page = await pageAt(1440, 900);
+  try {
+    await page.locator("#officeOpen").click();
+    expect(await page.locator("#tkPlayground").isVisible()).toBe(true);
+    expect(await page.locator("#tkPlayground").innerText()).toBe("Open the Jev playground");
+    expect(await page.locator("body").innerText()).not.toContain("Playground image pending permission");
+  } finally { await page.close(); }
+});
+
+test("[integration] VP8 the guide footer offers feedback and the glossary describes it", async () => {
+  const page = await guideAt(1440, 900);
+  try {
+    const feedback = page.locator("footer").getByRole("link", { name: "Send feedback" });
+    expect(await feedback.isVisible()).toBe(true);
+    expect(await feedback.getAttribute("href")).toBe("mailto:jev@breakoutwithai.com?subject=Jev!Jev%20feedback");
+    await page.locator("#reference > summary").click();
+    const meaning = await page.locator("#reference dd").filter({ hasText: "A footer link for feedback or a problem" }).innerText();
+    expect(meaning).toContain("in Backstage it opens a new issue on the project's GitHub");
+    expect(meaning).toContain("on the home page and this guide it opens an email to the Jev!Jev team");
+  } finally { await page.close(); }
+});
+
+test("[integration] VP9 the field guide announces that it opens and reveals its body", async () => {
+  const page = await guideAt(1440, 900);
+  try {
+    const summary = page.locator("#reference > summary");
+    expect(await summary.isVisible()).toBe(true);
+    expect(await summary.innerText()).toMatch(/^Open field guide:/);
+    expect(await page.locator("#reference .reference-body").isVisible()).toBe(false);
+    await summary.click();
+    expect(await page.locator("#reference .reference-body").isVisible()).toBe(true);
+  } finally { await page.close(); }
+});
+
+test("[integration] VP9 Raise the curtain opens on first visit and stays hidden on reload and with reduced motion", async () => {
+  const page = await pageAt(1440, 900, "no-preference");
+  try {
+    const raise = page.getByRole("button", { name: "Raise the curtain" });
+    expect(await raise.isVisible()).toBe(true);
+    await raise.click();
+    expect((await curtain(page)).state).toBe("open");
+    expect(await page.locator("#types").isVisible()).toBe(true);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    expect((await curtain(page)).state).toBe("open");
+    expect(await page.locator("#types").isVisible()).toBe(true);
+    expect(await raise.isVisible()).toBe(false);
+    const reduced = await pageAt(1440, 900, "reduce");
+    try {
+      expect(await reduced.getByRole("button", { name: "Raise the curtain" }).isVisible()).toBe(false);
+    } finally { await reduced.close(); }
+  } finally { await page.close(); }
+});
+
 for (const motion of MOTIONS) {
   test(`[integration] L1-L5 the title comes first, then the four pictures and the cards; no result bars or sample hero (${motion})`, async () => {
     for (const [width, height] of ACTION_VIEWPORTS) {

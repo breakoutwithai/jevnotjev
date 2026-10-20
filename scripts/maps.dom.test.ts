@@ -125,6 +125,35 @@ async function open(url: string, width = 1440, height = 900, motion: "reduce" | 
   return { page, context };
 }
 
+test("[integration] board lede shows the default and longer window", async () => {
+  const { page, context } = await open(`${origin}/maps/`);
+  try {
+    const lede = page.locator(".map-lede");
+    expect(await lede.isVisible()).toBe(true);
+    const box = await lede.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box?.width).toBeGreaterThan(1);
+    expect(box?.height).toBeGreaterThan(1);
+    const copy = await lede.innerText();
+    expect(copy).toContain("Builders share a map of their Claude Code and Codex use");
+    expect(copy).toContain("7 days by default");
+    expect(copy).toContain("90");
+    expect(copy).toContain("--days");
+  } finally { await context.close(); }
+});
+
+test("[integration] board lede shows how to add a map", async () => {
+  const { page, context } = await open(`${origin}/maps/`);
+  try {
+    const lede = page.locator(".map-lede");
+    expect(await lede.isVisible()).toBe(true);
+    const copy = await lede.innerText();
+    expect(copy).toContain("--share");
+    expect(copy).toContain("open the link it prints");
+    expect(await lede.locator('a[href="/tm/"]').isVisible()).toBe(true);
+  } finally { await context.close(); }
+});
+
 test("[unit] M0 the share link is built by the mapper's own shareLink against SHARE_BASE", () => {
   expect(SHARE_BASE).toBe("https://jevnotjev.breakoutwithai.com/maps/");
   expect(link().startsWith(`${origin}/maps/#m=`)).toBe(true);

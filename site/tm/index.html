@@ -34,7 +34,7 @@
 <header class="intro">
   <h1>Your Claude week, mapped</h1>
   <p class="whose" id="whose">One builder's real week (16 Oct 2026). Run it to see yours.</p>
-  <p>One line in your terminal reads your last 7 days of Claude Code and Codex logs and writes a private report. It prints a link; nothing is sent unless you open it and choose to share.</p>
+  <p>It reads Claude Code and Codex logs and writes a private report. It prints a link; nothing is sent unless you open it and choose to share.</p>
 </header>
 
 <main class="track" id="track">
@@ -184,6 +184,7 @@
 
 <div class="ticket" id="ticket" role="group" aria-label="The command">
   <div class="cmdbox">
+    <p class="setup">Run it in a terminal with <a href="https://bun.sh">Bun</a>. It reads the last 7 days by default; add <code>--days 30</code> to the end of the command for a month, up to 90 days for a shared map.</p>
     <code id="cmdText"><b aria-hidden="true">$ </b><span id="cmd"><span class="tok k1" id="tok1" aria-describedby="note1">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts</span> | <span class="tok k2" id="tok2" aria-describedby="note2">bun run -</span> <span class="tok k3" id="tok3" aria-describedby="note3">--share</span></span></code>
     <ul class="notes" aria-label="What each part does">
       <li class="k1"><a id="note1" href="/tm/map.ts">the script, readable</a></li>

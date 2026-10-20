@@ -35,6 +35,13 @@ test("[unit] VP-6 skip link names the sample and marks its fragment", () => {
   expect(link?.[2]).toBe("See a sample card");
 });
 
+test("[unit] VP-6 every linked map payload is marked as a sample", () => {
+  const html = readFileSync(join(SITE, "tm", "index.html"), "utf8");
+  const links = [...html.matchAll(/<a\b[^>]*href="([^"]*\/maps\/#m=[^"]+)"[^>]*>/g)].map((match) => match[1]);
+  expect(links.length).toBeGreaterThan(0);
+  for (const href of links) expect(href).toMatch(/&sample$/);
+});
+
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
 
@@ -210,7 +217,8 @@ test("[integration] the terminal prints what map.ts --share prints: real line sh
     const elided = expected.filter((l) => !shown.includes(l));
     expect(shown.filter((l) => l === "...").length).toBeGreaterThan(0);
     expect(elided.every((l) => !l.startsWith("Open") && !l.startsWith("https"))).toBe(true);
-    expect(await page.locator("#openCard").getAttribute("href")).toBe(shareLink(REAL));
+    expect(await page.locator("#openCard").getAttribute("href")).toBe(`${shareLink(REAL)}&sample`);
+    expect(await page.locator("#openCard").innerText()).toBe("Open a sample card");
     expect(await page.locator("#term .bar").textContent()).toContain("one builder's real week, 16 Oct 2026");
     expect(await page.locator("#sceneB").textContent()).toContain("One builder's real week, 16 Oct 2026");
     // The router card's link, and the skip link that reaches it while motion hides the card.

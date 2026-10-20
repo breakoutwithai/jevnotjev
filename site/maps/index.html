@@ -49,13 +49,13 @@
     </div>
     <form id="mapPrivateForm" class="map-private" novalidate>
       <h3>Send privately for an analysis</h3>
-      <p>A person reads your usage and replies on the Ask page under your status code. Nothing goes on the public board. No model provider sees it. The numbers are self-reported.</p>
+      <p>A person reads your usage and replies on the Ask page under your status code. Nothing goes on the public board. No model runs on it automatically. The numbers are self-reported.</p>
       <label for="mapPrivateEmail">Your email</label>
       <input id="mapPrivateEmail" name="email" type="email" autocomplete="email" maxlength="254" required>
       <label for="mapPrivateNote">Note for the reviewer (optional)</label>
       <textarea id="mapPrivateNote" name="question" rows="3" maxlength="4096"></textarea>
       <label class="map-private-check" for="mapPrivateConsent"><input id="mapPrivateConsent" name="reply_consent" type="checkbox" required> Store my email and usage so a person can review it and reply on the Ask page</label>
-      <div class="map-honey" inert aria-hidden="true"><label for="mapPrivateTrap">Leave this empty</label><input id="mapPrivateTrap" name="nickname" type="text" tabindex="-1" autocomplete="off"></div>
+      <div class="map-honey" inert aria-hidden="true"><label for="mapPrivateTrap">Leave this empty</label><input id="mapPrivateTrap" name="trap-private" type="text" tabindex="-1" autocomplete="off"></div>
       <p id="mapPrivateError" class="map-private-error" role="alert" hidden></p>
       <button id="mapPrivateSend" type="submit">Send privately for an analysis</button>
     </form>

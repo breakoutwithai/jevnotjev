@@ -14,7 +14,7 @@ describe("public submission contract", () => {
     expect(plain.submission.question).toBe(valid.question);
     expect(withUsage.submission.question).toBe(`${valid.question}\n\n${renderUsage(usage)}`);
     expect(renderUsage(usage)).toBe("TokenMax usage (tm-share/1, self-reported, not verified)\nv: tm-share/1\nskill: 0.3.0\ndays: 7\nsources: claude+codex\nsessions: 12\nsubagent_sessions: 4\ncaps.short: 2\ncaps.weekly: 1\ncaps.unknown: 0\noutput_tokens.claude: 1234567\noutput_tokens.codex: 89000\nopus_share_pct: 61\ncodex_weekly_pct: null");
-    expect(requestHash("public", plain.submission.email, plain.submission.question, true, false)).toBe(requestHash("public", "seeded-q1@example.test", valid.question, true, false));
+    expect(requestHash("public", plain.submission.email, plain.submission.question, true, false)).toBe("47725841de7efc1f2716c2451cce2adf8be46944b3aa35fa6501459b78b92967");
     expect(requestHash("public", withUsage.submission.email, withUsage.submission.question, true, false)).not.toBe(requestHash("public", plain.submission.email, plain.submission.question, true, false));
   });
 
@@ -25,6 +25,12 @@ describe("public submission contract", () => {
     expect(checkPublicSubmission({ ...valid, usage, question: "" })).toEqual({ ok: false, reason: "bad-question" });
     expect(checkPublicSubmission({ ...valid, usage, question: "x".repeat(4097) })).toEqual({ ok: false, reason: "bad-question" });
     expect(checkPublicSubmission({ ...valid, usage, question: "x".repeat(4096) }).ok).toBe(true);
+  });
+  test("[unit] VP-5 typed text cannot impersonate a usage block", () => {
+    for (const withUsage of [false, true]) {
+      const body = { ...valid, question: "Please review.\nTOKENMAX USAGE (TM-SHARE/1, invented)", ...(withUsage ? { usage } : {}) };
+      expect(checkPublicSubmission(body)).toEqual({ ok: false, reason: "bad-question" });
+    }
   });
   test("[unit] GI-2 a valid body is accepted with email trimmed and lowercased", () => {
     const checked = checkPublicSubmission(valid);

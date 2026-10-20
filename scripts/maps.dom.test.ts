@@ -236,7 +236,15 @@ test("[integration] VP-5 private send stays disabled while its request is in fli
 });
 
 test("[integration] VP-5 private refusal statuses show a plain error and no receipt", async () => {
-  for (const status of [400, 409, 410, 429, 503]) {
+  const messages: [number, string][] = [
+    [400, "The usage or note was refused. Check the fields and try again."],
+    [409, "That attempt was already used for different details. Press send again for a new attempt."],
+    [410, "That question was deleted. Press send again as a new question."],
+    [413, "Your message is too large. Shorten the note and send again."],
+    [429, "Too many tries from this network. Wait ten minutes and try again."],
+    [503, "Questions are unavailable right now. Try again later."],
+  ];
+  for (const [status, message] of messages) {
     privateReply = { status, body: { code: "refused" } };
     const { page, context } = await open(link());
     try {
@@ -244,11 +252,24 @@ test("[integration] VP-5 private refusal statuses show a plain error and no rece
       await page.locator("#mapPrivateConsent").check();
       await page.locator("#mapPrivateSend").click();
       await page.locator("#mapPrivateError").waitFor({ state: "visible" });
-      expect((await page.locator("#mapPrivateError").innerText()).length).toBeGreaterThan(12);
+      expect(await page.locator("#mapPrivateError").innerText()).toBe(message);
       expect(await page.locator("#mapPrivateReceipt").isVisible()).toBe(false);
       expect(posts("/api/maps")).toHaveLength(0);
     } finally { await context.close(); }
   }
+});
+
+test("[integration] VP-5 a trapped private send receives the neutral accepted message", async () => {
+  privateReply = { status: 200, body: { ok: true } };
+  const { page, context } = await open(link());
+  try {
+    await page.locator("#mapPrivateEmail").fill("visitor@example.test");
+    await page.locator("#mapPrivateConsent").check();
+    await page.locator("#mapPrivateSend").click();
+    await page.locator("#mapPrivateError").waitFor({ state: "visible" });
+    expect(await page.locator("#mapPrivateError").innerText()).toBe("Thanks. Your question was not stored; reload the page if you meant to send it.");
+    expect(await page.locator("#mapPrivateReceipt").isVisible()).toBe(false);
+  } finally { await context.close(); }
 });
 
 test("[integration] 2 M5 a valid link sends nothing to /api/maps before Share", async () => {
@@ -633,9 +654,12 @@ test("[integration] 13d after a failed POST the not-sent line is gone and focus 
 test("[integration] 13e the honeypot field's name and id carry no word a browser autofills", async () => {
   const { page, context } = await open(link());
   try {
-    const trap = await page.locator("#mapPublicForm .map-honey input").evaluate((n) => ({ name: n.getAttribute("name") ?? "", id: n.id }));
-    expect(trap.name.length).toBeGreaterThan(0);
-    expect(`${trap.name} ${trap.id}`).not.toMatch(/name|nick|mail|phone|user|address/i);
+    const traps = await page.locator(".map-honey input").evaluateAll((nodes) => nodes.map((n) => ({ name: n.getAttribute("name") ?? "", id: n.id })));
+    expect(traps).toHaveLength(2);
+    for (const trap of traps) {
+      expect(trap.name.length).toBeGreaterThan(0);
+      expect(`${trap.name} ${trap.id}`).not.toMatch(/name|nick|mail|phone|user|address/i);
+    }
   } finally { await context.close(); }
 });
 

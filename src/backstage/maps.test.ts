@@ -120,6 +120,11 @@ describe("checkMap schema", () => {
   test("[unit] VP-5 share payload check matches every accepted and rejected map fixture", () => {
     expect(checkSharePayload(payload)).toMatchObject({ ok: true, payload });
     expect(checkSharePayload({ ...payload, codex_weekly_pct: null }).ok).toBe(true);
+    const shuffled = { codex_weekly_pct: 42, ...without(payload, "codex_weekly_pct") };
+    const mapCheck = checkMap({ ...body, payload: shuffled });
+    const shareCheck = checkSharePayload(shuffled);
+    expect(mapCheck.ok).toBe(true);
+    expect(shareCheck).toMatchObject({ ok: true, payload });
     for (const row of REJECTED.filter((item) => item.code === "bad-payload")) {
       const candidate = typeof row.body === "object" && row.body !== null ? Reflect.get(row.body, "payload") : undefined;
       expect(checkSharePayload(candidate).ok, row.name).toBe(false);
@@ -431,6 +436,7 @@ describe("cross-contract with the mapper", () => {
     expect(built.output_tokens.claude).toBe(4000);
     const checked = checkMap({ payload: JSON.parse(JSON.stringify(built)), alias: ALIAS, request_key: KEY });
     expect(checked).toMatchObject({ ok: true });
+    expect(checkSharePayload(JSON.parse(JSON.stringify(built)))).toMatchObject({ ok: true, payload: built });
     if (checked.ok && !("trap" in checked)) expect(JSON.stringify(checked.map.payload)).toBe(JSON.stringify(built));
   });
 });

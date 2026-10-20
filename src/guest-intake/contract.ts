@@ -139,6 +139,7 @@ export function checkPublicSubmission(body: unknown, limits: QuestionLimits = QU
   if (email === "" || email.length > 254 || !EMAIL.test(email)) return { ok: false, reason: "bad-email" };
   const text = question(own(body, "question"), limits.maxQuestionChars);
   if (text === null) return { ok: false, reason: "bad-question" };
+  if (/TokenMax usage \(tm-share\/1/i.test(text)) return { ok: false, reason: "bad-question" };
   const rawUsage = own(body, "usage");
   const usage = Object.prototype.hasOwnProperty.call(body, "usage") ? checkSharePayload(rawUsage) : null;
   if (usage !== null && !usage.ok) return { ok: false, reason: "bad-usage" };

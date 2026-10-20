@@ -69,7 +69,7 @@ describe("ask page", () => {
     try {
       const calls: string[] = [];
       page.on("request", (request) => { if (request.method() === "POST") calls.push(request.url()); });
-      expect(await page.getByLabel("Your full status code").isVisible()).toBe(true);
+      expect(await page.getByLabel("Your full status code, not the Q- reference").isVisible()).toBe(true);
       await page.locator("#statusCode").fill("Q-0123456789AB");
       await page.locator("#statusCheck").click();
       expect(await page.locator("#statusErr").isVisible()).toBe(true);
@@ -196,7 +196,7 @@ describe("ask page", () => {
     const hostile = '<img src=x onerror="window.__owned=1"> Try two fixed choices.';
     store.answer(id, 2, "operator", Date.now(), hostile, "human_reviewed");
     await page.goto(`${server.url.origin}/ask/#status`);
-    await page.getByLabel("Your full status code").fill(code);
+    await page.getByLabel("Your full status code, not the Q- reference").fill(code);
     await page.locator("#statusCheck").click();
     await page.locator("#statusResult").waitFor({ state: "visible" });
     expect(await page.locator("#statusState").innerText()).toContain("answered");

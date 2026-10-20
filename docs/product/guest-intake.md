@@ -2,7 +2,7 @@
 
 Governing issue: #253. Status: public intake, review CLI, guest tokens, guest HTTP routes, token CLI and guest MCP adapter built on one integration branch (#256) and verified locally; not deployed, no guest token issued. A web admin page and API for operators whose `operators.json` row has `"admin": true` (#278) sits beside the CLI. Spec approved at sha256 `f8e446b7`; base `f825b71` (origin/main, 2026-10-18).
 
-A visitor brings one decision question, gets a receipt, and later reads a person-reviewed response. No account, no provider key, no Jev run. Selected guests do the same from Claude Code or Codex with a scoped token. TokenMax usage sharing is a separate optional journey owned by #242 / #243.
+A visitor brings one decision question, gets a receipt, and later reads a person-reviewed response. No account, no provider key, no Jev run. Selected guests do the same from Claude Code or Codex with a scoped token. A visitor can also send TokenMax usage privately through the public question route's optional `usage` field.
 
 ## What exists today (source and consumer map)
 
@@ -103,7 +103,7 @@ Live, read-only on 2026-10-18: static `/DEPLOYED_SHA` serves `3418769`; `GET /ap
 | `GET /api/v1/guest/questions` | guest bearer | none |
 | `GET /api/v1/guest/questions/<id>` | guest bearer, own only | none |
 
-- Public submit body: `email`, `question` (1 to 4,096 characters), `reply_consent: true`, optional `marketing_consent`, `request_key` (43 base64url characters, client-generated), honeypot `nickname`. Unknown keys are rejected.
+- Public submit body: `email`, `question` (1 to 4,096 typed characters), `reply_consent: true`, optional `marketing_consent`, optional `usage` (a valid tm-share/1 object), `request_key` (43 base64url characters, client-generated), honeypot `nickname`. Unknown keys are rejected.
 - The status code is `<id>.<request_key>`; the server stores only `sha256(request_key)`. Same pattern as `maps.ts:245-247`.
 - The code travels in a POST body, never a URL, so it reaches no access log or referrer.
 - Errors are a `code` only. Logs record `question.received` / `question.rejected` / `question.deleted` with id and reason, never email, text or code.
@@ -248,6 +248,7 @@ Differences from the approved text above, made while building PR 1:
 
 - `/ask/` gives a copyable prompt to run `site/tm/map.ts` with `--share` on the visitor's workstation. The visitor opens the printed `/maps/#m=` review link and chooses a private send, public share, or neither. The assistant does not open the link or send anything.
 - The private form posts to the existing `POST /api/questions` route with email, typed note, consent, request key and a `usage` object. The server validates `usage` with the tm-share/1 validator before composing the stored question text. The typed note keeps its 4,096 character limit. The stored question and request hash include the fixed, ordered usage block.
+- Invalid `usage` receives 400 `bad-usage`; a guest-token submission refuses `usage` as an unknown field. Typed text containing the usage header is refused as `bad-question`.
 - The same queue, person review and reply path handles the submission. The visitor keeps the status code shown once and reads the reply at `/ask/#status`. The public map board is not written. There is no automatic analysis, provider call, new route or new table.
 
 ## Open operator decisions

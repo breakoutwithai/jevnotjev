@@ -50,7 +50,7 @@ p { margin: .5em 0; }
 .map-card :focus-visible { outline-color: var(--curtain); }
 .map-sub { margin: 0 0 12px; font: italic 500 1rem/1.35 var(--serif); color: var(--cream-soft); }
 .map-help { color: var(--cream-soft); font-size: .875rem; }
-/* The trust line (#238 pass 2), the same sentence as the landing strip, at every width. */
+/* The trust line stays readable at every width. */
 .map-trust { margin: 0 0 12px; font: 700 .9375rem/1.35 var(--sans); color: var(--cream-ink); }
 .map-sample { padding: 10px 12px; background: #fff1c4; border: 2px solid var(--curtain); font-weight: 800; }
 .map-private { margin-top: 24px; padding-top: 18px; border-top: 2px solid var(--cream-line); }

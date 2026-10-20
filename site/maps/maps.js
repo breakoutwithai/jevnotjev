@@ -1,5 +1,5 @@
 /* The /maps/ share page and board (tm-share/1).
-   #m=<base64url JSON>: decode and check the payload in this browser and show it; nothing is sent until Share.
+   #m=<base64url JSON>: decode and check the payload in this browser and show it; nothing is sent until Share or Send privately.
    #delete=<id>.<key>: one Delete my row button.
    No fragment: read the board.
    Data from the link or the server is written with textContent only. */
@@ -329,10 +329,12 @@
           return;
         }
         if (res.status === 409 || res.status === 410) privateAttempt = { draft: "", key: "" };
+        if (res.ok) { privateError("Thanks. Your question was not stored; reload the page if you meant to send it."); return; }
         var errors = {
           400: "The usage or note was refused. Check the fields and try again.",
           409: "That attempt was already used for different details. Press send again for a new attempt.",
           410: "That question was deleted. Press send again as a new question.",
+          413: "Your message is too large. Shorten the note and send again.",
           429: "Too many tries from this network. Wait ten minutes and try again.",
           503: "Questions are unavailable right now. Try again later."
         };

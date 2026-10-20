@@ -1,6 +1,6 @@
 # TokenMax journey prototype rubric, version 1
 
-Version 1 includes Q5 and the two-users stage 6 wording from operator Amendment 1 (2026-10-20). Both were added before any prototype existed and before any score, so this is still version 1.
+Version 1 includes Q5 and the two-users stage 6 wording from operator Amendment 1, and the product framing, the new Q1 and Q4 keys, the new Q5 key and the status check from operator Amendment 2 (both 2026-10-20). All were added before any prototype was committed and before any score, so this is still version 1. The framing the keys rely on is recorded in `FRAMING.md`.
 
 ## Purpose
 
@@ -30,12 +30,25 @@ Q5 How does User 1's week differ from User 2's, and which half exists today?
 
 A grader sees only this key and the answers labelled A to E. Grade each question 0 or 1.
 
-- **Q1 = 1** when the answer names both a summary or map of the visitor's own recent Claude Code or Codex use and at least one thing it shows: usage limit hits, sessions, how much was used (output), or which model did the work. Source, `skills/tokenmax-map/SKILL.md` line 14: "Anyone with Bun can map their last 7 days without installing anything:" Source, line 22: "The fields are aggregate counts only: skill version, days, sources, sessions, subagent sessions (Claude: sessions with subagent work, because a Claude Code subagent transcript carries its parent's sessionId; Codex: sessions with a `parent_thread_id`), cap episodes by window (short, weekly, unknown), output tokens per source, the Opus share of Claude output tokens and the last Codex weekly-window reading."
+- **Q1 = 1** when the answer names both (a) TokenMax as a token router (or tool) that is being designed, not yet built, to keep the visitor from hitting weekly limits, and (b) that it asks people to share their week (or gathers weeks from willing people) to decide whether it is worth building. An answer that describes the router as working today scores 0. Source: `prototype/tm-journey/FRAMING.md` lines 5 to 9 (operator framing, Amendment 2) and issue 236 (open: the router run is planned, not run).
 - **Q2 = 1** when the answer says people who use Claude Code or Codex on their own computer. Naming the limit-hit situation is enough if it names one of those tools. Generic "developers" or "AI users" scores 0.
 - **Q3 = 1** when the answer names a concrete action that exists in the first viewport: open or see an example, or get or run the visitor's own map. "Scroll" or "learn more" alone scores 0.
-- **Q4 = 1** when the answer states both that it runs on the visitor's own computer and sends nothing by itself, and that sharing is a separate choice or only totals are shared. Source, `skills/tokenmax-map/SKILL.md` line 20: "The script reads the Claude Code and Codex logs in your home folder, writes the two reports into a new folder in the current directory, and sends nothing." Source, line 22: "The link carries the fields after `#m=`, a part of the address that never reaches a server until you open the page and press Share there. The script itself sends nothing." "not stated" scores 0.
+- **Q4 = 1** when the answer states all of: (a) the map runs on the visitor's own computer and sends nothing by itself; (b) sharing is optional, a separate choice; (c) what leaves the machine when they do share: only totals or counts for the week. Source, `skills/tokenmax-map/SKILL.md` line 20: "The script reads the Claude Code and Codex logs in your home folder, writes the two reports into a new folder in the current directory, and sends nothing." Source, line 22: "The fields are aggregate counts only" and "The link carries the fields after `#m=`, a part of the address that never reaches a server until you open the page and press Share there. The script itself sends nothing." "not stated" scores 0.
 
-- **Q5 = 1** when the answer states all three: User 1 stops (runs out) at the limit; User 2 has the map and sees where the week went; the pacing half (Jev pacing the allowance) is not built yet, only the map exists today. An answer that treats the pacing as working, or that cannot say which half exists, scores 0. Source: issue 236 (open: the router run is planned, not run) and `skills/tokenmax-map/SKILL.md` line 22 (what the map outputs).
+- **Q5 = 1** when the answer states all three: User 1 stops (runs out) at the limit; User 2 is what the router is meant to do, a design that is not built; what exists today is the map the visitor can run and share. An answer that treats User 2's pacing as working, or that cannot say which half exists, scores 0. Source: `prototype/tm-journey/FRAMING.md` lines 13 to 14 (BUILT and DESIGN) and issue 236.
+
+## Status check (BUILT or DESIGN)
+
+From the full page (all four screenshots plus `full-page.txt`), the reader marks each of these six statements BUILT, DESIGN or "not stated", by what the page says about it. The statements are the same for every prototype so the scores compare.
+
+- S1 A map of your own last 7 days of Claude Code and Codex use. Key: BUILT.
+- S2 A link you can press to share your week's totals. Key: BUILT.
+- S3 A public board of weeks people have shared. Key: BUILT.
+- S4 An example week you can open without running anything. Key: BUILT.
+- S5 A router that sends each job to a cheaper option so you do not hit your weekly limit. Key: DESIGN.
+- S6 Pacing your allowance across the week so it is used rather than hit. Key: DESIGN.
+
+Status score = count of statements marked as the key says (0 to 6). The keys follow `FRAMING.md` lines 13 to 14; the honesty hat separately checks that every `claims.md` line carries BUILT or DESIGN and that each matches its source.
 
 ## Stage walk
 
@@ -46,13 +59,13 @@ Give the reader these six stage definitions and the full-page visible text. For 
 3. Decide to try.
 4. Run it with reassurance.
 5. Read your result.
-6. Next step: run the map now (real), share to the board, or follow the pacing work (not yet).
+6. Next step: run the map now and share your week (built), or follow the router work (design, not yet).
 
 A quote counts when it is found inside the element marked `data-stage="k"` for its stage k. The stage score is the length of the longest run of counted quotes that appear in increasing page order, from 0 to 6.
 
 ## Total and ranking
 
-Total per reader per prototype is Q1 + Q2 + Q3 + Q4 + Q5 (0 to 5) plus the stage score (0 to 6), so 0 to 11. Rank by mean total across readers, highest first. Break ties by fewer words in the first viewport, using the mean of the word counts printed by `prototype-shots.ts` at both sizes.
+Total per reader per prototype is Q1 + Q2 + Q3 + Q4 + Q5 (0 to 5) plus the stage score (0 to 6) plus the status score (0 to 6), so 0 to 17. Rank by mean total across readers, highest first. Break ties by fewer words in the first viewport, using the mean of the word counts printed by `prototype-shots.ts` at both sizes.
 
 ## Hard checks
 

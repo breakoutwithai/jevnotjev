@@ -11,7 +11,7 @@ This file records the operator's product framing so that every prototype's `clai
 ## Status words (every claim line in claims.md carries one)
 
 - BUILT: the map (`skills/tokenmax-map/scripts/map.ts`), the share link (map.ts `shareLink`), the shared board (`site/maps/`), the example (the sample card, `site/tm/index.html:31`).
-- DESIGN: the router, pacing, Jev picking the cheaper door for the jobs the rules cannot route (issue 236, "in rehearsal, not run"; `site/tm/index.html:143-145`). A DESIGN line never carries a number or a result.
+- DESIGN: the router, pacing, Jev picking the cheaper door for the jobs the rules cannot route (issue 236, open; the words "in rehearsal, not run yet" come from `site/tm/index.html:143-145`, not from the issue). A DESIGN line never carries a number or a result.
 
 ## Supporting sources in the repo
 
@@ -19,3 +19,10 @@ This file records the operator's product framing so that every prototype's `clai
 - `site/index.html:676`: "For people who hit their Claude weekly limit."
 - `skills/tokenmax-map/SKILL.md:95`: compare only summaries participants "approved for this audience and purpose".
 - Issue 236 (open): "TokenMax router: Jev on the jobs rules cannot route".
+
+## How the visitor runs the map (operator Amendment 3, 2026-10-20)
+
+- The visitor never sees a shell command. Stage 4 offers one plain prompt to paste into the Claude Code or Codex they already use; that agent reads `skills/tokenmax-map/scripts/map.ts` (served at `/tm/map.ts`), says what it reads and sends, runs it on their computer, shows the report and gives the share link, and sends nothing itself.
+- The map script and the skill are BUILT. Whether a given agent follows the prompt to the end is TESTED or UNTESTED per tool, recorded in each `claims.md` and in `RESULTS.md` (work item W9).
+- The agent is itself a cloud model: `skills/tokenmax-map/SKILL.md:24` says "a desktop assistant itself may use a cloud model. Do not promise that loading a transcript into the assistant keeps its contents on-device." So no prototype says "nothing leaves your computer"; the claim that holds is that the map sends nothing and the week's totals go only when the visitor presses Share.
+- What Share sends: the week's totals (the tm-share/1 fields, `skills/tokenmax-map/scripts/map.ts:696-708`) and a short alias the visitor types on the board page (`site/maps/maps.js:386`). Say "your week's totals and a nickname you choose", never "only totals".

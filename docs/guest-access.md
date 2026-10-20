@@ -146,6 +146,7 @@ The same three tools are served over MCP Streamable HTTP at `https://jevnotjev.b
 - **Origin and Host:** an `Origin` header, when sent, must be `https://jevnotjev.breakoutwithai.com`, else 403 `origin-refused` (Claude's servers send none; a browser page on another site does). The Host must be the configured origin's host (`BACKSTAGE_ORIGIN`), else 403 `host-refused`.
 - **Transport:** stateless (no `Mcp-Session-Id`), JSON responses, MCP protocol `2025-11-25` from `@modelcontextprotocol/sdk` 1.32.1. `GET` and `DELETE` are 405 `Allow: POST`: there is no server-initiated stream, which the spec allows and the SDK client accepts.
 - **Limits:** request body 64 KiB (also nginx's `/api/v1/` cap), response 256 KiB, 30 seconds per request. Logs carry event, request id, token id, tool name, question id and reason; never a token, an email, question text or a reply. nginx's `/api/v1/` location has `access_log off`.
+- **Model provider:** A connected Claude app may send the question text it reads to a model provider, which differs from the ask page promise that no model provider sees a question. The connector is not run on visitor rows without the visitor's consent. See [the known limits](LIMITS.md).
 - **Deploy:** none beyond the server. nginx already forwards `^~ /api/v1/` to the server (`.deploy/backstage-nginx.conf`), so the path needs no nginx change.
 
 ### Add it in Claude (Cowork, desktop, web)

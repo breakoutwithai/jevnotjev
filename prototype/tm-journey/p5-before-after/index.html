@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Before and after the limit</title>
+<meta name="description" content="Two illustrative weeks on one stage: one runs out mid-week and stops; the other is what TokenMax is being designed to do. Today you can map your own week and share it to help decide.">
+<style>
+/* Tokens copied from site/page.css:5-20 and site/tm/tm.css:6-25. Local font fallbacks only: no web font is fetched. */
+:root {
+  --bg: #12060a;
+  --bg-2: #1c080d;
+  --muted: #9c8580;
+  --line: rgba(242, 233, 223, .13);
+  --keep: #86cf9f;
+  --cut: #f08470;
+  --curtain: #7b1424;
+  --curtain-hi: #a3263a;
+  --curtain-lo: #3e0710;
+  --brass: #8a5f10;
+  --serif: "Iowan Old Style", Georgia, serif;
+  --sans: "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, Menlo, monospace;
+  --house: #14060a;
+  --house-2: #1f090e;
+  --gold: #e0b04e;
+  --gold-dim: #a07a2c;
+  --cream: #efe2c4;
+  --cream-ink: #2a1408;
+  --ink: #f2e9df;
+  --ink-soft: #c9b6aa;
+  --exit: #ff6a58;
+  --spot: #ffeec8;
+  --link: #9fd8b4;
+  --termbg: #0c0305;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--house); scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { margin: 0; background: var(--house); color: var(--ink); font: 500 16px/1.5 var(--sans); overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+a { color: var(--link); text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid #ffe6a6; outline-offset: 3px; }
+h1, h2, h3 { font-family: var(--serif); margin: 0; }
+code, pre { font-family: var(--mono); }
+
+/* ---------- Curtain and marquee ---------- */
+.valance {
+  height: 22px;
+  background: repeating-linear-gradient(90deg, var(--curtain-lo) 0 6px, var(--curtain) 6px 18px, var(--curtain-hi) 18px 22px, var(--curtain) 22px 30px);
+  border-bottom: 3px solid var(--gold-dim);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, .55);
+}
+.bulbs { /* the marquee's row of lamps under the valance */
+  height: 10px; margin: 6px 16px 0;
+  background: radial-gradient(circle at 5px 5px, #ffe6a6 0 2.5px, rgba(224, 176, 78, .35) 3px, transparent 5px) 0 0 / 22px 10px repeat-x;
+}
+.house { position: relative; max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+
+/* ---------- Stage 1: arrive ---------- */
+.arrive { padding: 10px 0 22px; }
+.kicker { margin: 0 0 4px; font: 700 12px/1.35 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--gold); }
+.arrive h1 { font-weight: 800; font-size: clamp(27px, 4.4vw, 50px); line-height: 1.05; color: #f6e7c8; }
+.plain { margin: 7px 0 10px; max-width: 800px; font: 500 16.5px/1.38 var(--serif); color: var(--ink); }
+.plain b { color: #f6e7c8; }
+
+.split {
+  position: relative;
+  display: grid; grid-template-columns: 1fr 1fr;
+  border: 2px solid var(--gold-dim);
+  border-radius: 4px;
+  padding-bottom: 14px; /* the stage floor */
+  background: linear-gradient(180deg, #2b1209, #3a1a0c) bottom / 100% 14px no-repeat;
+  overflow: hidden;
+}
+.split::after { /* the seam down the middle of the stage */
+  content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 0;
+  border-left: 2px dashed rgba(224, 176, 78, .55);
+}
+.half { position: relative; padding: 9px 10px 12px; min-width: 0; }
+.half.u1 { background: radial-gradient(ellipse 80% 60% at 50% 0, rgba(255, 106, 88, .10), transparent 70%); }
+.half.u2 { background: radial-gradient(ellipse 80% 60% at 50% 0, rgba(255, 238, 200, .16), transparent 70%); }
+.who { display: block; font: 800 15px/1.2 var(--serif); color: #f6e7c8; }
+.tag { display: inline-block; margin-top: 5px; padding: 2px 7px; font: 700 11px/1.4 var(--sans); letter-spacing: .04em; text-transform: uppercase; border-radius: 2px; }
+.tag.built { background: var(--keep); color: #0d2414; }
+.tag.now { background: rgba(255, 106, 88, .16); color: var(--exit); box-shadow: inset 0 0 0 1px rgba(255, 106, 88, .5); }
+.tag.design { background: transparent; color: var(--gold); outline: 1px dashed var(--gold); outline-offset: -1px; }
+
+.days { display: flex; gap: 4px; margin: 8px 0 7px; padding: 0; list-style: none; }
+.days li { flex: 1 1 0; min-width: 0; padding: 3px 0; text-align: center; font: 700 11px/1.2 var(--sans); color: var(--ink-soft); background: rgba(242, 233, 223, .08); border-radius: 2px; }
+.days li.hit { background: rgba(255, 106, 88, .22); color: var(--exit); box-shadow: inset 0 0 0 1px var(--exit); }
+.days li.off { background: transparent; color: rgba(201, 182, 170, .4); box-shadow: inset 0 0 0 1px rgba(242, 233, 223, .1); text-decoration: line-through; }
+.days li.paced { background: transparent; color: var(--gold); outline: 1px dashed var(--gold-dim); outline-offset: -1px; }
+
+.beats { margin: 0; padding: 0; list-style: none; font: 500 14px/1.33 var(--sans); color: var(--ink-soft); }
+.beats li + li { margin-top: 4px; }
+.beats strong { color: var(--ink); }
+.stop { display: inline-block; margin: 6px 0 0; padding: 1px 10px; font: 800 22px/1.15 var(--serif); color: var(--exit); border: 2px solid var(--exit); border-radius: 3px; transform: rotate(-4deg); }
+.ask { display: block; margin-top: 8px; padding: 6px 8px; font: 800 14px/1.3 var(--sans); color: var(--cream-ink); text-decoration: none; background: linear-gradient(180deg, #f3cf7a, var(--gold)); border-radius: 3px; box-shadow: 0 0 0 2px var(--gold-dim); }
+.ask:hover { background: #f6dc96; }
+
+.today { margin: 10px 0 0; padding: 9px 12px; border-left: 4px solid var(--keep); background: var(--house-2); font: 500 14.5px/1.38 var(--sans); color: var(--ink-soft); }
+.today strong { color: var(--ink); }
+.today .tag { margin: 0 6px 0 0; vertical-align: 1px; }
+.caption { margin: 6px 0 0; font: italic 500 13.5px/1.35 var(--serif); color: var(--muted); }
+.ctas { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 10px; }
+.btn {
+  display: inline-block; padding: 10px 18px; font: 800 16px/1.2 var(--sans); color: var(--cream-ink); text-decoration: none;
+  background: linear-gradient(180deg, #f3cf7a, var(--gold)); border-radius: 3px; box-shadow: 0 0 0 2px var(--gold-dim), 0 6px 16px rgba(224, 176, 78, .25);
+}
+.btn:hover { background: #f6dc96; }
+.ghost { font: 700 15px/1.3 var(--sans); color: var(--link); }
+
+/* Animations are decoration only: no text ever starts hidden. */
+@media (prefers-reduced-motion: no-preference) {
+  .stop { animation: stamp .45s cubic-bezier(.2, 1.6, .5, 1) both; }
+  .days li.hit { animation: flick 2.4s ease-in-out .5s 2; }
+}
+@keyframes stamp { from { transform: rotate(-4deg) scale(1.6); } to { transform: rotate(-4deg) scale(1); } }
+@keyframes flick { 0%, 100% { background: rgba(255, 106, 88, .22); } 50% { background: rgba(255, 106, 88, .5); } }
+
+/* ---------- Acts 2 to 6 ---------- */
+.act { padding: 34px 0 6px; border-top: 1px solid var(--line); }
+.act-no { margin: 0 0 4px; font: 700 12px/1.3 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--gold); }
+.act h2 { font-weight: 800; font-size: clamp(24px, 3.2vw, 36px); line-height: 1.1; color: #f6e7c8; }
+.lede { margin: 8px 0 0; max-width: 720px; font: 500 17px/1.45 var(--serif); color: var(--ink-soft); }
+.ask-line { margin: 12px 0 0; font: 800 19px/1.35 var(--serif); color: #f6e7c8; }
+
+.boards { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 18px; }
+.board { padding: 14px 16px 16px; border: 2px solid var(--gold-dim); border-radius: 4px; background: var(--house-2); }
+.board.design { border-style: dashed; background: transparent; }
+.board h3 { margin-top: 6px; font-size: 20px; color: #f6e7c8; }
+.board p, .board li { font-size: 15px; color: var(--ink-soft); }
+.board ul { margin: 8px 0 0; padding-left: 18px; }
+.board li + li { margin-top: 3px; }
+.board p { margin: 8px 0 0; }
+
+.facts { margin: 16px 0 0; padding: 0; list-style: none; max-width: 780px; }
+.facts li { position: relative; padding: 9px 0 9px 26px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.facts li::before { content: ""; position: absolute; left: 4px; top: 15px; width: 10px; height: 10px; border-radius: 50%; background: var(--keep); }
+.facts li.nope::before { background: var(--cut); }
+.facts li.why::before { background: transparent; box-shadow: inset 0 0 0 2px var(--gold); }
+.facts span { color: var(--ink-soft); }
+.inline-tag { display: inline-block; padding: 0 6px; font: 700 11px/1.6 var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--gold); outline: 1px dashed var(--gold); outline-offset: -1px; border-radius: 2px; vertical-align: 1px; }
+
+.plainlist { margin: 14px 0 0; padding: 0; list-style: none; max-width: 780px; }
+.plainlist li { padding: 7px 0; border-bottom: 1px solid var(--line); color: var(--ink-soft); }
+.plainlist b { color: var(--ink); }
+.shows { margin: 16px 0 0; max-width: 820px; color: var(--ink-soft); }
+.shows p { margin: 0; }
+.cmd { display: flex; gap: 8px; align-items: stretch; margin-top: 8px; max-width: 820px; }
+.cmd pre { flex: 1 1 auto; min-width: 0; margin: 0; padding: 10px 12px; font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--spot); background: var(--termbg); border: 1px solid var(--brass); border-radius: 3px; }
+.copy { flex: 0 0 auto; padding: 0 12px; font: 700 14px/1 var(--sans); color: var(--cream-ink); background: var(--gold); border: 0; border-radius: 3px; cursor: pointer; }
+.copy:hover { background: #f3cf7a; }
+.printout { margin-top: 8px; padding: 10px 12px; background: var(--termbg); border: 1px solid var(--brass); border-radius: 3px; font: 500 13px/1.55 var(--mono); color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+.printout .ok { color: var(--keep); }
+details { margin: 16px 0 0; max-width: 820px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 3px; background: var(--house-2); }
+summary { cursor: pointer; font: 700 15px/1.35 var(--sans); color: var(--link); }
+details p { margin: 8px 0 0; color: var(--ink-soft); }
+details code { color: var(--spot); overflow-wrap: anywhere; }
+.lastline { margin: 18px 0 0; font: 700 16px/1.4 var(--sans); color: var(--ink); }
+
+/* Stage 5: the report reads like a playbill page */
+.result { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 18px; }
+.bill { padding: 16px 16px 18px; background: var(--cream); color: var(--cream-ink); border-radius: 3px; box-shadow: 0 0 0 4px var(--house-2), 0 0 0 6px var(--gold-dim); }
+.bill h3 { font-size: 22px; }
+.bill .sub { margin: 2px 0 10px; font: italic 500 14px/1.4 var(--serif); color: #6b4a2a; }
+.bill dl { display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr); gap: 6px 12px; margin: 0; }
+.bill dt { font: 700 13px/1.35 var(--sans); text-transform: uppercase; letter-spacing: .04em; color: #7b1424; }
+.bill dd { margin: 0; font: 600 15px/1.35 var(--sans); }
+.props { margin-top: 14px; padding-top: 10px; border-top: 2px solid #c9a96a; }
+.props h4 { margin: 0; font: 800 17px/1.3 var(--serif); }
+.props ol { margin: 8px 0 0; padding-left: 20px; }
+.props li { font: 500 15px/1.4 var(--serif); }
+.props li + li { margin-top: 6px; }
+.props .note { margin: 10px 0 0; font: 700 13px/1.4 var(--sans); color: #7b1424; }
+.side { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.side div { padding: 12px 14px; border-radius: 3px; background: var(--house-2); border: 1px solid var(--line); }
+.side .k { border-left: 4px solid var(--keep); }
+.side .q { border-left: 4px solid var(--cut); }
+.side .d { background: transparent; border: 1px dashed var(--gold-dim); border-left: 4px dashed var(--gold); }
+.side h3 { font: 800 16px/1.3 var(--sans); color: #f6e7c8; }
+.side p { margin: 4px 0 0; font-size: 15px; color: var(--ink-soft); }
+
+/* Stage 6: three tickets */
+.tickets { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 18px; }
+.ticket { position: relative; padding: 16px 18px 18px; background: var(--house-2); border: 2px solid var(--gold-dim); border-radius: 6px; }
+.ticket::before, .ticket::after { content: ""; position: absolute; top: 50%; width: 16px; height: 16px; margin-top: -8px; border-radius: 50%; background: var(--house); border: 2px solid var(--gold-dim); }
+.ticket::before { left: -10px; border-left-color: transparent; border-bottom-color: transparent; transform: rotate(45deg); }
+.ticket::after { right: -10px; border-right-color: transparent; border-top-color: transparent; transform: rotate(45deg); }
+.ticket.design { border-style: dashed; background: transparent; }
+.ticket h3 { margin-top: 6px; font-size: 21px; color: #f6e7c8; }
+.ticket p { margin: 8px 0 0; font-size: 15px; color: var(--ink-soft); }
+
+footer { margin-top: 34px; padding: 18px 16px 30px; border-top: 3px solid var(--gold-dim); background: var(--bg-2); font: 500 13px/1.5 var(--sans); color: var(--muted); text-align: center; }
+
+@media (min-width: 760px) {
+  .half { padding: 14px 22px 18px; }
+  .who { font-size: 22px; }
+  .tag { font-size: 12px; }
+  .beats { font-size: 16px; }
+  .ask { font-size: 16px; padding: 8px 12px; }
+  .stop { font-size: 30px; }
+  .days li { font-size: 12px; padding: 5px 0; }
+  .plain { font-size: 20px; }
+  .today { font-size: 15.5px; }
+  .boards { grid-template-columns: 1fr 1fr; }
+  .result { grid-template-columns: 3fr 2fr; align-items: start; }
+  .tickets { grid-template-columns: 1fr 1fr 1fr; }
+  .act { padding-top: 44px; }
+}
+@media (min-width: 1100px) {
+  .arrive { padding-top: 18px; }
+  .half { padding: 18px 32px 22px; }
+  .boards { grid-template-columns: 1fr 1fr 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="valance" aria-hidden="true"></div>
+<div class="bulbs" aria-hidden="true"></div>
+
+<main class="house">
+
+<header class="arrive" data-stage="1" id="top">
+  <p class="kicker">For Claude Code and Codex users</p>
+  <h1>Ran out before the week was over?</h1>
+  <p class="plain"><b>TokenMax</b> is a tool we are designing, not built yet, that would pace your Claude Code and Codex use so you do not hit your weekly limit.</p>
+
+  <div class="split" role="group" aria-label="Two illustrative weeks side by side">
+    <section class="half u1" aria-labelledby="u1h">
+      <span class="who" id="u1h">User 1</span>
+      <span class="tag now">How it goes now</span>
+      <ul class="days" aria-label="User 1 week: Monday and Tuesday worked, Wednesday limit hit, Thursday and Friday stopped">
+        <li>Mon</li><li>Tue</li><li class="hit">Wed</li><li class="off">Thu</li><li class="off">Fri</li>
+      </ul>
+      <ul class="beats">
+        <li>Works along.</li>
+        <li><strong>Wed 14 Oct, from 16:20 UTC:</strong> 2 limit hits, mid-task.</li>
+      </ul>
+      <span class="stop">Stops.</span>
+    </section>
+    <section class="half u2" aria-labelledby="u2h">
+      <span class="who" id="u2h">User 2</span>
+      <span class="tag design">What we are designing</span>
+      <ul class="days" aria-label="User 2 week, a design idea with no figures: every day paced, no day stopped">
+        <li class="paced">Mon</li><li class="paced">Tue</li><li class="paced">Wed</li><li class="paced">Thu</li><li class="paced">Fri</li>
+      </ul>
+      <ul class="beats">
+        <li>The same week, paced so the allowance is used rather than hit.</li>
+        <li><strong>Design, not built.</strong></li>
+      </ul>
+      <a class="ask" href="#next">Help us decide if it is worth building: share your week.</a>
+    </section>
+  </div>
+
+  <p class="today"><span class="tag built">Built today</span><strong>A map of your own last 7 days</strong>, made on your computer. It sends nothing by itself; if you choose to share, only the week's totals go.</p>
+  <div class="ctas">
+    <a class="btn" href="#result">See an example week</a>
+    <a class="ghost" href="https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9&sample">Open a sample card</a>
+  </div>
+  <p class="caption">Two illustrative weeks. User 1's limit time comes from one builder's real week, 16 Oct 2026.</p>
+</header>
+
+<section class="act" data-stage="2" id="what" aria-labelledby="h2">
+  <p class="act-no">Act 2 &middot; What this is</p>
+  <h2 id="h2">What exists today, and what we are designing</h2>
+  <p class="lede">TokenMax is one use case of Jev, the question-answering tool this site is named after. Three parts are built today. The pacing tool is a design.</p>
+  <div class="boards">
+    <div class="board">
+      <span class="tag built">Built today</span>
+      <h3>The map</h3>
+      <p>A map of your own last 7 days, made on your computer from your Claude Code and Codex history. It writes a private report and a share draft into a new folder, and shows:</p>
+      <ul>
+        <li>sessions in Claude Code and in Codex</li>
+        <li>limit hits, and whether each was the short window, the weekly one, or unknown</li>
+        <li>output from each tool</li>
+        <li>how much of Claude's output came from the big model</li>
+        <li>how much of the Codex week is used</li>
+        <li>up to three proposals, each labelled a proposal, not measured savings</li>
+      </ul>
+    </div>
+    <div class="board">
+      <span class="tag built">Built today</span>
+      <h3>The share link and the board</h3>
+      <p>The map gives you a link that holds your week's totals and nothing else. If you open it and press Share, those totals join a public board of maps, listed newest first, self-reported, not verified.</p>
+      <p><a href="https://jevnotjev.breakoutwithai.com/maps/">See the shared board</a></p>
+    </div>
+    <div class="board">
+      <span class="tag built">Built today</span>
+      <h3>An example week</h3>
+      <p>One builder's real week, mapped. You can open it without making anything yourself.</p>
+      <p><a href="#result">Read the example week</a></p>
+    </div>
+    <div class="board design">
+      <span class="tag design">Design, not built</span>
+      <h3>The pacing tool</h3>
+      <p>The idea: send each job to the cheaper door that can do it, with Jev picking the door for the jobs a fixed checklist cannot place, so the week's allowance is paced and used rather than hit. Pace it, use it all, not run out.</p>
+      <p>In rehearsal, not run yet. Nothing on this page is a result from it.</p>
+    </div>
+  </div>
+</section>
+
+<section class="act" data-stage="3" id="decide" aria-labelledby="h3">
+  <p class="act-no">Act 3 &middot; Decide to try</p>
+  <h2 id="h3">What you give, and what you keep</h2>
+  <ul class="facts">
+    <li>Made on your own computer. <span>It reads your Claude Code and Codex history there and leaves those files unchanged.</span></li>
+    <li>Sends nothing by itself. <span>It writes your map into a new folder and gives you a link.</span></li>
+    <li>Sharing is a separate choice. <span>Open the link, check the fields, press Share. Only the week's totals go: sessions, limit hits by window, output per tool, the big-model share, the Codex week used. No file paths, project names, ids or timestamps.</span></li>
+    <li>Your last 7 days. <span>A longer period only if you ask for it.</span></li>
+    <li class="nope">It will not tell you why you hit a limit, or what your week cost. <span>It counts; the report says token counts are not subscription percentages or cost.</span></li>
+    <li class="why">Why share at all. <span>Weeks shared by willing people help decide whether the router <span class="inline-tag">Design, not built</span> is worth building.</span></li>
+  </ul>
+  <div class="ctas">
+    <a class="btn" href="#run">Show me how to make my map</a>
+    <a class="ghost" href="#result">See the example week first</a>
+  </div>
+</section>
+
+<section class="act" data-stage="4" id="run" aria-labelledby="h4">
+  <p class="act-no">Act 4 &middot; Make your map</p>
+  <h2 id="h4">One line, and nothing is sent</h2>
+  <ul class="plainlist">
+    <li><b>What it does:</b> reads your Claude Code and Codex history and writes your map into a new folder.</li>
+    <li><b>Where it runs:</b> on your own computer. You paste one line into a terminal (on a Mac, the Terminal app) and press Enter.</li>
+    <li><b>What leaves:</b> nothing, until you open the link it prints and press Share there.</li>
+    <li><b>What is shared then:</b> only the week's totals, the same fields as the sample card.</li>
+  </ul>
+  <div class="shows">
+    <p>For the example week, the end of what it printed looked like this:</p>
+    <div class="printout" aria-label="What the example week printed">wrote &lt;your new folder&gt;/private-report.md
+wrote &lt;your new folder&gt;/share-draft.md (scan: clean)
+claude sessions 515, codex sessions 3478, cap hits 2
+<span class="ok">Share fields (tm-share/1). Nothing has been sent.</span>
+...
+Open this link to review and share:
+https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIs...</div>
+  </div>
+  <details>
+    <summary>It says bun is not found, or I want more than a week</summary>
+    <p>Bun is the program that runs the map. If it is missing, install it with this line, then paste the map line again: <code>curl -fsSL https://bun.sh/install | bash</code></p>
+    <p>For a longer period, add <code>--days 30</code> to the end of the map line (up to 90 days).</p>
+  </details>
+  <p class="lastline">Paste this line and press Enter:</p>
+  <div class="cmd"><pre id="cmd1">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share</pre><button class="copy" type="button" data-copy="cmd1">Copy</button></div>
+</section>
+
+<section class="act" data-stage="5" id="result" aria-labelledby="h5">
+  <p class="act-no">Act 5 &middot; Read your result</p>
+  <h2 id="h5">The example week, as the map shows it</h2>
+  <p class="lede">One builder's real week, 9 to 16 Oct 2026. Built today: your map shows your own week the same way.</p>
+  <div class="result">
+    <article class="bill" aria-labelledby="billh">
+      <h3 id="billh">The week, mapped</h3>
+      <p class="sub">From the private report and the share fields</p>
+      <dl>
+        <dt>Sessions</dt><dd>Claude Code 515 &middot; Codex 3,478 &middot; 3,993 in all</dd>
+        <dt>With helper work</dt><dd>444 sessions</dd>
+        <dt>Limit hits</dt><dd>2 (1 short window, 1 unknown window), Wed 14 Oct from 16:20 UTC</dd>
+        <dt>Output</dt><dd>Claude 9,977,232 &middot; Codex 7,503,143 (tokens)</dd>
+        <dt>Big model</dt><dd>87% of Claude output on Opus</dd>
+        <dt>Codex week</dt><dd>15% used</dd>
+      </dl>
+      <div class="props">
+        <h4>Proposals (not measured savings)</h4>
+        <ol>
+          <li>2 limit hits in the week: put must-deliver work early in the window and queue optional work for after the reset.</li>
+          <li>1 hit has no named window: the live TokenMax band can tell the five-hour window from the weekly one when the limit fires.</li>
+          <li>87% of Claude output came from Opus-class models: test whether routine helper work holds up on a smaller model before moving it.</li>
+        </ol>
+        <p class="note">The report labels each one a proposal to try, not measured savings.</p>
+      </div>
+    </article>
+    <div class="side">
+      <div class="k">
+        <h3>Built today</h3>
+        <p>This map, the link that shares its totals, and the board they go to. This week is also a sample card: <a href="https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9&sample">open the sample card</a>.</p>
+      </div>
+      <div class="q">
+        <h3>Not on this map</h3>
+        <p>Whether trying the proposals helps, what caused a limit, or what the week cost. The map does not measure those.</p>
+      </div>
+      <div class="d">
+        <h3>What we are designing</h3>
+        <p>A router that would pace a week like this one so the allowance is used rather than hit. Design, not built, no result yet. Weeks like this, shared by willing people, help decide whether to build it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="act" data-stage="6" id="next" aria-labelledby="h6">
+  <p class="act-no">Act 6 &middot; Your next step</p>
+  <h2 id="h6">Share your week</h2>
+  <p class="ask-line">Help us decide if it is worth building: share your week.</p>
+  <div class="tickets">
+    <div class="ticket">
+      <span class="tag built">Built today</span>
+      <h3>Run the map now and share your week</h3>
+      <p>Make your map with the one line in Act 4, open the link it prints, check the fields and press Share. Only the week's totals go.</p>
+      <p><a href="#run">Back to the one line</a></p>
+    </div>
+    <div class="ticket">
+      <span class="tag built">Built today</span>
+      <h3>See the shared board</h3>
+      <p>Every shared week, listed newest first, self-reported, not verified.</p>
+      <p><a href="https://jevnotjev.breakoutwithai.com/maps/">See the shared board</a></p>
+    </div>
+    <div class="ticket design">
+      <span class="tag design">Design, not built</span>
+      <h3>Follow the router work</h3>
+      <p>Next, in rehearsal, not run yet: Jev would pick the cheaper door for the jobs the rules cannot route, so the allowance would be paced and used rather than hit. No result yet. It is tracked as issue 236 in the jevnotjev repository.</p>
+      <p><a href="https://jevnotjev.breakoutwithai.com/guide/#tokenmax">Understand your TokenMax map</a></p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p>TokenMax is one use case of Jev, and the flagship example for Jev!Jev &middot; <a href="#top">Back to the two weeks</a></p>
+</footer>
+
+<script>
+  document.querySelectorAll('button[data-copy]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var source = document.getElementById(button.getAttribute('data-copy'));
+      if (!source) return;
+      var text = source.textContent || '';
+      var done = function (label) { button.textContent = label; setTimeout(function () { button.textContent = 'Copy'; }, 1600); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { done('Copied'); }, function () { selectText(source); done('Select'); });
+      } else { selectText(source); done('Select'); }
+    });
+  });
+  function selectText(node) {
+    var range = document.createRange();
+    range.selectNodeContents(node);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+</script>
+</body>
+</html>

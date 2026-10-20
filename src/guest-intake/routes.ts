@@ -33,8 +33,10 @@ export interface QuestionRoutes {
 }
 
 export class TooLarge extends Error {}
+/** The body was not complete within the deadline. A TooLarge, so callers that do not tell them apart are unchanged. */
+export class BodyTimeout extends TooLarge {}
 
-/** Read at most `cap` bytes of the body within `timeoutMs`; past either, TooLarge. */
+/** Read at most `cap` bytes of the body within `timeoutMs`; past the cap TooLarge, past the deadline BodyTimeout. */
 export async function boundedBody(request: Request, cap: number, timeoutMs: number): Promise<string> {
   const reader = request.body?.getReader();
   if (reader === undefined) return "";
@@ -44,9 +46,9 @@ export async function boundedBody(request: Request, cap: number, timeoutMs: numb
   try {
     for (;;) {
       const left = deadline - Date.now();
-      if (left <= 0) throw new TooLarge();
+      if (left <= 0) throw new BodyTimeout();
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new TooLarge()), left); });
+      const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new BodyTimeout()), left); });
       const next = await Promise.race([reader.read(), timeout]).finally(() => clearTimeout(timer));
       if (next.done) break;
       size += next.value.byteLength;

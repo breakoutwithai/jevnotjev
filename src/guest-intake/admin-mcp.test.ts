@@ -2,7 +2,7 @@
 // injected fetch, so every tool call runs the real admin API, token store and question store; stdio tests spawn the
 // production entrypoint with a stubbed fetch to prove the origin is pinned.
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -192,6 +192,55 @@ describe("admin MCP tools against the real admin API", () => {
     for (const [tool, args] of bad) expect([tool, (await call(client, tool, args)).isError]).toEqual([tool, true]);
     expect(b.seen).toHaveLength(0);
     expect(ADMIN_REPLY_CHARS_MAX).toBe(QUESTION_LIMITS.maxResponseChars);
+  });
+
+  test("[integration] AM-TRIM the reply length counts trimmed code points, as the store does: 8,000 characters plus a newline is stored (#285)", async () => {
+    const b = box();
+    const client = await inProcess({ [ADMIN_TOKEN_ENV]: b.admins.mint("Operator").token }, b.send);
+    const approved = (): string => {
+      const id = seed(b);
+      expect(b.questions.transition(id, "approved", 1, "operator:cli", T0).ok).toBe(true);
+      return id;
+    };
+    const text = "\u{1F600}".repeat(ADMIN_REPLY_CHARS_MAX);
+    const id = approved();
+    const got = await call(client, "reply_question", { id, version: 2, to: "answered", text: `${text}\n` });
+    expect([got.isError, got.body]).toEqual([false, { id, state: "answered", version: 3 }]);
+    expect(b.questions.show(id)?.response).toBe(text);
+    // Negative control: one character over after trimming is still refused locally and sends nothing.
+    const sent = b.seen.length;
+    const over = await call(client, "reply_question", { id: approved(), version: 2, to: "answered", text: ` ${"x".repeat(ADMIN_REPLY_CHARS_MAX + 1)}\n` });
+    expect(over.isError).toBe(true);
+    expect(b.seen).toHaveLength(sent);
+  });
+});
+
+describe("operator token storage recipe", () => {
+  test("[integration] AM-ENVFILE-MODE the documented env-file recipes leave the token file 0600 even when it already exists as 0644, and a prompt ended with no token keeps the existing file (#289)", async () => {
+    const doc = readFileSync(join(ROOT, "docs", "guest-access.md"), "utf8");
+    const blocks = [...doc.matchAll(/```sh\n([\s\S]*?)```/g)].map((m) => m[1] ?? "").filter((s) => s.includes("read -rs T") && /\.env"/.test(s));
+    expect(blocks).toHaveLength(2);
+    for (const block of blocks) {
+      const name = /jevnotjev\/(\w+\.env)"/.exec(block)?.[1] ?? "";
+      const variable = /printf '(JNJ_[A-Z]+_TOKEN)=%s/.exec(block)?.[1] ?? "";
+      expect([name, variable].every((s) => s !== "")).toBe(true);
+      const home = mkdtempSync(join(tmpdir(), "admin-mcp-envfile-"));
+      live.push({ stop: () => rmSync(home, { recursive: true, force: true }) });
+      const dir = join(home, ".config", "jevnotjev");
+      mkdirSync(dir, { recursive: true, mode: 0o755 });
+      const file = join(dir, name);
+      writeFileSync(file, "OLD=1\n", { mode: 0o644 });
+      chmodSync(file, 0o644);
+      const script = block.split("\n").filter((line) => !line.startsWith("claude ") && !line.startsWith("codex ")).join("\n");
+      // A prompt ended with no token (EOF, as when the operator cancels) must leave the working file as it was.
+      const cancelled = Bun.spawn(["bash", "-c", script], { env: { PATH: process.env.PATH ?? "", HOME: home }, stdin: new Uint8Array(0), stdout: "pipe", stderr: "pipe" });
+      await cancelled.exited;
+      expect([name, readFileSync(file, "utf8")]).toEqual([name, "OLD=1\n"]);
+      const proc = Bun.spawn(["bash", "-c", script], { env: { PATH: process.env.PATH ?? "", HOME: home }, stdin: new TextEncoder().encode(`${CANARY}\n`), stdout: "pipe", stderr: "pipe" });
+      expect([name, await proc.exited]).toEqual([name, 0]);
+      expect([name, (statSync(file).mode & 0o777).toString(8), (statSync(dir).mode & 0o777).toString(8)]).toEqual([name, "600", "700"]);
+      expect(readFileSync(file, "utf8")).toBe(`${variable}=${CANARY}\n`);
+    }
   });
 });
 

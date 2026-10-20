@@ -108,6 +108,33 @@ test("[unit] GT-VERIFY a valid bearer returns a frozen principal and records las
   expect(store.list().find((r) => r.id === b.record.id)?.lastUsedAt).toBe(new Date(T0 + 5_000).toISOString());
 });
 
+test("[unit] GT-CHECK check accepts what verify accepts and writes nothing; revoked, rotated-away and expired tokens are null", () => {
+  const dir = temp();
+  let now = T0;
+  const path = join(dir, "tickets.sqlite");
+  const store = open(path, () => now);
+  const a = store.mint("Ada", { ttlMs: MIN_GUEST_TTL_MS });
+  const b = store.mint("Bo");
+  const c = store.mint("Cy");
+  now = T0 + 5_000;
+  expect(store.check(`Bearer ${a.token}`)).toEqual(store.verify(`Bearer ${a.token}`));
+  expect(store.check(`Bearer ${b.token}`)?.tokenId).toBe(b.record.id);
+  expect(store.list().find((r) => r.id === b.record.id)?.lastUsedAt).toBeNull();
+  // Inside another connection's write transaction, check reads and returns at once.
+  const other = new Database(path, { strict: true });
+  try {
+    other.exec("BEGIN IMMEDIATE");
+    expect(store.check(`Bearer ${b.token}`)?.tokenId).toBe(b.record.id);
+    other.exec("ROLLBACK");
+  } finally {
+    other.close();
+  }
+  store.revoke(b.record.id);
+  store.rotate(c.record.id);
+  now = T0 + MIN_GUEST_TTL_MS;
+  for (const token of [a.token, b.token, c.token]) expect(store.check(`Bearer ${token}`)).toBeNull();
+});
+
 test("[unit] GT-EXPIRY a token is valid from created up to but not at expires, and not before created", () => {
   const dir = temp();
   let now = T0;

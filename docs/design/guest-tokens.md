@@ -1,6 +1,6 @@
 # Guest tokens
 
-Library contract for `src/guest-intake/tokens.ts` (#255, child of #253, PR 2). Spec: `docs/product/guest-intake.md`, section "Guest tokens (PR 2)". This covers the store only: the HTTP routes, the `--question-admin token` CLI dispatch and the MCP adapter are integrated separately and are not in this change.
+Library contract for `src/guest-intake/tokens.ts` (#255, child of #253, PR 2). Spec: `docs/product/guest-intake.md`, section "Guest tokens (PR 2)". This covers the store. The routes, the `--question-admin token` and `admin-token` CLI and the MCP adapters that use it live beside it in `src/guest-intake/`.
 
 ## Store
 
@@ -28,6 +28,7 @@ class GuestTokenStore {
   mint(label: string, options?: GuestMintOptions): GuestMinted;
   rotate(id: string, options?: GuestMintOptions): GuestMinted;
   verify(authorization: string | null): GuestPrincipal | null;
+  check(authorization: string | null): GuestPrincipal | null;
   list(): readonly GuestTokenRecord[];
   revoke(id: string): GuestTokenRecord | null;
   close(): void;
@@ -36,6 +37,7 @@ class GuestTokenStore {
 
 - `mint`: operator only. Returns `jng_` + 43 base64url characters (32 random bytes) once, with its record. Label: 1 to 64 ASCII characters from `[A-Za-z0-9 _.@-]`, starting with a letter or digit, not ending in a space. `ttlMs`: a safe integer from the minimum to the maximum. Any other option key throws, so no caller can name a scope.
 - `verify`: takes the raw `Authorization` header. Accepts exactly `Bearer jng_<43>`; anything else is null. A token is valid when `created <= now < expires` and it is not revoked. Every call re-reads the row, so a revoke or rotate from another instance or process applies to the next request. A valid call records `last_used_at`; the write is conditional on the same unrevoked, unexpired state, so a revoke that lands between the read and the write wins. Returns a frozen principal; `scope` is `guest:<id>`, the value the question store uses.
+- `check`: `verify` without recording last use. It only reads, so it can run inside another connection's write transaction on the same file; the admin API uses it to re-check a token inside a reply's write (#285).
 - `list`: metadata only, oldest first. No hash, no token. A malformed row throws.
 - `revoke`: by id. Idempotent; the first revoke time is kept. Unknown id is null, a malformed id throws. The token's question rows are not touched.
 - `rotate`: operator only, by id. New secret, same id and principal, old secret invalid at once, expiry restarts from now. Allowed on an expired token (renewal), refused on a revoked one.
@@ -62,7 +64,7 @@ class GuestTokenStore {
 ## Integration notes for the parent
 
 - `server.ts` builds one store on the resolved tickets path and calls `verify(req.headers.get("authorization"))` for `/api/v1/guest/` before `createApiV1`. A throw is a 503, not a 401.
-- `--question-admin token mint|list|revoke` maps to `mint`, `list` and `revoke`. `rotate` exists in the library; whether the CLI exposes it is the parent's decision.
+- `--question-admin token mint|list|revoke|rotate` and `admin-token mint|list|revoke|rotate` map to `mint`, `list`, `revoke` and `rotate` (`admin-cli.ts`).
 - Quotas per token (10 new rows per UTC day) belong to the question store, keyed by `principal.scope`.
 
 ## Limits

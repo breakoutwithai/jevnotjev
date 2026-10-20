@@ -6,14 +6,15 @@
 //   POST /api/v1/admin/questions/<id>/reply  { version, to, text?, source? }        { id, state, version }
 //
 // Auth is an admin bearer (`jna_`, tokens.ts) with scope questions:admin, re-read from the store on every request and
-// again after the reply body is read, so a revoke applies at once and a revoke mid-upload changes nothing. A guest or
+// again inside the reply's write transaction, so a revoke applies at once, a revoke mid-upload changes nothing, and no
+// revoke or rotate can commit between that check and the write (#285). A guest or
 // decide token, a session cookie, or nothing at all is 401. Unsafe token state is 503 auth-unavailable. Reads and
 // replies call the same QuestionStore methods as the CLI and the #278 page (list, show, transition, answer) and reuse
 // that page's body parser, refusal statuses and reply dispatch. There is no delete or purge route. Logs carry an event,
 // a request id, the token id, a question id and a reason; never a token, an email, question text or a reply.
 import { applyReply, CHANGE_STATUS, parseReplyBody } from "./admin-routes.ts";
 import { QUESTION_ID, QUESTION_LIMITS, type QuestionLimits } from "./contract.ts";
-import { boundedBody, TooLarge } from "./routes.ts";
+import { BodyTimeout, boundedBody, TooLarge } from "./routes.ts";
 import { QuestionStore, type ChangeResult } from "./store.ts";
 import { AdminTokenStore, type AdminPrincipal, type AdminScope } from "./tokens.ts";
 
@@ -21,6 +22,12 @@ export const ADMIN_API_PREFIX = "/api/v1/admin";
 export const ADMIN_QUESTIONS_PATH = `${ADMIN_API_PREFIX}/questions`;
 /** The longest list one request returns, newest first; `total` counts every row. */
 export const ADMIN_LIST_MAX = 200;
+/**
+ * The reply body cap: the 64 KiB that Bun.serve (maxRequestBodySize) and nginx (client_max_body_size, ^~ /api/v1/) apply
+ * before this handler, pinned by AQ-API-EDGE. A maximum reply fits as raw UTF-8 or BMP \u escapes; an all-astral one
+ * sent as surrogate-pair escapes (twelve bytes a character) does not (#285).
+ */
+export const ADMIN_API_BODY_BYTES_MAX = 64 * 1024;
 
 export interface AdminApiRoute {
   readonly method: "GET" | "POST";
@@ -65,7 +72,10 @@ export type AdminBody = { readonly ok: true; readonly value: unknown } | { reado
 /** One admin route call by an already verified operator: what the HTTP routes and the remote MCP (#283) both run. */
 export interface AdminCall {
   readonly principal: AdminPrincipal;
-  /** Re-verifies the same credential just before a write; it must still be the same operator. */
+  /**
+   * Re-verifies the same credential inside the reply's write transaction; it must still be the same operator. It must
+   * only read (AdminApi.check): a write there would wait on the transaction's own lock.
+   */
   readonly recheck: () => AdminAuth;
   readonly method: string;
   readonly pathname: string;
@@ -82,8 +92,10 @@ export interface AdminOutcome {
 
 export interface AdminApi {
   readonly handle: (request: Request, pathname: string, rid: string) => Promise<Response>;
-  /** The bearer check every admin route uses, exposed for the remote MCP endpoint. */
+  /** The bearer check every admin route uses, exposed for the remote MCP endpoint. Records last use. */
   readonly authenticate: (request: Request) => AdminAuth;
+  /** The same check as a read only, for AdminCall.recheck. */
+  readonly check: (request: Request) => AdminAuth;
   /** Route one call without HTTP: same scope check, store calls, refusal codes and logs as handle. */
   readonly perform: (call: AdminCall) => Promise<AdminOutcome>;
   readonly close: () => void;
@@ -96,6 +108,13 @@ const CHALLENGE = ADMIN_CHALLENGE;
 const BODY_TIMEOUT_MS = 5000;
 /** The states whose transition stores the text; any other target refuses text rather than dropping it (#281). */
 const CARRIES_TEXT = new Set(["needs_info", "answered"]);
+
+/** Thrown by the reply guard to abort the write transaction, carrying the refusal. */
+class AuthRefused extends Error {
+  constructor(readonly outcome: AdminOutcome) {
+    super("auth-refused");
+  }
+}
 
 type Target =
   | { readonly kind: "list"; readonly route: AdminApiRoute }
@@ -118,9 +137,7 @@ export function createAdminApi(opts: AdminApiOptions): AdminApi {
   const limits: QuestionLimits = { ...QUESTION_LIMITS, ...opts.limits };
   const path = opts.path;
   const questions = path ? new QuestionStore(path, limits) : null;
-  // Any reply the store accepts must fit in either JSON encoding (#280): a code point escaped as a surrogate pair is
-  // twelve bytes (\uXXXX\uXXXX), plus the fields around the text.
-  const bodyCap = limits.maxResponseChars * 12 + 1024;
+  const bodyCap = ADMIN_API_BODY_BYTES_MAX;
   // Opened on first use, so an unsafe state directory is a 503 here, not a server that will not start.
   let tokens: AdminTokenStore | null = null;
   const output = opts.log ?? ((line: string) => { process.stdout.write(line + "\n"); });
@@ -130,15 +147,18 @@ export function createAdminApi(opts: AdminApiOptions): AdminApi {
   };
   const reply = (body: unknown, status = 200, extra: Record<string, string> = {}): Response => Response.json(body, { status, headers: { ...HEADERS, ...extra } });
 
-  const authenticate = (request: Request): AdminAuth => {
+  const tokenCheck = (request: Request, touch: boolean): AdminAuth => {
     if (path === undefined) return "unsafe";
     try {
       tokens ??= new AdminTokenStore(path, opts.clock);
-      return tokens.verify(request.headers.get("authorization"));
+      const header = request.headers.get("authorization");
+      return touch ? tokens.verify(header) : tokens.check(header);
     } catch {
       return "unsafe";
     }
   };
+  const authenticate = (request: Request): AdminAuth => tokenCheck(request, true);
+  const check = (request: Request): AdminAuth => tokenCheck(request, false);
 
   const perform = async (call: AdminCall): Promise<AdminOutcome> => {
     const { principal, rid } = call;
@@ -184,13 +204,16 @@ export function createAdminApi(opts: AdminApiOptions): AdminApi {
     const body = parseReplyBody(decoded.value);
     if (body === null) return reject("bad-body", 400, id);
     if (!CARRIES_TEXT.has(body.to) && (body.text !== undefined || body.source !== undefined)) return reject("text-not-stored", 400, id);
-    // The upload can take seconds: the token must still be live, and the same operator, at the moment of writing.
-    const again = call.recheck();
-    if (again === "unsafe") return reject("auth-unavailable", 503, id);
-    if (again === null || again.tokenId !== token) return reject("unauthenticated", 401, id, { "www-authenticate": CHALLENGE });
+    // The upload can take seconds: the token must still be live, and the same operator, at the moment of writing. The
+    // check runs inside the write transaction, so a revoke or rotate commits either before it (refused) or after the write.
+    const guard = (): void => {
+      const again = call.recheck();
+      if (again === "unsafe") throw new AuthRefused(reject("auth-unavailable", 503, id));
+      if (again === null || again.tokenId !== token) throw new AuthRefused(reject("unauthenticated", 401, id, { "www-authenticate": CHALLENGE }));
+    };
     let result: ChangeResult;
-    try { result = applyReply(questions, id, body, `operator:api:${token}`, opts.clock()); }
-    catch { return reject("store-error", 503, id); }
+    try { result = applyReply(questions, id, body, `operator:api:${token}`, opts.clock(), guard); }
+    catch (error) { return error instanceof AuthRefused ? error.outcome : reject("store-error", 503, id); }
     if (!result.ok) return reject(result.reason, CHANGE_STATUS[result.reason] ?? 400, id);
     log({ event: "question.api.changed", rid, token, id });
     return { status: 200, body: { id, state: body.to, version: result.version } };
@@ -203,6 +226,7 @@ export function createAdminApi(opts: AdminApiOptions): AdminApi {
     try {
       return { ok: true, value: JSON.parse(await boundedBody(request, bodyCap, BODY_TIMEOUT_MS)) };
     } catch (error) {
+      if (error instanceof BodyTimeout) return { ok: false, reason: "body-timeout", status: 408 };
       return error instanceof TooLarge || !(error instanceof SyntaxError) ? { ok: false, reason: "too-large", status: 413 } : { ok: false, reason: "bad-json", status: 400 };
     }
   };
@@ -216,13 +240,14 @@ export function createAdminApi(opts: AdminApiOptions): AdminApi {
     const principal = authenticate(request);
     if (principal === "unsafe") return reject("auth-unavailable", 503);
     if (principal === null) return reject("unauthenticated", 401, { "www-authenticate": CHALLENGE });
-    const done = await perform({ principal, recheck: () => authenticate(request), method: request.method, pathname, body: () => readBody(request), rid });
+    const done = await perform({ principal, recheck: () => check(request), method: request.method, pathname, body: () => readBody(request), rid });
     return reply(done.body, done.status, { ...done.headers });
   };
 
   return {
     handle,
     authenticate,
+    check,
     perform,
     close: () => {
       questions?.close();

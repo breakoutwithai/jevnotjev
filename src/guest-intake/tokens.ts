@@ -371,6 +371,26 @@ class BearerTokenStore<S extends string, P> {
    * created up to, not including, expires. Records last use. Throws only when the state is unsafe or the clock invalid.
    */
   verify(authorization: string | null): P | null {
+    const live = this.#live(authorization);
+    if (live === null) return null;
+    const { parsed, hash, now } = live;
+    // Conditional on the same state, so a revoke or rotate that lands between the read and this write wins.
+    const touched = this.#db
+      .query(`UPDATE ${this.#kind.table} SET last_used_at = ? WHERE id = ? AND sha256 = ? AND revoked_at IS NULL AND created_at <= ? AND expires_at > ?`)
+      .run(now, parsed.id, hash, now, now);
+    return touched.changes === 1 ? this.#kind.principal(parsed.id) : null;
+  }
+
+  /**
+   * verify without recording last use: a read only, so it can run inside another connection's write transaction on the
+   * same file (where a write would wait on that transaction's lock).
+   */
+  check(authorization: string | null): P | null {
+    const live = this.#live(authorization);
+    return live === null ? null : this.#kind.principal(live.parsed.id);
+  }
+
+  #live(authorization: string | null): { readonly parsed: Parsed; readonly hash: string; readonly now: number } | null {
     this.#guard();
     if (authorization === null || authorization.length !== this.#headerLength) return null;
     const token = this.#header.exec(authorization)?.[1];
@@ -381,11 +401,7 @@ class BearerTokenStore<S extends string, P> {
     const parsed = row === null ? null : this.#parse(row);
     if (parsed === null || parsed.sha256 !== hash) return null;
     if (parsed.revokedAt !== null || now < parsed.createdAt || now >= parsed.expiresAt) return null;
-    // Conditional on the same state, so a revoke or rotate that lands between the read and this write wins.
-    const touched = this.#db
-      .query(`UPDATE ${this.#kind.table} SET last_used_at = ? WHERE id = ? AND sha256 = ? AND revoked_at IS NULL AND created_at <= ? AND expires_at > ?`)
-      .run(now, parsed.id, hash, now, now);
-    return touched.changes === 1 ? this.#kind.principal(parsed.id) : null;
+    return { parsed, hash, now };
   }
 
   /** Metadata for every token, oldest first. Never a hash or a token. A malformed row throws rather than being skipped. */

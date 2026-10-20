@@ -138,7 +138,8 @@ export function createAdminServer(run: AdminToolRunner): McpServer {
         id: ID.describe("The question id"),
         version: VERSION.describe("The version get_question returned"),
         to: STATE.describe("The target state"),
-        text: z.string().min(1).refine((t) => [...t].length <= ADMIN_REPLY_CHARS_MAX, `text is at most ${ADMIN_REPLY_CHARS_MAX} characters`).optional().describe("The reply or needs_info note; only for needs_info or answered"),
+        // Counted as the store counts it (QuestionStore.transition): code points after trimming.
+        text: z.string().min(1).refine((t) => [...t.trim()].length <= ADMIN_REPLY_CHARS_MAX, `text is at most ${ADMIN_REPLY_CHARS_MAX} characters`).optional().describe("The reply or needs_info note; only for needs_info or answered"),
         source: SOURCE.optional().describe("human_reviewed (default) or template"),
       }),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },

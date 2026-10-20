@@ -29,6 +29,12 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - Inputs are text cases. [Source](RELEASE-v0.1.0.md) <!-- claim: text-inputs -->
 - The release check (`bun scripts/release-check.ts`) uses a recorded Jev response for `run` and makes no paid provider call. [Source](RELEASE-v0.1.0.md) <!-- claim: release-recorded -->
 - The release check does not exercise the HTTP surface. With `--url` it compares only the static site's `/DEPLOYED_SHA` to the candidate commit and does not check the backend or any other module. [Source](RELEASE-v0.1.0.md) <!-- claim: release-no-http -->
+- Google sign-in for Backstage and paid comparisons are deferred beyond v0 (issue #77). [Source](RELEASE-v0.1.0.md) <!-- claim: backstage-deferred -->
+- The admin page, API and MCP connector have been exercised only by the operator and by scripted tests, not by an outside user. [Source](RELEASE-v0.1.0.md) <!-- claim: admin-exercised -->
+- The remote admin MCP connector uses a bearer token today; OAuth sign-in is planned and not built yet. [Source](guest-access.md) <!-- claim: connector-bearer -->
+- No consented outside user's own run from start to verdict is documented yet; the next step is to invite one and document it. [Source](RELEASE-v0.1.0.md) <!-- claim: no-outside-run -->
+- A remote admin MCP request can run past its 30-second deadline by a database lock wait; a call whose client disconnects still runs until it completes or reaches the deadline, and a reply answered 504 may still have been stored. [Source](guest-access.md) <!-- claim: admin-deadline -->
+- The admin token header must spell the scheme `Bearer`; `bearer` or `BEARER` is refused. [Source](guest-access.md) <!-- claim: bearer-scheme -->
 
 ## 4. Data and trust
 
@@ -41,3 +47,10 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - The evidence export check matches listed key shapes and exact supplied key values; a key in another shape that was not supplied, such as a Jev key, is not caught. [Source](product/what-is-stored.md) <!-- claim: scan-shapes -->
 - The evidence export check tests reproducibility and looks for leaked credentials; it does not prove an export is authentic. [Source](product/what-is-stored.md) <!-- claim: export-check -->
 - Retention and deletion policies of model providers and other infrastructure are unknown beyond the application code. [Source](../site/privacy/index.html) <!-- claim: provider-retention -->
+- A question sent from the ask page is read and answered by a person; it is never sent to a model provider and no Jev run happens. [Source](../site/privacy/index.html) <!-- claim: question-human -->
+- Your email is not checked and no reply is emailed to it; the reply appears on the ask page under your status code. [Source](../site/privacy/index.html) <!-- claim: question-email -->
+- Questions have no retention period yet and nothing is deleted automatically; a person deletes one by hand on request. [Source](../site/privacy/index.html) <!-- claim: question-retention -->
+- Operator tools such as a Claude connector may send question text to a model provider when an operator connects one, which differs from the ask page promise that no model provider sees your question, so the connector is not run on visitor rows without the visitor's consent. [Source](guest-access.md) <!-- claim: connector-model -->
+- An operator token is not bound to one endpoint: the same token works on the admin API and the remote admin MCP connector. [Source](guest-access.md) <!-- claim: token-audience -->
+- Admin routes run before the server's concurrency slot and have no per-IP rate limit. [Source](guest-access.md) <!-- claim: admin-rate-limit -->
+- A question's text is untrusted: it can instruct the operator's agent to copy other visitors' emails or questions into a reply its sender reads, so the operator reads each reply before approving it. [Source](guest-access.md) <!-- claim: visitor-text -->

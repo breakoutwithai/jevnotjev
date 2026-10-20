@@ -62,6 +62,73 @@ async function pageAt(width: number, height: number, motion: "no-preference" | "
   return page;
 }
 
+test("[integration] VP1 returning visitors can see the status path beside Ask", async () => {
+  const page = await pageAt(1440, 900);
+  try {
+    const status = page.getByRole("link", { name: "Asked a question already? Check its status" });
+    expect(await status.isVisible()).toBe(true);
+    expect(await status.getAttribute("href")).toBe("/ask/#status");
+  } finally { await page.close(); }
+});
+
+test("[integration] VP8 feedback is visible in the home footer", async () => {
+  const page = await pageAt(1440, 900);
+  try {
+    const feedback = page.locator("footer").getByRole("link", { name: "Send feedback" });
+    expect(await feedback.isVisible()).toBe(true);
+    expect(await feedback.getAttribute("href")).toBe("mailto:jev@breakoutwithai.com?subject=Jev!Jev%20feedback");
+  } finally { await page.close(); }
+});
+
+test("[integration] VP9 the playground link has no pending image placeholder", async () => {
+  const page = await pageAt(1440, 900);
+  try {
+    await page.locator("#officeOpen").click();
+    expect(await page.locator("#tkPlayground").isVisible()).toBe(true);
+    expect(await page.locator("#tkPlayground").innerText()).toBe("Open the Jev playground");
+    expect(await page.locator("body").innerText()).not.toContain("Playground image pending permission");
+  } finally { await page.close(); }
+});
+
+test("[integration] VP8 the guide footer offers feedback and the glossary describes it", async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await page.goto(`http://127.0.0.1:${server.port}/guide/`);
+    const feedback = page.locator("footer").getByRole("link", { name: "Send feedback" });
+    expect(await feedback.isVisible()).toBe(true);
+    expect(await feedback.getAttribute("href")).toBe("mailto:jev@breakoutwithai.com?subject=Jev!Jev%20feedback");
+    await page.locator("#reference > summary").click();
+    expect(await page.locator("#reference dd").filter({ hasText: "The footer link" }).innerText()).toContain("email");
+  } finally { await page.close(); }
+});
+
+test("[integration] VP9 the field guide announces that it opens and reveals its body", async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  try {
+    await page.goto(`http://127.0.0.1:${server.port}/guide/`);
+    const summary = page.locator("#reference > summary");
+    expect(await summary.isVisible()).toBe(true);
+    expect(await summary.innerText()).toMatch(/^Open field guide:/);
+    expect(await page.locator("#reference .reference-body").isVisible()).toBe(false);
+    await summary.click();
+    expect(await page.locator("#reference .reference-body").isVisible()).toBe(true);
+  } finally { await page.close(); }
+});
+
+test("[integration] VP9 Raise the curtain opens on first and later visits in one tab", async () => {
+  const page = await pageAt(1440, 900, "no-preference");
+  try {
+    const raise = page.getByRole("button", { name: "Raise the curtain" });
+    expect(await raise.isVisible()).toBe(true);
+    await raise.click();
+    expect((await curtain(page)).state).toBe("open");
+    expect(await page.locator("#types").isVisible()).toBe(true);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    expect((await curtain(page)).state).toBe("open");
+    expect(await page.locator("#types").isVisible()).toBe(true);
+  } finally { await page.close(); }
+});
+
 for (const motion of MOTIONS) {
   test(`[integration] L1-L5 the title comes first, then the four pictures and the cards; no result bars or sample hero (${motion})`, async () => {
     for (const [width, height] of ACTION_VIEWPORTS) {

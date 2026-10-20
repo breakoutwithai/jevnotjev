@@ -2768,6 +2768,7 @@ test("[integration] TR5 one seat call-to-action label, Take your seat, on the cu
       const labels = await page.locator("a.poster .p-cta").allTextContents();
       expect({ motion, labels }).toEqual({ motion, labels: ["Take your seat"] });
       expect(await page.locator('footer.site-foot a[href="little-shop/"]').textContent()).toBe("Little Shop");
+      expect((await page.locator('a.poster[href="little-shop/"] .p-seats').innerText()).trim()).toBe("40 messages, 3 clerks each. You decide.");
       expect(await page.locator("body").evaluate((node) => (node.textContent ?? "").toLowerCase())).not.toContain("pick a seat");
       // The poster names its label (WCAG label in name) and no other link shares its name.
       const names = await page.locator("a.poster").evaluateAll((nodes) => nodes.map((n) => n.getAttribute("aria-label") ?? ""));
@@ -2782,11 +2783,14 @@ test("[integration] TR6 the seat page's programme leads with a plain verdict lin
     const page = await pageAt(width, height);
     try {
       await page.goto(`http://127.0.0.1:${server.port}/little-shop/`, { waitUntil: "load" });
+      const og = await page.locator('meta[property="og:description"]').getAttribute("content");
+      expect(og).toBe("40 customer messages, three clerks per message, 120 recorded evaluations. You decide who is right.");
+      expect(await page.locator(".count").isVisible()).toBe(true);
       const run = page.locator(".recorded-run");
       const visible = await run.evaluate((node) => [...node.querySelectorAll("p, h3")].filter((n) => n.checkVisibility()).map((n) => n.textContent?.trim() ?? ""));
       expect({ width, visible }).toEqual({ width, visible: [
         "Recorded run, 1 October 2026: 40 cases",
-        "Same accuracy as the LLM (38/40 each) at 1/79th of the cost",
+        "38 of 40 each at 1/79th of the cost. This run did not prove Jev was as good as the LLM.",
         "Verdict: not enough evidence",
         "The recorded run cannot yet show that Jev is as good as the LLM.",
       ] });

@@ -101,11 +101,14 @@ const RESULT_END = "<!-- END RECORDED RUN RESULT -->";
 /** Replace the generated official-run summary; the visitor's own verdict below still comes from their calls. */
 function resultPage(page: string, run: RunSummary): string {
   const line = (className: string, value: string | null): string => value === null ? "" : `<p class="${className}">${escapeHtml(value)}</p>`;
+  const headline = run.verdict === "not enough evidence" && run.reason?.includes("lower bound")
+    ? run.headline?.replace(/^Same accuracy as the LLM \((\d+)\/(\d+) each\) at (.+)$/, "$1 of $2 each at $3. This run did not prove Jev was as good as the LLM.") ?? null
+    : run.headline;
   const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${run.folder.slice(0, 10)}T00:00:00Z`));
   const block = [RESULT_START,
     '<div class="recorded-run" aria-label="Recorded run result">',
     line("recorded-caption", `Recorded run, ${date}: ${run.labelledPaired} cases`),
-    run.headline === null ? "" : `<h3 class="recorded-headline">${escapeHtml(run.headline)}</h3>`,
+    headline === null ? "" : `<h3 class="recorded-headline">${escapeHtml(headline)}</h3>`,
     line("recorded-verdict", run.verdict === null ? null : `Verdict: ${run.verdict}`),
     line("recorded-plain", run.verdict === null ? null : PLAIN_VERDICT.get(run.verdict) ?? null),
     run.whyNotYet === null ? "" : `<details class="recorded-more"><summary>Why is it not proven yet?</summary>${line("recorded-why", run.whyNotYet)}</details>`,

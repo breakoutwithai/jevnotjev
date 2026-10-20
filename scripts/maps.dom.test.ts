@@ -122,6 +122,20 @@ test("[unit] M0 the share link is built by the mapper's own shareLink against SH
   expect(link().startsWith(`${origin}/maps/#m=`)).toBe(true);
 });
 
+test("[integration] M0b the board link on an invalid share opens the visible board", async () => {
+  const { page, context } = await open(`${origin}/maps/#m=invalid`);
+  try {
+    expect(await page.locator("#mapInvalid").isVisible()).toBe(true);
+    const boardLink = page.locator("#mapInvalid a[href='/maps/']");
+    expect(await boardLink.isVisible()).toBe(true);
+    expect((await boardLink.innerText()).trim()).toBe("Open the board");
+    await boardLink.click();
+    await page.locator("#mapBoardSection").waitFor({ state: "visible" });
+    expect(new URL(page.url()).hash).toBe("");
+    expect(await page.locator("#mapBoardSection").isVisible()).toBe(true);
+  } finally { await context.close(); }
+});
+
 test("[integration] 1 a valid link shows every payload field with its value and a prefilled alias", async () => {
   const { page, context } = await open(link());
   try {
@@ -338,7 +352,8 @@ test("[integration] 10 with no fragment the page reads the board once and labels
     expect(first).toContain("1.2M");
     expect(await rowsShown.nth(0).locator('[title="1,234,567 output tokens"]').count()).toBe(1);
     expect(second.replace(/\s+/g, " ")).toContain("0 / 0 / 1");
-    expect(second).toContain("none read");
+    expect(second).toContain("not collected");
+    expect(second).not.toContain("none read");
   } finally { await context.close(); }
 });
 

@@ -125,6 +125,7 @@
     show($("statusResult"), false);
     var code = $("statusCode").value.trim();
     if (code === "") { statusError("Paste your status code."); $("statusCode").focus(); return; }
+    if (/^Q-[0-9A-F]{12}$/.test(code)) { statusError("That is your reference. Enter the full status code shown when you sent it (it continues after the dot)."); $("statusCode").focus(); return; }
     try {
       var res = await fetch("/api/questions/status", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: code }) });
       var data = await res.json().catch(function () { return {}; });

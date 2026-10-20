@@ -382,9 +382,9 @@ describe("remote admin MCP limits", () => {
     cleanup.push(() => rmSync(root, { recursive: true, force: true }));
     cleanup.push(() => { api.close(); admins.close(); });
     const { token } = admins.mint("Operator");
-    // The real admin API, with 250 ms added before each tool call reaches it.
-    const slowApi: AdminApi = { ...api, perform: async (c) => { await Bun.sleep(250); return api.perform(c); } };
-    const mcp = createAdminMcpHttp({ api: slowApi, origin: ORIGIN, clock: () => T0, log: () => {}, timeoutMs: 400 });
+    // The real admin API, with 300 ms added before each tool call reaches it.
+    const slowApi: AdminApi = { ...api, perform: async (c) => { await Bun.sleep(300); return api.perform(c); } };
+    const mcp = createAdminMcpHttp({ api: slowApi, origin: ORIGIN, clock: () => T0, log: () => {}, timeoutMs: 600 });
     const body = new TextEncoder().encode(rpc("tools/call", { name: "list_questions", arguments: {} }));
     const send = async (bodyDelayMs: number): Promise<[number, unknown]> => {
       const stream = new ReadableStream<Uint8Array>({
@@ -399,10 +399,10 @@ describe("remote admin MCP limits", () => {
       const res = await mcp.handle(new Request(URL_MCP, { method: "POST", headers, body: stream }), "rid-deadline");
       return [res.status, res.status === 200 ? field(await json(res), "result", "isError") ?? false : await json(res)];
     };
-    // Negative control: a prompt body and the slow tool finish inside 400 ms.
+    // Negative control: a prompt body and the slow tool finish inside 600 ms.
     expect(await send(0)).toEqual([200, false]);
-    // 300 ms of upload plus 250 ms of tool is past 400 ms from entry.
-    expect(await send(300)).toEqual([504, { code: "timeout" }]);
+    // 400 ms of upload (inside the 600 ms body cap) plus 300 ms of tool is past 600 ms from entry.
+    expect(await send(400)).toEqual([504, { code: "timeout" }]);
   });
 
   test("[integration] AM-HTTP-SCRUB the caller's bearer token is redacted from tool results, as the stdio adapter does (#289)", async () => {

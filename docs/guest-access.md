@@ -113,7 +113,7 @@ The operator's own agent can list, read and answer submitted `/ask/` questions t
 - There is no delete or purge tool or route; those stay CLI-only.
 - `list_questions` and `get_question` are marked read-only for the client. The server enforces it: the read routes are GET-only and never write.
 - The same safety posture as the guest adapter: fixed origin `https://jevnotjev.breakoutwithai.com`, redirects refused, requests capped at 64 KiB (nginx's `/api/v1/` limit), responses at 256 KiB, 10 seconds per call, the token never in a result.
-- A reply is at most 8,000 characters after trimming, counted as the store counts them. Both adapters send raw UTF-8, where the longest reply fits in 64 KiB. A script calling the HTTP API that sends an all-emoji reply as `😀`-style escapes goes over 64 KiB and gets 413 `too-large` from the server, Bun or nginx. A reply body not complete within 5 seconds is 408 `body-timeout`.
+- A reply is at most 8,000 characters after trimming, counted as the store counts them. The stdio adapter sends raw UTF-8, where the longest reply fits in 64 KiB. A client that sends an all-emoji reply as JSON surrogate-pair escapes (twelve bytes a character) goes over 64 KiB and gets 413 `too-large` from the server, Bun or nginx. Over the remote connector the request bytes come from Claude's client, whose encoding is not verified. A reply body not complete within 5 seconds is 408 `body-timeout`.
 - The only environment value it reads is `JNJ_ADMIN_TOKEN`: `jna_` followed by 43 base64url characters. A guest (`jng_`) or decide (`jnj_`) token is refused locally and by the server, and an operator token is refused by the guest and decide routes.
 
 ### Mint (on the host, after deployment)
@@ -189,5 +189,5 @@ Sweep findings from issues 285 and 289 that need a feature rather than a fix:
 - **Deadline:** a SQLite lock wait (up to 5 seconds per query) blocks the server and cannot be cut short by the 30-second timer, so a request can run past it by that wait.
 - **Client disconnects:** a call whose client disconnects still runs to completion or to the deadline.
 - **No per-client limit:** admin routes run before the server's concurrency slot and have no per-IP rate limit. An unauthenticated request costs a few file checks; guessing a 256-bit token is not feasible.
-- **Scheme spelling:** the header must say `Bearer`; `bearer` or `BEARER` is 401 (`GT-HEADER` in `src/guest-intake/tokens.test.ts`).
+- **Scheme spelling:** the header must say `Bearer`; `bearer` or `BEARER` is 401, although RFC 9110 makes the scheme case-insensitive. The strict form is pinned on purpose for every token kind (`GT-HEADER` in `src/guest-intake/tokens.test.ts`) and fails closed.
 - **Visitor text:** `get_question` returns untrusted visitor text from the same server that offers `reply_question`. The tool description tells the agent to treat it as data; the client's confirmation of the write tool is the control, so read each `reply_question` before approving it.

@@ -64,6 +64,7 @@ const seen: Seen[] = [];
 let rows: Row[] = [];
 let postReply: { status: number; body: Rec } | null = null;
 let deleteReply: { status: number; body: Rec } | null = null;
+let privateReply: { status: number; body: Rec } | null = null;
 // The landing strip ships hidden; the one test that starts from it serves the landing page with that one `hidden` removed.
 let landingStripShown = false;
 
@@ -72,6 +73,13 @@ beforeAll(async () => {
   if ("error" in found) throw new Error(found.error);
   server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const pathname = decodeURIComponent(new URL(request.url).pathname);
+    if (pathname === "/api/questions" && request.method === "POST") {
+      const body: unknown = await request.json();
+      seen.push({ method: "POST", path: pathname, body });
+      if (privateReply) return Response.json(privateReply.body, { status: privateReply.status });
+      const key = isRec(body) && typeof body.request_key === "string" ? body.request_key : "";
+      return Response.json({ id: "Q-00000000BEEF", status_code: `Q-00000000BEEF.${key}`, state: "pending_review", replay: false });
+    }
     if (pathname.startsWith("/api/maps")) {
       const text = request.method === "POST" ? await request.text() : "";
       let body: unknown = null;
@@ -102,7 +110,7 @@ beforeAll(async () => {
   browser = await chromium.launch({ headless: true, executablePath: found.path });
 });
 afterAll(async () => { await browser?.close(); server?.stop(); });
-beforeEach(() => { seen.length = 0; rows = [OTHER]; postReply = null; deleteReply = null; landingStripShown = false; });
+beforeEach(() => { seen.length = 0; rows = [OTHER]; postReply = null; deleteReply = null; privateReply = null; landingStripShown = false; });
 
 const apiSeen = () => seen.filter((s) => s.path === "/api/maps" || s.path === "/api/maps/delete");
 const posts = (path = "/api/maps") => seen.filter((s) => s.method === "POST" && s.path === path);
@@ -155,7 +163,7 @@ test("[integration] 1 a valid link shows every payload field with its value and 
   const { page, context } = await open(link());
   try {
     await page.locator("#mapShare").waitFor();
-    expect(await page.locator("#mapPreview").innerText()).toContain("What will be sent");
+    expect(await page.locator("#mapPreview").innerText()).toContain("Review these fields");
     for (const [field, exact, shown] of LEAVES) {
       const cell = page.locator(`#mapFields [data-field="${field}"]`);
       expect(await cell.count(), field).toBe(1);
@@ -171,11 +179,125 @@ test("[integration] 1 a valid link shows every payload field with its value and 
     expect(await page.locator("#mapFields table").count()).toBe(0);
     expect(await page.locator("#mapFields dl.map-field-list > dt").count()).toBe(11);
     expect(await page.locator("#mapFields dl.map-field-list > dd").count()).toBe(11);
-    expect(await page.locator("#mapPreview button").count()).toBe(1);
+    expect(await page.locator("#mapPreview button").count()).toBe(2);
     expect(await page.locator("label[for=mapAlias]").innerText()).toContain("Alias on the board");
     expect(await page.locator("#mapAlias").inputValue()).toMatch(/^builder-[a-z0-9]{4}$/);
     expect(await page.locator("#mapPreview").innerText()).toContain("Nothing has been sent yet.");
     expect(await page.locator("button#mapShare[type=button]").innerText()).toBe("Share");
+  } finally { await context.close(); }
+});
+
+test("[integration] VP-5 own card sends usage privately and shows a status receipt", async () => {
+  const { page, context } = await open(link());
+  try {
+    expect(await page.locator("#mapPrivateForm").isVisible()).toBe(true);
+    await page.locator("#mapPrivateEmail").fill("visitor@example.test");
+    await page.locator("#mapPrivateConsent").check();
+    await page.locator("#mapPrivateSend").dblclick();
+    await page.locator("#mapPrivateReceipt").waitFor({ state: "visible" });
+    const privatePosts = posts("/api/questions");
+    expect(privatePosts).toHaveLength(1);
+    expect(posts("/api/maps")).toHaveLength(0);
+    if (!isRec(privatePosts[0]?.body)) throw new Error("missing private body");
+    expect(privatePosts[0].body.usage).toEqual(PAYLOAD);
+    expect(privatePosts[0].body.question).toBe("Please review my TokenMax usage.");
+    expect(privatePosts[0].body.reply_consent).toBe(true);
+    expect(privatePosts[0].body.request_key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(await page.locator("#mapPrivateRef").innerText()).toMatch(/^Q-/);
+    expect(await page.locator("#mapPrivateCode").innerText()).toMatch(/^Q-[0-9A-F]{12}\.[A-Za-z0-9_-]{43}$/);
+    expect(await page.locator("#mapPrivateCopy").isVisible()).toBe(true);
+    expect(await page.locator("#mapPrivateReceipt a").getAttribute("href")).toBe("/ask/#status");
+  } finally { await context.close(); }
+});
+
+test("[integration] VP-6 sample and invalid fragments expose no sharing forms", async () => {
+  for (const url of [link() + "&sample", fragment("{}")]) {
+    const { page, context } = await open(url);
+    try {
+      if (url.includes("&sample")) expect(await page.locator("#mapSampleLabel").isVisible()).toBe(true);
+      expect(await page.locator("#mapShare").isVisible()).toBe(false);
+      expect(await page.locator("#mapPrivateForm").isVisible()).toBe(false);
+    } finally { await context.close(); }
+  }
+});
+
+test("[integration] VP-5 private retry keeps its key after a network error", async () => {
+  const { page, context } = await open(link());
+  const attempts: Rec[] = [];
+  try {
+    await page.route("**/api/questions", async (route) => {
+      const body: unknown = route.request().postDataJSON();
+      if (isRec(body)) attempts.push(body);
+      if (attempts.length === 1) await route.abort();
+      else await route.continue();
+    });
+    await page.locator("#mapPrivateEmail").fill("retry@example.test");
+    await page.locator("#mapPrivateConsent").check();
+    await page.locator("#mapPrivateSend").click();
+    await page.locator("#mapPrivateError").waitFor({ state: "visible" });
+    expect(await page.locator("#mapPrivateReceipt").isVisible()).toBe(false);
+    await page.locator("#mapPrivateSend").click();
+    await page.locator("#mapPrivateReceipt").waitFor({ state: "visible" });
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]?.request_key).toBe(attempts[1]?.request_key);
+  } finally { await context.close(); }
+});
+
+test("[integration] VP-5 private send stays disabled while its request is in flight", async () => {
+  const { page, context } = await open(link());
+  let release = () => {};
+  const gate = new Promise<void>((done) => { release = done; });
+  const attempts: string[] = [];
+  try {
+    await page.route("**/api/questions", async (route) => {
+      attempts.push(route.request().url());
+      await gate;
+      await route.continue();
+    });
+    await page.locator("#mapPrivateEmail").fill("wait@example.test");
+    await page.locator("#mapPrivateConsent").check();
+    await page.locator("#mapPrivateSend").dblclick();
+    expect(await page.locator("#mapPrivateSend").isDisabled()).toBe(true);
+    expect(attempts).toHaveLength(1);
+    release();
+    await page.locator("#mapPrivateReceipt").waitFor({ state: "visible" });
+  } finally { release(); await context.close(); }
+});
+
+test("[integration] VP-5 private refusal statuses show a plain error and no receipt", async () => {
+  const messages: [number, string][] = [
+    [400, "The usage or note was refused. Check the fields and try again."],
+    [409, "That attempt was already used for different details. Press send again for a new attempt."],
+    [410, "That question was deleted. Press send again as a new question."],
+    [413, "Your message is too large. Shorten the note and send again."],
+    [429, "Too many tries from this network. Wait ten minutes and try again."],
+    [503, "Questions are unavailable right now. Try again later."],
+  ];
+  for (const [status, message] of messages) {
+    privateReply = { status, body: { code: "refused" } };
+    const { page, context } = await open(link());
+    try {
+      await page.locator("#mapPrivateEmail").fill("refused@example.test");
+      await page.locator("#mapPrivateConsent").check();
+      await page.locator("#mapPrivateSend").click();
+      await page.locator("#mapPrivateError").waitFor({ state: "visible" });
+      expect(await page.locator("#mapPrivateError").innerText()).toBe(message);
+      expect(await page.locator("#mapPrivateReceipt").isVisible()).toBe(false);
+      expect(posts("/api/maps")).toHaveLength(0);
+    } finally { await context.close(); }
+  }
+});
+
+test("[integration] VP-5 a trapped private send receives the neutral accepted message", async () => {
+  privateReply = { status: 200, body: { ok: true } };
+  const { page, context } = await open(link());
+  try {
+    await page.locator("#mapPrivateEmail").fill("visitor@example.test");
+    await page.locator("#mapPrivateConsent").check();
+    await page.locator("#mapPrivateSend").click();
+    await page.locator("#mapPrivateError").waitFor({ state: "visible" });
+    expect(await page.locator("#mapPrivateError").innerText()).toBe("Thanks. Your question was not stored; reload the page if you meant to send it.");
+    expect(await page.locator("#mapPrivateReceipt").isVisible()).toBe(false);
   } finally { await context.close(); }
 });
 
@@ -235,7 +357,7 @@ test("[integration] 5 a 400 bad-alias shows the reason as an alert, adds no row 
   const { page, context } = await open(link());
   try {
     await page.locator("#mapShare").click();
-    const alert = page.locator("[role=alert]");
+    const alert = page.locator("#mapAlert");
     await page.waitForFunction(() => (document.querySelector("[role=alert]")?.textContent ?? "").length > 0);
     expect(await alert.innerText()).toContain("alias must be 3 to 24 of a-z, 0-9 or hyphen");
     expect(await page.locator("#mapBoard .map-row").count()).toBe(0);
@@ -479,7 +601,7 @@ test("[integration] 11b a delete link the server does not know reports not found
   try {
     await page.locator("#mapDeleteRow").click();
     await page.waitForFunction(() => (document.querySelector("[role=alert]")?.textContent ?? "").length > 0);
-    expect(await page.locator("[role=alert]").innerText()).toContain("No row matches this delete link");
+    expect(await page.locator("#mapAlert").innerText()).toContain("No row matches this delete link");
   } finally { await context.close(); }
 });
 
@@ -500,7 +622,7 @@ test("[integration] 13 a retry after a network error reuses the same request_key
     expect(keys.length).toBe(2);
     expect(keys[1]).toBe(keys[0]);
     expect(posts().length).toBe(1);
-    expect(await page.locator("[role=alert]").innerText()).toBe("");
+    expect(await page.locator("#mapAlert").innerText()).toBe("");
   } finally { await context.close(); }
 });
 
@@ -518,7 +640,7 @@ test("[integration] 13b an unreadable success (no id, or not JSON) is a retryabl
       });
       await page.locator("#mapShare").click();
       await page.waitForFunction(() => (document.querySelector("[role=alert]")?.textContent ?? "").length > 0, null, { timeout: 5000 });
-      expect(await page.locator("[role=alert]").innerText(), reply.body).toContain("Not shared");
+      expect(await page.locator("#mapAlert").innerText(), reply.body).toContain("Not shared");
       expect(await page.locator("#mapShare").isEnabled(), reply.body).toBe(true);
       expect(await page.locator("#mapPreview").isVisible(), reply.body).toBe(true);
       expect(await page.locator("#mapAlias").isEditable(), reply.body).toBe(false);
@@ -537,7 +659,7 @@ test("[integration] 13c only the honeypot answer reads as received with nothing 
     await page.locator("#mapShare").click();
     await page.waitForFunction(() => (document.getElementById("mapStatus")?.textContent ?? "").length > 0);
     expect(await page.locator("#mapStatus").innerText()).toBe("Received. Nothing was added to the board.");
-    expect(await page.locator("[role=alert]").innerText()).toBe("");
+    expect(await page.locator("#mapAlert").innerText()).toBe("");
   } finally { await context.close(); }
 });
 
@@ -561,9 +683,12 @@ test("[integration] 13d after a failed POST the not-sent line is gone and focus 
 test("[integration] 13e the honeypot field's name and id carry no word a browser autofills", async () => {
   const { page, context } = await open(link());
   try {
-    const trap = await page.locator(".map-honey input").evaluate((n) => ({ name: n.getAttribute("name") ?? "", id: n.id }));
-    expect(trap.name.length).toBeGreaterThan(0);
-    expect(`${trap.name} ${trap.id}`).not.toMatch(/name|nick|mail|phone|user|address/i);
+    const traps = await page.locator(".map-honey input").evaluateAll((nodes) => nodes.map((n) => ({ name: n.getAttribute("name") ?? "", id: n.id })));
+    expect(traps).toHaveLength(2);
+    for (const trap of traps) {
+      expect(trap.name.length).toBeGreaterThan(0);
+      expect(`${trap.name} ${trap.id}`).not.toMatch(/name|nick|mail|phone|user|address/i);
+    }
   } finally { await context.close(); }
 });
 
@@ -615,7 +740,7 @@ test("[integration] 12 M1 landing to own row on the board in four actions or few
 }, 60000);
 
 // #238 pass 2: one name for the cap event everywhere, "cap hits"; the trust line on the share card; tap targets.
-const TRUST_LINE = "Runs on your machine. Nothing sent until you press Share.";
+const TRUST_LINE = "Runs on your machine. Nothing sent until you choose a send button.";
 
 test("[integration] 14 the cap event is called cap hits everywhere: the meta description, the share card, the board and the shipped files say cap hits and never cap episode; share labels carry no trailing punctuation", async () => {
   for (const file of ["index.html", "maps.js"]) expect({ file, episode: /cap episode/i.test(readFileSync(join(SITE, "maps", file), "utf8")) }).toEqual({ file, episode: false });

@@ -64,6 +64,26 @@ async function open(width: number, height: number): Promise<Page> {
 const overflow = (page: Page): Promise<boolean> => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
 
 describe("ask page", () => {
+  test("[integration] VP-7 bare reference asks for the full code without sending", async () => {
+    const page = await open(390, 844);
+    try {
+      const calls: string[] = [];
+      page.on("request", (request) => { if (request.method() === "POST") calls.push(request.url()); });
+      expect(await page.getByLabel("Your full status code, not the Q- reference").isVisible()).toBe(true);
+      await page.locator("#statusCode").fill("Q-0123456789AB");
+      await page.locator("#statusCheck").click();
+      expect(await page.locator("#statusErr").isVisible()).toBe(true);
+      expect(await page.locator("#statusErr").innerText()).toBe("That is your reference. Enter the full status code shown when you sent it (it continues after the dot).");
+      expect(calls).toEqual([]);
+    } finally { await page.close(); }
+  });
+
+  test("[unit] VP-5 usage instructions offer private send and lost-code recovery", () => {
+    const html = readFileSync(join(SITE, "ask", "index.html"), "utf8");
+    expect(html).not.toContain("Sending your usage to us privately is not available yet.");
+    expect(html).toContain("--share");
+    expect(html).toMatch(/we cannot look a reply up by email; send it again as a new question/i);
+  });
   test("[integration] GI-1 keyboard-only submit shows the reference and a copyable status code at 390 and 1440", async () => {
     for (const [w, h] of VIEWPORTS) {
       const page = await open(w, h);
@@ -176,7 +196,7 @@ describe("ask page", () => {
     const hostile = '<img src=x onerror="window.__owned=1"> Try two fixed choices.';
     store.answer(id, 2, "operator", Date.now(), hostile, "human_reviewed");
     await page.goto(`${server.url.origin}/ask/#status`);
-    await page.getByLabel("Your status code").fill(code);
+    await page.getByLabel("Your full status code, not the Q- reference").fill(code);
     await page.locator("#statusCheck").click();
     await page.locator("#statusResult").waitFor({ state: "visible" });
     expect(await page.locator("#statusState").innerText()).toContain("answered");
@@ -197,20 +217,20 @@ describe("optional usage map", () => {
     return raw.replace(/<\/?span[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
   }
 
-  test("[unit] S4 every flag the usage prompt names is one site/tm/map.ts accepts, with chosen folders and period, and none shares", () => {
+  test("[unit] S4 every flag the usage prompt names is one site/tm/map.ts accepts, with chosen folders and period", () => {
     const prompt = usagePrompt();
     expect(prompt.length).toBeGreaterThan(200);
     const named = [...new Set([...prompt.matchAll(/--[a-z][a-z-]*/g)].map((m) => m[0]))].sort();
-    expect(named).toEqual(["--claude", "--codex", "--days", "--from", "--out", "--to"]);
+    expect(named).toEqual(["--claude", "--codex", "--days", "--from", "--out", "--share", "--to"]);
     expect(prompt).toContain("https://jevnotjev.breakoutwithai.com/tm/map.ts");
     const dir = mkdtempSync(join(tmpdir(), "usage-prompt-"));
     const claude = join(dir, "claude");
     mkdirSync(claude);
     const env = { home: dir, now: Date.parse("2026-10-18T12:00:00Z"), cwd: dir };
-    const byDays = parseArgs(["--claude", claude, "--codex", "none", "--days", "7", "--out", join(dir, "a")], env);
-    expect([byDays.claude, byDays.codex, byDays.days, byDays.share]).toEqual([claude, null, 7, false]);
-    const byDates = parseArgs(["--claude", "none", "--codex", claude, "--from", "2026-10-01", "--to", "2026-10-07", "--out", join(dir, "b")], env);
-    expect([byDates.claude, byDates.codex, byDates.days, byDates.share]).toEqual([null, claude, 7, false]);
+    const byDays = parseArgs(["--claude", claude, "--codex", "none", "--days", "7", "--out", join(dir, "a"), "--share"], env);
+    expect([byDays.claude, byDays.codex, byDays.days, byDays.share]).toEqual([claude, null, 7, true]);
+    const byDates = parseArgs(["--claude", "none", "--codex", claude, "--from", "2026-10-01", "--to", "2026-10-07", "--out", join(dir, "b"), "--share"], env);
+    expect([byDates.claude, byDates.codex, byDates.days, byDates.share]).toEqual([null, claude, 7, true]);
     expect(() => parseArgs(["--help"], env)).toThrow("unknown option");
   });
 

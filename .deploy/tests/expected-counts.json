@@ -35,7 +35,7 @@
     "scripts/landing-reveal.dom.test.ts": 18,
     "scripts/landing.dom.test.ts": 94,
     "scripts/little-shop-seating.test.ts": 14,
-    "scripts/maps.dom.test.ts": 36,
+    "scripts/maps.dom.test.ts": 37,
     "scripts/math-check.test.ts": 28,
     "scripts/page-style.test.ts": 10,
     "scripts/prompt-audit-outputs.test.ts": 63,

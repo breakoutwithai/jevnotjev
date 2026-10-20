@@ -97,7 +97,7 @@
   }
   function collected(sources, provider) { return sources === provider || sources === "claude+codex"; }
   function providerValue(p, provider, value, format) { return collected(p.sources, provider) ? format(value) : "not collected"; }
-  function pct(n) { return typeof n === "number" ? n + "%" : "not collected"; }
+  function pct(n) { return typeof n === "number" ? n + "%" : "not in the logs"; }
 
   function say(text) { alertBox.textContent = ""; status.textContent = text; }
   function warn(text) { status.textContent = ""; alertBox.textContent = text; }
@@ -274,7 +274,7 @@
     line("Codex week used", !collected(p.sources, "codex")
       ? [leafNode("span", "codex_weekly_pct", p.codex_weekly_pct, "not collected")]
       : p.codex_weekly_pct === null
-      ? [leafNode("span", "codex_weekly_pct", null, "not collected")]
+      ? [leafNode("span", "codex_weekly_pct", null, "not in the logs")]
       : [leafNode("span", "codex_weekly_pct", p.codex_weekly_pct, String(p.codex_weekly_pct)), "%"]);
     line("Days", [leafNode("span", "days", p.days, String(p.days))]);
     line("Logs read", [leafNode("span", "sources", p.sources, p.sources)]);

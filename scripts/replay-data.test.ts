@@ -16,13 +16,16 @@ function list(o: unknown): unknown[] {
 }
 
 describe("replay page data (scripts/replay-data.ts)", () => {
-  test("[integration] RD-9 TokenMax replay is named as an eval in the rendered data", async () => {
+  test("[integration] RD-9 CV screen replay names the run without TokenMax", async () => {
     const data = await buildReplay();
     const run = data.runs.find((item) => item.key === "tokenmax");
-    expect(run?.title).toBe("TokenMax eval: CV screen");
+    expect(run?.title).toBe("CV screen, 5 fictional CVs");
+    expect(run?.title).not.toContain("TokenMax");
     const rendered = readReplayScript(await readFile(REPLAY_OUT, "utf8"));
     const runs = list(field(rendered, "runs"));
-    expect(field(runs.find((item) => field(item, "key") === "tokenmax"), "title")).toBe("TokenMax eval: CV screen");
+    const title = field(runs.find((item) => field(item, "key") === "tokenmax"), "title");
+    expect(title).toBe("CV screen, 5 fictional CVs");
+    expect(title).not.toContain("TokenMax");
   });
   test("[unit] RD-1 every run carries every CSV row once, with its line and a link to the file on main", async () => {
     const d = readReplayScript(replayScript(await buildReplay()));

@@ -128,11 +128,29 @@ test("[integration] M0b the board link on an invalid share opens the visible boa
     expect(await page.locator("#mapInvalid").isVisible()).toBe(true);
     const boardLink = page.locator("#mapInvalid a[href='/maps/']");
     expect(await boardLink.isVisible()).toBe(true);
-    expect((await boardLink.innerText()).trim()).toBe("Open the board");
+    expect((await boardLink.innerText()).trim()).toBe("open the board");
     await boardLink.click();
     await page.locator("#mapBoardSection").waitFor({ state: "visible" });
     expect(new URL(page.url()).hash).toBe("");
     expect(await page.locator("#mapBoardSection").isVisible()).toBe(true);
+  } finally { await context.close(); }
+});
+
+test("[integration] M-null weekly usage distinguishes an unread Codex log from a missing weekly snapshot", async () => {
+  rows = [
+    boardRow("TM-0000000000A1", "codex-read", { ...PAYLOAD, codex_weekly_pct: null }),
+    boardRow("TM-0000000000A2", "codex-unread", { ...PAYLOAD, sources: "claude", codex_weekly_pct: null }),
+  ];
+  const { page, context } = await open(`${origin}/maps/`);
+  try {
+    const read = page.locator('[data-map-id="TM-0000000000A1"]');
+    const unread = page.locator('[data-map-id="TM-0000000000A2"]');
+    await unread.waitFor({ state: "visible" });
+    const weekly = (row: typeof read) => row.locator(".map-fig").filter({ has: page.locator("dt", { hasText: "Codex weekly used" }) }).locator("dd");
+    expect(await weekly(read).innerText()).toBe("not in the logs");
+    expect(await weekly(unread).innerText()).toBe("not collected");
+    expect(await read.isVisible()).toBe(true);
+    expect(await unread.isVisible()).toBe(true);
   } finally { await context.close(); }
 });
 
@@ -352,7 +370,7 @@ test("[integration] 10 with no fragment the page reads the board once and labels
     expect(first).toContain("1.2M");
     expect(await rowsShown.nth(0).locator('[title="1,234,567 output tokens"]').count()).toBe(1);
     expect(second.replace(/\s+/g, " ")).toContain("0 / 0 / 1");
-    expect(second).toContain("not collected");
+    expect(second).toContain("not in the logs");
     expect(second).not.toContain("none read");
   } finally { await context.close(); }
 });

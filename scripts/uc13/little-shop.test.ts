@@ -33,7 +33,7 @@ describe("Little Shop data and verdict bundle (scripts/uc13/little-shop.ts)", ()
     const children = [...block.matchAll(/<(h3|p) class="([^"]+)">([^<]*)<\/\1>/g)].map((match) => ({ className: match[2], text: match[3] }));
     expect(children).toEqual([
       { className: "recorded-caption", text: "Recorded run, 1 October 2026: 40 cases" },
-      { className: "recorded-headline", text: "38 of 40 each at 1/79th of the cost. This run did not prove Jev was as good as the LLM." },
+      { className: "recorded-headline", text: "Jev and the LLM: 38 of 40 each, Jev at about 1/79th of the LLM&#39;s cost. 40 messages were too few to prove Jev is as good." },
       { className: "recorded-verdict", text: "Verdict: not enough evidence" },
       { className: "recorded-plain", text: "The recorded run cannot yet show that Jev is as good as the LLM." },
       { className: "recorded-why", text: "Not proven yet: the lower bound of Jev minus the LLM is -0.11, below the -0.10 margin, on 40 paired cases. If the next cases split the same way, about 6 more paired cases would bring it inside the margin." },

@@ -84,3 +84,7 @@ The check clones local `HEAD` into a fresh temporary directory, runs `bun instal
 - The check does not exercise the HTTP surface or a hosted deployment.
 - Verdicts apply only to the labelled cases supplied. The verdict rules need at least 30 paired labelled cases before they can use the evidence path.
 - Version 1 inputs are text cases. See [the API guide](api.md) for the full input, key and output contracts.
+- Google sign-in for Backstage and paid comparisons are deferred beyond v0.
+- The admin page, the admin API and the admin MCP connector have been exercised only by the operator and by scripted tests, not by an outside user.
+- No consented outside user's own run from start to verdict is documented yet; the next step is to invite one and document it.
+- The full list of known limits is in [LIMITS.md](LIMITS.md).

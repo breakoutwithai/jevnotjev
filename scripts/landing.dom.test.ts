@@ -2776,7 +2776,7 @@ test("[integration] TR5 one seat call-to-action label, Take your seat, on the cu
         const box = await seats.boundingBox();
         expect(box?.width ?? 0).toBeGreaterThan(1);
         expect(box?.height ?? 0).toBeGreaterThan(1);
-        expect((await seats.innerText()).trim()).toBe("40 messages, 3 clerks each. You decide.");
+        expect((await seats.innerText()).trim()).toBe("40 messages, three clerks each. You decide.");
       }
       expect(await page.locator("body").evaluate((node) => (node.textContent ?? "").toLowerCase())).not.toContain("pick a seat");
       // The poster names its label (WCAG label in name) and no other link shares its name.
@@ -2799,7 +2799,7 @@ test("[integration] TR6 the seat page's programme leads with a plain verdict lin
       const caption = counter.locator(".cap");
       expect(await caption.isVisible()).toBe(true);
       expect((await caption.textContent() ?? "").trim()).toBe("clerks seated");
-      expect(og).toBe("40 messages, 3 clerks each. You decide.");
+      expect(og).toBe("40 messages, three clerks each. You decide.");
       const run = page.locator(".recorded-run");
       const visible = await run.evaluate((node) => [...node.querySelectorAll("p, h3")].filter((n) => n.checkVisibility()).map((n) => n.textContent?.trim() ?? ""));
       expect({ width, visible }).toEqual({ width, visible: [

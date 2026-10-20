@@ -99,7 +99,7 @@ const RESULT_START = "<!-- BEGIN RECORDED RUN RESULT -->";
 const RESULT_END = "<!-- END RECORDED RUN RESULT -->";
 
 /** Replace the generated official-run summary; the visitor's own verdict below still comes from their calls. */
-function resultPage(page: string, run: RunSummary): string {
+export function resultPage(page: string, run: RunSummary): string {
   const line = (className: string, value: string | null): string => value === null ? "" : `<p class="${className}">${escapeHtml(value)}</p>`;
   let headline = run.headline;
   if (run.verdict === "not enough evidence" && run.reason?.includes("lower bound")) {
@@ -109,7 +109,7 @@ function resultPage(page: string, run: RunSummary): string {
         jev.accepted !== llm.accepted || run.labelledPaired <= 0) {
       throw new Error("shop result needs comparable Jev and LLM counts and spend");
     }
-    const ratio = Math.floor(llm.spendUsd / jev.spendUsd);
+    const ratio = Math.round(llm.spendUsd / jev.spendUsd);
     if (!Number.isFinite(ratio) || ratio < 2) throw new Error("shop result needs a measured cost ratio");
     const suffix = ratio % 100 >= 11 && ratio % 100 <= 13 ? "th" : ratio % 10 === 1 ? "st" : ratio % 10 === 2 ? "nd" : ratio % 10 === 3 ? "rd" : "th";
     headline = `Jev and the LLM: ${jev.accepted} of ${run.labelledPaired} each, Jev at about 1/${ratio}${suffix} of the LLM's cost. ${run.labelledPaired} messages were too few to prove Jev is as good.`;

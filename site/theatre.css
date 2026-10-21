@@ -138,7 +138,7 @@
   border: 8px solid #1a0508; padding: 12px 14px; transform: rotate(1.5deg);
   box-shadow: inset 0 0 0 4px #e9d9b4, inset 0 0 0 6px #b8892a, 0 18px 40px rgba(0, 0, 0, .55);
 }
-.overture .poster:focus-visible { outline: 3px solid #ffe6a6; outline-offset: 4px; }
+.overture .poster .p-cta:focus-visible { outline: 3px solid #ffe6a6; outline-offset: 4px; }
 /* The testimonial note sits under the Little Shop poster, in the poster's column so it stacks under it on a phone too. */
 .overture .shop-col { display: flex; flex-direction: column; align-items: center; gap: 14px; flex: 0 1 auto; min-width: 0; pointer-events: none; }
 .overture .shop-col:has(.shop-say) .poster { flex: none; max-width: 100%; }
@@ -341,24 +341,25 @@
 .marquee .billing { display: block; max-width: none; margin: 3px 0 0; font: 800 clamp(22px, 2.2vw, 28px)/1.05 var(--serif); letter-spacing: -.01em; }
 .marquee .billing em { font-weight: 500; color: #e0b04e; }
 
-/* ---------- Little Shop of Horrors preview poster on the curtain: shared look (a.poster, so the picture story's article.poster
+/* ---------- Little Shop of Horrors preview poster on the curtain: shared look (div.poster, so the picture story's article.poster
    posters in pictures.css are never touched) ---------- */
-a.poster {
+div.poster {
+  cursor: pointer;
   display: flex; flex-direction: column; gap: 6px; width: min(440px, 100%); margin: 22px 0 6px;
   text-decoration: none; color: #1a0508; background: #e9d9b4; font-family: var(--sans);
   border: 8px solid #1a0508; padding: 14px 18px; transform: rotate(1deg);
   box-shadow: inset 0 0 0 4px #e9d9b4, inset 0 0 0 6px #b8892a, 0 12px 30px rgba(0, 0, 0, .35);
 }
-a.poster .p-kicker { font-size: 11px; font-weight: 700; letter-spacing: .32em; text-transform: uppercase; color: #8a2233; }
-a.poster .p-who { font: italic 20px/1 var(--serif); }
-a.poster .p-title { font: 800 26px/.95 var(--serif); color: #5a0f1c; }
-a.poster .p-rule { height: 2px; background: #1a0508; margin: 2px 0; }
-a.poster .p-seats { font-size: 14px; line-height: 1.4; font-weight: 600; }
-a.poster .p-cta {
+div.poster .p-kicker { font-size: 11px; font-weight: 700; letter-spacing: .32em; text-transform: uppercase; color: #8a2233; }
+div.poster .p-who { font: italic 20px/1 var(--serif); }
+div.poster .p-title { font: 800 26px/.95 var(--serif); color: #5a0f1c; }
+div.poster .p-rule { height: 2px; background: #1a0508; margin: 2px 0; }
+div.poster .p-seats { font-size: 14px; line-height: 1.4; font-weight: 600; }
+div.poster .p-cta {
   align-self: flex-start; margin-top: 4px; font-size: 12px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase;
-  color: #f6e7c8; background: #1a0508; padding: 9px 14px;
+  color: #f6e7c8; background: #1a0508; padding: 9px 14px; border: 0; border-radius: 0; font-family: inherit; line-height: inherit; cursor: pointer;
 }
-a.poster:hover .p-cta { background: #5a0f1c; }
+div.poster:hover .p-cta { background: #5a0f1c; }
 @media (max-width: 720px) {
   .valance {
     height: 16px; background-size: 120px 16px, auto;

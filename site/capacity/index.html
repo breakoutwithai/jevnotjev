@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TokenMax capacity view - Jev!Jev</title>
-<meta name="description" content="Aggregate view of the shared TokenMax maps: who hit a usage cap, who left headroom, and what is not measured.">
+<meta name="description" content="Aggregate view of the shared TokenMax maps: maps that recorded a usage cap, maps that did not, and what is not measured.">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="stylesheet" href="../page.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,7 +23,7 @@
 <p id="capAlert" class="map-alert" role="alert"></p>
 
 <section id="capBody" class="map-card" aria-labelledby="capTitle" hidden>
-  <h2 id="capTitle">Who ran out and who did not</h2>
+  <h2 id="capTitle">Maps that hit a cap, and maps that did not</h2>
   <p id="capReading" class="cap-reading"></p>
   <p id="capNote" class="map-help"></p>
 
@@ -38,7 +38,7 @@
     <p id="capPasted" class="map-help"></p>
 
     <h3 id="capSidesTitle">Headroom beside demand</h3>
-    <p class="map-help">Left: maps with no cap episode recorded. Right: maps with at least one. "No cap recorded" is not a Lite plan, and Codex used percent is the only unused-capacity reading the maps carry. Token figures are rounded (K thousand, M million, B billion, T trillion) and count only maps that read that provider.</p>
+    <p class="map-help">Left: maps with no cap episode recorded. Right: maps with at least one. "No cap recorded" is not a Lite plan, and Codex used percent is the only unused-capacity reading the maps carry. Each map covers 1 to 90 days, so token figures are totals, not rates: read them against the map days row. They are rounded (K thousand, M million, B billion, T trillion) and count only maps that read that provider.</p>
     <table class="cap-table" aria-labelledby="capSidesTitle">
       <thead><tr><th scope="col">Measure</th><th scope="col" class="cap-num">No cap recorded</th><th scope="col" class="cap-num">Hit a cap</th></tr></thead>
       <tbody id="capSides"></tbody>

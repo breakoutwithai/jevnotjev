@@ -82,6 +82,7 @@ test("[integration] headroom beside demand: Codex headroom only where a reading 
   try {
     expect(await cellsOf(page, "capSides")).toEqual([
       ["Maps", "2", "2"],
+      ["Map days covered", "14", "14"],
       ["Claude output tokens used", "3K", "34K"],
       ["Codex output tokens used", "300", "3K"],
       ["Maps with a Codex weekly reading", "2", "1"],
@@ -156,7 +157,7 @@ test("[integration] pasted blocks make Short and Weekly lower bounds and the pag
   const { page, close } = await open();
   try {
     expect(await cellsOf(page, "capWindows")).toEqual([["Short (session)", "1 or more"], ["Weekly", "1 or more"], ["Unknown window", "3"]]);
-    expect(await page.locator("#capPasted").textContent()).toBe("2 pasted TokenMax blocks report 3 limit hits without saying which kind. Those are counted as unknown window, so Short and Weekly are at least the figures shown, not measurements.");
+    expect(await page.locator("#capPasted").textContent()).toBe("1 pasted TokenMax block reports 3 limit hits without saying which kind. Those are counted as unknown window, so Short and Weekly are at least the figures shown, not measurements.");
   } finally { await close(); }
 });
 
@@ -242,7 +243,7 @@ for (const { name, board } of BOARDS) {
               reading: box("#capReading"), tile: box("#capTiles .cap-tile"), table: box("#capSides"),
             };
           });
-          expect(m.cells).toBe(15); // 3 window rows + 6 measure rows x 2 sides; an empty set would pass "none broken" vacuously
+          expect(m.cells).toBe(17); // 3 window rows + 7 measure rows x 2 sides; an empty set would pass "none broken" vacuously
           expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
           expect(m.broken).toEqual([]);
           for (const b of [m.reading, m.tile, m.table]) { expect(b).not.toBeNull(); expect(b?.w ?? 0).toBeGreaterThan(1); expect(b?.h ?? 0).toBeGreaterThan(1); }
@@ -262,6 +263,7 @@ test("[integration] a provider no map read is not measured, and a placeholder Co
   try {
     expect(await cellsOf(page, "capSides")).toEqual([
       ["Maps", "1", "1"],
+      ["Map days covered", "7", "7"],
       ["Claude output tokens used", "5K", "7K"],
       ["Codex output tokens used", "not measured", "not measured"],
       ["Maps with a Codex weekly reading", "0", "0"],
@@ -269,4 +271,20 @@ test("[integration] a provider no map read is not measured, and a placeholder Co
       ["Mean Codex weekly headroom", "not measured", "not measured"],
     ]);
   } finally { await close(); }
+});
+
+// Maps cover 1 to 90 days: the token sums are totals, so the days each side covers is shown beside them.
+test("[integration] map days are summed per side and a single map reads in the singular", async () => {
+  rows = [{ ...row("TM-00000000000N", "pseudo-nnn", [0, 0, 0], 100, 0, null), days: 1 }, { ...row("TM-00000000000O", "pseudo-ooo", [1, 0, 0], 900, 0, null), days: 90 }];
+  const { page, close } = await open();
+  try {
+    const sides = await cellsOf(page, "capSides");
+    expect(sides[1]).toEqual(["Map days covered", "1", "90"]);
+    expect(await page.locator("#capBody").innerText()).toContain("read them against the map days row");
+  } finally { await close(); }
+  rows = [row("TM-00000000000P", "pseudo-ppp", [0, 0, 0], 1, 0, null)];
+  const one = await open();
+  try {
+    expect(await one.page.locator("#capTiles .cap-tile").evaluateAll((els) => els.map((e) => e.textContent ?? ""))).toEqual(["1map counted", "1no cap recorded", "0hit a cap", "0cap episodes"]);
+  } finally { await one.close(); }
 });

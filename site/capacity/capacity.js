@@ -20,10 +20,12 @@
   function collected(row, provider) { return row.sources === provider || row.sources === "claude+codex"; }
 
   function side(rows) {
-    var out = { maps: rows.length, short: 0, weekly: 0, unknown: 0, claude: 0, codex: 0, claudeMaps: 0, codexMaps: 0, readings: 0, usedSum: 0 };
+    var out = { maps: rows.length, short: 0, weekly: 0, unknown: 0, claude: 0, codex: 0, claudeMaps: 0, codexMaps: 0, readings: 0, usedSum: 0, days: 0, unknownMaps: 0 };
     rows.forEach(function (row) {
       var c = capsOf(row);
       out.short += num(c.short); out.weekly += num(c.weekly); out.unknown += num(c.unknown);
+      out.days += num(row.days);
+      if (num(c.unknown) > 0) out.unknownMaps += 1;
       if (collected(row, "claude")) { out.claudeMaps += 1; out.claude += tokens(row, "claude"); }
       if (collected(row, "codex")) {
         out.codexMaps += 1; out.codex += tokens(row, "codex");
@@ -96,7 +98,7 @@
   function pastedNote(s) {
     var u = s.pasted.unknown;
     if (u === 0) return "";
-    return s.pasted.maps + " pasted TokenMax " + plural(s.pasted.maps, "block reports", "blocks report") + " " + fmt(u) + " limit " + plural(u, "hit", "hits") + " without saying which kind. Those are counted as unknown window, so Short and Weekly are at least the figures shown, not measurements.";
+    return s.pasted.unknownMaps + " pasted TokenMax " + plural(s.pasted.unknownMaps, "block reports", "blocks report") + " " + fmt(u) + " limit " + plural(u, "hit", "hits") + " without saying which kind. Those are counted as unknown window, so Short and Weekly are at least the figures shown, not measurements.";
   }
 
   function render(s) {
@@ -108,10 +110,10 @@
       var tiles = document.getElementById("capTiles");
       clear(tiles);
       [
-        [fmt(s.shown), "maps counted"],
+        [fmt(s.shown), plural(s.shown, "map counted", "maps counted")],
         [fmt(s.free.maps), "no cap recorded"],
         [fmt(s.hit.maps), "hit a cap"],
-        [fmt(s.all.short + s.all.weekly + s.all.unknown), "cap episodes"],
+        [fmt(s.all.short + s.all.weekly + s.all.unknown), plural(s.all.short + s.all.weekly + s.all.unknown, "cap episode", "cap episodes")],
       ].forEach(function (t) {
         var d = document.createElement("div");
         d.className = "cap-tile";
@@ -129,6 +131,7 @@
       setText("capPasted", pastedNote(s));
       fill("capSides", [
         ["Maps", fmt(s.free.maps), fmt(s.hit.maps)],
+        ["Map days covered", fmt(s.free.days), fmt(s.hit.days)],
         ["Claude output tokens used", tok(s.free.claude, s.free.claudeMaps), tok(s.hit.claude, s.hit.claudeMaps)],
         ["Codex output tokens used", tok(s.free.codex, s.free.codexMaps), tok(s.hit.codex, s.hit.codexMaps)],
         ["Maps with a Codex weekly reading", fmt(s.free.readings), fmt(s.hit.readings)],

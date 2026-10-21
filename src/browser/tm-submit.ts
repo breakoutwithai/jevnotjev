@@ -4,10 +4,11 @@
 // with a message that names the line. The only values this file supplies itself are the fixed ones below.
 
 import type { MapPayload, MapSources } from "../backstage/maps.ts";
-import { readDate, type Week } from "./tm-week.ts";
+import { labelValue, LABELS, readDate, type Week } from "./tm-week.ts";
 
 /** The tm-share/1 `skill` field is a version string. "0.0.0" means "a pasted block, not the mapper script". */
 export const PASTED_SKILL = "0.0.0";
+export const MAX_DAYS = 90;
 /** Same pattern as the server's ALIAS in src/backstage/maps.ts. */
 export const ALIAS_PATTERN = /^[a-z0-9-]{3,24}$/;
 export const ALIAS_MESSAGE = "Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.";
@@ -21,6 +22,24 @@ export type SubmitBody = {
   readonly request_key: string;
 };
 export type Mapped = { readonly ok: true; readonly payload: MapPayload } | { readonly ok: false; readonly message: string };
+
+/** Refuse numbers the tolerant display parser would silently reinterpret before Submit. */
+export function rawNumberProblem(text: string): string | null {
+  for (const raw of text.split(/\r?\n/)) {
+    const pair = labelValue(raw);
+    if (!pair) continue;
+    const field = LABELS[pair[0]];
+    if (field === undefined || field === "period" || field === "pattern" || field === "perDay" || field === "limitDays") continue;
+    const value = pair[1].trim();
+    // Anything the display reader treats as "no number" (not recorded, N/A, a note without digits) is not this check's business.
+    if (/not recorded/i.test(value) || !/\d/.test(value)) continue;
+    const percent = field === "opusShare" || field === "codexWindow" ? "(?:\\s*%)?" : "";
+    if (new RegExp(`^(?:\\d+|\\d{1,3}(?:,\\d{3})+)${percent}\\.?$`).test(value)) continue;
+    const label = pair[0].charAt(0).toUpperCase() + pair[0].slice(1);
+    return `Not submitted: ${label} must be a plain whole number like 1,234, not "${value.slice(0, 40)}". Run the prompt again and paste the whole result.`;
+  }
+  return null;
+}
 
 /** 32 characters from [A-Za-z0-9_-]. The key is the idempotency key and the delete secret. */
 export function newRequestKey(random: (bytes: Uint8Array) => Uint8Array): string {
@@ -60,12 +79,18 @@ export function weekToPayload(week: Week): Mapped {
   ];
   const missing = required.filter((r) => r.value === null).map((r) => r.label);
   const days = periodDays(week);
-  if (days === null) missing.unshift(week.period === null ? "Period" : "Period (two dates like 2026-10-14 to 2026-10-21)");
-  if (missing.length > 0) return { ok: false, message: `Not submitted: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not recorded in your result. Run the prompt again and paste the whole result.` };
+  if (days === null) missing.unshift(week.period === null ? "Period" : "Period (two dates like 2026-10-14 to 2026-10-20)");
+  if (missing.length > 0) {
+    const tools = ["Claude", "Codex"].filter((tool) => missing.some((label) => label === `${tool} sessions` || label === `${tool} output tokens`));
+    const hint = tools.length > 0
+      ? ` Submit needs a number on every one of these lines. ${tools.map((tool) => `If you did not use ${tool}, change its lines to 0 in the box.`).join(" ")} Otherwise run the prompt again and paste the whole result.`
+      : " Run the prompt again and paste the whole result.";
+    return { ok: false, message: `Not submitted: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not recorded in your result.${hint}` };
+  }
   const { claudeSessions, codexSessions, claudeOutput, codexOutput, opusShare, limitHits } = week;
   if (days === null || claudeSessions === null || codexSessions === null || claudeOutput === null || codexOutput === null || opusShare === null || limitHits === null)
     return { ok: false, message: "Not submitted: the result is incomplete." };
-  if (days > 90) return { ok: false, message: `Not submitted: the period is ${days} days; a submitted week covers 1 to 90 days.` };
+  if (days > MAX_DAYS) return { ok: false, message: `Not submitted: the period is ${days} days; a submitted week covers 1 to ${MAX_DAYS} days.` };
   for (const r of required)
     if (r.value !== null && (!Number.isSafeInteger(r.value) || r.value < 0)) return { ok: false, message: `Not submitted: ${r.label} must be a whole number, not ${r.value}.` };
   const codexWeekly = week.codexWindow;

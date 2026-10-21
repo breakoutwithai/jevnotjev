@@ -6,6 +6,7 @@
 (function () {
   "use strict";
 
+  var PASTED_SKILL = "0.0.0";
   var KEYS = ["v", "skill", "days", "sources", "sessions", "subagent_sessions", "caps", "output_tokens", "opus_share_pct", "codex_weekly_pct"];
   var CAP_KEYS = ["short", "weekly", "unknown"];
   var TOKEN_KEYS = ["claude", "codex"];
@@ -222,8 +223,8 @@
         dl.appendChild(wrap);
       }
       li.appendChild(dl);
-      // skill 0.0.0 is what /tm/ Submit sends: a pasted block, not a run of the mapper.
-      li.appendChild(node("p", "map-row-label", r.skill === "0.0.0" ? "self-reported from a pasted TokenMax block, not verified" : "self-reported by tokenmax-map " + String(r.skill) + ", not verified"));
+      // PASTED_SKILL is the skill /tm/ Submit sends: a pasted block, not a run of the mapper.
+      li.appendChild(node("p", "map-row-label", r.skill === PASTED_SKILL ? "self-reported from a pasted TokenMax block, not verified" : "self-reported by tokenmax-map " + String(r.skill) + ", not verified"));
       list.appendChild(li);
     }
     section.hidden = false;
@@ -279,7 +280,7 @@
       : [leafNode("span", "codex_weekly_pct", p.codex_weekly_pct, String(p.codex_weekly_pct)), "%"]);
     line("Days", [leafNode("span", "days", p.days, String(p.days))]);
     line("Logs read", [leafNode("span", "sources", p.sources, p.sources)]);
-    line("Mapper version", [leafNode("span", "skill", p.skill, p.skill)]);
+    line("Mapper version", [leafNode("span", "skill", p.skill, p.skill === PASTED_SKILL ? "pasted block" : p.skill)]);
     line("Format", [leafNode("span", "v", p.v, p.v)]);
     body.appendChild(list);
     var alias = el("mapAlias");

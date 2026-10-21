@@ -284,8 +284,10 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 .hint a, .submitted a { color: var(--gold-l); }
 .submit-status { margin: 0; font: 600 15px/1.35 var(--tm-sans); color: var(--gold-l); }
 .submitted { padding: 12px 16px; border: 2px solid var(--brass); border-radius: 10px; background: rgba(224, 176, 78, .12); }
-.submitted:focus { outline: none; }
-.submitted:focus-visible { outline: 3px solid var(--gold-l); outline-offset: 3px; }
+.submitted ol { margin: 0; padding-left: 22px; }
+.submitted .receipt { padding: 8px 0; overflow-wrap: anywhere; }
+.submitted .receipt + .receipt { border-top: 1px solid var(--brass); }
+.submitted .receipt:focus { outline: 3px solid var(--gold-l); outline-offset: 2px; }
 .submitted p { margin: 4px 0; font: 500 15px/1.4 var(--tm-sans); overflow-wrap: anywhere; }
 .submitted .submitted-head { font-weight: 800; }
 .submitted code { font: 600 14px/1.4 var(--mono); overflow-wrap: anywhere; }

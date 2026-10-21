@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 import { bundleTm, TM_OUT } from "./build-tm.ts";
+import { weekToPayload } from "../src/browser/tm-submit.ts";
 import { WITH_ACT, WITHOUT_ACT, BANNED_ANYWHERE, bannedHits, jargonHits, PROMPT, SAMPLE_CARD, SAMPLE_RESULT } from "./uat/tm-the-run-check.ts";
 import {
   cardHeadline, dayLabels, limitDayIndexes, NOT_A_RESULT, parseWeek, periodLine, readDate, readLimitDays, readPerDay, SAMPLE_WEEK, situationOf, stageHeadline, stageSubtitle,
@@ -54,16 +55,32 @@ test("[unit] TM-1 the opening curtain scene and the terminal scene are gone; fon
 
 // ---------- TM-10: the pasted result, read in the browser only ----------
 const WANT: Week = {
-  period: { start: "2026-10-14", end: "2026-10-21" }, claudeSessions: 288, codexSessions: 2925, claudeOutput: 7940728, codexOutput: 4315259,
+  period: { start: "2026-10-14", end: "2026-10-20" }, claudeSessions: 288, codexSessions: 2925, claudeOutput: 7940728, codexOutput: 4315259,
   opusShare: 42, limitHits: 2, codexWindow: 7, pattern: null, perDay: null, limitDays: null,
 };
 const TABLE = [
-  "| Item | Value |", "|---|---|", "| Period | 2026-10-14 to 2026-10-21 |", "| Claude sessions | 288 |", "| Codex sessions | 2,925 |",
+  "| Item | Value |", "|---|---|", "| Period | 2026-10-14 to 2026-10-20 |", "| Claude sessions | 288 |", "| Codex sessions | 2,925 |",
   "| Claude output tokens | 7,940,728 |", "| Codex output tokens | 4,315,259 |", "| Opus share of Claude output | 42 % |",
   "| Usage limit hits | 2 |", "| Codex weekly window used | 7% |",
 ].join("\n");
 const BULLETS = SAMPLE_RESULT.split("\n").map((l, i) => (i === 0 ? `**${l}**` : `- ${l.toUpperCase().replace(": ", " :   ")}`)).join("\n");
 const CAVEAT = "Count mismatch: sessions 3213 is 288 Claude plus 2,925 Codex; 86 duplicate files were de-duplicated.";
+
+test("[unit] TM-37 privacy copy states the board deletion date once", () => {
+  const privacy = readFileSync(join(SITE, "privacy", "index.html"), "utf8");
+  expect((privacy.match(/Rows have no automatic deletion date\./g) ?? []).length).toBe(1);
+});
+
+test("[unit] TM-39 Submit consent names every payload field", () => {
+  const week = parseWeek(SAMPLE_RESULT);
+  if (!week) throw new Error("fixture did not parse");
+  const mapped = weekToPayload(week);
+  if (!mapped.ok) throw new Error(mapped.message);
+  const consent = /<p class="hint" id="submitConsent">([^<]+)<\/p>/.exec(html())?.[1] ?? "";
+  const labels: Readonly<Record<string, string>> = { v: "format name tm-share/1", skill: "mapper version 0.0.0, which marks a pasted block", days: "days covered", sources: "Claude, Codex or both", sessions: "total sessions", subagent_sessions: "subagent sessions", caps: "cap hits", output_tokens: "output tokens", opus_share_pct: "Opus share", codex_weekly_pct: "Codex weekly window" };
+  for (const key of Object.keys(mapped.payload)) expect({ key, named: consent.includes(labels[key] ?? "FIELD NOT DESCRIBED") }).toEqual({ key, named: true });
+  for (const phrase of ["nickname", "short cap hits", "weekly cap hits", "unknown cap hits", "Claude output tokens", "Codex output tokens", "random request key", "after reloading or closing the page"]) expect(consent).toContain(phrase);
+});
 
 test("[unit] TM-10 parseWeek reads the sample week as a plain block, a markdown table and a bulleted list", () => {
   expect(parseWeek(SAMPLE_RESULT)).toEqual(WANT);
@@ -224,8 +241,8 @@ for (const motion of MOTIONS) test(`[integration] TM-21 Submit posts the tm-shar
   for (const [width, height] of VIEWS) {
     const page = await open(width, height, motion);
     try {
-      const seen = new Set<string>();
-      const sent = await stubMaps(page, (item) => { const key = keyOf(item); const replay = seen.has(key); seen.add(key); return stored(key, replay); }, 300);
+      const seen = new Map<string, string>();
+      const sent = await stubMaps(page, (item) => { const key = keyOf(item); const replay = seen.has(key); const id = seen.get(key) ?? (seen.size === 0 ? MAP_ID : `TM-${String(seen.size + 1).padStart(12, "0")}`); seen.set(key, id); return { status: 200, body: { id, replay } }; }, 300);
       await page.locator("#pasteBox").fill(`${CAVEAT}\n\n${SAMPLE_RESULT}`);
       await page.locator("#aliasBox").fill("pasted-one");
       // Keyboard operable: focus the button and press Enter; a double press while the request is in flight sends one request.
@@ -243,7 +260,7 @@ for (const motion of MOTIONS) test(`[integration] TM-21 Submit posts the tm-shar
       expect(first.type).toBe("application/json");
       expect(JSON.stringify(first.body)).toBe(JSON.stringify({
         payload: {
-          v: "tm-share/1", skill: "0.0.0", days: 8, sources: "claude+codex", sessions: 3213, subagent_sessions: 0,
+          v: "tm-share/1", skill: "0.0.0", days: 7, sources: "claude+codex", sessions: 3213, subagent_sessions: 0,
           caps: { short: 0, weekly: 0, unknown: 2 }, output_tokens: { claude: 7940728, codex: 4315259 }, opus_share_pct: 42, codex_weekly_pct: 7,
         },
         alias: "pasted-one",
@@ -252,10 +269,10 @@ for (const motion of MOTIONS) test(`[integration] TM-21 Submit posts the tm-shar
       const key = keyOf(first);
       expect(key).toMatch(/^[A-Za-z0-9_-]{32}$/);
       const receipt = await page.evaluate(() => ({
-        head: document.getElementById("submittedHead")?.textContent, id: document.getElementById("submittedId")?.textContent, key: document.getElementById("submittedKey")?.textContent,
-        board: document.getElementById("submittedBoard")?.getAttribute("href"), remove: document.getElementById("submittedDelete")?.getAttribute("href"),
-        focused: document.activeElement?.id, status: document.getElementById("submitStatus")?.textContent, text: document.getElementById("submitted")?.textContent ?? "",
-        saved: localStorage.getItem("tm-submit/1"), pasteError: document.getElementById("pasteError")?.hidden, enabled: document.getElementById("submitWeek")?.hasAttribute("disabled") === false,
+        head: document.querySelector("#receipts li .submitted-head")?.textContent, id: document.querySelector("#receipts li code:first-of-type")?.textContent, key: document.querySelector("#receipts li p:nth-of-type(4) code")?.textContent,
+        board: document.querySelector("#receipts li a")?.getAttribute("href"), remove: document.querySelector("#receipts li p:last-child a")?.getAttribute("href"),
+        focused: document.activeElement?.closest("li")?.dataset.mapId, status: document.getElementById("submitStatus")?.textContent, text: document.getElementById("submitted")?.textContent ?? "",
+        saved: localStorage.length + sessionStorage.length, pasteError: document.getElementById("pasteError")?.hidden, enabled: document.getElementById("submitWeek")?.hasAttribute("disabled") === false,
         widths: { doc: document.documentElement.scrollWidth, body: document.body.scrollWidth },
       }));
       expect(receipt.head).toBe("Submitted. Your entry is on the public board as pasted-one.");
@@ -264,26 +281,220 @@ for (const motion of MOTIONS) test(`[integration] TM-21 Submit posts the tm-shar
       expect(receipt.board).toBe("/maps/");
       expect(receipt.remove).toBe(`/maps/#delete=${MAP_ID}.${key}`);
       expect(receipt.text).toContain("Keep this key to remove your entry");
-      expect(receipt.focused).toBe("submitted");
+      expect(receipt.focused).toBe(MAP_ID);
       expect(receipt.status).toBe("Submitted. Your entry is on the public board.");
-      expect(JSON.parse(receipt.saved ?? "null")).toEqual({ id: MAP_ID, key, alias: "pasted-one" });
+      expect(receipt.saved).toBe(0);
       expect(receipt.pasteError).toBe(true);
       expect(receipt.enabled).toBe(true);
       if (width === 390) { expect(receipt.widths.doc).toBeLessThanOrEqual(390); expect(receipt.widths.body).toBeLessThanOrEqual(390); }
       // The same paste and alias again: the same key goes out, so the server replays instead of adding a row.
       await page.locator("#submitWeek").click();
-      await page.waitForFunction(() => document.getElementById("submittedHead")?.textContent?.startsWith("Already submitted") === true);
+      await page.waitForFunction(() => document.getElementById("submitStatus")?.textContent?.startsWith("Already submitted") === true);
       expect(sent.length).toBe(2);
       expect(keyOf(sent[1] ?? first)).toBe(key);
       // Another paste is another attempt: a new key.
       await page.locator("#pasteBox").fill(SAMPLE_RESULT.replace("Claude sessions: 288", "Claude sessions: 289"));
       await page.locator("#submitWeek").click();
-      await page.waitForFunction(() => document.getElementById("submittedHead")?.textContent?.startsWith("Submitted.") === true);
+      await page.waitForFunction(() => document.querySelectorAll("#receipts li").length === 2);
       expect(sent.length).toBe(3);
       expect(keyOf(sent[2] ?? first)).not.toBe(key);
     } finally { await close(page); }
   }
 }, 60000);
+
+test("[integration] TM-33 drafts A, B, A reuse A's first key and keep two receipts newest first", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    const keys: string[] = [];
+    const rows = new Map<string, string>();
+    await page.route("**/api/maps", async (route) => {
+      const body: unknown = route.request().postDataJSON();
+      const key = keyOf({ method: "POST", origin: "", type: "", body });
+      keys.push(key);
+      const replay = rows.has(key);
+      const id = rows.get(key) ?? `TM-${String(rows.size + 1).padStart(12, "0")}`;
+      rows.set(key, id);
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id, replay }) });
+    });
+    await page.locator("#aliasBox").fill("draft-a");
+    await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+    await page.locator("#submitWeek").click();
+    await page.locator("#receipts li").first().waitFor();
+    await page.locator("#aliasBox").fill("draft-b");
+    await page.locator("#submitWeek").click();
+    await page.waitForFunction(() => document.querySelectorAll("#receipts li").length === 2);
+    await page.locator("#aliasBox").fill("draft-a");
+    await page.locator("#submitWeek").click();
+    await page.waitForFunction(() => document.getElementById("submitStatus")?.textContent?.startsWith("Already submitted") === true);
+    expect(keys.length).toBe(3);
+    expect(keys[0]).toBe(keys[2]);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(rows.size).toBe(2);
+    expect(await page.locator("#receipts li").count()).toBe(2);
+    expect(await page.locator("#receipts li").first().getAttribute("data-map-id")).toBe("TM-000000000002");
+    expect(await page.locator("#receipts li").last().getAttribute("data-map-id")).toBe("TM-000000000001");
+    expect(await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth))).toBeLessThanOrEqual(390);
+    expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
+    await page.reload();
+    await page.locator("#aliasBox").fill("draft-a");
+    await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+    await page.locator("#submitWeek").click();
+    await page.waitForFunction(() => document.querySelectorAll("#receipts li").length === 1);
+    expect(keys[3]).not.toBe(keys[0]);
+  } finally { await close(page); }
+}, 30000);
+
+test("[integration] TM-34 later invalid and rejected attempts leave every receipt untouched", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    await page.clock.install();
+    let nth = 0;
+    await page.route("**/api/maps", async (route) => {
+      nth++;
+      if (nth === 2) await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ code: "bad-payload", field: "days", reason: "must be 1 to 90" }) });
+      else if (nth === 3) await route.abort("failed");
+      else if (nth === 4) await new Promise<void>(() => {});
+      else await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: MAP_ID, replay: nth > 2 }) });
+    });
+    await page.locator("#aliasBox").fill("draft-a");
+    await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+    await page.locator("#submitWeek").click();
+    await page.locator("#receipts li").first().waitFor();
+    const receipt = await page.locator("#receipts").innerHTML();
+    // The list is unchanged AND still on screen: its own box is wider and taller than 1px (hidden or clipped fails).
+    const intact = async (): Promise<void> => {
+      expect(await page.locator("#receipts").innerHTML()).toBe(receipt);
+      const box = await page.locator("#receipts li").first().boundingBox();
+      expect(box !== null && box.width > 1 && box.height > 1).toBe(true);
+    };
+    for (const paste of ["junk", SAMPLE_RESULT.replace("Claude sessions: 288", "Claude sessions: -12"), SAMPLE_RESULT.replace("Usage limit hits: 2", "Usage limit hits: not recorded")]) {
+      await page.locator("#pasteBox").fill(paste);
+      await page.locator("#submitWeek").click();
+      await intact();
+    }
+    await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+    await page.locator("#aliasBox").fill("invalid alias");
+    await page.locator("#submitWeek").click();
+    await intact();
+    await page.locator("#aliasBox").fill("draft-b");
+    await page.locator("#submitWeek").click();
+    await page.waitForFunction(() => document.getElementById("pasteError")?.textContent?.includes("days must be 1 to 90") === true);
+    await intact();
+    await page.locator("#aliasBox").fill("draft-c");
+    await page.locator("#submitWeek").click();
+    await page.waitForFunction(() => document.getElementById("pasteError")?.textContent?.includes("did not complete") === true);
+    await intact();
+    await page.locator("#aliasBox").fill("draft-d");
+    await page.locator("#submitWeek").click();
+    await page.clock.fastForward(16000);
+    await page.waitForFunction(() => document.getElementById("pasteError")?.textContent?.includes("no answer within 15 seconds") === true);
+    await intact();
+  } finally { await close(page); }
+}, 30000);
+
+test("[integration] TM-38 a delete key left in localStorage by the earlier build is removed when the page starts", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    await page.evaluate(() => { localStorage.setItem("tm-submit/1", JSON.stringify({ id: "TM-000000000001", key: "k".repeat(32), alias: "old-entry" })); localStorage.setItem("unrelated", "keep"); });
+    await page.reload({ waitUntil: "load" });
+    await page.waitForFunction(() => document.getElementById("submitWeek") !== null && document.querySelectorAll("#run .poster").length === 7);
+    expect(await page.evaluate(() => [localStorage.getItem("tm-submit/1"), localStorage.getItem("unrelated")])).toEqual([null, "keep"]);
+  } finally { await close(page); }
+}, 30000);
+
+test("[integration] TM-33 a request-key-reused 409 forgets only that draft's key", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    const keys: string[] = [];
+    await page.route("**/api/maps", async (route) => {
+      const body: unknown = route.request().postDataJSON();
+      keys.push(keyOf({ method: "POST", origin: "", type: "", body }));
+      await route.fulfill({ status: keys.length === 1 ? 409 : 200, contentType: "application/json", body: JSON.stringify(keys.length === 1 ? { code: "request-key-reused" } : { id: MAP_ID, replay: false }) });
+    });
+    await page.locator("#aliasBox").fill("draft-a");
+    await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+    await page.locator("#submitWeek").click();
+    await page.waitForFunction(() => document.getElementById("pasteError")?.textContent?.includes("already used") === true);
+    await page.locator("#submitWeek").click();
+    await page.locator("#receipts li").waitFor();
+    expect(keys.length).toBe(2);
+    expect(keys[1]).not.toBe(keys[0]);
+  } finally { await close(page); }
+}, 30000);
+
+test("[integration] TM-35 Submit refuses a signed raw number while Show my week still displays it", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    const sent: string[] = [];
+    await page.route("**/api/maps", async (route) => { sent.push(route.request().url()); await route.abort(); });
+    await page.locator("#pasteBox").fill(SAMPLE_RESULT.replace("Claude sessions: 288", "Claude sessions: -12"));
+    await page.locator("#showWeek").click();
+    expect(await page.locator("#yourFields").innerText()).toContain("12");
+    await page.locator("#aliasBox").fill("draft-a");
+    await page.locator("#submitWeek").click();
+    expect(await page.locator("#pasteError").innerText()).toContain('Claude sessions must be a plain whole number like 1,234, not "-12"');
+    expect(await page.locator("#yourWeek").isVisible()).toBe(true);
+    expect(sent).toHaveLength(0);
+  } finally { await close(page); }
+}, 30000);
+
+test("[integration] TM-36 a stalled request times out after 15 seconds and retry reuses its key", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    await page.clock.install();
+    const keys: string[] = [];
+    await page.route("**/api/maps", async (route) => {
+      const body: unknown = route.request().postDataJSON();
+      keys.push(keyOf({ method: "POST", origin: "", type: "", body }));
+      if (keys.length === 1) { await new Promise<void>(() => {}); return; }
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: MAP_ID, replay: true }) });
+    });
+    await page.locator("#aliasBox").fill("draft-a");
+    await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+    await page.locator("#submitWeek").click();
+    await page.waitForFunction(() => document.getElementById("submitStatus")?.textContent === "Submitting...");
+    await page.clock.fastForward(16000);
+    await page.waitForFunction(() => document.getElementById("pasteError")?.textContent?.includes("no answer within 15 seconds") === true);
+    // The server may have stored the row before the abort, so the page must not say "Not submitted".
+    expect(await page.locator("#pasteError").innerText()).toMatch(/^Not confirmed: .*may already be on the board/);
+    expect(await page.locator("#submitWeek").isEnabled()).toBe(true);
+    await page.locator("#submitWeek").click();
+    await page.locator("#receipts li").waitFor();
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+  } finally { await close(page); }
+}, 30000);
+
+test("[integration] TM-36 a stalled response body is aborted and retry keeps its key", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    await page.clock.install();
+    await page.evaluate(() => {
+      const keys: string[] = [];
+      Object.defineProperty(window, "__submitKeys", { value: keys });
+      Object.defineProperty(window, "fetch", { configurable: true, value: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body: unknown = JSON.parse(String(init?.body));
+        if (typeof body === "object" && body !== null && "request_key" in body && typeof body.request_key === "string") keys.push(body.request_key);
+        if (keys.length === 1) {
+          const stream = new ReadableStream<Uint8Array>({ start(controller) { init?.signal?.addEventListener("abort", () => controller.error(new DOMException("aborted", "AbortError"))); } });
+          return new Response(stream, { status: 200, headers: { "content-type": "application/json" } });
+        }
+        return new Response(JSON.stringify({ id: "TM-000000000001", replay: true }), { status: 200, headers: { "content-type": "application/json" } });
+      } });
+    });
+    await page.locator("#aliasBox").fill("draft-a");
+    await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+    await page.locator("#submitWeek").click();
+    await page.clock.fastForward(16000);
+    await page.waitForFunction(() => document.getElementById("pasteError")?.textContent?.includes("no answer within 15 seconds") === true);
+    expect(await page.locator("#submitWeek").isEnabled()).toBe(true);
+    await page.locator("#submitWeek").click();
+    await page.locator("#receipts li").waitFor();
+    const keys = await page.evaluate(() => Reflect.get(window, "__submitKeys"));
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+  } finally { await close(page); }
+}, 30000);
 
 test("[integration] TM-22 Submit refuses locally (no request) for a missing nickname, a bad nickname, junk or a missing required line, and shows the server's reason or a network failure", async () => {
   for (const [width, height] of VIEWS) {
@@ -315,7 +526,7 @@ test("[integration] TM-22 Submit refuses locally (no request) for a missing nick
       await page.locator("#pasteBox").fill(SAMPLE_RESULT.replace("Usage limit hits: 2", "Usage limit hits: not recorded"));
       await page.locator("#submitWeek").click();
       expect((await alerts()).paste).toBe("Not submitted: Usage limit hits is not recorded in your result. Run the prompt again and paste the whole result.");
-      await page.locator("#pasteBox").fill(SAMPLE_RESULT.replace("2026-10-14 to 2026-10-21", "2026-06-01 to 2026-10-21"));
+      await page.locator("#pasteBox").fill(SAMPLE_RESULT.replace("2026-10-14 to 2026-10-20", "2026-06-01 to 2026-10-21"));
       await page.locator("#submitWeek").click();
       expect((await alerts()).paste).toBe("Not submitted: the period is 143 days; a submitted week covers 1 to 90 days.");
       expect(sent.length).toBe(0);
@@ -329,7 +540,7 @@ test("[integration] TM-22 Submit refuses locally (no request) for a missing nick
       // The network drops: the page says it did not complete, and the retry sends the same key.
       await page.locator("#submitWeek").click();
       await page.waitForFunction(() => document.getElementById("pasteError")?.textContent?.includes("did not complete") === true);
-      expect((await alerts()).paste).toBe("Not submitted: the request did not complete. Check your connection and press Submit again; pressing it again never adds a second row.");
+      expect((await alerts()).paste).toBe("Not confirmed: the request did not complete, so your entry may already be on the board. Check your connection and press Submit again on this page to get your receipt and key; for the same result and nickname it never adds a second row.");
       expect(await page.evaluate(() => localStorage.length)).toBe(0);
       await page.locator("#submitWeek").click();
       await page.waitForFunction(() => document.getElementById("submitted")?.hidden === false);
@@ -642,7 +853,7 @@ test("[integration] the page and its sources carry no em or en dash and no home 
 // With #command in the URL, a late fonts.ready or any hashchange ran focusCommand() and pulled focus out of the paste
 // box, so Cmd+V went to the section. Fix: focus moves only when it is not already inside #command.
 const HEAVY_BASE = [
-  "TOKENMAX WEEK", "Period: 2026-10-14 to 2026-10-21", "Claude sessions: 292", "Codex sessions: 2,730", "Claude output tokens: 7,124,205",
+  "TOKENMAX WEEK", "Period: 2026-10-14 to 2026-10-20", "Claude sessions: 292", "Codex sessions: 2,730", "Claude output tokens: 7,124,205",
   "Codex output tokens: 3,213,109", "Opus share of Claude output: 39%", "Usage limit hits: 22", "Codex weekly window used: 7%", "Pattern: running out",
 ];
 // Block v2: per day (combined, summing to 292 + 2,730 = 3,022) and the limit-hit dates (a Thursday and a Saturday).
@@ -748,7 +959,7 @@ for (const motion of MOTIONS) test(`[integration] TM-16 a paste shows the card i
         return { name: text("#hYour"), period: text("#yourPeriod"), line: text("#yourLine"), rows, align };
       });
       expect(card).toEqual({
-        name: "Your week", period: "2026-10-14 to 2026-10-21", line: "Heavy load: you hit your limit 22 times",
+        name: "Your week", period: "2026-10-14 to 2026-10-20", line: "Heavy load: you hit your limit 22 times",
         rows: [["Claude sessions", "292"], ["Codex sessions", "2,730"], ["Claude output tokens", "7,124,205"], ["Codex output tokens", "3,213,109"], ["Opus share", "39%"], ["Usage limit hits", "22"], ["Codex weekly window used", "7%"]],
         align: Array(7).fill("right"),
       });
@@ -845,7 +1056,7 @@ for (const motion of MOTIONS) test(`[integration] TM-14 Show Sample: nothing of 
       await page.locator("#showSample").click();
       const sample = await card();
       expect(await page.locator("#hYour").innerText()).toBe("Sample week");
-      expect(await page.locator("#yourPeriod").innerText()).toBe("2026-10-09 to 2026-10-16");
+      expect(await page.locator("#yourPeriod").innerText()).toBe("2026-10-09 to 2026-10-15");
       // No scroll toward the stage: at most "nearest" to bring the card into view.
       expect(await page.evaluate(() => scrollY)).toBeGreaterThanOrEqual(ySample - 1);
       expect(await page.evaluate(() => document.getElementById("stage")?.getBoundingClientRect().top ?? 0)).toBeLessThan(0);

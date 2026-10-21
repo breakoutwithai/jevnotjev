@@ -1,18 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { checkMap } from "../backstage/maps.ts";
+import { checkMap, MAP_BOUNDS } from "../backstage/maps.ts";
 import { createHandler } from "../backstage/server.ts";
-import { ALIAS_PATTERN, newRequestKey, PASTED_SKILL, periodDays, rejectionMessage, submitBody, weekToPayload } from "./tm-submit.ts";
-import { parseWeek, type Week } from "./tm-week.ts";
+import { ALIAS_PATTERN, MAX_DAYS, newRequestKey, PASTED_SKILL, periodDays, rawNumberProblem, rejectionMessage, submitBody, weekToPayload } from "./tm-submit.ts";
+import { parseWeek, SAMPLE_WEEK, type Week } from "./tm-week.ts";
 
 // /tm/ Submit: the pasted TOKENMAX WEEK block becomes a tm-share/1 body. The mapping is checked against the server's own
 // checkMap and, end to end, against the real POST /api/maps handler.
 
 const BLOCK = [
-  "TOKENMAX WEEK", "Period: 2026-10-14 to 2026-10-21", "Claude sessions: 288", "Codex sessions: 2925", "Claude output tokens: 7,940,728",
+  "TOKENMAX WEEK", "Period: 2026-10-14 to 2026-10-20", "Claude sessions: 288", "Codex sessions: 2925", "Claude output tokens: 7,940,728",
   "Codex output tokens: 4,315,259", "Opus share of Claude output: 42%", "Usage limit hits: 2", "Codex weekly window used: 7%",
 ].join("\n");
 const KEY = "AbCdEfGhIjKlMnOpQrStUvWxYz012345";
@@ -20,11 +20,25 @@ const week = (text: string): Week => { const w = parseWeek(text); if (!w) throw 
 const change = (from: string, to: string): string => BLOCK.replace(from, to);
 
 describe("tm-submit mapping", () => {
+  test("[unit] TM-42 pasted and sample periods include exactly seven days and share the server day bound", () => {
+    expect(periodDays(week(BLOCK))).toBe(7);
+    expect(periodDays(SAMPLE_WEEK)).toBe(7);
+    expect([MAP_BOUNDS.days[0], MAX_DAYS]).toEqual([1, MAP_BOUNDS.days[1]]);
+  });
+  test("[unit] TM-40 maps board uses the pasted skill literal from Submit", () => {
+    const script = readFileSync(join(import.meta.dir, "..", "..", "site", "maps", "maps.js"), "utf8");
+    expect(/var PASTED_SKILL = "([^"]+)";/.exec(script)?.[1]).toBe(PASTED_SKILL);
+  });
+  test("[unit] TM-42 generated header describes Submit's network call", () => {
+    const script = readFileSync(join(import.meta.dir, "..", "..", "site", "tm", "tm.js"), "utf8");
+    expect(script.slice(0, 300)).not.toContain("No network calls");
+    expect(script.slice(0, 300)).toContain("Submit");
+  });
   test("[unit] TM-18 a full block maps to a tm-share/1 payload in contract order that the server's checkMap accepts", () => {
     const mapped = weekToPayload(week(BLOCK));
     if (!mapped.ok) throw new Error(mapped.message);
     expect(JSON.stringify(mapped.payload)).toBe(JSON.stringify({
-      v: "tm-share/1", skill: PASTED_SKILL, days: 8, sources: "claude+codex", sessions: 3213, subagent_sessions: 0,
+      v: "tm-share/1", skill: PASTED_SKILL, days: 7, sources: "claude+codex", sessions: 3213, subagent_sessions: 0,
       caps: { short: 0, weekly: 0, unknown: 2 }, output_tokens: { claude: 7940728, codex: 4315259 }, opus_share_pct: 42, codex_weekly_pct: 7,
     }));
     const checked = checkMap(submitBody(mapped.payload, "builder-ab12", KEY));
@@ -49,18 +63,44 @@ describe("tm-submit mapping", () => {
     expect(several.ok).toBe(false);
     for (const label of ["Period", "Codex sessions", "Claude output tokens", "Codex output tokens", "Opus share of Claude output", "Usage limit hits"]) expect(!several.ok && several.message).toContain(label);
     expect(!several.ok && several.message).not.toContain("Claude sessions,");
-    expect(weekToPayload(week(change("Period: 2026-10-14 to 2026-10-21", "Period: last week to today")))).toMatchObject({ ok: false });
+    expect(weekToPayload(week(change("Period: 2026-10-14 to 2026-10-20", "Period: last week to today")))).toMatchObject({ ok: false });
+  });
+
+  test("[unit] TM-44 unused Codex lines can be changed from not recorded to zero", () => {
+    const missing = BLOCK.replace("Codex sessions: 2925", "Codex sessions: not recorded").replace("Codex output tokens: 4,315,259", "Codex output tokens: not recorded");
+    const result = weekToPayload(week(missing));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    for (const phrase of ["Codex sessions", "Codex output tokens", "are not recorded", "Submit needs a number", "If you did not use Codex", "change its lines to 0"]) expect(result.message).toContain(phrase);
+    expect((result.message.match(/If you did not use Codex/g) ?? []).length).toBe(1);
+    const zero = missing.replace("Codex sessions: not recorded", "Codex sessions: 0").replace("Codex output tokens: not recorded", "Codex output tokens: 0");
+    expect(weekToPayload(week(zero))).toMatchObject({ ok: true, payload: { sources: "claude" } });
+    // An unreadable Period is not a "not recorded" tool line and gets no zero hint.
+    const period = weekToPayload(week(change("Period: 2026-10-14 to 2026-10-20", "Period: Oct 14 to Oct 20, 2026")));
+    expect(!period.ok && period.message).toBe("Not submitted: Period (two dates like 2026-10-14 to 2026-10-20) is not recorded in your result. Run the prompt again and paste the whole result.");
+  });
+
+  test("[unit] TM-35 a value with no digits (N/A, a note after not recorded) is left to the null rule, not refused as a bad number", () => {
+    // Main submitted an N/A Codex weekly window as null; the raw check must not turn that into a refusal.
+    const na = change("Codex weekly window used: 7%", "Codex weekly window used: N/A");
+    expect(rawNumberProblem(na)).toBeNull();
+    expect(weekToPayload(week(na))).toMatchObject({ ok: true, payload: { codex_weekly_pct: null } });
+    const note = change("Codex sessions: 2925", "Codex sessions: not recorded (Codex not used)");
+    expect(rawNumberProblem(note)).toBeNull();
+    const result = weekToPayload(week(note));
+    expect(!result.ok && result.message).toContain("If you did not use Codex");
+    expect(rawNumberProblem(change("Claude sessions: 288", "Claude sessions: 288 (86 duplicates)"))).not.toBeNull();
   });
 
   test("[unit] TM-18 days run from Period start to end inclusive and must be 1 to 90", () => {
-    expect(periodDays(week(change("2026-10-14 to 2026-10-21", "2026-10-14 to 2026-10-14")))).toBe(1);
-    expect(periodDays(week(BLOCK))).toBe(8);
-    const ninety = weekToPayload(week(change("2026-10-14 to 2026-10-21", "2026-07-01 to 2026-09-28")));
+    expect(periodDays(week(change("2026-10-14 to 2026-10-20", "2026-10-14 to 2026-10-14")))).toBe(1);
+    expect(periodDays(week(BLOCK))).toBe(7);
+    const ninety = weekToPayload(week(change("2026-10-14 to 2026-10-20", "2026-07-01 to 2026-09-28")));
     expect(ninety.ok && ninety.payload.days).toBe(90);
-    const ninetyOne = weekToPayload(week(change("2026-10-14 to 2026-10-21", "2026-07-01 to 2026-09-29")));
+    const ninetyOne = weekToPayload(week(change("2026-10-14 to 2026-10-20", "2026-07-01 to 2026-09-29")));
     expect(ninetyOne).toEqual({ ok: false, message: "Not submitted: the period is 91 days; a submitted week covers 1 to 90 days." });
-    expect(weekToPayload(week(change("2026-10-14 to 2026-10-21", "2026-10-21 to 2026-10-14")))).toMatchObject({ ok: false });
-    expect(weekToPayload(week(change("2026-10-14 to 2026-10-21", "2026-02-30 to 2026-03-02")))).toMatchObject({ ok: false });
+    expect(weekToPayload(week(change("2026-10-14 to 2026-10-20", "2026-10-20 to 2026-10-14")))).toMatchObject({ ok: false });
+    expect(weekToPayload(week(change("2026-10-14 to 2026-10-20", "2026-02-30 to 2026-03-02")))).toMatchObject({ ok: false });
   });
 
   test("[unit] TM-18 a number the contract cannot hold is refused, not rounded or clamped", () => {
@@ -69,6 +109,29 @@ describe("tm-submit mapping", () => {
     // Out of range but whole: the server's reason is shown (TM-19), the mapping does not invent a bound.
     const big = weekToPayload(week(change("Opus share of Claude output: 42%", "Opus share of Claude output: 420%")));
     expect(big.ok && checkMap(submitBody(big.payload, "abc", KEY))).toMatchObject({ ok: false, code: "bad-payload", field: "opus_share_pct" });
+  });
+});
+
+describe("tm-submit raw numbers", () => {
+  for (const bad of ["-12", "−12", "+5", "-42%", "-2", "1e6", "1E6", "5e3", "8M", "8m", "7.4M", "8k", "8 million", "9,977,232 tokens", "12 sessions", "1_000", "1,2", "1,23,456", "12abc", "0x10", "1.2.3", "42.5%", "12-14", "1 2", "(12)", "~12"]) {
+    test(`[unit] TM-35 raw value ${bad} is refused before tolerant mapping`, () => {
+      const text = change("Codex output tokens: 4,315,259", `Codex output tokens: ${bad}`);
+      const parsed = week(text);
+      const mapped = weekToPayload(parsed);
+      if (!["7.4M", "1.2.3", "42.5%"].includes(bad)) expect(mapped.ok && checkMap(submitBody(mapped.payload, "abc", KEY)).ok).toBe(true);
+      expect(rawNumberProblem(text)).toBe(`Not submitted: Codex output tokens must be a plain whole number like 1,234, not "${bad}". Run the prompt again and paste the whole result.`);
+    });
+  }
+  test("[unit] TM-35 percent on a non-percent field is refused", () => {
+    expect(rawNumberProblem(change("Usage limit hits: 2", "Usage limit hits: 5%"))).toContain("Usage limit hits must be a plain whole number");
+  });
+  test("[unit] TM-35 plain numbers and supported markup pass every raw line", () => {
+    for (const good of ["0", "2925", "2,925", "87", "not recorded", "Not recorded."]) expect(rawNumberProblem(change("Claude sessions: 288", `Claude sessions: ${good}`))).toBeNull();
+    for (const good of ["42%", "42 %", "87", "not recorded", "Not recorded."]) expect(rawNumberProblem(change("Opus share of Claude output: 42%", `Opus share of Claude output: ${good}`))).toBeNull();
+    expect(rawNumberProblem(change("Claude sessions: 288", "| Claude sessions | 288 |"))).toBeNull();
+    expect(rawNumberProblem(change("Claude sessions: 288", "- **Claude sessions**: 288"))).toBeNull();
+    expect(rawNumberProblem(`${BLOCK}\n| Claude sessions | -12 |`)).toContain("Claude sessions must be a plain whole number");
+    expect(rawNumberProblem(`${BLOCK}\n- **Claude sessions**: -12`)).toContain("Claude sessions must be a plain whole number");
   });
 });
 
@@ -129,7 +192,7 @@ describe("tm-submit against the real POST /api/maps", () => {
     expect(await again.json()).toMatchObject({ id: stored.id, replay: true });
     const board = await (await handler(new Request(`${ORIGIN}/api/maps`))).json();
     expect(board.totals).toEqual({ builders: 1, cap_episodes: 2, with_weekly_cap: 0 });
-    expect(board.rows[0]).toMatchObject({ alias: "pasted-one", skill: "0.0.0", days: 8, sources: "claude+codex", sessions: 3213 });
+    expect(board.rows[0]).toMatchObject({ alias: "pasted-one", skill: "0.0.0", days: 7, sources: "claude+codex", sessions: 3213 });
     // The same key with other details is the 409 the page resets its attempt on.
     const other = await send(handler, submitBody(weekPayload(), "pasted-two", key));
     expect(other.status).toBe(409);

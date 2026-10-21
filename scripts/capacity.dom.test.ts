@@ -238,7 +238,7 @@ for (const { name, board } of BOARDS) {
             const box = (sel: string) => { const b = document.querySelector(sel)?.getBoundingClientRect(); return b ? { w: b.width, h: b.height } : null; };
             const cells = Array.from(document.querySelectorAll("#capWindows td.cap-num, #capSides td.cap-num"));
             return {
-              maps: document.querySelectorAll("#capMaps > li").length, ddBroken: Array.from(document.querySelectorAll("#capMaps dd")).filter((dd) => lines(dd) !== 1).length,
+              maps: document.querySelectorAll("#capMaps > li").length, figures: document.querySelectorAll("#capMaps dd").length, ddBroken: Array.from(document.querySelectorAll("#capMaps dd")).filter((dd) => lines(dd) !== 1).length,
               scrollW: document.documentElement.scrollWidth, clientW: document.documentElement.clientWidth,
               cells: cells.length, broken: cells.filter((td) => lines(td) !== 1).map((td) => td.textContent),
               reading: box("#capReading"), tile: box("#capTiles .cap-tile"), table: box("#capSides"),
@@ -246,6 +246,7 @@ for (const { name, board } of BOARDS) {
           });
           expect(m.cells).toBe(17); // 3 window rows + 7 measure rows x 2 sides; an empty set would pass "none broken" vacuously
           expect(m.maps).toBe(board.length);
+          expect(m.figures).toBe(board.length * 9); // nine submitted figures per map; an empty set would pass "none broken" vacuously
           expect(m.ddBroken).toBe(0);
           expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
           expect(m.broken).toEqual([]);
@@ -386,5 +387,16 @@ test("[integration] a provider read with no percent recorded is not in the logs,
   try {
     const [m] = await mapsOf(page);
     expect(m?.figures.slice(7)).toEqual([["Opus share", "not in the logs"], ["Codex weekly used", "not in the logs"]]);
+  } finally { await close(); }
+});
+
+test("[integration] the pasted-block statement counts only pasted maps whose own values are Short 0, Weekly 0 and unknown above 0", async () => {
+  rows = [
+    { ...row("TM-00000000000b", "pseudo-b2", [1, 1, 3], 1, 0, null, PASTED) }, // a pasted-skill row whose values contradict the statement
+    { ...row("TM-00000000000c", "pseudo-c2", [0, 0, 2], 1, 0, null, PASTED) },
+  ];
+  const { page, close } = await open();
+  try {
+    expect(await page.locator("#capPasted").textContent()).toBe("1 pasted TokenMax block was submitted with its limit hits as unknown window and Short and Weekly as 0.");
   } finally { await close(); }
 });

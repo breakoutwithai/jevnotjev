@@ -23,12 +23,13 @@
   function round1(n) { return Math.round(n * 10) / 10; }
 
   function side(rows) {
-    var out = { maps: rows.length, short: 0, weekly: 0, unknown: 0, claude: 0, codex: 0, claudeMaps: 0, codexMaps: 0, readings: 0, usedSum: 0, days: 0, unknownMaps: 0 };
+    var out = { maps: rows.length, short: 0, weekly: 0, unknown: 0, claude: 0, codex: 0, claudeMaps: 0, codexMaps: 0, readings: 0, usedSum: 0, days: 0, unknownMaps: 0, unknownOnlyMaps: 0 };
     rows.forEach(function (row) {
       var c = capsOf(row);
       out.short += num(c.short); out.weekly += num(c.weekly); out.unknown += num(c.unknown);
       out.days += num(row.days);
       if (num(c.unknown) > 0) out.unknownMaps += 1;
+      if (num(c.unknown) > 0 && num(c.short) === 0 && num(c.weekly) === 0) out.unknownOnlyMaps += 1;
       if (collected(row, "claude")) { out.claudeMaps += 1; out.claude += tokens(row, "claude"); }
       if (collected(row, "codex")) {
         out.codexMaps += 1; out.codex += tokens(row, "codex");
@@ -107,7 +108,7 @@
 
   /* What /tm/ Submit sends for the window split (skill "0.0.0", src/browser/tm-submit.ts weekToPayload), stated once; no number is changed. */
   function pastedNote(s) {
-    var u = s.pasted.unknownMaps;
+    var u = s.pasted.unknownOnlyMaps; /* only pasted maps whose own values are Short 0, Weekly 0, unknown above 0 */
     if (u === 0) return "";
     return u + " pasted TokenMax " + plural(u, "block was", "blocks were") + " submitted with its limit hits as unknown window and Short and Weekly as 0.";
   }

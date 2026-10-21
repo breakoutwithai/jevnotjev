@@ -1,7 +1,8 @@
 // /tm/ Submit: turns the parsed TOKENMAX WEEK block into the tm-share/1 body that POST /api/maps takes
 // (contract: src/backstage/maps.ts). Pure functions, no network: tm-run.ts sends the result when the visitor presses Submit.
 // Nothing is guessed: a required line that is not recorded, or a number the contract cannot hold, refuses the submit
-// with a message that names the line. The only values this file supplies itself are the fixed ones below.
+// with a message that names the line. The only values this file supplies itself are the fixed ones below, and 0 for the
+// output (and Opus share) of a tool whose session count is 0.
 
 import type { MapPayload, MapSources } from "../backstage/maps.ts";
 import { labelValue, LABELS, readDate, type Week } from "./tm-week.ts";
@@ -34,7 +35,9 @@ export function rawNumberProblem(text: string): string | null {
     // Anything the display reader treats as "no number" (not recorded, N/A, a note without digits) is not this check's business.
     if (/not recorded/i.test(value) || !/\d/.test(value)) continue;
     const percent = field === "opusShare" || field === "codexWindow" ? "(?:\\s*%)?" : "";
-    if (new RegExp(`^(?:\\d+|\\d{1,3}(?:,\\d{3})+)${percent}\\.?$`).test(value)) continue;
+    // A digit run past the safe-integer range would reach weekToPayload as null and could be sent as an unused tool's 0 (#359).
+    const digits = value.replace(/[^\d]/g, "");
+    if (new RegExp(`^(?:\\d+|\\d{1,3}(?:,\\d{3})+)${percent}\\.?$`).test(value) && Number.isSafeInteger(Number(digits))) continue;
     const label = pair[0].charAt(0).toUpperCase() + pair[0].slice(1);
     return `Not submitted: ${label} must be a plain whole number like 1,234, not "${value.slice(0, 40)}". Run the prompt again and paste the whole result.`;
   }
@@ -66,16 +69,23 @@ type Line = { readonly label: string; readonly value: number | null };
  * From the block: days (Period start to end inclusive), sources (which session counts are above 0), sessions (Claude plus
  * Codex), caps.unknown (Usage limit hits), output_tokens, opus_share_pct, codex_weekly_pct (null when not recorded).
  * Fixed here, because a pasted block does not carry them: skill "0.0.0"; subagent_sessions 0; caps.short 0 and
- * caps.weekly 0 (the block says how many limits were hit, not which kind, so every hit is counted as unknown).
+ * caps.weekly 0 (the block says how many limits were hit, not which kind, so every hit is counted as unknown); and 0 for
+ * the output tokens (and Opus share) of a tool whose session count is 0 when the block says not recorded (#359).
  */
 export function weekToPayload(week: Week): Mapped {
+  // A tool with 0 sessions has 0 output, so its not-recorded output (and Claude's Opus share) is sent as 0 (#359).
+  // A not-recorded session count is never defaulted.
+  const { claudeSessions, codexSessions, limitHits } = week;
+  const claudeOutput = week.claudeOutput ?? (claudeSessions === 0 ? 0 : null);
+  const codexOutput = week.codexOutput ?? (codexSessions === 0 ? 0 : null);
+  const opusShare = week.opusShare ?? (claudeSessions === 0 ? 0 : null);
   const required: readonly Line[] = [
-    { label: "Claude sessions", value: week.claudeSessions },
-    { label: "Codex sessions", value: week.codexSessions },
-    { label: "Claude output tokens", value: week.claudeOutput },
-    { label: "Codex output tokens", value: week.codexOutput },
-    { label: "Opus share of Claude output", value: week.opusShare },
-    { label: "Usage limit hits", value: week.limitHits },
+    { label: "Claude sessions", value: claudeSessions },
+    { label: "Codex sessions", value: codexSessions },
+    { label: "Claude output tokens", value: claudeOutput },
+    { label: "Codex output tokens", value: codexOutput },
+    { label: "Opus share of Claude output", value: opusShare },
+    { label: "Usage limit hits", value: limitHits },
   ];
   const missing = required.filter((r) => r.value === null).map((r) => r.label);
   const days = periodDays(week);
@@ -87,7 +97,6 @@ export function weekToPayload(week: Week): Mapped {
       : " Run the prompt again and paste the whole result.";
     return { ok: false, message: `Not submitted: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not recorded in your result.${hint}` };
   }
-  const { claudeSessions, codexSessions, claudeOutput, codexOutput, opusShare, limitHits } = week;
   if (days === null || claudeSessions === null || codexSessions === null || claudeOutput === null || codexOutput === null || opusShare === null || limitHits === null)
     return { ok: false, message: "Not submitted: the result is incomplete." };
   if (days > MAX_DAYS) return { ok: false, message: `Not submitted: the period is ${days} days; a submitted week covers 1 to ${MAX_DAYS} days.` };

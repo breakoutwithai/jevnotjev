@@ -106,7 +106,7 @@
     "src/backstage/trial.test.ts": 14,
     "src/browser/results-loader.dom.test.ts": 41,
     "src/browser/shop-verdict.test.ts": 8,
-    "src/browser/tm-submit.test.ts": 43,
+    "src/browser/tm-submit.test.ts": 46,
     "src/core/calc.test.ts": 22,
     "src/core/case-table.test.ts": 5,
     "src/core/metrics.test.ts": 23,

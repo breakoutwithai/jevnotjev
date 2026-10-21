@@ -67,7 +67,8 @@ type Line = { readonly label: string; readonly value: number | null };
  * From the block: days (Period start to end inclusive), sources (which session counts are above 0), sessions (Claude plus
  * Codex), caps.unknown (Usage limit hits), output_tokens, opus_share_pct, codex_weekly_pct (null when not recorded).
  * Fixed here, because a pasted block does not carry them: skill "0.0.0"; subagent_sessions 0; caps.short 0 and
- * caps.weekly 0 (the block says how many limits were hit, not which kind, so every hit is counted as unknown).
+ * caps.weekly 0 (the block says how many limits were hit, not which kind, so every hit is counted as unknown); and 0 for
+ * the output tokens (and Opus share) of a tool whose session count is 0 when the block says not recorded (#359).
  */
 export function weekToPayload(week: Week): Mapped {
   // A tool with 0 sessions has 0 output, so its not-recorded output (and Claude's Opus share) is sent as 0 (#359).

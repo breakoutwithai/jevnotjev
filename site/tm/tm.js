@@ -210,7 +210,8 @@
       if (/not recorded/i.test(value) || !/\d/.test(value))
         continue;
       const percent = field === "opusShare" || field === "codexWindow" ? "(?:\\s*%)?" : "";
-      if (new RegExp(`^(?:\\d+|\\d{1,3}(?:,\\d{3})+)${percent}\\.?$`).test(value))
+      const digits = value.replace(/[^\d]/g, "");
+      if (new RegExp(`^(?:\\d+|\\d{1,3}(?:,\\d{3})+)${percent}\\.?$`).test(value) && Number.isSafeInteger(Number(digits)))
         continue;
       const label = pair[0].charAt(0).toUpperCase() + pair[0].slice(1);
       return `Not submitted: ${label} must be a plain whole number like 1,234, not "${value.slice(0, 40)}". Run the prompt again and paste the whole result.`;

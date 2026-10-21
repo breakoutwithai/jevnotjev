@@ -70,6 +70,24 @@ describe("tm-submit mapping", () => {
     for (const result of [codexOnly, claudeOnly]) expect(checkMap(submitBody(result.payload, "abc", KEY)).ok).toBe(true);
   });
 
+  test("[unit] TM-18 a number too large to hold is refused, not read as not recorded and sent as 0 (#359)", () => {
+    // 309 digits overflow to Infinity, which the display reader turns into null, the same as "not recorded".
+    const huge = "9".repeat(309);
+    const cases: readonly [string, string, string][] = [
+      ["Codex sessions: 2925", "Codex output tokens: 4,315,259", "Codex output tokens"],
+      ["Claude sessions: 288", "Claude output tokens: 7,940,728", "Claude output tokens"],
+      ["Claude sessions: 288", "Opus share of Claude output: 42%", "Opus share of Claude output"],
+    ];
+    for (const [sessions, line, label] of cases) {
+      const text = change(sessions, `${sessions.split(":")[0]}: 0`).replace(line, `${label}: ${huge}`);
+      // rawNumberProblem capitalises only the first letter of the line's label.
+      const said = label.charAt(0) + label.slice(1).toLowerCase();
+      expect(rawNumberProblem(text)).toBe(`Not submitted: ${said} must be a plain whole number like 1,234, not "${huge.slice(0, 40)}". Run the prompt again and paste the whole result.`);
+    }
+    expect(rawNumberProblem(change("Claude sessions: 288", `Claude sessions: ${"9".repeat(17)}`))).not.toBeNull();
+    expect(rawNumberProblem(change("Claude sessions: 288", `Claude sessions: ${Number.MAX_SAFE_INTEGER}`))).toBeNull();
+  });
+
   test("[unit] TM-18 a tool with sessions above 0 and its output or share not recorded is still refused (#359)", () => {
     const refused = (lines: string, verb: string, tool?: string): string => `Not submitted: ${lines} ${verb} not recorded in your result.${tool
       ? ` Submit needs a number on every one of these lines. If you did not use ${tool}, change its lines to 0 in the box. Otherwise run the prompt again and paste the whole result.`

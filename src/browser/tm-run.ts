@@ -496,7 +496,7 @@ export function startTheRun(doc: Document): void {
       ghost.classList.remove("on");
       if (drop.classList.contains("show-copy") || drop.style.transform === "translateY(0%)") {
         drop.classList.remove("show-copy");
-        await anim(drop, [{ transform: "translateY(0%)" }, { transform: "translateY(-103%)" }], 600, "ease-in");
+        await anim(drop, [{ transform: "translateY(0%)" }, { transform: "translateY(-103%)" }], 600, "ease-in"); live(tok);
       }
       resetWeek();
       gauge.classList.remove("calm");
@@ -641,10 +641,11 @@ export function startTheRun(doc: Document): void {
   let demoTimer = 0;
   async function fromHash(): Promise<void> {
     const link = parseHash(win.location.hash);
+    // a pending demo Try never lands on a later deep link
+    win.clearTimeout(demoTimer);
     if (link?.kind === "command") { focusCommand(); return; }
     if (link?.kind === "demo") {
       // test hook: plays the whole journey by itself
-      win.clearTimeout(demoTimer);
       pickBtns.find((b) => b.dataset.mode === link.mode)?.click();
       demoTimer = win.setTimeout(() => tryBtn.click(), 5200);
       return;

@@ -638,6 +638,7 @@
         if (drop.classList.contains("show-copy") || drop.style.transform === "translateY(0%)") {
           drop.classList.remove("show-copy");
           await anim(drop, [{ transform: "translateY(0%)" }, { transform: "translateY(-103%)" }], 600, "ease-in");
+          live(tok);
         }
         resetWeek();
         gauge.classList.remove("calm");
@@ -887,12 +888,12 @@
     let demoTimer = 0;
     async function fromHash() {
       const link = parseHash(win.location.hash);
+      win.clearTimeout(demoTimer);
       if (link?.kind === "command") {
         focusCommand();
         return;
       }
       if (link?.kind === "demo") {
-        win.clearTimeout(demoTimer);
         pickBtns.find((b) => b.dataset.mode === link.mode)?.click();
         demoTimer = win.setTimeout(() => tryBtn.click(), 5200);
         return;

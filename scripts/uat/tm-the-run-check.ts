@@ -4,8 +4,8 @@
 //
 // At 390x844 (phone) and 1440x900 it loads the page and every deep link and fails on any JS error, console error or
 // warning, network request other than the local page and its own files, the removed curtain scene (#curtain,
-// #marquee, #sur), a deep link that does not reach its end state, and at 390 any visible text under 11px or any
-// horizontal scroll. Issue #309 criterion 3: the first viewport (no scroll) must show what the visitor gets, who it
+// #marquee, #sur), a deep link that does not reach its end state, any visible text under 12px at 1440 or 11px at 390,
+// and at 390 any horizontal scroll. Issue #309 criterion 3: the first viewport (no scroll) must show what the visitor gets, who it
 // is for and not for, and that the router is not built, with no word from the jargon list; no "curl" or "terminal"
 // anywhere on the page; the Share my week control is present. It drives the show by keyboard (pick, Skip to the end,
 // Try this prompt, Skip; focus must land on Replay), checks Tab reaches Share my week and Copy, that reduced motion
@@ -59,7 +59,7 @@ export function report(checks: readonly Check[]): string {
   const s = summarise(checks);
   const lines = [...s.widths].map(([w, t]) => `${w === 0 ? "repo" : `${w}px`}: ${t.run} checks run, ${t.passed} passed, ${t.failed} failed`);
   lines.push(`total: ${s.total.run} checks run, ${s.total.passed} passed, ${s.total.failed} failed`);
-  if (s.clean) lines.push("CLEAN: no JS or console errors, no network requests, no phone text under 11px, no horizontal scroll at 390, curtain scene absent, deep links reach their end states, keyboard flow and Skip land on Replay, reduced motion jumps to end states, first viewport plain with no jargon, no curl or terminal anywhere, Copy copies the exact prompt");
+  if (s.clean) lines.push("CLEAN: no JS or console errors, no network requests, no text under 11px at 390 or 12px at 1440, no horizontal scroll at 390, curtain scene absent, deep links reach their end states, keyboard flow and Skip land on Replay, reduced motion jumps to end states, first viewport plain with no jargon, no curl or terminal anywhere, Copy copies the exact prompt");
   else for (const c of checks) if (!c.ok) lines.push(`FAIL [${c.width === 0 ? "repo" : `${c.width}px`}] ${c.name}: ${c.detail}`);
   return lines.join("\n");
 }
@@ -76,8 +76,10 @@ function watch(page: Page): Watch {
   return w;
 }
 
-/** Visible text under 11px, scaled by SVG viewBoxes and transforms (check.py's measure). */
-const SMALL_TEXT = `(() => { const out = []; document.querySelectorAll('body *').forEach((el) => {
+/** Text floors: 12px at 1440 (#309 criterion 6), 11px at 390 (the prototype's STYLE rule, an operator decision). */
+export const TEXT_FLOOR: Readonly<Record<number, number>> = { 390: 11, 1440: 12 };
+/** Visible text under the floor, scaled by SVG viewBoxes and transforms (check.py's measure). */
+const smallText = (min: number): string => `(() => { const out = []; document.querySelectorAll('body *').forEach((el) => {
   if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) return;
   const r = el.getBoundingClientRect();
   if (!r.width) return;
@@ -86,7 +88,7 @@ const SMALL_TEXT = `(() => { const out = []; document.querySelectorAll('body *')
   const svg = el.closest('svg'); if (svg && svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width) fs = fs * svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
   let sc = 1; for (let e = el; e && e !== document.body; e = e.parentElement) { const t = getComputedStyle(e).transform; if (t && t !== 'none') { const m = new DOMMatrix(t); sc *= Math.hypot(m.a, m.b); } }
   fs *= sc;
-  if (fs < 10.99) out.push(el.tagName + '.' + (el.getAttribute('class') || '') + ' "' + el.textContent.trim().slice(0, 30) + '" ' + fs.toFixed(1) + 'px');
+  if (fs < ${min} - 0.01) out.push(el.tagName + '.' + (el.getAttribute('class') || '') + ' "' + el.textContent.trim().slice(0, 30) + '" ' + fs.toFixed(1) + 'px');
 }); return out; })()`;
 
 export type EndState = { drop: boolean; ghost: boolean; settled: boolean; half: number; extra: number; cancelled: number; verdict: string; badge: string; focus: string; skipHidden: boolean; shareOpen: boolean };
@@ -184,9 +186,10 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
           const control = await page.evaluate(() => ({ summary: document.getElementById("shareWeek")?.textContent ?? "", jump: document.getElementById("jumpCommand")?.textContent ?? "", map: document.getElementById("mapWeek")?.getAttribute("href") ?? "" }));
           add("Share my week control present; Map your real week targets it", control.summary === "Share my week" && control.jump === "Share my week" && control.map === "#command" ? null : JSON.stringify(control));
         }
+        const floor = TEXT_FLOOR[vp.width] ?? 12;
+        const small: unknown = await page.evaluate(smallText(floor));
+        add(`${label}: no text under ${floor}px`, Array.isArray(small) && small.length ? small.join("; ") : null);
         if (vp.mobile) {
-          const small: unknown = await page.evaluate(SMALL_TEXT);
-          add(`${label}: no text under 11px`, Array.isArray(small) && small.length ? small.join("; ") : null);
           const widths = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, body: document.body.scrollWidth }));
           add(`${label}: no horizontal scroll`, widths.doc <= vp.width && widths.body <= vp.width ? null : JSON.stringify(widths));
         }
@@ -308,12 +311,15 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
   return out;
 }
 
-/** site/tm/map.ts must not differ from the base ref. */
+/** site/tm/map.ts must not differ from the base ref. A base that is not a commit (a flag such as --cached, a typo) fails. */
 export function mapUnchanged(base: string, cwd = ROOT): Check {
+  const name = `map.ts unchanged against ${base}`;
+  const ref = spawnSync("git", ["rev-parse", "--verify", "--quiet", `${base}^{commit}`], { cwd, encoding: "utf8" });
+  if (base.startsWith("-") || ref.status !== 0) return { width: 0, name, ok: false, detail: `${base} is not a commit` };
   const r = spawnSync("git", ["diff", "--name-only", base, "--", "site/tm/map.ts"], { cwd, encoding: "utf8" });
   const changed = r.stdout.trim();
   const problem = r.status !== 0 ? `git diff failed: ${r.stderr.trim()}` : changed ? `${changed} differs from ${base}` : null;
-  return { width: 0, name: `map.ts unchanged against ${base}`, ok: problem === null, detail: problem ?? "" };
+  return { width: 0, name, ok: problem === null, detail: problem ?? "" };
 }
 
 /** Run every check against a page file. base: a git ref for the map.ts check, or null to skip it. */
@@ -337,8 +343,21 @@ function argValue(args: readonly string[], flag: string): string | null {
   return i >= 0 ? args[i + 1] ?? null : null;
 }
 
+/** Each argument must be a known flag followed by its value; returns the first problem, or null. */
+export function badArgs(args: readonly string[]): string | null {
+  const known = ["--page", "--base", "--chromium"];
+  for (let i = 0; i < args.length; i += 2) {
+    const flag = args[i] ?? "";
+    if (!known.includes(flag)) return `unknown argument ${flag}`;
+    if (args[i + 1] === undefined) return `${flag} needs a value`;
+  }
+  return null;
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
+  const bad = badArgs(args);
+  if (bad) { console.error(`${bad}\nusage: bun scripts/uat/tm-the-run-check.ts [--page <file>] [--base <git ref>] [--chromium <path>]`); process.exit(2); }
   const checks = await runTheRunCheck({ page: argValue(args, "--page") ?? TM_PAGE, base: argValue(args, "--base") ?? "origin/main", chromium: argValue(args, "--chromium") });
   console.log(report(checks));
   process.exit(summarise(checks).clean ? 0 : 1);

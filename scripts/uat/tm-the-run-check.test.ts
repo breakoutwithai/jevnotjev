@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BANNED_ANYWHERE, expectedEnd, jargonHits, PROMPT, report, runTheRunCheck, summarise, type Check } from "./tm-the-run-check.ts";
+import { badArgs, BANNED_ANYWHERE, expectedEnd, jargonHits, mapUnchanged, PROMPT, report, runTheRunCheck, summarise, type Check } from "./tm-the-run-check.ts";
 
 const check = (width: number, ok: boolean, name = "x"): Check => ({ width, name, ok, detail: ok ? "" : "broke" });
 
@@ -31,6 +31,15 @@ test("[unit] TR-4 the issue #309 jargon list flags each word, whole words only; 
   expect(PROMPT).toContain("https://jevnotjev.breakoutwithai.com/tm/map.ts");
   for (const part of ["what it reads", "what it would send", "run it here", "Do not send or upload anything yourself"]) expect(PROMPT).toContain(part);
   expect(PROMPT).not.toMatch(BANNED_ANYWHERE);
+});
+
+test("[unit] TR-5 the map.ts check fails on a base that is not a commit; unknown CLI flags are refused", () => {
+  for (const base of ["--cached", "no-such-ref-309"]) expect(mapUnchanged(base)).toMatchObject({ ok: false, detail: `${base} is not a commit` });
+  expect(mapUnchanged("HEAD").ok).toBe(true);
+  expect(badArgs([])).toBeNull();
+  expect(badArgs(["--base", "origin/main", "--page", "x.html"])).toBeNull();
+  expect(badArgs(["--bsae", "origin/main"])).toBe("unknown argument --bsae");
+  expect(badArgs(["--base"])).toBe("--base needs a value");
 });
 
 test("[integration] TR-3 The Run on site/tm/index.html passes every check at 390 and 1440", async () => {

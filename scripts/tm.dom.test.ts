@@ -306,12 +306,14 @@ test("[integration] the router card says not run yet and shows no result: no per
 }, 30000);
 
 for (const motion of MOTIONS) {
-  test(`[integration] every visible text node renders at 11 px or more at 390, at rest and at both end states (${motion})`, async () => {
-    for (const hash of ["", "#burn-before", "#under-after"]) {
-      const page = await open(390, 844, motion, undefined, hash);
+  // Floors: 12 px at 1440 (the floor this page had before The Run, #309 criterion 6); 11 px at 390, the prototype's
+  // STYLE rule for phone poster labels, an explicit decision recorded on the PR for the operator to overrule.
+  test(`[integration] every visible text node renders at 12 px or more at 1440 and 11 px or more at 390, at rest, at both end states and with the prompt open (${motion})`, async () => {
+    for (const [width, height, floor] of [[390, 844, 11], [1440, 900, 12]] satisfies [number, number, number][]) for (const hash of ["", "#burn-before", "#under-after", "#command"]) {
+      const page = await open(width, height, motion, undefined, hash);
       try {
         await page.waitForTimeout(300);
-        const small = await page.evaluate(() => {
+        const small = await page.evaluate((min) => {
           const found: string[] = [];
           const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
           for (let node = walk.nextNode(); node; node = walk.nextNode()) {
@@ -323,15 +325,30 @@ for (const motion of MOTIONS) {
               const m = el.getScreenCTM();
               if (m) px *= Math.hypot(m.a, m.b);
             }
-            if (px < 10.99) found.push(`${text.slice(0, 30)} ${px.toFixed(1)}px`);
+            if (px < min - 0.01) found.push(`${text.slice(0, 30)} ${px.toFixed(1)}px`);
           }
           return found;
-        });
-        expect({ hash, small }).toEqual({ hash, small: [] });
+        }, floor);
+        expect({ width, hash, small }).toEqual({ width, hash, small: [] });
       } finally { await close(page); }
     }
-  }, 60000);
+  }, 90000);
 }
+
+test("[integration] TM-9 Skip while the curtain rises for Try this prompt lands on the end state, not the seating text", async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, "no-preference", undefined, "#burn-before");
+    try {
+      await page.waitForFunction(() => document.getElementById("drop")?.classList.contains("show-copy") === true);
+      await page.locator("#dropBtn").click();
+      await page.waitForTimeout(150);
+      await page.locator("#skip").click();
+      await page.waitForTimeout(900);
+      const end = await page.evaluate(() => ({ settled: document.getElementById("stage")?.classList.contains("settled"), act: document.getElementById("act")?.textContent ?? "", verdict: document.getElementById("verdict")?.textContent }));
+      expect({ width, ...end }).toEqual({ width, settled: true, act: "With TokenMax · each step in its seat", verdict: "Standing ovation" });
+    } finally { await close(page); }
+  }
+}, 30000);
 
 test("[integration] one name for the cap event: cap hits, never cap episodes", async () => {
   const page = await open(1440, 900, "reduce");

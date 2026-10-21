@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TokenMax: your week is a run of seven shows</title>
-<meta name="description" content="See how an AI coding week could last to Sunday, then share your own week with one prompt in the Claude Code or Codex you already use. Nothing is sent unless you choose to.">
+<meta name="description" content="See how an AI coding week could last to Sunday, then get a plain summary of your own week from the Claude Code or Codex you already use. Nothing is sent anywhere.">
 <meta property="og:title" content="TokenMax: your week is a run of seven shows">
-<meta property="og:description" content="Play an illustrative week, then share your own week with one prompt.">
+<meta property="og:description" content="Play an illustrative week, then get a plain summary of your own week with one prompt.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://jevnotjev.breakoutwithai.com/tm/">
 <meta property="og:image" content="https://jevnotjev.breakoutwithai.com/og.png">
@@ -17,40 +17,32 @@
 <div class="page">
 
   <nav class="jump" aria-label="Skip the show">
-    <a href="#command" id="jumpCommand">Share my week</a>
+    <a href="#command" id="jumpCommand">Skip to the command</a>
   </nav>
 
   <header class="playbill">
     <div class="playbill-text">
       <p class="eyebrow">TokenMax presents</p>
-      <h1>Your week is a run of <em>seven shows</em></h1>
+      <h1 aria-label="Your week is a run of seven shows">Your week is a run of seven <s aria-hidden="true">days</s> <em>shows</em></h1>
     </div>
-    <span class="tag">Illustrative week</span>
   </header>
-  <div class="front">
-    <p class="lede" id="lede">Play a week of AI coding to see how it could last to Sunday, then share your own week to help decide if TokenMax gets built.</p>
-    <p class="audience" id="audience">For people who use Claude Code or Codex most weeks. Not for you if you use neither.</p>
-    <p class="notyet" id="notyet">The TokenMax router is being designed and does not work today. The weeks below are illustrative.</p>
-  </div>
 
   <main>
-  <section class="pick" aria-label="Which week is yours?">
-    <p class="pick-q">Which week is yours?</p>
-    <div class="pick-btns">
+  <section class="pick" id="pick">
+    <div class="pick-btns" role="group" aria-label="Which week is yours?">
       <button type="button" class="pick-btn" data-mode="burn" aria-pressed="false">
         <span class="pick-icon" aria-hidden="true">
           <svg viewBox="0 0 40 40"><path d="M20 4c2 8 10 10 10 20a10 10 0 0 1-20 0c0-6 4-8 4-13 3 2 4 5 4 8 3-3 3-9 2-15z" fill="currentColor"/></svg>
         </span>
-        <span class="pick-main">I run out before Friday</span>
-        <span class="pick-sub">The curtain falls mid-week</span>
+        <span class="pick-main">Heavy Loads Hit Limits</span>
       </button>
       <button type="button" class="pick-btn" data-mode="under" aria-pressed="false">
         <span class="pick-icon" aria-hidden="true">
           <svg viewBox="0 0 40 40"><path d="M9 18a3 3 0 0 1 3-3h16a3 3 0 0 1 3 3v6H9z" fill="currentColor"/><rect x="6" y="20" width="5" height="12" rx="2" fill="currentColor"/><rect x="29" y="20" width="5" height="12" rx="2" fill="currentColor"/><rect x="10" y="24" width="20" height="5" fill="currentColor"/><rect x="11" y="6" width="18" height="11" rx="3" fill="currentColor" opacity=".7"/></svg>
         </span>
-        <span class="pick-main">I never use it all</span>
-        <span class="pick-sub">Half the seats sit empty</span>
+        <span class="pick-main">Lite Usage Never Limited</span>
       </button>
+      <span class="pick-cue" id="pickCue" aria-hidden="true">Which week is yours?</span>
     </div>
   </section>
 
@@ -89,34 +81,33 @@
             </g>
           </svg>
           <div class="gauge-info">
-            <div class="gauge-read"><span id="leftPct">100%</span><small>of your week left</small></div>
-            <p class="gauge-name">House lights</p>
+            <div class="gauge-read"><span id="leftPct">100%</span></div>
+            <p class="gauge-name" id="gaugeName">House lights</p>
             <span class="gauge-badge" id="gaugeBadge"></span>
-            <span class="ill">Illustrative</span>
           </div>
         </div>
       </div>
 
       <div class="floor">
-        <div class="act" id="act">Pick your week above</div>
+        <div class="act" id="act"></div>
+        <span class="example-tag" id="exampleTag" hidden>Example week, not your numbers</span>
         <div class="found" id="found" hidden>
           <b id="foundMain"></b>
           <span id="foundSub"></span>
           <span class="found-ex" id="foundEx"></span>
         </div>
         <ol class="run" id="run"></ol>
-        <p class="status" id="status" aria-live="polite">Seven performances. One weekly limit.</p>
+        <p class="status" id="status" aria-live="polite"></p>
+        <!-- The ending of a week played from the visitor's (or the sample's) own numbers: headline and line derived from them. -->
+        <div class="data-end" id="dataEnd" hidden>
+          <p class="data-big" id="dataBig"></p>
+          <p class="data-sub" id="dataSub"></p>
+          <button type="button" class="btn-gold" id="dataWith">See it with TokenMax</button>
+        </div>
       </div>
 
       <div class="dim" id="dim" aria-hidden="true"></div>
 
-      <div class="seating" id="seating" aria-hidden="true">
-        <p class="seat-k">Tonight's prompt, seated</p>
-        <p class="seat-prompt" id="seatPrompt"></p>
-        <div class="srow"><div><b>Royal box</b><small>Big model</small><em>£££££</em></div><ul id="sx-royal"></ul></div>
-        <div class="srow"><div><b>Front row</b><small>Jev</small><em>££</em></div><ul id="sx-jev"></ul></div>
-        <div class="srow"><div><b>Standing room</b><small>Simple rule</small><em>£</em></div><ul id="sx-rule"></ul></div>
-      </div>
       <canvas class="confetti" id="confetti" aria-hidden="true"></canvas>
 
       <div class="ghost" id="ghost">
@@ -128,8 +119,7 @@
         <div class="ghost-copy">
           <p class="big">Lights on.<br><em>Nobody home.</em></p>
           <p class="sub" id="ghostSub">53% of your week paid for, never played</p>
-          <p class="ill-line"><span class="ill">Illustrative</span></p>
-          <button type="button" class="btn-gold try-proxy" id="ghostBtn">Try this prompt</button>
+          <button type="button" class="btn-gold try-proxy" id="ghostBtn">See it with TokenMax</button>
         </div>
       </div>
 
@@ -138,7 +128,7 @@
           <p class="big" id="dropBig">Curtain down</p>
           <p class="sub" id="dropSub">Your limit hit Thursday night</p>
           <ol class="stubs" id="stubs" aria-hidden="true"></ol>
-          <button type="button" class="btn-gold try-proxy" id="dropBtn">Try this prompt</button>
+          <button type="button" class="btn-gold try-proxy" id="dropBtn">See it with TokenMax</button>
         </div>
         <div class="fringe" aria-hidden="true"></div>
       </div>
@@ -159,90 +149,57 @@
     </div>
   </section>
 
-  <section class="lower">
-    <article class="card prompt" id="promptCard">
-      <p class="card-k">Tonight's prompt</p>
-      <p class="prompt-text" id="promptText">&ldquo;Tidy up the test names in my repo and flag anything risky&rdquo;</p>
-      <button type="button" class="btn-gold btn-xl" id="tryBtn">Try this prompt</button>
-      <div class="price" id="price">
-        <div class="price-row"><span>Every step in the royal box</span><div class="bar"><i id="barAll"></i></div></div>
-        <div class="price-row"><span>Each step in its seat</span><div class="bar"><i id="barRouted"></i></div></div>
-      </div>
-    </article>
-
-    <article class="card house" id="houseCard" aria-label="Where each step sits">
-      <p class="card-k">Where each step sits</p>
-      <div class="tier" data-seat="royal">
-        <div class="tier-h"><b>Royal box</b><span>Big model</span><em>£££££</em></div>
-        <ul class="slots" id="slot-royal"></ul>
-      </div>
-      <div class="tier" data-seat="jev">
-        <div class="tier-h"><b>Front row</b><span>Jev</span><em>££</em></div>
-        <ul class="slots" id="slot-jev"></ul>
-      </div>
-      <div class="tier" data-seat="rule">
-        <div class="tier-h"><b>Standing room</b><span>Simple rule</span><em>£</em></div>
-        <ul class="slots" id="slot-rule"></ul>
-      </div>
-    </article>
-
-    <article class="card review" id="review">
-      <p class="card-k">The review</p>
-      <div class="review-empty" id="reviewEmpty">
-        <div class="stars dim-stars" aria-hidden="true">★★★★★</div>
-        <p>Comes after the show.</p>
-      </div>
-      <div class="review-full" id="reviewFull" hidden>
-        <div class="stars" id="stars" aria-hidden="true">★★★★★</div>
-        <p class="verdict" id="verdict">Standing ovation</p>
-        <p class="verdict-sub" id="verdictSub">Lights lasted to Sunday's curtain call</p>
-        <p class="was" id="was">Without: <s>Walk out</s></p>
-        <a class="btn-gold cta" id="mapWeek" href="#command">Map your real week &rarr;</a>
-      </div>
-    </article>
-  </section>
-
-  <p class="foot">Illustrative week. Numbers are made up to show the idea, not measured results.</p>
+  <!-- Hidden (space kept) until a week has played to its end; tm-run.ts adds .shown. -->
+  <p class="keep-lights" id="keepLights">TokenMax + Jev can help keep the lights on</p>
 
   <section class="command" id="command" tabindex="-1" aria-labelledby="hCmd">
-    <h2 id="hCmd">Map your real week</h2>
-    <p class="share-why">Ask the Claude Code or Codex you already use to map your last 7 days. You paste one prompt.</p>
-    <details class="share" id="share">
-      <summary id="shareWeek">Share my week</summary>
-      <div class="prompt-box" id="promptBox" role="group" aria-label="The prompt">
-        <p class="setup">Paste this into Claude Code or Codex. It reads the script first, tells you what it reads and what it would send, then runs it on your computer.</p>
-        <pre id="sharePrompt">Please read https://jevnotjev.breakoutwithai.com/tm/map.ts before running anything. In plain words, tell me what it reads on this computer and what it would send. Then run it here with Bun and the --share flag, so it maps my last 7 days of Claude Code and Codex use into a private report on this computer, and show me the report and the link it prints. Do not send or upload anything yourself: I decide whether to open that link and press Share.</pre>
-        <button type="button" class="copy" id="copy">Copy</button>
-      </div>
-    </details>
-    <p class="trust" id="trust">Runs on your machine. Nothing sent until you press Share.</p>
+    <div class="cmd-head">
+      <h2 id="hCmd">Map your real week</h2>
+      <p class="trust" id="trust">Nothing is sent anywhere. You decide what to do with the summary.</p>
+    </div>
+    <div class="prompt-box" id="promptBox" role="group" aria-label="The prompt">
+      <pre id="sharePrompt">Look at my Claude Code and Codex history on this computer for the last 7 days. Read only the usage records, never the words of my messages or the contents of my files. Tell me: how many sessions I ran in each tool; how many times I hit a usage limit, and when; and which models each tool used, as a rough split of big versus smaller models, if the records show it. Say 'not recorded' for anything the records do not show, never guess. Then, in one sentence, say which pattern fits my week: running out before the end of the week, or leaving most of it unused. Do not send, install or download anything. Show me the result here as exactly this plain block and nothing else:
+
+TOKENMAX WEEK
+Period: &lt;start date&gt; to &lt;end date&gt;
+Claude sessions: &lt;number&gt;
+Codex sessions: &lt;number&gt;
+Claude output tokens: &lt;number&gt;
+Codex output tokens: &lt;number&gt;
+Opus share of Claude output: &lt;percent&gt;
+Usage limit hits: &lt;number&gt;
+Sessions per day: &lt;7 numbers separated by commas, oldest day first, Claude Code plus Codex together&gt;
+Limit hit days: &lt;dates as YYYY-MM-DD separated by commas, or none&gt;
+Codex weekly window used: &lt;percent&gt;
+Pattern: &lt;running out | leaving most unused&gt;
+
+Sessions per day: seven numbers, one per day of the period, oldest day first. Limit hit days: the dates on which I hit a usage limit, or none.
+Use 'not recorded' for any line you cannot fill. Round numbers freely. Do not add anything else.
+Print only the block above. No notes, caveats, warnings, checks, counts of duplicates or files, or explanations before or after it. If a number is approximate, just give the number.</pre>
+      <button type="button" class="copy" id="copy">Copy for Claude Code or Codex</button>
+    </div>
     <a id="tokenmaxGuide" class="guide-link" href="/guide/#tokenmax">Understand TokenMax and explore a recorded comparison</a>
     <p class="copymsg" id="copyMsg" role="status" aria-live="polite"></p>
-  </section>
 
-  <!-- Scene B sources: the builder's own run log, use-cases/tim-tokenmax/RUNS.md in the private planning folder, section
-       "Builder's real history with 0.2.0 (2026-10-16)": sessions 515 Claude and 3,478 Codex (sum 3,993), 2 cap hits
-       (1 unknown window, 1 short), output tokens 9,977,232 and 7,503,143, Opus-class 87%, Codex week 15%. The link is
-       renderShareBlock() of those figures (scripts/tm.dom.test.ts REAL). -->
-  <section class="scene" id="sceneB" aria-labelledby="hB">
-    <h2 id="hB">You choose to share</h2>
-    <div class="browser" id="browser">
-      <div class="url" aria-hidden="true"><i></i><i></i><i></i><span>jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIs</span></div>
-      <div class="map-card">
-        <h3>Your map</h3>
-        <p class="map-sub">Only these fields leave your machine, and only if you share</p>
-        <dl class="fields">
-          <dt>Sessions</dt><dd>3,993</dd>
-          <dt>Cap hits</dt><dd>2</dd>
-          <dt>Claude output tokens</dt><dd>9,977,232</dd>
-          <dt>Codex output tokens</dt><dd>7,503,143</dd>
-          <dt>Opus-class share</dt><dd>87%</dd>
-          <dt>Codex week used</dt><dd>15%</dd>
-        </dl>
-        <p class="note">One builder's real week, 16 Oct 2026.</p>
-        <a class="open" id="openCard" href="https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9&sample">Open a sample card</a>
+    <div class="paste" id="paste">
+      <label class="paste-label" for="pasteBox">Paste the result here</label>
+      <textarea id="pasteBox" rows="9" spellcheck="false" autocomplete="off"></textarea>
+      <div class="paste-actions">
+        <button type="button" class="btn-gold" id="showWeek">Show my week</button>
+        <button type="button" class="btn-ghost" id="showSample">Show Sample</button>
       </div>
+      <p class="paste-error" id="pasteError" role="alert" hidden></p>
     </div>
+    <!-- The sample: the builder's own run, use-cases/tim-tokenmax/RUNS.md in the private planning folder, "Builder's real
+         history with 0.2.0 (2026-10-16)": sessions 515 Claude and 3,478 Codex (sum 3,993), 2 cap hits, output tokens
+         9,977,232 and 7,503,143, Opus-class 87%, Codex week 15%. Values live in src/browser/tm-week.ts SAMPLE_LINES. -->
+    <article class="yourweek" id="yourWeek" aria-labelledby="hYour" hidden>
+      <div class="yourweek-head"><h3 id="hYour">Your week</h3><span class="sample-tag" id="sampleTag" hidden>Sample</span><span class="local-tag" id="localTag">Your numbers, shown on this page only</span></div>
+      <p class="yourweek-period" id="yourPeriod"></p>
+      <p class="yourweek-line" id="yourLine"></p>
+      <dl class="yourweek-fields" id="yourFields"></dl>
+      <button type="button" class="btn-gold" id="playMine">Play my week</button>
+    </article>
   </section>
 
   <!-- Scene D sources. The seat pro_ok and the answer abstain are classes of question model-class-v1 in issue #236.

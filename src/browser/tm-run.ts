@@ -1,23 +1,15 @@
 // /tm/ "The Run": the TokenMax show. A visitor picks a situation, the week plays on the stage, the ending lands (the
-// curtain drops mid-week, or a ghost light on a half-empty house), Try this prompt seats each step, and the replay
-// with TokenMax ends on a curtain call. Every animation can be skipped; reduced motion, Skip and the deep links draw
+// curtain drops mid-week, or a ghost light on a half-empty house), "See it with TokenMax" replays the week with
+// TokenMax and ends on a curtain call. Every animation can be skipped; reduced motion, Skip and the deep links draw
 // end states. Map your real week below the show (#command) is the one next step: a plain prompt to paste into Claude
-// Code or Codex. Built into site/tm/tm.js by
-// scripts/build-tm.ts; adapted from The Run prototype (2026-10-21). Every number here is illustrative.
+// Code or Codex. Built into site/tm/tm.js by scripts/build-tm.ts; adapted from The Run prototype (2026-10-21). Every
+// number here is illustrative.
 
 import { NOT_A_RESULT, parseWeek, situationLine, situationOf, weekLines } from "./tm-week.ts";
 
 export type Mode = "burn" | "under";
 export type View = "without" | "with";
-export type Seat = "royal" | "jev" | "rule";
-export type Answer =
-  | { readonly kind: "none" }
-  | { readonly kind: "noul"; readonly v: number; readonly lab: string }
-  | { readonly kind: "choice" | "score"; readonly opts: readonly string[]; readonly pick: number };
-export type Step = { readonly t: string; readonly seat: Seat; readonly ans: Answer };
 export type Scenario = {
-  readonly prompt: string;
-  readonly steps: readonly Step[];
   readonly without: readonly number[];
   readonly with: readonly number[];
   readonly extra: readonly number[];
@@ -34,26 +26,12 @@ export const DEEP_LINKS = ["burn-before", "burn-after", "under-before", "under-a
 
 export const SCENARIOS: Readonly<Record<Mode, Scenario>> = {
   burn: {
-    prompt: "“Tidy up the test names in my repo and flag anything risky”",
-    steps: [
-      { t: "List every test file", seat: "rule", ans: { kind: "none" } },
-      { t: "Is this name unclear?", seat: "jev", ans: { kind: "noul", v: 0.82, lab: "Likely yes" } },
-      { t: "Rename, merge or leave?", seat: "jev", ans: { kind: "choice", opts: ["rename", "merge", "leave"], pick: 0 } },
-      { t: "Rewrite names, explain risky ones", seat: "royal", ans: { kind: "none" } },
-    ],
     without: [26, 26, 26, 26, 26, 26, 26],
     with: [13, 13, 13, 13, 13, 13, 13],
     extra: [0, 0, 0, 0, 0, 0, 0],
     jobs: ["", "", "", "", "", "", ""],
   },
   under: {
-    prompt: "“Sort my open issues by how hard they are and fix the easy ones”",
-    steps: [
-      { t: "Pull the open issues", seat: "rule", ans: { kind: "none" } },
-      { t: "How hard is this one?", seat: "jev", ans: { kind: "score", opts: ["trivial", "ordinary", "hard"], pick: 0 } },
-      { t: "Safe to fix on its own?", seat: "jev", ans: { kind: "noul", v: 0.74, lab: "Likely yes" } },
-      { t: "Fix the easy ones, write notes", seat: "royal", ans: { kind: "none" } },
-    ],
     // every step in the royal box
     without: [8, 7, 9, 6, 8, 5, 4],
     // the same work in cheaper seats: even more room left over
@@ -61,18 +39,6 @@ export const SCENARIOS: Readonly<Record<Mode, Scenario>> = {
     // jobs TokenMax finds to fill that room
     extra: [0, 11, 9, 11, 10, 11, 12],
     jobs: ["", "Review last week’s PRs", "", "", "Write tests for the login page", "", ""],
-  },
-};
-
-type Verdict = { readonly stars: number; readonly v: string; readonly sub: string; readonly was: string };
-const VERDICT: Readonly<Record<Mode, Readonly<Record<View, Verdict>>>> = {
-  burn: {
-    with: { stars: 5, v: "Standing ovation", sub: "Seven shows. The lights lasted to Sunday’s curtain call.", was: "Without TokenMax: <s>Walk out</s>" },
-    without: { stars: 1, v: "Walk out", sub: "Curtain down Thursday night. Three shows cancelled.", was: "With TokenMax: <b>Standing ovation</b>" },
-  },
-  under: {
-    with: { stars: 5, v: "Standing ovation", sub: "Cheaper seats freed room. 6 more jobs filled it. Target hit.", was: "Without TokenMax: <s>Still in previews</s>" },
-    without: { stars: 2, v: "Still in previews", sub: "Half the house empty all week.", was: "With TokenMax: <b>Standing ovation</b>" },
   },
 };
 
@@ -117,9 +83,8 @@ export function startTheRun(doc: Document): void {
 
   const reduceQuery = win.matchMedia("(prefers-reduced-motion: reduce)");
   let reduced = reduceQuery.matches;
-  const compact = (): boolean => win.innerWidth < 760;
-  const st: { mode: Mode | null; routed: boolean; view: View; token: number; speed: number; busy: boolean; seating: boolean } = {
-    mode: null, routed: false, view: "without", token: 0, speed: 1, busy: false, seating: false,
+  const st: { mode: Mode | null; routed: boolean; view: View; token: number; speed: number; busy: boolean } = {
+    mode: null, routed: false, view: "without", token: 0, speed: 1, busy: false,
   };
   const sum = (a: readonly number[]): number => a.reduce((x, y) => x + y, 0);
 
@@ -166,15 +131,12 @@ export function startTheRun(doc: Document): void {
   const stage = id("stage", HTMLElement), opening = id("opening", HTMLElement), drop = id("drop", HTMLElement), ghost = id("ghost", HTMLElement);
   const dim = id("dim", HTMLElement), gauge = id("gauge", HTMLElement), needle = id("needle", SVGGElement), arc = id("gaugeArc", SVGPathElement);
   const leftPct = id("leftPct", HTMLElement), statusEl = id("status", HTMLElement), actEl = id("act", HTMLElement);
-  const gaugeBadge = id("gaugeBadge", HTMLElement), foundEl = id("found", HTMLElement), seating = id("seating", HTMLElement);
+  const gaugeBadge = id("gaugeBadge", HTMLElement), foundEl = id("found", HTMLElement);
   const skipBtn = id("skip", HTMLButtonElement), replayBtn = id("replay", HTMLButtonElement);
-  const tryBtn = id("tryBtn", HTMLButtonElement), promptText = id("promptText", HTMLElement), promptCard = id("promptCard", HTMLElement);
-  const seatPrompt = id("seatPrompt", HTMLElement), pick = inside(doc, ".pick", HTMLElement);
+  const pick = inside(doc, ".pick", HTMLElement), keepLights = id("keepLights", HTMLElement);
   const pickBtns = every(doc, ".pick-btn", HTMLButtonElement), segBtns = every(doc, "#seg button", HTMLButtonElement);
   const seg = id("seg", HTMLElement), compare = id("compare", HTMLElement), command = id("command", HTMLElement);
-  const price = id("price", HTMLElement), barAll = id("barAll", HTMLElement), barRouted = id("barRouted", HTMLElement);
   const ghostBtn = id("ghostBtn", HTMLButtonElement), dropBtn = id("dropBtn", HTMLButtonElement);
-  const slot = (prefix: "slot" | "sx", seat: Seat): HTMLElement => id(`${prefix}-${seat}`, HTMLElement);
 
   /* ---------- timing helpers ---------- */
   const live = (tok: number): void => { if (tok !== st.token) throw new Cancel(); };
@@ -234,7 +196,6 @@ export function startTheRun(doc: Document): void {
     stage.classList.remove("call", "anim", "settled");
     gaugeBadge.textContent = "";
     foundEl.hidden = true;
-    seating.classList.remove("on");
     ghost.classList.remove("on");
     bulbsEl.classList.remove("chase");
     stopConfetti();
@@ -286,7 +247,7 @@ export function startTheRun(doc: Document): void {
         statusEl.textContent = `${LONG[i] ?? ""}. The lights are failing…`; statusEl.classList.add("warn");
         await tween(left, 0, DAY * 1.6 * frac, (g, pr) => { setGauge(g); fillSeats(p, Math.round(pr * 12 * frac)); }, tok);
         await dropCurtain(i, tok);
-        if (tok === st.token) setBusy(false);
+        if (tok === st.token) { setBusy(false); keepLights.classList.add("shown"); }
         return;
       }
       const baseSeats = mode === "burn" ? 12 : seatsFor(base);
@@ -316,7 +277,8 @@ export function startTheRun(doc: Document): void {
     }
     if (view === "with") await curtainCall(tok);
     else await ghostLight(left, tok);
-    if (tok === st.token) setBusy(false);
+    // the tagline fades in once a week has played to its end (Skip, a deep link and reduced motion end here too)
+    if (tok === st.token) { setBusy(false); keepLights.classList.add("shown"); }
   }
 
   function dust(): void {
@@ -363,22 +325,16 @@ export function startTheRun(doc: Document): void {
     id("dropBig", HTMLElement).textContent = "Curtain down";
     id("dropSub", HTMLElement).textContent = `Your limit hit ${LONG[i] ?? ""} night`;
     stubs.forEach((s, j) => { if (j === i) s.className = "h"; else if (j > i) { s.className = "x"; s.style.setProperty("--d", `${(0.35 + 0.28 * (j - i)) * st.speed}s`); } });
-    dropBtn.textContent = st.routed ? "See it with TokenMax" : "Try this prompt";
     drop.classList.add("show-copy");
     statusEl.textContent = `Curtain down ${LONG[i] ?? ""}. ${7 - i - 1} shows cancelled.`;
-    showReview("without");
-    if (!st.routed) tryBtn.classList.add("ready");
   }
 
   async function ghostLight(left: number, tok: number): Promise<void> {
     statusEl.textContent = "Sunday. The run ends with seats to spare.";
     await wait(400, tok);
     id("ghostSub", HTMLElement).textContent = `${Math.round(left)}% of your week paid for, never played`;
-    ghostBtn.textContent = st.routed ? "See it with TokenMax" : "Try this prompt";
     ghost.classList.add("on");
     statusEl.textContent = `${Math.round(left)}% of your week left unused.`;
-    showReview("without");
-    if (!st.routed) tryBtn.classList.add("ready");
   }
 
   async function curtainCall(tok: number): Promise<void> {
@@ -394,7 +350,6 @@ export function startTheRun(doc: Document): void {
     const rise = anim(drop, [{ transform: "translateY(0%)" }, { transform: "translateY(-103%)" }], 900, "cubic-bezier(.2,.7,.2,1)");
     await wait(200, tok);
     stage.classList.add("call");
-    showReview("with");
     if (st.speed > 0) { stage.classList.add("anim"); bulbsEl.classList.add("chase"); }
     confetti(st.speed <= 0);
     posters.forEach((p, i) => { if (st.speed > 0) win.setTimeout(() => { p.li.classList.remove("bow"); void p.li.offsetWidth; p.li.classList.add("bow"); }, 120 * i); });
@@ -405,80 +360,13 @@ export function startTheRun(doc: Document): void {
     statusEl.textContent = st.mode === "burn" ? "Seven shows. Lights lasted to Sunday." : "6 more jobs run. Weekly target hit.";
   }
 
-  /* ---------- review ---------- */
-  function showReview(view: View): void {
-    if (!st.mode) return;
-    const v = VERDICT[st.mode][view];
-    id("reviewEmpty", HTMLElement).hidden = true;
-    const full = id("reviewFull", HTMLElement); full.hidden = false;
-    full.style.animation = "none"; void full.offsetWidth; full.style.animation = "";
-    id("stars", HTMLElement).innerHTML = `${"★".repeat(v.stars)}<span class="off">${"★".repeat(5 - v.stars)}</span>`;
-    id("verdict", HTMLElement).textContent = v.v;
-    id("verdictSub", HTMLElement).textContent = v.sub;
-    const was = id("was", HTMLElement);
-    was.innerHTML = st.routed ? v.was : "";
-    was.hidden = !st.routed;
-  }
-  function resetReview(): void { id("reviewEmpty", HTMLElement).hidden = false; id("reviewFull", HTMLElement).hidden = true; }
-
-  /* ---------- seats and tickets ---------- */
-  function makeTicket(s: Step): HTMLLIElement {
-    const li = doc.createElement("li");
-    li.className = `ticket ${s.seat}`;
-    let w = "";
-    if (s.ans.kind === "noul") w = '<span class="ans"><svg class="dial" viewBox="0 0 40 24"><path d="M4 22 A16 16 0 0 1 36 22" stroke="#6b5440" stroke-width="4" fill="none"/><path class="fa" d="M4 22 A16 16 0 0 1 36 22" stroke="#e0b04e" stroke-width="4" fill="none" pathLength="100" stroke-dasharray="0 100"/><line class="nd" x1="20" y1="22" x2="20" y2="7" stroke="#efe2c4" stroke-width="2.5" stroke-linecap="round"/></svg><span class="al">yes / no</span></span>';
-    if (s.ans.kind === "choice") w = `<span class="ans pickbar">${s.ans.opts.map((o) => `<b>${o}</b>`).join("")}</span>`;
-    if (s.ans.kind === "score") w = `<span class="ans steps">${s.ans.opts.map((o) => `<b>${o}</b>`).join("")}</span>`;
-    li.innerHTML = `<span>${s.t}</span>${w}`;
-    return li;
-  }
-  function answer(li: HTMLElement, s: Step): void {
-    const a = s.ans;
-    if (a.kind === "noul") {
-      inside(li, ".nd", SVGLineElement).style.transform = `rotate(${-90 + 180 * a.v}deg)`;
-      inside(li, ".fa", SVGPathElement).setAttribute("stroke-dasharray", `${a.v * 100} 100`);
-      inside(li, ".al", HTMLElement).textContent = a.lab;
-    }
-    if (a.kind === "choice" || a.kind === "score") every(li, ".ans b", HTMLElement)[a.pick]?.classList.add("on");
-  }
-  function clearSlots(): void {
-    (["royal", "jev", "rule"] satisfies Seat[]).forEach((k) => { slot("slot", k).textContent = ""; slot("sx", k).textContent = ""; });
-    price.classList.remove("on"); barAll.style.width = "0"; barRouted.style.width = "0";
-  }
-  async function flyTicket(s: Step, idx: number, tok: number, small: boolean): Promise<void> {
-    const ph = makeTicket(s); ph.classList.add("ph");
-    slot(small ? "sx" : "slot", s.seat).appendChild(ph);
-    if (small) { const copy = makeTicket(s); slot("slot", s.seat).appendChild(copy); answer(copy, s); }
-    if (st.speed <= 0) { ph.classList.remove("ph"); answer(ph, s); return; }
-    const fly = makeTicket(s); fly.classList.add("fly"); doc.body.appendChild(fly);
-    const src = (small ? seatPrompt : promptText).getBoundingClientRect(), dst = ph.getBoundingClientRect(), fw = fly.getBoundingClientRect();
-    const sx = src.left + src.width * (0.15 + 0.22 * idx) - fw.width / 2, sy = src.top + src.height / 2 - fw.height / 2;
-    const ex = dst.left, ey = dst.top;
-    const mx = (sx + ex) / 2 + (idx % 2 ? 40 : -40), my = Math.min(sy, ey) - (small ? 30 : 70);
-    await fly.animate([
-      { transform: `translate(${sx}px,${sy}px) scale(.4) rotate(-14deg)`, opacity: 0 },
-      { transform: `translate(${mx}px,${my}px) scale(1.15) rotate(8deg)`, opacity: 1, offset: 0.45 },
-      { transform: `translate(${ex}px,${ey}px) scale(1) rotate(0deg)`, opacity: 1 },
-    ], { duration: 820 * st.speed, easing: "cubic-bezier(.45,.05,.3,1)" }).finished.then(() => undefined, () => undefined);
-    fly.remove();
-    if (tok !== st.token) return;
-    ph.classList.remove("ph");
-    ph.animate([{ transform: "scale(1.18)" }, { transform: "scale(1)" }], { duration: 260, easing: "ease-out" });
-    win.setTimeout(() => answer(ph, s), 150);
-  }
-  function inView(el: Element): boolean { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= win.innerHeight; }
-  function bring(el: Element): void { if (st.speed > 0 && !inView(el)) el.scrollIntoView({ behavior: "smooth", block: "start" }); }
-
   /* ---------- flows ---------- */
   function setMode(m: Mode): void {
     st.mode = m; st.routed = false; st.token++;
     pickBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
     // once a week is picked the boxes stop pulsing and the "Which week is yours?" cue goes
     pick.classList.remove("nudge", "cue-on"); pick.classList.add("picked");
-    promptText.textContent = SCENARIOS[m].prompt;
-    clearSlots(); resetReview();
     updateCompare();
-    tryBtn.classList.remove("ready");
     targetMark.setAttribute("opacity", m === "under" ? "1" : "0");
   }
   function updateCompare(): void { compare.hidden = !st.mode; seg.hidden = !st.routed; }
@@ -486,52 +374,20 @@ export function startTheRun(doc: Document): void {
     const tok = st.token;
     try { await playWeek("without", tok); } catch (e) { ignoreCancel(e); }
   }
-  async function tryPrompt(): Promise<void> {
+  /** "See it with TokenMax": the curtain rises and the same week replays with TokenMax; the Without / With flip appears. */
+  async function playWith(): Promise<void> {
     if (!st.mode) setMode("burn");
-    const mode = st.mode ?? "burn";
     const tok = ++st.token;
-    st.routed = true; st.seating = true;
+    // the With view starts now, so a Skip pressed while the curtain rises ends on the With week
+    st.routed = true; st.view = "with";
     updateCompare(); setBusy(true);
     segBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === "with")));
-    tryBtn.classList.remove("ready");
-    // Phone: seat the prompt on the stage itself, so the page never has to scroll down and back up.
-    const small = compact() && st.speed > 0;
     try {
       ghost.classList.remove("on");
       if (drop.classList.contains("show-copy") || drop.style.transform === "translateY(0%)") {
         drop.classList.remove("show-copy");
         await anim(drop, [{ transform: "translateY(0%)" }, { transform: "translateY(-103%)" }], 600, "ease-in"); live(tok);
       }
-      resetWeek();
-      gauge.classList.remove("calm");
-      actEl.textContent = "Tonight’s prompt is being seated…";
-      statusEl.textContent = "Splitting the prompt into steps…";
-      clearSlots();
-      let splitEl: HTMLElement = promptCard;
-      if (small) {
-        const r = stage.getBoundingClientRect();
-        if (r.top < -60 || r.top > win.innerHeight * 0.4) { stage.scrollIntoView({ behavior: "smooth", block: "start" }); await wait(550, tok); }
-        seatPrompt.textContent = SCENARIOS[mode].prompt;
-        seating.classList.add("on");
-        await wait(450, tok);
-        splitEl = seatPrompt;
-      } else {
-        const house = id("houseCard", HTMLElement);
-        if (st.speed > 0 && !(inView(promptCard) && inView(house))) promptCard.scrollIntoView({ behavior: "smooth", block: "start" });
-        if (st.speed > 0) await wait(150, tok);
-      }
-      splitEl.classList.remove("splitting"); void splitEl.offsetWidth; splitEl.classList.add("splitting");
-      const steps = SCENARIOS[mode].steps;
-      const flights: Promise<void>[] = [];
-      for (let i = 0; i < steps.length; i++) { const s = steps[i]; if (s) flights.push(flyTicket(s, i, tok, small)); await wait(330, tok); }
-      await Promise.all(flights); live(tok);
-      price.classList.add("on");
-      barAll.style.width = "100%"; barRouted.style.width = "50%";
-      statusEl.textContent = "Each step in its seat. Same week again…";
-      await wait(small ? 1600 : 1100, tok);
-      if (small) { seating.classList.remove("on"); await wait(350, tok); }
-      else bring(stage);
-      st.seating = false;
       await playWeek("with", tok);
     } catch (e) { ignoreCancel(e); }
   }
@@ -542,10 +398,7 @@ export function startTheRun(doc: Document): void {
   async function skipToEnd(): Promise<void> {
     const hadFocus = doc.activeElement === skipBtn;
     const view = st.view;
-    try {
-      if (st.seating) await instant(tryPrompt);
-      else await instant(() => playWeek(view, ++st.token));
-    } catch (e) { ignoreCancel(e); }
+    try { await instant(() => playWeek(view, ++st.token)); } catch (e) { ignoreCancel(e); }
     if (hadFocus) replayBtn.focus();
   }
 
@@ -622,7 +475,7 @@ export function startTheRun(doc: Document): void {
     if (clip && typeof clip.writeText === "function") clip.writeText(PROMPT).then(() => say(COPIED), fallback);
     else fallback();
   });
-  /** Map your real week, Map my week and #command all move focus to the prompt section. */
+  /** Map your real week, Skip to the command and #command all move focus to the prompt section. */
   function focusCommand(): void { command.focus(); }
 
   /* ---------- Paste the result back: parsed here, shown as values only, never sent or stored ---------- */
@@ -653,11 +506,7 @@ export function startTheRun(doc: Document): void {
 
   /* ---------- wiring ---------- */
   pickBtns.forEach((b) => b.addEventListener("click", () => { const m = b.dataset.mode; if (m === "burn" || m === "under") { setMode(m); void runWithout(); } }));
-  tryBtn.addEventListener("click", () => { void tryPrompt(); });
-  [ghostBtn, dropBtn].forEach((b) => b.addEventListener("click", () => {
-    if (st.routed) { const tok = ++st.token; playWeek("with", tok).catch(ignoreCancel); }
-    else void tryPrompt();
-  }));
+  [ghostBtn, dropBtn].forEach((b) => b.addEventListener("click", () => { void playWith(); }));
   segBtns.forEach((b) => b.addEventListener("click", () => {
     const tok = ++st.token;
     playWeek(b.dataset.v === "with" ? "with" : "without", tok).catch(ignoreCancel);
@@ -677,14 +526,14 @@ export function startTheRun(doc: Document): void {
     if (link?.kind === "demo") {
       // test hook: plays the whole journey by itself
       pickBtns.find((b) => b.dataset.mode === link.mode)?.click();
-      demoTimer = win.setTimeout(() => tryBtn.click(), 5200);
+      demoTimer = win.setTimeout(() => { void playWith(); }, 5200);
       return;
     }
     if (!link) { if (!st.mode) pick.classList.add("nudge"); return; }
     setMode(link.mode);
     try {
       if (link.view === "without") { await instant(() => playWeek("without", st.token)); return; }
-      await instant(tryPrompt);
+      await instant(playWith);
     } catch (e) { ignoreCancel(e); }
   }
   if (reduced) { st.speed = 0; root.classList.add("instant"); }

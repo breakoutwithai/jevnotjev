@@ -9,7 +9,7 @@
 // is for and not for, and that the router is not built, with no word from the jargon list; no "curl" or "terminal"
 // anywhere on the page. The prompt is shown in full with no click, and no bun, curl, map.ts, --share, terminal,
 // download or script appears in the visible text or the copied prompt (the prompt's own "do not ... download" line
-// excepted). It drives the show by keyboard (pick, Skip to the end, Try this prompt, Skip; focus must land on Replay),
+// excepted). It drives the show by keyboard (pick, Skip to the end, See it with TokenMax, Skip; focus must land on Replay),
 // checks Tab reaches Skip to the command and Copy, that reduced motion jumps to end states, that Copy copies the exact
 // prompt, and at 1440 that the burn journey plays to its end with no skipping. With --base it also fails when site/tm/map.ts differs from that ref. Prints counts per width and CLEAN,
 // or each problem; exit 1 on any.
@@ -139,7 +139,7 @@ const smallText = (min: number): string => `(() => { const out = []; document.qu
   if (fs < ${min} - 0.01) out.push(el.tagName + '.' + (el.getAttribute('class') || '') + ' "' + el.textContent.trim().slice(0, 30) + '" ' + fs.toFixed(1) + 'px');
 }); return out; })()`;
 
-export type EndState = { drop: boolean; ghost: boolean; settled: boolean; half: number; extra: number; cancelled: number; verdict: string; badge: string; focus: string; skipHidden: boolean; promptShown: boolean };
+export type EndState = { drop: boolean; ghost: boolean; settled: boolean; half: number; extra: number; cancelled: number; act: string; badge: string; focus: string; skipHidden: boolean; promptShown: boolean };
 const END_STATE = `(() => ({
   drop: document.getElementById('drop').classList.contains('show-copy'),
   ghost: document.getElementById('ghost').classList.contains('on'),
@@ -147,7 +147,7 @@ const END_STATE = `(() => ({
   half: document.querySelectorAll('.poster.half').length,
   extra: document.querySelectorAll('.poster.has-extra').length,
   cancelled: document.querySelectorAll('.poster.cancel').length,
-  verdict: document.getElementById('reviewFull').hidden ? '' : document.getElementById('verdict').textContent,
+  act: document.getElementById('act').textContent,
   badge: document.getElementById('gaugeBadge').textContent,
   focus: document.activeElement ? document.activeElement.id : '',
   skipHidden: document.getElementById('skip').hidden,
@@ -160,16 +160,19 @@ async function endState(page: Page): Promise<EndState> {
   const num = (k: string): number => { const v = get(k); return typeof v === "number" ? v : -1; };
   const str = (k: string): string => { const v = get(k); return typeof v === "string" ? v : ""; };
   const bool = (k: string): boolean => get(k) === true;
-  return { drop: bool("drop"), ghost: bool("ghost"), settled: bool("settled"), half: num("half"), extra: num("extra"), cancelled: num("cancelled"), verdict: str("verdict"), badge: str("badge"), focus: str("focus"), skipHidden: bool("skipHidden"), promptShown: bool("promptShown") };
+  return { drop: bool("drop"), ghost: bool("ghost"), settled: bool("settled"), half: num("half"), extra: num("extra"), cancelled: num("cancelled"), act: str("act"), badge: str("badge"), focus: str("focus"), skipHidden: bool("skipHidden"), promptShown: bool("promptShown") };
 }
 
+/** The stage's act line for each ending (the review card that once named the verdict is gone, operator 2026-10-21). */
+export const WITHOUT_ACT = "Without TokenMax \u00b7 every step in the royal box";
+export const WITH_ACT = { burn: "With TokenMax \u00b7 each step in its seat", under: "With TokenMax \u00b7 cheaper seats, then more jobs" };
 /** What each end-state deep link must show. */
 export function expectedEnd(hash: string, s: EndState): string | null {
   const ok = (cond: boolean): string | null => cond ? null : JSON.stringify(s);
-  if (hash === "#burn-before") return ok(s.drop && s.cancelled === 3 && s.verdict === "Walk out");
-  if (hash === "#burn-after") return ok(s.settled && s.verdict === "Standing ovation" && s.badge === "Lasted to Sunday");
-  if (hash === "#under-before") return ok(s.ghost && s.half === 7 && s.verdict === "Still in previews");
-  if (hash === "#under-after") return ok(s.settled && s.extra === 6 && s.verdict === "Standing ovation" && s.badge === "Target passed");
+  if (hash === "#burn-before") return ok(s.drop && s.cancelled === 3 && s.act === WITHOUT_ACT);
+  if (hash === "#burn-after") return ok(s.settled && s.act === WITH_ACT.burn && s.badge === "Lasted to Sunday");
+  if (hash === "#under-before") return ok(s.ghost && s.half === 7 && s.act === WITHOUT_ACT);
+  if (hash === "#under-after") return ok(s.settled && s.extra === 6 && s.act === WITH_ACT.under && s.badge === "Target passed");
   if (hash === "#command") return ok(s.focus === "command" && s.promptShown);
   return null;
 }
@@ -207,6 +210,11 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
         add(`${label}: curtain scene absent`, gone.length ? `found #${gone.join(", #")}` : null);
         const end = await endState(page);
         if (["#burn-before", "#burn-after", "#under-before", "#under-after", "#command"].includes(hash)) add(`${label}: end state`, expectedEnd(hash, end));
+        // The tagline fades in only once a week has played to its end: on every end-state deep link, never at rest.
+        if (hash === "" || hash.endsWith("-before") || hash.endsWith("-after")) {
+          const shown = await page.evaluate(() => { const el = document.getElementById("keepLights"); return !!el && el.classList.contains("shown") && el.checkVisibility({ visibilityProperty: true }); });
+          add(`${label}: tagline ${hash === "" ? "hidden at rest" : "shown at the end"}`, shown === (hash !== "") ? null : `shown ${String(shown)}`);
+        }
         if (hash === "") {
           // Issue #309 criterion 3, first viewport, no scroll: every visible text node that intersects the viewport.
           const first = await page.evaluate(() => {
@@ -216,8 +224,13 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
               const text = (node.textContent ?? "").trim();
               const el = node.parentElement;
               if (!text || !el || el.closest("script, style") || !el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) continue;
-              const range = document.createRange(); range.selectNodeContents(node);
-              if ([...range.getClientRects()].some((r) => r.width > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth)) texts.push(text);
+              // Word by word: a long text node (the prompt) may start in the first viewport and run on below it.
+              const words: string[] = [];
+              for (const m of (node.textContent ?? "").matchAll(/\S+/g)) {
+                const range = document.createRange(); range.setStart(node, m.index); range.setEnd(node, m.index + m[0].length);
+                if ([...range.getClientRects()].some((r) => r.width > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth)) words.push(m[0]);
+              }
+              if (words.length) texts.push(words.join(" "));
             }
             const rect = (el: Element | null): { top: number; bottom: number; left: number; right: number; height: number } | null => {
               if (!el) return null; const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height };
@@ -248,8 +261,19 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
             return { text: el?.textContent ?? "", shown: !!el && el.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && (el.getBoundingClientRect().height > 0), inDetails: !!el?.closest("details") };
           });
           add("the exact prompt is shown in full with no click", prompt.text === PROMPT && prompt.shown && !prompt.inDetails ? null : JSON.stringify(prompt));
-          const control = await page.evaluate(() => ({ jump: document.getElementById("jumpCommand")?.textContent ?? "", map: document.getElementById("mapWeek")?.getAttribute("href") ?? "", paste: document.getElementById("pasteLine")?.textContent ?? "", heading: document.getElementById("hCmd")?.textContent ?? "", trust: document.getElementById("trust")?.textContent ?? "", details: document.querySelectorAll("details").length }));
-          add("Map your real week: plain heading, paste line, trust line, no gate", control.jump === "Skip to the command" && control.map === "#command" && control.paste === "Paste this into Claude Code or Codex." && control.heading === "Map your real week" && control.trust === "Nothing is sent anywhere. You decide what to do with the summary." && control.details === 0 ? null : JSON.stringify(control));
+          const control = await page.evaluate(() => {
+            const h = document.getElementById("hCmd")?.getBoundingClientRect(), t = document.getElementById("trust")?.getBoundingClientRect();
+            return {
+              jump: document.getElementById("jumpCommand")?.textContent ?? "", mapGone: document.getElementById("mapWeek") === null && document.querySelector(".foot") === null, illustrative: /illustrative/i.test(document.documentElement.textContent ?? ""), keepShown: document.getElementById("keepLights")?.classList.contains("shown") ?? true,
+              keep: document.getElementById("keepLights")?.textContent ?? "", pasteLine: document.getElementById("pasteLine") !== null, heading: document.getElementById("hCmd")?.textContent ?? "",
+              trust: document.getElementById("trust")?.textContent ?? "", copy: document.getElementById("copy")?.textContent ?? "", details: document.querySelectorAll("details").length,
+              cards: ["promptCard", "houseCard", "review", "tryBtn", "seating"].filter((n) => document.getElementById(n) !== null),
+              // the trust line shares the heading's line at 1440 (it may wrap under it on a phone)
+              sameLine: !!h && !!t && Math.abs(h.bottom - t.bottom) < 12, below: !!h && !!t && t.top >= h.bottom - 2,
+            };
+          });
+          const headOk = vp.mobile ? control.sameLine || control.below : control.sameLine;
+          add("no button or footer under the stage, the tagline hidden until a week ends, no Illustrative text, Map your real week heading with the trust line, Copy names where to paste, no gate, no cards", control.jump === "Skip to the command" && control.mapGone && !control.illustrative && !control.keepShown && control.keep === "TokenMax + Jev can help keep the lights on" && !control.pasteLine && control.heading === "Map your real week" && control.trust === "Nothing is sent anywhere. You decide what to do with the summary." && control.copy === "Copy for Claude Code or Codex" && control.details === 0 && control.cards.length === 0 && headOk ? null : JSON.stringify(control));
         }
         const floor = TEXT_FLOOR[vp.width] ?? 12;
         const small: unknown = await page.evaluate(smallText(floor));
@@ -261,7 +285,7 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
       } finally { await page.close(); }
     }
 
-    // 2. the show by keyboard: pick, Skip to the end, Try this prompt, Skip; focus lands on Replay both times
+    // 2. the show by keyboard: pick, Skip to the end, See it with TokenMax, Skip; focus lands on Replay both times
     for (const mode of MODES) {
       const page = await context.newPage();
       const seen = watch(page);
@@ -284,7 +308,7 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
         await press(page, "skip");
         await sleep(1000);
         const second = await endState(page);
-        const withEnd = second.settled && second.verdict === "Standing ovation" && (mode === "under" ? second.extra === 6 : second.badge === "Lasted to Sunday");
+        const withEnd = second.settled && second.act === WITH_ACT[mode] && (mode === "under" ? second.extra === 6 : second.badge === "Lasted to Sunday");
         add(`keyboard ${mode}: Skip reaches the With end`, withEnd ? null : JSON.stringify(second));
         add(`keyboard ${mode}: focus on Replay after the second Skip`, second.focus === "replay" ? null : `focus on ${second.focus || "nothing"}`);
         errorsOf(`keyboard ${mode}`, seen);
@@ -380,7 +404,7 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
         await sleep(6500);
         const mid = await endState(page);
         add("natural burn: the curtain drops at the limit", mid.drop && mid.cancelled === 3 ? null : JSON.stringify(mid));
-        await page.locator("#tryBtn").click();
+        await page.locator("#dropBtn").click();
         await sleep(17000);
         const end = await endState(page);
         add("natural burn: curtain call, Skip hidden at the end", end.settled && end.skipHidden && end.badge === "Lasted to Sunday" ? null : JSON.stringify(end));

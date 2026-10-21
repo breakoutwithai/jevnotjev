@@ -99,40 +99,16 @@
   var TARGET_LEFT = 15;
   var SCENARIOS = {
     burn: {
-      prompt: "“Tidy up the test names in my repo and flag anything risky”",
-      steps: [
-        { t: "List every test file", seat: "rule", ans: { kind: "none" } },
-        { t: "Is this name unclear?", seat: "jev", ans: { kind: "noul", v: 0.82, lab: "Likely yes" } },
-        { t: "Rename, merge or leave?", seat: "jev", ans: { kind: "choice", opts: ["rename", "merge", "leave"], pick: 0 } },
-        { t: "Rewrite names, explain risky ones", seat: "royal", ans: { kind: "none" } }
-      ],
       without: [26, 26, 26, 26, 26, 26, 26],
       with: [13, 13, 13, 13, 13, 13, 13],
       extra: [0, 0, 0, 0, 0, 0, 0],
       jobs: ["", "", "", "", "", "", ""]
     },
     under: {
-      prompt: "“Sort my open issues by how hard they are and fix the easy ones”",
-      steps: [
-        { t: "Pull the open issues", seat: "rule", ans: { kind: "none" } },
-        { t: "How hard is this one?", seat: "jev", ans: { kind: "score", opts: ["trivial", "ordinary", "hard"], pick: 0 } },
-        { t: "Safe to fix on its own?", seat: "jev", ans: { kind: "noul", v: 0.74, lab: "Likely yes" } },
-        { t: "Fix the easy ones, write notes", seat: "royal", ans: { kind: "none" } }
-      ],
       without: [8, 7, 9, 6, 8, 5, 4],
       with: [4, 3, 5, 3, 4, 3, 2],
       extra: [0, 11, 9, 11, 10, 11, 12],
       jobs: ["", "Review last week’s PRs", "", "", "Write tests for the login page", "", ""]
-    }
-  };
-  var VERDICT = {
-    burn: {
-      with: { stars: 5, v: "Standing ovation", sub: "Seven shows. The lights lasted to Sunday’s curtain call.", was: "Without TokenMax: <s>Walk out</s>" },
-      without: { stars: 1, v: "Walk out", sub: "Curtain down Thursday night. Three shows cancelled.", was: "With TokenMax: <b>Standing ovation</b>" }
-    },
-    under: {
-      with: { stars: 5, v: "Standing ovation", sub: "Cheaper seats freed room. 6 more jobs filled it. Target hit.", was: "Without TokenMax: <s>Still in previews</s>" },
-      without: { stars: 2, v: "Still in previews", sub: "Half the house empty all week.", was: "With TokenMax: <b>Standing ovation</b>" }
     }
   };
   function seatsFor(u) {
@@ -171,15 +147,13 @@
     const id = (name, kind) => inside(doc, `#${name}`, kind);
     const reduceQuery = win.matchMedia("(prefers-reduced-motion: reduce)");
     let reduced = reduceQuery.matches;
-    const compact = () => win.innerWidth < 760;
     const st = {
       mode: null,
       routed: false,
       view: "without",
       token: 0,
       speed: 1,
-      busy: false,
-      seating: false
+      busy: false
     };
     const sum = (a) => a.reduce((x, y) => x + y, 0);
     const bulbsEl = id("bulbs", HTMLElement);
@@ -238,15 +212,12 @@
     const stage = id("stage", HTMLElement), opening = id("opening", HTMLElement), drop = id("drop", HTMLElement), ghost = id("ghost", HTMLElement);
     const dim = id("dim", HTMLElement), gauge = id("gauge", HTMLElement), needle = id("needle", SVGGElement), arc = id("gaugeArc", SVGPathElement);
     const leftPct = id("leftPct", HTMLElement), statusEl = id("status", HTMLElement), actEl = id("act", HTMLElement);
-    const gaugeBadge = id("gaugeBadge", HTMLElement), foundEl = id("found", HTMLElement), seating = id("seating", HTMLElement);
+    const gaugeBadge = id("gaugeBadge", HTMLElement), foundEl = id("found", HTMLElement);
     const skipBtn = id("skip", HTMLButtonElement), replayBtn = id("replay", HTMLButtonElement);
-    const tryBtn = id("tryBtn", HTMLButtonElement), promptText = id("promptText", HTMLElement), promptCard = id("promptCard", HTMLElement);
-    const seatPrompt = id("seatPrompt", HTMLElement), pick = inside(doc, ".pick", HTMLElement);
+    const pick = inside(doc, ".pick", HTMLElement), keepLights = id("keepLights", HTMLElement);
     const pickBtns = every(doc, ".pick-btn", HTMLButtonElement), segBtns = every(doc, "#seg button", HTMLButtonElement);
     const seg = id("seg", HTMLElement), compare = id("compare", HTMLElement), command = id("command", HTMLElement);
-    const price = id("price", HTMLElement), barAll = id("barAll", HTMLElement), barRouted = id("barRouted", HTMLElement);
     const ghostBtn = id("ghostBtn", HTMLButtonElement), dropBtn = id("dropBtn", HTMLButtonElement);
-    const slot = (prefix, seat) => id(`${prefix}-${seat}`, HTMLElement);
     const live = (tok) => {
       if (tok !== st.token)
         throw new Cancel;
@@ -349,7 +320,6 @@
       stage.classList.remove("call", "anim", "settled");
       gaugeBadge.textContent = "";
       foundEl.hidden = true;
-      seating.classList.remove("on");
       ghost.classList.remove("on");
       bulbsEl.classList.remove("chase");
       stopConfetti();
@@ -409,8 +379,10 @@
             fillSeats(p, Math.round(pr * 12 * frac));
           }, tok);
           await dropCurtain(i, tok);
-          if (tok === st.token)
+          if (tok === st.token) {
             setBusy(false);
+            keepLights.classList.add("shown");
+          }
           return;
         }
         const baseSeats = mode === "burn" ? 12 : seatsFor(base);
@@ -460,8 +432,10 @@
         await curtainCall(tok);
       else
         await ghostLight(left, tok);
-      if (tok === st.token)
+      if (tok === st.token) {
         setBusy(false);
+        keepLights.classList.add("shown");
+      }
     }
     function dust() {
       if (st.speed <= 0)
@@ -529,23 +503,15 @@
           s.style.setProperty("--d", `${(0.35 + 0.28 * (j - i)) * st.speed}s`);
         }
       });
-      dropBtn.textContent = st.routed ? "See it with TokenMax" : "Try this prompt";
       drop.classList.add("show-copy");
       statusEl.textContent = `Curtain down ${LONG[i] ?? ""}. ${7 - i - 1} shows cancelled.`;
-      showReview("without");
-      if (!st.routed)
-        tryBtn.classList.add("ready");
     }
     async function ghostLight(left, tok) {
       statusEl.textContent = "Sunday. The run ends with seats to spare.";
       await wait(400, tok);
       id("ghostSub", HTMLElement).textContent = `${Math.round(left)}% of your week paid for, never played`;
-      ghostBtn.textContent = st.routed ? "See it with TokenMax" : "Try this prompt";
       ghost.classList.add("on");
       statusEl.textContent = `${Math.round(left)}% of your week left unused.`;
-      showReview("without");
-      if (!st.routed)
-        tryBtn.classList.add("ready");
     }
     async function curtainCall(tok) {
       statusEl.textContent = "Sunday. Final show…";
@@ -566,7 +532,6 @@
       const rise = anim(drop, [{ transform: "translateY(0%)" }, { transform: "translateY(-103%)" }], 900, "cubic-bezier(.2,.7,.2,1)");
       await wait(200, tok);
       stage.classList.add("call");
-      showReview("with");
       if (st.speed > 0) {
         stage.classList.add("anim");
         bulbsEl.classList.add("chase");
@@ -587,104 +552,6 @@
       bulbsEl.classList.remove("chase");
       statusEl.textContent = st.mode === "burn" ? "Seven shows. Lights lasted to Sunday." : "6 more jobs run. Weekly target hit.";
     }
-    function showReview(view) {
-      if (!st.mode)
-        return;
-      const v = VERDICT[st.mode][view];
-      id("reviewEmpty", HTMLElement).hidden = true;
-      const full = id("reviewFull", HTMLElement);
-      full.hidden = false;
-      full.style.animation = "none";
-      full.offsetWidth;
-      full.style.animation = "";
-      id("stars", HTMLElement).innerHTML = `${"★".repeat(v.stars)}<span class="off">${"★".repeat(5 - v.stars)}</span>`;
-      id("verdict", HTMLElement).textContent = v.v;
-      id("verdictSub", HTMLElement).textContent = v.sub;
-      const was = id("was", HTMLElement);
-      was.innerHTML = st.routed ? v.was : "";
-      was.hidden = !st.routed;
-    }
-    function resetReview() {
-      id("reviewEmpty", HTMLElement).hidden = false;
-      id("reviewFull", HTMLElement).hidden = true;
-    }
-    function makeTicket(s) {
-      const li = doc.createElement("li");
-      li.className = `ticket ${s.seat}`;
-      let w = "";
-      if (s.ans.kind === "noul")
-        w = '<span class="ans"><svg class="dial" viewBox="0 0 40 24"><path d="M4 22 A16 16 0 0 1 36 22" stroke="#6b5440" stroke-width="4" fill="none"/><path class="fa" d="M4 22 A16 16 0 0 1 36 22" stroke="#e0b04e" stroke-width="4" fill="none" pathLength="100" stroke-dasharray="0 100"/><line class="nd" x1="20" y1="22" x2="20" y2="7" stroke="#efe2c4" stroke-width="2.5" stroke-linecap="round"/></svg><span class="al">yes / no</span></span>';
-      if (s.ans.kind === "choice")
-        w = `<span class="ans pickbar">${s.ans.opts.map((o) => `<b>${o}</b>`).join("")}</span>`;
-      if (s.ans.kind === "score")
-        w = `<span class="ans steps">${s.ans.opts.map((o) => `<b>${o}</b>`).join("")}</span>`;
-      li.innerHTML = `<span>${s.t}</span>${w}`;
-      return li;
-    }
-    function answer(li, s) {
-      const a = s.ans;
-      if (a.kind === "noul") {
-        inside(li, ".nd", SVGLineElement).style.transform = `rotate(${-90 + 180 * a.v}deg)`;
-        inside(li, ".fa", SVGPathElement).setAttribute("stroke-dasharray", `${a.v * 100} 100`);
-        inside(li, ".al", HTMLElement).textContent = a.lab;
-      }
-      if (a.kind === "choice" || a.kind === "score")
-        every(li, ".ans b", HTMLElement)[a.pick]?.classList.add("on");
-    }
-    function clearSlots() {
-      ["royal", "jev", "rule"].forEach((k) => {
-        slot("slot", k).textContent = "";
-        slot("sx", k).textContent = "";
-      });
-      price.classList.remove("on");
-      barAll.style.width = "0";
-      barRouted.style.width = "0";
-    }
-    async function flyTicket(s, idx, tok, small) {
-      const ph = makeTicket(s);
-      ph.classList.add("ph");
-      slot(small ? "sx" : "slot", s.seat).appendChild(ph);
-      if (small) {
-        const copy = makeTicket(s);
-        slot("slot", s.seat).appendChild(copy);
-        answer(copy, s);
-      }
-      if (st.speed <= 0) {
-        ph.classList.remove("ph");
-        answer(ph, s);
-        return;
-      }
-      const fly = makeTicket(s);
-      fly.classList.add("fly");
-      doc.body.appendChild(fly);
-      const src = (small ? seatPrompt : promptText).getBoundingClientRect(), dst = ph.getBoundingClientRect(), fw = fly.getBoundingClientRect();
-      const sx = src.left + src.width * (0.15 + 0.22 * idx) - fw.width / 2, sy = src.top + src.height / 2 - fw.height / 2;
-      const { left: ex, top: ey } = dst;
-      const mx = (sx + ex) / 2 + (idx % 2 ? 40 : -40), my = Math.min(sy, ey) - (small ? 30 : 70);
-      await fly.animate([
-        { transform: `translate(${sx}px,${sy}px) scale(.4) rotate(-14deg)`, opacity: 0 },
-        { transform: `translate(${mx}px,${my}px) scale(1.15) rotate(8deg)`, opacity: 1, offset: 0.45 },
-        { transform: `translate(${ex}px,${ey}px) scale(1) rotate(0deg)`, opacity: 1 }
-      ], { duration: 820 * st.speed, easing: "cubic-bezier(.45,.05,.3,1)" }).finished.then(() => {
-        return;
-      }, () => {
-        return;
-      });
-      fly.remove();
-      if (tok !== st.token)
-        return;
-      ph.classList.remove("ph");
-      ph.animate([{ transform: "scale(1.18)" }, { transform: "scale(1)" }], { duration: 260, easing: "ease-out" });
-      win.setTimeout(() => answer(ph, s), 150);
-    }
-    function inView(el) {
-      const r = el.getBoundingClientRect();
-      return r.top >= 0 && r.bottom <= win.innerHeight;
-    }
-    function bring(el) {
-      if (st.speed > 0 && !inView(el))
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
     function setMode(m) {
       st.mode = m;
       st.routed = false;
@@ -692,11 +559,7 @@
       pickBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
       pick.classList.remove("nudge", "cue-on");
       pick.classList.add("picked");
-      promptText.textContent = SCENARIOS[m].prompt;
-      clearSlots();
-      resetReview();
       updateCompare();
-      tryBtn.classList.remove("ready");
       targetMark.setAttribute("opacity", m === "under" ? "1" : "0");
     }
     function updateCompare() {
@@ -711,18 +574,15 @@
         ignoreCancel(e);
       }
     }
-    async function tryPrompt() {
+    async function playWith() {
       if (!st.mode)
         setMode("burn");
-      const mode = st.mode ?? "burn";
       const tok = ++st.token;
       st.routed = true;
-      st.seating = true;
+      st.view = "with";
       updateCompare();
       setBusy(true);
       segBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === "with")));
-      tryBtn.classList.remove("ready");
-      const small = compact() && st.speed > 0;
       try {
         ghost.classList.remove("on");
         if (drop.classList.contains("show-copy") || drop.style.transform === "translateY(0%)") {
@@ -730,53 +590,6 @@
           await anim(drop, [{ transform: "translateY(0%)" }, { transform: "translateY(-103%)" }], 600, "ease-in");
           live(tok);
         }
-        resetWeek();
-        gauge.classList.remove("calm");
-        actEl.textContent = "Tonight’s prompt is being seated…";
-        statusEl.textContent = "Splitting the prompt into steps…";
-        clearSlots();
-        let splitEl = promptCard;
-        if (small) {
-          const r = stage.getBoundingClientRect();
-          if (r.top < -60 || r.top > win.innerHeight * 0.4) {
-            stage.scrollIntoView({ behavior: "smooth", block: "start" });
-            await wait(550, tok);
-          }
-          seatPrompt.textContent = SCENARIOS[mode].prompt;
-          seating.classList.add("on");
-          await wait(450, tok);
-          splitEl = seatPrompt;
-        } else {
-          const house = id("houseCard", HTMLElement);
-          if (st.speed > 0 && !(inView(promptCard) && inView(house)))
-            promptCard.scrollIntoView({ behavior: "smooth", block: "start" });
-          if (st.speed > 0)
-            await wait(150, tok);
-        }
-        splitEl.classList.remove("splitting");
-        splitEl.offsetWidth;
-        splitEl.classList.add("splitting");
-        const steps = SCENARIOS[mode].steps;
-        const flights = [];
-        for (let i = 0;i < steps.length; i++) {
-          const s = steps[i];
-          if (s)
-            flights.push(flyTicket(s, i, tok, small));
-          await wait(330, tok);
-        }
-        await Promise.all(flights);
-        live(tok);
-        price.classList.add("on");
-        barAll.style.width = "100%";
-        barRouted.style.width = "50%";
-        statusEl.textContent = "Each step in its seat. Same week again…";
-        await wait(small ? 1600 : 1100, tok);
-        if (small) {
-          seating.classList.remove("on");
-          await wait(350, tok);
-        } else
-          bring(stage);
-        st.seating = false;
         await playWeek("with", tok);
       } catch (e) {
         ignoreCancel(e);
@@ -795,10 +608,7 @@
       const hadFocus = doc.activeElement === skipBtn;
       const view = st.view;
       try {
-        if (st.seating)
-          await instant(tryPrompt);
-        else
-          await instant(() => playWeek(view, ++st.token));
+        await instant(() => playWeek(view, ++st.token));
       } catch (e) {
         ignoreCancel(e);
       }
@@ -985,15 +795,8 @@
         runWithout();
       }
     }));
-    tryBtn.addEventListener("click", () => {
-      tryPrompt();
-    });
     [ghostBtn, dropBtn].forEach((b) => b.addEventListener("click", () => {
-      if (st.routed) {
-        const tok = ++st.token;
-        playWeek("with", tok).catch(ignoreCancel);
-      } else
-        tryPrompt();
+      playWith();
     }));
     segBtns.forEach((b) => b.addEventListener("click", () => {
       const tok = ++st.token;
@@ -1018,7 +821,9 @@
       }
       if (link?.kind === "demo") {
         pickBtns.find((b) => b.dataset.mode === link.mode)?.click();
-        demoTimer = win.setTimeout(() => tryBtn.click(), 5200);
+        demoTimer = win.setTimeout(() => {
+          playWith();
+        }, 5200);
         return;
       }
       if (!link) {
@@ -1032,7 +837,7 @@
           await instant(() => playWeek("without", st.token));
           return;
         }
-        await instant(tryPrompt);
+        await instant(playWith);
       } catch (e) {
         ignoreCancel(e);
       }

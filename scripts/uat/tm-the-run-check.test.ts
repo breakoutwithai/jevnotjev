@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { badArgs, BANNED_ANYWHERE, bannedHits, expectedEnd, jargonHits, mapUnchanged, PROMPT, PROMPT_NEGATION, report, runTheRunCheck, summarise, type Check } from "./tm-the-run-check.ts";
+import { WITH_ACT, WITHOUT_ACT, badArgs, BANNED_ANYWHERE, bannedHits, expectedEnd, jargonHits, mapUnchanged, PROMPT, PROMPT_NEGATION, report, runTheRunCheck, summarise, type Check } from "./tm-the-run-check.ts";
 
 // En and em dash, built from code points so no dash glyph sits in this file.
 const DASH = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`);
@@ -17,11 +17,11 @@ test("[unit] TR-1 summarise counts per width and is clean only with checks and n
 });
 
 test("[unit] TR-2 each end-state deep link names what it must show", () => {
-  const base = { drop: false, ghost: false, settled: false, half: 0, extra: 0, cancelled: 0, verdict: "", badge: "", focus: "", skipHidden: true, promptShown: false };
-  expect(expectedEnd("#burn-before", { ...base, drop: true, cancelled: 3, verdict: "Walk out" })).toBeNull();
-  expect(expectedEnd("#burn-before", { ...base, drop: true, cancelled: 2, verdict: "Walk out" })).not.toBeNull();
-  expect(expectedEnd("#under-after", { ...base, settled: true, extra: 6, verdict: "Standing ovation", badge: "Target passed" })).toBeNull();
-  expect(expectedEnd("#under-after", { ...base, settled: true, extra: 5, verdict: "Standing ovation", badge: "Target passed" })).not.toBeNull();
+  const base = { drop: false, ghost: false, settled: false, half: 0, extra: 0, cancelled: 0, act: "", badge: "", focus: "", skipHidden: true, promptShown: false };
+  expect(expectedEnd("#burn-before", { ...base, drop: true, cancelled: 3, act: WITHOUT_ACT })).toBeNull();
+  expect(expectedEnd("#burn-before", { ...base, drop: true, cancelled: 2, act: WITHOUT_ACT })).not.toBeNull();
+  expect(expectedEnd("#under-after", { ...base, settled: true, extra: 6, act: WITH_ACT.under, badge: "Target passed" })).toBeNull();
+  expect(expectedEnd("#under-after", { ...base, settled: true, extra: 5, act: WITH_ACT.under, badge: "Target passed" })).not.toBeNull();
   expect(expectedEnd("#command", { ...base, focus: "command", promptShown: true })).toBeNull();
   expect(expectedEnd("#command", { ...base, focus: "command", promptShown: false })).not.toBeNull();
   expect(expectedEnd("#command", { ...base, focus: "copy", promptShown: true })).not.toBeNull();

@@ -85,7 +85,7 @@ export function renderAdminDetail(row: QuestionRow): Response {
   const next = nextStates(row.state);
   const facts = [
     field("State", row.state), field("Version", String(row.version)), field("Scope", row.scope),
-    field("Created", row.created_at), field("Updated", row.updated_at), field("Email", row.email ?? "none (guest token)"),
+    field("Created", row.created_at), field("Updated", row.updated_at), field("Email", row.email ?? (row.scope === "public" ? "none given" : "none (guest token)")),
     field("Reply consent", row.reply_consent === 1 ? "yes" : "no"), field("Marketing consent", row.marketing_consent === 1 ? "yes" : "no"),
   ].join("");
   const reply = row.response === null

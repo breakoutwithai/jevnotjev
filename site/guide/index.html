@@ -341,6 +341,52 @@
 </dl>
 
 </div></details>
+<section id="providers" class="providers" aria-labelledby="providers-title">
+<div class="section-heading"><p class="eyebrow">Providers and models</p><h2 id="providers-title">What works today and what is next</h2></div>
+<div class="provider-columns">
+<div class="provider-card"><h3>Works today</h3><ul id="providersNow">
+<li><strong>TokenMax map:</strong> reads Claude Code and Codex usage logs on your own machine. It reads no other tool's logs yet.</li>
+<li><strong>Time window:</strong> the last <span data-const="TM_DEFAULT_DAYS">7</span> days by default. Add <code>--days N</code> to choose another number of days.</li>
+<li><strong>Backstage comparisons</strong> (invited testers, your own keys): Jev against models from Anthropic, OpenAI, Google (Gemini) and xAI (Grok).</li>
+</ul></div>
+<div class="provider-card"><h3>Requested, not built</h3><ul id="providersNext">
+<li><strong>xAI (Grok)</strong> usage in the TokenMax map: requested, not built.</li>
+<li><strong>Google (Gemini)</strong> usage in the TokenMax map: requested, not built.</li>
+</ul><p>No dates are promised. Each request tells us what people want built next.</p>
+<button type="button" class="button provider-ask" id="providerAsk" aria-haspopup="dialog" aria-controls="providerDialog">Ask for a model or provider</button></div>
+</div>
+<details class="provider-detail"><summary>Technical detail</summary>
+<p>The map is <code>/tm/map.ts</code>, tokenmax-map skill version <span data-const="TM_VERSION">0.3.0</span>. It reads <code>~/.claude/projects</code> and <code>~/.codex/sessions</code> when they exist. <code>--claude DIR</code> and <code>--codex DIR</code> point at other folders, and <code>none</code> skips one. <code>--from YYYY-MM-DD --to YYYY-MM-DD</code> sets an exact period instead of <code>--days</code>.</p>
+</details>
+<dialog id="providerDialog" class="provider-dialog" aria-labelledby="providerDialogTitle" aria-describedby="providerDialogNote">
+<div class="provider-dialog-head"><h2 id="providerDialogTitle">Ask for a model or provider</h2><button type="button" id="providerClose" class="provider-close">Close</button></div>
+<form id="providerForm" novalidate>
+<p id="providerDialogNote" class="provider-hint">A person reads each request. Sending one does not promise a date. Do not include keys, passwords or private data.</p>
+<label for="providerWant">Provider or model you want</label>
+<select id="providerWant" aria-describedby="providerWantErr"><option value="">Choose one</option><option value="xAI (Grok)">xAI (Grok)</option><option value="Google (Gemini)">Google (Gemini)</option><option value="Other">Other</option></select>
+<p class="provider-err" id="providerWantErr" hidden>Choose a provider or model.</p>
+<div id="providerOtherRow" hidden><label for="providerOther">Which one?</label><input id="providerOther" type="text" autocomplete="off" aria-describedby="providerOtherErr"><p class="provider-err" id="providerOtherErr" hidden>Name the provider or model.</p></div>
+<label for="providerUse">What do you use it for?</label>
+<textarea id="providerUse" rows="4" aria-describedby="providerUseErr"></textarea>
+<p class="provider-err" id="providerUseErr" hidden>Say what you use it for.</p>
+<label for="providerEmail">Contact email (optional)</label>
+<input id="providerEmail" type="email" autocomplete="email" aria-describedby="providerEmailHint providerEmailErr">
+<p class="provider-hint" id="providerEmailHint">Leave it empty if you prefer. Only a person here sees it; any reply shows on the status page, not by email.</p>
+<p class="provider-err" id="providerEmailErr" hidden>Check the email, or leave it empty.</p>
+<div class="provider-consent"><input type="checkbox" id="providerConsent" aria-describedby="providerConsentErr"><label for="providerConsent">I understand a person reads this request and may post a reply on the status page.</label></div>
+<p class="provider-err" id="providerConsentErr" hidden>Tick the box to send.</p>
+<div class="provider-trap" aria-hidden="true"><label for="providerNickname">Leave this empty</label><input id="providerNickname" type="text" tabindex="-1" autocomplete="off"></div>
+<p class="provider-err" id="providerErr" role="alert" hidden></p>
+<button type="submit" id="providerSend" class="button">Send request</button>
+</form>
+<div id="providerReceipt" class="provider-receipt" tabindex="-1" hidden>
+<h3>Request received</h3>
+<p>Your reference is <strong id="providerRef"></strong>.</p>
+<p>Your private status code, shown once: <code id="providerCode"></code></p>
+<p><a href="/ask/#status">Check its status</a> with that code.</p>
+</div>
+</dialog>
+</section>
 </main>
 <footer>
 <p>Demo service. Use made-up or redacted data only. Backstage does not save your cases, runs or keys to a file or database on our server. We accept no responsibility for real data loaded or entered here. <a href="/privacy/">How we handle data</a> &middot; <a href="mailto:jev@breakoutwithai.com?subject=Jev!Jev%20feedback">Send feedback</a></p>

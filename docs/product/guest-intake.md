@@ -104,6 +104,7 @@ Live, read-only on 2026-10-18: static `/DEPLOYED_SHA` serves `3418769`; `GET /ap
 | `GET /api/v1/guest/questions/<id>` | guest bearer, own only | none |
 
 - Public submit body: `email`, `question` (1 to 4,096 typed characters), `reply_consent: true`, optional `marketing_consent`, optional `usage` (a valid tm-share/1 object), `request_key` (43 base64url characters, client-generated), honeypot `nickname`. Unknown keys are rejected.
+- Optional `topic: "provider-request"` (any other value is 400 `bad-topic`): sent by the /guide/ "Ask for a model or provider" dialog. For this topic only, `email` may be absent or empty and is stored as null; the stored question gets the server-set prefix `[Provider request] `, so the operator finds it with `--question-admin show <id>` or `/backstage/questions/?id=<id>` (detail shows Email "none given").
 - The status code is `<id>.<request_key>`; the server stores only `sha256(request_key)`. Same pattern as `maps.ts:245-247`.
 - The code travels in a POST body, never a URL, so it reaches no access log or referrer.
 - Errors are a `code` only. Logs record `question.received` / `question.rejected` / `question.deleted` with id and reason, never email, text or code.

@@ -28,6 +28,7 @@ import { questionAdminArgs, runQuestionAdmin } from "../guest-intake/admin-cli.t
 import { createAdminRoutes, isAdminPath, type AdminAccess } from "../guest-intake/admin-routes.ts";
 import { createAdminApi, isAdminApiPath } from "../guest-intake/admin-api.ts";
 import { ADMIN_MCP_PATH, createAdminMcpHttp } from "../guest-intake/admin-mcp-http.ts";
+import { createGuestMcpHttp, GUEST_MCP_PATH } from "../guest-intake/guest-mcp-http.ts";
 import type { QuestionLimits } from "../guest-intake/contract.ts";
 import { checkDelete, checkMap, createMapLogger, MapStore, MAX_MAP_BODY, MAX_MAP_DELETE_BODY } from "./maps.ts";
 import { rankPosters, type Poster } from "../shows/posters.ts";
@@ -243,6 +244,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   const questionAdmin = createAdminRoutes({ path: options.tickets?.path, origin, clock, log: options.log, limits: options.questions?.limits });
   const adminApi = createAdminApi({ path: options.tickets?.path, clock, log: options.log, limits: options.questions?.limits });
   const adminMcp = createAdminMcpHttp({ api: adminApi, origin, clock, log: options.log });
+  const guestMcp = createGuestMcpHttp({ routes: guests, origin, clock, log: options.log });
   const tokensPath = options.api?.tokensPath;
   const api = createApiV1({
     tokens: new ApiTokenStore(tokensPath !== undefined && tokensPath !== "" && !isInside(tokensPath, root) ? tokensPath : null),
@@ -704,6 +706,8 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       }
     }
     // Guest questions (#256) own /api/v1/guest/ and are dispatched first: a guest token never reaches the decide tools.
+    // The remote guest MCP (#362) is the one path under /api/v1/guest/ that speaks MCP; its tools call guests in process.
+    if (pathname === GUEST_MCP_PATH) return guestMcp.handle(request, ip, rid);
     if (isGuestPath(pathname)) return guests.handle(request, pathname, ip, rid);
     // The operator bearer API (#282) owns /api/v1/admin/, also ahead of decide: a jna_ token reaches only these routes.
     // The remote admin MCP (#283) is the one path under /api/v1/admin/ that speaks MCP; its tools call adminApi in process.

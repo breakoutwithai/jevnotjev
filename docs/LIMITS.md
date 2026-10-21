@@ -32,6 +32,7 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - Google sign-in for Backstage and paid comparisons are deferred beyond v0 (issue #77). [Source](RELEASE-v0.1.0.md) <!-- claim: backstage-deferred -->
 - The admin page, API and MCP connector have been exercised only by the operator and by scripted tests, not by an outside user. [Source](RELEASE-v0.1.0.md) <!-- claim: admin-exercised -->
 - The remote admin MCP connector uses a bearer token today; OAuth sign-in is planned and not built yet. [Source](guest-access.md) <!-- claim: connector-bearer -->
+- The remote guest MCP endpoint uses a guest bearer token and has no OAuth; whether Claude's hosted apps send an Origin header to it is not verified. [Source](guest-access.md) <!-- claim: guest-connector -->
 - No consented outside user's own run from start to verdict is documented yet; the next step is to invite one and document it. [Source](RELEASE-v0.1.0.md) <!-- claim: no-outside-run -->
 - A remote admin MCP request can run past its 30-second deadline by a database lock wait; a call whose client disconnects still runs until it completes or reaches the deadline, and a reply answered 504 may still have been stored. [Source](guest-access.md) <!-- claim: admin-deadline -->
 - The admin token header must spell the scheme `Bearer`; `bearer` or `BEARER` is refused. [Source](guest-access.md) <!-- claim: bearer-scheme -->

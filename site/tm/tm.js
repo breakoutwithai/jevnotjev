@@ -159,7 +159,7 @@
   }
   function limitDayIndexes(week) {
     const start = week.period ? readDate(week.period.start) : null;
-    if (!start || !week.limitDays)
+    if (!start || !week.limitDays || !((week.limitHits ?? 0) > 0))
       return [];
     const t0 = Date.parse(`${start}T00:00:00Z`);
     return [...new Set(week.limitDays.map((d) => Math.round((Date.parse(`${d}T00:00:00Z`) - t0) / 86400000)).filter((i) => i >= 0 && i <= 6))].sort((a, b) => a - b);
@@ -697,7 +697,7 @@
       gaugeName.textContent = codex === null ? "No weekly figure recorded" : "Codex week left";
       if (codex === null)
         leftPct.textContent = "";
-      actEl.textContent = "Your week · from your numbers";
+      actEl.textContent = week === SAMPLE_WEEK ? "Sample week · per-day split illustrative, not your numbers" : "Your week · from your numbers";
       statusEl.textContent = "";
       await wait(250, tok);
       for (let i = 0;i < 7; i++) {

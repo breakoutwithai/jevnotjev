@@ -396,7 +396,8 @@ export function startTheRun(doc: Document): void {
     const codex = week.codexWindow;
     gaugeName.textContent = codex === null ? "No weekly figure recorded" : "Codex week left";
     if (codex === null) leftPct.textContent = "";
-    actEl.textContent = "Your week · from your numbers";
+    // The sample's per-day split is constructed, so the stage never presents it as the visitor's own numbers.
+    actEl.textContent = week === SAMPLE_WEEK ? "Sample week · per-day split illustrative, not your numbers" : "Your week · from your numbers";
     statusEl.textContent = "";
     await wait(250, tok);
     for (let i = 0; i < 7; i++) {

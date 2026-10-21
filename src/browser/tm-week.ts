@@ -183,10 +183,11 @@ export function dayLabels(week: Week): string[] {
   return [0, 1, 2, 3, 4, 5, 6].map((i) => DAY_NAMES[new Date(t0 + i * 86400000).getUTCDay()] ?? "");
 }
 
-/** Which of the seven days (0..6) a recorded limit-hit date falls on; dates outside the period are dropped. */
+/** Which of the seven days (0..6) a recorded limit-hit date falls on; dates outside the period are dropped. Nothing is
+ * stamped unless Usage limit hits is recorded above 0: a date with hits 0 or not recorded contradicts or is unbacked. */
 export function limitDayIndexes(week: Week): number[] {
   const start = week.period ? readDate(week.period.start) : null;
-  if (!start || !week.limitDays) return [];
+  if (!start || !week.limitDays || !((week.limitHits ?? 0) > 0)) return [];
   const t0 = Date.parse(`${start}T00:00:00Z`);
   return [...new Set(week.limitDays.map((d) => Math.round((Date.parse(`${d}T00:00:00Z`) - t0) / 86400000)).filter((i) => i >= 0 && i <= 6))].sort((a, b) => a - b);
 }

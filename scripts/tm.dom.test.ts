@@ -488,6 +488,10 @@ test("[unit] TM-17 block v2: seven per-day numbers or not recorded; limit-hit da
   // The sample's per-day numbers sum to its recorded 3,993 sessions; its recorded cap hits fall on one date inside its period.
   expect((SAMPLE_WEEK.perDay ?? []).reduce((a, b) => a + b, 0)).toBe((SAMPLE_WEEK.claudeSessions ?? 0) + (SAMPLE_WEEK.codexSessions ?? 0));
   expect(limitDayIndexes(SAMPLE_WEEK).length).toBe(SAMPLE_WEEK.limitDays?.length ?? -1);
+  // A recorded date is stamped only when Usage limit hits is above 0: with hits 0 or not recorded, nothing is stamped.
+  expect(limitDayIndexes({ ...heavy, limitHits: 0 })).toEqual([]);
+  expect(limitDayIndexes({ ...heavy, limitHits: null })).toEqual([]);
+  expect(stageHeadline({ ...heavy, limitHits: 0 })).toBe("You never hit your limit");
 });
 
 test("[integration] TM-15 focus in the paste box survives a hashchange and a late fonts.ready on #command; Skip to the command still moves focus when it is elsewhere", async () => {
@@ -652,11 +656,23 @@ for (const motion of MOTIONS) test(`[integration] TM-14 Show Sample: nothing of 
       expect(await page.evaluate(() => scrollY)).toBeGreaterThanOrEqual(ySample - 1);
       expect(await page.evaluate(() => document.getElementById("stage")?.getBoundingClientRect().top ?? 0)).toBeLessThan(0);
       expect({ width, hidden: sample.hidden, rows: sample.rows, sample: sample.sample, local: sample.local, links: sample.links }).toEqual({ width, hidden: false, rows: SAMPLE_ROWS, sample: true, local: false, links: 0 });
+      // Play my week on the sample: the stage says the per-day split is illustrative, never "from your numbers".
+      const playAct = async (): Promise<string> => {
+        await page.evaluate(() => document.getElementById("dataEnd")?.setAttribute("hidden", ""));
+        await page.locator("#playMine").click();
+        if (motion === "no-preference") { await page.waitForFunction(() => document.getElementById("skip")?.hidden === false, null, { timeout: 3000 }); await page.locator("#skip").click(); }
+        await page.waitForFunction(() => document.getElementById("dataEnd")?.hidden === false, null, { timeout: 4000 });
+        return (await page.locator("#act").textContent()) ?? "";
+      };
+      const sampleAct = await playAct();
+      expect({ width, sampleLabel: sampleAct.startsWith("Sample week") && sampleAct.includes("per-day split illustrative, not your numbers"), mineLabel: sampleAct.includes("from your numbers") }).toEqual({ width, sampleLabel: true, mineLabel: false });
       // A valid paste replaces the sample: its own values, the local tag back, no Sample tag.
       await page.locator("#pasteBox").fill(SAMPLE_RESULT);
       await page.locator("#showWeek").click();
       const mine = await card();
       expect({ width, rows: mine.rows, sample: mine.sample, local: mine.local }).toEqual({ width, rows: SAMPLE_CARD.map((r) => [...r]), sample: false, local: true });
+      const mineAct = await playAct();
+      expect({ width, mineLabel: mineAct.startsWith("Your week") && mineAct.includes("from your numbers"), sampleLabel: mineAct.includes("illustrative") }).toEqual({ width, mineLabel: true, sampleLabel: false });
       if (width === 390) expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
       expect(requests.filter((u) => !u.startsWith(`http://127.0.0.1:${server.port}/`))).toEqual([]);
     } finally { await close(page); }

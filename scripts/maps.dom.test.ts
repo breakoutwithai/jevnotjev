@@ -230,6 +230,19 @@ test("[integration] 1 a valid link shows every payload field with its value and 
   } finally { await context.close(); }
 });
 
+test("[integration] 10c pasted skill is named in the detail card while mapper skill keeps its version", async () => {
+  const cases: readonly (readonly [string, string])[] = [["0.0.0", "pasted block"], ["0.3.0", "0.3.0"]];
+  for (const [skill, shown] of cases) {
+    const { page, context } = await open(fragment(JSON.stringify({ ...PAYLOAD, skill })));
+    try {
+      const cell = page.locator('#mapFields [data-field="skill"]');
+      await cell.waitFor();
+      expect(await cell.getAttribute("data-value")).toBe(skill);
+      expect((await cell.innerText()).trim()).toBe(shown);
+    } finally { await context.close(); }
+  }
+});
+
 test("[integration] VP-5 own card sends usage privately and shows a status receipt", async () => {
   const { page, context } = await open(link());
   try {
@@ -534,6 +547,19 @@ test("[integration] 10 with no fragment the page reads the board once and labels
     expect(second.replace(/\s+/g, " ")).toContain("0 / 0 / 1");
     expect(second).toContain("not in the logs");
     expect(second).not.toContain("none read");
+  } finally { await context.close(); }
+});
+
+test("[integration] 10b a row from a pasted /tm/ block (skill 0.0.0) says so, and a mapper row keeps the mapper caption", async () => {
+  rows = [boardRow("TM-0000000000B3", "pasted-one", { ...PAYLOAD, skill: "0.0.0" }), OTHER];
+  const { page, context } = await open(`${origin}/maps/`);
+  try {
+    await page.locator("#mapBoard .map-row").nth(1).waitFor();
+    const rowsShown = page.locator("#mapBoard .map-row");
+    const pasted = await rowsShown.nth(0).locator(".map-row-label").innerText();
+    expect(pasted).toBe("self-reported from a pasted TokenMax block, not verified");
+    expect(pasted).not.toContain("tokenmax-map");
+    expect(await rowsShown.nth(1).locator(".map-row-label").innerText()).toBe("self-reported by tokenmax-map 0.3.0, not verified");
   } finally { await context.close(); }
 });
 

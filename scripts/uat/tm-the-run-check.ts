@@ -40,6 +40,7 @@ export const PROMPT = [
   "Codex weekly window used: <percent>",
   "Pattern: <running out | leaving most unused>",
   "",
+  "The period is the start and end date, both included, 7 days in total.",
   "Sessions per day: seven numbers, one per day of the period, oldest day first. Limit hit days: the dates on which I hit a usage limit, or none.",
   "Use 'not recorded' for any line you cannot fill. Round numbers freely. Do not add anything else.",
   "Print only the block above. No notes, caveats, warnings, checks, counts of duplicates or files, or explanations before or after it. If a number is approximate, just give the number.",
@@ -47,7 +48,7 @@ export const PROMPT = [
 /** The operator's own aggregate week (already a sample on the site), as the prompt asks the assistant to print it. */
 export const SAMPLE_RESULT = [
   "TOKENMAX WEEK",
-  "Period: 2026-10-14 to 2026-10-21",
+  "Period: 2026-10-14 to 2026-10-20",
   "Claude sessions: 288",
   "Codex sessions: 2925",
   "Claude output tokens: 7,940,728",
@@ -279,7 +280,7 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
             };
           });
           const headOk = vp.mobile ? control.sameLine || control.below : control.sameLine;
-          add("no button or footer under the stage, the tagline hidden until a week ends, no Illustrative text, Map your real week heading with the trust line, Copy names where to paste, no gate, no cards", control.jump === "Skip to the command" && control.mapGone && !control.illustrative && !control.keepShown && control.keep === "TokenMax + Jev can help keep the lights on" && !control.pasteLine && control.heading === "Map your real week" && control.trust === "Nothing is sent anywhere. You decide what to do with the summary." && control.copy === "Copy for Claude Code or Codex" && control.details === 0 && control.cards.length === 0 && headOk ? null : JSON.stringify(control));
+          add("no button or footer under the stage, the tagline hidden until a week ends, no Illustrative text, Map your real week heading with the trust line, Copy names where to paste, no gate, no cards", control.jump === "Skip to the command" && control.mapGone && !control.illustrative && !control.keepShown && control.keep === "TokenMax + Jev can help keep the lights on" && !control.pasteLine && control.heading === "Map your real week" && control.trust === "Pasting and Show my week stay in your browser. Only Submit sends anything." && control.copy === "Copy for Claude Code or Codex" && control.details === 0 && control.cards.length === 0 && headOk ? null : JSON.stringify(control));
         }
         const floor = TEXT_FLOOR[vp.width] ?? 12;
         const small: unknown = await page.evaluate(smallText(floor));
@@ -390,7 +391,7 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
           tag: document.querySelector("#yourWeek .local-tag")?.textContent ?? "",
           body: document.body.innerText,
         }));
-        add("paste: the card shows the parsed sample week", card.shown && JSON.stringify(card.rows) === JSON.stringify(SAMPLE_CARD) && card.line === "Heavy load: you hit your limit 2 times" && card.period === "2026-10-14 to 2026-10-21" && card.tag === "Your numbers, shown on this page only" ? null : JSON.stringify({ ...card, body: "" }));
+        add("paste: the card shows the parsed sample week", card.shown && JSON.stringify(card.rows) === JSON.stringify(SAMPLE_CARD) && card.line === "Heavy load: you hit your limit 2 times" && card.period === "2026-10-14 to 2026-10-20" && card.tag === "Your numbers, shown on this page only" ? null : JSON.stringify({ ...card, body: "" }));
         add("paste: pasted caveat text never reaches the page", card.body.includes("duplicate files") ? "caveat text shown" : null);
         if (vp.mobile) {
           const widths = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, body: document.body.scrollWidth }));

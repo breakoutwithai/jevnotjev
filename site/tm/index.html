@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TokenMax: your week is a run of seven shows</title>
-<meta name="description" content="See how an AI coding week could last to Sunday, then get a plain summary of your own week from the Claude Code or Codex you already use. Nothing is sent anywhere.">
+<meta name="description" content="See how an AI coding week could last to Sunday, then get a plain summary of your own week from the Claude Code or Codex you already use. Pasting stays in your browser; only Submit sends your numbers.">
 <meta property="og:title" content="TokenMax: your week is a run of seven shows">
 <meta property="og:description" content="Play an illustrative week, then get a plain summary of your own week with one prompt.">
 <meta property="og:type" content="website">
@@ -155,7 +155,7 @@
   <section class="command" id="command" tabindex="-1" aria-labelledby="hCmd">
     <div class="cmd-head">
       <h2 id="hCmd">Map your real week</h2>
-      <p class="trust" id="trust">Nothing is sent anywhere. You decide what to do with the summary.</p>
+      <p class="trust" id="trust">Pasting and Show my week stay in your browser. Only Submit sends anything.</p>
     </div>
     <div class="prompt-box" id="promptBox" role="group" aria-label="The prompt">
       <pre id="sharePrompt">Look at my Claude Code and Codex history on this computer for the last 7 days. Read only the usage records, never the words of my messages or the contents of my files. Tell me: how many sessions I ran in each tool; how many times I hit a usage limit, and when; and which models each tool used, as a rough split of big versus smaller models, if the records show it. Say 'not recorded' for anything the records do not show, never guess. Then, in one sentence, say which pattern fits my week: running out before the end of the week, or leaving most of it unused. Do not send, install or download anything. Show me the result here as exactly this plain block and nothing else:
@@ -173,6 +173,7 @@ Limit hit days: &lt;dates as YYYY-MM-DD separated by commas, or none&gt;
 Codex weekly window used: &lt;percent&gt;
 Pattern: &lt;running out | leaving most unused&gt;
 
+The period is the start and end date, both included, 7 days in total.
 Sessions per day: seven numbers, one per day of the period, oldest day first. Limit hit days: the dates on which I hit a usage limit, or none.
 Use 'not recorded' for any line you cannot fill. Round numbers freely. Do not add anything else.
 Print only the block above. No notes, caveats, warnings, checks, counts of duplicates or files, or explanations before or after it. If a number is approximate, just give the number.</pre>
@@ -184,11 +185,21 @@ Print only the block above. No notes, caveats, warnings, checks, counts of dupli
     <div class="paste" id="paste">
       <label class="paste-label" for="pasteBox">Paste the result here</label>
       <textarea id="pasteBox" rows="9" spellcheck="false" autocomplete="off"></textarea>
+      <div class="alias-row">
+        <label class="paste-label" for="aliasBox">Nickname for the public board</label>
+        <input id="aliasBox" type="text" maxlength="24" minlength="3" pattern="[a-z0-9\-]{3,24}" required spellcheck="false" autocomplete="off" autocapitalize="none" aria-describedby="aliasHelp aliasError">
+        <p class="hint" id="aliasHelp">Choose a nickname, not your real name or email: 3 to 24 lowercase letters, digits or hyphens.</p>
+        <p class="paste-error" id="aliasError" role="alert" hidden></p>
+      </div>
       <div class="paste-actions">
         <button type="button" class="btn-gold" id="showWeek">Show my week</button>
         <button type="button" class="btn-ghost" id="showSample">Show Sample</button>
+        <button type="button" class="btn-gold" id="submitWeek" aria-describedby="submitConsent">Submit</button>
       </div>
+      <p class="hint" id="submitConsent">Pressing Submit sends the numbers from your result and your nickname to this site: days covered; sources (Claude, Codex or both, taken from which of your session counts are above 0); total sessions; subagent sessions (always 0); short cap hits (0), weekly cap hits (0), and unknown cap hits (your usage limit hits); Claude output tokens and Codex output tokens; Opus share of Claude output; Codex weekly window used; the format name tm-share/1; mapper version 0.0.0, which marks a pasted block; and a random request key that lets a repeat press be recognised. They appear on the public board at /maps/, shown as self-reported and not verified. Nothing is sent until you press Submit. Pressing Submit again on this page never adds a second row for the same result and nickname; after reloading or closing the page, pressing Submit sends a new key and can add a second row. This page keeps the delete key and retry key only in its own memory, not in browser storage. They are gone when the page is closed or reloaded.</p>
       <p class="paste-error" id="pasteError" role="alert" hidden></p>
+      <p class="submit-status" id="submitStatus" role="status" aria-live="polite" hidden></p>
+      <div class="submitted" id="submitted" hidden><ol id="receipts"></ol></div>
     </div>
     <!-- The sample: the builder's own run, use-cases/tim-tokenmax/RUNS.md in the private planning folder, "Builder's real
          history with 0.2.0 (2026-10-16)": sessions 515 Claude and 3,478 Codex (sum 3,993), 2 cap hits, output tokens

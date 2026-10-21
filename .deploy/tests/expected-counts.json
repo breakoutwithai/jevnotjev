@@ -127,7 +127,7 @@
     "src/docs/landing-samples.test.ts": 102,
     "src/docs/limits.test.ts": 15,
     "src/docs/run-record-template.test.ts": 19,
-    "src/docs/site-guide.test.ts": 40,
+    "src/docs/site-guide.test.ts": 41,
     "src/docs/stack.test.ts": 18,
     "src/docs/tester-checklist.test.ts": 8,
     "src/docs/tester-handoff.test.ts": 6,

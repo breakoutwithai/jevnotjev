@@ -213,13 +213,23 @@
     return span >= 0 ? span + 1 : null;
   }
   function weekToPayload(week) {
+    const claudeAbsent = week.claudeSessions === null && week.claudeOutput === null && week.opusShare === null && week.codexSessions !== null;
+    const codexAbsent = week.codexSessions === null && week.codexOutput === null && week.claudeSessions !== null;
+    if (week.claudeSessions === null && week.codexSessions === null)
+      return { ok: false, message: "Not submitted: Claude sessions and Codex sessions are both not recorded in your result, so there is no week to show. Use Claude Code or Codex on this machine, then run the prompt and paste the whole result." };
+    const claudeSessions = claudeAbsent ? 0 : week.claudeSessions;
+    const claudeOutput = claudeAbsent ? 0 : week.claudeOutput;
+    const opusShare = claudeAbsent ? 0 : week.opusShare;
+    const codexSessions = codexAbsent ? 0 : week.codexSessions;
+    const codexOutput = codexAbsent ? 0 : week.codexOutput;
+    const limitHits = week.limitHits;
     const required = [
-      { label: "Claude sessions", value: week.claudeSessions },
-      { label: "Codex sessions", value: week.codexSessions },
-      { label: "Claude output tokens", value: week.claudeOutput },
-      { label: "Codex output tokens", value: week.codexOutput },
-      { label: "Opus share of Claude output", value: week.opusShare },
-      { label: "Usage limit hits", value: week.limitHits }
+      { label: "Claude sessions", value: claudeSessions },
+      { label: "Codex sessions", value: codexSessions },
+      { label: "Claude output tokens", value: claudeOutput },
+      { label: "Codex output tokens", value: codexOutput },
+      { label: "Opus share of Claude output", value: opusShare },
+      { label: "Usage limit hits", value: limitHits }
     ];
     const missing = required.filter((r) => r.value === null).map((r) => r.label);
     const days = periodDays(week);
@@ -227,7 +237,6 @@
       missing.unshift(week.period === null ? "Period" : "Period (two dates like 2026-10-14 to 2026-10-21)");
     if (missing.length > 0)
       return { ok: false, message: `Not submitted: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not recorded in your result. Run the prompt again and paste the whole result.` };
-    const { claudeSessions, codexSessions, claudeOutput, codexOutput, opusShare, limitHits } = week;
     if (days === null || claudeSessions === null || codexSessions === null || claudeOutput === null || codexOutput === null || opusShare === null || limitHits === null)
       return { ok: false, message: "Not submitted: the result is incomplete." };
     if (days > 90)

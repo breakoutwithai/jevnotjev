@@ -230,6 +230,19 @@ test("[integration] 1 a valid link shows every payload field with its value and 
   } finally { await context.close(); }
 });
 
+test("[integration] 10c pasted skill is named in the detail card while mapper skill keeps its version", async () => {
+  const cases: readonly (readonly [string, string])[] = [["0.0.0", "pasted block"], ["0.3.0", "0.3.0"]];
+  for (const [skill, shown] of cases) {
+    const { page, context } = await open(fragment(JSON.stringify({ ...PAYLOAD, skill })));
+    try {
+      const cell = page.locator('#mapFields [data-field="skill"]');
+      await cell.waitFor();
+      expect(await cell.getAttribute("data-value")).toBe(skill);
+      expect((await cell.innerText()).trim()).toBe(shown);
+    } finally { await context.close(); }
+  }
+});
+
 test("[integration] VP-5 own card sends usage privately and shows a status receipt", async () => {
   const { page, context } = await open(link());
   try {

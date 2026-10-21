@@ -5,6 +5,7 @@
 (() => {
   // src/browser/tm-week.ts
   var NOT_A_RESULT = "That doesn't look like the result. Run the prompt again and paste what it prints.";
+  var NOT_RECORDED = "not recorded";
   var LABELS = {
     period: "period",
     "claude sessions": "claudeSessions",
@@ -13,6 +14,8 @@
     "codex output tokens": "codexOutput",
     "opus share of claude output": "opusShare",
     "usage limit hits": "limitHits",
+    "sessions per day": "perDay",
+    "limit hit days": "limitDays",
     "codex weekly window used": "codexWindow",
     pattern: "pattern"
   };
@@ -44,10 +47,36 @@
     const n = Number(m[0].replace(/,/g, ""));
     return Number.isFinite(n) ? n : null;
   }
+  var WEEKDAY = /^(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?\s*/i;
+  function readPerDay(value) {
+    if (/not recorded/i.test(value))
+      return null;
+    const parts = value.split(/[,;]/).map((p) => p.trim().replace(WEEKDAY, "").trim());
+    if (parts.length !== 7 || parts.some((p) => !/^\d+$/.test(p)))
+      return null;
+    return parts.map(Number);
+  }
+  function readDate(value) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim().replace(WEEKDAY, "").trim());
+    if (!m)
+      return null;
+    const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    return d.toISOString().slice(0, 10) === `${m[1]}-${m[2]}-${m[3]}` ? `${m[1]}-${m[2]}-${m[3]}` : null;
+  }
+  function readLimitDays(value) {
+    if (/^none\.?$/i.test(value.trim()))
+      return [];
+    if (/not recorded/i.test(value) || value.trim() === "")
+      return null;
+    const dates = value.split(/[,;]/).map((p) => readDate(p));
+    return dates.every((d) => d !== null) ? dates : null;
+  }
   function parseWeek(text) {
     const nums = { claudeSessions: null, codexSessions: null, claudeOutput: null, codexOutput: null, opusShare: null, limitHits: null, codexWindow: null };
     let period = null;
     let pattern = null;
+    let perDay = null;
+    let limitDays = null;
     let recognised = 0;
     for (const raw of text.split(/\r?\n/)) {
       const lv = labelValue(raw);
@@ -63,33 +92,102 @@
         period = m && !/not recorded/i.test(value) ? { start: (m[1] ?? "").trim(), end: (m[2] ?? "").trim() } : null;
       } else if (field === "pattern") {
         pattern = /running out/i.test(value) ? "running out" : /unused/i.test(value) ? "leaving most unused" : null;
+      } else if (field === "perDay") {
+        perDay = readPerDay(value);
+      } else if (field === "limitDays") {
+        limitDays = readLimitDays(value);
       } else {
         nums[field] = readNumber(value);
       }
     }
     if (recognised === 0)
       return null;
-    return { period, pattern, ...nums };
+    return { period, pattern, perDay, limitDays, ...nums };
   }
   function situationOf(week) {
     if (week.pattern)
       return week.pattern;
     return (week.limitHits ?? 0) > 0 ? "running out" : "leaving most unused";
   }
-  var fmt = (n, unit = "") => n === null ? "not recorded" : `${n.toLocaleString("en-US")}${unit}`;
+  var fmt = (n, unit = "") => n === null ? NOT_RECORDED : `${n.toLocaleString("en-US")}${unit}`;
   function weekLines(week) {
-    const both = (claude, codex) => claude === null && codex === null ? "not recorded" : `${fmt(claude)} in Claude Code, ${fmt(codex)} in Codex`;
     return [
-      { label: "Period", value: week.period ? `${week.period.start} to ${week.period.end}` : "not recorded" },
-      { label: "Sessions", value: both(week.claudeSessions, week.codexSessions) },
-      { label: "Output", value: both(week.claudeOutput, week.codexOutput) },
+      { label: "Claude sessions", value: fmt(week.claudeSessions) },
+      { label: "Codex sessions", value: fmt(week.codexSessions) },
+      { label: "Claude output tokens", value: fmt(week.claudeOutput) },
+      { label: "Codex output tokens", value: fmt(week.codexOutput) },
+      { label: "Opus share", value: fmt(week.opusShare, "%") },
       { label: "Usage limit hits", value: fmt(week.limitHits) },
-      { label: "Opus share of Claude output", value: fmt(week.opusShare, "%") },
       { label: "Codex weekly window used", value: fmt(week.codexWindow, "%") }
     ];
   }
-  function situationLine(week) {
-    return situationOf(week) === "running out" ? "Your week looks like running out before the end of the week." : "Your week looks like leaving most of it unused.";
+  function periodLine(week) {
+    return week.period ? `${week.period.start} to ${week.period.end}` : `Period ${NOT_RECORDED}`;
+  }
+  function cardHeadline(week) {
+    const n = week.limitHits;
+    if (n !== null && n > 0)
+      return `Heavy load: you hit your limit ${n.toLocaleString("en-US")} ${n === 1 ? "time" : "times"}`;
+    if (n === 0)
+      return "Light use: you never hit a limit";
+    if (week.pattern === "running out")
+      return "Heavy load: running out before the end of the week";
+    if (week.pattern === "leaving most unused")
+      return "Light use: leaving most of the week unused";
+    return `Usage limit hits ${NOT_RECORDED}`;
+  }
+  var SAMPLE_WEEK = {
+    period: { start: "2026-10-09", end: "2026-10-16" },
+    claudeSessions: 515,
+    codexSessions: 3478,
+    claudeOutput: 9977232,
+    codexOutput: 7503143,
+    opusShare: 87,
+    limitHits: 2,
+    codexWindow: 15,
+    pattern: null,
+    perDay: [520, 610, 655, 702, 590, 498, 418],
+    limitDays: ["2026-10-14"]
+  };
+  var DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function dayLabels(week) {
+    const start = week.period ? readDate(week.period.start) : null;
+    if (!start)
+      return [1, 2, 3, 4, 5, 6, 7].map((i) => `Day ${i}`);
+    const t0 = Date.parse(`${start}T00:00:00Z`);
+    return [0, 1, 2, 3, 4, 5, 6].map((i) => DAY_NAMES[new Date(t0 + i * 86400000).getUTCDay()] ?? "");
+  }
+  function limitDayIndexes(week) {
+    const start = week.period ? readDate(week.period.start) : null;
+    if (!start || !week.limitDays)
+      return [];
+    const t0 = Date.parse(`${start}T00:00:00Z`);
+    return [...new Set(week.limitDays.map((d) => Math.round((Date.parse(`${d}T00:00:00Z`) - t0) / 86400000)).filter((i) => i >= 0 && i <= 6))].sort((a, b) => a - b);
+  }
+  function listOf(names) {
+    if (names.length <= 1)
+      return names.join("");
+    return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1] ?? ""}`;
+  }
+  function stageHeadline(week) {
+    const n = week.limitHits;
+    if (n === null)
+      return `Usage limit hits ${NOT_RECORDED}`;
+    if (n === 0)
+      return "You never hit your limit";
+    const days = limitDayIndexes(week);
+    const labels = dayLabels(week);
+    const on = days.length && week.limitDays && days.length === week.limitDays.length ? `, on ${listOf(days.map((i) => labels[i] ?? ""))}` : "";
+    return `You hit your limit ${n.toLocaleString("en-US")} ${n === 1 ? "time" : "times"}${on}`;
+  }
+  function stageSubtitle(week) {
+    const parts = [];
+    const s = [week.claudeSessions === null ? "" : `${week.claudeSessions.toLocaleString("en-US")} Claude Code`, week.codexSessions === null ? "" : `${week.codexSessions.toLocaleString("en-US")} Codex`].filter(Boolean);
+    if (s.length)
+      parts.push(`${s.join(" and ")} sessions`);
+    if (week.opusShare !== null)
+      parts.push(`Opus ${week.opusShare.toLocaleString("en-US")}% of Claude output`);
+    return parts.join("; ");
   }
 
   // src/browser/tm-run.ts
@@ -153,7 +251,9 @@
       view: "without",
       token: 0,
       speed: 1,
-      busy: false
+      busy: false,
+      data: null,
+      example: false
     };
     const sum = (a) => a.reduce((x, y) => x + y, 0);
     const bulbsEl = id("bulbs", HTMLElement);
@@ -200,7 +300,7 @@
       li.innerHTML = `<span class="day">${d}</span><span class="time">8 PM</span>${MASK}<span class="seats">${"<i></i>".repeat(12)}</span><span class="lab">Tonight</span><span class="stamp">CANCELLED</span><span class="extra"><b>+1 job</b><span class="ex-job">${SCENARIOS.under.jobs[i] ?? ""}</span></span>`;
       li.setAttribute("aria-label", LONG[i] ?? d);
       runEl.appendChild(li);
-      return { li, seats: every(li, ".seats i", HTMLElement), lab: inside(li, ".lab", HTMLElement), stamp: inside(li, ".stamp", HTMLElement), filled: null, label: null };
+      return { li, day: inside(li, ".day", HTMLElement), seats: every(li, ".seats i", HTMLElement), lab: inside(li, ".lab", HTMLElement), stamp: inside(li, ".stamp", HTMLElement), filled: null, label: null };
     });
     const stubsEl = id("stubs", HTMLOListElement);
     const stubs = DAYS.map((d) => {
@@ -215,6 +315,8 @@
     const gaugeBadge = id("gaugeBadge", HTMLElement), foundEl = id("found", HTMLElement);
     const skipBtn = id("skip", HTMLButtonElement), replayBtn = id("replay", HTMLButtonElement);
     const pick = inside(doc, ".pick", HTMLElement), keepLights = id("keepLights", HTMLElement);
+    const dataEnd = id("dataEnd", HTMLElement), dataBig = id("dataBig", HTMLElement), dataSub = id("dataSub", HTMLElement);
+    const exampleTag = id("exampleTag", HTMLElement), gaugeName = id("gaugeName", HTMLElement);
     const pickBtns = every(doc, ".pick-btn", HTMLButtonElement), segBtns = every(doc, "#seg button", HTMLButtonElement);
     const seg = id("seg", HTMLElement), compare = id("compare", HTMLElement), command = id("command", HTMLElement);
     const ghostBtn = id("ghostBtn", HTMLButtonElement), dropBtn = id("dropBtn", HTMLButtonElement);
@@ -306,13 +408,18 @@
       p.seats.forEach((s, i) => s.classList.toggle("f", i < n));
     }
     function resetWeek() {
-      posters.forEach((p) => {
+      posters.forEach((p, i) => {
         p.li.className = "poster";
+        p.day.textContent = DAYS[i] ?? "";
+        p.stamp.textContent = "CANCELLED";
         fillSeats(p, 0);
         p.lab.textContent = "Tonight";
         p.filled = null;
         p.label = null;
       });
+      dataEnd.hidden = true;
+      exampleTag.hidden = true;
+      gaugeName.textContent = "House lights";
       stubs.forEach((s) => {
         s.className = "";
         s.style.removeProperty("--d");
@@ -354,6 +461,7 @@
       segBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === view)));
       clearDrop();
       resetWeek();
+      exampleTag.hidden = !(st.example && view === "with");
       gauge.classList.toggle("calm", view === "with");
       const underWith = mode === "under" && view === "with";
       actEl.textContent = view === "without" ? "Without TokenMax · every step in the royal box" : underWith ? "With TokenMax · cheaper seats, then more jobs" : "With TokenMax · each step in its seat";
@@ -559,8 +667,73 @@
       pickBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
       pick.classList.remove("nudge", "cue-on");
       pick.classList.add("picked");
+      st.data = null;
+      st.example = false;
       updateCompare();
       targetMark.setAttribute("opacity", m === "under" ? "1" : "0");
+    }
+    async function playData(week, tok, focusReplay) {
+      st.data = week;
+      st.example = false;
+      st.routed = false;
+      st.mode = null;
+      pickBtns.forEach((b) => b.setAttribute("aria-pressed", "false"));
+      pick.classList.remove("nudge", "cue-on");
+      pick.classList.add("picked");
+      compare.hidden = false;
+      seg.hidden = true;
+      targetMark.setAttribute("opacity", "0");
+      setBusy(true);
+      clearDrop();
+      resetWeek();
+      gauge.classList.add("calm");
+      const labels = dayLabels(week), hits = new Set(limitDayIndexes(week));
+      const perDay = week.perDay, max = perDay ? Math.max(1, ...perDay) : 1;
+      posters.forEach((p, i) => {
+        p.day.textContent = labels[i] ?? "";
+        p.lab.textContent = perDay ? "" : NOT_RECORDED;
+      });
+      const codex = week.codexWindow;
+      gaugeName.textContent = codex === null ? "No weekly figure recorded" : "Codex week left";
+      if (codex === null)
+        leftPct.textContent = "";
+      actEl.textContent = "Your week · from your numbers";
+      statusEl.textContent = "";
+      await wait(250, tok);
+      for (let i = 0;i < 7; i++) {
+        const p = posters[i];
+        if (!p)
+          continue;
+        const n = perDay?.[i];
+        p.li.classList.add("playing");
+        const seats = n === undefined ? 0 : Math.round(n / max * 12);
+        const from = codex === null ? 100 : 100 - codex * i / 7, to = codex === null ? 100 : 100 - codex * (i + 1) / 7;
+        await tween(0, 1, 420, (_, pr) => {
+          fillSeats(p, Math.round(pr * seats));
+          if (codex !== null)
+            setGauge(from + (to - from) * pr);
+        }, tok);
+        if (codex === null)
+          leftPct.textContent = "";
+        p.li.classList.remove("playing");
+        if (n !== undefined) {
+          p.li.classList.add("played");
+          p.lab.textContent = n.toLocaleString("en-US");
+        }
+        if (hits.has(i)) {
+          p.li.classList.add("cut");
+          p.stamp.textContent = "LIMIT HIT";
+        }
+      }
+      dataBig.textContent = stageHeadline(week);
+      dataSub.textContent = stageSubtitle(week);
+      dataEnd.hidden = false;
+      if (tok === st.token) {
+        setBusy(false);
+        keepLights.classList.add("shown");
+        if (focusReplay)
+          replayBtn.focus();
+      }
     }
     function updateCompare() {
       compare.hidden = !st.mode;
@@ -607,8 +780,9 @@
     async function skipToEnd() {
       const hadFocus = doc.activeElement === skipBtn;
       const view = st.view;
+      const data = st.data;
       try {
-        await instant(() => playWeek(view, ++st.token));
+        await instant(() => data ? playData(data, ++st.token, false) : playWeek(view, ++st.token));
       } catch (e) {
         ignoreCancel(e);
       }
@@ -752,12 +926,40 @@
         fallback();
     });
     function focusCommand() {
-      command.focus();
+      if (!command.contains(doc.activeElement))
+        command.focus();
     }
     const pasteBox = id("pasteBox", HTMLTextAreaElement), pasteError = id("pasteError", HTMLElement);
     const yourWeek = id("yourWeek", HTMLElement), yourFields = id("yourFields", HTMLElement), yourLine = id("yourLine", HTMLElement);
-    let mine = "under";
-    id("showWeek", HTMLButtonElement).addEventListener("click", () => {
+    const sampleTag = id("sampleTag", HTMLElement), localTag = id("localTag", HTMLElement);
+    const yourTitle = id("hYour", HTMLElement), yourPeriod = id("yourPeriod", HTMLElement);
+    let mine = null;
+    function showCard(week, sample) {
+      yourTitle.textContent = sample ? "Sample week" : "Your week";
+      yourPeriod.textContent = periodLine(week);
+      yourLine.textContent = cardHeadline(week);
+      yourFields.textContent = "";
+      for (const { label, value } of weekLines(week)) {
+        const dt = doc.createElement("dt");
+        dt.textContent = label;
+        const dd = doc.createElement("dd");
+        dd.textContent = value;
+        yourFields.append(dt, dd);
+      }
+      mine = week;
+      sampleTag.hidden = !sample;
+      localTag.hidden = sample;
+      yourWeek.hidden = false;
+      yourWeek.scrollIntoView({ block: "nearest" });
+    }
+    function playMine() {
+      const week = mine;
+      if (!week)
+        return;
+      stage.scrollIntoView({ block: "start" });
+      playData(week, ++st.token, true).catch(ignoreCancel);
+    }
+    function showMyWeek() {
       const week = parseWeek(pasteBox.value);
       if (!week) {
         yourWeek.hidden = true;
@@ -767,27 +969,18 @@
       }
       pasteError.hidden = true;
       pasteError.textContent = "";
-      yourFields.textContent = "";
-      for (const { label, value } of weekLines(week)) {
-        const dt = doc.createElement("dt");
-        dt.textContent = label;
-        const dd = doc.createElement("dd");
-        dd.textContent = value;
-        yourFields.append(dt, dd);
-      }
-      yourLine.textContent = situationLine(week);
-      mine = situationOf(week) === "running out" ? "burn" : "under";
-      yourWeek.hidden = false;
-      yourWeek.scrollIntoView({ block: "nearest" });
+      showCard(week, false);
+    }
+    id("showWeek", HTMLButtonElement).addEventListener("click", showMyWeek);
+    pasteBox.addEventListener("paste", () => {
+      win.setTimeout(showMyWeek, 0);
     });
-    id("playMine", HTMLButtonElement).addEventListener("click", () => {
-      const hash = `#${mine}-before`;
-      if (win.location.hash === hash)
-        fromHash();
-      else
-        win.location.hash = hash;
-      stage.scrollIntoView({ block: "start" });
+    id("showSample", HTMLButtonElement).addEventListener("click", () => {
+      pasteError.hidden = true;
+      pasteError.textContent = "";
+      showCard(SAMPLE_WEEK, true);
     });
+    id("playMine", HTMLButtonElement).addEventListener("click", playMine);
     pickBtns.forEach((b) => b.addEventListener("click", () => {
       const m = b.dataset.mode;
       if (m === "burn" || m === "under") {
@@ -807,7 +1000,14 @@
     });
     replayBtn.addEventListener("click", () => {
       const tok = ++st.token;
-      playWeek(st.view, tok).catch(ignoreCancel);
+      const data = st.data;
+      (data ? playData(data, tok, false) : playWeek(st.view, tok)).catch(ignoreCancel);
+    });
+    id("dataWith", HTMLButtonElement).addEventListener("click", () => {
+      const week = st.data;
+      setMode(week && situationOf(week) === "running out" ? "burn" : "under");
+      st.example = true;
+      playWith();
     });
     every(doc, 'a[href="#command"]', HTMLAnchorElement).forEach((a) => a.addEventListener("click", () => win.setTimeout(focusCommand, 0)));
     setGauge(100);

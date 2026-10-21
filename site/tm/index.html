@@ -82,7 +82,7 @@
           </svg>
           <div class="gauge-info">
             <div class="gauge-read"><span id="leftPct">100%</span></div>
-            <p class="gauge-name">House lights</p>
+            <p class="gauge-name" id="gaugeName">House lights</p>
             <span class="gauge-badge" id="gaugeBadge"></span>
           </div>
         </div>
@@ -90,6 +90,7 @@
 
       <div class="floor">
         <div class="act" id="act"></div>
+        <span class="example-tag" id="exampleTag" hidden>Example week, not your numbers</span>
         <div class="found" id="found" hidden>
           <b id="foundMain"></b>
           <span id="foundSub"></span>
@@ -97,6 +98,12 @@
         </div>
         <ol class="run" id="run"></ol>
         <p class="status" id="status" aria-live="polite"></p>
+        <!-- The ending of a week played from the visitor's (or the sample's) own numbers: headline and line derived from them. -->
+        <div class="data-end" id="dataEnd" hidden>
+          <p class="data-big" id="dataBig"></p>
+          <p class="data-sub" id="dataSub"></p>
+          <button type="button" class="btn-gold" id="dataWith">See it with TokenMax</button>
+        </div>
       </div>
 
       <div class="dim" id="dim" aria-hidden="true"></div>
@@ -161,9 +168,12 @@ Claude output tokens: &lt;number&gt;
 Codex output tokens: &lt;number&gt;
 Opus share of Claude output: &lt;percent&gt;
 Usage limit hits: &lt;number&gt;
+Sessions per day: &lt;7 numbers separated by commas, oldest day first, Claude Code plus Codex together&gt;
+Limit hit days: &lt;dates as YYYY-MM-DD separated by commas, or none&gt;
 Codex weekly window used: &lt;percent&gt;
 Pattern: &lt;running out | leaving most unused&gt;
 
+Sessions per day: seven numbers, one per day of the period, oldest day first. Limit hit days: the dates on which I hit a usage limit, or none.
 Use 'not recorded' for any line you cannot fill. Round numbers freely. Do not add anything else.
 Print only the block above. No notes, caveats, warnings, checks, counts of duplicates or files, or explanations before or after it. If a number is approximate, just give the number.</pre>
       <button type="button" class="copy" id="copy">Copy for Claude Code or Codex</button>
@@ -174,40 +184,22 @@ Print only the block above. No notes, caveats, warnings, checks, counts of dupli
     <div class="paste" id="paste">
       <label class="paste-label" for="pasteBox">Paste the result here</label>
       <textarea id="pasteBox" rows="9" spellcheck="false" autocomplete="off"></textarea>
-      <button type="button" class="btn-gold" id="showWeek">Show my week</button>
+      <div class="paste-actions">
+        <button type="button" class="btn-gold" id="showWeek">Show my week</button>
+        <button type="button" class="btn-ghost" id="showSample">Show Sample</button>
+      </div>
       <p class="paste-error" id="pasteError" role="alert" hidden></p>
     </div>
+    <!-- The sample: the builder's own run, use-cases/tim-tokenmax/RUNS.md in the private planning folder, "Builder's real
+         history with 0.2.0 (2026-10-16)": sessions 515 Claude and 3,478 Codex (sum 3,993), 2 cap hits, output tokens
+         9,977,232 and 7,503,143, Opus-class 87%, Codex week 15%. Values live in src/browser/tm-week.ts SAMPLE_LINES. -->
     <article class="yourweek" id="yourWeek" aria-labelledby="hYour" hidden>
-      <div class="yourweek-head"><h3 id="hYour">Your week</h3><span class="local-tag">Your numbers, shown on this page only</span></div>
-      <dl class="yourweek-fields" id="yourFields"></dl>
+      <div class="yourweek-head"><h3 id="hYour">Your week</h3><span class="sample-tag" id="sampleTag" hidden>Sample</span><span class="local-tag" id="localTag">Your numbers, shown on this page only</span></div>
+      <p class="yourweek-period" id="yourPeriod"></p>
       <p class="yourweek-line" id="yourLine"></p>
-      <button type="button" class="btn-gold" id="playMine">Play my week in The Run</button>
+      <dl class="yourweek-fields" id="yourFields"></dl>
+      <button type="button" class="btn-gold" id="playMine">Play my week</button>
     </article>
-  </section>
-
-  <!-- Scene B sources: the builder's own run log, use-cases/tim-tokenmax/RUNS.md in the private planning folder, section
-       "Builder's real history with 0.2.0 (2026-10-16)": sessions 515 Claude and 3,478 Codex (sum 3,993), 2 cap hits
-       (1 unknown window, 1 short), output tokens 9,977,232 and 7,503,143, Opus-class 87%, Codex week 15%. The link is
-       renderShareBlock() of those figures (scripts/tm.dom.test.ts REAL). -->
-  <section class="scene" id="sceneB" aria-labelledby="hB">
-    <h2 id="hB">What a real week looks like</h2>
-    <div class="browser" id="browser">
-      <div class="url" aria-hidden="true"><i></i><i></i><i></i><span>jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIs</span></div>
-      <div class="map-card">
-        <h3>A sample week</h3>
-        <p class="map-sub">Counts only: no messages, no files</p>
-        <dl class="fields">
-          <dt>Sessions</dt><dd>3,993</dd>
-          <dt>Cap hits</dt><dd>2</dd>
-          <dt>Claude output tokens</dt><dd>9,977,232</dd>
-          <dt>Codex output tokens</dt><dd>7,503,143</dd>
-          <dt>Opus-class share</dt><dd>87%</dd>
-          <dt>Codex week used</dt><dd>15%</dd>
-        </dl>
-        <p class="note">One builder's real week, 16 Oct 2026.</p>
-        <a class="open" id="openCard" href="https://jevnotjev.breakoutwithai.com/maps/#m=eyJ2IjoidG0tc2hhcmUvMSIsInNraWxsIjoiMC4zLjAiLCJkYXlzIjo3LCJzb3VyY2VzIjoiY2xhdWRlK2NvZGV4Iiwic2Vzc2lvbnMiOjM5OTMsInN1YmFnZW50X3Nlc3Npb25zIjo0NDQsImNhcHMiOnsic2hvcnQiOjEsIndlZWtseSI6MCwidW5rbm93biI6MX0sIm91dHB1dF90b2tlbnMiOnsiY2xhdWRlIjo5OTc3MjMyLCJjb2RleCI6NzUwMzE0M30sIm9wdXNfc2hhcmVfcGN0Ijo4NywiY29kZXhfd2Vla2x5X3BjdCI6MTV9&sample">See a sample card</a>
-      </div>
-    </div>
   </section>
 
   <!-- Scene D sources. The seat pro_ok and the answer abstain are classes of question model-class-v1 in issue #236.

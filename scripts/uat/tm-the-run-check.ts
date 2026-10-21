@@ -35,9 +35,12 @@ export const PROMPT = [
   "Codex output tokens: <number>",
   "Opus share of Claude output: <percent>",
   "Usage limit hits: <number>",
+  "Sessions per day: <7 numbers separated by commas, oldest day first, Claude Code plus Codex together>",
+  "Limit hit days: <dates as YYYY-MM-DD separated by commas, or none>",
   "Codex weekly window used: <percent>",
   "Pattern: <running out | leaving most unused>",
   "",
+  "Sessions per day: seven numbers, one per day of the period, oldest day first. Limit hit days: the dates on which I hit a usage limit, or none.",
   "Use 'not recorded' for any line you cannot fill. Round numbers freely. Do not add anything else.",
   "Print only the block above. No notes, caveats, warnings, checks, counts of duplicates or files, or explanations before or after it. If a number is approximate, just give the number.",
 ].join("\n");
@@ -55,13 +58,16 @@ export const SAMPLE_RESULT = [
 ].join("\n");
 /** What the Your week card must show for SAMPLE_RESULT, label then value. */
 export const SAMPLE_CARD: readonly (readonly [string, string])[] = [
-  ["Period", "2026-10-14 to 2026-10-21"],
-  ["Sessions", "288 in Claude Code, 2,925 in Codex"],
-  ["Output", "7,940,728 in Claude Code, 4,315,259 in Codex"],
+  ["Claude sessions", "288"],
+  ["Codex sessions", "2,925"],
+  ["Claude output tokens", "7,940,728"],
+  ["Codex output tokens", "4,315,259"],
+  ["Opus share", "42%"],
   ["Usage limit hits", "2"],
-  ["Opus share of Claude output", "42%"],
   ["Codex weekly window used", "7%"],
 ];
+/** The Show Sample card's rows (the recorded run: 515 + 3,478 = 3,993 sessions). */
+export const SAMPLE_WEEK_ROWS = "Claude sessions=515; Codex sessions=3,478; Claude output tokens=9,977,232; Codex output tokens=7,503,143; Opus share=87%; Usage limit hits=2; Codex weekly window used=15%";
 /** The one sentence of the prompt allowed to name a banned word, because it forbids it. */
 export const PROMPT_NEGATION = "Do not send, install or download anything.";
 /** Never on the page as visible text, and never in the copied prompt outside PROMPT_NEGATION. */
@@ -361,17 +367,30 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
       const seen = watch(page);
       try {
         await page.goto(url, { waitUntil: "load" });
+        // Show Sample: hidden at load; on request the card shows the sample's values, titled Sample week, a Sample tag and no link.
+        const before = await page.evaluate(() => ({ cardHidden: document.getElementById("yourWeek")?.hidden === true, sampleLink: document.querySelectorAll("a[href*='/maps/#m='], #openCard, #sceneB").length }));
+        add("sample: card hidden at load, no sample section or sample link", before.cardHidden && before.sampleLink === 0 ? null : JSON.stringify(before));
+        await page.locator("#showSample").click();
+        const sample = await page.evaluate(() => ({
+          rows: [...document.querySelectorAll("#yourFields dt")].map((dt) => `${dt.textContent ?? ""}=${dt.nextElementSibling?.textContent ?? ""}`).join("; "),
+          tag: document.getElementById("sampleTag")?.checkVisibility() === true, links: document.querySelectorAll("#yourWeek a").length,
+          title: document.getElementById("hYour")?.textContent ?? "", y: Math.round(scrollY),
+        }));
+        add("sample: Show Sample shows the sample's values, titled Sample week, with a Sample tag and no link", sample.rows === SAMPLE_WEEK_ROWS && sample.title === "Sample week" && sample.tag && sample.links === 0 ? null : JSON.stringify(sample));
+        const sampleFloor = TEXT_FLOOR[vp.width] ?? 12;
+        const sampleSmall: unknown = await page.evaluate(smallText(sampleFloor));
+        add(`sample: no text under ${sampleFloor}px with the sample card shown`, Array.isArray(sampleSmall) && sampleSmall.length ? sampleSmall.join("; ") : null);
         const caveat = "Not checked: the duplicate files were counted twice.";
         await page.locator("#pasteBox").fill(`${caveat}\n\n${SAMPLE_RESULT}\n\n${caveat}`);
         await page.locator("#showWeek").click();
         const card = await page.evaluate(() => ({
           shown: document.getElementById("yourWeek")?.hidden === false,
           rows: [...document.querySelectorAll("#yourFields dt")].map((dt) => [dt.textContent ?? "", dt.nextElementSibling?.textContent ?? ""]),
-          line: document.getElementById("yourLine")?.textContent ?? "",
+          line: document.getElementById("yourLine")?.textContent ?? "", period: document.getElementById("yourPeriod")?.textContent ?? "", focus: document.activeElement?.id ?? "",
           tag: document.querySelector("#yourWeek .local-tag")?.textContent ?? "",
           body: document.body.innerText,
         }));
-        add("paste: the card shows the parsed sample week", card.shown && JSON.stringify(card.rows) === JSON.stringify(SAMPLE_CARD) && card.line.includes("running out") && card.tag === "Your numbers, shown on this page only" ? null : JSON.stringify({ ...card, body: "" }));
+        add("paste: the card shows the parsed sample week", card.shown && JSON.stringify(card.rows) === JSON.stringify(SAMPLE_CARD) && card.line === "Heavy load: you hit your limit 2 times" && card.period === "2026-10-14 to 2026-10-21" && card.tag === "Your numbers, shown on this page only" ? null : JSON.stringify({ ...card, body: "" }));
         add("paste: pasted caveat text never reaches the page", card.body.includes("duplicate files") ? "caveat text shown" : null);
         if (vp.mobile) {
           const widths = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, body: document.body.scrollWidth }));
@@ -381,9 +400,11 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
         const small: unknown = await page.evaluate(smallText(floor));
         add(`paste: no text under ${floor}px with the card shown`, Array.isArray(small) && small.length ? small.join("; ") : null);
         await page.locator("#playMine").click();
+        await sleep(400);
+        await page.locator("#skip").click().catch(() => undefined);
         await sleep(600);
-        const played = await endState(page);
-        add("paste: Play my week plays running out in The Run", played.drop && played.cancelled === 3 ? null : JSON.stringify(played));
+        const played = await page.evaluate(() => ({ big: document.getElementById("dataBig")?.textContent ?? "", cancelled: document.querySelectorAll(".poster.cancel").length, drop: document.getElementById("drop")?.classList.contains("show-copy") }));
+        add("paste: Play my week plays the pasted numbers, derived ending, no crossed-out days", played.big === "You hit your limit 2 times" && played.cancelled === 0 && !played.drop ? null : JSON.stringify(played));
         await page.locator("#pasteBox").fill("hello, this is not it");
         await page.locator("#showWeek").click();
         const refused = await page.evaluate(() => ({ msg: document.getElementById("pasteError")?.textContent ?? "", card: document.getElementById("yourWeek")?.hidden === true }));

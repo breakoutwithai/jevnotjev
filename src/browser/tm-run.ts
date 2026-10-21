@@ -5,7 +5,10 @@
 // Code or Codex. Built into site/tm/tm.js by scripts/build-tm.ts; adapted from The Run prototype (2026-10-21). Every
 // number here is illustrative.
 
-import { NOT_A_RESULT, parseWeek, situationLine, situationOf, weekLines } from "./tm-week.ts";
+import {
+  cardHeadline, dayLabels, limitDayIndexes, NOT_A_RESULT, NOT_RECORDED, parseWeek, periodLine, SAMPLE_WEEK, situationOf, stageHeadline, stageSubtitle,
+  weekLines, type Week,
+} from "./tm-week.ts";
 
 export type Mode = "burn" | "under";
 export type View = "without" | "with";
@@ -70,7 +73,7 @@ function every<T extends Element>(root: ParentNode, selector: string, kind: Ctor
 
 class Cancel extends Error {}
 type Frame = { transform: string; offset?: number; easing?: string };
-type Poster = { li: HTMLLIElement; seats: HTMLElement[]; lab: HTMLElement; stamp: HTMLElement; filled: number | null; label: string | null };
+type Poster = { li: HTMLLIElement; day: HTMLElement; seats: HTMLElement[]; lab: HTMLElement; stamp: HTMLElement; filled: number | null; label: string | null };
 type Particle = { x: number; y: number; vx: number; vy: number; r: number; vr: number; s: number; c: string; rose: boolean };
 
 /** Wires The Run on a page that carries its markup (site/tm/index.html). */
@@ -83,8 +86,9 @@ export function startTheRun(doc: Document): void {
 
   const reduceQuery = win.matchMedia("(prefers-reduced-motion: reduce)");
   let reduced = reduceQuery.matches;
-  const st: { mode: Mode | null; routed: boolean; view: View; token: number; speed: number; busy: boolean } = {
-    mode: null, routed: false, view: "without", token: 0, speed: 1, busy: false,
+  // data: the week on stage is the visitor's (or the sample's) own numbers; example: a scripted With week shown after them.
+  const st: { mode: Mode | null; routed: boolean; view: View; token: number; speed: number; busy: boolean; data: Week | null; example: boolean } = {
+    mode: null, routed: false, view: "without", token: 0, speed: 1, busy: false, data: null, example: false,
   };
   const sum = (a: readonly number[]): number => a.reduce((x, y) => x + y, 0);
 
@@ -123,7 +127,7 @@ export function startTheRun(doc: Document): void {
     li.innerHTML = `<span class="day">${d}</span><span class="time">8 PM</span>${MASK}<span class="seats">${"<i></i>".repeat(12)}</span><span class="lab">Tonight</span><span class="stamp">CANCELLED</span><span class="extra"><b>+1 job</b><span class="ex-job">${SCENARIOS.under.jobs[i] ?? ""}</span></span>`;
     li.setAttribute("aria-label", LONG[i] ?? d);
     runEl.appendChild(li);
-    return { li, seats: every(li, ".seats i", HTMLElement), lab: inside(li, ".lab", HTMLElement), stamp: inside(li, ".stamp", HTMLElement), filled: null, label: null };
+    return { li, day: inside(li, ".day", HTMLElement), seats: every(li, ".seats i", HTMLElement), lab: inside(li, ".lab", HTMLElement), stamp: inside(li, ".stamp", HTMLElement), filled: null, label: null };
   });
   const stubsEl = id("stubs", HTMLOListElement);
   const stubs = DAYS.map((d) => { const li = doc.createElement("li"); li.textContent = d; stubsEl.appendChild(li); return li; });
@@ -134,6 +138,8 @@ export function startTheRun(doc: Document): void {
   const gaugeBadge = id("gaugeBadge", HTMLElement), foundEl = id("found", HTMLElement);
   const skipBtn = id("skip", HTMLButtonElement), replayBtn = id("replay", HTMLButtonElement);
   const pick = inside(doc, ".pick", HTMLElement), keepLights = id("keepLights", HTMLElement);
+  const dataEnd = id("dataEnd", HTMLElement), dataBig = id("dataBig", HTMLElement), dataSub = id("dataSub", HTMLElement);
+  const exampleTag = id("exampleTag", HTMLElement), gaugeName = id("gaugeName", HTMLElement);
   const pickBtns = every(doc, ".pick-btn", HTMLButtonElement), segBtns = every(doc, "#seg button", HTMLButtonElement);
   const seg = id("seg", HTMLElement), compare = id("compare", HTMLElement), command = id("command", HTMLElement);
   const ghostBtn = id("ghostBtn", HTMLButtonElement), dropBtn = id("dropBtn", HTMLButtonElement);
@@ -191,7 +197,8 @@ export function startTheRun(doc: Document): void {
   }
   function fillSeats(p: Poster, n: number): void { p.seats.forEach((s, i) => s.classList.toggle("f", i < n)); }
   function resetWeek(): void {
-    posters.forEach((p) => { p.li.className = "poster"; fillSeats(p, 0); p.lab.textContent = "Tonight"; p.filled = null; p.label = null; });
+    posters.forEach((p, i) => { p.li.className = "poster"; p.day.textContent = DAYS[i] ?? ""; p.stamp.textContent = "CANCELLED"; fillSeats(p, 0); p.lab.textContent = "Tonight"; p.filled = null; p.label = null; });
+    dataEnd.hidden = true; exampleTag.hidden = true; gaugeName.textContent = "House lights";
     stubs.forEach((s) => { s.className = ""; s.style.removeProperty("--d"); });
     stage.classList.remove("call", "anim", "settled");
     gaugeBadge.textContent = "";
@@ -227,6 +234,7 @@ export function startTheRun(doc: Document): void {
     setBusy(true);
     segBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === view)));
     clearDrop(); resetWeek();
+    exampleTag.hidden = !(st.example && view === "with");
     gauge.classList.toggle("calm", view === "with");
     const underWith = mode === "under" && view === "with";
     actEl.textContent = view === "without" ? "Without TokenMax · every step in the royal box"
@@ -366,8 +374,52 @@ export function startTheRun(doc: Document): void {
     pickBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
     // once a week is picked the boxes stop pulsing and the "Which week is yours?" cue goes
     pick.classList.remove("nudge", "cue-on"); pick.classList.add("picked");
+    st.data = null; st.example = false;
     updateCompare();
     targetMark.setAttribute("opacity", m === "under" ? "1" : "0");
+  }
+  /** The stage from the visitor's (or the sample's) own numbers: only what they support. Seven posters labelled with
+   * the real weekday of each date, seats in proportion to the busiest day with the count shown, LIMIT HIT only on
+   * recorded dates, the gauge only when the Codex week is recorded, and an ending derived from the numbers. */
+  async function playData(week: Week, tok: number, focusReplay: boolean): Promise<void> {
+    st.data = week; st.example = false; st.routed = false; st.mode = null;
+    pickBtns.forEach((b) => b.setAttribute("aria-pressed", "false"));
+    pick.classList.remove("nudge", "cue-on"); pick.classList.add("picked");
+    compare.hidden = false; seg.hidden = true;
+    targetMark.setAttribute("opacity", "0");
+    setBusy(true);
+    clearDrop(); resetWeek();
+    gauge.classList.add("calm");
+    const labels = dayLabels(week), hits = new Set(limitDayIndexes(week));
+    const perDay = week.perDay, max = perDay ? Math.max(1, ...perDay) : 1;
+    posters.forEach((p, i) => { p.day.textContent = labels[i] ?? ""; p.lab.textContent = perDay ? "" : NOT_RECORDED; });
+    const codex = week.codexWindow;
+    gaugeName.textContent = codex === null ? "No weekly figure recorded" : "Codex week left";
+    if (codex === null) leftPct.textContent = "";
+    actEl.textContent = "Your week · from your numbers";
+    statusEl.textContent = "";
+    await wait(250, tok);
+    for (let i = 0; i < 7; i++) {
+      const p = posters[i];
+      if (!p) continue;
+      const n = perDay?.[i];
+      p.li.classList.add("playing");
+      const seats = n === undefined ? 0 : Math.round((n / max) * 12);
+      const from = codex === null ? 100 : 100 - (codex * i) / 7, to = codex === null ? 100 : 100 - (codex * (i + 1)) / 7;
+      await tween(0, 1, 420, (_, pr) => { fillSeats(p, Math.round(pr * seats)); if (codex !== null) setGauge(from + (to - from) * pr); }, tok);
+      if (codex === null) leftPct.textContent = "";
+      p.li.classList.remove("playing");
+      if (n !== undefined) { p.li.classList.add("played"); p.lab.textContent = n.toLocaleString("en-US"); }
+      if (hits.has(i)) { p.li.classList.add("cut"); p.stamp.textContent = "LIMIT HIT"; }
+    }
+    dataBig.textContent = stageHeadline(week);
+    dataSub.textContent = stageSubtitle(week);
+    dataEnd.hidden = false;
+    if (tok === st.token) {
+      setBusy(false);
+      keepLights.classList.add("shown");
+      if (focusReplay) replayBtn.focus();
+    }
   }
   function updateCompare(): void { compare.hidden = !st.mode; seg.hidden = !st.routed; }
   async function runWithout(): Promise<void> {
@@ -398,7 +450,8 @@ export function startTheRun(doc: Document): void {
   async function skipToEnd(): Promise<void> {
     const hadFocus = doc.activeElement === skipBtn;
     const view = st.view;
-    try { await instant(() => playWeek(view, ++st.token)); } catch (e) { ignoreCancel(e); }
+    const data = st.data;
+    try { await instant(() => data ? playData(data, ++st.token, false) : playWeek(view, ++st.token)); } catch (e) { ignoreCancel(e); }
     if (hadFocus) replayBtn.focus();
   }
 
@@ -475,34 +528,54 @@ export function startTheRun(doc: Document): void {
     if (clip && typeof clip.writeText === "function") clip.writeText(PROMPT).then(() => say(COPIED), fallback);
     else fallback();
   });
-  /** Map your real week, Skip to the command and #command all move focus to the prompt section. */
-  function focusCommand(): void { command.focus(); }
+  /** Skip to the command and #command move focus to the prompt section, unless focus is already inside it: a late
+   * fonts.ready or a hashchange must never pull focus out of the paste box (the Cmd+V bug, 2026-10-21). */
+  function focusCommand(): void { if (!command.contains(doc.activeElement)) command.focus(); }
 
   /* ---------- Paste the result back: parsed here, shown as values only, never sent or stored ---------- */
   const pasteBox = id("pasteBox", HTMLTextAreaElement), pasteError = id("pasteError", HTMLElement);
   const yourWeek = id("yourWeek", HTMLElement), yourFields = id("yourFields", HTMLElement), yourLine = id("yourLine", HTMLElement);
-  let mine: Mode = "under";
-  id("showWeek", HTMLButtonElement).addEventListener("click", () => {
-    const week = parseWeek(pasteBox.value);
-    if (!week) { yourWeek.hidden = true; pasteError.textContent = NOT_A_RESULT; pasteError.hidden = false; return; }
-    pasteError.hidden = true; pasteError.textContent = "";
-    // Only parsed values reach the page, through textContent: no pasted text is ever shown.
+  const sampleTag = id("sampleTag", HTMLElement), localTag = id("localTag", HTMLElement);
+  const yourTitle = id("hYour", HTMLElement), yourPeriod = id("yourPeriod", HTMLElement);
+  let mine: Week | null = null;
+  /** Fill the card in place from values only (textContent): no pasted text is ever shown. It does not move focus or
+   * the page; it only scrolls the card into view if it would be off screen. */
+  function showCard(week: Week, sample: boolean): void {
+    yourTitle.textContent = sample ? "Sample week" : "Your week";
+    yourPeriod.textContent = periodLine(week);
+    yourLine.textContent = cardHeadline(week);
     yourFields.textContent = "";
     for (const { label, value } of weekLines(week)) {
       const dt = doc.createElement("dt"); dt.textContent = label;
       const dd = doc.createElement("dd"); dd.textContent = value;
       yourFields.append(dt, dd);
     }
-    yourLine.textContent = situationLine(week);
-    mine = situationOf(week) === "running out" ? "burn" : "under";
+    mine = week;
+    sampleTag.hidden = !sample; localTag.hidden = sample;
     yourWeek.hidden = false;
     yourWeek.scrollIntoView({ block: "nearest" });
-  });
-  id("playMine", HTMLButtonElement).addEventListener("click", () => {
-    const hash = `#${mine}-before`;
-    if (win.location.hash === hash) void fromHash(); else win.location.hash = hash;
+  }
+  /** Play my week: the stage comes into view (only on this click) and plays the shown numbers; focus ends on Replay. */
+  function playMine(): void {
+    const week = mine;
+    if (!week) return;
     stage.scrollIntoView({ block: "start" });
+    playData(week, ++st.token, true).catch(ignoreCancel);
+  }
+  function showMyWeek(): void {
+    const week = parseWeek(pasteBox.value);
+    if (!week) { yourWeek.hidden = true; pasteError.textContent = NOT_A_RESULT; pasteError.hidden = false; return; }
+    pasteError.hidden = true; pasteError.textContent = "";
+    showCard(week, false);
+  }
+  id("showWeek", HTMLButtonElement).addEventListener("click", showMyWeek);
+  // A paste shows the week by itself once the text has landed; the default paste is never blocked.
+  pasteBox.addEventListener("paste", () => { win.setTimeout(showMyWeek, 0); });
+  id("showSample", HTMLButtonElement).addEventListener("click", () => {
+    pasteError.hidden = true; pasteError.textContent = "";
+    showCard(SAMPLE_WEEK, true);
   });
+  id("playMine", HTMLButtonElement).addEventListener("click", playMine);
 
   /* ---------- wiring ---------- */
   pickBtns.forEach((b) => b.addEventListener("click", () => { const m = b.dataset.mode; if (m === "burn" || m === "under") { setMode(m); void runWithout(); } }));
@@ -512,7 +585,18 @@ export function startTheRun(doc: Document): void {
     playWeek(b.dataset.v === "with" ? "with" : "without", tok).catch(ignoreCancel);
   }));
   skipBtn.addEventListener("click", () => { void skipToEnd(); });
-  replayBtn.addEventListener("click", () => { const tok = ++st.token; playWeek(st.view, tok).catch(ignoreCancel); });
+  replayBtn.addEventListener("click", () => {
+    const tok = ++st.token;
+    const data = st.data;
+    (data ? playData(data, tok, false) : playWeek(st.view, tok)).catch(ignoreCancel);
+  });
+  // After a week from the visitor's numbers: the scripted With week, tagged as an example so nothing implies their saving.
+  id("dataWith", HTMLButtonElement).addEventListener("click", () => {
+    const week = st.data;
+    setMode(week && situationOf(week) === "running out" ? "burn" : "under");
+    st.example = true;
+    void playWith();
+  });
   every(doc, 'a[href="#command"]', HTMLAnchorElement).forEach((a) => a.addEventListener("click", () => win.setTimeout(focusCommand, 0)));
 
   /* ---------- start and deep links ---------- */

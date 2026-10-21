@@ -583,7 +583,7 @@ const MADMAX = '#overture a[href="tm/"]';
 
 const PARTS: Record<string, string> = {
   marquee: "#overture .marquee", ticket: "#overture .ticket", cue: "#overture .cue-scroll",
-  poster: "#overture a.poster", madmax: MADMAX, chip: "#sampleBadge", lights: "#lights",
+  poster: "#overture .poster", madmax: MADMAX, chip: "#sampleBadge", lights: "#lights",
 };
 
 /**
@@ -811,7 +811,7 @@ test("[integration] L16 at scrollY 0 with no input the curtain is still closed a
         return {
           role: ov?.getAttribute("role") ?? "", label: ov?.getAttribute("aria-label") ?? "", hidden: ov?.getAttribute("aria-hidden") ?? null,
           drapes: [...document.querySelectorAll(".overture .curtain")].map((node) => node.getAttribute("aria-hidden")),
-          controlsHidden: [...document.querySelectorAll('#overture a[href="tm/"], #overture a.poster')].some((node) => node.closest("[aria-hidden=true]") !== null),
+          controlsHidden: [...document.querySelectorAll('#overture a[href="tm/"], #overture .poster .p-cta')].some((node) => node.closest("[aria-hidden=true]") !== null),
         };
       });
       expect(named).toEqual({ role: "region", label: "Opening curtain", hidden: null, drapes: ["true", "true"], controlsHidden: false });
@@ -845,9 +845,9 @@ test("[integration] V1 the closed curtain carries the composition: marquee, the 
       expect(await page.locator("#overture .marquee").getAttribute("aria-hidden")).toBe("true");
       const ticket = await page.locator("#overture .ticket").textContent() ?? "";
       for (const word of ["ADMIT ONE", "J-EV", "No. 0042"]) expect(ticket).toContain(word);
-      expect(await page.locator("#overture a.poster .p-title").innerText()).toBe("Little Shop of Horrors");
-      expect(await page.locator("#overture a.poster").getAttribute("href")).toMatch(/little-shop\/$/);
-      expect(await page.locator("#overture a.poster .p-cta").innerText()).toMatch(/^take your seat$/i);
+      expect(await page.locator("#overture .poster .p-title").innerText()).toBe("Little Shop of Horrors");
+      expect(await page.locator("#overture .poster a").count()).toBe(0);
+      expect(await page.locator("#overture .poster .p-cta").innerText()).toMatch(/^open the curtain$/i);
       expect(await page.locator("#overture .cue-scroll").innerText()).toMatch(/^raise the curtain$/i);
       expect({ width, skip: await page.locator("#skipOverture").count(), button: await page.getByRole("button", { name: /skip/i }).count() }).toEqual({ width, skip: 0, button: 0 });
       expect(await page.locator("#overture .ticket").evaluate((node) => node.closest("a")?.getAttribute("href") ?? "")).toBe("tm/");
@@ -889,7 +889,7 @@ test("[integration] V1 the closed curtain carries the composition: marquee, the 
   }
 }, 30000);
 
-test("[integration] V2 no generic opening: no #opening or #takeSeat, nothing named exactly Take your seat, and the one h1 is in the page, not on the curtain", async () => {
+test("[integration] V2 no generic opening: no #opening or #takeSeat, nothing named Take your seat, and the one h1 is in the page, not on the curtain", async () => {
   const roles: ("button" | "link" | "heading")[] = ["button", "link", "heading"];
   for (const motion of MOTIONS) for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, motion);
@@ -898,7 +898,8 @@ test("[integration] V2 no generic opening: no #opening or #takeSeat, nothing nam
       for (const role of roles) expect({ motion, role, count: await page.getByRole(role, { name: "Take your seat", exact: true }).count() }).toEqual({ motion, role, count: 0 });
       expect(await page.locator("h1").count()).toBe(1);
       expect(await page.locator("h1").evaluate((node) => node.id === "t1" && node.closest("#overture") === null && node.closest("main .marquee-band") !== null)).toBe(true);
-      expect(await page.locator("#overture a.poster").getAttribute("aria-label")).toBe("Little Shop of Horrors: take your seat");
+      expect(await page.locator("#overture .poster").getAttribute("aria-label")).toBeNull();
+      expect({ motion, open: await page.getByRole("button", { name: "Open the curtain", exact: true }).count() }).toEqual({ motion, open: motion === "reduce" ? 0 : 1 });
     } finally { await page.close(); }
   }
 }, 30000);
@@ -908,7 +909,7 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
     const page = await pageAt(width, height, "no-preference");
     try {
       // c01 made the scroll cue a button, Raise the curtain (UX2); nothing on the curtain is a Skip.
-      expect({ width, skip: await page.locator("#skipOverture").count(), buttons: await page.locator("#overture button").evaluateAll((nodes) => nodes.map((n) => n.id)) }).toEqual({ width, skip: 0, buttons: ["raise"] });
+      expect({ width, skip: await page.locator("#skipOverture").count(), buttons: await page.locator("#overture button").evaluateAll((nodes) => nodes.map((n) => n.id)) }).toEqual({ width, skip: 0, buttons: ["openCurtain", "raise"] });
       await openOntoResults(page);
       const after = await page.evaluate(() => {
         const ov = document.getElementById("overture"), head = document.getElementById("types");
@@ -937,7 +938,7 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
       const note = await noteShown(tabs);
       expect({ width, note }).toEqual({ width, note: NOTE_RENDERED });
       const stops = await tabStops(tabs, note ? 6 : 5);
-      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed", "lights:closed", "A.house-link:open"] });
+      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "openCurtain:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed", "lights:closed", "A.house-link:open"] });
       expect(await shownCurtains(tabs)).toBe(0);
     } finally { await tabs.close(); }
   }
@@ -987,7 +988,7 @@ test("[integration] UX2 c01 Raise the curtain is a button on the closed curtain,
       const note = await noteShown(keyed);
       expect({ width, note }).toEqual({ width, note: NOTE_RENDERED });
       const stops = await tabStops(keyed, note ? 4 : 3);
-      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed"] });
+      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "openCurtain:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed"] });
       await keyed.keyboard.press("Enter");
       await keyed.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
       expect({ width, focus: await keyed.evaluate(() => document.activeElement?.id ?? "") }).toEqual({ width, focus: "types" });
@@ -1158,15 +1159,25 @@ test("[integration] UX7 c04 a scene not yet lit stays readable (its lit parts at
   }
 }, 40000);
 
-test("[integration] V4 the curtain poster opens Little Shop", async () => {
+test("[integration] V4 the curtain poster opens the curtain, like Raise the curtain, and never navigates: a click on the poster or its Open the curtain button, and Enter or Space on the focused button", async () => {
   for (const [width, height] of CLOSED_VIEWPORTS) {
-    const page = await pageAt(width, height, "no-preference");
-    try {
-      await Promise.all([page.waitForURL(/\/little-shop\/$/, { waitUntil: "commit" }), page.locator("#overture a.poster").click()]);
-      expect(new URL(page.url()).pathname).toBe("/little-shop/");
-    } finally { await page.close(); }
+    for (const how of ["poster click", "button click", "Enter", "Space"]) {
+      const page = await pageAt(width, height, "no-preference");
+      try {
+        const before = page.url();
+        const button = page.getByRole("button", { name: "Open the curtain", exact: true });
+        expect({ width, how, state: (await curtain(page)).state }).toEqual({ width, how, state: "closed" });
+        if (how === "poster click") await page.locator("#overture .poster .p-title").click();
+        else if (how === "button click") await button.click();
+        else { await button.focus(); await page.keyboard.press(how); }
+        await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
+        const after = await page.evaluate(() => ({ state: document.documentElement.dataset.curtain, focus: document.activeElement?.id ?? "" }));
+        expect({ width, how, state: after.state, focus: after.focus, url: page.url() }).toEqual({ width, how, state: "open", focus: "types", url: before });
+        expect(new URL(page.url()).pathname).not.toMatch(/little-shop/);
+      } finally { await page.close(); }
+    }
   }
-}, 30000);
+}, 60000);
 
 test("[integration] V5 mid-reveal the pictures' section shows in the gap between the parting curtains and its four tiles wait hidden (c03): at reveal 0.4 and 0.7 the pointer in the gap reaches the section, never a tile, at 1280, 1440 and 390, in both themes", async () => {
   const checks: [number, number, number, string][] = [[1280, 900, 0.4, "light"], [1440, 900, 0.4, "light"], [390, 844, 0.4, "light"], [1440, 900, 0.7, "light"], [390, 844, 0.7, "light"], [1440, 900, 0.7, "dark"]];
@@ -1254,7 +1265,7 @@ test("[integration] V7 the page holds still while the curtain parts: at least ha
   }
 }, 30000);
 
-test("[integration] V9 short screens (390x600, 390x560, 740x600, 844x390) and 390x844 fit the closed curtain: the whole marquee on screen and clear of the chip, the Mad TokenMax poster and its ticket and the Little Shop poster's Take your seat on screen and reachable, no horizontal scroll", async () => {
+test("[integration] V9 short screens (390x600, 390x560, 740x600, 844x390) and 390x844 fit the closed curtain: the whole marquee on screen and clear of the chip, the Mad TokenMax poster and its ticket and the Little Shop poster's Open the curtain on screen and reachable, no horizontal scroll", async () => {
   const shorts: [number, number][] = [[390, 844], [390, 600], [390, 560], [740, 600], [844, 390]];
   for (const [width, height] of shorts) {
     const page = await pageAt(width, height, "no-preference");
@@ -1274,9 +1285,9 @@ test("[integration] V9 short screens (390x600, 390x560, 740x600, 844x390) and 39
         const marquee = box("#overture .marquee"), title = box("#overture .marquee .billing"), chip = box("#sampleBadge");
         return {
           marqueeTop: marquee ? Math.round(marquee.top) : NaN, marquee: inside(marquee), chipClear: !meets(chip, marquee) && !meets(chip, title),
-          ticket: inside(box("#overture .ticket")) && reach("#overture .ticket", '#overture a[href="tm/"]'), seat: inside(box("#overture a.poster .p-cta")) && reach("#overture a.poster .p-cta", "#overture a.poster"),
+          ticket: inside(box("#overture .ticket")) && reach("#overture .ticket", '#overture a[href="tm/"]'), seat: inside(box("#overture .poster .p-cta")) && reach("#overture .poster .p-cta", "#overture .poster .p-cta"),
           madmax: inside(box('#overture a[href="tm/"]')) && reach('#overture a[href="tm/"]', '#overture a[href="tm/"]'),
-          poster: inside(box("#overture a.poster")), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          poster: inside(box("#overture .poster")), overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         };
       });
       expect({ width, height, ...fit, marqueeTop: fit.marqueeTop >= 0 }).toEqual({ width, height, marqueeTop: true, marquee: true, chipClear: true, ticket: true, seat: true, madmax: true, poster: true, overflow: 0 });
@@ -1654,7 +1665,7 @@ test("[integration] L26 the Mad TokenMax poster is the first tab stop on the cur
     expect(first).toEqual({ madmax: true, ring: true, state: "closed" });
     await page.keyboard.press("Tab");
     expect(await page.evaluate(() => ({
-      poster: document.activeElement?.matches("#overture a.poster") ?? false,
+      poster: document.activeElement?.matches("#overture .poster button.p-cta") ?? false,
       state: document.documentElement.dataset.curtain,
     }))).toEqual({ poster: true, state: "closed" });
     const where = () => page.evaluate(() => ({ id: document.activeElement?.id ?? "", state: document.documentElement.dataset.curtain }));
@@ -1671,7 +1682,7 @@ test("[integration] L26 the Mad TokenMax poster is the first tab stop on the cur
       expect(await where()).toEqual({ id: "raise", state: "closed" });
       await page.keyboard.press("Shift+Tab");
     }
-    expect(await page.evaluate(() => document.activeElement?.matches("#overture a.poster") ?? false)).toBe(true);
+    expect(await page.evaluate(() => document.activeElement?.matches("#overture .poster button.p-cta") ?? false)).toBe(true);
     await page.keyboard.press("Tab");
     if (raise) await page.keyboard.press("Tab");
     expect(await where()).toEqual({ id: "lights", state: "closed" });
@@ -1801,13 +1812,13 @@ for (const motion of MOTIONS) {
   }, 30000);
 }
 
-test("[integration] L20 the curtain's Little Shop poster has its own short accessible name, shared by no other link; the page itself carries no second Little Shop poster", async () => {
+test("[integration] L20 the curtain's Little Shop poster is a preview whose one control is a button named Open the curtain, distinct from Raise the curtain; no link on the curtain or the page reaches Little Shop's poster", async () => {
   const page = await pageAt(390, 844, "no-preference");
   try {
-    const onCurtain = "Little Shop of Horrors: take your seat";
-    expect(await page.locator("#overture a.poster").getAttribute("aria-label")).toBe(onCurtain);
-    expect(await page.locator('main a[href="little-shop/"]').count()).toBe(0);
-    expect(await page.getByRole("link", { name: onCurtain, exact: true }).count()).toBe(1);
+    expect(await page.locator("#overture .poster").getAttribute("aria-label")).toBeNull();
+    expect(await page.locator('main a[href="little-shop/"], #overture a[href="little-shop/"]').count()).toBe(0);
+    expect(await page.getByRole("button", { name: "Open the curtain", exact: true }).count()).toBe(1);
+    expect(await page.getByRole("button", { name: "Raise the curtain", exact: true }).count()).toBe(1);
     expect(await page.getByRole("button", { name: "Take your seat", exact: true }).count()).toBe(0);
     expect(await page.getByRole("link", { name: "Take your seat", exact: true }).count()).toBe(0);
     const names = await page.locator("a[href]:visible").evaluateAll((links) => links.map((link) => link.getAttribute("aria-label") || link.textContent?.trim() || ""));
@@ -2073,7 +2084,7 @@ async function tabStops(page: Page, count: number): Promise<{ stop: string; stat
     out.push(await page.evaluate(() => {
       const a = document.activeElement;
       const s = a ? getComputedStyle(a) : null;
-      const stop = !a ? "none" : a.id ? a.id : a.matches("#overture a.poster") ? "curtain poster" : a.matches('#overture a[href="tm/"]') ? "madmax poster" : a.matches("#overture .shop-say a") ? "testimonial" : `${a.tagName}.${a.className}`;
+      const stop = !a ? "none" : a.id ? a.id : a.matches('#overture a[href="tm/"]') ? "madmax poster" : a.matches("#overture .shop-say a") ? "testimonial" : `${a.tagName}.${a.className}`;
       return { stop, state: document.documentElement.dataset.curtain ?? "unset", ring: Boolean(a?.matches(":focus-visible") && s && s.outlineStyle !== "none" && parseFloat(s.outlineWidth) >= 2) };
     }));
   }
@@ -2230,7 +2241,7 @@ test("[integration] TM5 with the curtain closed the band's controls keep it clos
       // Raise the curtain is a stop where the curtain has room for it (a short phone curtain sets it aside, V1).
       const raise = await keys.evaluate(() => getComputedStyle(document.getElementById("raise") ?? document.body).display !== "none") ? ["raise"] : [];
       expect({ width, stops: await tabStops(keys, TM_BAND_STOPS.length + 3 + raise.length) })
-        .toEqual({ width, stops: [...TM_BAND_STOPS, "madmax poster", "curtain poster", ...raise, "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
+        .toEqual({ width, stops: [...TM_BAND_STOPS, "madmax poster", "openCurtain", ...raise, "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
     } finally { await keys.close(); }
   }
 }, 30000);
@@ -2726,7 +2737,7 @@ test("[integration] MM2 wide screens (1716x910, 1440x900, 1100x700): the marquee
       }));
       expect({ width, show: /mad tokenmax/i.test(img.alt), poster: /poster/i.test(img.alt), sized: img.sized, loaded: img.loaded, src: img.src })
         .toEqual({ width, show: true, poster: true, sized: true, loaded: true, src: "shows/madtokenmax-poster.webp" });
-      const [marquee, ticket, madmax, poster] = await Promise.all(["#overture .marquee", "#overture .ticket", MADMAX, "#overture a.poster"].map((s) => partOf(page, s)));
+      const [marquee, ticket, madmax, poster] = await Promise.all(["#overture .marquee", "#overture .ticket", MADMAX, "#overture .poster"].map((s) => partOf(page, s)));
       if (!marquee || !ticket || !madmax || !poster) throw new Error(`a part of the curtain is missing at ${width}`);
       const mid = (a: Part): [number, number] => [(a.left + a.right) / 2, (a.top + a.bottom) / 2];
       const [tx, ty] = mid(ticket), [mx, my] = mid(madmax);
@@ -2773,7 +2784,7 @@ test("[integration] MM4 narrow screens (390x844, 1024x768): the two posters sit 
     const page = await pageAt(width, height, "no-preference");
     try {
       expect((await curtain(page)).state).toBe("closed");
-      const [marquee, ticket, madmax, poster] = await Promise.all(["#overture .marquee", "#overture .ticket", MADMAX, "#overture a.poster"].map((s) => partOf(page, s)));
+      const [marquee, ticket, madmax, poster] = await Promise.all(["#overture .marquee", "#overture .ticket", MADMAX, "#overture .poster"].map((s) => partOf(page, s)));
       if (!marquee || !ticket || !madmax || !poster) throw new Error(`a part of the curtain is missing at ${width}`);
       expect({
         width, underMarquee: madmax.top >= marquee.bottom && poster.top >= marquee.bottom, sideBySide: madmax.right <= poster.left && madmax.top < poster.bottom && poster.top < madmax.bottom,
@@ -2886,14 +2897,14 @@ test("[integration] TR4 without the acts or the Kept answers panel, a loaded fil
   } finally { await undecided.close(); }
 }, 30000);
 
-test("[integration] TR5 one seat call-to-action label, Take your seat, on the curtain poster; the page's own way in is the footer's Little Shop link", async () => {
+test("[integration] TR5 one call-to-action label, Open the curtain, on the curtain poster (a button, no link); the page's own way in is the footer's Little Shop link", async () => {
   for (const motion of MOTIONS) {
     const page = await pageAt(1440, 900, motion);
     try {
-      const labels = await page.locator("a.poster .p-cta").allTextContents();
-      expect({ motion, labels }).toEqual({ motion, labels: ["Take your seat"] });
+      const labels = await page.locator(".poster .p-cta").allTextContents();
+      expect({ motion, labels }).toEqual({ motion, labels: ["Open the curtain"] });
       expect(await page.locator('footer.site-foot a[href="little-shop/"]').textContent()).toBe("Little Shop");
-      const seats = page.locator('a.poster[href="little-shop/"] .p-seats');
+      const seats = page.locator("#overture .poster .p-seats");
       if (motion === "reduce") {
         expect(await seats.isVisible()).toBe(false);
       } else {
@@ -2904,10 +2915,9 @@ test("[integration] TR5 one seat call-to-action label, Take your seat, on the cu
         expect((await seats.innerText()).trim()).toBe("40 messages, three clerks each. You decide.");
       }
       expect(await page.locator("body").evaluate((node) => (node.textContent ?? "").toLowerCase())).not.toContain("pick a seat");
-      // The poster names its label (WCAG label in name) and no other link shares its name.
-      const names = await page.locator("a.poster").evaluateAll((nodes) => nodes.map((n) => n.getAttribute("aria-label") ?? ""));
-      expect(new Set(names).size).toBe(names.length);
-      for (const name of names) expect(name.toLowerCase()).toContain("take your seat");
+      // The poster's one control is a button whose visible text is its name (WCAG label in name); no aria-label overrides it.
+      const names = await page.locator("#overture .poster button").evaluateAll((nodes) => nodes.map((n) => n.getAttribute("aria-label") ?? n.textContent?.trim() ?? ""));
+      expect(names).toEqual(["Open the curtain"]);
     } finally { await page.close(); }
   }
 }, 30000);

@@ -60,7 +60,7 @@ describe("site/index.html testimonial", () => {
   test("[unit] T-placement: when rendered the note is inside the Little Shop column, after the poster, before Raise the curtain", async () => {
     const html = replaceBlock(await page(), renderTestimonial(ON));
     const col = html.indexOf('<div class="shop-col">');
-    const poster = html.indexOf('<a class="poster" href="little-shop/"', col);
+    const poster = html.indexOf('<div class="poster">', col);
     const note = html.indexOf('<figure class="shop-say"');
     const raise = html.indexOf('id="raise"');
     expect(col).toBeGreaterThan(-1);

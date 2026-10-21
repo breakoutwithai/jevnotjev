@@ -4,47 +4,33 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 import { bundleTm, TM_OUT } from "./build-tm.ts";
-import { BANNED_ANYWHERE, jargonHits, PROMPT } from "./uat/tm-the-run-check.ts";
-import { shareLink, type SharePayload } from "../skills/tokenmax-map/scripts/map.ts";
+import { WITH_ACT, WITHOUT_ACT, BANNED_ANYWHERE, bannedHits, jargonHits, PROMPT, SAMPLE_CARD, SAMPLE_RESULT } from "./uat/tm-the-run-check.ts";
+import {
+  cardHeadline, dayLabels, limitDayIndexes, NOT_A_RESULT, parseWeek, periodLine, readDate, readLimitDays, readPerDay, SAMPLE_WEEK, situationOf, stageHeadline, stageSubtitle,
+  weekLines, type Week,
+} from "../src/browser/tm-week.ts";
 
-// /tm/ "The Run": a plain front panel, the click-through TokenMax show, then Share my week (#command: one prompt for the
-// Claude Code or Codex the visitor already uses), the share card (#sceneB) and the router card (#sceneD). Served from
-// site/ by Bun.serve; every off-origin request is blocked. Issue #309 criterion 3: no jargon in the first viewport, no
-// curl or terminal anywhere.
+// /tm/ "The Run": a plain front panel, the click-through TokenMax show, then Map your real week (#command: one plain
+// prompt, shown in full, to paste into the Claude Code or Codex the visitor already uses, a paste box with Show my week
+// and Show Sample) and the router card (#sceneD). Served from site/ by Bun.serve; every off-origin request is blocked. Issue #309 criterion
+// 3: no jargon in the first viewport, no curl or terminal anywhere; no bun, map.ts, --share, download or script in the
+// visible text or the copied prompt.
 
 const SITE = join(import.meta.dir, "..", "site");
-// One builder's real week, 16 Oct 2026 (the builder's own tokenmax-map 0.2.0 run, recorded in the private planning folder's
-// use-cases/tim-tokenmax/RUNS.md, "Builder's real history with 0.2.0"): Claude 515 sessions and 68 subagent,
-// Codex 3,478 and 376; caps 1 short and 1 unknown window; output tokens as below; Opus-class 87%; Codex week 15%.
-const REAL: SharePayload = {
-  v: "tm-share/1",
-  skill: "0.3.0",
-  days: 7,
-  sources: "claude+codex",
-  sessions: 515 + 3478,
-  subagent_sessions: 68 + 376,
-  caps: { short: 1, weekly: 0, unknown: 1 },
-  output_tokens: { claude: 9977232, codex: 7503143 },
-  opus_share_pct: 87,
-  codex_weekly_pct: 15,
-};
 const MOTIONS: ("no-preference" | "reduce")[] = ["no-preference", "reduce"];
 const VIEWS: readonly (readonly [number, number])[] = [[390, 844], [1440, 900]];
-const TRUST = "Runs on your machine. Nothing sent until you press Share.";
+const TRUST = "Nothing is sent anywhere. You decide what to do with the summary.";
 // En and em dash, built from code points so no dash glyph sits in this file.
 const DASHES = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]|&[mn]dash;|\\\\u201[34]`);
 const html = (): string => readFileSync(join(SITE, "tm", "index.html"), "utf8");
 
-test("[unit] VP-6 the sample card link names the sample and marks its fragment", () => {
-  const link = /<a class="open" id="openCard" href="([^"]+)">([^<]+)<\/a>/.exec(html());
-  expect(link?.[1]).toMatch(/\/maps\/#m=[A-Za-z0-9_-]+&sample$/);
-  expect(link?.[2]).toBe("Open a sample card");
-});
-
-test("[unit] VP-6 every linked map payload is marked as a sample", () => {
-  const links = [...html().matchAll(/<a\b[^>]*href="([^"]*\/maps\/#m=[^"]+)"[^>]*>/g)].map((match) => match[1]);
-  expect(links.length).toBeGreaterThan(0);
-  for (const href of links) expect(href).toMatch(/&sample$/);
+// Operator decision (2026-10-21): the "What a real week looks like" section and its sample-card link are removed;
+// Show Sample fills the Your week card instead. This replaces the two VP-6 sample-link tests.
+test("[unit] VP-6 no maps sample link, sample-card link or sample section remains on /tm/", () => {
+  const page = html();
+  expect(page).not.toMatch(/\/maps\/#m=|id="openCard"|id="sceneB"|id="browser"|See a sample card|Open a sample card|What a real week looks like|A sample week|Counts only: no messages, no files|One builder's real week/);
+  expect(page).toContain('<a id="seeMaps" href="/maps/">See the shared maps</a>');
+  expect(page).toContain('href="/guide/#tokenmax"');
 });
 
 test("[unit] TM-1 the opening curtain scene and the terminal scene are gone; fonts are bundled, not fetched", () => {
@@ -57,11 +43,109 @@ test("[unit] TM-1 the opening curtain scene and the terminal scene are gone; fon
   for (const f of fonts) expect(existsSync(join(SITE, "tm", f))).toBe(true);
   expect(css).not.toMatch(/https?:\/\//);
   // #309: the command ticket is gone; no curl and no terminal wording in any shipped source of the page.
-  for (const gone of ["cmd", "cmdText", "ticket", "tok1", "note1"]) expect(page).not.toContain(`id="${gone}"`);
+  for (const gone of ["cmd", "cmdText", "ticket", "tok1", "note1", "share", "shareWeek"]) expect(page).not.toContain(`id="${gone}"`);
+  // The prompt is plain text on the page: no collapsed gate, no link to the mapper, no install step.
+  expect(page).not.toMatch(/<details|<summary|href="\/tm\/map\.ts"|press Share/i);
+  expect(page).toContain(`<pre id="sharePrompt">${PROMPT.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`);
   for (const file of [join(SITE, "tm", "index.html"), join(SITE, "tm", "tm.css"), join(SITE, "tm", "tm.js"), join(import.meta.dir, "..", "src", "browser", "tm-run.ts")]) {
     expect({ file, hit: BANNED_ANYWHERE.exec(readFileSync(file, "utf8"))?.[0] ?? null }).toEqual({ file, hit: null });
   }
 });
+
+// ---------- TM-10: the pasted result, read in the browser only ----------
+const WANT: Week = {
+  period: { start: "2026-10-14", end: "2026-10-21" }, claudeSessions: 288, codexSessions: 2925, claudeOutput: 7940728, codexOutput: 4315259,
+  opusShare: 42, limitHits: 2, codexWindow: 7, pattern: null, perDay: null, limitDays: null,
+};
+const TABLE = [
+  "| Item | Value |", "|---|---|", "| Period | 2026-10-14 to 2026-10-21 |", "| Claude sessions | 288 |", "| Codex sessions | 2,925 |",
+  "| Claude output tokens | 7,940,728 |", "| Codex output tokens | 4,315,259 |", "| Opus share of Claude output | 42 % |",
+  "| Usage limit hits | 2 |", "| Codex weekly window used | 7% |",
+].join("\n");
+const BULLETS = SAMPLE_RESULT.split("\n").map((l, i) => (i === 0 ? `**${l}**` : `- ${l.toUpperCase().replace(": ", " :   ")}`)).join("\n");
+const CAVEAT = "Count mismatch: sessions 3213 is 288 Claude plus 2,925 Codex; 86 duplicate files were de-duplicated.";
+
+test("[unit] TM-10 parseWeek reads the sample week as a plain block, a markdown table and a bulleted list", () => {
+  expect(parseWeek(SAMPLE_RESULT)).toEqual(WANT);
+  expect(parseWeek(TABLE)).toEqual(WANT);
+  expect(parseWeek(BULLETS)).toEqual(WANT);
+  expect(weekLines(WANT).map((l) => [l.label, l.value])).toEqual(SAMPLE_CARD.map((r) => [...r]));
+  // No Pattern line: two limit hits make it running out.
+  expect(situationOf(WANT)).toBe("running out");
+  expect(situationOf({ ...WANT, limitHits: 0 })).toBe("leaving most unused");
+  expect(situationOf({ ...WANT, pattern: "leaving most unused" })).toBe("leaving most unused");
+  expect(parseWeek(`${SAMPLE_RESULT}\nPattern: leaving most unused`)?.pattern).toBe("leaving most unused");
+});
+
+test("[unit] TM-10 'not recorded' and unreadable lines stay not recorded; caveats around the block are ignored; garbage is refused", () => {
+  const partial = parseWeek("TOKENMAX WEEK\nPeriod: not recorded\nClaude sessions: 288\nCodex sessions: not recorded\nUsage limit hits: unknown\nOpus share of Claude output: Not Recorded");
+  expect(partial).toEqual({ period: null, claudeSessions: 288, codexSessions: null, claudeOutput: null, codexOutput: null, opusShare: null, limitHits: null, codexWindow: null, pattern: null, perDay: null, limitDays: null });
+  if (!partial) throw new Error("partial did not parse");
+  expect(weekLines(partial).map((l) => l.value)).toEqual(["288", "not recorded", "not recorded", "not recorded", "not recorded", "not recorded", "not recorded"]);
+  expect(periodLine(partial)).toBe("Period not recorded");
+  expect(cardHeadline(partial)).toBe("Usage limit hits not recorded");
+  expect(parseWeek(`${CAVEAT}\n\nNote: numbers are approximate.\n${SAMPLE_RESULT}\n\n${CAVEAT}`)).toEqual(WANT);
+  for (const junk of ["", "hello", "Here is your summary: you did a lot.", "| a | b |\n|---|---|", "Sessions 288"]) expect(parseWeek(junk)).toBeNull();
+  expect(NOT_A_RESULT).toBe("That doesn't look like the result. Run the prompt again and paste what it prints.");
+});
+
+for (const motion of MOTIONS) test(`[integration] TM-11 pasting the result shows the parsed week only: caveats never reach the page, no request, no storage, no horizontal scroll (${motion})`, async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, motion);
+    const requests: string[] = [];
+    page.on("request", (r) => requests.push(r.url()));
+    try {
+      await page.locator("#pasteBox").fill(`${CAVEAT}\n\n${SAMPLE_RESULT}\n\nNot checked: what happens after this.`);
+      await page.locator("#showWeek").click();
+      const card = await page.evaluate(() => ({
+        rows: [...document.querySelectorAll("#yourFields dt")].map((dt) => [dt.textContent ?? "", dt.nextElementSibling?.textContent ?? ""]),
+        line: document.getElementById("yourLine")?.textContent ?? "",
+        tag: document.querySelector("#yourWeek .local-tag")?.textContent ?? "",
+        visible: document.getElementById("yourWeek")?.checkVisibility() ?? false,
+        dom: document.documentElement.textContent ?? "",
+        widths: { doc: document.documentElement.scrollWidth, body: document.body.scrollWidth },
+        stored: localStorage.length + sessionStorage.length,
+      }));
+      expect(card.rows).toEqual(SAMPLE_CARD.map((r) => [...r]));
+      expect(card.line).toBe("Heavy load: you hit your limit 2 times");
+      expect(card.tag).toBe("Your numbers, shown on this page only");
+      expect(card.visible).toBe(true);
+      expect(card.dom).not.toContain("duplicate files");
+      expect(card.dom).not.toContain("Not checked");
+      if (width === 390) { expect(card.widths.doc).toBeLessThanOrEqual(390); expect(card.widths.body).toBeLessThanOrEqual(390); }
+      expect(card.stored).toBe(0);
+      expect(bannedHits(await page.evaluate(() => document.body.innerText))).toEqual([]);
+      // Play my week plays these numbers on the stage (the sample block has no per-day line, so no day claims).
+      await page.locator("#playMine").click();
+      await page.waitForFunction(() => document.getElementById("dataEnd")?.hidden === false, null, { timeout: 8000 });
+      expect(await page.locator("#dataBig").innerText()).toBe("You hit your limit 2 times");
+      // Garbage is refused in one plain message and the card goes away.
+      await page.locator("#pasteBox").fill("hello there");
+      await page.locator("#showWeek").click();
+      expect(await page.locator("#pasteError").innerText()).toBe(NOT_A_RESULT);
+      expect(await page.locator("#yourWeek").isVisible()).toBe(false);
+      expect(requests.filter((u) => !u.startsWith(`http://127.0.0.1:${server.port}/`))).toEqual([]);
+      expect(requests.filter((u) => !/\.(html|css|js|ttf)$|\/tm\/(#.*)?$/.test(new URL(u).pathname + new URL(u).hash))).toEqual([]);
+    } finally { await close(page); }
+  }
+}, 40000);
+
+test("[integration] TM-12 the headline strikes through days: accessible name without it, wraps at 390 with no horizontal scroll", async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, "reduce");
+    try {
+      const h1 = await page.locator("h1").evaluate((el) => {
+        const s = el.querySelector("s");
+        const deco = s ? getComputedStyle(s).textDecorationLine : "";
+        const r = el.getBoundingClientRect();
+        return { struck: s?.textContent ?? "", deco, hidden: s?.getAttribute("aria-hidden") ?? "", shows: el.querySelector("em")?.textContent ?? "", inside: r.left >= 0 && r.right <= innerWidth, widths: { doc: document.documentElement.scrollWidth, body: document.body.scrollWidth } };
+      });
+      expect({ width, ...h1, widths: undefined }).toEqual({ width, struck: "days", deco: "line-through", hidden: "true", shows: "shows", inside: true, widths: undefined });
+      if (width === 390) { expect(h1.widths.doc).toBeLessThanOrEqual(390); expect(h1.widths.body).toBeLessThanOrEqual(390); }
+      expect(await page.getByRole("heading", { level: 1, name: "Your week is a run of seven shows", exact: true }).count()).toBe(1);
+    } finally { await close(page); }
+  }
+}, 30000);
 
 test("[integration] TM-2 site/tm/tm.js is the current build of src/browser/tm-run.ts", async () => {
   expect(readFileSync(TM_OUT, "utf8")).toBe(await bundleTm());
@@ -99,25 +183,98 @@ async function scrollShare(page: Page, share: number): Promise<void> {
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(null)))));
 }
 
-for (const motion of MOTIONS) test(`[integration] TM-8 Share my week opens a prompt for Claude Code or Codex: it reads map.ts, says what it reads and sends, runs it locally, sends nothing itself (${motion})`, async () => {
+for (const motion of MOTIONS) test(`[integration] TM-8 the exact prompt is visible with no click, under "Map your real week" with the trust line on the heading's line; Copy says where to paste; nothing technical on the page (${motion})`, async () => {
   for (const [width, height] of VIEWS) {
     const page = await open(width, height, motion);
     try {
-      expect(await page.locator("#sharePrompt").isVisible()).toBe(false);
-      await page.locator("#shareWeek").click();
-      expect(await page.locator("#sharePrompt").isVisible()).toBe(true);
-      const prompt = await page.locator("#sharePrompt").textContent();
-      expect(prompt).toBe(PROMPT);
-      expect(prompt).toContain("https://jevnotjev.breakoutwithai.com/tm/map.ts");
-      for (const part of ["what it reads", "what it would send", "run it here", "Do not send or upload anything yourself"]) expect(prompt).toContain(part);
-      expect(await page.locator("#promptBox .setup").innerText()).toContain("Claude Code or Codex");
+      // No click, no scroll handler: the prompt is laid out and visible as soon as the page loads.
+      const prompt = await page.locator("#sharePrompt").evaluate((el) => ({ text: el.textContent, visible: el.checkVisibility({ visibilityProperty: true, opacityProperty: true }), height: el.getBoundingClientRect().height, gated: !!el.closest("details, [hidden]") }));
+      expect(prompt.text).toBe(PROMPT);
+      expect(prompt.visible).toBe(true);
+      expect(prompt.height).toBeGreaterThan(40);
+      expect(prompt.gated).toBe(false);
+      expect(await page.locator("#copy").isVisible()).toBe(true);
+      // Operator decision (2026-10-21): the "Paste this into Claude Code or Codex." line is gone; the Copy label says it.
+      expect(await page.locator("#copy").innerText()).toBe("Copy for Claude Code or Codex");
+      expect(await page.locator("#pasteLine").count()).toBe(0);
+      expect(await page.locator("#hCmd").innerText()).toBe("Map your real week");
       expect((await page.locator("#trust").innerText()).trim()).toBe(TRUST);
-      expect(await page.locator("#trust").isVisible()).toBe(true);
+      // The trust line follows the heading on its line at 1440; on a phone it may wrap under the heading, never above it.
+      const head = await page.evaluate(() => {
+        const h = document.getElementById("hCmd")?.getBoundingClientRect(), t = document.getElementById("trust")?.getBoundingClientRect();
+        return h && t ? { sameLine: Math.abs(h.bottom - t.bottom) < 12 && t.left >= h.right, below: t.top >= h.bottom - 2 } : null;
+      });
+      expect(head === null ? false : width === 1440 ? head.sameLine : head.sameLine || head.below).toBe(true);
+      // The whole visible page, and the prompt as copied: none of the banned words (the prompt's "do not download" excepted).
+      expect({ width, hits: bannedHits(await page.evaluate(() => document.body.innerText)) }).toEqual({ width, hits: [] });
+      expect(await page.locator('a[href*="map.ts"]').count()).toBe(0);
     } finally { await close(page); }
   }
 }, 30000);
 
-for (const motion of MOTIONS) test(`[integration] TM-7 the first viewport, no scroll, says what you get, who it is for and not for, and that the router is not built, with no jargon-list word (${motion})`, async () => {
+// Operator decision (2026-10-21): the first viewport is the headline and two big picker boxes; the intro paragraph,
+// the audience line, the router note and the tags are removed. TM-7 asserts that design in place of #309 criteria 1-2.
+for (const motion of MOTIONS) test(`[integration] TM-7 the first viewport, no scroll: the headline and two big picker boxes that do not overlap it, the cue over their seam, no jargon, none of the removed copy (${motion})`, async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, motion);
+    try {
+      // The cue fades in about 1.5 s after load (at once under reduced motion).
+      await page.waitForFunction(() => { const c = document.getElementById("pickCue"); return !!c && document.getElementById("pick")?.classList.contains("cue-on") === true && getComputedStyle(c).opacity === "1"; }, null, { timeout: 4000 });
+      const layout = await page.evaluate(() => {
+        const box = (el: Element | null): { top: number; bottom: number; left: number; right: number; height: number; width: number } | null => {
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height, width: r.width };
+        };
+        const [burn, under] = [...document.querySelectorAll(".pick-btn")].map(box);
+        const cueEl = document.getElementById("pickCue");
+        const group = document.querySelector(".pick-btns");
+        return {
+          h1: box(document.querySelector("h1")), burn: burn ?? null, under: under ?? null, cue: box(cueEl),
+          cueHidden: cueEl?.getAttribute("aria-hidden"), cuePointer: cueEl ? getComputedStyle(cueEl).pointerEvents : "", cueOpacity: cueEl ? getComputedStyle(cueEl).opacity : "",
+          role: group?.getAttribute("role"), label: group?.getAttribute("aria-label"), vh: innerHeight, vw: innerWidth,
+          pulse: [...document.querySelectorAll(".pick-btn")].map((b) => getComputedStyle(b).animationName),
+        };
+      });
+      const { h1, burn, under, cue } = layout;
+      if (!h1 || !burn || !under || !cue) throw new Error(`missing first-viewport element: ${JSON.stringify(layout)}`);
+      // Both boxes wholly in the first viewport, large, below the headline.
+      for (const b of [burn, under]) {
+        expect(b.top >= 0 && b.bottom <= layout.vh).toBe(true);
+        expect(b.height).toBeGreaterThanOrEqual(width === 390 ? 88 : 96);
+        expect(b.top).toBeGreaterThanOrEqual(h1.bottom);
+      }
+      // Side by side at 1440, full-width stacked at 390.
+      if (width === 1440) expect(Math.abs(burn.top - under.top) < 2 && under.left > burn.right).toBe(true);
+      else expect(under.top > burn.bottom && burn.width > layout.vw - 40 && under.width > layout.vw - 40).toBe(true);
+      // The cue straddles the seam (half over each box), below the headline, never taking a click; hidden from screen readers.
+      const seam = width === 1440 ? { a: cue.left < burn.right && cue.right > under.left } : { a: cue.top < burn.bottom && cue.bottom > under.top };
+      expect({ width, ...seam, belowH1: cue.top >= h1.bottom, hidden: layout.cueHidden, pointer: layout.cuePointer, opacity: layout.cueOpacity }).toEqual({ width, a: true, belowH1: true, hidden: "true", pointer: "none", opacity: "1" });
+      expect({ role: layout.role, label: layout.label }).toEqual({ role: "group", label: "Which week is yours?" });
+      // The pulse runs until a week is picked; reduced motion has none.
+      expect(layout.pulse).toEqual(motion === "reduce" ? ["none", "none"] : ["nudge", "nudge"]);
+      const restText = await page.evaluate(() => document.body.innerText);
+      await page.locator(".pick-btn[data-mode=under]").click();
+      const after = await page.evaluate(() => ({ pulse: [...document.querySelectorAll(".pick-btn")].map((b) => getComputedStyle(b).animationName), cue: getComputedStyle(document.getElementById("pickCue") ?? document.body).display }));
+      expect(after).toEqual({ pulse: ["none", "none"], cue: "none" });
+      // The removed copy is gone from the page at rest (the ghost light's own status line names "% of your week
+      // left unused" once a week plays); the footer is the single "Illustrative" line.
+      const text = restText;
+      for (const gone of ["Play a week of AI coding", "For people who use Claude Code or Codex", "The TokenMax router is being designed", "Pick your week above", "of your week left", "Seven performances. One weekly limit.", "I run out before Friday", "I never use it all", "The curtain falls mid-week", "Half the seats sit empty", "Heavy User Hits Limits", "Lite Never Limited", "Tonight's prompt", "Where each step sits", "The review", "Try this prompt", "Comes after the show"]) expect({ gone, found: text.includes(gone) }).toEqual({ gone, found: false });
+      expect(await page.locator(".pick-main").allInnerTexts()).toEqual(["Heavy Loads Hit Limits", "Lite Usage Never Limited"]);
+      // Each title sits on one line and the pair is balanced: same height, same width (at 390 each takes the full width).
+      const titles = await page.evaluate(() => [...document.querySelectorAll(".pick-main")].map((el) => { const lh = parseFloat(getComputedStyle(el).lineHeight); return { lines: Math.round(el.getBoundingClientRect().height / lh) }; }));
+      expect(titles).toEqual([{ lines: 1 }, { lines: 1 }]);
+      expect(Math.abs(burn.height - under.height) < 1 && Math.abs(burn.width - under.width) < 1).toBe(true);
+      expect(await page.locator(".pick-btn .pick-icon svg").count()).toBe(2);
+      // Operator decision (2026-10-21): the footer disclaimer is removed too; no "Illustrative" text anywhere on the page.
+      expect([...text.matchAll(/illustrative/gi)].length).toBe(0);
+      expect(/illustrative/i.test(await page.evaluate(() => document.documentElement.textContent ?? ""))).toBe(false);
+    } finally { await close(page); }
+  }
+}, 40000);
+
+for (const motion of MOTIONS) test(`[integration] TM-7b the first viewport has no jargon-list word and the page no curl or terminal (${motion})`, async () => {
   for (const [width, height] of VIEWS) {
     const page = await open(width, height, motion);
     try {
@@ -128,18 +285,18 @@ for (const motion of MOTIONS) test(`[integration] TM-7 the first viewport, no sc
           const text = (node.textContent ?? "").trim();
           const el = node.parentElement;
           if (!text || !el || el.closest("script, style") || !el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) continue;
-          const range = document.createRange(); range.selectNodeContents(node);
-          if ([...range.getClientRects()].some((r) => r.width > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth)) texts.push(text);
+          // Word by word: a long text node (the prompt) may start in the first viewport and run on below it.
+          const words: string[] = [];
+          for (const m of (node.textContent ?? "").matchAll(/\S+/g)) {
+            const range = document.createRange(); range.setStart(node, m.index); range.setEnd(node, m.index + m[0].length);
+            if ([...range.getClientRects()].some((r) => r.width > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth)) words.push(m[0]);
+          }
+          if (words.length) texts.push(words.join(" "));
         }
-        const whole = (id: string): string => { const r = document.getElementById(id)?.getBoundingClientRect(); return r && r.height > 0 && r.top >= 0 && r.bottom <= innerHeight ? (document.getElementById(id)?.textContent ?? "") : ""; };
-        return { texts, lede: whole("lede"), audience: whole("audience"), notyet: whole("notyet"), share: whole("jumpCommand") };
+        return { texts };
       });
       expect({ width, hits: jargonHits(first.texts) }).toEqual({ width, hits: [] });
       expect(first.texts.length).toBeGreaterThan(5);
-      expect(first.lede).toContain("share your own week");
-      expect(first.audience).toMatch(/^For people who .+ Not for you if/);
-      expect(first.notyet).toBe("The TokenMax router is being designed and does not work today. The weeks below are illustrative.");
-      expect(first.share).toBe("Share my week");
       const anywhere = await page.evaluate(() => [document.documentElement.textContent ?? "", ...[...document.querySelectorAll("*")].flatMap((el) => ["title", "aria-label", "alt", "content", "href"].map((a) => el.getAttribute(a) ?? ""))].join(" "));
       expect(BANNED_ANYWHERE.exec(anywhere)?.[0] ?? null).toBeNull();
     } finally { await close(page); }
@@ -168,7 +325,6 @@ for (const motion of MOTIONS) {
     for (const [width, height] of VIEWS) {
       const page = await open(width, height, motion);
       try {
-        await page.locator("#shareWeek").click();
         expect(await page.locator("#sharePrompt").textContent()).toBe(PROMPT);
         const copy = page.getByRole("button", { name: "Copy" });
         await copy.scrollIntoViewIfNeeded();
@@ -182,7 +338,9 @@ for (const motion of MOTIONS) {
         await copy.click();
         await page.waitForFunction(() => (document.getElementById("copyMsg")?.textContent ?? "").length > 0);
         expect(await page.locator("#copyMsg").textContent()).toBe("Copied. Paste it into Claude Code or Codex.");
-        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(PROMPT);
+        const copied = await page.evaluate(() => navigator.clipboard.readText());
+        expect(copied).toBe(PROMPT);
+        expect(bannedHits(copied)).toEqual([]);
       } finally { await close(page); }
     }
   }, 30000);
@@ -197,7 +355,6 @@ test("[integration] Copy falls back to selecting the prompt with a keyboard hint
       document.execCommand = () => false;
     });
     await page.goto(`http://127.0.0.1:${server.port}/tm/`, { waitUntil: "load" });
-    await page.locator("#shareWeek").click();
     await page.getByRole("button", { name: "Copy" }).click();
     await page.waitForFunction(() => (document.getElementById("copyMsg")?.textContent ?? "").length > 0);
     expect(await page.locator("#copyMsg").textContent()).toMatch(/^The prompt is selected\. Press (Cmd|Ctrl)\+C to copy it\.$/);
@@ -205,34 +362,37 @@ test("[integration] Copy falls back to selecting the prompt with a keyboard hint
   } finally { await page.close(); }
 }, 30000);
 
-test("[integration] TM-3 the visitor order: front panel, situation picker, stage, the three cards, Share my week, the share card, the shared maps", async () => {
+test("[integration] TM-3 the visitor order: front panel, situation picker, stage, the three cards, the prompt, the sample week, the shared maps", async () => {
   for (const [width, height] of VIEWS) {
     const page = await open(width, height, "reduce");
     try {
-      const order = await page.evaluate(() => ["#jumpCommand", "#lede", "#notyet", ".pick", "#stage", "#promptCard", "#review", "#command", "#shareWeek", "#trust", "#sceneB", "#openCard", "#sceneD", "#seeMaps"]
+      const order = await page.evaluate(() => ["h1", ".pick", "#stage", "#keepLights", "#command", "#hCmd", "#trust", "#sharePrompt", "#copy", "#pasteBox", "#showWeek", "#sceneD", "#seeMaps"]
         .map((sel) => { const el = document.querySelector(sel); return { sel, top: el ? el.getBoundingClientRect().top + scrollY : -1 }; }));
       expect(order.every((o) => o.top >= 0)).toBe(true);
-      // Cards sit side by side at 1440, so compare the sections that stack at every width.
-      const stacked = order.filter((o) => !["#promptCard", "#review"].includes(o.sel)).map((o) => o.top);
+      // The heading and the trust line share a line at 1440, so compare the rest, which stack at every width.
+      const stacked = order.filter((o) => o.sel !== "#trust").map((o) => o.top);
       expect([...stacked].sort((a, b) => a - b)).toEqual(stacked);
       expect(await page.locator("#seeMaps").innerText()).toBe("See the shared maps");
       expect(await page.locator("#tokenmaxGuide").innerText()).toBe("Understand TokenMax and explore a recorded comparison");
       expect(await page.locator("#tokenmaxGuide").getAttribute("href")).toBe("/guide/#tokenmax");
-      expect(await page.locator("#mapWeek").getAttribute("href")).toBe("#command");
+      // Operator decision (2026-10-21): the three cards, the "Map your real week" button and the footer are removed.
+      for (const gone of ["#promptCard", "#houseCard", "#review", "#tryBtn", "#seating", "#mapWeek", ".foot", ".lower"]) expect({ gone, count: await page.locator(gone).count() }).toEqual({ gone, count: 0 });
     } finally { await close(page); }
   }
 }, 30000);
 
-for (const motion of MOTIONS) test(`[integration] TM-4 Share my week is the first Tab stop, visible at the top, and opens the prompt with focus on it (${motion})`, async () => {
+// Operator decision (2026-10-21): no visible top button; "Skip to the command" shows only when keyboard-focused.
+for (const motion of MOTIONS) test(`[integration] TM-4 Skip to the command is the first Tab stop, off screen until focused, then on screen, and moves focus to the prompt (${motion})`, async () => {
   for (const [width, height] of VIEWS) {
     const page = await open(width, height, motion);
     try {
-      const skip = await page.locator("#jumpCommand").evaluate((el) => { const r = el.getBoundingClientRect(); return { text: el.textContent, onScreen: r.top >= 0 && r.bottom <= innerHeight && r.width >= 24 && r.height >= 24 }; });
-      expect(skip).toEqual({ text: "Share my week", onScreen: true });
+      const where = (): Promise<{ text: string | null; onScreen: boolean }> => page.locator("#jumpCommand").evaluate((el) => { const r = el.getBoundingClientRect(); return { text: el.textContent, onScreen: r.left >= 0 && r.top >= 0 && r.bottom <= innerHeight && r.width >= 24 && r.height >= 24 }; });
+      expect(await where()).toEqual({ text: "Skip to the command", onScreen: false });
       await page.keyboard.press("Tab");
       expect(await page.evaluate(() => document.activeElement?.id)).toBe("jumpCommand");
+      expect(await where()).toEqual({ text: "Skip to the command", onScreen: true });
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => { const d = document.getElementById("share"); return document.activeElement?.id === "command" && d instanceof HTMLDetailsElement && d.open; });
+      await page.waitForFunction(() => document.activeElement?.id === "command");
       expect(await page.locator("#sharePrompt").isVisible()).toBe(true);
       const at = await page.locator("#trust").evaluate((el, trust) => {
         const r = el.getBoundingClientRect();
@@ -244,16 +404,16 @@ for (const motion of MOTIONS) test(`[integration] TM-4 Share my week is the firs
   }
 }, 30000);
 
-test("[integration] TM-5 reduced motion: picking a week and trying the prompt land on their end states at once, with nothing animating", async () => {
+test("[integration] TM-5 reduced motion: picking a week and See it with TokenMax land on their end states at once, with nothing animating; the tagline shows", async () => {
   for (const [width, height] of VIEWS) {
     const page = await open(width, height, "reduce");
     try {
       await page.locator(".pick-btn[data-mode=burn]").click();
-      const without = await page.evaluate(() => ({ drop: document.getElementById("drop")?.classList.contains("show-copy"), verdict: document.getElementById("verdict")?.textContent, skip: document.getElementById("skip")?.hidden, running: document.getAnimations().filter((a) => a.playState === "running").length }));
-      expect(without).toEqual({ drop: true, verdict: "Walk out", skip: true, running: 0 });
+      const without = await page.evaluate(() => ({ drop: document.getElementById("drop")?.classList.contains("show-copy"), act: document.getElementById("act")?.textContent, keep: document.getElementById("keepLights")?.classList.contains("shown"), skip: document.getElementById("skip")?.hidden, running: document.getAnimations().filter((a) => a.playState === "running").length }));
+      expect(without).toEqual({ drop: true, act: WITHOUT_ACT, keep: true, skip: true, running: 0 });
       await page.locator("#dropBtn").click();
-      const withTm = await page.evaluate(() => ({ settled: document.getElementById("stage")?.classList.contains("settled"), verdict: document.getElementById("verdict")?.textContent, badge: document.getElementById("gaugeBadge")?.textContent, running: document.getAnimations().filter((a) => a.playState === "running").length }));
-      expect(withTm).toEqual({ settled: true, verdict: "Standing ovation", badge: "Lasted to Sunday", running: 0 });
+      const withTm = await page.evaluate(() => ({ settled: document.getElementById("stage")?.classList.contains("settled"), act: document.getElementById("act")?.textContent, badge: document.getElementById("gaugeBadge")?.textContent, running: document.getAnimations().filter((a) => a.playState === "running").length }));
+      expect(withTm).toEqual({ settled: true, act: WITH_ACT.burn, badge: "Lasted to Sunday", running: 0 });
     } finally { await close(page); }
   }
 }, 30000);
@@ -284,15 +444,240 @@ test("[integration] the page and its sources carry no em or en dash and no home 
   }
 }, 30000);
 
-test("[integration] the share card links the real week's map as a sample; one link to /maps/", async () => {
-  const page = await open(1440, 900, "reduce");
-  try {
-    expect(await page.locator("#openCard").getAttribute("href")).toBe(`${shareLink(REAL)}&sample`);
-    expect(await page.locator("#openCard").innerText()).toBe("Open a sample card");
-    expect(await page.locator("#sceneB").textContent()).toContain("One builder's real week, 16 Oct 2026");
-    expect(await page.locator('a[href="/maps/"]').count()).toBe(1);
-  } finally { await close(page); }
-}, 30000);
+// ---------- The Cmd+V bug (reproduced in Chrome on the operator's Mac, 2026-10-21) and paste-to-play ----------
+// With #command in the URL, a late fonts.ready or any hashchange ran focusCommand() and pulled focus out of the paste
+// box, so Cmd+V went to the section. Fix: focus moves only when it is not already inside #command.
+const HEAVY_BASE = [
+  "TOKENMAX WEEK", "Period: 2026-10-14 to 2026-10-21", "Claude sessions: 292", "Codex sessions: 2,730", "Claude output tokens: 7,124,205",
+  "Codex output tokens: 3,213,109", "Opus share of Claude output: 39%", "Usage limit hits: 22", "Codex weekly window used: 7%", "Pattern: running out",
+];
+// Block v2: per day (combined, summing to 292 + 2,730 = 3,022) and the limit-hit dates (a Thursday and a Saturday).
+const HEAVY = [...HEAVY_BASE.slice(0, 8), "Sessions per day: 410, 520, 615, 448, 386, 330, 313", "Limit hit days: 2026-10-15, 2026-10-17", ...HEAVY_BASE.slice(8)].join("\n");
+const HEAVY_V1 = HEAVY_BASE.join("\n");
+const LITE = HEAVY.replace("Usage limit hits: 22", "Usage limit hits: 0").replace("Limit hit days: 2026-10-15, 2026-10-17", "Limit hit days: none").replace("Pattern: running out", "Pattern: leaving most unused");
+
+test("[unit] TM-17 block v2: seven per-day numbers or not recorded; limit-hit dates or none; weekdays from the dates; the ending from the numbers only", () => {
+  const heavy = parseWeek(HEAVY);
+  if (!heavy) throw new Error("HEAVY did not parse");
+  expect(heavy.perDay).toEqual([410, 520, 615, 448, 386, 330, 313]);
+  expect(heavy.limitDays).toEqual(["2026-10-15", "2026-10-17"]);
+  expect(dayLabels(heavy)).toEqual(["Wed", "Thu", "Fri", "Sat", "Sun", "Mon", "Tue"]);
+  expect(limitDayIndexes(heavy)).toEqual([1, 3]);
+  expect(stageHeadline(heavy)).toBe("You hit your limit 22 times, on Thu and Sat");
+  expect(stageSubtitle(heavy)).toBe("292 Claude Code and 2,730 Codex sessions; Opus 39% of Claude output");
+  expect(cardHeadline(heavy)).toBe("Heavy load: you hit your limit 22 times");
+  // Without the two new lines: no per-day counts, no dates, no day claims; the headline still comes from the hits.
+  const v1 = parseWeek(HEAVY_V1);
+  if (!v1) throw new Error("HEAVY_V1 did not parse");
+  expect({ perDay: v1.perDay, limitDays: v1.limitDays, idx: limitDayIndexes(v1), head: stageHeadline(v1) }).toEqual({ perDay: null, limitDays: null, idx: [], head: "You hit your limit 22 times" });
+  const lite = parseWeek(LITE);
+  if (!lite) throw new Error("LITE did not parse");
+  expect({ days: lite.limitDays, head: stageHeadline(lite), card: cardHeadline(lite) }).toEqual({ days: [], head: "You never hit your limit", card: "Light use: you never hit a limit" });
+  // Tolerant of spaces and weekday words; a wrong count or an unreadable date is not recorded, never guessed.
+  expect(readPerDay(" Wed 410 ,Thu 520,  615, 448, 386, 330 , Tue 313 ")).toEqual([410, 520, 615, 448, 386, 330, 313]);
+  for (const bad of ["410, 520, 615, 448, 386, 330", "410, 520, 615, 448, 386, 330, 313, 9", "410, 520, about 600, 448, 386, 330, 313", "not recorded"]) expect(readPerDay(bad)).toBeNull();
+  expect(readLimitDays("Thu 2026-10-15 , Sat 2026-10-17")).toEqual(["2026-10-15", "2026-10-17"]);
+  expect(readLimitDays("None")).toEqual([]);
+  for (const bad of ["2026-10-15, Saturday", "2026-02-30", "15 Oct", "not recorded"]) expect(readLimitDays(bad)).toBeNull();
+  expect(readDate("2026-13-01")).toBeNull();
+  expect(parseWeek(HEAVY.replace("Sessions per day: 410, 520, 615, 448, 386, 330, 313", "Sessions per day: 410, 520"))?.perDay).toBeNull();
+  // A date outside the period is never placed on a poster or named in the headline.
+  const outside = parseWeek(HEAVY.replace("2026-10-17", "2026-10-30"));
+  if (!outside) throw new Error("outside did not parse");
+  expect({ idx: limitDayIndexes(outside), head: stageHeadline(outside) }).toEqual({ idx: [1], head: "You hit your limit 22 times" });
+  // The sample's per-day numbers sum to its recorded 3,993 sessions; its recorded cap hits fall on one date inside its period.
+  expect((SAMPLE_WEEK.perDay ?? []).reduce((a, b) => a + b, 0)).toBe((SAMPLE_WEEK.claudeSessions ?? 0) + (SAMPLE_WEEK.codexSessions ?? 0));
+  expect(limitDayIndexes(SAMPLE_WEEK).length).toBe(SAMPLE_WEEK.limitDays?.length ?? -1);
+  // A recorded date is stamped only when Usage limit hits is above 0: with hits 0 or not recorded, nothing is stamped.
+  expect(limitDayIndexes({ ...heavy, limitHits: 0 })).toEqual([]);
+  expect(limitDayIndexes({ ...heavy, limitHits: null })).toEqual([]);
+  expect(stageHeadline({ ...heavy, limitHits: 0 })).toBe("You never hit your limit");
+});
+
+test("[integration] TM-15 focus in the paste box survives a hashchange and a late fonts.ready on #command; Skip to the command still moves focus when it is elsewhere", async () => {
+  for (const [width, height] of VIEWS) {
+    // Fonts held back 2.5 s, so document.fonts.ready resolves after the visitor has clicked into the box.
+    const context = await browser.newContext({ viewport: { width, height }, reducedMotion: "no-preference" });
+    const page = await context.newPage();
+    try {
+      await page.route("**/*", async (route) => {
+        const url = route.request().url();
+        if (!url.startsWith(`http://127.0.0.1:${server.port}/`)) return route.abort();
+        if (url.endsWith(".ttf")) await new Promise((done) => setTimeout(done, 2500));
+        return route.continue();
+      });
+      await page.goto(`http://127.0.0.1:${server.port}/tm/#command`, { waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() => document.getElementById("pasteBox") !== null && document.querySelectorAll("#run .poster").length === 7);
+      await page.locator("#pasteBox").focus();
+      await page.waitForFunction(() => document.fonts.status === "loaded", null, { timeout: 10000 });
+      await page.waitForTimeout(200);
+      expect({ width, after: "fonts.ready", active: await page.evaluate(() => document.activeElement?.id) }).toEqual({ width, after: "fonts.ready", active: "pasteBox" });
+      await page.evaluate(() => window.dispatchEvent(new HashChangeEvent("hashchange")));
+      await page.waitForTimeout(50);
+      expect({ width, after: "hashchange", active: await page.evaluate(() => document.activeElement?.id) }).toEqual({ width, after: "hashchange", active: "pasteBox" });
+      // Focus elsewhere: Skip to the command still takes it to the section.
+      await page.locator(".pick-btn[data-mode=burn]").focus();
+      await page.locator("#jumpCommand").focus();
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(() => document.activeElement?.id === "command");
+    } finally { await context.close(); }
+  }
+}, 40000);
+
+
+// Operator decisions (2026-10-21): Show my week, Show Sample and a paste never scroll or move focus; the card appears
+// in place. Play my week (inside the card) is the only thing that scrolls: it plays the shown numbers on the stage.
+for (const motion of MOTIONS) test(`[integration] TM-16 a paste shows the card in place (no scroll, focus stays in the box); Play my week puts the numbers on the stage and ends with focus on Replay (${motion})`, async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, motion);
+    const requests: string[] = [];
+    page.on("request", (r) => requests.push(r.url()));
+    try {
+      // A real paste: the clipboard holds the block, and the keyboard pastes it into the focused box.
+      await page.locator("#pasteBox").scrollIntoViewIfNeeded();
+      await page.evaluate((t) => navigator.clipboard.writeText(t), HEAVY);
+      await page.locator("#pasteBox").focus();
+      const y0 = await page.evaluate(() => scrollY);
+      await page.keyboard.press("ControlOrMeta+V");
+      expect(await page.locator("#pasteBox").inputValue()).toBe(HEAVY);
+      await page.waitForFunction(() => document.getElementById("yourWeek")?.hidden === false, null, { timeout: 3000 });
+      await page.waitForTimeout(300);
+      const after = await page.evaluate(() => ({ y: scrollY, focus: document.activeElement?.id ?? "", cardBottom: document.getElementById("yourWeek")?.getBoundingClientRect().bottom ?? 0 }));
+      // The card may be brought into view ("nearest") only when it would be off screen; never toward the stage.
+      expect(after.focus).toBe("pasteBox");
+      expect(after.y).toBeGreaterThanOrEqual(y0 - 1);
+      if (after.y > y0 + 1) expect(Math.round(after.cardBottom)).toBeLessThanOrEqual(height);
+      const card = await page.evaluate(() => {
+        const text = (sel: string): string => document.querySelector(sel)?.textContent ?? "";
+        const rows = [...document.querySelectorAll("#yourFields dt")].map((dt) => [dt.textContent ?? "", dt.nextElementSibling?.textContent ?? ""]);
+        const align = [...document.querySelectorAll("#yourFields dd")].map((dd) => getComputedStyle(dd).textAlign);
+        return { name: text("#hYour"), period: text("#yourPeriod"), line: text("#yourLine"), rows, align };
+      });
+      expect(card).toEqual({
+        name: "Your week", period: "2026-10-14 to 2026-10-21", line: "Heavy load: you hit your limit 22 times",
+        rows: [["Claude sessions", "292"], ["Codex sessions", "2,730"], ["Claude output tokens", "7,124,205"], ["Codex output tokens", "3,213,109"], ["Opus share", "39%"], ["Usage limit hits", "22"], ["Codex weekly window used", "7%"]],
+        align: Array(7).fill("right"),
+      });
+      // Show my week does the same: no scroll, focus stays where it was.
+      const y1 = await page.evaluate(() => scrollY);
+      await page.locator("#showWeek").click();
+      expect(Math.abs((await page.evaluate(() => scrollY)) - y1)).toBeLessThanOrEqual(1);
+      // Play my week: the stage scrolls to the top and plays these numbers.
+      await page.locator("#playMine").click();
+      if (motion === "no-preference") { await page.waitForFunction(() => document.getElementById("skip")?.hidden === false, null, { timeout: 3000 }); await page.locator("#skip").focus(); await page.keyboard.press("Enter"); }
+      await page.waitForFunction(() => document.getElementById("dataEnd")?.hidden === false, null, { timeout: 6000 });
+      await page.waitForTimeout(300);
+      const stage = await page.evaluate(() => {
+        const text = (sel: string): string => document.querySelector(sel)?.textContent ?? "";
+        const posters = [...document.querySelectorAll("#run .poster")];
+        return {
+          top: Math.round(document.getElementById("stage")?.getBoundingClientRect().top ?? -99),
+          days: posters.map((p) => p.querySelector(".day")?.textContent ?? ""),
+          counts: posters.map((p) => p.querySelector(".lab")?.textContent ?? ""),
+          stamped: posters.filter((p) => p.classList.contains("cut")).map((p) => p.querySelector(".day")?.textContent ?? ""),
+          cancelled: posters.filter((p) => p.classList.contains("cancel")).length,
+          left: text("#leftPct"), gauge: text("#gaugeName"), big: text("#dataBig"), sub: text("#dataSub"),
+          drop: document.getElementById("drop")?.classList.contains("show-copy") ?? false, thursday: document.body.innerText.includes("Thursday night"),
+          focus: document.activeElement?.id ?? "",
+        };
+      });
+      expect({ width, ...stage, top: 0, focus: "" }).toEqual({
+        width, top: 0, days: ["Wed", "Thu", "Fri", "Sat", "Sun", "Mon", "Tue"], counts: ["410", "520", "615", "448", "386", "330", "313"],
+        stamped: ["Thu", "Sat"], cancelled: 0, left: "93%", gauge: "Codex week left",
+        big: "You hit your limit 22 times, on Thu and Sat", sub: "292 Claude Code and 2,730 Codex sessions; Opus 39% of Claude output",
+        drop: false, thursday: false, focus: "",
+      });
+      expect(Math.abs(stage.top)).toBeLessThanOrEqual(2);
+      expect(stage.focus).toBe("replay");
+      // See it with TokenMax runs the scripted With week, tagged as an example, not the visitor's numbers.
+      await page.locator("#dataWith").click();
+      await page.waitForFunction(() => document.getElementById("exampleTag")?.hidden === false, null, { timeout: 3000 });
+      expect(await page.locator("#exampleTag").textContent()).toBe("Example week, not your numbers");
+      expect(requests.filter((u) => !u.startsWith(`http://127.0.0.1:${server.port}/`))).toEqual([]);
+    } finally { await close(page); }
+  }
+}, 60000);
+
+test("[integration] TM-16b Play my week without the v2 lines: no counts, no stamps, no day claims; Lite ends on You never hit your limit; focus ends on Replay", async () => {
+  for (const [width, height] of VIEWS) for (const [fixture, big] of [[HEAVY_V1, "You hit your limit 22 times"], [LITE, "You never hit your limit"]] satisfies [string, string][]) {
+    const page = await open(width, height, "reduce");
+    try {
+      await page.locator("#pasteBox").fill(fixture);
+      await page.locator("#showWeek").click();
+      await page.locator("#playMine").click();
+      await page.waitForFunction(() => document.getElementById("dataEnd")?.hidden === false, null, { timeout: 4000 });
+      const s = await page.evaluate(() => ({
+        big: document.getElementById("dataBig")?.textContent ?? "", stamped: document.querySelectorAll("#run .poster.cut").length, cancelled: document.querySelectorAll("#run .poster.cancel").length,
+        counts: [...document.querySelectorAll("#run .poster .lab")].map((l) => l.textContent ?? ""), focus: document.activeElement?.id ?? "",
+      }));
+      const counts = fixture === HEAVY_V1 ? Array(7).fill("not recorded") : ["410", "520", "615", "448", "386", "330", "313"];
+      expect({ width, ...s }).toEqual({ width, big, stamped: 0, cancelled: 0, counts, focus: "replay" });
+    } finally { await close(page); }
+  }
+}, 40000);
+
+// Operator decision (2026-10-21): the sample lives in the Your week card behind Show Sample, replacing the share card.
+// The recorded run: 515 Claude Code + 3,478 Codex = 3,993 sessions, 2 cap hits, Opus-class 87%, Codex week 15%.
+const SAMPLE_ROWS = [["Claude sessions", "515"], ["Codex sessions", "3,478"], ["Claude output tokens", "9,977,232"], ["Codex output tokens", "7,503,143"], ["Opus share", "87%"], ["Usage limit hits", "2"], ["Codex weekly window used", "15%"]];
+for (const motion of MOTIONS) test(`[integration] TM-14 Show Sample: nothing of the sample at load; the card shows the six sample values with a Sample tag and no link; a valid paste replaces it; the old section is gone (${motion})`, async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, motion);
+    const requests: string[] = [];
+    page.on("request", (r) => requests.push(r.url()));
+    try {
+      const card = (): Promise<{ hidden: boolean; rows: string[][]; sample: boolean; local: boolean; links: number; text: string }> => page.evaluate(() => {
+        const el = document.getElementById("yourWeek");
+        return {
+          hidden: !el || !el.checkVisibility(),
+          rows: [...document.querySelectorAll("#yourFields dt")].map((dt) => [dt.textContent ?? "", dt.nextElementSibling?.textContent ?? ""]),
+          sample: document.getElementById("sampleTag")?.checkVisibility() ?? false,
+          local: document.getElementById("localTag")?.checkVisibility() ?? false,
+          links: el?.querySelectorAll("a").length ?? -1,
+          text: document.body.innerText,
+        };
+      });
+      const atLoad = await card();
+      expect({ width, hidden: atLoad.hidden, sample: atLoad.sample }).toEqual({ width, hidden: true, sample: false });
+      for (const gone of ["3,478", "9,977,232", "7,503,143", "What a real week looks like", "See a sample card", "Open a sample card", "One builder's real week"]) expect({ gone, found: atLoad.text.includes(gone) }).toEqual({ gone, found: false });
+      expect(await page.locator("#sceneB, #openCard, #browser, .url, a[href*='/maps/#m=']").count()).toBe(0);
+      expect(await page.locator("#sceneD").isVisible()).toBe(true);
+      // Show Sample sits on the row with Show my week, to its right, the same size.
+      const row = await page.evaluate(() => {
+        const a = document.getElementById("showWeek")?.getBoundingClientRect(), b = document.getElementById("showSample")?.getBoundingClientRect();
+        return a && b ? { right: b.left > a.right, sameRow: Math.abs(a.top - b.top) < 2, sameHeight: Math.abs(a.height - b.height) < 1, text: document.getElementById("showSample")?.textContent } : null;
+      });
+      expect(row).toEqual({ right: true, sameRow: true, sameHeight: true, text: "Show Sample" });
+      const ySample = await page.evaluate(() => scrollY);
+      await page.locator("#showSample").click();
+      const sample = await card();
+      expect(await page.locator("#hYour").innerText()).toBe("Sample week");
+      expect(await page.locator("#yourPeriod").innerText()).toBe("2026-10-09 to 2026-10-16");
+      // No scroll toward the stage: at most "nearest" to bring the card into view.
+      expect(await page.evaluate(() => scrollY)).toBeGreaterThanOrEqual(ySample - 1);
+      expect(await page.evaluate(() => document.getElementById("stage")?.getBoundingClientRect().top ?? 0)).toBeLessThan(0);
+      expect({ width, hidden: sample.hidden, rows: sample.rows, sample: sample.sample, local: sample.local, links: sample.links }).toEqual({ width, hidden: false, rows: SAMPLE_ROWS, sample: true, local: false, links: 0 });
+      // Play my week on the sample: the stage says the per-day split is illustrative, never "from your numbers".
+      const playAct = async (): Promise<string> => {
+        await page.evaluate(() => document.getElementById("dataEnd")?.setAttribute("hidden", ""));
+        await page.locator("#playMine").click();
+        if (motion === "no-preference") { await page.waitForFunction(() => document.getElementById("skip")?.hidden === false, null, { timeout: 3000 }); await page.locator("#skip").click(); }
+        await page.waitForFunction(() => document.getElementById("dataEnd")?.hidden === false, null, { timeout: 4000 });
+        return (await page.locator("#act").textContent()) ?? "";
+      };
+      const sampleAct = await playAct();
+      expect({ width, sampleLabel: sampleAct.startsWith("Sample week") && sampleAct.includes("per-day split illustrative, not your numbers"), mineLabel: sampleAct.includes("from your numbers") }).toEqual({ width, sampleLabel: true, mineLabel: false });
+      // A valid paste replaces the sample: its own values, the local tag back, no Sample tag.
+      await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+      await page.locator("#showWeek").click();
+      const mine = await card();
+      expect({ width, rows: mine.rows, sample: mine.sample, local: mine.local }).toEqual({ width, rows: SAMPLE_CARD.map((r) => [...r]), sample: false, local: true });
+      const mineAct = await playAct();
+      expect({ width, mineLabel: mineAct.startsWith("Your week") && mineAct.includes("from your numbers"), sampleLabel: mineAct.includes("illustrative") }).toEqual({ width, mineLabel: true, sampleLabel: false });
+      if (width === 390) expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+      expect(requests.filter((u) => !u.startsWith(`http://127.0.0.1:${server.port}/`))).toEqual([]);
+    } finally { await close(page); }
+  }
+}, 40000);
 
 test("[integration] the router card says not run yet and shows no result: no percentage, no counts beyond 47 jobs and #236", async () => {
   const page = await open(390, 844, "reduce");
@@ -335,7 +720,7 @@ for (const motion of MOTIONS) {
   }, 90000);
 }
 
-test("[integration] TM-9 Skip while the curtain rises for Try this prompt lands on the end state, not the seating text", async () => {
+test("[integration] TM-9 Skip while the curtain rises for See it with TokenMax lands on the With end state", async () => {
   for (const [width, height] of VIEWS) {
     const page = await open(width, height, "no-preference", undefined, "#burn-before");
     try {
@@ -344,18 +729,68 @@ test("[integration] TM-9 Skip while the curtain rises for Try this prompt lands 
       await page.waitForTimeout(150);
       await page.locator("#skip").click();
       await page.waitForTimeout(900);
-      const end = await page.evaluate(() => ({ settled: document.getElementById("stage")?.classList.contains("settled"), act: document.getElementById("act")?.textContent ?? "", verdict: document.getElementById("verdict")?.textContent }));
-      expect({ width, ...end }).toEqual({ width, settled: true, act: "With TokenMax · each step in its seat", verdict: "Standing ovation" });
+      const end = await page.evaluate(() => ({ settled: document.getElementById("stage")?.classList.contains("settled"), act: document.getElementById("act")?.textContent ?? "", call: document.getElementById("stage")?.classList.contains("call") }));
+      expect({ width, ...end }).toEqual({ width, settled: true, act: WITH_ACT.burn, call: true });
     } finally { await close(page); }
   }
 }, 30000);
 
-test("[integration] one name for the cap event: cap hits, never cap episodes", async () => {
+// Operator decision (2026-10-21): the tagline is hidden until a week has played to its end, then fades in under the
+// stage in space kept for it, so nothing moves.
+test("[integration] TM-13 the tagline is hidden at rest, shows after Skip and on every end-state deep link, centred under the stage, with no layout jump", async () => {
+  const TAG = "TokenMax + Jev can help keep the lights on";
+  const read = (page: Page): Promise<{ shown: boolean; text: string; top: number; centre: number; vw: number; stageBottom: number; commandTop: number; inText: boolean }> => page.evaluate(() => {
+    const el = document.getElementById("keepLights");
+    const r = el?.getBoundingClientRect();
+    return {
+      shown: !!el && el.classList.contains("shown") && el.checkVisibility({ visibilityProperty: true, opacityProperty: true }),
+      text: el?.textContent ?? "", top: (r?.top ?? 0) + scrollY, centre: r ? (r.left + r.right) / 2 : 0, vw: document.documentElement.clientWidth,
+      stageBottom: (document.getElementById("stage")?.getBoundingClientRect().bottom ?? 0) + scrollY,
+      commandTop: (document.getElementById("command")?.getBoundingClientRect().top ?? 0) + scrollY,
+      inText: document.body.innerText.includes("TokenMax + Jev can help keep the lights on"),
+    };
+  });
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, "no-preference");
+    try {
+      const rest = await read(page);
+      expect({ width, shown: rest.shown, inText: rest.inText, text: rest.text }).toEqual({ width, shown: false, inText: false, text: TAG });
+      expect(rest.top).toBeGreaterThanOrEqual(rest.stageBottom);
+      expect(Math.abs(rest.centre - rest.vw / 2)).toBeLessThan(2);
+      await page.locator(".pick-btn[data-mode=burn]").click();
+      await page.waitForTimeout(600);
+      // Measured while the week plays (the stage's Replay bar is already shown), so only the tagline could move things.
+      const playing = await read(page);
+      expect(playing.shown).toBe(false);
+      await page.locator("#skip").click();
+      await page.waitForFunction(() => document.getElementById("keepLights")?.classList.contains("shown") === true);
+      await page.waitForTimeout(700);
+      const after = await read(page);
+      expect({ width, shown: after.shown, inText: after.inText }).toEqual({ width, shown: true, inText: true });
+      // Space was kept: the tagline and the section under it did not move.
+      expect({ top: Math.round(after.top), command: Math.round(after.commandTop) }).toEqual({ top: Math.round(playing.top), command: Math.round(playing.commandTop) });
+    } finally { await close(page); }
+    for (const hash of ["#burn-before", "#burn-after", "#under-before", "#under-after"]) {
+      const deep = await open(width, height, "no-preference", undefined, hash);
+      try {
+        await deep.waitForFunction(() => document.getElementById("keepLights")?.classList.contains("shown") === true, null, { timeout: 4000 });
+        expect({ width, hash, inText: (await read(deep)).inText }).toEqual({ width, hash, inText: true });
+      } finally { await close(deep); }
+    }
+  }
+}, 60000);
+
+// Operator decision (2026-10-21): the formatted card names the cap event "Usage limit hits", as the prompt block does.
+test("[integration] one name for the cap event: usage limit hits, never cap episodes", async () => {
   const page = await open(1440, 900, "reduce");
   try {
     const all = await page.evaluate(() => [document.documentElement.textContent ?? "", ...[...document.querySelectorAll("*")].flatMap((el) => ["title", "aria-label", "alt", "content"].map((a) => el.getAttribute(a) ?? ""))].join(" "));
     expect(all).not.toMatch(/cap episode/i);
-    expect(await page.locator(".fields dt").allTextContents()).toContain("Cap hits");
+    // The share card that named it moved into Show Sample (operator decision, 2026-10-21).
+    await page.locator("#showSample").click();
+    expect(await page.locator("#yourFields dt").allTextContents()).toContain("Usage limit hits");
+    expect(await page.locator("#yourFields dt").allTextContents()).not.toContain("Cap hits");
+    expect(await page.evaluate(() => document.documentElement.textContent ?? "")).not.toMatch(/cap episode/i);
   } finally { await close(page); }
   for (const file of ["index.html", "tm.css", "tm.js"]) expect(readFileSync(join(SITE, "tm", file), "utf8")).not.toMatch(/cap episode/i);
 }, 30000);
@@ -403,7 +838,7 @@ for (const motion of MOTIONS) {
       try {
         let checked = 0;
         for (const pick of [false, true]) {
-          if (pick) { await page.locator(".pick-btn[data-mode=burn]").click(); await page.locator("#replay").waitFor(); await page.locator("#shareWeek").click(); }
+          if (pick) { await page.locator(".pick-btn[data-mode=burn]").click(); await page.locator("#replay").waitFor(); }
           const res = await page.evaluate(() => {
             const bad: string[] = [];
             let n = 0;
@@ -419,15 +854,15 @@ for (const motion of MOTIONS) {
           expect(res.bad).toEqual([]);
           checked += res.n;
         }
-        // At rest: Share my week (link and summary), two picks, Try, the guide, the sample card, /maps/; then with the
-        // show played and the prompt open, Replay, Try on the curtain, Copy and the rest again.
-        expect(checked).toBeGreaterThanOrEqual(19);
+        // At rest: Skip to the command (off screen until focused), two picks, Try, Copy, the guide, the sample card, /maps/; then with the show played,
+        // Replay, Try on the curtain and the rest again.
+        expect(checked).toBeGreaterThanOrEqual(18);
       } finally { await close(page); }
     }
   }, 60000);
 }
 
-test("[integration] if tm.js does not load, the front panel, Share my week (it still opens), the share card and the maps link are still shown", async () => {
+test("[integration] if tm.js does not load, the front panel, the full prompt with Copy, the sample week and the maps link are still shown", async () => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "no-preference" });
   const page = await context.newPage();
   try {
@@ -439,26 +874,26 @@ test("[integration] if tm.js does not load, the front panel, Share my week (it s
     await page.goto(`http://127.0.0.1:${server.port}/tm/`, { waitUntil: "load" });
     const hidden = await page.evaluate(() => {
       const out: string[] = [];
-      for (const root of document.querySelectorAll(".front, #command, #sceneB, #sceneD")) {
+      for (const root of document.querySelectorAll(".front, #command, #sceneD")) {
         const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
         for (let node = walk.nextNode(); node; node = walk.nextNode()) {
           const text = (node.textContent ?? "").trim();
           const el = node.parentElement;
-          // The prompt sits in a closed details until Share my week opens it, by design.
-          if (!text || !el || el.id === "copyMsg" || el.closest("#promptBox")) continue;
+          // The status line, the paste error and the Your week card stay hidden until used, by design.
+          if (!text || !el || el.id === "copyMsg" || el.closest("#pasteError, #yourWeek")) continue;
           if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) out.push(text);
         }
       }
       return out;
     });
     expect(hidden).toEqual([]);
-    await page.locator("#shareWeek").click();
+    expect(await page.locator("#sharePrompt").isVisible()).toBe(true);
     expect(await page.locator("#copy").isVisible()).toBe(true);
     expect(await page.locator("#sharePrompt").textContent()).toBe(PROMPT);
   } finally { await context.close(); }
 }, 30000);
 
-test("[integration] Tab from the top reaches Share my week, the prompt control, this week's card and /maps/, each on screen when focused", async () => {
+test("[integration] Tab from the top reaches Skip to the command, Copy, this week's card and /maps/, each on screen when focused", async () => {
   for (const [width, height] of VIEWS) {
     const page = await open(width, height, "no-preference");
     try {
@@ -473,7 +908,7 @@ test("[integration] Tab from the top reaches Share my week, the prompt control, 
         });
         if (focused) reached.push(focused);
       }
-      const want = ["jumpCommand", "shareWeek", "openCard", "seeMaps"];
+      const want = ["jumpCommand", "copy", "showWeek", "showSample", "seeMaps"];
       expect({ width, found: reached.filter((r) => want.includes(r.id)) }).toEqual({ width, found: want.map((id) => ({ id, inView: true })) });
     } finally { await close(page); }
   }

@@ -187,6 +187,10 @@
     });
     window.addEventListener("hashchange", function () { if (window.location.hash) open(); });
     if (raise) raise.addEventListener("click", function () { if (!done) toResults(); });
+    // The Little Shop poster is a preview, not a way into Jev: a click on it, or Enter/Space on its "Open the curtain" button
+    // (which clicks), does what Raise the curtain does.
+    var shopPoster = ov.querySelector(".poster");
+    if (shopPoster) shopPoster.addEventListener("click", function () { if (!done) toResults(); });
     ov.addEventListener("scroll", update, { passive: true });
     window.addEventListener("scroll", update, { passive: true });
     window.addEventListener("resize", function () {

@@ -7,10 +7,11 @@
 // #marquee, #sur), a deep link that does not reach its end state, any visible text under 12px at 1440 or 11px at 390,
 // and at 390 any horizontal scroll. Issue #309 criterion 3: the first viewport (no scroll) must show what the visitor gets, who it
 // is for and not for, and that the router is not built, with no word from the jargon list; no "curl" or "terminal"
-// anywhere on the page; the Share my week control is present. It drives the show by keyboard (pick, Skip to the end,
-// Try this prompt, Skip; focus must land on Replay), checks Tab reaches Share my week and Copy, that reduced motion
-// jumps to end states, that Copy copies the exact prompt, and at 1440 that the burn journey plays to its end with no
-// skipping. With --base it also fails when site/tm/map.ts differs from that ref. Prints counts per width and CLEAN,
+// anywhere on the page. The prompt is shown in full with no click, and no bun, curl, map.ts, --share, terminal,
+// download or script appears in the visible text or the copied prompt (the prompt's own "do not ... download" line
+// excepted). It drives the show by keyboard (pick, Skip to the end, See it with TokenMax, Skip; focus must land on Replay),
+// checks Tab reaches Skip to the command and Copy, that reduced motion jumps to end states, that Copy copies the exact
+// prompt, and at 1440 that the burn journey plays to its end with no skipping. With --base it also fails when site/tm/map.ts differs from that ref. Prints counts per width and CLEAN,
 // or each problem; exit 1 on any.
 
 import { spawnSync } from "node:child_process";
@@ -22,8 +23,61 @@ import { resolveChromium } from "./happy-path-lib.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 export const TM_PAGE = join(ROOT, "site", "tm", "index.html");
-/** The exact prompt Share my week offers to paste into Claude Code or Codex. */
-export const PROMPT = "Please read https://jevnotjev.breakoutwithai.com/tm/map.ts before running anything. In plain words, tell me what it reads on this computer and what it would send. Then run it here with Bun and the --share flag, so it maps my last 7 days of Claude Code and Codex use into a private report on this computer, and show me the report and the link it prints. Do not send or upload anything yourself: I decide whether to open that link and press Share.";
+/** The exact prompt /tm/ shows in full, to paste into Claude Code or Codex (operator wording, 2026-10-21). */
+export const PROMPT = [
+  "Look at my Claude Code and Codex history on this computer for the last 7 days. Read only the usage records, never the words of my messages or the contents of my files. Tell me: how many sessions I ran in each tool; how many times I hit a usage limit, and when; and which models each tool used, as a rough split of big versus smaller models, if the records show it. Say 'not recorded' for anything the records do not show, never guess. Then, in one sentence, say which pattern fits my week: running out before the end of the week, or leaving most of it unused. Do not send, install or download anything. Show me the result here as exactly this plain block and nothing else:",
+  "",
+  "TOKENMAX WEEK",
+  "Period: <start date> to <end date>",
+  "Claude sessions: <number>",
+  "Codex sessions: <number>",
+  "Claude output tokens: <number>",
+  "Codex output tokens: <number>",
+  "Opus share of Claude output: <percent>",
+  "Usage limit hits: <number>",
+  "Sessions per day: <7 numbers separated by commas, oldest day first, Claude Code plus Codex together>",
+  "Limit hit days: <dates as YYYY-MM-DD separated by commas, or none>",
+  "Codex weekly window used: <percent>",
+  "Pattern: <running out | leaving most unused>",
+  "",
+  "Sessions per day: seven numbers, one per day of the period, oldest day first. Limit hit days: the dates on which I hit a usage limit, or none.",
+  "Use 'not recorded' for any line you cannot fill. Round numbers freely. Do not add anything else.",
+  "Print only the block above. No notes, caveats, warnings, checks, counts of duplicates or files, or explanations before or after it. If a number is approximate, just give the number.",
+].join("\n");
+/** The operator's own aggregate week (already a sample on the site), as the prompt asks the assistant to print it. */
+export const SAMPLE_RESULT = [
+  "TOKENMAX WEEK",
+  "Period: 2026-10-14 to 2026-10-21",
+  "Claude sessions: 288",
+  "Codex sessions: 2925",
+  "Claude output tokens: 7,940,728",
+  "Codex output tokens: 4,315,259",
+  "Opus share of Claude output: 42%",
+  "Usage limit hits: 2",
+  "Codex weekly window used: 7%",
+].join("\n");
+/** What the Your week card must show for SAMPLE_RESULT, label then value. */
+export const SAMPLE_CARD: readonly (readonly [string, string])[] = [
+  ["Claude sessions", "288"],
+  ["Codex sessions", "2,925"],
+  ["Claude output tokens", "7,940,728"],
+  ["Codex output tokens", "4,315,259"],
+  ["Opus share", "42%"],
+  ["Usage limit hits", "2"],
+  ["Codex weekly window used", "7%"],
+];
+/** The Show Sample card's rows (the recorded run: 515 + 3,478 = 3,993 sessions). */
+export const SAMPLE_WEEK_ROWS = "Claude sessions=515; Codex sessions=3,478; Claude output tokens=9,977,232; Codex output tokens=7,503,143; Opus share=87%; Usage limit hits=2; Codex weekly window used=15%";
+/** The one sentence of the prompt allowed to name a banned word, because it forbids it. */
+export const PROMPT_NEGATION = "Do not send, install or download anything.";
+/** Never on the page as visible text, and never in the copied prompt outside PROMPT_NEGATION. */
+export const BANNED_TEXT = /\bbun\b|\bcurl\b|map\.ts|--share|terminal|download|\bscript\b/i;
+
+/** Banned words in a text; the prompt's own negation sentence is removed first. */
+export function bannedHits(text: string): string[] {
+  const m = BANNED_TEXT.exec(text.split(PROMPT_NEGATION).join(" "));
+  return m ? [`"${m[0]}" in: ${text.slice(Math.max(0, m.index - 30), m.index + 30)}`] : [];
+}
 /** Issue #309 criterion 3: none of these words may show in the first viewport. */
 export const JARGON = /\b(curl|bun|terminal|logs?|tokens?|subagents?|jsonl)\b/i;
 /** Nowhere on the page, visible or not. */
@@ -59,7 +113,7 @@ export function report(checks: readonly Check[]): string {
   const s = summarise(checks);
   const lines = [...s.widths].map(([w, t]) => `${w === 0 ? "repo" : `${w}px`}: ${t.run} checks run, ${t.passed} passed, ${t.failed} failed`);
   lines.push(`total: ${s.total.run} checks run, ${s.total.passed} passed, ${s.total.failed} failed`);
-  if (s.clean) lines.push("CLEAN: no JS or console errors, no network requests, no text under 11px at 390 or 12px at 1440, no horizontal scroll at 390, curtain scene absent, deep links reach their end states, keyboard flow and Skip land on Replay, reduced motion jumps to end states, first viewport plain with no jargon, no curl or terminal anywhere, Copy copies the exact prompt");
+  if (s.clean) lines.push("CLEAN: no JS or console errors, no network requests, no text under 11px at 390 or 12px at 1440, no horizontal scroll at 390, curtain scene absent, deep links reach their end states, keyboard flow and Skip land on Replay, reduced motion jumps to end states, first viewport plain with no jargon, no curl or terminal anywhere, the prompt shown in full with no banned word, Copy copies the exact prompt");
   else for (const c of checks) if (!c.ok) lines.push(`FAIL [${c.width === 0 ? "repo" : `${c.width}px`}] ${c.name}: ${c.detail}`);
   return lines.join("\n");
 }
@@ -91,7 +145,7 @@ const smallText = (min: number): string => `(() => { const out = []; document.qu
   if (fs < ${min} - 0.01) out.push(el.tagName + '.' + (el.getAttribute('class') || '') + ' "' + el.textContent.trim().slice(0, 30) + '" ' + fs.toFixed(1) + 'px');
 }); return out; })()`;
 
-export type EndState = { drop: boolean; ghost: boolean; settled: boolean; half: number; extra: number; cancelled: number; verdict: string; badge: string; focus: string; skipHidden: boolean; shareOpen: boolean };
+export type EndState = { drop: boolean; ghost: boolean; settled: boolean; half: number; extra: number; cancelled: number; act: string; badge: string; focus: string; skipHidden: boolean; promptShown: boolean };
 const END_STATE = `(() => ({
   drop: document.getElementById('drop').classList.contains('show-copy'),
   ghost: document.getElementById('ghost').classList.contains('on'),
@@ -99,11 +153,11 @@ const END_STATE = `(() => ({
   half: document.querySelectorAll('.poster.half').length,
   extra: document.querySelectorAll('.poster.has-extra').length,
   cancelled: document.querySelectorAll('.poster.cancel').length,
-  verdict: document.getElementById('reviewFull').hidden ? '' : document.getElementById('verdict').textContent,
+  act: document.getElementById('act').textContent,
   badge: document.getElementById('gaugeBadge').textContent,
   focus: document.activeElement ? document.activeElement.id : '',
   skipHidden: document.getElementById('skip').hidden,
-  shareOpen: document.getElementById('share').open === true,
+  promptShown: document.getElementById('sharePrompt').checkVisibility({ visibilityProperty: true, opacityProperty: true }),
 }))()`;
 async function endState(page: Page): Promise<EndState> {
   const s: unknown = await page.evaluate(END_STATE);
@@ -112,17 +166,20 @@ async function endState(page: Page): Promise<EndState> {
   const num = (k: string): number => { const v = get(k); return typeof v === "number" ? v : -1; };
   const str = (k: string): string => { const v = get(k); return typeof v === "string" ? v : ""; };
   const bool = (k: string): boolean => get(k) === true;
-  return { drop: bool("drop"), ghost: bool("ghost"), settled: bool("settled"), half: num("half"), extra: num("extra"), cancelled: num("cancelled"), verdict: str("verdict"), badge: str("badge"), focus: str("focus"), skipHidden: bool("skipHidden"), shareOpen: bool("shareOpen") };
+  return { drop: bool("drop"), ghost: bool("ghost"), settled: bool("settled"), half: num("half"), extra: num("extra"), cancelled: num("cancelled"), act: str("act"), badge: str("badge"), focus: str("focus"), skipHidden: bool("skipHidden"), promptShown: bool("promptShown") };
 }
 
+/** The stage's act line for each ending (the review card that once named the verdict is gone, operator 2026-10-21). */
+export const WITHOUT_ACT = "Without TokenMax \u00b7 every step in the royal box";
+export const WITH_ACT = { burn: "With TokenMax \u00b7 each step in its seat", under: "With TokenMax \u00b7 cheaper seats, then more jobs" };
 /** What each end-state deep link must show. */
 export function expectedEnd(hash: string, s: EndState): string | null {
   const ok = (cond: boolean): string | null => cond ? null : JSON.stringify(s);
-  if (hash === "#burn-before") return ok(s.drop && s.cancelled === 3 && s.verdict === "Walk out");
-  if (hash === "#burn-after") return ok(s.settled && s.verdict === "Standing ovation" && s.badge === "Lasted to Sunday");
-  if (hash === "#under-before") return ok(s.ghost && s.half === 7 && s.verdict === "Still in previews");
-  if (hash === "#under-after") return ok(s.settled && s.extra === 6 && s.verdict === "Standing ovation" && s.badge === "Target passed");
-  if (hash === "#command") return ok(s.focus === "command" && s.shareOpen);
+  if (hash === "#burn-before") return ok(s.drop && s.cancelled === 3 && s.act === WITHOUT_ACT);
+  if (hash === "#burn-after") return ok(s.settled && s.act === WITH_ACT.burn && s.badge === "Lasted to Sunday");
+  if (hash === "#under-before") return ok(s.ghost && s.half === 7 && s.act === WITHOUT_ACT);
+  if (hash === "#under-after") return ok(s.settled && s.extra === 6 && s.act === WITH_ACT.under && s.badge === "Target passed");
+  if (hash === "#command") return ok(s.focus === "command" && s.promptShown);
   return null;
 }
 
@@ -153,12 +210,17 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
       const label = hash || "start";
       try {
         await page.goto(url + hash, { waitUntil: "load" });
-        await sleep(hash.startsWith("#demo") ? 2500 : 1500);
+        await sleep(hash.startsWith("#demo") ? 2500 : hash === "" ? 2600 : 1500);
         errorsOf(label, seen);
         const gone = await page.evaluate(() => ["curtain", "marquee", "sur"].filter((n) => document.getElementById(n) !== null));
         add(`${label}: curtain scene absent`, gone.length ? `found #${gone.join(", #")}` : null);
         const end = await endState(page);
         if (["#burn-before", "#burn-after", "#under-before", "#under-after", "#command"].includes(hash)) add(`${label}: end state`, expectedEnd(hash, end));
+        // The tagline fades in only once a week has played to its end: on every end-state deep link, never at rest.
+        if (hash === "" || hash.endsWith("-before") || hash.endsWith("-after")) {
+          const shown = await page.evaluate(() => { const el = document.getElementById("keepLights"); return !!el && el.classList.contains("shown") && el.checkVisibility({ visibilityProperty: true }); });
+          add(`${label}: tagline ${hash === "" ? "hidden at rest" : "shown at the end"}`, shown === (hash !== "") ? null : `shown ${String(shown)}`);
+        }
         if (hash === "") {
           // Issue #309 criterion 3, first viewport, no scroll: every visible text node that intersects the viewport.
           const first = await page.evaluate(() => {
@@ -168,23 +230,56 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
               const text = (node.textContent ?? "").trim();
               const el = node.parentElement;
               if (!text || !el || el.closest("script, style") || !el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) continue;
-              const range = document.createRange(); range.selectNodeContents(node);
-              if ([...range.getClientRects()].some((r) => r.width > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth)) texts.push(text);
+              // Word by word: a long text node (the prompt) may start in the first viewport and run on below it.
+              const words: string[] = [];
+              for (const m of (node.textContent ?? "").matchAll(/\S+/g)) {
+                const range = document.createRange(); range.setStart(node, m.index); range.setEnd(node, m.index + m[0].length);
+                if ([...range.getClientRects()].some((r) => r.width > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth)) words.push(m[0]);
+              }
+              if (words.length) texts.push(words.join(" "));
             }
-            const whole = (id: string): boolean => {
-              const el = document.getElementById(id); const r = el?.getBoundingClientRect();
-              return !!el && !!r && r.height > 0 && r.top >= 0 && r.bottom <= innerHeight && el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+            const rect = (el: Element | null): { top: number; bottom: number; left: number; right: number; height: number } | null => {
+              if (!el) return null; const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height };
             };
-            return { texts, lede: whole("lede"), audience: whole("audience"), notyet: whole("notyet"), share: whole("jumpCommand") };
+            const cue = document.getElementById("pickCue");
+            return {
+              texts, h1: rect(document.querySelector("h1")), boxes: [...document.querySelectorAll(".pick-btn")].map(rect), cue: rect(cue),
+              cueOn: !!cue && getComputedStyle(cue).opacity === "1" && getComputedStyle(cue).pointerEvents === "none" && cue.getAttribute("aria-hidden") === "true",
+              vh: innerHeight,
+            };
           });
           add("first viewport: no jargon-list word", jargonHits(first.texts).join("; ") || null);
-          add("first viewport: what you get, who it is for and not for, router not built yet", first.lede && first.audience && first.notyet ? null : JSON.stringify(first));
-          add("first viewport: Share my week control", first.share ? null : "Share my week not fully on screen");
+          // Operator decision (2026-10-21): the headline and two big boxes are the first viewport; the cue straddles their seam.
+          const [b1, b2] = first.boxes;
+          const minH = vp.mobile ? 88 : 96;
+          const boxesOk = !!first.h1 && !!b1 && !!b2 && [b1, b2].every((b) => !!b && b.top >= (first.h1?.bottom ?? 0) && b.bottom <= first.vh && b.height >= minH);
+          add(`first viewport: two picker boxes at least ${minH}px tall, wholly on screen, below the headline`, boxesOk ? null : JSON.stringify(first.boxes));
+          const straddles = !!b1 && !!b2 && !!first.cue && (vp.mobile ? first.cue.top < b1.bottom && first.cue.bottom > b2.top : first.cue.left < b1.right && first.cue.right > b2.left);
+          add("first viewport: the cue is on after about 1.5 s, over the seam, below the headline, click-through, aria-hidden", first.cueOn && straddles && (first.cue?.top ?? 0) >= (first.h1?.bottom ?? 0) ? null : JSON.stringify({ cue: first.cue, on: first.cueOn }));
           const anywhere = await page.evaluate(() => [document.documentElement.textContent ?? "", ...[...document.querySelectorAll("*")].flatMap((el) => ["title", "aria-label", "alt", "content", "href"].map((a) => el.getAttribute(a) ?? ""))].join(" "));
           const banned = new RegExp(BANNED_ANYWHERE.source, "i").exec(anywhere);
           add("no curl or terminal anywhere on the page", banned ? `found "${banned[0]}"` : null);
-          const control = await page.evaluate(() => ({ summary: document.getElementById("shareWeek")?.textContent ?? "", jump: document.getElementById("jumpCommand")?.textContent ?? "", map: document.getElementById("mapWeek")?.getAttribute("href") ?? "" }));
-          add("Share my week control present; Map your real week targets it", control.summary === "Share my week" && control.jump === "Share my week" && control.map === "#command" ? null : JSON.stringify(control));
+          // The whole page's visible text, scrolled or not: none of the banned words (the prompt's negation excepted).
+          const visible = await page.evaluate(() => document.body.innerText);
+          add("no bun, curl, map.ts, --share, terminal, download or script in the visible text", bannedHits(visible).join("; ") || null);
+          const prompt = await page.evaluate(() => {
+            const el = document.getElementById("sharePrompt");
+            return { text: el?.textContent ?? "", shown: !!el && el.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && (el.getBoundingClientRect().height > 0), inDetails: !!el?.closest("details") };
+          });
+          add("the exact prompt is shown in full with no click", prompt.text === PROMPT && prompt.shown && !prompt.inDetails ? null : JSON.stringify(prompt));
+          const control = await page.evaluate(() => {
+            const h = document.getElementById("hCmd")?.getBoundingClientRect(), t = document.getElementById("trust")?.getBoundingClientRect();
+            return {
+              jump: document.getElementById("jumpCommand")?.textContent ?? "", mapGone: document.getElementById("mapWeek") === null && document.querySelector(".foot") === null, illustrative: /illustrative/i.test(document.documentElement.textContent ?? ""), keepShown: document.getElementById("keepLights")?.classList.contains("shown") ?? true,
+              keep: document.getElementById("keepLights")?.textContent ?? "", pasteLine: document.getElementById("pasteLine") !== null, heading: document.getElementById("hCmd")?.textContent ?? "",
+              trust: document.getElementById("trust")?.textContent ?? "", copy: document.getElementById("copy")?.textContent ?? "", details: document.querySelectorAll("details").length,
+              cards: ["promptCard", "houseCard", "review", "tryBtn", "seating"].filter((n) => document.getElementById(n) !== null),
+              // the trust line shares the heading's line at 1440 (it may wrap under it on a phone)
+              sameLine: !!h && !!t && Math.abs(h.bottom - t.bottom) < 12, below: !!h && !!t && t.top >= h.bottom - 2,
+            };
+          });
+          const headOk = vp.mobile ? control.sameLine || control.below : control.sameLine;
+          add("no button or footer under the stage, the tagline hidden until a week ends, no Illustrative text, Map your real week heading with the trust line, Copy names where to paste, no gate, no cards", control.jump === "Skip to the command" && control.mapGone && !control.illustrative && !control.keepShown && control.keep === "TokenMax + Jev can help keep the lights on" && !control.pasteLine && control.heading === "Map your real week" && control.trust === "Nothing is sent anywhere. You decide what to do with the summary." && control.copy === "Copy for Claude Code or Codex" && control.details === 0 && control.cards.length === 0 && headOk ? null : JSON.stringify(control));
         }
         const floor = TEXT_FLOOR[vp.width] ?? 12;
         const small: unknown = await page.evaluate(smallText(floor));
@@ -196,7 +291,7 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
       } finally { await page.close(); }
     }
 
-    // 2. the show by keyboard: pick, Skip to the end, Try this prompt, Skip; focus lands on Replay both times
+    // 2. the show by keyboard: pick, Skip to the end, See it with TokenMax, Skip; focus lands on Replay both times
     for (const mode of MODES) {
       const page = await context.newPage();
       const seen = watch(page);
@@ -219,36 +314,35 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
         await press(page, "skip");
         await sleep(1000);
         const second = await endState(page);
-        const withEnd = second.settled && second.verdict === "Standing ovation" && (mode === "under" ? second.extra === 6 : second.badge === "Lasted to Sunday");
+        const withEnd = second.settled && second.act === WITH_ACT[mode] && (mode === "under" ? second.extra === 6 : second.badge === "Lasted to Sunday");
         add(`keyboard ${mode}: Skip reaches the With end`, withEnd ? null : JSON.stringify(second));
         add(`keyboard ${mode}: focus on Replay after the second Skip`, second.focus === "replay" ? null : `focus on ${second.focus || "nothing"}`);
         errorsOf(`keyboard ${mode}`, seen);
       } finally { await page.close(); }
     }
 
-    // 3. Tab: the first stop is Share my week; it opens the prompt and moves focus there; Tab then reaches Copy
+    // 3. Tab: the first stop is Skip to the command (off screen until focused); it moves focus and view to the prompt; Tab then reaches Copy
     {
       const page = await context.newPage();
       try {
         await page.goto(url, { waitUntil: "load" });
         await page.keyboard.press("Tab");
-        add("Tab: first stop is Share my week", (await focusedId(page)) === "jumpCommand" ? null : `first stop ${await focusedId(page)}`);
+        add("Tab: first stop is Skip to the command", (await focusedId(page)) === "jumpCommand" ? null : `first stop ${await focusedId(page)}`);
         await page.keyboard.press("Enter");
         await sleep(400);
         const at = await page.evaluate(() => {
           const el = document.getElementById("command");
           const r = el?.getBoundingClientRect();
-          const details = document.getElementById("share");
-          return { focus: document.activeElement?.id ?? "", inView: r !== undefined && r.top >= -1 && r.top < innerHeight, open: details instanceof HTMLDetailsElement && details.open };
+          return { focus: document.activeElement?.id ?? "", inView: r !== undefined && r.top >= -1 && r.top < innerHeight };
         });
-        add("Share my week: opens the prompt, focus and view on it", at.focus === "command" && at.inView && at.open ? null : JSON.stringify(at));
+        add("Skip to the command: focus and view on the prompt section", at.focus === "command" && at.inView ? null : JSON.stringify(at));
         let reached = false;
         for (let i = 0; i < 12 && !reached; i++) { await page.keyboard.press("Tab"); reached = (await focusedId(page)) === "copy"; }
         add("Tab: reaches Copy", reached ? null : `stopped on ${await focusedId(page)}`);
       } finally { await page.close(); }
     }
 
-    // 4. Share my week opens the prompt; Copy copies the exact prompt
+    // 4. the prompt is on the page with no click; Copy copies exactly that text, which carries no banned word
     {
       const page = await context.newPage();
       try {
@@ -257,13 +351,67 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
           Object.defineProperty(navigator, "clipboard", { value: { writeText: (t: string) => { Reflect.set(window, "__copied", t); return Promise.resolve(); } } });
         });
         await page.goto(url, { waitUntil: "load" });
-        const closed = await page.locator("#copy").isVisible();
-        await page.locator("#shareWeek").click();
+        const ready = await page.locator("#copy").isVisible();
         await page.locator("#copy").click();
         await page.waitForFunction(() => (document.getElementById("copyMsg")?.textContent ?? "").length > 0, null, { timeout: 3000 });
         const got = await page.evaluate(() => ({ copied: String(Reflect.get(window, "__copied")), msg: document.getElementById("copyMsg")?.textContent ?? "", shown: document.getElementById("sharePrompt")?.textContent ?? "" }));
-        add("Share my week: the prompt opens on request", closed ? "Copy visible before Share my week was opened" : null);
+        add("Copy: visible with no click first", ready ? null : "Copy not visible at load");
         add("Copy: copies the exact prompt", got.copied === PROMPT && got.shown === PROMPT && got.msg.startsWith("Copied") ? null : JSON.stringify(got));
+        add("Copy: the copied text has no banned word", bannedHits(got.copied).join("; ") || null);
+      } finally { await page.close(); }
+    }
+
+    // 4b. paste the result back: the card shows the parsed values only; a non-result is refused in plain words
+    {
+      const page = await context.newPage();
+      const seen = watch(page);
+      try {
+        await page.goto(url, { waitUntil: "load" });
+        // Show Sample: hidden at load; on request the card shows the sample's values, titled Sample week, a Sample tag and no link.
+        const before = await page.evaluate(() => ({ cardHidden: document.getElementById("yourWeek")?.hidden === true, sampleLink: document.querySelectorAll("a[href*='/maps/#m='], #openCard, #sceneB").length }));
+        add("sample: card hidden at load, no sample section or sample link", before.cardHidden && before.sampleLink === 0 ? null : JSON.stringify(before));
+        await page.locator("#showSample").click();
+        const sample = await page.evaluate(() => ({
+          rows: [...document.querySelectorAll("#yourFields dt")].map((dt) => `${dt.textContent ?? ""}=${dt.nextElementSibling?.textContent ?? ""}`).join("; "),
+          tag: document.getElementById("sampleTag")?.checkVisibility() === true, links: document.querySelectorAll("#yourWeek a").length,
+          title: document.getElementById("hYour")?.textContent ?? "", y: Math.round(scrollY),
+        }));
+        add("sample: Show Sample shows the sample's values, titled Sample week, with a Sample tag and no link", sample.rows === SAMPLE_WEEK_ROWS && sample.title === "Sample week" && sample.tag && sample.links === 0 ? null : JSON.stringify(sample));
+        const sampleFloor = TEXT_FLOOR[vp.width] ?? 12;
+        const sampleSmall: unknown = await page.evaluate(smallText(sampleFloor));
+        add(`sample: no text under ${sampleFloor}px with the sample card shown`, Array.isArray(sampleSmall) && sampleSmall.length ? sampleSmall.join("; ") : null);
+        const caveat = "Not checked: the duplicate files were counted twice.";
+        await page.locator("#pasteBox").fill(`${caveat}\n\n${SAMPLE_RESULT}\n\n${caveat}`);
+        await page.locator("#showWeek").click();
+        const card = await page.evaluate(() => ({
+          shown: document.getElementById("yourWeek")?.hidden === false,
+          rows: [...document.querySelectorAll("#yourFields dt")].map((dt) => [dt.textContent ?? "", dt.nextElementSibling?.textContent ?? ""]),
+          line: document.getElementById("yourLine")?.textContent ?? "", period: document.getElementById("yourPeriod")?.textContent ?? "", focus: document.activeElement?.id ?? "",
+          tag: document.querySelector("#yourWeek .local-tag")?.textContent ?? "",
+          body: document.body.innerText,
+        }));
+        add("paste: the card shows the parsed sample week", card.shown && JSON.stringify(card.rows) === JSON.stringify(SAMPLE_CARD) && card.line === "Heavy load: you hit your limit 2 times" && card.period === "2026-10-14 to 2026-10-21" && card.tag === "Your numbers, shown on this page only" ? null : JSON.stringify({ ...card, body: "" }));
+        add("paste: pasted caveat text never reaches the page", card.body.includes("duplicate files") ? "caveat text shown" : null);
+        if (vp.mobile) {
+          const widths = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, body: document.body.scrollWidth }));
+          add("paste: no horizontal scroll with the card shown", widths.doc <= vp.width && widths.body <= vp.width ? null : JSON.stringify(widths));
+        }
+        const floor = TEXT_FLOOR[vp.width] ?? 12;
+        const small: unknown = await page.evaluate(smallText(floor));
+        add(`paste: no text under ${floor}px with the card shown`, Array.isArray(small) && small.length ? small.join("; ") : null);
+        await page.locator("#playMine").click();
+        await sleep(400);
+        await page.locator("#skip").click().catch(() => undefined);
+        await sleep(600);
+        const played = await page.evaluate(() => ({ big: document.getElementById("dataBig")?.textContent ?? "", cancelled: document.querySelectorAll(".poster.cancel").length, drop: document.getElementById("drop")?.classList.contains("show-copy") }));
+        add("paste: Play my week plays the pasted numbers, derived ending, no crossed-out days", played.big === "You hit your limit 2 times" && played.cancelled === 0 && !played.drop ? null : JSON.stringify(played));
+        await page.locator("#pasteBox").fill("hello, this is not it");
+        await page.locator("#showWeek").click();
+        const refused = await page.evaluate(() => ({ msg: document.getElementById("pasteError")?.textContent ?? "", card: document.getElementById("yourWeek")?.hidden === true }));
+        add("paste: a non-result is refused with one plain message", refused.msg === "That doesn't look like the result. Run the prompt again and paste what it prints." && refused.card ? null : JSON.stringify(refused));
+        const stored = await page.evaluate(() => localStorage.length + sessionStorage.length);
+        add("paste: nothing stored", stored === 0 ? null : `${stored} storage keys`);
+        errorsOf("paste", seen);
       } finally { await page.close(); }
     }
 
@@ -277,7 +425,7 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
         await sleep(6500);
         const mid = await endState(page);
         add("natural burn: the curtain drops at the limit", mid.drop && mid.cancelled === 3 ? null : JSON.stringify(mid));
-        await page.locator("#tryBtn").click();
+        await page.locator("#dropBtn").click();
         await sleep(17000);
         const end = await endState(page);
         add("natural burn: curtain call, Skip hidden at the end", end.settled && end.skipHidden && end.badge === "Lasted to Sunday" ? null : JSON.stringify(end));

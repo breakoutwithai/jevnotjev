@@ -3,6 +3,193 @@
  * No network calls. Do not edit; rerun the script.
  */
 (() => {
+  // src/browser/tm-week.ts
+  var NOT_A_RESULT = "That doesn't look like the result. Run the prompt again and paste what it prints.";
+  var NOT_RECORDED = "not recorded";
+  var LABELS = {
+    period: "period",
+    "claude sessions": "claudeSessions",
+    "codex sessions": "codexSessions",
+    "claude output tokens": "claudeOutput",
+    "codex output tokens": "codexOutput",
+    "opus share of claude output": "opusShare",
+    "usage limit hits": "limitHits",
+    "sessions per day": "perDay",
+    "limit hit days": "limitDays",
+    "codex weekly window used": "codexWindow",
+    pattern: "pattern"
+  };
+  function labelValue(raw) {
+    const line = raw.replace(/\*\*|__|`/g, "").trim().replace(/^(?:[-*+•]|\d+[.)])\s+/, "");
+    let label;
+    let value;
+    if (line.includes("|")) {
+      const cells = line.split("|").map((c) => c.trim()).filter((c) => c !== "");
+      if (cells.length < 2 || cells.every((c) => /^:?-+:?$/.test(c)))
+        return null;
+      label = cells[0] ?? "";
+      value = cells[1] ?? "";
+    } else {
+      const at = line.indexOf(":");
+      if (at < 0)
+        return null;
+      label = line.slice(0, at);
+      value = line.slice(at + 1);
+    }
+    return [label.toLowerCase().replace(/\s+/g, " ").trim(), value.trim()];
+  }
+  function readNumber(value) {
+    if (/not recorded/i.test(value))
+      return null;
+    const m = /\d[\d,]*(?:\.\d+)?/.exec(value);
+    if (!m)
+      return null;
+    const n = Number(m[0].replace(/,/g, ""));
+    return Number.isFinite(n) ? n : null;
+  }
+  var WEEKDAY = /^(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?\s*/i;
+  function readPerDay(value) {
+    if (/not recorded/i.test(value))
+      return null;
+    const parts = value.split(/[,;]/).map((p) => p.trim().replace(WEEKDAY, "").trim());
+    if (parts.length !== 7 || parts.some((p) => !/^\d+$/.test(p)))
+      return null;
+    return parts.map(Number);
+  }
+  function readDate(value) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim().replace(WEEKDAY, "").trim());
+    if (!m)
+      return null;
+    const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    return d.toISOString().slice(0, 10) === `${m[1]}-${m[2]}-${m[3]}` ? `${m[1]}-${m[2]}-${m[3]}` : null;
+  }
+  function readLimitDays(value) {
+    if (/^none\.?$/i.test(value.trim()))
+      return [];
+    if (/not recorded/i.test(value) || value.trim() === "")
+      return null;
+    const dates = value.split(/[,;]/).map((p) => readDate(p));
+    return dates.every((d) => d !== null) ? dates : null;
+  }
+  function parseWeek(text) {
+    const nums = { claudeSessions: null, codexSessions: null, claudeOutput: null, codexOutput: null, opusShare: null, limitHits: null, codexWindow: null };
+    let period = null;
+    let pattern = null;
+    let perDay = null;
+    let limitDays = null;
+    let recognised = 0;
+    for (const raw of text.split(/\r?\n/)) {
+      const lv = labelValue(raw);
+      if (!lv)
+        continue;
+      const field = LABELS[lv[0]];
+      if (field === undefined)
+        continue;
+      recognised += 1;
+      const value = lv[1];
+      if (field === "period") {
+        const m = /(\S.*?)\s+to\s+(\S.*)/i.exec(value);
+        period = m && !/not recorded/i.test(value) ? { start: (m[1] ?? "").trim(), end: (m[2] ?? "").trim() } : null;
+      } else if (field === "pattern") {
+        pattern = /running out/i.test(value) ? "running out" : /unused/i.test(value) ? "leaving most unused" : null;
+      } else if (field === "perDay") {
+        perDay = readPerDay(value);
+      } else if (field === "limitDays") {
+        limitDays = readLimitDays(value);
+      } else {
+        nums[field] = readNumber(value);
+      }
+    }
+    if (recognised === 0)
+      return null;
+    return { period, pattern, perDay, limitDays, ...nums };
+  }
+  function situationOf(week) {
+    if (week.pattern)
+      return week.pattern;
+    return (week.limitHits ?? 0) > 0 ? "running out" : "leaving most unused";
+  }
+  var fmt = (n, unit = "") => n === null ? NOT_RECORDED : `${n.toLocaleString("en-US")}${unit}`;
+  function weekLines(week) {
+    return [
+      { label: "Claude sessions", value: fmt(week.claudeSessions) },
+      { label: "Codex sessions", value: fmt(week.codexSessions) },
+      { label: "Claude output tokens", value: fmt(week.claudeOutput) },
+      { label: "Codex output tokens", value: fmt(week.codexOutput) },
+      { label: "Opus share", value: fmt(week.opusShare, "%") },
+      { label: "Usage limit hits", value: fmt(week.limitHits) },
+      { label: "Codex weekly window used", value: fmt(week.codexWindow, "%") }
+    ];
+  }
+  function periodLine(week) {
+    return week.period ? `${week.period.start} to ${week.period.end}` : `Period ${NOT_RECORDED}`;
+  }
+  function cardHeadline(week) {
+    const n = week.limitHits;
+    if (n !== null && n > 0)
+      return `Heavy load: you hit your limit ${n.toLocaleString("en-US")} ${n === 1 ? "time" : "times"}`;
+    if (n === 0)
+      return "Light use: you never hit a limit";
+    if (week.pattern === "running out")
+      return "Heavy load: running out before the end of the week";
+    if (week.pattern === "leaving most unused")
+      return "Light use: leaving most of the week unused";
+    return `Usage limit hits ${NOT_RECORDED}`;
+  }
+  var SAMPLE_WEEK = {
+    period: { start: "2026-10-09", end: "2026-10-16" },
+    claudeSessions: 515,
+    codexSessions: 3478,
+    claudeOutput: 9977232,
+    codexOutput: 7503143,
+    opusShare: 87,
+    limitHits: 2,
+    codexWindow: 15,
+    pattern: null,
+    perDay: [520, 610, 655, 702, 590, 498, 418],
+    limitDays: ["2026-10-14"]
+  };
+  var DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function dayLabels(week) {
+    const start = week.period ? readDate(week.period.start) : null;
+    if (!start)
+      return [1, 2, 3, 4, 5, 6, 7].map((i) => `Day ${i}`);
+    const t0 = Date.parse(`${start}T00:00:00Z`);
+    return [0, 1, 2, 3, 4, 5, 6].map((i) => DAY_NAMES[new Date(t0 + i * 86400000).getUTCDay()] ?? "");
+  }
+  function limitDayIndexes(week) {
+    const start = week.period ? readDate(week.period.start) : null;
+    if (!start || !week.limitDays || !((week.limitHits ?? 0) > 0))
+      return [];
+    const t0 = Date.parse(`${start}T00:00:00Z`);
+    return [...new Set(week.limitDays.map((d) => Math.round((Date.parse(`${d}T00:00:00Z`) - t0) / 86400000)).filter((i) => i >= 0 && i <= 6))].sort((a, b) => a - b);
+  }
+  function listOf(names) {
+    if (names.length <= 1)
+      return names.join("");
+    return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1] ?? ""}`;
+  }
+  function stageHeadline(week) {
+    const n = week.limitHits;
+    if (n === null)
+      return `Usage limit hits ${NOT_RECORDED}`;
+    if (n === 0)
+      return "You never hit your limit";
+    const days = limitDayIndexes(week);
+    const labels = dayLabels(week);
+    const on = days.length && week.limitDays && days.length === week.limitDays.length ? `, on ${listOf(days.map((i) => labels[i] ?? ""))}` : "";
+    return `You hit your limit ${n.toLocaleString("en-US")} ${n === 1 ? "time" : "times"}${on}`;
+  }
+  function stageSubtitle(week) {
+    const parts = [];
+    const s = [week.claudeSessions === null ? "" : `${week.claudeSessions.toLocaleString("en-US")} Claude Code`, week.codexSessions === null ? "" : `${week.codexSessions.toLocaleString("en-US")} Codex`].filter(Boolean);
+    if (s.length)
+      parts.push(`${s.join(" and ")} sessions`);
+    if (week.opusShare !== null)
+      parts.push(`Opus ${week.opusShare.toLocaleString("en-US")}% of Claude output`);
+    return parts.join("; ");
+  }
+
   // src/browser/tm-run.ts
   var DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   var LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -10,40 +197,16 @@
   var TARGET_LEFT = 15;
   var SCENARIOS = {
     burn: {
-      prompt: "“Tidy up the test names in my repo and flag anything risky”",
-      steps: [
-        { t: "List every test file", seat: "rule", ans: { kind: "none" } },
-        { t: "Is this name unclear?", seat: "jev", ans: { kind: "noul", v: 0.82, lab: "Likely yes" } },
-        { t: "Rename, merge or leave?", seat: "jev", ans: { kind: "choice", opts: ["rename", "merge", "leave"], pick: 0 } },
-        { t: "Rewrite names, explain risky ones", seat: "royal", ans: { kind: "none" } }
-      ],
       without: [26, 26, 26, 26, 26, 26, 26],
       with: [13, 13, 13, 13, 13, 13, 13],
       extra: [0, 0, 0, 0, 0, 0, 0],
       jobs: ["", "", "", "", "", "", ""]
     },
     under: {
-      prompt: "“Sort my open issues by how hard they are and fix the easy ones”",
-      steps: [
-        { t: "Pull the open issues", seat: "rule", ans: { kind: "none" } },
-        { t: "How hard is this one?", seat: "jev", ans: { kind: "score", opts: ["trivial", "ordinary", "hard"], pick: 0 } },
-        { t: "Safe to fix on its own?", seat: "jev", ans: { kind: "noul", v: 0.74, lab: "Likely yes" } },
-        { t: "Fix the easy ones, write notes", seat: "royal", ans: { kind: "none" } }
-      ],
       without: [8, 7, 9, 6, 8, 5, 4],
       with: [4, 3, 5, 3, 4, 3, 2],
       extra: [0, 11, 9, 11, 10, 11, 12],
       jobs: ["", "Review last week’s PRs", "", "", "Write tests for the login page", "", ""]
-    }
-  };
-  var VERDICT = {
-    burn: {
-      with: { stars: 5, v: "Standing ovation", sub: "Seven shows. The lights lasted to Sunday’s curtain call.", was: "Without TokenMax: <s>Walk out</s>" },
-      without: { stars: 1, v: "Walk out", sub: "Curtain down Thursday night. Three shows cancelled.", was: "With TokenMax: <b>Standing ovation</b>" }
-    },
-    under: {
-      with: { stars: 5, v: "Standing ovation", sub: "Cheaper seats freed room. 6 more jobs filled it. Target hit.", was: "Without TokenMax: <s>Still in previews</s>" },
-      without: { stars: 2, v: "Still in previews", sub: "Half the house empty all week.", was: "With TokenMax: <b>Standing ovation</b>" }
     }
   };
   function seatsFor(u) {
@@ -82,7 +245,6 @@
     const id = (name, kind) => inside(doc, `#${name}`, kind);
     const reduceQuery = win.matchMedia("(prefers-reduced-motion: reduce)");
     let reduced = reduceQuery.matches;
-    const compact = () => win.innerWidth < 760;
     const st = {
       mode: null,
       routed: false,
@@ -90,7 +252,8 @@
       token: 0,
       speed: 1,
       busy: false,
-      seating: false
+      data: null,
+      example: false
     };
     const sum = (a) => a.reduce((x, y) => x + y, 0);
     const bulbsEl = id("bulbs", HTMLElement);
@@ -137,7 +300,7 @@
       li.innerHTML = `<span class="day">${d}</span><span class="time">8 PM</span>${MASK}<span class="seats">${"<i></i>".repeat(12)}</span><span class="lab">Tonight</span><span class="stamp">CANCELLED</span><span class="extra"><b>+1 job</b><span class="ex-job">${SCENARIOS.under.jobs[i] ?? ""}</span></span>`;
       li.setAttribute("aria-label", LONG[i] ?? d);
       runEl.appendChild(li);
-      return { li, seats: every(li, ".seats i", HTMLElement), lab: inside(li, ".lab", HTMLElement), stamp: inside(li, ".stamp", HTMLElement), filled: null, label: null };
+      return { li, day: inside(li, ".day", HTMLElement), seats: every(li, ".seats i", HTMLElement), lab: inside(li, ".lab", HTMLElement), stamp: inside(li, ".stamp", HTMLElement), filled: null, label: null };
     });
     const stubsEl = id("stubs", HTMLOListElement);
     const stubs = DAYS.map((d) => {
@@ -149,15 +312,14 @@
     const stage = id("stage", HTMLElement), opening = id("opening", HTMLElement), drop = id("drop", HTMLElement), ghost = id("ghost", HTMLElement);
     const dim = id("dim", HTMLElement), gauge = id("gauge", HTMLElement), needle = id("needle", SVGGElement), arc = id("gaugeArc", SVGPathElement);
     const leftPct = id("leftPct", HTMLElement), statusEl = id("status", HTMLElement), actEl = id("act", HTMLElement);
-    const gaugeBadge = id("gaugeBadge", HTMLElement), foundEl = id("found", HTMLElement), seating = id("seating", HTMLElement);
+    const gaugeBadge = id("gaugeBadge", HTMLElement), foundEl = id("found", HTMLElement);
     const skipBtn = id("skip", HTMLButtonElement), replayBtn = id("replay", HTMLButtonElement);
-    const tryBtn = id("tryBtn", HTMLButtonElement), promptText = id("promptText", HTMLElement), promptCard = id("promptCard", HTMLElement);
-    const seatPrompt = id("seatPrompt", HTMLElement), pick = inside(doc, ".pick", HTMLElement);
+    const pick = inside(doc, ".pick", HTMLElement), keepLights = id("keepLights", HTMLElement);
+    const dataEnd = id("dataEnd", HTMLElement), dataBig = id("dataBig", HTMLElement), dataSub = id("dataSub", HTMLElement);
+    const exampleTag = id("exampleTag", HTMLElement), gaugeName = id("gaugeName", HTMLElement);
     const pickBtns = every(doc, ".pick-btn", HTMLButtonElement), segBtns = every(doc, "#seg button", HTMLButtonElement);
     const seg = id("seg", HTMLElement), compare = id("compare", HTMLElement), command = id("command", HTMLElement);
-    const price = id("price", HTMLElement), barAll = id("barAll", HTMLElement), barRouted = id("barRouted", HTMLElement);
     const ghostBtn = id("ghostBtn", HTMLButtonElement), dropBtn = id("dropBtn", HTMLButtonElement);
-    const slot = (prefix, seat) => id(`${prefix}-${seat}`, HTMLElement);
     const live = (tok) => {
       if (tok !== st.token)
         throw new Cancel;
@@ -246,13 +408,18 @@
       p.seats.forEach((s, i) => s.classList.toggle("f", i < n));
     }
     function resetWeek() {
-      posters.forEach((p) => {
+      posters.forEach((p, i) => {
         p.li.className = "poster";
+        p.day.textContent = DAYS[i] ?? "";
+        p.stamp.textContent = "CANCELLED";
         fillSeats(p, 0);
         p.lab.textContent = "Tonight";
         p.filled = null;
         p.label = null;
       });
+      dataEnd.hidden = true;
+      exampleTag.hidden = true;
+      gaugeName.textContent = "House lights";
       stubs.forEach((s) => {
         s.className = "";
         s.style.removeProperty("--d");
@@ -260,7 +427,6 @@
       stage.classList.remove("call", "anim", "settled");
       gaugeBadge.textContent = "";
       foundEl.hidden = true;
-      seating.classList.remove("on");
       ghost.classList.remove("on");
       bulbsEl.classList.remove("chase");
       stopConfetti();
@@ -295,6 +461,7 @@
       segBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === view)));
       clearDrop();
       resetWeek();
+      exampleTag.hidden = !(st.example && view === "with");
       gauge.classList.toggle("calm", view === "with");
       const underWith = mode === "under" && view === "with";
       actEl.textContent = view === "without" ? "Without TokenMax · every step in the royal box" : underWith ? "With TokenMax · cheaper seats, then more jobs" : "With TokenMax · each step in its seat";
@@ -320,8 +487,10 @@
             fillSeats(p, Math.round(pr * 12 * frac));
           }, tok);
           await dropCurtain(i, tok);
-          if (tok === st.token)
+          if (tok === st.token) {
             setBusy(false);
+            keepLights.classList.add("shown");
+          }
           return;
         }
         const baseSeats = mode === "burn" ? 12 : seatsFor(base);
@@ -371,8 +540,10 @@
         await curtainCall(tok);
       else
         await ghostLight(left, tok);
-      if (tok === st.token)
+      if (tok === st.token) {
         setBusy(false);
+        keepLights.classList.add("shown");
+      }
     }
     function dust() {
       if (st.speed <= 0)
@@ -440,23 +611,15 @@
           s.style.setProperty("--d", `${(0.35 + 0.28 * (j - i)) * st.speed}s`);
         }
       });
-      dropBtn.textContent = st.routed ? "See it with TokenMax" : "Try this prompt";
       drop.classList.add("show-copy");
       statusEl.textContent = `Curtain down ${LONG[i] ?? ""}. ${7 - i - 1} shows cancelled.`;
-      showReview("without");
-      if (!st.routed)
-        tryBtn.classList.add("ready");
     }
     async function ghostLight(left, tok) {
       statusEl.textContent = "Sunday. The run ends with seats to spare.";
       await wait(400, tok);
       id("ghostSub", HTMLElement).textContent = `${Math.round(left)}% of your week paid for, never played`;
-      ghostBtn.textContent = st.routed ? "See it with TokenMax" : "Try this prompt";
       ghost.classList.add("on");
       statusEl.textContent = `${Math.round(left)}% of your week left unused.`;
-      showReview("without");
-      if (!st.routed)
-        tryBtn.classList.add("ready");
     }
     async function curtainCall(tok) {
       statusEl.textContent = "Sunday. Final show…";
@@ -477,7 +640,6 @@
       const rise = anim(drop, [{ transform: "translateY(0%)" }, { transform: "translateY(-103%)" }], 900, "cubic-bezier(.2,.7,.2,1)");
       await wait(200, tok);
       stage.classList.add("call");
-      showReview("with");
       if (st.speed > 0) {
         stage.classList.add("anim");
         bulbsEl.classList.add("chase");
@@ -498,116 +660,80 @@
       bulbsEl.classList.remove("chase");
       statusEl.textContent = st.mode === "burn" ? "Seven shows. Lights lasted to Sunday." : "6 more jobs run. Weekly target hit.";
     }
-    function showReview(view) {
-      if (!st.mode)
-        return;
-      const v = VERDICT[st.mode][view];
-      id("reviewEmpty", HTMLElement).hidden = true;
-      const full = id("reviewFull", HTMLElement);
-      full.hidden = false;
-      full.style.animation = "none";
-      full.offsetWidth;
-      full.style.animation = "";
-      id("stars", HTMLElement).innerHTML = `${"★".repeat(v.stars)}<span class="off">${"★".repeat(5 - v.stars)}</span>`;
-      id("verdict", HTMLElement).textContent = v.v;
-      id("verdictSub", HTMLElement).textContent = v.sub;
-      const was = id("was", HTMLElement);
-      was.innerHTML = st.routed ? v.was : "";
-      was.hidden = !st.routed;
-    }
-    function resetReview() {
-      id("reviewEmpty", HTMLElement).hidden = false;
-      id("reviewFull", HTMLElement).hidden = true;
-    }
-    function makeTicket(s) {
-      const li = doc.createElement("li");
-      li.className = `ticket ${s.seat}`;
-      let w = "";
-      if (s.ans.kind === "noul")
-        w = '<span class="ans"><svg class="dial" viewBox="0 0 40 24"><path d="M4 22 A16 16 0 0 1 36 22" stroke="#6b5440" stroke-width="4" fill="none"/><path class="fa" d="M4 22 A16 16 0 0 1 36 22" stroke="#e0b04e" stroke-width="4" fill="none" pathLength="100" stroke-dasharray="0 100"/><line class="nd" x1="20" y1="22" x2="20" y2="7" stroke="#efe2c4" stroke-width="2.5" stroke-linecap="round"/></svg><span class="al">yes / no</span></span>';
-      if (s.ans.kind === "choice")
-        w = `<span class="ans pickbar">${s.ans.opts.map((o) => `<b>${o}</b>`).join("")}</span>`;
-      if (s.ans.kind === "score")
-        w = `<span class="ans steps">${s.ans.opts.map((o) => `<b>${o}</b>`).join("")}</span>`;
-      li.innerHTML = `<span>${s.t}</span>${w}`;
-      return li;
-    }
-    function answer(li, s) {
-      const a = s.ans;
-      if (a.kind === "noul") {
-        inside(li, ".nd", SVGLineElement).style.transform = `rotate(${-90 + 180 * a.v}deg)`;
-        inside(li, ".fa", SVGPathElement).setAttribute("stroke-dasharray", `${a.v * 100} 100`);
-        inside(li, ".al", HTMLElement).textContent = a.lab;
-      }
-      if (a.kind === "choice" || a.kind === "score")
-        every(li, ".ans b", HTMLElement)[a.pick]?.classList.add("on");
-    }
-    function clearSlots() {
-      ["royal", "jev", "rule"].forEach((k) => {
-        slot("slot", k).textContent = "";
-        slot("sx", k).textContent = "";
-      });
-      price.classList.remove("on");
-      barAll.style.width = "0";
-      barRouted.style.width = "0";
-    }
-    async function flyTicket(s, idx, tok, small) {
-      const ph = makeTicket(s);
-      ph.classList.add("ph");
-      slot(small ? "sx" : "slot", s.seat).appendChild(ph);
-      if (small) {
-        const copy = makeTicket(s);
-        slot("slot", s.seat).appendChild(copy);
-        answer(copy, s);
-      }
-      if (st.speed <= 0) {
-        ph.classList.remove("ph");
-        answer(ph, s);
-        return;
-      }
-      const fly = makeTicket(s);
-      fly.classList.add("fly");
-      doc.body.appendChild(fly);
-      const src = (small ? seatPrompt : promptText).getBoundingClientRect(), dst = ph.getBoundingClientRect(), fw = fly.getBoundingClientRect();
-      const sx = src.left + src.width * (0.15 + 0.22 * idx) - fw.width / 2, sy = src.top + src.height / 2 - fw.height / 2;
-      const { left: ex, top: ey } = dst;
-      const mx = (sx + ex) / 2 + (idx % 2 ? 40 : -40), my = Math.min(sy, ey) - (small ? 30 : 70);
-      await fly.animate([
-        { transform: `translate(${sx}px,${sy}px) scale(.4) rotate(-14deg)`, opacity: 0 },
-        { transform: `translate(${mx}px,${my}px) scale(1.15) rotate(8deg)`, opacity: 1, offset: 0.45 },
-        { transform: `translate(${ex}px,${ey}px) scale(1) rotate(0deg)`, opacity: 1 }
-      ], { duration: 820 * st.speed, easing: "cubic-bezier(.45,.05,.3,1)" }).finished.then(() => {
-        return;
-      }, () => {
-        return;
-      });
-      fly.remove();
-      if (tok !== st.token)
-        return;
-      ph.classList.remove("ph");
-      ph.animate([{ transform: "scale(1.18)" }, { transform: "scale(1)" }], { duration: 260, easing: "ease-out" });
-      win.setTimeout(() => answer(ph, s), 150);
-    }
-    function inView(el) {
-      const r = el.getBoundingClientRect();
-      return r.top >= 0 && r.bottom <= win.innerHeight;
-    }
-    function bring(el) {
-      if (st.speed > 0 && !inView(el))
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
     function setMode(m) {
       st.mode = m;
       st.routed = false;
       st.token++;
       pickBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
-      pick.classList.remove("nudge");
-      promptText.textContent = SCENARIOS[m].prompt;
-      clearSlots();
-      resetReview();
+      pick.classList.remove("nudge", "cue-on");
+      pick.classList.add("picked");
+      st.data = null;
+      st.example = false;
       updateCompare();
-      tryBtn.classList.remove("ready");
       targetMark.setAttribute("opacity", m === "under" ? "1" : "0");
+    }
+    async function playData(week, tok, focusReplay) {
+      st.data = week;
+      st.example = false;
+      st.routed = false;
+      st.mode = null;
+      pickBtns.forEach((b) => b.setAttribute("aria-pressed", "false"));
+      pick.classList.remove("nudge", "cue-on");
+      pick.classList.add("picked");
+      compare.hidden = false;
+      seg.hidden = true;
+      targetMark.setAttribute("opacity", "0");
+      setBusy(true);
+      clearDrop();
+      resetWeek();
+      gauge.classList.add("calm");
+      const labels = dayLabels(week), hits = new Set(limitDayIndexes(week));
+      const perDay = week.perDay, max = perDay ? Math.max(1, ...perDay) : 1;
+      posters.forEach((p, i) => {
+        p.day.textContent = labels[i] ?? "";
+        p.lab.textContent = perDay ? "" : NOT_RECORDED;
+      });
+      const codex = week.codexWindow;
+      gaugeName.textContent = codex === null ? "No weekly figure recorded" : "Codex week left";
+      if (codex === null)
+        leftPct.textContent = "";
+      actEl.textContent = week === SAMPLE_WEEK ? "Sample week · per-day split illustrative, not your numbers" : "Your week · from your numbers";
+      statusEl.textContent = "";
+      await wait(250, tok);
+      for (let i = 0;i < 7; i++) {
+        const p = posters[i];
+        if (!p)
+          continue;
+        const n = perDay?.[i];
+        p.li.classList.add("playing");
+        const seats = n === undefined ? 0 : Math.round(n / max * 12);
+        const from = codex === null ? 100 : 100 - codex * i / 7, to = codex === null ? 100 : 100 - codex * (i + 1) / 7;
+        await tween(0, 1, 420, (_, pr) => {
+          fillSeats(p, Math.round(pr * seats));
+          if (codex !== null)
+            setGauge(from + (to - from) * pr);
+        }, tok);
+        if (codex === null)
+          leftPct.textContent = "";
+        p.li.classList.remove("playing");
+        if (n !== undefined) {
+          p.li.classList.add("played");
+          p.lab.textContent = n.toLocaleString("en-US");
+        }
+        if (hits.has(i)) {
+          p.li.classList.add("cut");
+          p.stamp.textContent = "LIMIT HIT";
+        }
+      }
+      dataBig.textContent = stageHeadline(week);
+      dataSub.textContent = stageSubtitle(week);
+      dataEnd.hidden = false;
+      if (tok === st.token) {
+        setBusy(false);
+        keepLights.classList.add("shown");
+        if (focusReplay)
+          replayBtn.focus();
+      }
     }
     function updateCompare() {
       compare.hidden = !st.mode;
@@ -621,18 +747,15 @@
         ignoreCancel(e);
       }
     }
-    async function tryPrompt() {
+    async function playWith() {
       if (!st.mode)
         setMode("burn");
-      const mode = st.mode ?? "burn";
       const tok = ++st.token;
       st.routed = true;
-      st.seating = true;
+      st.view = "with";
       updateCompare();
       setBusy(true);
       segBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === "with")));
-      tryBtn.classList.remove("ready");
-      const small = compact() && st.speed > 0;
       try {
         ghost.classList.remove("on");
         if (drop.classList.contains("show-copy") || drop.style.transform === "translateY(0%)") {
@@ -640,53 +763,6 @@
           await anim(drop, [{ transform: "translateY(0%)" }, { transform: "translateY(-103%)" }], 600, "ease-in");
           live(tok);
         }
-        resetWeek();
-        gauge.classList.remove("calm");
-        actEl.textContent = "Tonight’s prompt is being seated…";
-        statusEl.textContent = "Splitting the prompt into steps…";
-        clearSlots();
-        let splitEl = promptCard;
-        if (small) {
-          const r = stage.getBoundingClientRect();
-          if (r.top < -60 || r.top > win.innerHeight * 0.4) {
-            stage.scrollIntoView({ behavior: "smooth", block: "start" });
-            await wait(550, tok);
-          }
-          seatPrompt.textContent = SCENARIOS[mode].prompt;
-          seating.classList.add("on");
-          await wait(450, tok);
-          splitEl = seatPrompt;
-        } else {
-          const house = id("houseCard", HTMLElement);
-          if (st.speed > 0 && !(inView(promptCard) && inView(house)))
-            promptCard.scrollIntoView({ behavior: "smooth", block: "start" });
-          if (st.speed > 0)
-            await wait(150, tok);
-        }
-        splitEl.classList.remove("splitting");
-        splitEl.offsetWidth;
-        splitEl.classList.add("splitting");
-        const steps = SCENARIOS[mode].steps;
-        const flights = [];
-        for (let i = 0;i < steps.length; i++) {
-          const s = steps[i];
-          if (s)
-            flights.push(flyTicket(s, i, tok, small));
-          await wait(330, tok);
-        }
-        await Promise.all(flights);
-        live(tok);
-        price.classList.add("on");
-        barAll.style.width = "100%";
-        barRouted.style.width = "50%";
-        statusEl.textContent = "Each step in its seat. Same week again…";
-        await wait(small ? 1600 : 1100, tok);
-        if (small) {
-          seating.classList.remove("on");
-          await wait(350, tok);
-        } else
-          bring(stage);
-        st.seating = false;
         await playWeek("with", tok);
       } catch (e) {
         ignoreCancel(e);
@@ -704,11 +780,9 @@
     async function skipToEnd() {
       const hadFocus = doc.activeElement === skipBtn;
       const view = st.view;
+      const data = st.data;
       try {
-        if (st.seating)
-          await instant(tryPrompt);
-        else
-          await instant(() => playWeek(view, ++st.token));
+        await instant(() => data ? playData(data, ++st.token, false) : playWeek(view, ++st.token));
       } catch (e) {
         ignoreCancel(e);
       }
@@ -801,7 +875,7 @@
       };
       raf = win.requestAnimationFrame(loop);
     }
-    const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement), share = id("share", HTMLDetailsElement);
+    const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement);
     const PROMPT = promptEl.textContent ?? "";
     const COPIED = "Copied. Paste it into Claude Code or Codex.";
     let copyTimer = 0;
@@ -852,9 +926,61 @@
         fallback();
     });
     function focusCommand() {
-      share.open = true;
-      command.focus();
+      if (!command.contains(doc.activeElement))
+        command.focus();
     }
+    const pasteBox = id("pasteBox", HTMLTextAreaElement), pasteError = id("pasteError", HTMLElement);
+    const yourWeek = id("yourWeek", HTMLElement), yourFields = id("yourFields", HTMLElement), yourLine = id("yourLine", HTMLElement);
+    const sampleTag = id("sampleTag", HTMLElement), localTag = id("localTag", HTMLElement);
+    const yourTitle = id("hYour", HTMLElement), yourPeriod = id("yourPeriod", HTMLElement);
+    let mine = null;
+    function showCard(week, sample) {
+      yourTitle.textContent = sample ? "Sample week" : "Your week";
+      yourPeriod.textContent = periodLine(week);
+      yourLine.textContent = cardHeadline(week);
+      yourFields.textContent = "";
+      for (const { label, value } of weekLines(week)) {
+        const dt = doc.createElement("dt");
+        dt.textContent = label;
+        const dd = doc.createElement("dd");
+        dd.textContent = value;
+        yourFields.append(dt, dd);
+      }
+      mine = week;
+      sampleTag.hidden = !sample;
+      localTag.hidden = sample;
+      yourWeek.hidden = false;
+      yourWeek.scrollIntoView({ block: "nearest" });
+    }
+    function playMine() {
+      const week = mine;
+      if (!week)
+        return;
+      stage.scrollIntoView({ block: "start" });
+      playData(week, ++st.token, true).catch(ignoreCancel);
+    }
+    function showMyWeek() {
+      const week = parseWeek(pasteBox.value);
+      if (!week) {
+        yourWeek.hidden = true;
+        pasteError.textContent = NOT_A_RESULT;
+        pasteError.hidden = false;
+        return;
+      }
+      pasteError.hidden = true;
+      pasteError.textContent = "";
+      showCard(week, false);
+    }
+    id("showWeek", HTMLButtonElement).addEventListener("click", showMyWeek);
+    pasteBox.addEventListener("paste", () => {
+      win.setTimeout(showMyWeek, 0);
+    });
+    id("showSample", HTMLButtonElement).addEventListener("click", () => {
+      pasteError.hidden = true;
+      pasteError.textContent = "";
+      showCard(SAMPLE_WEEK, true);
+    });
+    id("playMine", HTMLButtonElement).addEventListener("click", playMine);
     pickBtns.forEach((b) => b.addEventListener("click", () => {
       const m = b.dataset.mode;
       if (m === "burn" || m === "under") {
@@ -862,15 +988,8 @@
         runWithout();
       }
     }));
-    tryBtn.addEventListener("click", () => {
-      tryPrompt();
-    });
     [ghostBtn, dropBtn].forEach((b) => b.addEventListener("click", () => {
-      if (st.routed) {
-        const tok = ++st.token;
-        playWeek("with", tok).catch(ignoreCancel);
-      } else
-        tryPrompt();
+      playWith();
     }));
     segBtns.forEach((b) => b.addEventListener("click", () => {
       const tok = ++st.token;
@@ -881,7 +1000,14 @@
     });
     replayBtn.addEventListener("click", () => {
       const tok = ++st.token;
-      playWeek(st.view, tok).catch(ignoreCancel);
+      const data = st.data;
+      (data ? playData(data, tok, false) : playWeek(st.view, tok)).catch(ignoreCancel);
+    });
+    id("dataWith", HTMLButtonElement).addEventListener("click", () => {
+      const week = st.data;
+      setMode(week && situationOf(week) === "running out" ? "burn" : "under");
+      st.example = true;
+      playWith();
     });
     every(doc, 'a[href="#command"]', HTMLAnchorElement).forEach((a) => a.addEventListener("click", () => win.setTimeout(focusCommand, 0)));
     setGauge(100);
@@ -895,7 +1021,9 @@
       }
       if (link?.kind === "demo") {
         pickBtns.find((b) => b.dataset.mode === link.mode)?.click();
-        demoTimer = win.setTimeout(() => tryBtn.click(), 5200);
+        demoTimer = win.setTimeout(() => {
+          playWith();
+        }, 5200);
         return;
       }
       if (!link) {
@@ -909,7 +1037,7 @@
           await instant(() => playWeek("without", st.token));
           return;
         }
-        await instant(tryPrompt);
+        await instant(playWith);
       } catch (e) {
         ignoreCancel(e);
       }
@@ -933,6 +1061,10 @@
     win.addEventListener("hashchange", () => {
       fromHash();
     });
+    win.setTimeout(() => {
+      if (!st.mode)
+        pick.classList.add("cue-on");
+    }, reduced ? 0 : 1500);
     const motionBack = () => {
       if (!reduced)
         root.classList.remove("instant");

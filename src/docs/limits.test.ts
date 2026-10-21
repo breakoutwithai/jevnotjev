@@ -19,6 +19,8 @@ const PRIV = "site/privacy/index.html";
 const STORED = "docs/product/what-is-stored.md";
 const ASK = "site/ask/index.html";
 const GUEST = "docs/guest-access.md";
+const TM = "src/browser/tm-week.ts";
+const TM_PAGE = "site/tm/index.html";
 
 const TITLE = "# Known limits (v0)";
 const INTRO = "What a Jev!Jev verdict covers, what it needs, and what is not supported or tested. Each bullet states one limit and links the file it comes from. `src/docs/limits.test.ts` fails if a bullet changes or its source no longer contains the quoted text.";
@@ -59,6 +61,8 @@ const CLAIMS: readonly Claim[] = [
   { id: "no-outside-run", section: 3, text: "No consented outside user's own run from start to verdict is documented yet; the next step is to invite one and document it.", quotes: [{ source: REL, text: "No consented outside user's own run from start to verdict is documented yet; the next step is to invite one and document it." }] },
   { id: "admin-deadline", section: 3, text: "A remote admin MCP request can run past its 30-second deadline by a database lock wait; a call whose client disconnects still runs until it completes or reaches the deadline, and a reply answered 504 may still have been stored.", quotes: [{ source: GUEST, text: "a request can run past it by that wait" }, { source: GUEST, text: "a call whose client disconnects still runs to completion or to the deadline" }, { source: GUEST, text: "A reply answered 504 `timeout` may still have been stored" }] },
   { id: "bearer-scheme", section: 3, text: "The admin token header must spell the scheme `Bearer`; `bearer` or `BEARER` is refused.", quotes: [{ source: GUEST, text: "the header must say `Bearer`; `bearer` or `BEARER` is 401" }] },
+  { id: "tm-pasted", section: 3, text: "The TokenMax week map shows only the block you paste back from your own Claude Code or Codex after running its prompt; every number on the page comes from that block.", quotes: [{ source: TM, text: "Reads the TOKENMAX WEEK block a visitor pastes back into /tm/ after running the prompt in Claude Code or Codex" }, { source: TM, text: "derives everything the page shows from it" }, { source: TM_PAGE, text: "get a plain summary of your own week from the Claude Code or Codex you already use" }] },
+  { id: "tm-not-recorded", section: 3, text: "On the TokenMax week map, a line your assistant could not fill, or one the page cannot read, is shown as not recorded; nothing is invented in its place.", quotes: [{ source: TM, text: "A line it cannot read, or one that says \"not recorded\", stays null and is shown as" }, { source: TM, text: "nothing is invented: no day, no story, no saving." }] },
 
   { id: "made-up-cases", section: 4, text: "Use made-up or redacted cases: a case you run goes to each provider you select.", quotes: [{ source: PRIV, text: "Use made-up or redacted cases." }, { source: PRIV, text: "A case you run goes to each provider you select." }] },
   { id: "no-server-save", section: 4, text: "Backstage does not save cases, runs or keys to a file or database on the server.", quotes: [{ source: PRIV, text: "Backstage does not save your cases, runs or keys to a file or database on our server." }] },
@@ -76,6 +80,7 @@ const CLAIMS: readonly Claim[] = [
   { id: "token-audience", section: 4, text: "An operator token is not bound to one endpoint: the same token works on the admin API and the remote admin MCP connector.", quotes: [{ source: GUEST, text: "an operator token is not bound to one endpoint" }, { source: GUEST, text: "The same `jna_` token works on `/api/v1/admin/mcp` and `/api/v1/admin/questions`." }] },
   { id: "admin-rate-limit", section: 4, text: "Admin routes run before the server's concurrency slot and have no per-IP rate limit.", quotes: [{ source: GUEST, text: "admin routes run before the server's concurrency slot and have no per-IP rate limit" }] },
   { id: "visitor-text", section: 4, text: "A question's text is untrusted: it can instruct the operator's agent to copy other visitors' emails or questions into a reply its sender reads, so the operator reads each reply before approving it.", quotes: [{ source: GUEST, text: "A question can instruct the agent to copy other visitors' emails or questions into a reply, and its sender reads that reply on the ask page." }, { source: GUEST, text: "read each `reply_question` before approving it" }] },
+  { id: "tm-local", section: 4, text: "The TokenMax page reads a pasted week in your browser only; it sends and stores nothing.", quotes: [{ source: TM, text: "Runs in the browser only: nothing is sent or stored." }, { source: TM_PAGE, text: "Nothing is sent anywhere." }] },
 ];
 
 function norm(text: string): string { return text.replace(/\s+/g, " ").trim(); }

@@ -37,6 +37,8 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - No consented outside user's own run from start to verdict is documented yet; the next step is to invite one and document it. [Source](RELEASE-v0.1.0.md) <!-- claim: no-outside-run -->
 - A remote admin MCP request can run past its 30-second deadline by a database lock wait; a call whose client disconnects still runs until it completes or reaches the deadline, and a reply answered 504 may still have been stored. [Source](guest-access.md) <!-- claim: admin-deadline -->
 - The admin token header must spell the scheme `Bearer`; `bearer` or `BEARER` is refused. [Source](guest-access.md) <!-- claim: bearer-scheme -->
+- The TokenMax week map shows only the block you paste back from your own Claude Code or Codex after running its prompt; every number on the page comes from that block. [Source](../src/browser/tm-week.ts) <!-- claim: tm-pasted -->
+- On the TokenMax week map, a line your assistant could not fill, or one the page cannot read, is shown as not recorded; nothing is invented in its place. [Source](../src/browser/tm-week.ts) <!-- claim: tm-not-recorded -->
 
 ## 4. Data and trust
 
@@ -56,3 +58,4 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - An operator token is not bound to one endpoint: the same token works on the admin API and the remote admin MCP connector. [Source](guest-access.md) <!-- claim: token-audience -->
 - Admin routes run before the server's concurrency slot and have no per-IP rate limit. [Source](guest-access.md) <!-- claim: admin-rate-limit -->
 - A question's text is untrusted: it can instruct the operator's agent to copy other visitors' emails or questions into a reply its sender reads, so the operator reads each reply before approving it. [Source](guest-access.md) <!-- claim: visitor-text -->
+- The TokenMax page reads a pasted week in your browser only; it sends and stores nothing. [Source](../src/browser/tm-week.ts) <!-- claim: tm-local -->

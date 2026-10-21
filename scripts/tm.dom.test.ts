@@ -19,7 +19,7 @@ import {
 const SITE = join(import.meta.dir, "..", "site");
 const MOTIONS: ("no-preference" | "reduce")[] = ["no-preference", "reduce"];
 const VIEWS: readonly (readonly [number, number])[] = [[390, 844], [1440, 900]];
-const TRUST = "Nothing is sent anywhere. You decide what to do with the summary.";
+const TRUST = "Pasting and Show my week stay in your browser. Only Submit sends anything.";
 // En and em dash, built from code points so no dash glyph sits in this file.
 const DASHES = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]|&[mn]dash;|\\\\u201[34]`);
 const html = (): string => readFileSync(join(SITE, "tm", "index.html"), "utf8");
@@ -146,6 +146,200 @@ test("[integration] TM-12 the headline strikes through days: accessible name wit
     } finally { await close(page); }
   }
 }, 30000);
+
+// ---------- TM-20..22: Submit sends the pasted week to POST /api/maps, on the visitor's press only ----------
+type Sent = { readonly method: string; readonly origin: string | undefined; readonly type: string | undefined; readonly body: unknown };
+const MAP_ID = "TM-0123456789AB";
+const BOARD = { rows: [], totals: { builders: 0, cap_episodes: 0, with_weekly_cap: 0 } };
+
+/** Answers POST /api/maps in the browser's own network layer (the page's real fetch runs) and records what it sent. */
+async function stubMaps(page: Page, answer: (sent: Sent, nth: number) => { status: number; body: unknown } | "abort", delayMs = 0): Promise<Sent[]> {
+  const sent: Sent[] = [];
+  await page.route("**/api/maps", async (route) => {
+    const request = route.request();
+    const item: Sent = { method: request.method(), origin: request.headers()["origin"], type: request.headers()["content-type"], body: request.postDataJSON() };
+    sent.push(item);
+    if (delayMs > 0) await new Promise((done) => setTimeout(done, delayMs));
+    const reply = answer(item, sent.length);
+    if (reply === "abort") { await route.abort("failed"); return; }
+    await route.fulfill({ status: reply.status, contentType: "application/json", body: JSON.stringify(reply.body) });
+  });
+  return sent;
+}
+function keyOf(sent: Sent): string {
+  const body = sent.body;
+  return typeof body === "object" && body !== null && "request_key" in body && typeof body.request_key === "string" ? body.request_key : "";
+}
+const stored = (key: string, replay = false) => ({ status: 200, body: { id: MAP_ID, replay, delete: `/maps/#delete=${MAP_ID}.${key}`, board: BOARD } });
+
+for (const motion of MOTIONS) test(`[integration] TM-20 a labelled Submit sits beside Show my week with a nickname field and plain consent copy; nothing is sent before it is pressed (${motion})`, async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, motion);
+    const requests: string[] = [];
+    page.on("request", (r) => requests.push(r.url()));
+    try {
+      const form = await page.evaluate(() => {
+        const submit = document.getElementById("submitWeek"), show = document.getElementById("showWeek"), alias = document.getElementById("aliasBox");
+        const label = document.querySelector('label[for="aliasBox"]');
+        const described = (alias?.getAttribute("aria-describedby") ?? "").split(" ").map((i) => document.getElementById(i)?.textContent ?? "");
+        return {
+          label: submit?.textContent, sameRow: submit?.parentElement === show?.parentElement, aliasLabel: label?.textContent ?? "",
+          aliasValue: alias instanceof HTMLInputElement ? alias.value : null, required: alias instanceof HTMLInputElement ? alias.required : null,
+          pattern: alias?.getAttribute("pattern"), helper: document.getElementById("aliasHelp")?.textContent ?? "", described,
+          consent: document.getElementById("submitConsent")?.textContent ?? "",
+          submitDescribedBy: submit?.getAttribute("aria-describedby"), widths: { doc: document.documentElement.scrollWidth, body: document.body.scrollWidth },
+          alertRoles: ["pasteError", "aliasError"].map((i) => document.getElementById(i)?.getAttribute("role")), live: document.getElementById("submitStatus")?.getAttribute("aria-live"),
+        };
+      });
+      expect(form.label).toBe("Submit");
+      expect(form.sameRow).toBe(true);
+      expect(form.aliasLabel).toBe("Nickname for the public board");
+      expect(form.aliasValue).toBe("");
+      expect(form.required).toBe(true);
+      expect(form.pattern).toBe("[a-z0-9\\-]{3,24}");
+      expect(form.helper).toContain("Choose a nickname, not your real name or email");
+      expect(form.described[0]).toBe(form.helper);
+      expect(form.consent).toContain("Pressing Submit sends the numbers from your result");
+      expect(form.consent).toContain("and your nickname");
+      expect(form.consent).toContain("public board at /maps/");
+      expect(form.consent).toContain("self-reported and not verified");
+      expect(form.submitDescribedBy).toBe("submitConsent");
+      expect(form.alertRoles).toEqual(["alert", "alert"]);
+      expect(form.live).toBe("polite");
+      expect(await page.locator("#trust").innerText()).toBe(TRUST);
+      expect(await page.locator("head meta[name=description]").getAttribute("content")).toContain("only Submit sends your numbers");
+      expect(await page.evaluate(() => document.documentElement.textContent ?? "")).not.toContain("Nothing is sent anywhere");
+      if (width === 390) { expect(form.widths.doc).toBeLessThanOrEqual(390); expect(form.widths.body).toBeLessThanOrEqual(390); }
+      // Pasting and Show my week send nothing.
+      await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+      await page.locator("#showWeek").click();
+      expect(requests.filter((u) => new URL(u).pathname.startsWith("/api/"))).toEqual([]);
+      expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
+      expect(bannedHits(await page.evaluate(() => document.body.innerText))).toEqual([]);
+    } finally { await close(page); }
+  }
+}, 40000);
+
+for (const motion of MOTIONS) test(`[integration] TM-21 Submit posts the tm-share/1 body to /api/maps once, shows the board link, map id, key and remove link, and a second press replays the same key (${motion})`, async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, motion);
+    try {
+      const seen = new Set<string>();
+      const sent = await stubMaps(page, (item) => { const key = keyOf(item); const replay = seen.has(key); seen.add(key); return stored(key, replay); }, 300);
+      await page.locator("#pasteBox").fill(`${CAVEAT}\n\n${SAMPLE_RESULT}`);
+      await page.locator("#aliasBox").fill("pasted-one");
+      // Keyboard operable: focus the button and press Enter; a double press while the request is in flight sends one request.
+      await page.locator("#submitWeek").focus();
+      await page.keyboard.press("Enter");
+      await page.keyboard.press("Enter");
+      expect(await page.locator("#submitWeek").isDisabled()).toBe(true);
+      expect(await page.locator("#submitStatus").innerText()).toBe("Submitting...");
+      await page.waitForFunction(() => document.getElementById("submitted")?.hidden === false);
+      expect(sent.length).toBe(1);
+      const first = sent[0];
+      if (!first) throw new Error("no request");
+      expect(first.method).toBe("POST");
+      expect(first.origin).toBe(`http://127.0.0.1:${server.port}`);
+      expect(first.type).toBe("application/json");
+      expect(JSON.stringify(first.body)).toBe(JSON.stringify({
+        payload: {
+          v: "tm-share/1", skill: "0.0.0", days: 8, sources: "claude+codex", sessions: 3213, subagent_sessions: 0,
+          caps: { short: 0, weekly: 0, unknown: 2 }, output_tokens: { claude: 7940728, codex: 4315259 }, opus_share_pct: 42, codex_weekly_pct: 7,
+        },
+        alias: "pasted-one",
+        request_key: keyOf(first),
+      }));
+      const key = keyOf(first);
+      expect(key).toMatch(/^[A-Za-z0-9_-]{32}$/);
+      const receipt = await page.evaluate(() => ({
+        head: document.getElementById("submittedHead")?.textContent, id: document.getElementById("submittedId")?.textContent, key: document.getElementById("submittedKey")?.textContent,
+        board: document.getElementById("submittedBoard")?.getAttribute("href"), remove: document.getElementById("submittedDelete")?.getAttribute("href"),
+        focused: document.activeElement?.id, status: document.getElementById("submitStatus")?.textContent, text: document.getElementById("submitted")?.textContent ?? "",
+        saved: localStorage.getItem("tm-submit/1"), pasteError: document.getElementById("pasteError")?.hidden, enabled: document.getElementById("submitWeek")?.hasAttribute("disabled") === false,
+        widths: { doc: document.documentElement.scrollWidth, body: document.body.scrollWidth },
+      }));
+      expect(receipt.head).toBe("Submitted. Your entry is on the public board as pasted-one.");
+      expect(receipt.id).toBe(MAP_ID);
+      expect(receipt.key).toBe(key);
+      expect(receipt.board).toBe("/maps/");
+      expect(receipt.remove).toBe(`/maps/#delete=${MAP_ID}.${key}`);
+      expect(receipt.text).toContain("Keep this key to remove your entry");
+      expect(receipt.focused).toBe("submitted");
+      expect(receipt.status).toBe("Submitted. Your entry is on the public board.");
+      expect(JSON.parse(receipt.saved ?? "null")).toEqual({ id: MAP_ID, key, alias: "pasted-one" });
+      expect(receipt.pasteError).toBe(true);
+      expect(receipt.enabled).toBe(true);
+      if (width === 390) { expect(receipt.widths.doc).toBeLessThanOrEqual(390); expect(receipt.widths.body).toBeLessThanOrEqual(390); }
+      // The same paste and alias again: the same key goes out, so the server replays instead of adding a row.
+      await page.locator("#submitWeek").click();
+      await page.waitForFunction(() => document.getElementById("submittedHead")?.textContent?.startsWith("Already submitted") === true);
+      expect(sent.length).toBe(2);
+      expect(keyOf(sent[1] ?? first)).toBe(key);
+      // Another paste is another attempt: a new key.
+      await page.locator("#pasteBox").fill(SAMPLE_RESULT.replace("Claude sessions: 288", "Claude sessions: 289"));
+      await page.locator("#submitWeek").click();
+      await page.waitForFunction(() => document.getElementById("submittedHead")?.textContent?.startsWith("Submitted.") === true);
+      expect(sent.length).toBe(3);
+      expect(keyOf(sent[2] ?? first)).not.toBe(key);
+    } finally { await close(page); }
+  }
+}, 60000);
+
+test("[integration] TM-22 Submit refuses locally (no request) for a missing nickname, a bad nickname, junk or a missing required line, and shows the server's reason or a network failure", async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, "reduce");
+    try {
+      const sent = await stubMaps(page, (item, nth) => {
+        if (nth === 1) return { status: 400, body: { code: "bad-payload", field: "opus_share_pct", reason: "must be 0 to 100" } };
+        if (nth === 2) return "abort";
+        return stored(keyOf(item));
+      });
+      const alerts = (): Promise<{ paste: string; pasteShown: boolean; alias: string; aliasShown: boolean; invalid: string | null; focused: string | undefined }> => page.evaluate(() => ({
+        paste: document.getElementById("pasteError")?.textContent ?? "", pasteShown: document.getElementById("pasteError")?.hidden === false,
+        alias: document.getElementById("aliasError")?.textContent ?? "", aliasShown: document.getElementById("aliasError")?.hidden === false,
+        invalid: document.getElementById("aliasBox")?.getAttribute("aria-invalid") ?? null, focused: document.activeElement?.id,
+      }));
+      await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+      // No nickname.
+      await page.locator("#submitWeek").click();
+      expect(await alerts()).toEqual({ paste: "", pasteShown: false, alias: "Enter a nickname to submit. Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.", aliasShown: true, invalid: "true", focused: "aliasBox" });
+      // A real name or email is not a valid nickname.
+      await page.locator("#aliasBox").fill("Craig Austin");
+      await page.locator("#submitWeek").click();
+      expect((await alerts()).alias).toBe("Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.");
+      // Junk, and a block missing a required line, name the problem and send nothing.
+      await page.locator("#aliasBox").fill("pasted-one");
+      await page.locator("#pasteBox").fill("hello there");
+      await page.locator("#submitWeek").click();
+      expect(await alerts()).toMatchObject({ paste: NOT_A_RESULT, pasteShown: true, aliasShown: false, invalid: null });
+      await page.locator("#pasteBox").fill(SAMPLE_RESULT.replace("Usage limit hits: 2", "Usage limit hits: not recorded"));
+      await page.locator("#submitWeek").click();
+      expect((await alerts()).paste).toBe("Not submitted: Usage limit hits is not recorded in your result. Run the prompt again and paste the whole result.");
+      await page.locator("#pasteBox").fill(SAMPLE_RESULT.replace("2026-10-14 to 2026-10-21", "2026-06-01 to 2026-10-21"));
+      await page.locator("#submitWeek").click();
+      expect((await alerts()).paste).toBe("Not submitted: the period is 143 days; a submitted week covers 1 to 90 days.");
+      expect(sent.length).toBe(0);
+      // The server refuses a number: its field and reason are shown in the alert area, the button works again.
+      await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+      await page.locator("#submitWeek").click();
+      await page.waitForFunction(() => document.getElementById("pasteError")?.textContent?.startsWith("Not submitted: opus_share_pct") === true);
+      expect((await alerts()).paste).toBe("Not submitted: opus_share_pct must be 0 to 100.");
+      expect(await page.locator("#submitted").isHidden()).toBe(true);
+      expect(await page.locator("#submitWeek").isEnabled()).toBe(true);
+      // The network drops: the page says it did not complete, and the retry sends the same key.
+      await page.locator("#submitWeek").click();
+      await page.waitForFunction(() => document.getElementById("pasteError")?.textContent?.includes("did not complete") === true);
+      expect((await alerts()).paste).toBe("Not submitted: the request did not complete. Check your connection and press Submit again; pressing it again never adds a second row.");
+      expect(await page.evaluate(() => localStorage.length)).toBe(0);
+      await page.locator("#submitWeek").click();
+      await page.waitForFunction(() => document.getElementById("submitted")?.hidden === false);
+      expect(sent.length).toBe(3);
+      expect(new Set(sent.map(keyOf)).size).toBe(1);
+      expect(await page.locator("#pasteError").isHidden()).toBe(true);
+      if (width === 390) expect(await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth))).toBeLessThanOrEqual(390);
+    } finally { await close(page); }
+  }
+}, 60000);
 
 test("[integration] TM-2 site/tm/tm.js is the current build of src/browser/tm-run.ts", async () => {
   expect(readFileSync(TM_OUT, "utf8")).toBe(await bundleTm());
@@ -879,8 +1073,8 @@ test("[integration] if tm.js does not load, the front panel, the full prompt wit
         for (let node = walk.nextNode(); node; node = walk.nextNode()) {
           const text = (node.textContent ?? "").trim();
           const el = node.parentElement;
-          // The status line, the paste error and the Your week card stay hidden until used, by design.
-          if (!text || !el || el.id === "copyMsg" || el.closest("#pasteError, #yourWeek")) continue;
+          // The status line, the paste error, the submit receipt and the Your week card stay hidden until used, by design.
+          if (!text || !el || el.id === "copyMsg" || el.closest("#pasteError, #yourWeek, #submitted")) continue;
           if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) out.push(text);
         }
       }

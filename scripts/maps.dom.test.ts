@@ -537,6 +537,19 @@ test("[integration] 10 with no fragment the page reads the board once and labels
   } finally { await context.close(); }
 });
 
+test("[integration] 10b a row from a pasted /tm/ block (skill 0.0.0) says so, and a mapper row keeps the mapper caption", async () => {
+  rows = [boardRow("TM-0000000000B3", "pasted-one", { ...PAYLOAD, skill: "0.0.0" }), OTHER];
+  const { page, context } = await open(`${origin}/maps/`);
+  try {
+    await page.locator("#mapBoard .map-row").nth(1).waitFor();
+    const rowsShown = page.locator("#mapBoard .map-row");
+    const pasted = await rowsShown.nth(0).locator(".map-row-label").innerText();
+    expect(pasted).toBe("self-reported from a pasted TokenMax block, not verified");
+    expect(pasted).not.toContain("tokenmax-map");
+    expect(await rowsShown.nth(1).locator(".map-row-label").innerText()).toBe("self-reported by tokenmax-map 0.3.0, not verified");
+  } finally { await context.close(); }
+});
+
 test("[integration] 10e server data with markup renders as text: no element is created and no handler runs", async () => {
   const hostile = '<img src=x onerror="window.__pwned=1"><script>window.__pwned=2</script>';
   rows = [boardRow("TM-0000000000E5", hostile, { ...PAYLOAD, skill: '0.3.0<b id="inj">x</b>' }), OTHER];

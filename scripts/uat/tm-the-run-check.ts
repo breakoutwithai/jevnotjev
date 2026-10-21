@@ -279,7 +279,7 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
             };
           });
           const headOk = vp.mobile ? control.sameLine || control.below : control.sameLine;
-          add("no button or footer under the stage, the tagline hidden until a week ends, no Illustrative text, Map your real week heading with the trust line, Copy names where to paste, no gate, no cards", control.jump === "Skip to the command" && control.mapGone && !control.illustrative && !control.keepShown && control.keep === "TokenMax + Jev can help keep the lights on" && !control.pasteLine && control.heading === "Map your real week" && control.trust === "Nothing is sent anywhere. You decide what to do with the summary." && control.copy === "Copy for Claude Code or Codex" && control.details === 0 && control.cards.length === 0 && headOk ? null : JSON.stringify(control));
+          add("no button or footer under the stage, the tagline hidden until a week ends, no Illustrative text, Map your real week heading with the trust line, Copy names where to paste, no gate, no cards", control.jump === "Skip to the command" && control.mapGone && !control.illustrative && !control.keepShown && control.keep === "TokenMax + Jev can help keep the lights on" && !control.pasteLine && control.heading === "Map your real week" && control.trust === "Pasting and Show my week stay in your browser. Only Submit sends anything." && control.copy === "Copy for Claude Code or Codex" && control.details === 0 && control.cards.length === 0 && headOk ? null : JSON.stringify(control));
         }
         const floor = TEXT_FLOOR[vp.width] ?? 12;
         const small: unknown = await page.evaluate(smallText(floor));

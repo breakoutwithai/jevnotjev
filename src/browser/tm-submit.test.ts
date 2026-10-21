@@ -56,6 +56,40 @@ describe("tm-submit mapping", () => {
     expect(none).toEqual({ ok: false, message: "Not submitted: both session counts are 0, so there is no week to show." });
   });
 
+  test("[unit] TM-18 a tool with 0 sessions sends its not-recorded output and Opus share as 0 (#359)", () => {
+    const codexOnly = weekToPayload(week(change("Claude sessions: 288", "Claude sessions: 0")
+      .replace("Claude output tokens: 7,940,728", "Claude output tokens: not recorded")
+      .replace("Opus share of Claude output: 42%", "Opus share of Claude output: not recorded")));
+    if (!codexOnly.ok) throw new Error(codexOnly.message);
+    expect(codexOnly.payload).toMatchObject({ sources: "codex", sessions: 2925, output_tokens: { claude: 0, codex: 4315259 }, opus_share_pct: 0 });
+    const claudeOnly = weekToPayload(week(change("Codex sessions: 2925", "Codex sessions: 0")
+      .replace("Codex output tokens: 4,315,259", "Codex output tokens: not recorded")
+      .replace("Codex weekly window used: 7%", "Codex weekly window used: not recorded")));
+    if (!claudeOnly.ok) throw new Error(claudeOnly.message);
+    expect(claudeOnly.payload).toMatchObject({ sources: "claude", sessions: 288, output_tokens: { claude: 7940728, codex: 0 }, opus_share_pct: 42, codex_weekly_pct: null });
+    for (const result of [codexOnly, claudeOnly]) expect(checkMap(submitBody(result.payload, "abc", KEY)).ok).toBe(true);
+  });
+
+  test("[unit] TM-18 a tool with sessions above 0 and its output or share not recorded is still refused (#359)", () => {
+    const refused = (lines: string, verb: string, tool?: string): string => `Not submitted: ${lines} ${verb} not recorded in your result.${tool
+      ? ` Submit needs a number on every one of these lines. If you did not use ${tool}, change its lines to 0 in the box. Otherwise run the prompt again and paste the whole result.`
+      : " Run the prompt again and paste the whole result."}`;
+    expect(weekToPayload(week(change("Claude output tokens: 7,940,728", "Claude output tokens: not recorded"))))
+      .toEqual({ ok: false, message: refused("Claude output tokens", "is", "Claude") });
+    expect(weekToPayload(week(change("Opus share of Claude output: 42%", "Opus share of Claude output: not recorded"))))
+      .toEqual({ ok: false, message: refused("Opus share of Claude output", "is") });
+    expect(weekToPayload(week(change("Codex output tokens: 4,315,259", "Codex output tokens: not recorded"))))
+      .toEqual({ ok: false, message: refused("Codex output tokens", "is", "Codex") });
+    // The other tool's 0 does not excuse this tool: Codex at 0 sessions, Claude at 288 with its output or share not recorded.
+    expect(weekToPayload(week(change("Codex sessions: 2925", "Codex sessions: 0").replace("Claude output tokens: 7,940,728", "Claude output tokens: not recorded"))))
+      .toEqual({ ok: false, message: refused("Claude output tokens", "is", "Claude") });
+    expect(weekToPayload(week(change("Codex sessions: 2925", "Codex sessions: 0").replace("Opus share of Claude output: 42%", "Opus share of Claude output: not recorded"))))
+      .toEqual({ ok: false, message: refused("Opus share of Claude output", "is") });
+    // A session count is never defaulted, so its tool's lines are still required.
+    const noCount = weekToPayload(week(change("Claude sessions: 288", "Claude sessions: not recorded").replace("Claude output tokens: 7,940,728", "Claude output tokens: not recorded")));
+    expect(noCount).toEqual({ ok: false, message: refused("Claude sessions, Claude output tokens", "are", "Claude") });
+  });
+
   test("[unit] TM-18 a required line that is not recorded refuses the submit and names every such line", () => {
     const one = weekToPayload(week(change("Usage limit hits: 2", "Usage limit hits: not recorded")));
     expect(one).toEqual({ ok: false, message: "Not submitted: Usage limit hits is not recorded in your result. Run the prompt again and paste the whole result." });

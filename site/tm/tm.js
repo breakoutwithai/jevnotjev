@@ -233,13 +233,17 @@
     return span >= 0 ? span + 1 : null;
   }
   function weekToPayload(week) {
+    const { claudeSessions, codexSessions, limitHits } = week;
+    const claudeOutput = week.claudeOutput ?? (claudeSessions === 0 ? 0 : null);
+    const codexOutput = week.codexOutput ?? (codexSessions === 0 ? 0 : null);
+    const opusShare = week.opusShare ?? (claudeSessions === 0 ? 0 : null);
     const required = [
-      { label: "Claude sessions", value: week.claudeSessions },
-      { label: "Codex sessions", value: week.codexSessions },
-      { label: "Claude output tokens", value: week.claudeOutput },
-      { label: "Codex output tokens", value: week.codexOutput },
-      { label: "Opus share of Claude output", value: week.opusShare },
-      { label: "Usage limit hits", value: week.limitHits }
+      { label: "Claude sessions", value: claudeSessions },
+      { label: "Codex sessions", value: codexSessions },
+      { label: "Claude output tokens", value: claudeOutput },
+      { label: "Codex output tokens", value: codexOutput },
+      { label: "Opus share of Claude output", value: opusShare },
+      { label: "Usage limit hits", value: limitHits }
     ];
     const missing = required.filter((r) => r.value === null).map((r) => r.label);
     const days = periodDays(week);
@@ -250,7 +254,6 @@
       const hint = tools.length > 0 ? ` Submit needs a number on every one of these lines. ${tools.map((tool) => `If you did not use ${tool}, change its lines to 0 in the box.`).join(" ")} Otherwise run the prompt again and paste the whole result.` : " Run the prompt again and paste the whole result.";
       return { ok: false, message: `Not submitted: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not recorded in your result.${hint}` };
     }
-    const { claudeSessions, codexSessions, claudeOutput, codexOutput, opusShare, limitHits } = week;
     if (days === null || claudeSessions === null || codexSessions === null || claudeOutput === null || codexOutput === null || opusShare === null || limitHits === null)
       return { ok: false, message: "Not submitted: the result is incomplete." };
     if (days > MAX_DAYS)

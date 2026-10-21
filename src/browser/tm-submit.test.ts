@@ -47,10 +47,8 @@ describe("tm-submit mapping", () => {
     expect(one).toEqual({ ok: false, message: "Not submitted: Usage limit hits is not recorded in your result. Run the prompt again and paste the whole result." });
     const several = weekToPayload(week("TOKENMAX WEEK\nClaude sessions: 288\nCodex sessions: not recorded"));
     expect(several.ok).toBe(false);
-    // Codex lines all "not recorded" with Claude present is a Claude-only visitor (#344), so Codex is not named here.
-    for (const label of ["Period", "Claude output tokens", "Opus share of Claude output", "Usage limit hits"]) expect(!several.ok && several.message).toContain(label);
+    for (const label of ["Period", "Codex sessions", "Claude output tokens", "Codex output tokens", "Opus share of Claude output", "Usage limit hits"]) expect(!several.ok && several.message).toContain(label);
     expect(!several.ok && several.message).not.toContain("Claude sessions,");
-    expect(!several.ok && several.message).not.toContain("Codex");
     expect(weekToPayload(week(change("Period: 2026-10-14 to 2026-10-21", "Period: last week to today")))).toMatchObject({ ok: false });
   });
 

@@ -78,6 +78,7 @@
     let perDay = null;
     let limitDays = null;
     let recognised = 0;
+    const notRecorded = [];
     for (const raw of text.split(/\r?\n/)) {
       const lv = labelValue(raw);
       if (!lv)
@@ -98,11 +99,13 @@
         limitDays = readLimitDays(value);
       } else {
         nums[field] = readNumber(value);
+        if (/^not recorded\.?$/i.test(value.trim()))
+          notRecorded.push(field);
       }
     }
     if (recognised === 0)
       return null;
-    return { period, pattern, perDay, limitDays, ...nums };
+    return { period, pattern, perDay, limitDays, notRecorded, ...nums };
   }
   function situationOf(week) {
     if (week.pattern)
@@ -213,8 +216,9 @@
     return span >= 0 ? span + 1 : null;
   }
   function weekToPayload(week) {
-    const claudeAbsent = week.claudeSessions === null && week.claudeOutput === null && week.opusShare === null && week.codexSessions !== null;
-    const codexAbsent = week.codexSessions === null && week.codexOutput === null && week.claudeSessions !== null;
+    const said = (...fields) => fields.every((f) => week.notRecorded?.includes(f) === true);
+    const claudeAbsent = said("claudeSessions", "claudeOutput", "opusShare") && week.codexSessions !== null;
+    const codexAbsent = said("codexSessions", "codexOutput") && week.codexWindow === null && week.claudeSessions !== null;
     if (week.claudeSessions === null && week.codexSessions === null)
       return { ok: false, message: "Not submitted: Claude sessions and Codex sessions are both not recorded in your result, so there is no week to show. Use Claude Code or Codex on this machine, then run the prompt and paste the whole result." };
     const claudeSessions = claudeAbsent ? 0 : week.claudeSessions;

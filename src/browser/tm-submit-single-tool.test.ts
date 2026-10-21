@@ -47,4 +47,23 @@ describe("tm-submit single tool (#344)", () => {
     expect(result.ok).toBe(false);
     expect(result.ok ? "" : result.message).toContain("Codex sessions");
   });
+
+  test("[unit] TM-18 a tool is absent only when its lines say not recorded: unreadable values are refused", () => {
+    const result = weekToPayload(week(CLAUDE_ONLY.replace("Codex sessions: not recorded", "Codex sessions: unreadable").replace("Codex output tokens: not recorded", "Codex output tokens: unreadable")));
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.message).toContain("Codex sessions");
+  });
+
+  test("[unit] TM-18 a tool is absent only when its lines say not recorded: omitted lines are refused", () => {
+    const omitted = CLAUDE_ONLY.split("\n").filter((l) => !l.startsWith("Codex sessions") && !l.startsWith("Codex output tokens")).join("\n");
+    const result = weekToPayload(week(omitted));
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.message).toContain("Codex sessions");
+  });
+
+  test("[unit] TM-18 Codex with a weekly window reading is not absent, so the submit is refused rather than sent with zero Codex", () => {
+    const result = weekToPayload(week(CLAUDE_ONLY.replace("Codex weekly window used: not recorded", "Codex weekly window used: 12%")));
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.message).toContain("Codex sessions");
+  });
 });

@@ -4,7 +4,7 @@
 // with a message that names the line. The only values this file supplies itself are the fixed ones below.
 
 import type { MapPayload, MapSources } from "../backstage/maps.ts";
-import { readDate, type Week } from "./tm-week.ts";
+import { readDate, type NumberField, type Week } from "./tm-week.ts";
 
 /** The tm-share/1 `skill` field is a version string. "0.0.0" means "a pasted block, not the mapper script". */
 export const PASTED_SKILL = "0.0.0";
@@ -53,8 +53,11 @@ export function weekToPayload(week: Week): Mapped {
   // A visitor who uses only one tool gets "not recorded" for the other tool's lines (#344). When exactly one tool has a
   // session count and the other tool's lines are all "not recorded", the absent tool is 0: sources names the tool that
   // has data, and the contract needs a number for its output tokens (and, for Codex-only, for the Opus share), so 0.
-  const claudeAbsent = week.claudeSessions === null && week.claudeOutput === null && week.opusShare === null && week.codexSessions !== null;
-  const codexAbsent = week.codexSessions === null && week.codexOutput === null && week.claudeSessions !== null;
+  // "All not recorded" means each line said exactly that: an omitted or unreadable line is refused, and a Codex weekly
+  // window reading means Codex was used, so it is not absent.
+  const said = (...fields: readonly NumberField[]): boolean => fields.every((f) => week.notRecorded?.includes(f) === true);
+  const claudeAbsent = said("claudeSessions", "claudeOutput", "opusShare") && week.codexSessions !== null;
+  const codexAbsent = said("codexSessions", "codexOutput") && week.codexWindow === null && week.claudeSessions !== null;
   if (week.claudeSessions === null && week.codexSessions === null)
     return { ok: false, message: "Not submitted: Claude sessions and Codex sessions are both not recorded in your result, so there is no week to show. Use Claude Code or Codex on this machine, then run the prompt and paste the whole result." };
   const claudeSessions = claudeAbsent ? 0 : week.claudeSessions;

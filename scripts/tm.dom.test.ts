@@ -66,9 +66,9 @@ const BULLETS = SAMPLE_RESULT.split("\n").map((l, i) => (i === 0 ? `**${l}**` : 
 const CAVEAT = "Count mismatch: sessions 3213 is 288 Claude plus 2,925 Codex; 86 duplicate files were de-duplicated.";
 
 test("[unit] TM-10 parseWeek reads the sample week as a plain block, a markdown table and a bulleted list", () => {
-  expect(parseWeek(SAMPLE_RESULT)).toEqual(WANT);
-  expect(parseWeek(TABLE)).toEqual(WANT);
-  expect(parseWeek(BULLETS)).toEqual(WANT);
+  expect(parseWeek(SAMPLE_RESULT)).toEqual({ ...WANT, notRecorded: [] });
+  expect(parseWeek(TABLE)).toEqual({ ...WANT, notRecorded: [] });
+  expect(parseWeek(BULLETS)).toEqual({ ...WANT, notRecorded: [] });
   expect(weekLines(WANT).map((l) => [l.label, l.value])).toEqual(SAMPLE_CARD.map((r) => [...r]));
   // No Pattern line: two limit hits make it running out.
   expect(situationOf(WANT)).toBe("running out");
@@ -79,12 +79,12 @@ test("[unit] TM-10 parseWeek reads the sample week as a plain block, a markdown 
 
 test("[unit] TM-10 'not recorded' and unreadable lines stay not recorded; caveats around the block are ignored; garbage is refused", () => {
   const partial = parseWeek("TOKENMAX WEEK\nPeriod: not recorded\nClaude sessions: 288\nCodex sessions: not recorded\nUsage limit hits: unknown\nOpus share of Claude output: Not Recorded");
-  expect(partial).toEqual({ period: null, claudeSessions: 288, codexSessions: null, claudeOutput: null, codexOutput: null, opusShare: null, limitHits: null, codexWindow: null, pattern: null, perDay: null, limitDays: null });
+  expect(partial).toEqual({ period: null, claudeSessions: 288, codexSessions: null, claudeOutput: null, codexOutput: null, opusShare: null, limitHits: null, codexWindow: null, pattern: null, perDay: null, limitDays: null, notRecorded: ["codexSessions", "opusShare"] });
   if (!partial) throw new Error("partial did not parse");
   expect(weekLines(partial).map((l) => l.value)).toEqual(["288", "not recorded", "not recorded", "not recorded", "not recorded", "not recorded", "not recorded"]);
   expect(periodLine(partial)).toBe("Period not recorded");
   expect(cardHeadline(partial)).toBe("Usage limit hits not recorded");
-  expect(parseWeek(`${CAVEAT}\n\nNote: numbers are approximate.\n${SAMPLE_RESULT}\n\n${CAVEAT}`)).toEqual(WANT);
+  expect(parseWeek(`${CAVEAT}\n\nNote: numbers are approximate.\n${SAMPLE_RESULT}\n\n${CAVEAT}`)).toEqual({ ...WANT, notRecorded: [] });
   for (const junk of ["", "hello", "Here is your summary: you did a lot.", "| a | b |\n|---|---|", "Sessions 288"]) expect(parseWeek(junk)).toBeNull();
   expect(NOT_A_RESULT).toBe("That doesn't look like the result. Run the prompt again and paste what it prints.");
 });

@@ -19,8 +19,10 @@ export type Week = {
   readonly perDay: readonly number[] | null;
   /** Dates (YYYY-MM-DD) on which a limit was hit; [] for "none"; null when not recorded or unreadable. */
   readonly limitDays: readonly string[] | null;
+  /** Number lines whose value said exactly "not recorded"; an omitted or unreadable line is not listed (#344). */
+  readonly notRecorded?: readonly NumberField[];
 };
-type NumberField = "claudeSessions" | "codexSessions" | "claudeOutput" | "codexOutput" | "opusShare" | "limitHits" | "codexWindow";
+export type NumberField = "claudeSessions" | "codexSessions" | "claudeOutput" | "codexOutput" | "opusShare" | "limitHits" | "codexWindow";
 
 /** Shown when nothing in the paste is recognisable. */
 export const NOT_A_RESULT = "That doesn't look like the result. Run the prompt again and paste what it prints.";
@@ -103,6 +105,7 @@ export function parseWeek(text: string): Week | null {
   let perDay: number[] | null = null;
   let limitDays: string[] | null = null;
   let recognised = 0;
+  const notRecorded: NumberField[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const lv = labelValue(raw);
     if (!lv) continue;
@@ -121,10 +124,11 @@ export function parseWeek(text: string): Week | null {
       limitDays = readLimitDays(value);
     } else {
       nums[field] = readNumber(value);
+      if (/^not recorded\.?$/i.test(value.trim())) notRecorded.push(field);
     }
   }
   if (recognised === 0) return null;
-  return { period, pattern, perDay, limitDays, ...nums };
+  return { period, pattern, perDay, limitDays, notRecorded, ...nums };
 }
 
 /** The situation to play: the Pattern line if given, else running out when a limit was hit, else unused. */

@@ -1,0 +1,11 @@
+/* /capacity/ aggregate view. Cards, tokens and type come from ../maps/maps.css. */
+.cap-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 10px; margin: 8px 0 16px; }
+.cap-tile { border: 2px solid var(--cream-line); padding: 8px 10px; background: #fff8e8; }
+.cap-tile b { display: block; font: 800 1.6rem/1.1 var(--serif); }
+.cap-tile span { font-size: .875rem; color: var(--cream-soft); }
+#capBody h3 { margin: 18px 0 6px; font: 800 1.2rem/1.2 var(--serif); }
+.cap-table { width: 100%; border-collapse: collapse; font-size: .9375rem; }
+.cap-table th, .cap-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--cream-line); vertical-align: top; }
+.cap-table td.cap-nm { font-style: italic; color: var(--cream-soft); }
+.cap-gaps { margin: 6px 0 0; padding-left: 1.2rem; }
+.cap-gaps li { margin: 4px 0; }

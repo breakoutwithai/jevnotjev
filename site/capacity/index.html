@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TokenMax capacity view - Jev!Jev</title>
+<meta name="description" content="Aggregate view of the shared TokenMax maps: who hit a usage cap, who left headroom, and what is not measured.">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<link rel="stylesheet" href="../page.css">
+<link rel="stylesheet" href="../maps/maps.css">
+<link rel="stylesheet" href="capacity.css">
+</head>
+<body>
+<main>
+<p class="map-back"><a href="/">Back to Jev!Jev</a> | <a href="/maps/">Open the board</a></p>
+<h1>TokenMax capacity view</h1>
+<p class="map-lede">Totals over the maps builders chose to share on the <a href="/maps/">board</a>. Nothing here names a builder. Every number is self-reported by the tokenmax-map skill and not verified. This page reads the board again every 10 seconds.</p>
+<p id="capStatus" class="map-status" role="status" aria-live="polite">Loading the board...</p>
+<p id="capAlert" class="map-alert" role="alert"></p>
+
+<section id="capBody" class="map-card" aria-labelledby="capTitle" hidden>
+  <h2 id="capTitle">Who ran out and who did not</h2>
+  <p class="map-sub">Each shared map is one builder's run over their own window. A map is not an account.</p>
+  <div id="capTiles" class="cap-tiles"></div>
+
+  <h3>Cap episodes recorded, by window</h3>
+  <table class="cap-table">
+    <thead><tr><th scope="col">Window</th><th scope="col">Episodes</th></tr></thead>
+    <tbody id="capWindows"></tbody>
+  </table>
+
+  <h3>Headroom beside demand</h3>
+  <p class="map-help">Left: maps with no cap episode recorded. Right: maps with at least one. "No cap recorded" is not a Lite plan, and Codex used percent is the only unused-capacity reading the maps carry.</p>
+  <table class="cap-table">
+    <thead><tr><th scope="col">Measure</th><th scope="col">No cap recorded</th><th scope="col">Hit a cap</th></tr></thead>
+    <tbody id="capSides"></tbody>
+  </table>
+
+  <h3>Not measured</h3>
+  <ul id="capGaps" class="cap-gaps"></ul>
+</section>
+
+<p class="map-foot"><a href="/privacy/">How we handle data</a></p>
+</main>
+<script src="capacity.js"></script>
+</body>
+</html>

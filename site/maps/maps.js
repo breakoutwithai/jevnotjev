@@ -223,7 +223,7 @@
         dl.appendChild(wrap);
       }
       li.appendChild(dl);
-      // skill 0.0.0 is what /tm/ Submit sends: a pasted block, not a run of the mapper.
+      // PASTED_SKILL is the skill /tm/ Submit sends: a pasted block, not a run of the mapper.
       li.appendChild(node("p", "map-row-label", r.skill === PASTED_SKILL ? "self-reported from a pasted TokenMax block, not verified" : "self-reported by tokenmax-map " + String(r.skill) + ", not verified"));
       list.appendChild(li);
     }

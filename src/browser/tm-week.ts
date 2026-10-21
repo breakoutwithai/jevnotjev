@@ -163,9 +163,8 @@ export function cardHeadline(week: Week): string {
   return `Usage limit hits ${NOT_RECORDED}`;
 }
 
-/** Show Sample: one builder's real week, the sample this site has shown since #238. The period end was set to
- * 2026-10-15 so the seven days are both included. Period, totals, cap hits, Opus and
- * Codex figures are the recorded run (both cap hits on 2026-10-14). The per-day split is NOT in that record: it was
+/** Show Sample: one builder's real week, the sample this site has shown since #238. Totals, cap hits, Opus and
+ * Codex figures are the recorded run; the period END is a relabel (2026-10-15, so the seven days are both included), not a recorded date (both cap hits on 2026-10-14). The per-day split is NOT in that record: it was
  * constructed on the operator's request (2026-10-21) to sum to the recorded 3,993 sessions. */
 export const SAMPLE_WEEK: Week = {
   period: { start: "2026-10-09", end: "2026-10-15" }, claudeSessions: 515, codexSessions: 3478, claudeOutput: 9977232, codexOutput: 7503143,

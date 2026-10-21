@@ -593,6 +593,8 @@ export function startTheRun(doc: Document): void {
     keys.set(draft, key);
     return key;
   }
+  // The previous build stored {id, key, alias} here and nothing ever read it. Remove it so no delete key stays in browser storage.
+  try { win.localStorage.removeItem("tm-submit/1"); } catch { /* storage unavailable */ }
   let sending = false;
   function clearSubmitMessages(): void {
     aliasError.hidden = true; aliasError.textContent = ""; aliasBox.removeAttribute("aria-invalid");
@@ -638,12 +640,12 @@ export function startTheRun(doc: Document): void {
       submitStatus.hidden = true; submitStatus.textContent = "";
       if (mapId) { showSubmitted(mapId, key, alias); return; }
       if (response.status === 409 && typeof data === "object" && data !== null && "code" in data && data.code === "request-key-reused") keys.delete(draft);
-      refuse(response.ok ? "The server's answer could not be read, so it is not known whether your entry was added. Press Submit again; pressing it again on this page never adds a second row." : rejectionMessage(response.status, data));
+      refuse(response.ok ? "Not confirmed: the server's answer could not be read, so your entry may already be on the board. Press Submit again on this page to get your receipt and key; for the same result and nickname it never adds a second row." : rejectionMessage(response.status, data));
     } catch {
       submitStatus.hidden = true; submitStatus.textContent = "";
       refuse(control.signal.aborted
-        ? "Not submitted: no answer within 15 seconds. Press Submit again; pressing it again on this page never adds a second row."
-        : "Not submitted: the request did not complete. Check your connection and press Submit again; pressing it again on this page never adds a second row.");
+        ? "Not confirmed: no answer within 15 seconds, so your entry may already be on the board. Press Submit again on this page to get your receipt and key; for the same result and nickname it never adds a second row."
+        : "Not confirmed: the request did not complete, so your entry may already be on the board. Check your connection and press Submit again on this page to get your receipt and key; for the same result and nickname it never adds a second row.");
     } finally {
       win.clearTimeout(timer);
       sending = false; submitBtn.disabled = false;

@@ -31,7 +31,8 @@ export function rawNumberProblem(text: string): string | null {
     const field = LABELS[pair[0]];
     if (field === undefined || field === "period" || field === "pattern" || field === "perDay" || field === "limitDays") continue;
     const value = pair[1].trim();
-    if (/^not recorded\.?$/i.test(value)) continue;
+    // Anything the display reader treats as "no number" (not recorded, N/A, a note without digits) is not this check's business.
+    if (/not recorded/i.test(value) || !/\d/.test(value)) continue;
     const percent = field === "opusShare" || field === "codexWindow" ? "(?:\\s*%)?" : "";
     if (new RegExp(`^(?:\\d+|\\d{1,3}(?:,\\d{3})+)${percent}\\.?$`).test(value)) continue;
     const label = pair[0].charAt(0).toUpperCase() + pair[0].slice(1);
@@ -82,9 +83,9 @@ export function weekToPayload(week: Week): Mapped {
   if (missing.length > 0) {
     const tools = ["Claude", "Codex"].filter((tool) => missing.some((label) => label === `${tool} sessions` || label === `${tool} output tokens`));
     const hint = tools.length > 0
-      ? tools.map((tool) => ` If you did not use ${tool}, change that line to 0 in the box; otherwise run the prompt again and paste the whole result.`).join("")
+      ? ` Submit needs a number on every one of these lines. ${tools.map((tool) => `If you did not use ${tool}, change its lines to 0 in the box.`).join(" ")} Otherwise run the prompt again and paste the whole result.`
       : " Run the prompt again and paste the whole result.";
-    return { ok: false, message: `Not submitted: ${missing.join(", ")} ${missing.length === 1 ? "says" : "say"} "not recorded" in your result, and Submit needs a number on every one of these lines.${hint}` };
+    return { ok: false, message: `Not submitted: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not recorded in your result.${hint}` };
   }
   const { claudeSessions, codexSessions, claudeOutput, codexOutput, opusShare, limitHits } = week;
   if (days === null || claudeSessions === null || codexSessions === null || claudeOutput === null || codexOutput === null || opusShare === null || limitHits === null)

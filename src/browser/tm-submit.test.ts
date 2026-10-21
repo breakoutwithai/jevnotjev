@@ -58,7 +58,7 @@ describe("tm-submit mapping", () => {
 
   test("[unit] TM-18 a required line that is not recorded refuses the submit and names every such line", () => {
     const one = weekToPayload(week(change("Usage limit hits: 2", "Usage limit hits: not recorded")));
-    expect(one).toEqual({ ok: false, message: 'Not submitted: Usage limit hits says "not recorded" in your result, and Submit needs a number on every one of these lines. Run the prompt again and paste the whole result.' });
+    expect(one).toEqual({ ok: false, message: "Not submitted: Usage limit hits is not recorded in your result. Run the prompt again and paste the whole result." });
     const several = weekToPayload(week("TOKENMAX WEEK\nClaude sessions: 288\nCodex sessions: not recorded"));
     expect(several.ok).toBe(false);
     for (const label of ["Period", "Codex sessions", "Claude output tokens", "Codex output tokens", "Opus share of Claude output", "Usage limit hits"]) expect(!several.ok && several.message).toContain(label);
@@ -71,10 +71,25 @@ describe("tm-submit mapping", () => {
     const result = weekToPayload(week(missing));
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    for (const phrase of ["Codex sessions", "Codex output tokens", '"not recorded"', "If you did not use Codex", "change that line to 0"]) expect(result.message).toContain(phrase);
+    for (const phrase of ["Codex sessions", "Codex output tokens", "are not recorded", "Submit needs a number", "If you did not use Codex", "change its lines to 0"]) expect(result.message).toContain(phrase);
     expect((result.message.match(/If you did not use Codex/g) ?? []).length).toBe(1);
     const zero = missing.replace("Codex sessions: not recorded", "Codex sessions: 0").replace("Codex output tokens: not recorded", "Codex output tokens: 0");
     expect(weekToPayload(week(zero))).toMatchObject({ ok: true, payload: { sources: "claude" } });
+    // An unreadable Period is not a "not recorded" tool line and gets no zero hint.
+    const period = weekToPayload(week(change("Period: 2026-10-14 to 2026-10-20", "Period: Oct 14 to Oct 20, 2026")));
+    expect(!period.ok && period.message).toBe("Not submitted: Period (two dates like 2026-10-14 to 2026-10-20) is not recorded in your result. Run the prompt again and paste the whole result.");
+  });
+
+  test("[unit] TM-35 a value with no digits (N/A, a note after not recorded) is left to the null rule, not refused as a bad number", () => {
+    // Main submitted an N/A Codex weekly window as null; the raw check must not turn that into a refusal.
+    const na = change("Codex weekly window used: 7%", "Codex weekly window used: N/A");
+    expect(rawNumberProblem(na)).toBeNull();
+    expect(weekToPayload(week(na))).toMatchObject({ ok: true, payload: { codex_weekly_pct: null } });
+    const note = change("Codex sessions: 2925", "Codex sessions: not recorded (Codex not used)");
+    expect(rawNumberProblem(note)).toBeNull();
+    const result = weekToPayload(week(note));
+    expect(!result.ok && result.message).toContain("If you did not use Codex");
+    expect(rawNumberProblem(change("Claude sessions: 288", "Claude sessions: 288 (86 duplicates)"))).not.toBeNull();
   });
 
   test("[unit] TM-18 days run from Period start to end inclusive and must be 1 to 90", () => {

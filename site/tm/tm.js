@@ -207,7 +207,7 @@
       if (field === undefined || field === "period" || field === "pattern" || field === "perDay" || field === "limitDays")
         continue;
       const value = pair[1].trim();
-      if (/^not recorded\.?$/i.test(value))
+      if (/not recorded/i.test(value) || !/\d/.test(value))
         continue;
       const percent = field === "opusShare" || field === "codexWindow" ? "(?:\\s*%)?" : "";
       if (new RegExp(`^(?:\\d+|\\d{1,3}(?:,\\d{3})+)${percent}\\.?$`).test(value))
@@ -247,8 +247,8 @@
       missing.unshift(week.period === null ? "Period" : "Period (two dates like 2026-10-14 to 2026-10-20)");
     if (missing.length > 0) {
       const tools = ["Claude", "Codex"].filter((tool) => missing.some((label) => label === `${tool} sessions` || label === `${tool} output tokens`));
-      const hint = tools.length > 0 ? tools.map((tool) => ` If you did not use ${tool}, change that line to 0 in the box; otherwise run the prompt again and paste the whole result.`).join("") : " Run the prompt again and paste the whole result.";
-      return { ok: false, message: `Not submitted: ${missing.join(", ")} ${missing.length === 1 ? "says" : "say"} "not recorded" in your result, and Submit needs a number on every one of these lines.${hint}` };
+      const hint = tools.length > 0 ? ` Submit needs a number on every one of these lines. ${tools.map((tool) => `If you did not use ${tool}, change its lines to 0 in the box.`).join(" ")} Otherwise run the prompt again and paste the whole result.` : " Run the prompt again and paste the whole result.";
+      return { ok: false, message: `Not submitted: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not recorded in your result.${hint}` };
     }
     const { claudeSessions, codexSessions, claudeOutput, codexOutput, opusShare, limitHits } = week;
     if (days === null || claudeSessions === null || codexSessions === null || claudeOutput === null || codexOutput === null || opusShare === null || limitHits === null)
@@ -1103,6 +1103,9 @@
       keys.set(draft, key);
       return key;
     }
+    try {
+      win.localStorage.removeItem("tm-submit/1");
+    } catch {}
     let sending = false;
     function clearSubmitMessages() {
       aliasError.hidden = true;
@@ -1186,11 +1189,11 @@
         }
         if (response.status === 409 && typeof data === "object" && data !== null && "code" in data && data.code === "request-key-reused")
           keys.delete(draft);
-        refuse(response.ok ? "The server's answer could not be read, so it is not known whether your entry was added. Press Submit again; pressing it again on this page never adds a second row." : rejectionMessage(response.status, data));
+        refuse(response.ok ? "Not confirmed: the server's answer could not be read, so your entry may already be on the board. Press Submit again on this page to get your receipt and key; for the same result and nickname it never adds a second row." : rejectionMessage(response.status, data));
       } catch {
         submitStatus.hidden = true;
         submitStatus.textContent = "";
-        refuse(control.signal.aborted ? "Not submitted: no answer within 15 seconds. Press Submit again; pressing it again on this page never adds a second row." : "Not submitted: the request did not complete. Check your connection and press Submit again; pressing it again on this page never adds a second row.");
+        refuse(control.signal.aborted ? "Not confirmed: no answer within 15 seconds, so your entry may already be on the board. Press Submit again on this page to get your receipt and key; for the same result and nickname it never adds a second row." : "Not confirmed: the request did not complete, so your entry may already be on the board. Check your connection and press Submit again on this page to get your receipt and key; for the same result and nickname it never adds a second row.");
       } finally {
         win.clearTimeout(timer);
         sending = false;

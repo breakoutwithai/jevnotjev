@@ -77,9 +77,9 @@ test("[unit] TM-39 Submit consent names every payload field", () => {
   const mapped = weekToPayload(week);
   if (!mapped.ok) throw new Error(mapped.message);
   const consent = /<p class="hint" id="submitConsent">([^<]+)<\/p>/.exec(html())?.[1] ?? "";
-  const labels: Readonly<Record<string, string>> = { v: "pasted block", skill: "mapper version", days: "days covered", sources: "which logs you used", sessions: "total sessions", subagent_sessions: "subagent sessions", caps: "cap hits", output_tokens: "output tokens", opus_share_pct: "Opus share", codex_weekly_pct: "Codex weekly window" };
+  const labels: Readonly<Record<string, string>> = { v: "format name tm-share/1", skill: "mapper version 0.0.0, which marks a pasted block", days: "days covered", sources: "Claude, Codex or both", sessions: "total sessions", subagent_sessions: "subagent sessions", caps: "cap hits", output_tokens: "output tokens", opus_share_pct: "Opus share", codex_weekly_pct: "Codex weekly window" };
   for (const key of Object.keys(mapped.payload)) expect({ key, named: consent.includes(labels[key] ?? "FIELD NOT DESCRIBED") }).toEqual({ key, named: true });
-  for (const phrase of ["nickname", "short cap hits", "weekly cap hits", "unknown cap hits", "Claude output tokens", "Codex output tokens", "0.0.0"]) expect(consent).toContain(phrase);
+  for (const phrase of ["nickname", "short cap hits", "weekly cap hits", "unknown cap hits", "Claude output tokens", "Codex output tokens", "random request key", "after reloading or closing the page"]) expect(consent).toContain(phrase);
 });
 
 test("[unit] TM-10 parseWeek reads the sample week as a plain block, a markdown table and a bulleted list", () => {
@@ -392,6 +392,16 @@ test("[integration] TM-34 later invalid and rejected attempts leave every receip
   } finally { await close(page); }
 }, 30000);
 
+test("[integration] TM-38 a delete key left in localStorage by the earlier build is removed when the page starts", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    await page.evaluate(() => { localStorage.setItem("tm-submit/1", JSON.stringify({ id: "TM-000000000001", key: "k".repeat(32), alias: "old-entry" })); localStorage.setItem("unrelated", "keep"); });
+    await page.reload({ waitUntil: "load" });
+    await page.waitForFunction(() => document.getElementById("submitWeek") !== null && document.querySelectorAll("#run .poster").length === 7);
+    expect(await page.evaluate(() => [localStorage.getItem("tm-submit/1"), localStorage.getItem("unrelated")])).toEqual([null, "keep"]);
+  } finally { await close(page); }
+}, 30000);
+
 test("[integration] TM-33 a request-key-reused 409 forgets only that draft's key", async () => {
   const page = await open(390, 844, "reduce");
   try {
@@ -445,6 +455,8 @@ test("[integration] TM-36 a stalled request times out after 15 seconds and retry
     await page.waitForFunction(() => document.getElementById("submitStatus")?.textContent === "Submitting...");
     await page.clock.fastForward(16000);
     await page.waitForFunction(() => document.getElementById("pasteError")?.textContent?.includes("no answer within 15 seconds") === true);
+    // The server may have stored the row before the abort, so the page must not say "Not submitted".
+    expect(await page.locator("#pasteError").innerText()).toMatch(/^Not confirmed: .*may already be on the board/);
     expect(await page.locator("#submitWeek").isEnabled()).toBe(true);
     await page.locator("#submitWeek").click();
     await page.locator("#receipts li").waitFor();
@@ -513,7 +525,7 @@ test("[integration] TM-22 Submit refuses locally (no request) for a missing nick
       expect(await alerts()).toMatchObject({ paste: NOT_A_RESULT, pasteShown: true, aliasShown: false, invalid: null });
       await page.locator("#pasteBox").fill(SAMPLE_RESULT.replace("Usage limit hits: 2", "Usage limit hits: not recorded"));
       await page.locator("#submitWeek").click();
-      expect((await alerts()).paste).toBe('Not submitted: Usage limit hits says "not recorded" in your result, and Submit needs a number on every one of these lines. Run the prompt again and paste the whole result.');
+      expect((await alerts()).paste).toBe("Not submitted: Usage limit hits is not recorded in your result. Run the prompt again and paste the whole result.");
       await page.locator("#pasteBox").fill(SAMPLE_RESULT.replace("2026-10-14 to 2026-10-20", "2026-06-01 to 2026-10-21"));
       await page.locator("#submitWeek").click();
       expect((await alerts()).paste).toBe("Not submitted: the period is 143 days; a submitted week covers 1 to 90 days.");
@@ -528,7 +540,7 @@ test("[integration] TM-22 Submit refuses locally (no request) for a missing nick
       // The network drops: the page says it did not complete, and the retry sends the same key.
       await page.locator("#submitWeek").click();
       await page.waitForFunction(() => document.getElementById("pasteError")?.textContent?.includes("did not complete") === true);
-      expect((await alerts()).paste).toBe("Not submitted: the request did not complete. Check your connection and press Submit again; pressing it again on this page never adds a second row.");
+      expect((await alerts()).paste).toBe("Not confirmed: the request did not complete, so your entry may already be on the board. Check your connection and press Submit again on this page to get your receipt and key; for the same result and nickname it never adds a second row.");
       expect(await page.evaluate(() => localStorage.length)).toBe(0);
       await page.locator("#submitWeek").click();
       await page.waitForFunction(() => document.getElementById("submitted")?.hidden === false);

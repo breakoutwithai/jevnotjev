@@ -934,8 +934,10 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
     // Tab only: the two posters, Raise the curtain and House lights keep it closed; the next Tab lands on the page and opens it.
     const tabs = await pageAt(width, height, "no-preference");
     try {
-      const stops = await tabStops(tabs, 5);
-      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", "raise:closed", "lights:closed", "A.house-link:open"] });
+      const note = await noteShown(tabs);
+      expect({ width, note }).toEqual({ width, note: NOTE_RENDERED });
+      const stops = await tabStops(tabs, note ? 6 : 5);
+      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed", "lights:closed", "A.house-link:open"] });
       expect(await shownCurtains(tabs)).toBe(0);
     } finally { await tabs.close(); }
   }
@@ -982,8 +984,10 @@ test("[integration] UX2 c01 Raise the curtain is a button on the closed curtain,
     } finally { await page.close(); }
     const keyed = await pageAt(width, height, "no-preference");
     try {
-      const stops = await tabStops(keyed, 3);
-      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", "raise:closed"] });
+      const note = await noteShown(keyed);
+      expect({ width, note }).toEqual({ width, note: NOTE_RENDERED });
+      const stops = await tabStops(keyed, note ? 4 : 3);
+      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed"] });
       await keyed.keyboard.press("Enter");
       await keyed.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
       expect({ width, focus: await keyed.evaluate(() => document.activeElement?.id ?? "") }).toEqual({ width, focus: "types" });
@@ -2054,6 +2058,14 @@ async function bandBox(page: Page): Promise<{ top: number; bottom: number; heigh
 }
 
 /** Presses Tab `count` times and returns each focused stop (its id, or a short name) with the curtain's state and whether it shows a focus ring. */
+/** The testimonial note is in the page only once TESTIMONIAL.approved is true (scripts/site-testimonial.ts); at the closed viewports it must then be shown. */
+const NOTE_RENDERED = readFileSync(join(import.meta.dir, "..", "site", "index.html"), "utf8").includes('class="shop-say"');
+
+/** Whether the testimonial note under the Little Shop poster is on screen (theatre.css hides it where the playbill is short). */
+async function noteShown(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.querySelector("#overture .shop-say")?.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) ?? false);
+}
+
 async function tabStops(page: Page, count: number): Promise<{ stop: string; state: string; ring: boolean }[]> {
   const out: { stop: string; state: string; ring: boolean }[] = [];
   for (let i = 0; i < count; i++) {
@@ -2061,7 +2073,7 @@ async function tabStops(page: Page, count: number): Promise<{ stop: string; stat
     out.push(await page.evaluate(() => {
       const a = document.activeElement;
       const s = a ? getComputedStyle(a) : null;
-      const stop = !a ? "none" : a.id ? a.id : a.matches("#overture a.poster") ? "curtain poster" : a.matches('#overture a[href="tm/"]') ? "madmax poster" : `${a.tagName}.${a.className}`;
+      const stop = !a ? "none" : a.id ? a.id : a.matches("#overture a.poster") ? "curtain poster" : a.matches('#overture a[href="tm/"]') ? "madmax poster" : a.matches("#overture .shop-say a") ? "testimonial" : `${a.tagName}.${a.className}`;
       return { stop, state: document.documentElement.dataset.curtain ?? "unset", ring: Boolean(a?.matches(":focus-visible") && s && s.outlineStyle !== "none" && parseFloat(s.outlineWidth) >= 2) };
     }));
   }

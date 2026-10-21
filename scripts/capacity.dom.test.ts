@@ -236,14 +236,18 @@ for (const { name, board } of BOARDS) {
           const m = await page.evaluate(() => {
             const lines = (el: Element): number => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length; };
             const box = (sel: string) => { const b = document.querySelector(sel)?.getBoundingClientRect(); return b ? { w: b.width, h: b.height } : null; };
-            const cells = Array.from(document.querySelectorAll("td.cap-num"));
+            const cells = Array.from(document.querySelectorAll("#capWindows td.cap-num, #capSides td.cap-num"));
+            const all = Array.from(document.querySelectorAll("td.cap-num"));
             return {
+              pressureCells: document.querySelectorAll("#capPressure td.cap-num").length, pressureBroken: all.filter((td) => lines(td) !== 1).length,
               scrollW: document.documentElement.scrollWidth, clientW: document.documentElement.clientWidth,
               cells: cells.length, broken: cells.filter((td) => lines(td) !== 1).map((td) => td.textContent),
               reading: box("#capReading"), tile: box("#capTiles .cap-tile"), table: box("#capSides"),
             };
           });
           expect(m.cells).toBe(17); // 3 window rows + 7 measure rows x 2 sides; an empty set would pass "none broken" vacuously
+          expect(m.pressureCells).toBe(board.length * 2);
+          expect(m.pressureBroken).toBe(0);
           expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
           expect(m.broken).toEqual([]);
           for (const b of [m.reading, m.tile, m.table]) { expect(b).not.toBeNull(); expect(b?.w ?? 0).toBeGreaterThan(1); expect(b?.h ?? 0).toBeGreaterThan(1); }
@@ -287,4 +291,49 @@ test("[integration] map days are summed per side and a single map reads in the s
   try {
     expect(await one.page.locator("#capTiles .cap-tile").evaluateAll((els) => els.map((e) => e.textContent ?? ""))).toEqual(["1map counted", "1no cap recorded", "0hit a cap", "0cap episodes"]);
   } finally { await one.close(); }
+});
+
+const pressureRows = async (page: Page): Promise<string[][]> =>
+  page.locator("#capPressure tr").evaluateAll((trs) => trs.map((tr) => [
+    tr.querySelector("th")?.firstChild?.textContent ?? "",
+    Array.from(tr.querySelectorAll("th small")).map((s) => s.textContent ?? "").join(" | "),
+    ...Array.from(tr.querySelectorAll("td")).map((td) => td.textContent ?? ""),
+  ]));
+
+// Limit pressure: cap episodes (short + weekly + unknown) per 100 sessions, beside Codex weekly used where recorded. Anonymous: "Map N".
+test("[integration] limit pressure per map: caps per 100 sessions beside Codex weekly used, no alias or id", async () => {
+  const { page, close } = await open();
+  try {
+    // Every BOARD row has 10 sessions over 7 days. A 0 caps, B 0, C 2+1, D 1 unknown (no Codex reading).
+    expect(await pressureRows(page)).toEqual([
+      ["Map 1", "", "0", "20%"],
+      ["Map 2", "", "0", "40%"],
+      ["Map 3", "", "30", "90%"],
+      ["Map 4", "", "10", "not measured"],
+    ]);
+    const text = await page.locator("#capPressure").innerText();
+    expect(text).not.toContain("pseudo-");
+    expect(text).not.toContain("TM-");
+    expect(await page.locator("#capBody").innerText()).toContain("A cap count from a pasted TokenMax block may include retries and is not comparable to a mapper map.");
+  } finally { await close(); }
+});
+
+test("[integration] a quiet week is under 1 session a day, with its sessions and days; a pasted block is marked", async () => {
+  rows = [
+    { ...row("TM-00000000000Q", "pseudo-qqq", [0, 0, 0], 1, 0, null), sessions: 7, days: 7 },        // exactly 1 a day: not quiet
+    { ...row("TM-00000000000R", "pseudo-rrr", [0, 0, 0], 1, 0, null), sessions: 6, days: 7 },        // quiet
+    { ...row("TM-00000000000S", "pseudo-sss", [0, 0, 4], 1, 0, null, PASTED), sessions: 1, days: 1 }, // 1 a day: not quiet; pasted
+    { ...row("TM-00000000000T", "pseudo-ttt", [0, 0, 0], 1, 0, null), sessions: 0, days: 7 },        // no sessions: pressure not measured, quiet
+    { ...row("TM-00000000000U", "pseudo-uuu", [1, 1, 0], 1, 0, null, PASTED), sessions: 3, days: 90 }, // quiet and pasted
+  ];
+  const { page, close } = await open();
+  try {
+    expect(await pressureRows(page)).toEqual([
+      ["Map 1", "", "0", "not measured"],
+      ["Map 2", "Quiet week: 6 sessions in 7 days", "0", "not measured"],
+      ["Map 3", "pasted block", "400", "not measured"],
+      ["Map 4", "Quiet week: 0 sessions in 7 days", "not measured", "not measured"],
+      ["Map 5", "pasted block | Quiet week: 3 sessions in 90 days", "66.7", "not measured"],
+    ]);
+  } finally { await close(); }
 });

@@ -44,7 +44,22 @@
     var hit = list.filter(function (r) { return capTotal(r) > 0; });
     var pasted = list.filter(function (r) { return r.skill === PASTED_SKILL; });
     var stored = isObj(totals) && typeof totals.builders === "number" ? Math.max(totals.builders, list.length) : list.length;
-    return { stored: stored, shown: list.length, all: side(list), free: side(free), hit: side(hit), pasted: side(pasted) };
+    return { stored: stored, shown: list.length, all: side(list), free: side(free), hit: side(hit), pasted: side(pasted), maps: list.map(mapLine) };
+  }
+
+  /* One anonymous line per map, in board order (newest first); no alias, id or day. Existing fields only.
+     pressure: cap episodes (short + weekly + unknown) per 100 sessions, null when the map has no sessions.
+     quiet: fewer than 1 session per day (sessions / days < 1); the sessions and days are the evidence. */
+  function mapLine(row, i) {
+    var sessions = num(row.sessions), days = num(row.days), caps = capTotal(row);
+    return {
+      n: i + 1,
+      pasted: row.skill === PASTED_SKILL,
+      sessions: sessions, days: days, caps: caps,
+      pressure: sessions > 0 ? Math.round(caps / sessions * 1000) / 10 : null,
+      codexUsed: collected(row, "codex") && typeof row.codex_weekly_pct === "number" && isFinite(row.codex_weekly_pct) ? row.codex_weekly_pct : null,
+      quiet: days > 0 && sessions / days < 1,
+    };
   }
 
   function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
@@ -101,6 +116,26 @@
     return s.pasted.unknownMaps + " pasted TokenMax " + plural(s.pasted.unknownMaps, "block reports", "blocks report") + " " + fmt(u) + " limit " + plural(u, "hit", "hits") + " without saying which kind. Those are counted as unknown window, so Short and Weekly are at least the figures shown, not measurements.";
   }
 
+  /* Limit pressure by map: cap episodes per 100 sessions beside Codex weekly used, with the flags under the map's number. */
+  function fillPressure(maps) {
+    var body = document.getElementById("capPressure");
+    clear(body);
+    maps.forEach(function (m) {
+      var tr = document.createElement("tr");
+      var th = document.createElement("th");
+      th.setAttribute("scope", "row");
+      th.appendChild(document.createTextNode("Map " + m.n));
+      [m.pasted ? "pasted block" : "", m.quiet ? "Quiet week: " + fmt(m.sessions) + " " + plural(m.sessions, "session", "sessions") + " in " + fmt(m.days) + " " + plural(m.days, "day", "days") : ""].forEach(function (t) {
+        if (!t) return;
+        var sm = document.createElement("small"); sm.className = "cap-flag"; sm.textContent = t; th.appendChild(sm);
+      });
+      tr.appendChild(th);
+      cell(tr, m.pressure === null ? NOT_MEASURED : fmt(m.pressure), m.pressure === null ? "cap-num cap-nm" : "cap-num");
+      cell(tr, m.codexUsed === null ? NOT_MEASURED : m.codexUsed + "%", m.codexUsed === null ? "cap-num cap-nm" : "cap-num");
+      body.appendChild(tr);
+    });
+  }
+
   function render(s) {
     var empty = s.shown === 0;
     setText("capReading", reading(s));
@@ -129,6 +164,7 @@
         ["Unknown window", fmt(s.all.unknown)],
       ]);
       setText("capPasted", pastedNote(s));
+      fillPressure(s.maps);
       fill("capSides", [
         ["Maps", fmt(s.free.maps), fmt(s.hit.maps)],
         ["Map days covered", fmt(s.free.days), fmt(s.hit.days)],

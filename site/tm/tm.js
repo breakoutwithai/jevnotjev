@@ -3,6 +3,95 @@
  * No network calls. Do not edit; rerun the script.
  */
 (() => {
+  // src/browser/tm-week.ts
+  var NOT_A_RESULT = "That doesn't look like the result. Run the prompt again and paste what it prints.";
+  var LABELS = {
+    period: "period",
+    "claude sessions": "claudeSessions",
+    "codex sessions": "codexSessions",
+    "claude output tokens": "claudeOutput",
+    "codex output tokens": "codexOutput",
+    "opus share of claude output": "opusShare",
+    "usage limit hits": "limitHits",
+    "codex weekly window used": "codexWindow",
+    pattern: "pattern"
+  };
+  function labelValue(raw) {
+    const line = raw.replace(/\*\*|__|`/g, "").trim().replace(/^(?:[-*+•]|\d+[.)])\s+/, "");
+    let label;
+    let value;
+    if (line.includes("|")) {
+      const cells = line.split("|").map((c) => c.trim()).filter((c) => c !== "");
+      if (cells.length < 2 || cells.every((c) => /^:?-+:?$/.test(c)))
+        return null;
+      label = cells[0] ?? "";
+      value = cells[1] ?? "";
+    } else {
+      const at = line.indexOf(":");
+      if (at < 0)
+        return null;
+      label = line.slice(0, at);
+      value = line.slice(at + 1);
+    }
+    return [label.toLowerCase().replace(/\s+/g, " ").trim(), value.trim()];
+  }
+  function readNumber(value) {
+    if (/not recorded/i.test(value))
+      return null;
+    const m = /\d[\d,]*(?:\.\d+)?/.exec(value);
+    if (!m)
+      return null;
+    const n = Number(m[0].replace(/,/g, ""));
+    return Number.isFinite(n) ? n : null;
+  }
+  function parseWeek(text) {
+    const nums = { claudeSessions: null, codexSessions: null, claudeOutput: null, codexOutput: null, opusShare: null, limitHits: null, codexWindow: null };
+    let period = null;
+    let pattern = null;
+    let recognised = 0;
+    for (const raw of text.split(/\r?\n/)) {
+      const lv = labelValue(raw);
+      if (!lv)
+        continue;
+      const field = LABELS[lv[0]];
+      if (field === undefined)
+        continue;
+      recognised += 1;
+      const value = lv[1];
+      if (field === "period") {
+        const m = /(\S.*?)\s+to\s+(\S.*)/i.exec(value);
+        period = m && !/not recorded/i.test(value) ? { start: (m[1] ?? "").trim(), end: (m[2] ?? "").trim() } : null;
+      } else if (field === "pattern") {
+        pattern = /running out/i.test(value) ? "running out" : /unused/i.test(value) ? "leaving most unused" : null;
+      } else {
+        nums[field] = readNumber(value);
+      }
+    }
+    if (recognised === 0)
+      return null;
+    return { period, pattern, ...nums };
+  }
+  function situationOf(week) {
+    if (week.pattern)
+      return week.pattern;
+    return (week.limitHits ?? 0) > 0 ? "running out" : "leaving most unused";
+  }
+  var fmt = (n, unit = "") => n === null ? "not recorded" : `${n.toLocaleString("en-US")}${unit}`;
+  function weekLines(week) {
+    const both = (claude, codex) => claude === null && codex === null ? "not recorded" : `${fmt(claude)} in Claude Code, ${fmt(codex)} in Codex`;
+    return [
+      { label: "Period", value: week.period ? `${week.period.start} to ${week.period.end}` : "not recorded" },
+      { label: "Sessions", value: both(week.claudeSessions, week.codexSessions) },
+      { label: "Output", value: both(week.claudeOutput, week.codexOutput) },
+      { label: "Usage limit hits", value: fmt(week.limitHits) },
+      { label: "Opus share of Claude output", value: fmt(week.opusShare, "%") },
+      { label: "Codex weekly window used", value: fmt(week.codexWindow, "%") }
+    ];
+  }
+  function situationLine(week) {
+    return situationOf(week) === "running out" ? "Your week looks like running out before the end of the week." : "Your week looks like leaving most of it unused.";
+  }
+
   // src/browser/tm-run.ts
   var DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   var LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -601,7 +690,8 @@
       st.routed = false;
       st.token++;
       pickBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
-      pick.classList.remove("nudge");
+      pick.classList.remove("nudge", "cue-on");
+      pick.classList.add("picked");
       promptText.textContent = SCENARIOS[m].prompt;
       clearSlots();
       resetReview();
@@ -801,7 +891,7 @@
       };
       raf = win.requestAnimationFrame(loop);
     }
-    const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement), share = id("share", HTMLDetailsElement);
+    const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement);
     const PROMPT = promptEl.textContent ?? "";
     const COPIED = "Copied. Paste it into Claude Code or Codex.";
     let copyTimer = 0;
@@ -852,9 +942,42 @@
         fallback();
     });
     function focusCommand() {
-      share.open = true;
       command.focus();
     }
+    const pasteBox = id("pasteBox", HTMLTextAreaElement), pasteError = id("pasteError", HTMLElement);
+    const yourWeek = id("yourWeek", HTMLElement), yourFields = id("yourFields", HTMLElement), yourLine = id("yourLine", HTMLElement);
+    let mine = "under";
+    id("showWeek", HTMLButtonElement).addEventListener("click", () => {
+      const week = parseWeek(pasteBox.value);
+      if (!week) {
+        yourWeek.hidden = true;
+        pasteError.textContent = NOT_A_RESULT;
+        pasteError.hidden = false;
+        return;
+      }
+      pasteError.hidden = true;
+      pasteError.textContent = "";
+      yourFields.textContent = "";
+      for (const { label, value } of weekLines(week)) {
+        const dt = doc.createElement("dt");
+        dt.textContent = label;
+        const dd = doc.createElement("dd");
+        dd.textContent = value;
+        yourFields.append(dt, dd);
+      }
+      yourLine.textContent = situationLine(week);
+      mine = situationOf(week) === "running out" ? "burn" : "under";
+      yourWeek.hidden = false;
+      yourWeek.scrollIntoView({ block: "nearest" });
+    });
+    id("playMine", HTMLButtonElement).addEventListener("click", () => {
+      const hash = `#${mine}-before`;
+      if (win.location.hash === hash)
+        fromHash();
+      else
+        win.location.hash = hash;
+      stage.scrollIntoView({ block: "start" });
+    });
     pickBtns.forEach((b) => b.addEventListener("click", () => {
       const m = b.dataset.mode;
       if (m === "burn" || m === "under") {
@@ -933,6 +1056,10 @@
     win.addEventListener("hashchange", () => {
       fromHash();
     });
+    win.setTimeout(() => {
+      if (!st.mode)
+        pick.classList.add("cue-on");
+    }, reduced ? 0 : 1500);
     const motionBack = () => {
       if (!reduced)
         root.classList.remove("instant");

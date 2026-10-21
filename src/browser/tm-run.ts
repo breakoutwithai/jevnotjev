@@ -1,8 +1,11 @@
 // /tm/ "The Run": the TokenMax show. A visitor picks a situation, the week plays on the stage, the ending lands (the
 // curtain drops mid-week, or a ghost light on a half-empty house), Try this prompt seats each step, and the replay
 // with TokenMax ends on a curtain call. Every animation can be skipped; reduced motion, Skip and the deep links draw
-// end states. Share my week below the show (#command) is the one next step: a prompt for Claude Code or Codex. Built into site/tm/tm.js by
+// end states. Map your real week below the show (#command) is the one next step: a plain prompt to paste into Claude
+// Code or Codex. Built into site/tm/tm.js by
 // scripts/build-tm.ts; adapted from The Run prototype (2026-10-21). Every number here is illustrative.
+
+import { NOT_A_RESULT, parseWeek, situationLine, situationOf, weekLines } from "./tm-week.ts";
 
 export type Mode = "burn" | "under";
 export type View = "without" | "with";
@@ -470,7 +473,8 @@ export function startTheRun(doc: Document): void {
   function setMode(m: Mode): void {
     st.mode = m; st.routed = false; st.token++;
     pickBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
-    pick.classList.remove("nudge");
+    // once a week is picked the boxes stop pulsing and the "Which week is yours?" cue goes
+    pick.classList.remove("nudge", "cue-on"); pick.classList.add("picked");
     promptText.textContent = SCENARIOS[m].prompt;
     clearSlots(); resetReview();
     updateCompare();
@@ -585,8 +589,8 @@ export function startTheRun(doc: Document): void {
     raf = win.requestAnimationFrame(loop);
   }
 
-  /* ---------- Share my week: Copy the prompt, then execCommand, then select the text with a keyboard hint ---------- */
-  const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement), share = id("share", HTMLDetailsElement);
+  /* ---------- Map your real week: Copy the prompt, then execCommand, then select the text with a keyboard hint ---------- */
+  const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement);
   const PROMPT = promptEl.textContent ?? "";
   const COPIED = "Copied. Paste it into Claude Code or Codex.";
   let copyTimer = 0;
@@ -618,8 +622,34 @@ export function startTheRun(doc: Document): void {
     if (clip && typeof clip.writeText === "function") clip.writeText(PROMPT).then(() => say(COPIED), fallback);
     else fallback();
   });
-  /** Map your real week, Share my week and #command all open the prompt and move focus to it. */
-  function focusCommand(): void { share.open = true; command.focus(); }
+  /** Map your real week, Map my week and #command all move focus to the prompt section. */
+  function focusCommand(): void { command.focus(); }
+
+  /* ---------- Paste the result back: parsed here, shown as values only, never sent or stored ---------- */
+  const pasteBox = id("pasteBox", HTMLTextAreaElement), pasteError = id("pasteError", HTMLElement);
+  const yourWeek = id("yourWeek", HTMLElement), yourFields = id("yourFields", HTMLElement), yourLine = id("yourLine", HTMLElement);
+  let mine: Mode = "under";
+  id("showWeek", HTMLButtonElement).addEventListener("click", () => {
+    const week = parseWeek(pasteBox.value);
+    if (!week) { yourWeek.hidden = true; pasteError.textContent = NOT_A_RESULT; pasteError.hidden = false; return; }
+    pasteError.hidden = true; pasteError.textContent = "";
+    // Only parsed values reach the page, through textContent: no pasted text is ever shown.
+    yourFields.textContent = "";
+    for (const { label, value } of weekLines(week)) {
+      const dt = doc.createElement("dt"); dt.textContent = label;
+      const dd = doc.createElement("dd"); dd.textContent = value;
+      yourFields.append(dt, dd);
+    }
+    yourLine.textContent = situationLine(week);
+    mine = situationOf(week) === "running out" ? "burn" : "under";
+    yourWeek.hidden = false;
+    yourWeek.scrollIntoView({ block: "nearest" });
+  });
+  id("playMine", HTMLButtonElement).addEventListener("click", () => {
+    const hash = `#${mine}-before`;
+    if (win.location.hash === hash) void fromHash(); else win.location.hash = hash;
+    stage.scrollIntoView({ block: "start" });
+  });
 
   /* ---------- wiring ---------- */
   pickBtns.forEach((b) => b.addEventListener("click", () => { const m = b.dataset.mode; if (m === "burn" || m === "under") { setMode(m); void runWithout(); } }));
@@ -668,6 +698,8 @@ export function startTheRun(doc: Document): void {
   });
   doc.fonts.ready.then(() => fromHash(), () => fromHash());
   win.addEventListener("hashchange", () => { void fromHash(); });
+  // "Which week is yours?" over the seam: after about 1.5 s, at once under reduced motion, never once a week is picked.
+  win.setTimeout(() => { if (!st.mode) pick.classList.add("cue-on"); }, reduced ? 0 : 1500);
   const motionBack = (): void => { if (!reduced) root.classList.remove("instant"); };
   doc.addEventListener("pointerdown", motionBack, true);
   doc.addEventListener("keydown", motionBack, true);

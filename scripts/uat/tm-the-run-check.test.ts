@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
-import { badArgs, BANNED_ANYWHERE, expectedEnd, jargonHits, mapUnchanged, PROMPT, report, runTheRunCheck, summarise, type Check } from "./tm-the-run-check.ts";
+import { badArgs, BANNED_ANYWHERE, bannedHits, expectedEnd, jargonHits, mapUnchanged, PROMPT, PROMPT_NEGATION, report, runTheRunCheck, summarise, type Check } from "./tm-the-run-check.ts";
 
+// En and em dash, built from code points so no dash glyph sits in this file.
+const DASH = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`);
 const check = (width: number, ok: boolean, name = "x"): Check => ({ width, name, ok, detail: ok ? "" : "broke" });
 
 test("[unit] TR-1 summarise counts per width and is clean only with checks and no failures", () => {
@@ -15,22 +17,34 @@ test("[unit] TR-1 summarise counts per width and is clean only with checks and n
 });
 
 test("[unit] TR-2 each end-state deep link names what it must show", () => {
-  const base = { drop: false, ghost: false, settled: false, half: 0, extra: 0, cancelled: 0, verdict: "", badge: "", focus: "", skipHidden: true, shareOpen: false };
+  const base = { drop: false, ghost: false, settled: false, half: 0, extra: 0, cancelled: 0, verdict: "", badge: "", focus: "", skipHidden: true, promptShown: false };
   expect(expectedEnd("#burn-before", { ...base, drop: true, cancelled: 3, verdict: "Walk out" })).toBeNull();
   expect(expectedEnd("#burn-before", { ...base, drop: true, cancelled: 2, verdict: "Walk out" })).not.toBeNull();
   expect(expectedEnd("#under-after", { ...base, settled: true, extra: 6, verdict: "Standing ovation", badge: "Target passed" })).toBeNull();
   expect(expectedEnd("#under-after", { ...base, settled: true, extra: 5, verdict: "Standing ovation", badge: "Target passed" })).not.toBeNull();
-  expect(expectedEnd("#command", { ...base, focus: "command", shareOpen: true })).toBeNull();
-  expect(expectedEnd("#command", { ...base, focus: "command", shareOpen: false })).not.toBeNull();
-  expect(expectedEnd("#command", { ...base, focus: "copy", shareOpen: true })).not.toBeNull();
+  expect(expectedEnd("#command", { ...base, focus: "command", promptShown: true })).toBeNull();
+  expect(expectedEnd("#command", { ...base, focus: "command", promptShown: false })).not.toBeNull();
+  expect(expectedEnd("#command", { ...base, focus: "copy", promptShown: true })).not.toBeNull();
 });
 
 test("[unit] TR-4 the issue #309 jargon list flags each word, whole words only; the prompt carries no curl or terminal", () => {
   for (const word of ["curl", "Bun", "terminal", "logs", "token", "tokens", "subagent", "JSONL"]) expect(jargonHits([`one ${word} here`])).toHaveLength(1);
   expect(jargonHits(["TokenMax presents", "Your week is a run of seven shows", "Claude Code or Codex", "bundle"])).toEqual([]);
-  expect(PROMPT).toContain("https://jevnotjev.breakoutwithai.com/tm/map.ts");
-  for (const part of ["what it reads", "what it would send", "run it here", "Do not send or upload anything yourself"]) expect(PROMPT).toContain(part);
   expect(PROMPT).not.toMatch(BANNED_ANYWHERE);
+});
+
+test("[unit] TR-6 the prompt is plain text: no link, no install step; banned words are caught anywhere except the prompt's own 'do not download' line", () => {
+  expect(PROMPT).not.toMatch(/https?:\/\/|map\.ts|--share|\bbun\b|\bscript\b/i);
+  for (const part of ["last 7 days", "Read only the usage records, never the words of my messages or the contents of my files", "'not recorded'", PROMPT_NEGATION, "\nTOKENMAX WEEK\nPeriod: <start date> to <end date>\n", "\nPattern: <running out | leaving most unused>\n", "Use 'not recorded' for any line you cannot fill. Round numbers freely. Do not add anything else."]) expect(PROMPT).toContain(part);
+  // The last lines stop the assistant's own audit chatter.
+  expect(PROMPT.endsWith("Print only the block above. No notes, caveats, warnings, checks, counts of duplicates or files, or explanations before or after it. If a number is approximate, just give the number.")).toBe(true);
+  // Never sharing, uploading, links or maps; the block's own "Opus share of Claude output" label is a proportion.
+  expect(PROMPT.replace("Opus share of Claude output", "")).not.toMatch(/upload|\blinks?\b|\bmaps?\b|\bshar(e|ed|ing)\b/i);
+  expect(PROMPT).not.toMatch(DASH);
+  expect(bannedHits(PROMPT)).toEqual([]);
+  for (const word of ["bun", "Curl", "map.ts", "--share", "Terminal", "download", "script"]) expect(bannedHits(`then ${word} it`)).toHaveLength(1);
+  expect(bannedHits(`${PROMPT} Now download this.`)).toHaveLength(1);
+  expect(bannedHits("bundle, description, Codex")).toEqual([]);
 });
 
 test("[unit] TR-5 the map.ts check fails on a base that is not a commit; unknown CLI flags are refused", () => {

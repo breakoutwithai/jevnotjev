@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TokenMax capacity view - Jev!Jev</title>
+<meta name="description" content="Aggregate view of the shared TokenMax maps: maps that recorded a usage cap, maps that did not, and what is not measured.">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<link rel="stylesheet" href="../page.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,500;0,700;0,800;1,500&family=JetBrains+Mono:wght@500;700&family=Schibsted+Grotesk:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../maps/maps.css">
+<link rel="stylesheet" href="capacity.css">
+</head>
+<body>
+<main>
+<p class="map-back"><a href="/">Back to Jev!Jev</a> | <a href="/maps/">Open the board</a></p>
+<h1>TokenMax capacity view</h1>
+<p class="map-lede">Totals over the maps builders chose to share on the <a href="/maps/">board</a>. Nothing here names a builder. Every number is self-reported, by the tokenmax-map skill or from a pasted TokenMax block, and not verified.</p>
+<p id="capStamp" class="cap-stamp">Loading the board...</p>
+<p id="capStatus" class="map-status" role="status" aria-live="polite"></p>
+<p id="capAlert" class="map-alert" role="alert"></p>
+
+<section id="capBody" class="map-card" aria-labelledby="capTitle" hidden>
+  <h2 id="capTitle">Maps that hit a cap, and maps that did not</h2>
+  <p id="capReading" class="cap-reading"></p>
+  <p id="capNote" class="map-help"></p>
+
+  <div id="capFull">
+    <div id="capTiles" class="cap-tiles"></div>
+
+    <h3 id="capWindowsTitle">Cap episodes recorded, by window</h3>
+    <table class="cap-table" aria-labelledby="capWindowsTitle">
+      <thead><tr><th scope="col">Window</th><th scope="col" class="cap-num">Episodes</th></tr></thead>
+      <tbody id="capWindows"></tbody>
+    </table>
+    <p id="capPasted" class="map-help"></p>
+
+    <h3 id="capSidesTitle">Headroom beside demand</h3>
+    <p class="map-help">Left: maps with no cap episode recorded. Right: maps with at least one. "No cap recorded" is not a Lite plan, and Codex used percent is the only unused-capacity reading the maps carry. Each map covers 1 to 90 days; the map days row is their sum. Token figures count only maps that read that provider.</p>
+    <table class="cap-table cap-stack" aria-labelledby="capSidesTitle">
+      <thead><tr><th scope="col">Measure</th><th scope="col" class="cap-num">No cap recorded</th><th scope="col" class="cap-num">Hit a cap</th></tr></thead>
+      <tbody id="capSides"></tbody>
+    </table>
+
+    <h3 id="capMapsTitle">Every map as submitted</h3>
+    <p class="map-help">Maps are numbered newest first by board position; no alias, id or day is shown. A quiet week is a map whose sessions divided by days is under 1. Values are the maps' own, self-reported and not verified.</p>
+    <ol id="capMaps" class="cap-maps" aria-labelledby="capMapsTitle"></ol>
+  </div>
+
+  <h3>Not measured</h3>
+  <ul id="capGaps" class="cap-gaps"></ul>
+</section>
+
+<p class="map-foot"><a href="/privacy/">How we handle data</a></p>
+</main>
+<script src="capacity.js"></script>
+</body>
+</html>

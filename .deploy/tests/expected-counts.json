@@ -1,5 +1,5 @@
 {
-  "minFiles": 160,
+  "minFiles": 161,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -20,6 +20,7 @@
     "scripts/backstage-merged-pr.test.ts": 7,
     "scripts/backstage-operator-password.test.ts": 1,
     "scripts/backstage-package.test.ts": 43,
+    "scripts/capacity.dom.test.ts": 30,
     "scripts/capture-extract.test.ts": 8,
     "scripts/d06b/audit.test.ts": 8,
     "scripts/d06b/funnel.test.ts": 7,

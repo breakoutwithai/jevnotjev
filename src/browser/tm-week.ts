@@ -124,6 +124,9 @@ export function parseWeek(text: string): Week | null {
       limitDays = readLimitDays(value);
     } else {
       nums[field] = readNumber(value);
+      // The last line for a label decides its status: drop any earlier entry, then record this one if it says not recorded.
+      const at = notRecorded.indexOf(field);
+      if (at >= 0) notRecorded.splice(at, 1);
       if (/^not recorded\.?$/i.test(value.trim())) notRecorded.push(field);
     }
   }

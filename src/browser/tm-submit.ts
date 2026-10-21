@@ -57,7 +57,7 @@ export function weekToPayload(week: Week): Mapped {
   // window reading means Codex was used, so it is not absent.
   const said = (...fields: readonly NumberField[]): boolean => fields.every((f) => week.notRecorded?.includes(f) === true);
   const claudeAbsent = said("claudeSessions", "claudeOutput", "opusShare") && week.codexSessions !== null;
-  const codexAbsent = said("codexSessions", "codexOutput") && week.codexWindow === null && week.claudeSessions !== null;
+  const codexAbsent = said("codexSessions", "codexOutput", "codexWindow") &&week.claudeSessions !== null;
   if (week.claudeSessions === null && week.codexSessions === null)
     return { ok: false, message: "Not submitted: Claude sessions and Codex sessions are both not recorded in your result, so there is no week to show. Use Claude Code or Codex on this machine, then run the prompt and paste the whole result." };
   const claudeSessions = claudeAbsent ? 0 : week.claudeSessions;

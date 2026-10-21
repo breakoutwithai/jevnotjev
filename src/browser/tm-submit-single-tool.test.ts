@@ -66,4 +66,23 @@ describe("tm-submit single tool (#344)", () => {
     expect(result.ok).toBe(false);
     expect(result.ok ? "" : result.message).toContain("Codex sessions");
   });
+
+  test("[unit] TM-18 the last line for a label decides: a later number overrides an earlier not recorded and is never zeroed", () => {
+    const result = weekToPayload(week(`${CLAUDE_ONLY}\nCodex sessions: 10\nCodex output tokens: 500`));
+    expect(result.ok && result.payload).toMatchObject({ sources: "claude+codex", sessions: 12, output_tokens: { claude: 625000, codex: 500 } });
+  });
+
+  test("[unit] TM-18 the last line for a label decides: a later unreadable value overrides an earlier not recorded", () => {
+    const result = weekToPayload(week(`${CLAUDE_ONLY}\nCodex sessions: unreadable\nCodex output tokens: unreadable`));
+    expect(result.ok).toBe(false);
+  });
+
+  test("[unit] TM-18 an omitted Codex weekly window line is refused, not read as Codex absent", () => {
+    const omitted = CLAUDE_ONLY.split("\n").filter((l) => !l.startsWith("Codex weekly window")).join("\n");
+    expect(weekToPayload(week(omitted)).ok).toBe(false);
+  });
+
+  test("[unit] TM-18 an unreadable Codex weekly window line is refused, not read as Codex absent", () => {
+    expect(weekToPayload(week(CLAUDE_ONLY.replace("Codex weekly window used: not recorded", "Codex weekly window used: unreadable"))).ok).toBe(false);
+  });
 });

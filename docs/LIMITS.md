@@ -14,6 +14,7 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - An agent label that nobody reviewed is never counted as truth. [Source](../format/README.md) <!-- claim: agent-labels -->
 - The results page shows labels and costs as recorded in the file and does not check how they were produced. [Source](../scripts/result-view.ts) <!-- claim: labels-as-recorded -->
 - Decisions API answers are recorded, but the verdict reads Jev, the LLM and the rule only. [Source](../format/README.md) <!-- claim: decisions-arm -->
+- On the TokenMax page, Jev is shown as an example in rehearsal and has not been run on your usage. [Source](../site/tm/index.html) <!-- claim: tm-jev-rehearsal -->
 
 ## 2. Evidence required
 
@@ -31,6 +32,8 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - The release check does not exercise the HTTP surface. With `--url` it compares only the static site's `/DEPLOYED_SHA` to the candidate commit and does not check the backend or any other module. [Source](RELEASE-v0.1.0.md) <!-- claim: release-no-http -->
 - Google sign-in for Backstage and paid comparisons are deferred beyond v0 (issue #77). [Source](RELEASE-v0.1.0.md) <!-- claim: backstage-deferred -->
 - The admin page, API and MCP connector have been exercised only by the operator and by scripted tests, not by an outside user. [Source](RELEASE-v0.1.0.md) <!-- claim: admin-exercised -->
+- The TokenMax prompt asks your assistant about Claude Code and Codex history only; other assistants are not asked about. [Source](../site/tm/index.html) <!-- claim: tm-claude-codex -->
+- The TokenMax page reads one week at a time: a Sessions per day line that is not exactly seven numbers shows as not recorded. [Source](../src/browser/tm-week.ts) <!-- claim: tm-one-week -->
 - The remote admin MCP connector uses a bearer token today; OAuth sign-in is planned and not built yet. [Source](guest-access.md) <!-- claim: connector-bearer -->
 - Whether a Claude app sends an Origin header to the remote admin MCP connector is not verified; if it sends its own web origin, every call is refused with 403 until that origin is allowed. [Source](guest-access.md) <!-- claim: connector-origin -->
 - A reply sent with emoji as JSON surrogate-pair escapes takes twelve bytes a character, so an all-emoji reply within the 8,000-character limit can still be refused with 413 by the 64 KiB request cap; how Claude's client encodes a reply over the remote connector is not verified. [Source](guest-access.md) <!-- claim: reply-escapes -->

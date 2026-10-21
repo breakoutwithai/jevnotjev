@@ -40,6 +40,10 @@
     return out;
   }
 
+  /* The /maps/ board's words (site/maps/maps.js providerValue and pct): a provider the map did not read is "not collected"; one it
+     read with no percent recorded is "not in the logs". */
+  function provider(row, name, value) { return !collected(row, name) ? "not collected" : isNum(value) ? value + "%" : "not in the logs"; }
+
   /* One anonymous entry per map, in board order (newest first), each value as submitted. quiet: sessions / days is under 1. */
   function mapLine(row, i) {
     var c = capsOf(row), sessions = num(row.sessions), days = num(row.days);
@@ -48,10 +52,10 @@
       pasted: row.skill === PASTED_SKILL, skill: String(row.skill),
       sessions: sessions, days: days,
       short: num(c.short), weekly: num(c.weekly), unknown: num(c.unknown),
-      claude: collected(row, "claude") ? tokens(row, "claude") : null,
-      codex: collected(row, "codex") ? tokens(row, "codex") : null,
-      opus: collected(row, "claude") && isNum(row.opus_share_pct) ? row.opus_share_pct : null,
-      codexUsed: collected(row, "codex") && isNum(row.codex_weekly_pct) ? row.codex_weekly_pct : null,
+      claude: collected(row, "claude") ? fmt(tokens(row, "claude")) : "not collected",
+      codex: collected(row, "codex") ? fmt(tokens(row, "codex")) : "not collected",
+      opus: provider(row, "claude", row.opus_share_pct),
+      codexUsed: provider(row, "codex", row.codex_weekly_pct),
       quiet: days > 0 && sessions / days < 1,
     };
   }
@@ -101,11 +105,11 @@
     return s.hit.maps + " of " + s.shown + " " + plural(s.shown, "map", "maps") + " recorded at least one cap episode and " + s.free.maps + " recorded none. Every figure is self-reported and not verified, and spare capacity is not measured beyond Codex's weekly percent.";
   }
 
-  /* What a pasted TokenMax block submits for the window split, stated once; no number is changed. */
+  /* What /tm/ Submit sends for the window split (skill "0.0.0", src/browser/tm-submit.ts weekToPayload), stated once; no number is changed. */
   function pastedNote(s) {
     var u = s.pasted.unknownMaps;
     if (u === 0) return "";
-    return u + " pasted TokenMax " + plural(u, "block submits its", "blocks submit their") + " limit hits as unknown window, with Short and Weekly submitted as 0.";
+    return u + " pasted TokenMax " + plural(u, "block was", "blocks were") + " submitted with its limit hits as unknown window and Short and Weekly as 0.";
   }
 
   /* Every map as submitted, under its number. Values the map did not collect read as on the /maps/ board. */
@@ -131,10 +135,10 @@
         ["Cap episodes, short", fmt(m.short)],
         ["Cap episodes, weekly", fmt(m.weekly)],
         ["Cap episodes, unknown window", fmt(m.unknown)],
-        ["Claude output tokens", m.claude === null ? "not collected" : fmt(m.claude)],
-        ["Codex output tokens", m.codex === null ? "not collected" : fmt(m.codex)],
-        ["Opus share", m.opus === null ? "not collected" : m.opus + "%"],
-        ["Codex weekly used", m.codexUsed === null ? "not in the logs" : m.codexUsed + "%"],
+        ["Claude output tokens", m.claude],
+        ["Codex output tokens", m.codex],
+        ["Opus share", m.opus],
+        ["Codex weekly used", m.codexUsed],
       ].forEach(function (p) {
         var wrap = document.createElement("div");
         var dt = document.createElement("dt"); dt.textContent = p[0];

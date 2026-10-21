@@ -146,8 +146,8 @@ test("[integration] a failed read shows an alert and keeps the last good numbers
   } finally { await close(); }
 });
 
-// Pasted blocks (skill 0.0.0) carry caps.short and caps.weekly fixed at 0 and count every hit as unknown (#341), so the page
-// must not present a Short or Weekly figure over them as measured.
+// Pasted blocks (skill 0.0.0) carry caps.short and caps.weekly fixed at 0 and count every hit as unknown (#341). The page states
+// that once and changes no number.
 test("[integration] pasted blocks are stated once as submitting their hits as unknown window, numbers unchanged", async () => {
   rows = [
     row("TM-00000000000G", "pseudo-ggg", [1, 1, 0], 100, 0, null),
@@ -157,7 +157,7 @@ test("[integration] pasted blocks are stated once as submitting their hits as un
   const { page, close } = await open();
   try {
     expect(await cellsOf(page, "capWindows")).toEqual([["Short (session)", "1"], ["Weekly", "1"], ["Unknown window", "3"]]);
-    expect(await page.locator("#capPasted").textContent()).toBe("1 pasted TokenMax block submits its limit hits as unknown window, with Short and Weekly submitted as 0.");
+    expect(await page.locator("#capPasted").textContent()).toBe("1 pasted TokenMax block was submitted with its limit hits as unknown window and Short and Weekly as 0.");
   } finally { await close(); }
 });
 
@@ -283,7 +283,7 @@ test("[integration] map days are summed per side and a single map reads in the s
   try {
     const sides = await cellsOf(page, "capSides");
     expect(sides[1]).toEqual(["Map days covered", "1", "90"]);
-    expect(await page.locator("#capBody").innerText()).toContain("read them against the map days row");
+    expect(await page.locator("#capBody").innerText()).toContain("the map days row is their sum");
   } finally { await close(); }
   rows = [row("TM-00000000000P", "pseudo-ppp", [0, 0, 0], 1, 0, null)];
   const one = await open();
@@ -313,7 +313,7 @@ test("[integration] every map is listed with its submitted values, anonymously",
         ["Claude output tokens", "30,000"], ["Codex output tokens", "3,000"], ["Opus share", "50%"], ["Codex weekly used", "90%"],
       ],
     });
-    expect(list[3]?.figures.at(-1)).toEqual(["Codex weekly used", "not in the logs"]); // D carries no Codex reading
+    expect(list[3]?.figures.at(-1)).toEqual(["Codex weekly used", "not in the logs"]); // D read Codex but recorded no percent
     const text = await page.locator("#capMaps").innerText();
     for (const r of BOARD) { expect(text).not.toContain(String(r.alias)); expect(text).not.toContain(String(r.id)); }
     expect(text).not.toContain("2026-10-21"); // the day
@@ -354,7 +354,7 @@ test("[integration] a provider a map did not read is shown as not collected", as
   const { page, close } = await open();
   try {
     const [claudeOnly, codexOnly] = await mapsOf(page);
-    expect(claudeOnly?.figures.slice(5)).toEqual([["Claude output tokens", "5,000"], ["Codex output tokens", "not collected"], ["Opus share", "50%"], ["Codex weekly used", "not in the logs"]]);
+    expect(claudeOnly?.figures.slice(5)).toEqual([["Claude output tokens", "5,000"], ["Codex output tokens", "not collected"], ["Opus share", "50%"], ["Codex weekly used", "not collected"]]);
     expect(codexOnly?.figures.slice(5)).toEqual([["Claude output tokens", "not collected"], ["Codex output tokens", "800"], ["Opus share", "not collected"], ["Codex weekly used", "33%"]]);
   } finally { await close(); }
 });
@@ -377,5 +377,14 @@ test("[integration] Codex weekly means keep one decimal", async () => {
     const sides = await cellsOf(page, "capSides");
     expect(sides.at(-2)).toEqual(["Mean Codex weekly used", "20.7%", "not measured"]);
     expect(sides.at(-1)).toEqual(["Mean Codex weekly headroom", "79.3%", "not measured"]);
+  } finally { await close(); }
+});
+
+test("[integration] a provider read with no percent recorded is not in the logs, as on the board", async () => {
+  rows = [{ ...row("TM-00000000000a", "pseudo-aaa2", [0, 0, 0], 5000, 0, null), opus_share_pct: null }];
+  const { page, close } = await open();
+  try {
+    const [m] = await mapsOf(page);
+    expect(m?.figures.slice(7)).toEqual([["Opus share", "not in the logs"], ["Codex weekly used", "not in the logs"]]);
   } finally { await close(); }
 });

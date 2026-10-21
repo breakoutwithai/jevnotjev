@@ -24,6 +24,7 @@ import { openTrial, validTrialInput } from "./trial.ts";
 import { checkTicket, MAX_TICKET_BODY, TicketLimiter, TicketStore } from "./tickets.ts";
 import { createQuestionRoutes, QUESTION_ROUTES } from "../guest-intake/routes.ts";
 import { createGuestRoutes, isGuestPath } from "../guest-intake/guest-routes.ts";
+import { createVisitorRoutes, isVisitorPath } from "../guest-intake/visitor-routes.ts";
 import { questionAdminArgs, runQuestionAdmin } from "../guest-intake/admin-cli.ts";
 import { createAdminRoutes, isAdminPath, type AdminAccess } from "../guest-intake/admin-routes.ts";
 import { createAdminApi, isAdminApiPath } from "../guest-intake/admin-api.ts";
@@ -133,6 +134,14 @@ export function trialConfigFromEnvironment(
     ),
   };
 }
+/** Every /api/backstage/* route this handler serves; the dispatch below reads this list (#307 isolation test). */
+export const BACKSTAGE_API_ROUTES: readonly string[] = [
+  "/api/backstage/health",
+  "/api/backstage/answer",
+  "/api/backstage/coach",
+  "/api/backstage/trial/mint",
+  "/api/backstage/trial/answer",
+];
 const HEADERS = {
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
@@ -240,6 +249,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
   const mapLog = createMapLogger(clock, options.log);
   const questions = createQuestionRoutes({ path: options.tickets?.path, origin, clock, log: options.log, limits: options.questions?.limits, limiterCapacity: options.questions?.limiterCapacity });
   const guests = createGuestRoutes({ path: options.tickets?.path, clock, log: options.log, limits: options.questions?.limits, limiterCapacity: options.questions?.limiterCapacity });
+  const visitorRoutes = createVisitorRoutes({ path: options.tickets?.path, origin, secret, clock, log: options.log, limits: options.questions?.limits, limiterCapacity: options.questions?.limiterCapacity });
   const questionAdmin = createAdminRoutes({ path: options.tickets?.path, origin, clock, log: options.log, limits: options.questions?.limits });
   const adminApi = createAdminApi({ path: options.tickets?.path, clock, log: options.log, limits: options.questions?.limits });
   const adminMcp = createAdminMcpHttp({ api: adminApi, origin, clock, log: options.log });
@@ -272,7 +282,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       if (event === "session.rejected") {
         logger.auth({ event, email, ip, rid, reason: reason === "expired" || reason === "revoked" ? reason : "bad-signature" });
       } else if (event === "signin.google.denied") {
-        logger.auth({ event, email, ip, rid, reason: reason === "not-allowlisted" || reason === "unverified-email" || reason === "bad-state" || reason === "invalid-token" ? reason : "provider-error" });
+        logger.auth({ event, email, ip, rid, reason: reason === "not-allowlisted" || reason === "unverified-email" || reason === "bad-state" || reason === "invalid-token" || reason === "visitor-closed" || reason === "visitor-unavailable" ? reason : "provider-error" });
       } else logger.auth({ event, email, ip, rid });
     };
     const emitRun = (event: RunEvent, provider: Provider, armId: string): void => {
@@ -393,7 +403,28 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         if (!info.ok) throw new Error("Tokeninfo failed");
         const profile: unknown = await info.json();
         const checked = validateGoogleProfile(profile, options.auth.googleClientId, operators);
-        if (!checked.ok) { emitAuth("signin.google.denied", checked.email, checked.reason); responseError.headers.append("set-cookie", clear); return responseError; }
+        if (!checked.ok) {
+          emitAuth("signin.google.denied", checked.email, checked.reason);
+          const refused = checked.reason === "unverified-email" ? authError("google-access") : responseError;
+          refused.headers.append("set-cookie", clear);
+          return refused;
+        }
+        // A verified non-operator (#307) gets the visitor cookie and /ask/mine/, never the operator session.
+        if (checked.ok === "visitor") {
+          const signed = visitorRoutes.signIn(checked.sub, checked.email);
+          if (!signed.ok) {
+            const closed = signed.reason === "disabled" || signed.reason === "full";
+            emitAuth("signin.google.denied", "unknown", closed ? "visitor-closed" : "visitor-unavailable");
+            const refused = closed ? authError("google-access") : responseError;
+            refused.headers.append("set-cookie", clear);
+            return refused;
+          }
+          const welcome = redirect("/ask/mine/");
+          welcome.headers.append("set-cookie", clear);
+          welcome.headers.append("set-cookie", signed.setCookie);
+          logger.auth({ event: "signin.visitor.ok", ip, rid, vid: signed.vid });
+          return welcome;
+        }
         const row = operators.get(checked.email);
         if (!row) { emitAuth("signin.google.denied", "unknown", "not-allowlisted"); responseError.headers.append("set-cookie", clear); return responseError; }
         const session = signSession({ email: checked.email, auth: "google", iat: clock(), exp: clock() + SESSION_TTL_MS, sid: randomBytes(24).toString("base64url"), cred: credentialFingerprint(row.password_hash ?? "google") }, secret);
@@ -449,14 +480,8 @@ export function createHandler(options: ServerOptions): BackstageHandler {
                   },
           })
         : json({ error: "Method not allowed." }, 405);
-    if (
-      [
-        "/api/backstage/answer",
-        "/api/backstage/coach",
-        "/api/backstage/trial/mint",
-        "/api/backstage/trial/answer",
-      ].includes(pathname)
-    ) {
+    // Health returned above, so this matches the four POST routes.
+    if (BACKSTAGE_API_ROUTES.includes(pathname)) {
       const trialRoute = pathname.startsWith("/api/backstage/trial/");
       if (request.method !== "POST")
         return json({ error: "Method not allowed." }, 405);
@@ -703,6 +728,8 @@ export function createHandler(options: ServerOptions): BackstageHandler {
         else activeByok--;
       }
     }
+    // Signed-in visitors (#307) own /api/v1/visitor/; the visitor cookie opens nothing else.
+    if (isVisitorPath(pathname)) return visitorRoutes.handle(request, pathname, ip, rid);
     // Guest questions (#256) own /api/v1/guest/ and are dispatched first: a guest token never reaches the decide tools.
     if (isGuestPath(pathname)) return guests.handle(request, pathname, ip, rid);
     // The operator bearer API (#282) owns /api/v1/admin/, also ahead of decide: a jna_ token reaches only these routes.
@@ -831,6 +858,7 @@ export function createHandler(options: ServerOptions): BackstageHandler {
       ticketStore?.close();
       questions.close();
       guests.close();
+      visitorRoutes.close();
       questionAdmin.close();
       adminApi.close();
       mapStore?.close();

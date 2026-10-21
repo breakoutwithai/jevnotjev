@@ -94,7 +94,7 @@
     "src/backstage/page-catchup.test.ts": 5,
     "src/backstage/page-ux.test.ts": 15,
     "src/backstage/page.test.ts": 7,
-    "src/backstage/privacy.test.ts": 14,
+    "src/backstage/privacy.test.ts": 16,
     "src/backstage/providers.test.ts": 26,
     "src/backstage/run-gate.test.ts": 6,
     "src/backstage/run.test.ts": 83,
@@ -160,6 +160,9 @@
     "src/labels/suggest.test.ts": 10,
     "src/mcp/broken-paths.test.ts": 25,
     "src/mcp/server.test.ts": 8,
-    "src/shows/posters.test.ts": 19
+    "src/shows/posters.test.ts": 19,
+    "scripts/ask-mine.dom.test.ts": 15,
+    "src/guest-intake/visitor-routes.test.ts": 32,
+    "src/backstage/visitor-signin.test.ts": 20
   }
 }

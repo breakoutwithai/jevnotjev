@@ -2,12 +2,14 @@ import type { Provider } from "./contracts.ts";
 
 export type AuthEvent = "signin.password.ok" | "signin.password.fail" | "signin.lockout" | "signin.google.ok" | "signin.google.denied" | "signout" | "session.rejected";
 export type RunEvent = "run.start" | "run.done" | "run.error";
-export type GoogleDeniedReason = "not-allowlisted" | "unverified-email" | "bad-state" | "provider-error" | "invalid-token";
+export type GoogleDeniedReason = "not-allowlisted" | "unverified-email" | "bad-state" | "provider-error" | "invalid-token" | "visitor-closed" | "visitor-unavailable";
 export type SessionRejectedReason = "expired" | "revoked" | "bad-signature";
 type PlainAuthEvent = Exclude<AuthEvent, "signin.google.denied" | "session.rejected">;
+/** A visitor sign-in (#307) logs its visitor id only: never an email or Google sub. */
 export type AuthLog = { event: PlainAuthEvent; email: string; ip: string; rid: string } |
   { event: "signin.google.denied"; email: string; ip: string; rid: string; reason: GoogleDeniedReason } |
-  { event: "session.rejected"; email: string; ip: string; rid: string; reason: SessionRejectedReason };
+  { event: "session.rejected"; email: string; ip: string; rid: string; reason: SessionRejectedReason } |
+  { event: "signin.visitor.ok"; ip: string; rid: string; vid: string };
 /** One line per /api/v1 request: the route, the status and the token id. Never a token, a key or a body. */
 export interface ApiLog { event: "api.request"; rid: string; route: string; method: string; status: number; token: string | null }
 export interface RunLog { event: RunEvent; rid: string; provider: Provider; model: string }
@@ -27,6 +29,7 @@ export function createEventLogger(clock: () => number, sink?: (line: string) => 
     auth(fields: AuthLog): void {
       write(() => {
         const ts = new Date(clock()).toISOString();
+        if (fields.event === "signin.visitor.ok") return { ts, event: fields.event, ip: fields.ip, rid: fields.rid, vid: fields.vid };
         const { event, email, ip, rid } = fields;
         return fields.event === "signin.google.denied" || fields.event === "session.rejected"
           ? { ts, event, email, ip, rid, reason: fields.reason }

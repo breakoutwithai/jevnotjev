@@ -60,7 +60,11 @@ export interface QuestionLimits {
   readonly maxRetained: number;
   /** An operator message or reply. */
   readonly maxResponseChars: number;
+  /** Distinct signed-in visitors that may hold a free question (#307); later visitors are waitlisted. */
+  readonly freeVisitorSlots: number;
 }
+/** The one named cap on free visitor questions (#307): the first 10 distinct visitors get one question each. */
+export const FREE_QUESTION_VISITORS = 10;
 export const QUESTION_LIMITS: QuestionLimits = {
   maxQuestionChars: 4096,
   publicNewPerWindow: 100,
@@ -68,6 +72,7 @@ export const QUESTION_LIMITS: QuestionLimits = {
   guestNewPerDay: 10,
   maxRetained: 25_000,
   maxResponseChars: 8000,
+  freeVisitorSlots: FREE_QUESTION_VISITORS,
 };
 
 /** One submission after validation. `email` is null for a guest, whose principal is the token. */

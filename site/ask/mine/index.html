@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My questions - Jev!Jev</title>
+<meta name="description" content="Sign in with Google to send your free Jev!Jev question and read the reply a person writes. No provider key and no Jev run.">
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="../../page.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;0,800;1,400;1,500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../ask.css">
+<script src="mine.js" defer></script>
+</head>
+<body>
+<main>
+<p><a href="/">Back to Jev!Jev</a> &middot; <a href="/ask/">Ask without signing in</a></p>
+<h1>My questions</h1>
+<p class="lede">Sign in with Google to send one free question and read the reply here. A person reads every question. Nothing answers it automatically, no model provider sees it and no Jev run happens.</p>
+
+<p id="mineLoading" role="status">Loading...</p>
+<p class="err" id="mineError" role="alert" hidden></p>
+
+<section id="mineSignedOut" aria-labelledby="mineSignedOutTitle" hidden>
+  <h2 id="mineSignedOutTitle">Sign in</h2>
+  <ul class="facts">
+    <li>We keep your Google account id and verified email so your questions stay yours. No email is sent to you.</li>
+    <li>The first 10 visitors to send a question get one free question each. After that you can still sign in and you are put on a waitlist; the page shows your place. No email is sent.</li>
+  </ul>
+  <p><a id="mineGoogle" href="/api/auth/google">Continue with Google</a></p>
+  <p class="hint"><a href="/privacy/">How we handle data</a>.</p>
+</section>
+
+<section id="mineSignedIn" aria-labelledby="mineSignedInTitle" hidden>
+  <h2 id="mineSignedInTitle">Signed in</h2>
+  <p>Signed in as <strong id="mineEmail"></strong>. <button id="mineSignOut" type="button">Sign out</button></p>
+  <p class="err" id="mineSignOutErr" role="alert" hidden></p>
+  <p class="hint" id="mineMessage" role="status" hidden></p>
+
+  <form class="ask-form" id="mineForm" novalidate hidden>
+    <div class="field">
+      <label for="mineQuestion">What decision are you trying to make?</label>
+      <p class="hint" id="mineQuestionHint">For example: route shop questions to stock help or general help. Up to 4,096 characters. Do not include passwords, API keys or private client data. Use made-up cases.</p>
+      <textarea id="mineQuestion" name="question" rows="6" maxlength="4096" required aria-describedby="mineQuestionHint mineQuestionErr"></textarea>
+      <p class="err" id="mineQuestionErr" hidden>Write your question first.</p>
+    </div>
+    <div class="field check">
+      <input id="mineReply" name="reply_consent" type="checkbox" aria-describedby="mineReplyErr">
+      <label for="mineReply">Store my question and my Google email so a person can review it and reply here (needed to send).</label>
+      <p class="err" id="mineReplyErr" hidden>Tick this box to send your question.</p>
+    </div>
+    <div class="field check">
+      <input id="mineMarketing" name="marketing_consent" type="checkbox">
+      <label for="mineMarketing">Optional: I would like occasional Jev!Jev news by email.</label>
+    </div>
+    <p class="err" id="mineFormErr" role="alert" hidden></p>
+    <button id="mineSubmit" type="submit">Send my question</button>
+  </form>
+
+  <h2>Your questions</h2>
+  <div id="mineListErr" hidden>
+    <p class="err" role="alert">Could not load your questions. Try again.</p>
+    <button id="mineRetry" type="button">Try again</button>
+  </div>
+  <p class="hint" id="mineEmpty" hidden>You have not sent a question yet.</p>
+  <div id="mineList" aria-live="polite"></div>
+  <p class="hint">Replies appear here. We do not email them. To have a question deleted, email <a href="mailto:jev@breakoutwithai.com">jev@breakoutwithai.com</a> quoting only the reference (Q-...). Sign-in rows are removed by hand on request, and nothing is deleted automatically. <a href="/privacy/">How we handle data</a>.</p>
+</section>
+</main>
+</body>
+</html>

@@ -35,6 +35,8 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - No consented outside user's own run from start to verdict is documented yet; the next step is to invite one and document it. [Source](RELEASE-v0.1.0.md) <!-- claim: no-outside-run -->
 - A remote admin MCP request can run past its 30-second deadline by a database lock wait; a call whose client disconnects still runs until it completes or reaches the deadline, and a reply answered 504 may still have been stored. [Source](guest-access.md) <!-- claim: admin-deadline -->
 - The admin token header must spell the scheme `Bearer`; `bearer` or `BEARER` is refused. [Source](guest-access.md) <!-- claim: bearer-scheme -->
+- A signed-in visitor gets one free question, and only the first 10 visitors to send a question get one (`FREE_QUESTION_VISITORS`); past that cap sign-in still works and a submit answers 409 `free-slots-used`. [Source](product/guest-intake.md) <!-- claim: free-question-cap -->
+- A visitor who meets the cap is put on a waitlist (`waitlisted_at` on the visitors row) and sees a place on the My questions page; no email is sent, and a place opens only when the cap is raised by a code change or the limits option. [Source](product/guest-intake.md) <!-- claim: waitlist -->
 
 ## 4. Data and trust
 
@@ -50,6 +52,8 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - A question sent from the ask page is read and answered by a person; it is never sent to a model provider and no Jev run happens. [Source](../site/privacy/index.html) <!-- claim: question-human -->
 - Your email is not checked and no reply is emailed to it; the reply appears on the ask page under your status code. [Source](../site/privacy/index.html) <!-- claim: question-email -->
 - Questions have no retention period yet and nothing is deleted automatically; a person deletes one by hand on request. [Source](../site/privacy/index.html) <!-- claim: question-retention -->
+- Signing in with Google as a visitor keeps your Google account id, verified email, first and last sign-in times, a session generation value and a disabled marker in a visitors table, plus the time you joined the waitlist if you were put on it, and each question you send keeps your verified email. [Source](../site/privacy/index.html) <!-- claim: visitor-keeps -->
+- Visitor rows have no automatic expiry and no retention period has been set; a person removes one by hand on request. [Source](../site/privacy/index.html) <!-- claim: visitor-removal -->
 - Operator tools such as a Claude connector may send question text to a model provider when an operator connects one, which differs from the ask page promise that no model provider sees your question, so the connector is not run on visitor rows without the visitor's consent. [Source](guest-access.md) <!-- claim: connector-model -->
 - An operator token is not bound to one endpoint: the same token works on the admin API and the remote admin MCP connector. [Source](guest-access.md) <!-- claim: token-audience -->
 - Admin routes run before the server's concurrency slot and have no per-IP rate limit. [Source](guest-access.md) <!-- claim: admin-rate-limit -->

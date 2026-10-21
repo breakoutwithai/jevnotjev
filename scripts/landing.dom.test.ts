@@ -935,6 +935,7 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
     const tabs = await pageAt(width, height, "no-preference");
     try {
       const note = await noteShown(tabs);
+      expect({ width, note }).toEqual({ width, note: true });
       const stops = await tabStops(tabs, note ? 6 : 5);
       expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed", "lights:closed", "A.house-link:open"] });
       expect(await shownCurtains(tabs)).toBe(0);
@@ -984,6 +985,7 @@ test("[integration] UX2 c01 Raise the curtain is a button on the closed curtain,
     const keyed = await pageAt(width, height, "no-preference");
     try {
       const note = await noteShown(keyed);
+      expect({ width, note }).toEqual({ width, note: true });
       const stops = await tabStops(keyed, note ? 4 : 3);
       expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed"] });
       await keyed.keyboard.press("Enter");

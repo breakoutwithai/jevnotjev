@@ -26,7 +26,7 @@ type NumberField = "claudeSessions" | "codexSessions" | "claudeOutput" | "codexO
 export const NOT_A_RESULT = "That doesn't look like the result. Run the prompt again and paste what it prints.";
 export const NOT_RECORDED = "not recorded";
 
-const LABELS: Readonly<Record<string, NumberField | "period" | "pattern" | "perDay" | "limitDays">> = {
+export const LABELS: Readonly<Record<string, NumberField | "period" | "pattern" | "perDay" | "limitDays">> = {
   "period": "period",
   "claude sessions": "claudeSessions",
   "codex sessions": "codexSessions",
@@ -41,7 +41,7 @@ const LABELS: Readonly<Record<string, NumberField | "period" | "pattern" | "perD
 };
 
 /** Label and value from one line: "Label: value", a "| Label | Value |" table row, with bullets or bold markers. */
-function labelValue(raw: string): [string, string] | null {
+export function labelValue(raw: string): [string, string] | null {
   const line = raw.replace(/\*\*|__|`/g, "").trim().replace(/^(?:[-*+•]|\d+[.)])\s+/, "");
   let label: string;
   let value: string;
@@ -163,11 +163,12 @@ export function cardHeadline(week: Week): string {
   return `Usage limit hits ${NOT_RECORDED}`;
 }
 
-/** Show Sample: one builder's real week, the sample this site has shown since #238. Period, totals, cap hits, Opus and
+/** Show Sample: one builder's real week, the sample this site has shown since #238. The period end was set to
+ * 2026-10-15 so the seven days are both included. Period, totals, cap hits, Opus and
  * Codex figures are the recorded run (both cap hits on 2026-10-14). The per-day split is NOT in that record: it was
  * constructed on the operator's request (2026-10-21) to sum to the recorded 3,993 sessions. */
 export const SAMPLE_WEEK: Week = {
-  period: { start: "2026-10-09", end: "2026-10-16" }, claudeSessions: 515, codexSessions: 3478, claudeOutput: 9977232, codexOutput: 7503143,
+  period: { start: "2026-10-09", end: "2026-10-15" }, claudeSessions: 515, codexSessions: 3478, claudeOutput: 9977232, codexOutput: 7503143,
   opusShare: 87, limitHits: 2, codexWindow: 15, pattern: null,
   perDay: [520, 610, 655, 702, 590, 498, 418], limitDays: ["2026-10-14"],
 };

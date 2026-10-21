@@ -935,7 +935,7 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
     const tabs = await pageAt(width, height, "no-preference");
     try {
       const note = await noteShown(tabs);
-      expect({ width, note }).toEqual({ width, note: true });
+      expect({ width, note }).toEqual({ width, note: NOTE_RENDERED });
       const stops = await tabStops(tabs, note ? 6 : 5);
       expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed", "lights:closed", "A.house-link:open"] });
       expect(await shownCurtains(tabs)).toBe(0);
@@ -985,7 +985,7 @@ test("[integration] UX2 c01 Raise the curtain is a button on the closed curtain,
     const keyed = await pageAt(width, height, "no-preference");
     try {
       const note = await noteShown(keyed);
-      expect({ width, note }).toEqual({ width, note: true });
+      expect({ width, note }).toEqual({ width, note: NOTE_RENDERED });
       const stops = await tabStops(keyed, note ? 4 : 3);
       expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "curtain poster:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed"] });
       await keyed.keyboard.press("Enter");
@@ -2058,6 +2058,9 @@ async function bandBox(page: Page): Promise<{ top: number; bottom: number; heigh
 }
 
 /** Presses Tab `count` times and returns each focused stop (its id, or a short name) with the curtain's state and whether it shows a focus ring. */
+/** The testimonial note is in the page only once TESTIMONIAL.approved is true (scripts/site-testimonial.ts); at the closed viewports it must then be shown. */
+const NOTE_RENDERED = readFileSync(join(import.meta.dir, "..", "site", "index.html"), "utf8").includes('class="shop-say"');
+
 /** Whether the testimonial note under the Little Shop poster is on screen (theatre.css hides it where the playbill is short). */
 async function noteShown(page: Page): Promise<boolean> {
   return page.evaluate(() => document.querySelector("#overture .shop-say")?.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) ?? false);

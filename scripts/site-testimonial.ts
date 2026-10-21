@@ -6,12 +6,16 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export const TESTIMONIAL = {
+export type Testimonial = { quote: string; name: string; source: string; url: string; approved: boolean };
+
+// approved false: nothing is rendered into the page. Set it to true (and run the script) only once the speaker has approved the wording.
+export const TESTIMONIAL: Testimonial = {
   quote: "Jev has really helped me on my build, I am really enjoying it.",
   name: "Olly Lenton",
   source: "Early AI-dopters community, October 2026",
   url: "https://www.skool.com/earlyaidopters/d26-jevjev",
-} as const;
+  approved: false,
+};
 
 export const START = "<!-- testimonial:start -->";
 export const END = "<!-- testimonial:end -->";
@@ -20,7 +24,8 @@ function esc(text: string): string {
   return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
-export function renderTestimonial(t: typeof TESTIMONIAL = TESTIMONIAL): string {
+export function renderTestimonial(t: Testimonial = TESTIMONIAL): string {
+  if (!t.approved) return "";
   return (
     `<figure class="shop-say" id="say"><blockquote><p>${esc(t.quote)}</p></blockquote>` +
     `<figcaption>${esc(t.name)}, <a href="${esc(t.url)}" rel="noopener noreferrer">${esc(t.source)}</a></figcaption></figure>`

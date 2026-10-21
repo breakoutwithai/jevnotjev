@@ -49,7 +49,7 @@
     "scripts/shows/poster-row.dom.test.ts": 5,
     "scripts/shows/ticket-office.dom.test.ts": 5,
     "scripts/site-content.test.ts": 11,
-    "scripts/site-testimonial.test.ts": 4,
+    "scripts/site-testimonial.test.ts": 6,
     "scripts/stage-door.test.ts": 6,
     "scripts/stage-sample.test.ts": 11,
     "scripts/ticket-prompt-capture.dom.test.ts": 4,

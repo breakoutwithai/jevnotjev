@@ -173,6 +173,7 @@ Limit hit days: &lt;dates as YYYY-MM-DD separated by commas, or none&gt;
 Codex weekly window used: &lt;percent&gt;
 Pattern: &lt;running out | leaving most unused&gt;
 
+The period is the start and end date, both included, 7 days in total.
 Sessions per day: seven numbers, one per day of the period, oldest day first. Limit hit days: the dates on which I hit a usage limit, or none.
 Use 'not recorded' for any line you cannot fill. Round numbers freely. Do not add anything else.
 Print only the block above. No notes, caveats, warnings, checks, counts of duplicates or files, or explanations before or after it. If a number is approximate, just give the number.</pre>
@@ -195,16 +196,10 @@ Print only the block above. No notes, caveats, warnings, checks, counts of dupli
         <button type="button" class="btn-ghost" id="showSample">Show Sample</button>
         <button type="button" class="btn-gold" id="submitWeek" aria-describedby="submitConsent">Submit</button>
       </div>
-      <p class="hint" id="submitConsent">Pressing Submit sends the numbers from your result (days covered, sessions, output tokens, Opus share, limit hits and Codex weekly window) and your nickname to this site. They appear on the public board at /maps/, shown as self-reported and not verified. Nothing is sent until you press Submit.</p>
+      <p class="hint" id="submitConsent">Pressing Submit sends the numbers from your result and your nickname to this site: days covered; sources (which logs you used); total sessions; subagent sessions (always 0); short cap hits (0), weekly cap hits (0), and unknown cap hits (your usage limit hits); Claude output tokens and Codex output tokens; Opus share of Claude output; Codex weekly window used; and mapper version 0.0.0, which marks a pasted block. They appear on the public board at /maps/, shown as self-reported and not verified. Nothing is sent until you press Submit. Pressing Submit again on this page never adds a second row for the same result and nickname; reloading or closing the page before it shows as submitted can. This page keeps the delete key and retry key only in its own memory, not in browser storage. They are gone when the page is closed or reloaded.</p>
       <p class="paste-error" id="pasteError" role="alert" hidden></p>
       <p class="submit-status" id="submitStatus" role="status" aria-live="polite" hidden></p>
-      <div class="submitted" id="submitted" tabindex="-1" hidden>
-        <p class="submitted-head" id="submittedHead"></p>
-        <p>Board: <a id="submittedBoard" href="/maps/">/maps/</a></p>
-        <p>Your map id: <code id="submittedId"></code></p>
-        <p>Your key: <code id="submittedKey"></code></p>
-        <p>Keep this key to remove your entry: <a id="submittedDelete" href="/maps/">remove my entry</a></p>
-      </div>
+      <div class="submitted" id="submitted" hidden><ol id="receipts"></ol></div>
     </div>
     <!-- The sample: the builder's own run, use-cases/tim-tokenmax/RUNS.md in the private planning folder, "Builder's real
          history with 0.2.0 (2026-10-16)": sessions 515 Claude and 3,478 Codex (sum 3,993), 2 cap hits, output tokens

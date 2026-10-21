@@ -9,7 +9,7 @@ import {
   cardHeadline, dayLabels, limitDayIndexes, NOT_A_RESULT, NOT_RECORDED, parseWeek, periodLine, SAMPLE_WEEK, situationOf, stageHeadline, stageSubtitle,
   weekLines, type Week,
 } from "./tm-week.ts";
-import { ALIAS_MESSAGE, ALIAS_PATTERN, newRequestKey, rejectionMessage, submitBody, weekToPayload } from "./tm-submit.ts";
+import { ALIAS_MESSAGE, ALIAS_PATTERN, newRequestKey, rawNumberProblem, rejectionMessage, submitBody, weekToPayload } from "./tm-submit.ts";
 
 export type Mode = "burn" | "under";
 export type View = "without" | "with";
@@ -582,10 +582,17 @@ export function startTheRun(doc: Document): void {
   /* ---------- Submit: the one thing on this page that sends. Pressing it is the visitor's consent (copy beside it). ---------- */
   const aliasBox = id("aliasBox", HTMLInputElement), aliasError = id("aliasError", HTMLElement);
   const submitBtn = id("submitWeek", HTMLButtonElement), submitStatus = id("submitStatus", HTMLElement);
-  const submitted = id("submitted", HTMLElement);
-  // One request key per distinct alias + payload: pressing Submit again with the same paste sends the same key, so the
-  // server replays instead of adding a second row (src/backstage/maps.ts MapStore.issue).
-  let attempt = { draft: "", key: "" };
+  const submitted = id("submitted", HTMLElement), receipts = id("receipts", HTMLOListElement);
+  const TIMEOUT_MS = 15_000;
+  // Request keys are delete secrets. Keep each draft's key for this page lifetime only.
+  const keys = new Map<string, string>();
+  function keyFor(draft: string): string {
+    const existing = keys.get(draft);
+    if (existing !== undefined) return existing;
+    const key = newRequestKey((bytes) => win.crypto.getRandomValues(bytes));
+    keys.set(draft, key);
+    return key;
+  }
   let sending = false;
   function clearSubmitMessages(): void {
     aliasError.hidden = true; aliasError.textContent = ""; aliasBox.removeAttribute("aria-invalid");
@@ -596,25 +603,59 @@ export function startTheRun(doc: Document): void {
   function idOf(data: unknown): string | null {
     return typeof data === "object" && data !== null && "id" in data && typeof data.id === "string" && /^TM-[0-9A-F]{12}$/.test(data.id) ? data.id : null;
   }
-  function replayOf(data: unknown): boolean { return typeof data === "object" && data !== null && "replay" in data && data.replay === true; }
-  function showSubmitted(mapId: string, key: string, alias: string, replay: boolean): void {
-    id("submittedHead", HTMLElement).textContent = replay ? `Already submitted: your entry is on the board as ${alias}.` : `Submitted. Your entry is on the public board as ${alias}.`;
-    id("submittedId", HTMLElement).textContent = mapId;
-    id("submittedKey", HTMLElement).textContent = key;
-    id("submittedDelete", HTMLAnchorElement).href = `/maps/#delete=${mapId}.${key}`;
+  function showSubmitted(mapId: string, key: string, alias: string): void {
+    for (const old of every(receipts, "li", HTMLLIElement)) if (old.dataset.mapId === mapId) {
+      submitStatus.textContent = `Already submitted: your entry is on the board as ${alias}.`;
+      submitStatus.hidden = false;
+      old.focus();
+      return;
+    }
+    const li = doc.createElement("li");
+    li.className = "receipt"; li.tabIndex = -1; li.dataset.mapId = mapId;
+    const line = (value: string, className = ""): void => { const p = doc.createElement("p"); p.className = className; p.textContent = value; li.append(p); };
+    const link = (label: string, href: string): void => { const p = doc.createElement("p"); const a = doc.createElement("a"); a.href = href; a.textContent = label; p.append(a); li.append(p); };
+    const code = (label: string, value: string): void => { const p = doc.createElement("p"); const c = doc.createElement("code"); c.textContent = value; p.append(`${label} `, c); li.append(p); };
+    line(`Submitted. Your entry is on the public board as ${alias}.`, "submitted-head");
+    link("Board: /maps/", "/maps/");
+    code("Your map id:", mapId);
+    code("Your key:", key);
+    line("Keep this key to remove your entry.");
+    link("remove my entry", `/maps/#delete=${mapId}.${key}`);
+    receipts.prepend(li);
     submitStatus.textContent = "Submitted. Your entry is on the public board.";
     submitStatus.hidden = false;
     submitted.hidden = false;
-    submitted.focus();
-    // A convenience only: the key on the page is the copy that counts. Storage may be off or full.
-    try { win.localStorage.setItem("tm-submit/1", JSON.stringify({ id: mapId, key, alias })); } catch { /* storage unavailable */ }
+    li.focus();
+  }
+  async function send(payload: Parameters<typeof submitBody>[0], alias: string, key: string, draft: string): Promise<void> {
+    const control = new AbortController();
+    const timer = win.setTimeout(() => control.abort(), TIMEOUT_MS);
+    try {
+      const response = await win.fetch("/api/maps", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(submitBody(payload, alias, key)), signal: control.signal });
+      let data: unknown = null;
+      try { data = await response.json(); } catch (error) { if (control.signal.aborted) throw error; }
+      const mapId = response.ok ? idOf(data) : null;
+      submitStatus.hidden = true; submitStatus.textContent = "";
+      if (mapId) { showSubmitted(mapId, key, alias); return; }
+      if (response.status === 409 && typeof data === "object" && data !== null && "code" in data && data.code === "request-key-reused") keys.delete(draft);
+      refuse(response.ok ? "The server's answer could not be read, so it is not known whether your entry was added. Press Submit again; pressing it again on this page never adds a second row." : rejectionMessage(response.status, data));
+    } catch {
+      submitStatus.hidden = true; submitStatus.textContent = "";
+      refuse(control.signal.aborted
+        ? "Not submitted: no answer within 15 seconds. Press Submit again; pressing it again on this page never adds a second row."
+        : "Not submitted: the request did not complete. Check your connection and press Submit again; pressing it again on this page never adds a second row.");
+    } finally {
+      win.clearTimeout(timer);
+      sending = false; submitBtn.disabled = false;
+    }
   }
   function submitWeek(): void {
     if (sending) return;
     clearSubmitMessages();
-    submitted.hidden = true;
     const week = parseWeek(pasteBox.value);
     if (!week) { yourWeek.hidden = true; refuse(NOT_A_RESULT); pasteBox.focus(); return; }
+    const rawProblem = rawNumberProblem(pasteBox.value);
+    if (rawProblem) { showCard(week, false); refuse(rawProblem); return; }
     const mapped = weekToPayload(week);
     if (!mapped.ok) { showCard(week, false); refuse(mapped.message); return; }
     const alias = aliasBox.value.trim();
@@ -627,23 +668,10 @@ export function startTheRun(doc: Document): void {
     }
     showCard(week, false);
     const draft = JSON.stringify([alias, mapped.payload]);
-    if (draft !== attempt.draft) attempt = { draft, key: newRequestKey((bytes) => win.crypto.getRandomValues(bytes)) };
-    const key = attempt.key;
+    const key = keyFor(draft);
     sending = true; submitBtn.disabled = true;
     submitStatus.textContent = "Submitting..."; submitStatus.hidden = false;
-    win.fetch("/api/maps", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(submitBody(mapped.payload, alias, key)) })
-      .then((res) => res.json().then((data: unknown) => ({ ok: res.ok, status: res.status, data }), () => ({ ok: res.ok, status: res.status, data: null })))
-      .then((res) => {
-        const mapId = res.ok ? idOf(res.data) : null;
-        submitStatus.hidden = true; submitStatus.textContent = "";
-        if (mapId) { showSubmitted(mapId, key, alias, replayOf(res.data)); return; }
-        if (res.status === 409) attempt = { draft: "", key: "" };
-        refuse(res.ok ? "The server's answer could not be read, so it is not known whether your entry was added. Press Submit again: it will not add a second row." : rejectionMessage(res.status, res.data));
-      }, () => {
-        submitStatus.hidden = true; submitStatus.textContent = "";
-        refuse("Not submitted: the request did not complete. Check your connection and press Submit again; pressing it again never adds a second row.");
-      })
-      .then(() => { sending = false; submitBtn.disabled = false; });
+    void send(mapped.payload, alias, key, draft);
   }
   submitBtn.addEventListener("click", submitWeek);
 

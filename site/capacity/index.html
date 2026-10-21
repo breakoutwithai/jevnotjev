@@ -38,18 +38,15 @@
     <p id="capPasted" class="map-help"></p>
 
     <h3 id="capSidesTitle">Headroom beside demand</h3>
-    <p class="map-help">Left: maps with no cap episode recorded. Right: maps with at least one. "No cap recorded" is not a Lite plan, and Codex used percent is the only unused-capacity reading the maps carry. Each map covers 1 to 90 days, so token figures are totals, not rates: read them against the map days row. They are rounded (K thousand, M million, B billion, T trillion) and count only maps that read that provider.</p>
-    <table class="cap-table" aria-labelledby="capSidesTitle">
+    <p class="map-help">Left: maps with no cap episode recorded. Right: maps with at least one. "No cap recorded" is not a Lite plan, and Codex used percent is the only unused-capacity reading the maps carry. Each map covers 1 to 90 days, so token figures are totals, not rates: read them against the map days row. They count only maps that read that provider.</p>
+    <table class="cap-table cap-stack" aria-labelledby="capSidesTitle">
       <thead><tr><th scope="col">Measure</th><th scope="col" class="cap-num">No cap recorded</th><th scope="col" class="cap-num">Hit a cap</th></tr></thead>
       <tbody id="capSides"></tbody>
     </table>
 
-    <h3 id="capPressureTitle">Limit pressure by map</h3>
-    <p class="map-help">Cap episodes (short, weekly and unknown) per 100 sessions, beside the Codex weekly used percent where the map recorded one. A cap count from a pasted TokenMax block may include retries and is not comparable to a mapper map. A quiet week is a map with under 1 session a day; its sessions and days are shown. Maps are numbered newest first by board position; no alias or id is shown.</p>
-    <table class="cap-table" aria-labelledby="capPressureTitle">
-      <thead><tr><th scope="col">Map</th><th scope="col" class="cap-num">Caps per 100 sessions</th><th scope="col" class="cap-num">Codex weekly used</th></tr></thead>
-      <tbody id="capPressure"></tbody>
-    </table>
+    <h3 id="capMapsTitle">Every map as submitted</h3>
+    <p class="map-help">Maps are numbered newest first by board position; no alias, id or day is shown. A quiet week is a map whose sessions divided by days is under 1. Values are the maps' own, self-reported and not verified.</p>
+    <ol id="capMaps" class="cap-maps" aria-labelledby="capMapsTitle"></ol>
   </div>
 
   <h3>Not measured</h3>

@@ -1,23 +1,26 @@
 /* The /capacity/ aggregate view of the TokenMax board (tm-share/1 maps).
    Reads GET /api/maps on load and every 10 seconds, sums the rows in the browser and writes the result with textContent only.
-   No alias, id or row is ever shown, and nothing is sent. A figure the maps do not carry is shown as "not measured". */
+   Every figure is shown as submitted: nothing is discounted, excluded, normalised or rounded except the Codex weekly means (one decimal).
+   No alias, id or day is ever shown (each map is "Map N" by board position), and nothing is sent.
+   A figure the maps do not carry is shown as "not measured" (totals) or as the /maps/ board words (per map). */
 (function () {
   "use strict";
 
   var POLL_MS = 10000;
   var NOT_MEASURED = "not measured";
-  /* /tm/ Submit sends skill "0.0.0" for a pasted block: its caps.short and caps.weekly are fixed at 0 and every limit hit is
-     counted in caps.unknown (src/browser/tm-submit.ts weekToPayload). Its Short and Weekly figures are therefore not measured. */
+  /* /tm/ Submit sends skill "0.0.0" for a pasted block (src/browser/tm-submit.ts weekToPayload). */
   var PASTED_SKILL = "0.0.0";
 
   function isObj(v) { return typeof v === "object" && v !== null && !Array.isArray(v); }
-  function num(v) { return typeof v === "number" && isFinite(v) ? v : 0; }
+  function isNum(v) { return typeof v === "number" && isFinite(v); }
+  function num(v) { return isNum(v) ? v : 0; }
   function capsOf(row) { return isObj(row.caps) ? row.caps : {}; }
   function capTotal(row) { var c = capsOf(row); return num(c.short) + num(c.weekly) + num(c.unknown); }
   function tokens(row, key) { return isObj(row.output_tokens) ? num(row.output_tokens[key]) : 0; }
 
   /* A map that did not read a provider's logs carries a placeholder 0 for it: count that provider only where it was collected. */
   function collected(row, provider) { return row.sources === provider || row.sources === "claude+codex"; }
+  function round1(n) { return Math.round(n * 10) / 10; }
 
   function side(rows) {
     var out = { maps: rows.length, short: 0, weekly: 0, unknown: 0, claude: 0, codex: 0, claudeMaps: 0, codexMaps: 0, readings: 0, usedSum: 0, days: 0, unknownMaps: 0 };
@@ -29,12 +32,28 @@
       if (collected(row, "claude")) { out.claudeMaps += 1; out.claude += tokens(row, "claude"); }
       if (collected(row, "codex")) {
         out.codexMaps += 1; out.codex += tokens(row, "codex");
-        if (typeof row.codex_weekly_pct === "number" && isFinite(row.codex_weekly_pct)) { out.readings += 1; out.usedSum += row.codex_weekly_pct; }
+        if (isNum(row.codex_weekly_pct)) { out.readings += 1; out.usedSum += row.codex_weekly_pct; }
       }
     });
-    out.meanUsed = out.readings ? Math.round(out.usedSum / out.readings) : null;
-    out.meanHeadroom = out.readings ? 100 - out.meanUsed : null;
+    out.meanUsed = out.readings ? round1(out.usedSum / out.readings) : null;
+    out.meanHeadroom = out.readings ? round1(100 - out.usedSum / out.readings) : null;
     return out;
+  }
+
+  /* One anonymous entry per map, in board order (newest first), each value as submitted. quiet: sessions / days is under 1. */
+  function mapLine(row, i) {
+    var c = capsOf(row), sessions = num(row.sessions), days = num(row.days);
+    return {
+      n: i + 1,
+      pasted: row.skill === PASTED_SKILL, skill: String(row.skill),
+      sessions: sessions, days: days,
+      short: num(c.short), weekly: num(c.weekly), unknown: num(c.unknown),
+      claude: collected(row, "claude") ? tokens(row, "claude") : null,
+      codex: collected(row, "codex") ? tokens(row, "codex") : null,
+      opus: collected(row, "claude") && isNum(row.opus_share_pct) ? row.opus_share_pct : null,
+      codexUsed: collected(row, "codex") && isNum(row.codex_weekly_pct) ? row.codex_weekly_pct : null,
+      quiet: days > 0 && sessions / days < 1,
+    };
   }
 
   /* rows: board rows, newest first, at most 100. totals: the server's totals over every stored map. */
@@ -47,53 +66,26 @@
     return { stored: stored, shown: list.length, all: side(list), free: side(free), hit: side(hit), pasted: side(pasted), maps: list.map(mapLine) };
   }
 
-  /* One anonymous line per map, in board order (newest first); no alias, id or day. Existing fields only.
-     pressure: cap episodes (short + weekly + unknown) per 100 sessions, null when the map has no sessions.
-     quiet: fewer than 1 session per day (sessions / days < 1); the sessions and days are the evidence. */
-  function mapLine(row, i) {
-    var sessions = num(row.sessions), days = num(row.days), caps = capTotal(row);
-    return {
-      n: i + 1,
-      pasted: row.skill === PASTED_SKILL,
-      sessions: sessions, days: days, caps: caps,
-      pressure: sessions > 0 ? Math.round(caps / sessions * 1000) / 10 : null,
-      codexUsed: collected(row, "codex") && typeof row.codex_weekly_pct === "number" && isFinite(row.codex_weekly_pct) ? row.codex_weekly_pct : null,
-      quiet: days > 0 && sessions / days < 1,
-    };
-  }
-
   function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
-  /* 1234567 -> "1.2M", 89012 -> "89K", 999 -> "999" (the /maps/ board's rule). A summed token figure can reach 100 maps x 10^12,
-     so the full number would be 19 characters wide and push a 320 px table past the screen. */
-  function compact(n) {
-    var units = [[1e3, "K"], [1e6, "M"], [1e9, "B"], [1e12, "T"]];
-    for (var i = units.length - 1; i >= 0; i--) {
-      if (n < units[i][0]) continue;
-      var v = n / units[i][0];
-      var r = v < 100 ? Math.round(v * 10) / 10 : Math.round(v);
-      if (r >= 1000 && i < units.length - 1) { i += 1; v = n / units[i][0]; r = Math.round(v * 10) / 10; }
-      return String(r) + units[i][1];
-    }
-    return String(n);
-  }
-  /* Tokens used by the maps that read this provider; none read it: not measured, never a bare 0. */
-  function tok(n, coverage) { return coverage === 0 ? NOT_MEASURED : compact(n); }
   function pct(n) { return n === null ? NOT_MEASURED : n + "%"; }
+  /* Tokens used by the maps that read this provider; none read it: not measured, never a bare 0. */
+  function tok(n, coverage) { return coverage === 0 ? NOT_MEASURED : fmt(n); }
   function plural(n, one, many) { return n === 1 ? one : many; }
 
   function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
-  function cell(tr, text, cls) {
-    var td = document.createElement("td");
-    td.textContent = text;
-    if (cls) td.className = cls;
-    tr.appendChild(td);
-  }
-  function fill(id, lines) {
+  /* labels: the column names, set as data-label so a narrow screen can stack each cell under its name (capacity.css). */
+  function fill(id, lines, labels) {
     var body = document.getElementById(id);
     clear(body);
     lines.forEach(function (line) {
       var tr = document.createElement("tr");
-      line.forEach(function (text, i) { cell(tr, text, i === 0 ? "" : text === NOT_MEASURED ? "cap-num cap-nm" : "cap-num"); });
+      line.forEach(function (text, i) {
+        var td = document.createElement("td");
+        td.textContent = text;
+        if (i > 0) td.className = text === NOT_MEASURED ? "cap-num cap-nm" : "cap-num";
+        if (labels && i > 0) td.setAttribute("data-label", labels[i]);
+        tr.appendChild(td);
+      });
       body.appendChild(tr);
     });
   }
@@ -103,36 +95,54 @@
     if (el.textContent !== text) el.textContent = text;
   }
 
-  /* One sentence: what the numbers say, and that they are self-reports. */
+  /* One sentence: what the counts say, and that they are self-reports. */
   function reading(s) {
     if (s.shown === 0) return "No maps are shared yet, so there is nothing to count.";
-    return s.hit.maps + " of " + s.shown + " " + plural(s.shown, "map", "maps") + " recorded at least one cap episode and " + s.free.maps + " recorded none. These are the builders' own reports, not verified, and spare capacity is not measured beyond Codex's weekly percent.";
+    return s.hit.maps + " of " + s.shown + " " + plural(s.shown, "map", "maps") + " recorded at least one cap episode and " + s.free.maps + " recorded none. Every figure is self-reported and not verified, and spare capacity is not measured beyond Codex's weekly percent.";
   }
 
-  /* Pasted blocks carry no short or weekly split: say so wherever Short and Weekly are shown. */
+  /* What a pasted TokenMax block submits for the window split, stated once; no number is changed. */
   function pastedNote(s) {
-    var u = s.pasted.unknown;
+    var u = s.pasted.unknownMaps;
     if (u === 0) return "";
-    return s.pasted.unknownMaps + " pasted TokenMax " + plural(s.pasted.unknownMaps, "block reports", "blocks report") + " " + fmt(u) + " limit " + plural(u, "hit", "hits") + " without saying which kind. Those are counted as unknown window, so Short and Weekly are at least the figures shown, not measurements.";
+    return u + " pasted TokenMax " + plural(u, "block submits its", "blocks submit their") + " limit hits as unknown window, with Short and Weekly submitted as 0.";
   }
 
-  /* Limit pressure by map: cap episodes per 100 sessions beside Codex weekly used, with the flags under the map's number. */
-  function fillPressure(maps) {
-    var body = document.getElementById("capPressure");
-    clear(body);
+  /* Every map as submitted, under its number. Values the map did not collect read as on the /maps/ board. */
+  function fillMaps(maps) {
+    var list = document.getElementById("capMaps");
+    clear(list);
     maps.forEach(function (m) {
-      var tr = document.createElement("tr");
-      var th = document.createElement("th");
-      th.setAttribute("scope", "row");
-      th.appendChild(document.createTextNode("Map " + m.n));
-      [m.pasted ? "pasted block" : "", m.quiet ? "Quiet week: " + fmt(m.sessions) + " " + plural(m.sessions, "session", "sessions") + " in " + fmt(m.days) + " " + plural(m.days, "day", "days") : ""].forEach(function (t) {
+      var li = document.createElement("li");
+      li.className = "cap-map";
+      var head = document.createElement("p");
+      head.className = "cap-map-head";
+      head.textContent = "Map " + m.n;
+      [m.pasted ? "self-reported from a pasted TokenMax block, not verified" : "self-reported by tokenmax-map " + m.skill + ", not verified", m.quiet ? "Quiet week: under 1 session a day" : ""].forEach(function (t) {
         if (!t) return;
-        var sm = document.createElement("small"); sm.className = "cap-flag"; sm.textContent = t; th.appendChild(sm);
+        var sm = document.createElement("small"); sm.className = "cap-flag"; sm.textContent = t; head.appendChild(sm);
       });
-      tr.appendChild(th);
-      cell(tr, m.pressure === null ? NOT_MEASURED : fmt(m.pressure), m.pressure === null ? "cap-num cap-nm" : "cap-num");
-      cell(tr, m.codexUsed === null ? NOT_MEASURED : m.codexUsed + "%", m.codexUsed === null ? "cap-num cap-nm" : "cap-num");
-      body.appendChild(tr);
+      li.appendChild(head);
+      var dl = document.createElement("dl");
+      dl.className = "cap-fig";
+      [
+        ["Sessions", fmt(m.sessions)],
+        ["Days", fmt(m.days)],
+        ["Cap episodes, short", fmt(m.short)],
+        ["Cap episodes, weekly", fmt(m.weekly)],
+        ["Cap episodes, unknown window", fmt(m.unknown)],
+        ["Claude output tokens", m.claude === null ? "not collected" : fmt(m.claude)],
+        ["Codex output tokens", m.codex === null ? "not collected" : fmt(m.codex)],
+        ["Opus share", m.opus === null ? "not collected" : m.opus + "%"],
+        ["Codex weekly used", m.codexUsed === null ? "not in the logs" : m.codexUsed + "%"],
+      ].forEach(function (p) {
+        var wrap = document.createElement("div");
+        var dt = document.createElement("dt"); dt.textContent = p[0];
+        var dd = document.createElement("dd"); dd.textContent = p[1];
+        wrap.appendChild(dt); wrap.appendChild(dd); dl.appendChild(wrap);
+      });
+      li.appendChild(dl);
+      list.appendChild(li);
     });
   }
 
@@ -144,11 +154,12 @@
     if (!empty) {
       var tiles = document.getElementById("capTiles");
       clear(tiles);
+      var episodes = s.all.short + s.all.weekly + s.all.unknown;
       [
         [fmt(s.shown), plural(s.shown, "map counted", "maps counted")],
         [fmt(s.free.maps), "no cap recorded"],
         [fmt(s.hit.maps), "hit a cap"],
-        [fmt(s.all.short + s.all.weekly + s.all.unknown), plural(s.all.short + s.all.weekly + s.all.unknown, "cap episode", "cap episodes")],
+        [fmt(episodes), plural(episodes, "cap episode", "cap episodes")],
       ].forEach(function (t) {
         var d = document.createElement("div");
         d.className = "cap-tile";
@@ -157,14 +168,8 @@
         d.appendChild(b); d.appendChild(sp);
         tiles.appendChild(d);
       });
-      var lower = s.pasted.unknown > 0;
-      fill("capWindows", [
-        ["Short (session)", fmt(s.all.short) + (lower ? " or more" : "")],
-        ["Weekly", fmt(s.all.weekly) + (lower ? " or more" : "")],
-        ["Unknown window", fmt(s.all.unknown)],
-      ]);
+      fill("capWindows", [["Short (session)", fmt(s.all.short)], ["Weekly", fmt(s.all.weekly)], ["Unknown window", fmt(s.all.unknown)]]);
       setText("capPasted", pastedNote(s));
-      fillPressure(s.maps);
       fill("capSides", [
         ["Maps", fmt(s.free.maps), fmt(s.hit.maps)],
         ["Map days covered", fmt(s.free.days), fmt(s.hit.days)],
@@ -173,7 +178,8 @@
         ["Maps with a Codex weekly reading", fmt(s.free.readings), fmt(s.hit.readings)],
         ["Mean Codex weekly used", pct(s.free.meanUsed), pct(s.hit.meanUsed)],
         ["Mean Codex weekly headroom", pct(s.free.meanHeadroom), pct(s.hit.meanHeadroom)],
-      ]);
+      ], ["Measure", "No cap recorded", "Hit a cap"]);
+      fillMaps(s.maps);
     }
     var gaps = document.getElementById("capGaps");
     clear(gaps);

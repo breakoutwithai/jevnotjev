@@ -83,8 +83,8 @@ test("[integration] headroom beside demand: Codex headroom only where a reading 
     expect(await cellsOf(page, "capSides")).toEqual([
       ["Maps", "2", "2"],
       ["Map days covered", "14", "14"],
-      ["Claude output tokens used", "3K", "34K"],
-      ["Codex output tokens used", "300", "3K"],
+      ["Claude output tokens used", "3,000", "34,000"],
+      ["Codex output tokens used", "300", "3,000"],
       ["Maps with a Codex weekly reading", "2", "1"],
       ["Mean Codex weekly used", "30%", "90%"],
       ["Mean Codex weekly headroom", "70%", "10%"],
@@ -148,7 +148,7 @@ test("[integration] a failed read shows an alert and keeps the last good numbers
 
 // Pasted blocks (skill 0.0.0) carry caps.short and caps.weekly fixed at 0 and count every hit as unknown (#341), so the page
 // must not present a Short or Weekly figure over them as measured.
-test("[integration] pasted blocks make Short and Weekly lower bounds and the page says why", async () => {
+test("[integration] pasted blocks are stated once as submitting their hits as unknown window, numbers unchanged", async () => {
   rows = [
     row("TM-00000000000G", "pseudo-ggg", [1, 1, 0], 100, 0, null),
     row("TM-00000000000H", "pseudo-hhh", [0, 0, 3], 100, 0, null, PASTED),
@@ -156,12 +156,12 @@ test("[integration] pasted blocks make Short and Weekly lower bounds and the pag
   ];
   const { page, close } = await open();
   try {
-    expect(await cellsOf(page, "capWindows")).toEqual([["Short (session)", "1 or more"], ["Weekly", "1 or more"], ["Unknown window", "3"]]);
-    expect(await page.locator("#capPasted").textContent()).toBe("1 pasted TokenMax block reports 3 limit hits without saying which kind. Those are counted as unknown window, so Short and Weekly are at least the figures shown, not measurements.");
+    expect(await cellsOf(page, "capWindows")).toEqual([["Short (session)", "1"], ["Weekly", "1"], ["Unknown window", "3"]]);
+    expect(await page.locator("#capPasted").textContent()).toBe("1 pasted TokenMax block submits its limit hits as unknown window, with Short and Weekly submitted as 0.");
   } finally { await close(); }
 });
 
-test("[integration] a board of mapper maps states no lower bound", async () => {
+test("[integration] a board of mapper maps carries no pasted-block note", async () => {
   const { page, close } = await open();
   try {
     expect(await cellsOf(page, "capWindows")).toEqual([["Short (session)", "2"], ["Weekly", "1"], ["Unknown window", "1"]]);
@@ -172,7 +172,7 @@ test("[integration] a board of mapper maps states no lower bound", async () => {
 test("[integration] one sentence reads the counts and says they are unverified self-reports", async () => {
   const { page, close } = await open();
   try {
-    expect(await page.locator("#capReading").textContent()).toBe("2 of 4 maps recorded at least one cap episode and 2 recorded none. These are the builders' own reports, not verified, and spare capacity is not measured beyond Codex's weekly percent.");
+    expect(await page.locator("#capReading").textContent()).toBe("2 of 4 maps recorded at least one cap episode and 2 recorded none. Every figure is self-reported and not verified, and spare capacity is not measured beyond Codex's weekly percent.");
   } finally { await close(); }
 });
 
@@ -237,17 +237,16 @@ for (const { name, board } of BOARDS) {
             const lines = (el: Element): number => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length; };
             const box = (sel: string) => { const b = document.querySelector(sel)?.getBoundingClientRect(); return b ? { w: b.width, h: b.height } : null; };
             const cells = Array.from(document.querySelectorAll("#capWindows td.cap-num, #capSides td.cap-num"));
-            const all = Array.from(document.querySelectorAll("td.cap-num"));
             return {
-              pressureCells: document.querySelectorAll("#capPressure td.cap-num").length, pressureBroken: all.filter((td) => lines(td) !== 1).length,
+              maps: document.querySelectorAll("#capMaps > li").length, ddBroken: Array.from(document.querySelectorAll("#capMaps dd")).filter((dd) => lines(dd) !== 1).length,
               scrollW: document.documentElement.scrollWidth, clientW: document.documentElement.clientWidth,
               cells: cells.length, broken: cells.filter((td) => lines(td) !== 1).map((td) => td.textContent),
               reading: box("#capReading"), tile: box("#capTiles .cap-tile"), table: box("#capSides"),
             };
           });
           expect(m.cells).toBe(17); // 3 window rows + 7 measure rows x 2 sides; an empty set would pass "none broken" vacuously
-          expect(m.pressureCells).toBe(board.length * 2);
-          expect(m.pressureBroken).toBe(0);
+          expect(m.maps).toBe(board.length);
+          expect(m.ddBroken).toBe(0);
           expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
           expect(m.broken).toEqual([]);
           for (const b of [m.reading, m.tile, m.table]) { expect(b).not.toBeNull(); expect(b?.w ?? 0).toBeGreaterThan(1); expect(b?.h ?? 0).toBeGreaterThan(1); }
@@ -268,7 +267,7 @@ test("[integration] a provider no map read is not measured, and a placeholder Co
     expect(await cellsOf(page, "capSides")).toEqual([
       ["Maps", "1", "1"],
       ["Map days covered", "7", "7"],
-      ["Claude output tokens used", "5K", "7K"],
+      ["Claude output tokens used", "5,000", "7,000"],
       ["Codex output tokens used", "not measured", "not measured"],
       ["Maps with a Codex weekly reading", "0", "0"],
       ["Mean Codex weekly used", "not measured", "not measured"],
@@ -293,47 +292,90 @@ test("[integration] map days are summed per side and a single map reads in the s
   } finally { await one.close(); }
 });
 
-const pressureRows = async (page: Page): Promise<string[][]> =>
-  page.locator("#capPressure tr").evaluateAll((trs) => trs.map((tr) => [
-    tr.querySelector("th")?.firstChild?.textContent ?? "",
-    Array.from(tr.querySelectorAll("th small")).map((s) => s.textContent ?? "").join(" | "),
-    ...Array.from(tr.querySelectorAll("td")).map((td) => td.textContent ?? ""),
-  ]));
+const mapsOf = async (page: Page): Promise<Array<{ name: string; flags: string[]; figures: Array<[string, string]> }>> =>
+  page.locator("#capMaps > li").evaluateAll((lis) => lis.map((li) => ({
+    name: li.querySelector(".cap-map-head")?.firstChild?.textContent ?? "",
+    flags: Array.from(li.querySelectorAll(".cap-flag")).map((f) => f.textContent ?? ""),
+    figures: Array.from(li.querySelectorAll("dl > div")).map((d): [string, string] => [d.querySelector("dt")?.textContent ?? "", d.querySelector("dd")?.textContent ?? ""]),
+  })));
 
-// Limit pressure: cap episodes (short + weekly + unknown) per 100 sessions, beside Codex weekly used where recorded. Anonymous: "Map N".
-test("[integration] limit pressure per map: caps per 100 sessions beside Codex weekly used, no alias or id", async () => {
+// Every map as submitted: raw values, newest first, numbered, no alias, id or day. Nothing is ratioed, discounted or rounded.
+test("[integration] every map is listed with its submitted values, anonymously", async () => {
   const { page, close } = await open();
   try {
-    // Every BOARD row has 10 sessions over 7 days. A 0 caps, B 0, C 2+1, D 1 unknown (no Codex reading).
-    expect(await pressureRows(page)).toEqual([
-      ["Map 1", "", "0", "20%"],
-      ["Map 2", "", "0", "40%"],
-      ["Map 3", "", "30", "90%"],
-      ["Map 4", "", "10", "not measured"],
-    ]);
-    const text = await page.locator("#capPressure").innerText();
-    expect(text).not.toContain("pseudo-");
-    expect(text).not.toContain("TM-");
-    expect(await page.locator("#capBody").innerText()).toContain("A cap count from a pasted TokenMax block may include retries and is not comparable to a mapper map.");
+    const list = await mapsOf(page);
+    expect(list.map((m) => m.name)).toEqual(["Map 1", "Map 2", "Map 3", "Map 4"]);
+    expect(list[2]).toEqual({
+      name: "Map 3",
+      flags: ["self-reported by tokenmax-map 0.3.0, not verified"],
+      figures: [
+        ["Sessions", "10"], ["Days", "7"], ["Cap episodes, short", "2"], ["Cap episodes, weekly", "1"], ["Cap episodes, unknown window", "0"],
+        ["Claude output tokens", "30,000"], ["Codex output tokens", "3,000"], ["Opus share", "50%"], ["Codex weekly used", "90%"],
+      ],
+    });
+    expect(list[3]?.figures.at(-1)).toEqual(["Codex weekly used", "not in the logs"]); // D carries no Codex reading
+    const text = await page.locator("#capMaps").innerText();
+    for (const r of BOARD) { expect(text).not.toContain(String(r.alias)); expect(text).not.toContain(String(r.id)); }
+    expect(text).not.toContain("2026-10-21"); // the day
+    expect(await page.locator("#capBody").innerHTML()).not.toContain("pseudo-");
   } finally { await close(); }
 });
 
-test("[integration] a quiet week is under 1 session a day, with its sessions and days; a pasted block is marked", async () => {
+test("[integration] a pasted block is labelled as the board labels it, and no figure is ratioed or discounted", async () => {
+  rows = [{ ...row("TM-00000000000S", "pseudo-sss", [0, 0, 85], 1, 0, null, PASTED), sessions: 12 }];
+  const { page, close } = await open();
+  try {
+    const [m] = await mapsOf(page);
+    expect(m?.flags).toEqual(["self-reported from a pasted TokenMax block, not verified"]);
+    expect(m?.figures.slice(0, 5)).toEqual([["Sessions", "12"], ["Days", "7"], ["Cap episodes, short", "0"], ["Cap episodes, weekly", "0"], ["Cap episodes, unknown window", "85"]]);
+    expect(await page.locator("#capBody").innerText()).not.toMatch(/per 100|retries|comparable/);
+  } finally { await close(); }
+});
+
+// A quiet week is the row's own sessions divided by its days under 1: a plain statement, no interpretation.
+test("[integration] a quiet week is flagged when sessions per day is under 1, and the sessions and days are shown", async () => {
   rows = [
-    { ...row("TM-00000000000Q", "pseudo-qqq", [0, 0, 0], 1, 0, null), sessions: 7, days: 7 },        // exactly 1 a day: not quiet
-    { ...row("TM-00000000000R", "pseudo-rrr", [0, 0, 0], 1, 0, null), sessions: 6, days: 7 },        // quiet
-    { ...row("TM-00000000000S", "pseudo-sss", [0, 0, 4], 1, 0, null, PASTED), sessions: 1, days: 1 }, // 1 a day: not quiet; pasted
-    { ...row("TM-00000000000T", "pseudo-ttt", [0, 0, 0], 1, 0, null), sessions: 0, days: 7 },        // no sessions: pressure not measured, quiet
+    { ...row("TM-00000000000Q", "pseudo-qqq", [0, 0, 0], 1, 0, null), sessions: 7, days: 7 },  // exactly 1 a day: not quiet
+    { ...row("TM-00000000000R", "pseudo-rrr", [0, 0, 0], 1, 0, null), sessions: 6, days: 7 },  // quiet
+    { ...row("TM-00000000000T", "pseudo-ttt", [0, 0, 0], 1, 0, null), sessions: 0, days: 7 },  // quiet, 0 sessions
     { ...row("TM-00000000000U", "pseudo-uuu", [1, 1, 0], 1, 0, null, PASTED), sessions: 3, days: 90 }, // quiet and pasted
   ];
   const { page, close } = await open();
   try {
-    expect(await pressureRows(page)).toEqual([
-      ["Map 1", "", "0", "not measured"],
-      ["Map 2", "Quiet week: 6 sessions in 7 days", "0", "not measured"],
-      ["Map 3", "pasted block", "400", "not measured"],
-      ["Map 4", "Quiet week: 0 sessions in 7 days", "not measured", "not measured"],
-      ["Map 5", "pasted block | Quiet week: 3 sessions in 90 days", "66.7", "not measured"],
-    ]);
+    const list = await mapsOf(page);
+    expect(list.map((m) => m.flags.includes("Quiet week: under 1 session a day"))).toEqual([false, true, true, true]);
+    expect(list.map((m) => [m.figures[0]?.[1], m.figures[1]?.[1]])).toEqual([["7", "7"], ["6", "7"], ["0", "7"], ["3", "90"]]);
+  } finally { await close(); }
+});
+
+// A map that did not read a provider is labelled as the /maps/ board labels it, not shown as a measured 0.
+test("[integration] a provider a map did not read is shown as not collected", async () => {
+  rows = [{ ...row("TM-00000000000V", "pseudo-vvv", [0, 0, 0], 5000, 0, 77), sources: "claude" }, { ...row("TM-00000000000W", "pseudo-www", [0, 0, 0], 0, 800, 33), sources: "codex" }];
+  const { page, close } = await open();
+  try {
+    const [claudeOnly, codexOnly] = await mapsOf(page);
+    expect(claudeOnly?.figures.slice(5)).toEqual([["Claude output tokens", "5,000"], ["Codex output tokens", "not collected"], ["Opus share", "50%"], ["Codex weekly used", "not in the logs"]]);
+    expect(codexOnly?.figures.slice(5)).toEqual([["Claude output tokens", "not collected"], ["Codex output tokens", "800"], ["Opus share", "not collected"], ["Codex weekly used", "33%"]]);
+  } finally { await close(); }
+});
+
+// Exact totals, not rounded to fit: stacked on a narrow screen so a 19-digit sum is whole and nothing overflows.
+test("[integration] the largest totals are shown exactly", async () => {
+  rows = Array.from({ length: 100 }, (_, i) => row(`TM-${String(i).padStart(12, "0")}`, `pseudo-${i}`, [0, 0, 0], 1_000_000_000_000, 1_000_000_000_000, 99));
+  const { page, close } = await open(320);
+  try {
+    const sides = await cellsOf(page, "capSides");
+    expect(sides[2]).toEqual(["Claude output tokens used", "100,000,000,000,000", "not measured"]);
+    expect(sides[3]).toEqual(["Codex output tokens used", "100,000,000,000,000", "not measured"]);
+  } finally { await close(); }
+});
+
+test("[integration] Codex weekly means keep one decimal", async () => {
+  rows = [row("TM-00000000000X", "pseudo-xxx", [0, 0, 0], 1, 1, 20), row("TM-00000000000Y", "pseudo-yyy", [0, 0, 0], 1, 1, 21), row("TM-00000000000Z", "pseudo-zzz", [0, 0, 0], 1, 1, 21)];
+  const { page, close } = await open();
+  try {
+    const sides = await cellsOf(page, "capSides");
+    expect(sides.at(-2)).toEqual(["Mean Codex weekly used", "20.7%", "not measured"]);
+    expect(sides.at(-1)).toEqual(["Mean Codex weekly headroom", "79.3%", "not measured"]);
   } finally { await close(); }
 });

@@ -10,17 +10,28 @@
 .cap-table th, .cap-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--cream-line); vertical-align: top; }
 /* A figure never breaks across lines: the body's overflow-wrap:anywhere would split "79,000,000" mid-digit at 390px. */
 .cap-table .cap-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.cap-table th[scope=row] { font-weight: 700; }
-.cap-flag { display: block; font: 500 .8125rem/1.3 var(--sans); color: var(--cream-soft); }
+.cap-table th.cap-num { white-space: normal; }
 .cap-table td.cap-nm { font-style: italic; color: var(--cream-soft); }
 .cap-gaps { margin: 6px 0 0; padding-left: 1.2rem; }
 .cap-gaps li { margin: 4px 0; }
+
+/* Every map as submitted: a number, its flags, then its figures in the /maps/ board's label-and-value pairs. */
+.cap-maps { list-style: none; margin: 6px 0 0; padding: 0; }
+.cap-map { padding: 10px 0; border-top: 1px dashed var(--cream-line); }
+.cap-map-head { margin: 0 0 4px; font: 800 1.125rem/1.2 var(--serif); }
+.cap-flag { display: block; font: 500 .8125rem/1.3 var(--sans); color: var(--cream-soft); }
+.cap-fig { margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 0 24px; }
+.cap-fig > div { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 8px; padding: 2px 0; border-bottom: 1px dotted var(--cream-line); }
+.cap-fig dt { font: 500 .875rem var(--sans); color: var(--cream-soft); }
+.cap-fig dd { margin: 0; font: 700 .9375rem var(--sans); color: var(--cream-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Narrow screens: the measure table stacks, each figure under its column name, so a 19-digit total is never squeezed or split. */
 @media (max-width: 30rem) {
-  .cap-table th, .cap-table td { padding: 6px 4px; }
   .cap-table { font-size: .875rem; }
+  .cap-table th, .cap-table td { padding: 6px 4px; }
+  .cap-stack thead { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+  .cap-stack tr { display: block; padding: 4px 0; border-bottom: 1px solid var(--cream-line); }
+  .cap-stack td { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 8px; border: 0; padding: 2px 4px; }
+  .cap-stack td:first-child { font-weight: 700; }
+  .cap-stack td[data-label]::before { content: attr(data-label); color: var(--cream-soft); text-align: left; white-space: normal; }
 }
-@media (max-width: 22rem) {
-  #capBody { padding-left: 10px; padding-right: 10px; }
-  .cap-table th, .cap-table td { padding-left: 3px; padding-right: 3px; }
-}
-.cap-table th.cap-num { white-space: normal; }

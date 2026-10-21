@@ -1,11 +1,23 @@
 /* /capacity/ aggregate view. Cards, tokens and type come from ../maps/maps.css. */
+.cap-stamp { margin: .5em 0; color: var(--ink-soft); font-size: .9375rem; }
+.cap-reading { margin: 0 0 8px; font: 700 1.0625rem/1.4 var(--sans); }
 .cap-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 10px; margin: 8px 0 16px; }
 .cap-tile { border: 2px solid var(--cream-line); padding: 8px 10px; background: #fff8e8; }
-.cap-tile b { display: block; font: 800 1.6rem/1.1 var(--serif); }
+.cap-tile b { display: block; font: 800 1.6rem/1.1 var(--serif); font-variant-numeric: lining-nums tabular-nums; }
 .cap-tile span { font-size: .875rem; color: var(--cream-soft); }
 #capBody h3 { margin: 18px 0 6px; font: 800 1.2rem/1.2 var(--serif); }
-.cap-table { width: 100%; border-collapse: collapse; font-size: .9375rem; }
+.cap-table { width: 100%; border-collapse: collapse; font-size: .9375rem; overflow-wrap: normal; }
 .cap-table th, .cap-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--cream-line); vertical-align: top; }
+/* A figure never breaks across lines: the body's overflow-wrap:anywhere would split "79,000,000" mid-digit at 390px. */
+.cap-table .cap-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cap-table td.cap-nm { font-style: italic; color: var(--cream-soft); }
 .cap-gaps { margin: 6px 0 0; padding-left: 1.2rem; }
 .cap-gaps li { margin: 4px 0; }
+@media (max-width: 30rem) {
+  .cap-table th, .cap-table td { padding: 6px 4px; }
+  .cap-table { font-size: .875rem; }
+}
+@media (max-width: 22rem) {
+  #capBody { padding-left: 10px; padding-right: 10px; }
+  .cap-table th, .cap-table td { padding-left: 3px; padding-right: 3px; }
+}

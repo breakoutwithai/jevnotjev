@@ -10,9 +10,10 @@ import { resolveChromium } from "./uat/happy-path-lib.ts";
 const SITE = join(import.meta.dir, "..", "site");
 
 type Rec = Record<string, unknown>;
-function row(id: string, alias: string, caps: [number, number, number], claude: number, codex: number, codexWeekly: number | null): Rec {
+const PASTED = "0.0.0"; // what /tm/ Submit sends for a pasted block (src/browser/tm-submit.ts PASTED_SKILL)
+function row(id: string, alias: string, caps: [number, number, number], claude: number, codex: number, codexWeekly: number | null, skill = "0.3.0"): Rec {
   return {
-    id, alias, day: "2026-10-21", skill: "0.3.0", days: 7, sources: "claude+codex", sessions: 10, subagent_sessions: 1,
+    id, alias, day: "2026-10-21", skill, days: 7, sources: "claude+codex", sessions: 10, subagent_sessions: 1,
     caps: { short: caps[0], weekly: caps[1], unknown: caps[2] }, output_tokens: { claude, codex }, opus_share_pct: 50, codex_weekly_pct: codexWeekly,
   };
 }
@@ -28,6 +29,7 @@ let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
 let origin = "";
 let rows: Rec[] = [];
+let stored: number | null = null; // the server's builders total; null means rows.length
 let reads = 0;
 let failing = false;
 
@@ -39,7 +41,7 @@ beforeAll(async () => {
     if (pathname === "/api/maps" && request.method === "GET") {
       reads += 1;
       if (failing) return new Response("down", { status: 503 });
-      return Response.json({ rows, totals: { builders: rows.length, cap_episodes: 0, with_weekly_cap: 0 } }, { headers: { "cache-control": "no-store" } });
+      return Response.json({ rows, totals: { builders: stored ?? rows.length, cap_episodes: 0, with_weekly_cap: 0 } }, { headers: { "cache-control": "no-store" } });
     }
     const path = join(SITE, pathname.endsWith("/") ? `${pathname}index.html` : pathname);
     if (!path.startsWith(`${SITE}/`)) return new Response("Not found", { status: 404 });
@@ -51,10 +53,10 @@ beforeAll(async () => {
   browser = await chromium.launch({ headless: true, executablePath: found.path });
 });
 afterAll(async () => { await browser?.close(); server?.stop(); });
-beforeEach(() => { rows = BOARD; reads = 0; failing = false; });
+beforeEach(() => { rows = BOARD; stored = null; reads = 0; failing = false; });
 
-async function open(): Promise<{ page: Page; close: () => Promise<void> }> {
-  const context = await browser.newContext({ viewport: { width: 1000, height: 900 } });
+async function open(width = 1000, reducedMotion: "reduce" | "no-preference" = "no-preference"): Promise<{ page: Page; close: () => Promise<void> }> {
+  const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion });
   const page = await context.newPage();
   await page.route("**/*", (route) => route.request().url().startsWith(`${origin}/`) ? route.continue() : route.abort());
   await page.clock.install();
@@ -70,7 +72,7 @@ test("[integration] tiles and cap windows equal the sums of the board", async ()
   const { page, close } = await open();
   try {
     const tiles = await page.locator("#capTiles .cap-tile").evaluateAll((els) => els.map((e) => e.textContent ?? ""));
-    expect(tiles).toEqual(["4maps shared", "2no cap recorded", "2hit a cap", "4cap episodes"]);
+    expect(tiles).toEqual(["4maps counted", "2no cap recorded", "2hit a cap", "4cap episodes"]);
     expect(await cellsOf(page, "capWindows")).toEqual([["Short (session)", "2"], ["Weekly", "1"], ["Unknown window", "1"]]);
   } finally { await close(); }
 });
@@ -135,5 +137,109 @@ test("[integration] a failed read shows an alert and keeps the last good numbers
     await page.clock.runFor(10_000);
     await page.waitForFunction(() => (document.getElementById("capAlert")?.textContent ?? "").includes("could not be read"));
     expect((await page.locator("#capTiles .cap-tile b").first().textContent()) ?? "").toBe("4");
+    expect(await page.locator("#capAlert").textContent()).toMatch(/The numbers shown are from \d\d:\d\d:\d\d\./);
+    expect(await page.locator("#capStamp").textContent()).toMatch(/^Last good read \d\d:\d\d:\d\d\.$/);
+    failing = false;
+    await page.clock.runFor(10_000);
+    await page.waitForFunction(() => (document.getElementById("capAlert")?.textContent ?? "") === "");
   } finally { await close(); }
 });
+
+// Pasted blocks (skill 0.0.0) carry caps.short and caps.weekly fixed at 0 and count every hit as unknown (#341), so the page
+// must not present a Short or Weekly figure over them as measured.
+test("[integration] pasted blocks make Short and Weekly lower bounds and the page says why", async () => {
+  rows = [
+    row("TM-00000000000G", "pseudo-ggg", [1, 1, 0], 100, 0, null),
+    row("TM-00000000000H", "pseudo-hhh", [0, 0, 3], 100, 0, null, PASTED),
+    row("TM-00000000000I", "pseudo-iii", [0, 0, 0], 100, 0, null, PASTED),
+  ];
+  const { page, close } = await open();
+  try {
+    expect(await cellsOf(page, "capWindows")).toEqual([["Short (session)", "1 or more"], ["Weekly", "1 or more"], ["Unknown window", "3"]]);
+    expect(await page.locator("#capPasted").textContent()).toBe("2 pasted TokenMax blocks report 3 limit hits without saying which kind. Those are counted as unknown window, so Short and Weekly are at least the figures shown, not measurements.");
+  } finally { await close(); }
+});
+
+test("[integration] a board of mapper maps states no lower bound", async () => {
+  const { page, close } = await open();
+  try {
+    expect(await cellsOf(page, "capWindows")).toEqual([["Short (session)", "2"], ["Weekly", "1"], ["Unknown window", "1"]]);
+    expect(await page.locator("#capPasted").textContent()).toBe("");
+  } finally { await close(); }
+});
+
+test("[integration] one sentence reads the counts and says they are unverified self-reports", async () => {
+  const { page, close } = await open();
+  try {
+    expect(await page.locator("#capReading").textContent()).toBe("2 of 4 maps recorded at least one cap episode and 2 recorded none. These are the builders' own reports, not verified, and spare capacity is not measured beyond Codex's weekly percent.");
+  } finally { await close(); }
+});
+
+test("[integration] an empty board shows no zero tables, only the empty sentence and the not-measured list", async () => {
+  rows = [];
+  const { page, close } = await open();
+  try {
+    expect(await page.locator("#capReading").textContent()).toBe("No maps are shared yet, so there is nothing to count.");
+    expect(await page.locator("#capFull").isHidden()).toBe(true);
+    expect(await page.locator("#capStatus").textContent()).toBe("No maps shared yet.");
+    expect(await page.locator("#capGaps li").count()).toBe(4);
+  } finally { await close(); }
+});
+
+test("[integration] when the server holds more maps than the board returns, the page says it counted the newest", async () => {
+  stored = 150;
+  const { page, close } = await open();
+  try {
+    expect(await page.locator("#capNote").textContent()).toBe("Sums cover the newest 4 of 150 shared maps.");
+    expect(await page.locator("#capAlert").textContent()).toBe("");
+  } finally { await close(); }
+});
+
+test("[integration] the polite status speaks when the counts change, not on every 10 second read", async () => {
+  const { page, close } = await open();
+  try {
+    expect(await page.locator("#capStatus").textContent()).toBe("Board loaded: 4 maps counted, 2 hit a cap.");
+    await page.evaluate(() => {
+      Reflect.set(window, "statusMutations", 0);
+      const el = document.getElementById("capStatus");
+      if (el) new MutationObserver((list) => { Reflect.set(window, "statusMutations", Number(Reflect.get(window, "statusMutations")) + list.length); }).observe(el, { childList: true, characterData: true, subtree: true });
+    });
+    const stamp = await page.locator("#capStamp").textContent();
+    await page.clock.runFor(10_000);
+    await page.waitForFunction((was) => document.getElementById("capStamp")?.textContent !== was, stamp);
+    expect(reads).toBe(2);
+    expect(await page.evaluate(() => Number(Reflect.get(window, "statusMutations")))).toBe(0);
+    rows = [...BOARD, row("TM-00000000000F", "pseudo-fff", [1, 0, 0], 10, 10, 50)];
+    await page.clock.runFor(10_000);
+    await page.waitForFunction(() => document.getElementById("capStatus")?.textContent === "Board updated: 5 maps counted, 3 hit a cap.");
+  } finally { await close(); }
+});
+
+// 390 and 320 px, both motion settings: no horizontal overflow, no figure broken across lines (the body's overflow-wrap:anywhere
+// split 79,000,000 mid-digit), and each element measured by its OWN box, not isVisible().
+const MOTIONS: Array<"no-preference" | "reduce"> = ["no-preference", "reduce"];
+for (const reduce of MOTIONS) {
+  for (const width of [390, 320]) {
+    test(`[integration] ${width}px, motion ${reduce}: no horizontal overflow, whole figures, readable boxes`, async () => {
+      rows = [
+        row("TM-00000000000J", "pseudo-jjj", [0, 0, 0], 3_200_000, 280_000, 20),
+        row("TM-00000000000K", "pseudo-kkk", [2, 1, 3], 79_000_000, 3_900_000, null, PASTED),
+      ];
+      const { page, close } = await open(width, reduce);
+      try {
+        const m = await page.evaluate(() => {
+          const lines = (el: Element): number => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length; };
+          const box = (sel: string) => { const b = document.querySelector(sel)?.getBoundingClientRect(); return b ? { w: b.width, h: b.height } : null; };
+          return {
+            scrollW: document.documentElement.scrollWidth, clientW: document.documentElement.clientWidth,
+            broken: Array.from(document.querySelectorAll("td.cap-num")).filter((td) => lines(td) !== 1).map((td) => td.textContent),
+            reading: box("#capReading"), tile: box("#capTiles .cap-tile"), table: box("#capSides"),
+          };
+        });
+        expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
+        expect(m.broken).toEqual([]);
+        for (const b of [m.reading, m.tile, m.table]) { expect(b).not.toBeNull(); expect(b?.w ?? 0).toBeGreaterThan(1); expect(b?.h ?? 0).toBeGreaterThan(1); }
+      } finally { await close(); }
+    });
+  }
+}

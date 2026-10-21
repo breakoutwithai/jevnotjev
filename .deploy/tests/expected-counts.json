@@ -20,7 +20,7 @@
     "scripts/backstage-merged-pr.test.ts": 7,
     "scripts/backstage-operator-password.test.ts": 1,
     "scripts/backstage-package.test.ts": 43,
-    "scripts/capacity.dom.test.ts": 16,
+    "scripts/capacity.dom.test.ts": 21,
     "scripts/capture-extract.test.ts": 8,
     "scripts/d06b/audit.test.ts": 8,
     "scripts/d06b/funnel.test.ts": 7,

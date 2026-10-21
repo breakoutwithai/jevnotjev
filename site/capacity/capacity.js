@@ -16,13 +16,19 @@
   function capTotal(row) { var c = capsOf(row); return num(c.short) + num(c.weekly) + num(c.unknown); }
   function tokens(row, key) { return isObj(row.output_tokens) ? num(row.output_tokens[key]) : 0; }
 
+  /* A map that did not read a provider's logs carries a placeholder 0 for it: count that provider only where it was collected. */
+  function collected(row, provider) { return row.sources === provider || row.sources === "claude+codex"; }
+
   function side(rows) {
-    var out = { maps: rows.length, short: 0, weekly: 0, unknown: 0, claude: 0, codex: 0, readings: 0, usedSum: 0 };
+    var out = { maps: rows.length, short: 0, weekly: 0, unknown: 0, claude: 0, codex: 0, claudeMaps: 0, codexMaps: 0, readings: 0, usedSum: 0 };
     rows.forEach(function (row) {
       var c = capsOf(row);
       out.short += num(c.short); out.weekly += num(c.weekly); out.unknown += num(c.unknown);
-      out.claude += tokens(row, "claude"); out.codex += tokens(row, "codex");
-      if (typeof row.codex_weekly_pct === "number" && isFinite(row.codex_weekly_pct)) { out.readings += 1; out.usedSum += row.codex_weekly_pct; }
+      if (collected(row, "claude")) { out.claudeMaps += 1; out.claude += tokens(row, "claude"); }
+      if (collected(row, "codex")) {
+        out.codexMaps += 1; out.codex += tokens(row, "codex");
+        if (typeof row.codex_weekly_pct === "number" && isFinite(row.codex_weekly_pct)) { out.readings += 1; out.usedSum += row.codex_weekly_pct; }
+      }
     });
     out.meanUsed = out.readings ? Math.round(out.usedSum / out.readings) : null;
     out.meanHeadroom = out.readings ? 100 - out.meanUsed : null;
@@ -40,6 +46,21 @@
   }
 
   function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+  /* 1234567 -> "1.2M", 89012 -> "89K", 999 -> "999" (the /maps/ board's rule). A summed token figure can reach 100 maps x 10^12,
+     so the full number would be 19 characters wide and push a 320 px table past the screen. */
+  function compact(n) {
+    var units = [[1e3, "K"], [1e6, "M"], [1e9, "B"], [1e12, "T"]];
+    for (var i = units.length - 1; i >= 0; i--) {
+      if (n < units[i][0]) continue;
+      var v = n / units[i][0];
+      var r = v < 100 ? Math.round(v * 10) / 10 : Math.round(v);
+      if (r >= 1000 && i < units.length - 1) { i += 1; v = n / units[i][0]; r = Math.round(v * 10) / 10; }
+      return String(r) + units[i][1];
+    }
+    return String(n);
+  }
+  /* Tokens used by the maps that read this provider; none read it: not measured, never a bare 0. */
+  function tok(n, coverage) { return coverage === 0 ? NOT_MEASURED : compact(n); }
   function pct(n) { return n === null ? NOT_MEASURED : n + "%"; }
   function plural(n, one, many) { return n === 1 ? one : many; }
 
@@ -108,8 +129,8 @@
       setText("capPasted", pastedNote(s));
       fill("capSides", [
         ["Maps", fmt(s.free.maps), fmt(s.hit.maps)],
-        ["Claude output tokens used", fmt(s.free.claude), fmt(s.hit.claude)],
-        ["Codex output tokens used", fmt(s.free.codex), fmt(s.hit.codex)],
+        ["Claude output tokens used", tok(s.free.claude, s.free.claudeMaps), tok(s.hit.claude, s.hit.claudeMaps)],
+        ["Codex output tokens used", tok(s.free.codex, s.free.codexMaps), tok(s.hit.codex, s.hit.codexMaps)],
         ["Maps with a Codex weekly reading", fmt(s.free.readings), fmt(s.hit.readings)],
         ["Mean Codex weekly used", pct(s.free.meanUsed), pct(s.hit.meanUsed)],
         ["Mean Codex weekly headroom", pct(s.free.meanHeadroom), pct(s.hit.meanHeadroom)],

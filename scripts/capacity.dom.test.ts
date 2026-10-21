@@ -82,8 +82,8 @@ test("[integration] headroom beside demand: Codex headroom only where a reading 
   try {
     expect(await cellsOf(page, "capSides")).toEqual([
       ["Maps", "2", "2"],
-      ["Claude output tokens used", "3,000", "34,000"],
-      ["Codex output tokens used", "300", "3,000"],
+      ["Claude output tokens used", "3K", "34K"],
+      ["Codex output tokens used", "300", "3K"],
       ["Maps with a Codex weekly reading", "2", "1"],
       ["Mean Codex weekly used", "30%", "90%"],
       ["Mean Codex weekly headroom", "70%", "10%"],
@@ -215,31 +215,58 @@ test("[integration] the polite status speaks when the counts change, not on ever
   } finally { await close(); }
 });
 
-// 390 and 320 px, both motion settings: no horizontal overflow, no figure broken across lines (the body's overflow-wrap:anywhere
-// split 79,000,000 mid-digit), and each element measured by its OWN box, not isVisible().
+// 390 and 320 px, both motion settings, a typical board and the largest the contract allows (100 rows, 10^12 tokens each): no
+// horizontal overflow, no figure broken across lines (the body's overflow-wrap:anywhere split 79,000,000 mid-digit), and each
+// element measured by its OWN box, not isVisible().
 const MOTIONS: Array<"no-preference" | "reduce"> = ["no-preference", "reduce"];
-for (const reduce of MOTIONS) {
-  for (const width of [390, 320]) {
-    test(`[integration] ${width}px, motion ${reduce}: no horizontal overflow, whole figures, readable boxes`, async () => {
-      rows = [
-        row("TM-00000000000J", "pseudo-jjj", [0, 0, 0], 3_200_000, 280_000, 20),
-        row("TM-00000000000K", "pseudo-kkk", [2, 1, 3], 79_000_000, 3_900_000, null, PASTED),
-      ];
-      const { page, close } = await open(width, reduce);
-      try {
-        const m = await page.evaluate(() => {
-          const lines = (el: Element): number => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length; };
-          const box = (sel: string) => { const b = document.querySelector(sel)?.getBoundingClientRect(); return b ? { w: b.width, h: b.height } : null; };
-          return {
-            scrollW: document.documentElement.scrollWidth, clientW: document.documentElement.clientWidth,
-            broken: Array.from(document.querySelectorAll("td.cap-num")).filter((td) => lines(td) !== 1).map((td) => td.textContent),
-            reading: box("#capReading"), tile: box("#capTiles .cap-tile"), table: box("#capSides"),
-          };
-        });
-        expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
-        expect(m.broken).toEqual([]);
-        for (const b of [m.reading, m.tile, m.table]) { expect(b).not.toBeNull(); expect(b?.w ?? 0).toBeGreaterThan(1); expect(b?.h ?? 0).toBeGreaterThan(1); }
-      } finally { await close(); }
-    });
+const TYPICAL: Rec[] = [
+  row("TM-00000000000J", "pseudo-jjj", [0, 0, 0], 3_200_000, 280_000, 20),
+  row("TM-00000000000K", "pseudo-kkk", [2, 1, 3], 79_000_000, 3_900_000, null, PASTED),
+];
+const LARGEST: Rec[] = Array.from({ length: 100 }, (_, i) => row(`TM-${String(i).padStart(12, "0")}`, `pseudo-${i}`, i % 2 === 0 ? [0, 0, 0] : [10_000, 10_000, 10_000], 1_000_000_000_000, 1_000_000_000_000, 99, i % 3 === 0 ? PASTED : "0.3.0"));
+const BOARDS: Array<{ name: string; board: Rec[] }> = [{ name: "typical", board: TYPICAL }, { name: "largest", board: LARGEST }];
+for (const { name, board } of BOARDS) {
+  for (const reduce of MOTIONS) {
+    for (const width of [390, 320]) {
+      test(`[integration] ${name} board, ${width}px, motion ${reduce}: no horizontal overflow, whole figures, readable boxes`, async () => {
+        rows = board;
+        const { page, close } = await open(width, reduce);
+        try {
+          const m = await page.evaluate(() => {
+            const lines = (el: Element): number => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length; };
+            const box = (sel: string) => { const b = document.querySelector(sel)?.getBoundingClientRect(); return b ? { w: b.width, h: b.height } : null; };
+            const cells = Array.from(document.querySelectorAll("td.cap-num"));
+            return {
+              scrollW: document.documentElement.scrollWidth, clientW: document.documentElement.clientWidth,
+              cells: cells.length, broken: cells.filter((td) => lines(td) !== 1).map((td) => td.textContent),
+              reading: box("#capReading"), tile: box("#capTiles .cap-tile"), table: box("#capSides"),
+            };
+          });
+          expect(m.cells).toBe(15); // 3 window rows + 6 measure rows x 2 sides; an empty set would pass "none broken" vacuously
+          expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
+          expect(m.broken).toEqual([]);
+          for (const b of [m.reading, m.tile, m.table]) { expect(b).not.toBeNull(); expect(b?.w ?? 0).toBeGreaterThan(1); expect(b?.h ?? 0).toBeGreaterThan(1); }
+        } finally { await close(); }
+      });
+    }
   }
 }
+
+// A map that did not read a provider carries a placeholder 0 for it; counting that would show a measured 0 where nothing was measured.
+test("[integration] a provider no map read is not measured, and a placeholder Codex reading is not averaged", async () => {
+  rows = [
+    { ...row("TM-00000000000L", "pseudo-lll", [0, 0, 0], 5000, 0, 77), sources: "claude" },
+    { ...row("TM-00000000000M", "pseudo-mmm", [1, 0, 0], 7000, 0, 88), sources: "claude" },
+  ];
+  const { page, close } = await open();
+  try {
+    expect(await cellsOf(page, "capSides")).toEqual([
+      ["Maps", "1", "1"],
+      ["Claude output tokens used", "5K", "7K"],
+      ["Codex output tokens used", "not measured", "not measured"],
+      ["Maps with a Codex weekly reading", "0", "0"],
+      ["Mean Codex weekly used", "not measured", "not measured"],
+      ["Mean Codex weekly headroom", "not measured", "not measured"],
+    ]);
+  } finally { await close(); }
+});

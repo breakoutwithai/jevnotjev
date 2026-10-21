@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TokenMax: your week is a run of seven shows</title>
-<meta name="description" content="See how TokenMax seats each step of a prompt so your weekly limit lasts, then map your own week with one line in your terminal. Nothing is sent unless you choose to.">
+<meta name="description" content="See how an AI coding week could last to Sunday, then share your own week with one prompt in the Claude Code or Codex you already use. Nothing is sent unless you choose to.">
 <meta property="og:title" content="TokenMax: your week is a run of seven shows">
-<meta property="og:description" content="Play an illustrative week, then map your own last 7 days of Claude Code and Codex with one line.">
+<meta property="og:description" content="Play an illustrative week, then share your own week with one prompt.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://jevnotjev.breakoutwithai.com/tm/">
 <meta property="og:image" content="https://jevnotjev.breakoutwithai.com/og.png">
@@ -17,7 +17,7 @@
 <div class="page">
 
   <nav class="jump" aria-label="Skip the show">
-    <a href="#command" id="jumpCommand">Skip to the command</a>
+    <a href="#command" id="jumpCommand">Share my week</a>
   </nav>
 
   <header class="playbill">
@@ -27,6 +27,11 @@
     </div>
     <span class="tag">Illustrative week</span>
   </header>
+  <div class="front">
+    <p class="lede" id="lede">Play a week of AI coding to see how it could last to Sunday, then share your own week to help decide if TokenMax gets built.</p>
+    <p class="audience" id="audience">For people who use Claude Code or Codex most weeks. Not for you if you use neither.</p>
+    <p class="notyet" id="notyet">The TokenMax router is being designed and does not work today. The weeks below are illustrative.</p>
+  </div>
 
   <main>
   <section class="pick" aria-label="Which week is yours?">
@@ -201,21 +206,17 @@
 
   <section class="command" id="command" tabindex="-1" aria-labelledby="hCmd">
     <h2 id="hCmd">Map your real week</h2>
-    <div class="admit" id="ticket" role="group" aria-label="The command">
-      <div class="cmdbox">
-        <p class="setup">Run it in a terminal with <a href="https://bun.sh">Bun</a>. It reads the last 7 days by default; add <code>--days 30</code> to the end of the command for a month, up to 90 days for a shared map.</p>
-        <code id="cmdText"><b aria-hidden="true">$ </b><span id="cmd"><span class="tok k1" id="tok1" aria-describedby="note1">curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts</span> | <span class="tok k2" id="tok2" aria-describedby="note2">bun run -</span> <span class="tok k3" id="tok3" aria-describedby="note3">--share</span></span></code>
-        <ul class="notes" aria-label="What each part does">
-          <li class="k1"><a id="note1" href="/tm/map.ts">the script, readable</a></li>
-          <li class="k2" id="note2">runs on your machine</li>
-          <li class="k3" id="note3">a link you choose to press</li>
-        </ul>
-        <a id="tokenmaxGuide" class="guide-link" href="/guide/#tokenmax">Understand TokenMax and explore a recorded comparison</a>
-        <p class="trust" id="trust">Runs on your machine. Nothing sent until you press Share.</p>
+    <p class="share-why">Ask the Claude Code or Codex you already use to map your last 7 days. You paste one prompt.</p>
+    <details class="share" id="share">
+      <summary id="shareWeek">Share my week</summary>
+      <div class="prompt-box" id="promptBox" role="group" aria-label="The prompt">
+        <p class="setup">Paste this into Claude Code or Codex. It reads the script first, tells you what it reads and what it would send, then runs it on your computer.</p>
+        <pre id="sharePrompt">Please read https://jevnotjev.breakoutwithai.com/tm/map.ts before running anything. In plain words, tell me what it reads on this computer and what it would send. Then run it here with Bun and the --share flag, so it maps my last 7 days of Claude Code and Codex use into a private report on this computer, and show me the report and the link it prints. Do not send or upload anything yourself: I decide whether to open that link and press Share.</pre>
+        <button type="button" class="copy" id="copy">Copy</button>
       </div>
-      <span class="stub" aria-hidden="true"></span>
-      <button type="button" class="copy" id="copy">Copy</button>
-    </div>
+    </details>
+    <p class="trust" id="trust">Runs on your machine. Nothing sent until you press Share.</p>
+    <a id="tokenmaxGuide" class="guide-link" href="/guide/#tokenmax">Understand TokenMax and explore a recorded comparison</a>
     <p class="copymsg" id="copyMsg" role="status" aria-live="polite"></p>
   </section>
 

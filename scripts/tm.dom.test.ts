@@ -4,13 +4,15 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 import { bundleTm, TM_OUT } from "./build-tm.ts";
+import { BANNED_ANYWHERE, jargonHits, PROMPT } from "./uat/tm-the-run-check.ts";
 import { shareLink, type SharePayload } from "../skills/tokenmax-map/scripts/map.ts";
 
-// /tm/ "The Run": the click-through TokenMax show, then the command ticket (#command), the share card (#sceneB) and the
-// router card (#sceneD). Served from site/ by Bun.serve; every off-origin request is blocked.
+// /tm/ "The Run": a plain front panel, the click-through TokenMax show, then Share my week (#command: one prompt for the
+// Claude Code or Codex the visitor already uses), the share card (#sceneB) and the router card (#sceneD). Served from
+// site/ by Bun.serve; every off-origin request is blocked. Issue #309 criterion 3: no jargon in the first viewport, no
+// curl or terminal anywhere.
 
 const SITE = join(import.meta.dir, "..", "site");
-const COMMAND = "curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share";
 // One builder's real week, 16 Oct 2026 (the builder's own tokenmax-map 0.2.0 run, recorded in the private planning folder's
 // use-cases/tim-tokenmax/RUNS.md, "Builder's real history with 0.2.0"): Claude 515 sessions and 68 subagent,
 // Codex 3,478 and 376; caps 1 short and 1 unknown window; output tokens as below; Opus-class 87%; Codex week 15%.
@@ -54,6 +56,11 @@ test("[unit] TM-1 the opening curtain scene and the terminal scene are gone; fon
   expect(fonts.sort()).toEqual(["fonts/Alegreya-Italic.ttf", "fonts/Alegreya.ttf", "fonts/Archivo.ttf"]);
   for (const f of fonts) expect(existsSync(join(SITE, "tm", f))).toBe(true);
   expect(css).not.toMatch(/https?:\/\//);
+  // #309: the command ticket is gone; no curl and no terminal wording in any shipped source of the page.
+  for (const gone of ["cmd", "cmdText", "ticket", "tok1", "note1"]) expect(page).not.toContain(`id="${gone}"`);
+  for (const file of [join(SITE, "tm", "index.html"), join(SITE, "tm", "tm.css"), join(SITE, "tm", "tm.js"), join(import.meta.dir, "..", "src", "browser", "tm-run.ts")]) {
+    expect({ file, hit: BANNED_ANYWHERE.exec(readFileSync(file, "utf8"))?.[0] ?? null }).toEqual({ file, hit: null });
+  }
 });
 
 test("[integration] TM-2 site/tm/tm.js is the current build of src/browser/tm-run.ts", async () => {
@@ -92,20 +99,51 @@ async function scrollShare(page: Page, share: number): Promise<void> {
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(null)))));
 }
 
-for (const motion of MOTIONS) test(`[integration] setup line shows terminal, Bun, the seven-day default and a month option before the command (${motion})`, async () => {
-  const page = await open(390, 844, motion);
-  try {
-    const line = page.locator("p:has(code)").filter({ hasText: "--days 30" });
-    await line.scrollIntoViewIfNeeded();
-    expect(await line.isVisible()).toBe(true);
-    const copy = await line.innerText();
-    for (const part of ["terminal", "Bun", "last 7 days by default", "--days 30", "90"]) expect(copy).toContain(part);
-    expect(await line.locator('a[href="https://bun.sh"]').isVisible()).toBe(true);
-    expect(await line.evaluate((node) => {
-      const command = document.querySelector("#cmd");
-      return command !== null && Boolean(node.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING);
-    })).toBe(true);
-  } finally { await close(page); }
+for (const motion of MOTIONS) test(`[integration] TM-8 Share my week opens a prompt for Claude Code or Codex: it reads map.ts, says what it reads and sends, runs it locally, sends nothing itself (${motion})`, async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, motion);
+    try {
+      expect(await page.locator("#sharePrompt").isVisible()).toBe(false);
+      await page.locator("#shareWeek").click();
+      expect(await page.locator("#sharePrompt").isVisible()).toBe(true);
+      const prompt = await page.locator("#sharePrompt").textContent();
+      expect(prompt).toBe(PROMPT);
+      expect(prompt).toContain("https://jevnotjev.breakoutwithai.com/tm/map.ts");
+      for (const part of ["what it reads", "what it would send", "run it here", "Do not send or upload anything yourself"]) expect(prompt).toContain(part);
+      expect(await page.locator("#promptBox .setup").innerText()).toContain("Claude Code or Codex");
+      expect((await page.locator("#trust").innerText()).trim()).toBe(TRUST);
+      expect(await page.locator("#trust").isVisible()).toBe(true);
+    } finally { await close(page); }
+  }
+}, 30000);
+
+for (const motion of MOTIONS) test(`[integration] TM-7 the first viewport, no scroll, says what you get, who it is for and not for, and that the router is not built, with no jargon-list word (${motion})`, async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(width, height, motion);
+    try {
+      const first = await page.evaluate(() => {
+        const texts: string[] = [];
+        const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+          const text = (node.textContent ?? "").trim();
+          const el = node.parentElement;
+          if (!text || !el || el.closest("script, style") || !el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) continue;
+          const range = document.createRange(); range.selectNodeContents(node);
+          if ([...range.getClientRects()].some((r) => r.width > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth)) texts.push(text);
+        }
+        const whole = (id: string): string => { const r = document.getElementById(id)?.getBoundingClientRect(); return r && r.height > 0 && r.top >= 0 && r.bottom <= innerHeight ? (document.getElementById(id)?.textContent ?? "") : ""; };
+        return { texts, lede: whole("lede"), audience: whole("audience"), notyet: whole("notyet"), share: whole("jumpCommand") };
+      });
+      expect({ width, hits: jargonHits(first.texts) }).toEqual({ width, hits: [] });
+      expect(first.texts.length).toBeGreaterThan(5);
+      expect(first.lede).toContain("share your own week");
+      expect(first.audience).toMatch(/^For people who .+ Not for you if/);
+      expect(first.notyet).toBe("The TokenMax router is being designed and does not work today. The weeks below are illustrative.");
+      expect(first.share).toBe("Share my week");
+      const anywhere = await page.evaluate(() => [document.documentElement.textContent ?? "", ...[...document.querySelectorAll("*")].flatMap((el) => ["title", "aria-label", "alt", "content", "href"].map((a) => el.getAttribute(a) ?? ""))].join(" "));
+      expect(BANNED_ANYWHERE.exec(anywhere)?.[0] ?? null).toBeNull();
+    } finally { await close(page); }
+  }
 }, 30000);
 
 for (const motion of MOTIONS) {
@@ -126,11 +164,12 @@ for (const motion of MOTIONS) {
     } finally { await close(page); }
   }, 30000);
 
-  test(`[integration] Copy on the ticket copies the exact command; aria-live says Copied (${motion})`, async () => {
+  test(`[integration] Copy copies the exact prompt; aria-live says Copied (${motion})`, async () => {
     for (const [width, height] of VIEWS) {
       const page = await open(width, height, motion);
       try {
-        expect(await page.locator("#cmd").textContent()).toBe(COMMAND);
+        await page.locator("#shareWeek").click();
+        expect(await page.locator("#sharePrompt").textContent()).toBe(PROMPT);
         const copy = page.getByRole("button", { name: "Copy" });
         await copy.scrollIntoViewIfNeeded();
         const box = await copy.evaluate((node) => {
@@ -142,14 +181,14 @@ for (const motion of MOTIONS) {
         expect(await page.locator("#copyMsg").getAttribute("aria-live")).toBe("polite");
         await copy.click();
         await page.waitForFunction(() => (document.getElementById("copyMsg")?.textContent ?? "").length > 0);
-        expect(await page.locator("#copyMsg").textContent()).toContain("Copied");
-        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(COMMAND);
+        expect(await page.locator("#copyMsg").textContent()).toBe("Copied. Paste it into Claude Code or Codex.");
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(PROMPT);
       } finally { await close(page); }
     }
   }, 30000);
 }
 
-test("[integration] Copy falls back to selecting the command with a keyboard hint when the clipboard refuses", async () => {
+test("[integration] Copy falls back to selecting the prompt with a keyboard hint when the clipboard refuses", async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
   try {
     await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
@@ -158,18 +197,19 @@ test("[integration] Copy falls back to selecting the command with a keyboard hin
       document.execCommand = () => false;
     });
     await page.goto(`http://127.0.0.1:${server.port}/tm/`, { waitUntil: "load" });
+    await page.locator("#shareWeek").click();
     await page.getByRole("button", { name: "Copy" }).click();
     await page.waitForFunction(() => (document.getElementById("copyMsg")?.textContent ?? "").length > 0);
-    expect(await page.locator("#copyMsg").textContent()).toMatch(/selected\. Press (Cmd|Ctrl)\+C to copy it\./);
-    expect(await page.evaluate(() => getSelection()?.toString())).toBe(COMMAND);
+    expect(await page.locator("#copyMsg").textContent()).toMatch(/^The prompt is selected\. Press (Cmd|Ctrl)\+C to copy it\.$/);
+    expect(await page.evaluate(() => getSelection()?.toString())).toBe(PROMPT);
   } finally { await page.close(); }
 }, 30000);
 
-test("[integration] TM-3 the visitor order: situation picker, stage, the three cards, the command ticket, the share card, the shared maps", async () => {
+test("[integration] TM-3 the visitor order: front panel, situation picker, stage, the three cards, Share my week, the share card, the shared maps", async () => {
   for (const [width, height] of VIEWS) {
     const page = await open(width, height, "reduce");
     try {
-      const order = await page.evaluate(() => ["#jumpCommand", ".pick", "#stage", "#promptCard", "#review", "#command", "#copy", "#sceneB", "#openCard", "#sceneD", "#seeMaps"]
+      const order = await page.evaluate(() => ["#jumpCommand", "#lede", "#notyet", ".pick", "#stage", "#promptCard", "#review", "#command", "#shareWeek", "#trust", "#sceneB", "#openCard", "#sceneD", "#seeMaps"]
         .map((sel) => { const el = document.querySelector(sel); return { sel, top: el ? el.getBoundingClientRect().top + scrollY : -1 }; }));
       expect(order.every((o) => o.top >= 0)).toBe(true);
       // Cards sit side by side at 1440, so compare the sections that stack at every width.
@@ -183,16 +223,17 @@ test("[integration] TM-3 the visitor order: situation picker, stage, the three c
   }
 }, 30000);
 
-for (const motion of MOTIONS) test(`[integration] TM-4 Skip to the command is the first Tab stop, visible at the top, and moves focus to the ticket (${motion})`, async () => {
+for (const motion of MOTIONS) test(`[integration] TM-4 Share my week is the first Tab stop, visible at the top, and opens the prompt with focus on it (${motion})`, async () => {
   for (const [width, height] of VIEWS) {
     const page = await open(width, height, motion);
     try {
       const skip = await page.locator("#jumpCommand").evaluate((el) => { const r = el.getBoundingClientRect(); return { text: el.textContent, onScreen: r.top >= 0 && r.bottom <= innerHeight && r.width >= 24 && r.height >= 24 }; });
-      expect(skip).toEqual({ text: "Skip to the command", onScreen: true });
+      expect(skip).toEqual({ text: "Share my week", onScreen: true });
       await page.keyboard.press("Tab");
       expect(await page.evaluate(() => document.activeElement?.id)).toBe("jumpCommand");
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => document.activeElement?.id === "command");
+      await page.waitForFunction(() => { const d = document.getElementById("share"); return document.activeElement?.id === "command" && d instanceof HTMLDetailsElement && d.open; });
+      expect(await page.locator("#sharePrompt").isVisible()).toBe(true);
       const at = await page.locator("#trust").evaluate((el, trust) => {
         const r = el.getBoundingClientRect();
         const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
@@ -345,11 +386,11 @@ for (const motion of MOTIONS) {
       try {
         let checked = 0;
         for (const pick of [false, true]) {
-          if (pick) { await page.locator(".pick-btn[data-mode=burn]").click(); await page.locator("#replay").waitFor(); }
+          if (pick) { await page.locator(".pick-btn[data-mode=burn]").click(); await page.locator("#replay").waitFor(); await page.locator("#shareWeek").click(); }
           const res = await page.evaluate(() => {
             const bad: string[] = [];
             let n = 0;
-            for (const el of document.querySelectorAll("a[href], button")) {
+            for (const el of document.querySelectorAll("a[href], button, summary")) {
               if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) continue;
               n += 1;
               const r = el.getBoundingClientRect();
@@ -361,14 +402,15 @@ for (const motion of MOTIONS) {
           expect(res.bad).toEqual([]);
           checked += res.n;
         }
-        // At rest: skip link, two picks, Try, bun.sh, the script, the guide, Copy, the sample card, /maps/; then Replay and more.
-        expect(checked).toBeGreaterThanOrEqual(20);
+        // At rest: Share my week (link and summary), two picks, Try, the guide, the sample card, /maps/; then with the
+        // show played and the prompt open, Replay, Try on the curtain, Copy and the rest again.
+        expect(checked).toBeGreaterThanOrEqual(19);
       } finally { await close(page); }
     }
   }, 60000);
 }
 
-test("[integration] if tm.js does not load, the command ticket, Copy, the share card and the maps link are still shown", async () => {
+test("[integration] if tm.js does not load, the front panel, Share my week (it still opens), the share card and the maps link are still shown", async () => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "no-preference" });
   const page = await context.newPage();
   try {
@@ -380,23 +422,26 @@ test("[integration] if tm.js does not load, the command ticket, Copy, the share 
     await page.goto(`http://127.0.0.1:${server.port}/tm/`, { waitUntil: "load" });
     const hidden = await page.evaluate(() => {
       const out: string[] = [];
-      for (const root of document.querySelectorAll("#command, #sceneB, #sceneD")) {
+      for (const root of document.querySelectorAll(".front, #command, #sceneB, #sceneD")) {
         const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
         for (let node = walk.nextNode(); node; node = walk.nextNode()) {
           const text = (node.textContent ?? "").trim();
           const el = node.parentElement;
-          if (text && el && el.id !== "copyMsg" && !el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) out.push(text);
+          // The prompt sits in a closed details until Share my week opens it, by design.
+          if (!text || !el || el.id === "copyMsg" || el.closest("#promptBox")) continue;
+          if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) out.push(text);
         }
       }
       return out;
     });
     expect(hidden).toEqual([]);
+    await page.locator("#shareWeek").click();
     expect(await page.locator("#copy").isVisible()).toBe(true);
-    expect(await page.locator("#cmd").textContent()).toBe(COMMAND);
+    expect(await page.locator("#sharePrompt").textContent()).toBe(PROMPT);
   } finally { await context.close(); }
 }, 30000);
 
-test("[integration] Tab from the top reaches Copy, this week's card and /maps/, and each focused control is on screen", async () => {
+test("[integration] Tab from the top reaches Share my week, the prompt control, this week's card and /maps/, each on screen when focused", async () => {
   for (const [width, height] of VIEWS) {
     const page = await open(width, height, "no-preference");
     try {
@@ -411,7 +456,7 @@ test("[integration] Tab from the top reaches Copy, this week's card and /maps/, 
         });
         if (focused) reached.push(focused);
       }
-      const want = ["jumpCommand", "copy", "openCard", "seeMaps"];
+      const want = ["jumpCommand", "shareWeek", "openCard", "seeMaps"];
       expect({ width, found: reached.filter((r) => want.includes(r.id)) }).toEqual({ width, found: want.map((id) => ({ id, inView: true })) });
     } finally { await close(page); }
   }

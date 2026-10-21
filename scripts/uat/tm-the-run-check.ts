@@ -2,13 +2,16 @@
 //
 //   bun scripts/uat/tm-the-run-check.ts [--page <file>] [--base <git ref>] [--chromium <path>]
 //
-// At 390x844 (phone) and 1440x960 it loads the page and every deep link and fails on any JS error, console error or
+// At 390x844 (phone) and 1440x900 it loads the page and every deep link and fails on any JS error, console error or
 // warning, network request other than the local page and its own files, the removed curtain scene (#curtain,
 // #marquee, #sur), a deep link that does not reach its end state, and at 390 any visible text under 11px or any
-// horizontal scroll. It drives the show by keyboard (pick, Skip to the end, Try this prompt, Skip; focus must land
-// on Replay), checks Tab reaches Skip to the command and Copy, that reduced motion jumps to end states, that Copy
-// copies the exact command, and at 1440 that the burn journey plays to its end with no skipping. With --base it also
-// fails when site/tm/map.ts differs from that ref. Prints counts per width and CLEAN, or each problem; exit 1 on any.
+// horizontal scroll. Issue #309 criterion 3: the first viewport (no scroll) must show what the visitor gets, who it
+// is for and not for, and that the router is not built, with no word from the jargon list; no "curl" or "terminal"
+// anywhere on the page; the Share my week control is present. It drives the show by keyboard (pick, Skip to the end,
+// Try this prompt, Skip; focus must land on Replay), checks Tab reaches Share my week and Copy, that reduced motion
+// jumps to end states, that Copy copies the exact prompt, and at 1440 that the burn journey plays to its end with no
+// skipping. With --base it also fails when site/tm/map.ts differs from that ref. Prints counts per width and CLEAN,
+// or each problem; exit 1 on any.
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -19,10 +22,20 @@ import { resolveChromium } from "./happy-path-lib.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 export const TM_PAGE = join(ROOT, "site", "tm", "index.html");
-export const COMMAND = "curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share";
+/** The exact prompt Share my week offers to paste into Claude Code or Codex. */
+export const PROMPT = "Please read https://jevnotjev.breakoutwithai.com/tm/map.ts before running anything. In plain words, tell me what it reads on this computer and what it would send. Then run it here with Bun and the --share flag, so it maps my last 7 days of Claude Code and Codex use into a private report on this computer, and show me the report and the link it prints. Do not send or upload anything yourself: I decide whether to open that link and press Share.";
+/** Issue #309 criterion 3: none of these words may show in the first viewport. */
+export const JARGON = /\b(curl|bun|terminal|logs?|tokens?|subagents?|jsonl)\b/i;
+/** Nowhere on the page, visible or not. */
+export const BANNED_ANYWHERE = /\bcurl\b|terminal/i;
 export const HASHES = ["", "#burn-before", "#burn-after", "#under-before", "#under-after", "#demo-burn", "#demo-under", "#command"];
 export type Viewport = { readonly width: number; readonly height: number; readonly mobile: boolean };
-export const VIEWPORTS: readonly Viewport[] = [{ width: 390, height: 844, mobile: true }, { width: 1440, height: 960, mobile: false }];
+export const VIEWPORTS: readonly Viewport[] = [{ width: 390, height: 844, mobile: true }, { width: 1440, height: 900, mobile: false }];
+
+/** Jargon-list words in a list of visible text snippets, as "word in: snippet". */
+export function jargonHits(texts: readonly string[]): string[] {
+  return texts.flatMap((t) => { const m = JARGON.exec(t); return m ? [`${m[0]} in: ${t.slice(0, 60)}`] : []; });
+}
 const MODES: readonly ("burn" | "under")[] = ["burn", "under"];
 
 /** One check: the width it ran at (0 for repo-wide), its name, and the problem when it failed. */
@@ -46,7 +59,7 @@ export function report(checks: readonly Check[]): string {
   const s = summarise(checks);
   const lines = [...s.widths].map(([w, t]) => `${w === 0 ? "repo" : `${w}px`}: ${t.run} checks run, ${t.passed} passed, ${t.failed} failed`);
   lines.push(`total: ${s.total.run} checks run, ${s.total.passed} passed, ${s.total.failed} failed`);
-  if (s.clean) lines.push("CLEAN: no JS or console errors, no network requests, no phone text under 11px, no horizontal scroll at 390, curtain scene absent, deep links reach their end states, keyboard flow and Skip land on Replay, reduced motion jumps to end states, Copy copies the exact command");
+  if (s.clean) lines.push("CLEAN: no JS or console errors, no network requests, no phone text under 11px, no horizontal scroll at 390, curtain scene absent, deep links reach their end states, keyboard flow and Skip land on Replay, reduced motion jumps to end states, first viewport plain with no jargon, no curl or terminal anywhere, Copy copies the exact prompt");
   else for (const c of checks) if (!c.ok) lines.push(`FAIL [${c.width === 0 ? "repo" : `${c.width}px`}] ${c.name}: ${c.detail}`);
   return lines.join("\n");
 }
@@ -76,7 +89,7 @@ const SMALL_TEXT = `(() => { const out = []; document.querySelectorAll('body *')
   if (fs < 10.99) out.push(el.tagName + '.' + (el.getAttribute('class') || '') + ' "' + el.textContent.trim().slice(0, 30) + '" ' + fs.toFixed(1) + 'px');
 }); return out; })()`;
 
-type EndState = { drop: boolean; ghost: boolean; settled: boolean; half: number; extra: number; cancelled: number; verdict: string; badge: string; focus: string; skipHidden: boolean };
+export type EndState = { drop: boolean; ghost: boolean; settled: boolean; half: number; extra: number; cancelled: number; verdict: string; badge: string; focus: string; skipHidden: boolean; shareOpen: boolean };
 const END_STATE = `(() => ({
   drop: document.getElementById('drop').classList.contains('show-copy'),
   ghost: document.getElementById('ghost').classList.contains('on'),
@@ -88,6 +101,7 @@ const END_STATE = `(() => ({
   badge: document.getElementById('gaugeBadge').textContent,
   focus: document.activeElement ? document.activeElement.id : '',
   skipHidden: document.getElementById('skip').hidden,
+  shareOpen: document.getElementById('share').open === true,
 }))()`;
 async function endState(page: Page): Promise<EndState> {
   const s: unknown = await page.evaluate(END_STATE);
@@ -96,7 +110,7 @@ async function endState(page: Page): Promise<EndState> {
   const num = (k: string): number => { const v = get(k); return typeof v === "number" ? v : -1; };
   const str = (k: string): string => { const v = get(k); return typeof v === "string" ? v : ""; };
   const bool = (k: string): boolean => get(k) === true;
-  return { drop: bool("drop"), ghost: bool("ghost"), settled: bool("settled"), half: num("half"), extra: num("extra"), cancelled: num("cancelled"), verdict: str("verdict"), badge: str("badge"), focus: str("focus"), skipHidden: bool("skipHidden") };
+  return { drop: bool("drop"), ghost: bool("ghost"), settled: bool("settled"), half: num("half"), extra: num("extra"), cancelled: num("cancelled"), verdict: str("verdict"), badge: str("badge"), focus: str("focus"), skipHidden: bool("skipHidden"), shareOpen: bool("shareOpen") };
 }
 
 /** What each end-state deep link must show. */
@@ -106,7 +120,7 @@ export function expectedEnd(hash: string, s: EndState): string | null {
   if (hash === "#burn-after") return ok(s.settled && s.verdict === "Standing ovation" && s.badge === "Lasted to Sunday");
   if (hash === "#under-before") return ok(s.ghost && s.half === 7 && s.verdict === "Still in previews");
   if (hash === "#under-after") return ok(s.settled && s.extra === 6 && s.verdict === "Standing ovation" && s.badge === "Target passed");
-  if (hash === "#command") return ok(s.focus === "command");
+  if (hash === "#command") return ok(s.focus === "command" && s.shareOpen);
   return null;
 }
 
@@ -143,6 +157,33 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
         add(`${label}: curtain scene absent`, gone.length ? `found #${gone.join(", #")}` : null);
         const end = await endState(page);
         if (["#burn-before", "#burn-after", "#under-before", "#under-after", "#command"].includes(hash)) add(`${label}: end state`, expectedEnd(hash, end));
+        if (hash === "") {
+          // Issue #309 criterion 3, first viewport, no scroll: every visible text node that intersects the viewport.
+          const first = await page.evaluate(() => {
+            const texts: string[] = [];
+            const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+            for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+              const text = (node.textContent ?? "").trim();
+              const el = node.parentElement;
+              if (!text || !el || el.closest("script, style") || !el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) continue;
+              const range = document.createRange(); range.selectNodeContents(node);
+              if ([...range.getClientRects()].some((r) => r.width > 0 && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth)) texts.push(text);
+            }
+            const whole = (id: string): boolean => {
+              const el = document.getElementById(id); const r = el?.getBoundingClientRect();
+              return !!el && !!r && r.height > 0 && r.top >= 0 && r.bottom <= innerHeight && el.checkVisibility({ visibilityProperty: true, opacityProperty: true });
+            };
+            return { texts, lede: whole("lede"), audience: whole("audience"), notyet: whole("notyet"), share: whole("jumpCommand") };
+          });
+          add("first viewport: no jargon-list word", jargonHits(first.texts).join("; ") || null);
+          add("first viewport: what you get, who it is for and not for, router not built yet", first.lede && first.audience && first.notyet ? null : JSON.stringify(first));
+          add("first viewport: Share my week control", first.share ? null : "Share my week not fully on screen");
+          const anywhere = await page.evaluate(() => [document.documentElement.textContent ?? "", ...[...document.querySelectorAll("*")].flatMap((el) => ["title", "aria-label", "alt", "content", "href"].map((a) => el.getAttribute(a) ?? ""))].join(" "));
+          const banned = new RegExp(BANNED_ANYWHERE.source, "i").exec(anywhere);
+          add("no curl or terminal anywhere on the page", banned ? `found "${banned[0]}"` : null);
+          const control = await page.evaluate(() => ({ summary: document.getElementById("shareWeek")?.textContent ?? "", jump: document.getElementById("jumpCommand")?.textContent ?? "", map: document.getElementById("mapWeek")?.getAttribute("href") ?? "" }));
+          add("Share my week control present; Map your real week targets it", control.summary === "Share my week" && control.jump === "Share my week" && control.map === "#command" ? null : JSON.stringify(control));
+        }
         if (vp.mobile) {
           const small: unknown = await page.evaluate(SMALL_TEXT);
           add(`${label}: no text under 11px`, Array.isArray(small) && small.length ? small.join("; ") : null);
@@ -182,28 +223,29 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
       } finally { await page.close(); }
     }
 
-    // 3. Tab: the first stop is Skip to the command; it moves focus to the ticket; Tab then reaches Copy
+    // 3. Tab: the first stop is Share my week; it opens the prompt and moves focus there; Tab then reaches Copy
     {
       const page = await context.newPage();
       try {
         await page.goto(url, { waitUntil: "load" });
         await page.keyboard.press("Tab");
-        add("Tab: first stop is Skip to the command", (await focusedId(page)) === "jumpCommand" ? null : `first stop ${await focusedId(page)}`);
+        add("Tab: first stop is Share my week", (await focusedId(page)) === "jumpCommand" ? null : `first stop ${await focusedId(page)}`);
         await page.keyboard.press("Enter");
         await sleep(400);
         const at = await page.evaluate(() => {
           const el = document.getElementById("command");
           const r = el?.getBoundingClientRect();
-          return { focus: document.activeElement?.id ?? "", inView: r !== undefined && r.top >= -1 && r.top < innerHeight };
+          const details = document.getElementById("share");
+          return { focus: document.activeElement?.id ?? "", inView: r !== undefined && r.top >= -1 && r.top < innerHeight, open: details instanceof HTMLDetailsElement && details.open };
         });
-        add("Skip to the command: focus and view on the ticket", at.focus === "command" && at.inView ? null : JSON.stringify(at));
+        add("Share my week: opens the prompt, focus and view on it", at.focus === "command" && at.inView && at.open ? null : JSON.stringify(at));
         let reached = false;
         for (let i = 0; i < 12 && !reached; i++) { await page.keyboard.press("Tab"); reached = (await focusedId(page)) === "copy"; }
         add("Tab: reaches Copy", reached ? null : `stopped on ${await focusedId(page)}`);
       } finally { await page.close(); }
     }
 
-    // 4. Copy copies the exact command
+    // 4. Share my week opens the prompt; Copy copies the exact prompt
     {
       const page = await context.newPage();
       try {
@@ -212,10 +254,13 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
           Object.defineProperty(navigator, "clipboard", { value: { writeText: (t: string) => { Reflect.set(window, "__copied", t); return Promise.resolve(); } } });
         });
         await page.goto(url, { waitUntil: "load" });
+        const closed = await page.locator("#copy").isVisible();
+        await page.locator("#shareWeek").click();
         await page.locator("#copy").click();
         await page.waitForFunction(() => (document.getElementById("copyMsg")?.textContent ?? "").length > 0, null, { timeout: 3000 });
-        const got = await page.evaluate(() => ({ copied: String(Reflect.get(window, "__copied")), msg: document.getElementById("copyMsg")?.textContent ?? "", shown: document.getElementById("cmd")?.textContent ?? "" }));
-        add("Copy: copies the exact command", got.copied === COMMAND && got.shown === COMMAND && got.msg.startsWith("Copied") ? null : JSON.stringify(got));
+        const got = await page.evaluate(() => ({ copied: String(Reflect.get(window, "__copied")), msg: document.getElementById("copyMsg")?.textContent ?? "", shown: document.getElementById("sharePrompt")?.textContent ?? "" }));
+        add("Share my week: the prompt opens on request", closed ? "Copy visible before Share my week was opened" : null);
+        add("Copy: copies the exact prompt", got.copied === PROMPT && got.shown === PROMPT && got.msg.startsWith("Copied") ? null : JSON.stringify(got));
       } finally { await page.close(); }
     }
 

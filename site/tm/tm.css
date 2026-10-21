@@ -27,7 +27,7 @@ button { font: inherit; cursor: pointer; }
 .page { max-width: 1240px; margin: 0 auto; padding: 14px 20px 28px; }
 [hidden] { display: none !important; }
 
-/* skip link: visible, the first stop for anyone who came for the command */
+/* Share my week: visible, the first stop for anyone who came to share their week */
 .jump { display: flex; justify-content: flex-end; margin-bottom: 6px; }
 .jump a {
   display: inline-flex; align-items: center; min-height: 32px; padding: 4px 12px; border: 2px solid var(--brass); border-radius: 999px;
@@ -35,8 +35,13 @@ button { font: inherit; cursor: pointer; }
 }
 .jump a:hover { background: rgba(224, 176, 78, .24); }
 
-/* header */
-.playbill { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+/* header and the plain front panel: what you get, who it is for, what is not built yet */
+.playbill { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.front { margin: 0 0 14px; max-width: 760px; }
+.front p { margin: 0 0 4px; }
+.lede { font: 600 18px/1.35 var(--serif); color: var(--parch); }
+.audience { font: 600 15px/1.35 var(--tm-sans); color: var(--gold-l); }
+.notyet { font: 500 14px/1.35 var(--tm-sans); color: #d9c79e; }
 .eyebrow { margin: 0; font: 700 12px/1 var(--tm-sans); letter-spacing: .24em; text-transform: uppercase; color: var(--brass); }
 h1 { margin: 4px 0 0; font: 800 clamp(24px, 3.2vw, 38px)/1.05 var(--serif); color: var(--parch); }
 h1 em { color: var(--brass); font-style: italic; }
@@ -307,44 +312,26 @@ h1 em { color: var(--brass); font-style: italic; }
 .cta { text-align: center; margin-top: auto; }
 .foot { margin: 14px 0 0; text-align: center; font: 500 12px var(--tm-sans); color: #a08a6a; }
 
-/* ---------- The command ticket: the one next step after the show ---------- */
+/* ---------- Share my week: one prompt to paste into the assistant the visitor already uses ---------- */
 .command { margin: 34px auto 0; max-width: 980px; scroll-margin-top: 12px; }
 .command:focus { outline: none; }
 .command:focus-visible { outline: 3px solid var(--gold-l); outline-offset: 6px; }
 .command > h2, .scene > h2 { margin: 0 0 14px; font: 800 clamp(24px, 3vw, 32px)/1.1 var(--serif); color: var(--parch); }
-.admit {
-  display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 20px;
-  background: var(--parch); color: #3a1a0c;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .6), 0 0 0 1px #8a5f10;
-  -webkit-mask: radial-gradient(circle 9px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
-                radial-gradient(circle 9px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
-          mask: radial-gradient(circle 9px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat,
-                radial-gradient(circle 9px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat;
+.share-why { margin: 0 0 12px; font: 500 16px/1.4 var(--tm-sans); color: var(--parch); }
+.share summary {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 22px; border-radius: 8px; cursor: pointer; list-style: none;
+  background: linear-gradient(#f6dc8e, var(--brass)); color: var(--parch-ink); font: 800 17px var(--tm-sans); box-shadow: 0 4px 0 #8a5f12;
 }
-.admit :focus-visible { outline-color: var(--velvet); }
-.cmdbox { flex: 1; min-width: 0; }
-.admit .setup { margin: 0 0 4px; font: 600 13px/1.3 var(--tm-sans); color: #3a1a0c; }
-.admit .setup a { display: inline-block; min-width: 24px; min-height: 24px; color: var(--velvet); font-size: 13px; line-height: 24px; }
-.admit .setup code { display: inline; font: inherit; color: inherit; white-space: nowrap; }
-/* The whole command, wrapped, never clipped: what you copy is what you read. */
-.admit code { display: block; font: 500 14px/1.6 var(--mono); color: #3a1a0c; white-space: pre-wrap; overflow-wrap: anywhere; }
-.admit code b { color: #8a5f10; font-weight: 500; }
-.tok { text-decoration: underline 2px; text-underline-offset: 4px; }
-.k1 { --k: #8a5f10; }
-.k2 { --k: var(--velvet); }
-.k3 { --k: #1f6b45; }
-.tok, .notes li { text-decoration-color: var(--k); }
-.notes { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; column-gap: 16px; }
-.notes li {
-  display: inline-flex; align-items: center; min-height: 24px;
-  font: 700 13px/1.2 var(--tm-sans); color: #3a1a0c; text-decoration-line: underline; text-decoration-thickness: 2px; text-underline-offset: 4px;
-}
-.notes a { display: inline-flex; align-items: center; min-height: 24px; color: inherit; text-decoration: inherit; }
-.trust { margin: 2px 0 0; font: 700 13px/1.35 var(--tm-sans); color: var(--velvet); }
-.admit .guide-link { display: block; padding: 4px 0; color: var(--velvet); font: 700 14px/1.4 var(--tm-sans); }
-.admit .stub { align-self: stretch; border-left: 2px dashed #b38a3c; }
+.share summary::-webkit-details-marker { display: none; }
+.prompt-box { margin-top: 12px; padding: 12px 16px; background: var(--parch); color: #3a1a0c; border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .6), 0 0 0 1px #8a5f10; }
+.prompt-box :focus-visible { outline-color: var(--velvet); }
+.prompt-box .setup { margin: 0 0 8px; font: 600 14px/1.35 var(--tm-sans); }
+/* The whole prompt, wrapped, never clipped: what you copy is what you read. */
+.prompt-box pre { margin: 0 0 10px; font: 500 14px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.trust { margin: 12px 0 0; font: 700 15px/1.35 var(--tm-sans); color: var(--gold-l); }
+.command .guide-link { display: inline-flex; align-items: center; min-height: 28px; margin-top: 4px; color: var(--gold-l); font: 700 15px/1.4 var(--tm-sans); }
 .copy {
-  flex: none; min-height: 44px; padding: 0 22px; border: 0; cursor: pointer;
+  min-height: 44px; padding: 0 22px; border: 0; cursor: pointer;
   background: var(--velvet); color: var(--parch); font: 800 16px var(--tm-sans); box-shadow: 0 3px 0 #3a0610;
 }
 .copy:hover { background: var(--velvet-l); }
@@ -482,19 +469,9 @@ h1 em { color: var(--brass); font-style: italic; }
   .seg button { padding: 8px 11px; font-size: 13px; }
   .replay, .skipper { padding: 8px 12px; font-size: 13px; }
 
-  /* Narrow ticket: the command on its own full-width rows, the notes under it, then the trust line beside Copy. */
-  .admit {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "setup setup" "code code" "notes notes" "guide guide" "trust copy";
-    column-gap: 10px; row-gap: 2px; padding: 8px 12px 8px 14px;
-  }
-  .cmdbox { display: contents; }
-  .admit .setup { grid-area: setup; }
-  .admit code { grid-area: code; font-size: 12.5px; line-height: 1.5; word-break: break-all; }
-  .admit .guide-link { grid-area: guide; }
-  .notes { grid-area: notes; column-gap: 14px; }
-  .trust { grid-area: trust; align-self: center; margin: 0; }
-  .admit .stub { display: none; }
-  .copy { grid-area: copy; padding: 0 18px; }
+  .lede { font-size: 17px; }
+  .prompt-box { padding: 10px 12px; }
+  .prompt-box pre { font-size: 13px; }
   .map-card { padding: 14px 16px 16px; }
   .map-card h3 { font-size: 24px; }
   .fields dt, .fields dd { padding: 5px 0; font-size: 14px; }

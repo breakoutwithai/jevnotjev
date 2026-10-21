@@ -800,8 +800,9 @@
       };
       raf = win.requestAnimationFrame(loop);
     }
-    const cmd = id("cmd", HTMLElement), copyMsg = id("copyMsg", HTMLElement);
-    const CMD = cmd.textContent ?? "";
+    const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement), share = id("share", HTMLDetailsElement);
+    const PROMPT = promptEl.textContent ?? "";
+    const COPIED = "Copied. Paste it into Claude Code or Codex.";
     let copyTimer = 0;
     function say(text) {
       copyMsg.textContent = text;
@@ -812,7 +813,7 @@
     }
     function legacyCopy() {
       const t = doc.createElement("textarea");
-      t.value = CMD;
+      t.value = PROMPT;
       t.setAttribute("readonly", "");
       t.style.position = "fixed";
       t.style.opacity = "0";
@@ -829,27 +830,28 @@
     }
     function selectCommand() {
       const range = doc.createRange();
-      range.selectNodeContents(cmd);
+      range.selectNodeContents(promptEl);
       const sel = win.getSelection();
       sel?.removeAllRanges();
       sel?.addRange(range);
       const mac = /Mac|iPhone|iPad/.test(win.navigator.platform || win.navigator.userAgent);
-      say(`The command is selected. Press ${mac ? "Cmd+C" : "Ctrl+C"} to copy it.`);
+      say(`The prompt is selected. Press ${mac ? "Cmd+C" : "Ctrl+C"} to copy it.`);
     }
     function fallback() {
       if (legacyCopy())
-        say("Copied. Paste it in your terminal.");
+        say(COPIED);
       else
         selectCommand();
     }
     id("copy", HTMLButtonElement).addEventListener("click", () => {
       const clip = win.navigator.clipboard;
       if (clip && typeof clip.writeText === "function")
-        clip.writeText(CMD).then(() => say("Copied. Paste it in your terminal."), fallback);
+        clip.writeText(PROMPT).then(() => say(COPIED), fallback);
       else
         fallback();
     });
     function focusCommand() {
+      share.open = true;
       command.focus();
     }
     pickBtns.forEach((b) => b.addEventListener("click", () => {

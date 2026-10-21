@@ -1,7 +1,7 @@
 // /tm/ "The Run": the TokenMax show. A visitor picks a situation, the week plays on the stage, the ending lands (the
 // curtain drops mid-week, or a ghost light on a half-empty house), Try this prompt seats each step, and the replay
 // with TokenMax ends on a curtain call. Every animation can be skipped; reduced motion, Skip and the deep links draw
-// end states. The command ticket below the show (#command) is the one next step. Built into site/tm/tm.js by
+// end states. Share my week below the show (#command) is the one next step: a prompt for Claude Code or Codex. Built into site/tm/tm.js by
 // scripts/build-tm.ts; adapted from The Run prototype (2026-10-21). Every number here is illustrative.
 
 export type Mode = "burn" | "under";
@@ -585,9 +585,10 @@ export function startTheRun(doc: Document): void {
     raf = win.requestAnimationFrame(loop);
   }
 
-  /* ---------- the command ticket: Copy, then execCommand, then select the text with a keyboard hint ---------- */
-  const cmd = id("cmd", HTMLElement), copyMsg = id("copyMsg", HTMLElement);
-  const CMD = cmd.textContent ?? "";
+  /* ---------- Share my week: Copy the prompt, then execCommand, then select the text with a keyboard hint ---------- */
+  const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement), share = id("share", HTMLDetailsElement);
+  const PROMPT = promptEl.textContent ?? "";
+  const COPIED = "Copied. Paste it into Claude Code or Codex.";
   let copyTimer = 0;
   function say(text: string): void {
     copyMsg.textContent = text;
@@ -596,7 +597,7 @@ export function startTheRun(doc: Document): void {
   }
   function legacyCopy(): boolean {
     const t = doc.createElement("textarea");
-    t.value = CMD; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+    t.value = PROMPT; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
     doc.body.appendChild(t); t.select();
     let ok = false;
     try { ok = doc.execCommand("copy"); } catch { ok = false; }
@@ -605,19 +606,20 @@ export function startTheRun(doc: Document): void {
   }
   function selectCommand(): void {
     const range = doc.createRange();
-    range.selectNodeContents(cmd);
+    range.selectNodeContents(promptEl);
     const sel = win.getSelection();
     sel?.removeAllRanges(); sel?.addRange(range);
     const mac = /Mac|iPhone|iPad/.test(win.navigator.platform || win.navigator.userAgent);
-    say(`The command is selected. Press ${mac ? "Cmd+C" : "Ctrl+C"} to copy it.`);
+    say(`The prompt is selected. Press ${mac ? "Cmd+C" : "Ctrl+C"} to copy it.`);
   }
-  function fallback(): void { if (legacyCopy()) say("Copied. Paste it in your terminal."); else selectCommand(); }
+  function fallback(): void { if (legacyCopy()) say(COPIED); else selectCommand(); }
   id("copy", HTMLButtonElement).addEventListener("click", () => {
     const clip = win.navigator.clipboard;
-    if (clip && typeof clip.writeText === "function") clip.writeText(CMD).then(() => say("Copied. Paste it in your terminal."), fallback);
+    if (clip && typeof clip.writeText === "function") clip.writeText(PROMPT).then(() => say(COPIED), fallback);
     else fallback();
   });
-  function focusCommand(): void { command.focus(); }
+  /** Map your real week, Share my week and #command all open the prompt and move focus to it. */
+  function focusCommand(): void { share.open = true; command.focus(); }
 
   /* ---------- wiring ---------- */
   pickBtns.forEach((b) => b.addEventListener("click", () => { const m = b.dataset.mode; if (m === "burn" || m === "under") { setMode(m); void runWithout(); } }));

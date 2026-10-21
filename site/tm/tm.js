@@ -190,6 +190,92 @@
     return parts.join("; ");
   }
 
+  // src/browser/tm-submit.ts
+  var PASTED_SKILL = "0.0.0";
+  var ALIAS_PATTERN = /^[a-z0-9-]{3,24}$/;
+  var ALIAS_MESSAGE = "Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.";
+  var KEY_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
+  var KEY_LENGTH = 32;
+  var DAY_MS = 86400000;
+  function newRequestKey(random) {
+    const bytes = random(new Uint8Array(KEY_LENGTH));
+    let key = "";
+    for (const b of bytes)
+      key += KEY_CHARS.charAt(b & 63);
+    return key;
+  }
+  function periodDays(week) {
+    const start = week.period ? readDate(week.period.start) : null;
+    const end = week.period ? readDate(week.period.end) : null;
+    if (!start || !end)
+      return null;
+    const span = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / DAY_MS;
+    return span >= 0 ? span + 1 : null;
+  }
+  function weekToPayload(week) {
+    const required = [
+      { label: "Claude sessions", value: week.claudeSessions },
+      { label: "Codex sessions", value: week.codexSessions },
+      { label: "Claude output tokens", value: week.claudeOutput },
+      { label: "Codex output tokens", value: week.codexOutput },
+      { label: "Opus share of Claude output", value: week.opusShare },
+      { label: "Usage limit hits", value: week.limitHits }
+    ];
+    const missing = required.filter((r) => r.value === null).map((r) => r.label);
+    const days = periodDays(week);
+    if (days === null)
+      missing.unshift(week.period === null ? "Period" : "Period (two dates like 2026-10-14 to 2026-10-21)");
+    if (missing.length > 0)
+      return { ok: false, message: `Not submitted: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not recorded in your result. Run the prompt again and paste the whole result.` };
+    const { claudeSessions, codexSessions, claudeOutput, codexOutput, opusShare, limitHits } = week;
+    if (days === null || claudeSessions === null || codexSessions === null || claudeOutput === null || codexOutput === null || opusShare === null || limitHits === null)
+      return { ok: false, message: "Not submitted: the result is incomplete." };
+    if (days > 90)
+      return { ok: false, message: `Not submitted: the period is ${days} days; a submitted week covers 1 to 90 days.` };
+    for (const r of required)
+      if (r.value !== null && (!Number.isSafeInteger(r.value) || r.value < 0))
+        return { ok: false, message: `Not submitted: ${r.label} must be a whole number, not ${r.value}.` };
+    const codexWeekly = week.codexWindow;
+    if (codexWeekly !== null && (!Number.isSafeInteger(codexWeekly) || codexWeekly < 0))
+      return { ok: false, message: `Not submitted: Codex weekly window used must be a whole number, not ${codexWeekly}.` };
+    const sources = claudeSessions > 0 && codexSessions > 0 ? "claude+codex" : claudeSessions > 0 ? "claude" : codexSessions > 0 ? "codex" : null;
+    if (sources === null)
+      return { ok: false, message: "Not submitted: both session counts are 0, so there is no week to show." };
+    return {
+      ok: true,
+      payload: {
+        v: "tm-share/1",
+        skill: PASTED_SKILL,
+        days,
+        sources,
+        sessions: claudeSessions + codexSessions,
+        subagent_sessions: 0,
+        caps: { short: 0, weekly: 0, unknown: limitHits },
+        output_tokens: { claude: claudeOutput, codex: codexOutput },
+        opus_share_pct: opusShare,
+        codex_weekly_pct: codexWeekly
+      }
+    };
+  }
+  function submitBody(payload, alias, requestKey) {
+    return { payload, alias, request_key: requestKey };
+  }
+  function rejectionMessage(status, body) {
+    const field = typeof body === "object" && body !== null && "field" in body && typeof body.field === "string" ? body.field : "";
+    const reason = typeof body === "object" && body !== null && "reason" in body && typeof body.reason === "string" ? body.reason : "";
+    const code = typeof body === "object" && body !== null && "code" in body && typeof body.code === "string" ? body.code : "";
+    if (reason)
+      return `Not submitted: ${field ? `${field} ` : ""}${reason}.`;
+    const known = {
+      "rate-limited": "too many requests from this network, try again later",
+      "maps-unavailable": "the board is not available right now",
+      "maps-full": "the board is full",
+      "too-large": "the request was too large",
+      "request-key-reused": "this attempt was already used for different details; press Submit again for a new attempt"
+    };
+    return `Not submitted: ${known[code] ?? (code || `the server answered ${status}`)}.`;
+  }
+
   // src/browser/tm-run.ts
   var DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   var LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -981,6 +1067,99 @@
       showCard(SAMPLE_WEEK, true);
     });
     id("playMine", HTMLButtonElement).addEventListener("click", playMine);
+    const aliasBox = id("aliasBox", HTMLInputElement), aliasError = id("aliasError", HTMLElement);
+    const submitBtn = id("submitWeek", HTMLButtonElement), submitStatus = id("submitStatus", HTMLElement);
+    const submitted = id("submitted", HTMLElement);
+    let attempt = { draft: "", key: "" };
+    let sending = false;
+    function clearSubmitMessages() {
+      aliasError.hidden = true;
+      aliasError.textContent = "";
+      aliasBox.removeAttribute("aria-invalid");
+      pasteError.hidden = true;
+      pasteError.textContent = "";
+      submitStatus.hidden = true;
+      submitStatus.textContent = "";
+    }
+    function refuse(message) {
+      pasteError.textContent = message;
+      pasteError.hidden = false;
+    }
+    function idOf(data) {
+      return typeof data === "object" && data !== null && "id" in data && typeof data.id === "string" && /^TM-[0-9A-F]{12}$/.test(data.id) ? data.id : null;
+    }
+    function replayOf(data) {
+      return typeof data === "object" && data !== null && "replay" in data && data.replay === true;
+    }
+    function showSubmitted(mapId, key, alias, replay) {
+      id("submittedHead", HTMLElement).textContent = replay ? `Already submitted: your entry is on the board as ${alias}.` : `Submitted. Your entry is on the public board as ${alias}.`;
+      id("submittedId", HTMLElement).textContent = mapId;
+      id("submittedKey", HTMLElement).textContent = key;
+      id("submittedDelete", HTMLAnchorElement).href = `/maps/#delete=${mapId}.${key}`;
+      submitStatus.textContent = "Submitted. Your entry is on the public board.";
+      submitStatus.hidden = false;
+      submitted.hidden = false;
+      submitted.focus();
+      try {
+        win.localStorage.setItem("tm-submit/1", JSON.stringify({ id: mapId, key, alias }));
+      } catch {}
+    }
+    function submitWeek() {
+      if (sending)
+        return;
+      clearSubmitMessages();
+      submitted.hidden = true;
+      const week = parseWeek(pasteBox.value);
+      if (!week) {
+        yourWeek.hidden = true;
+        refuse(NOT_A_RESULT);
+        pasteBox.focus();
+        return;
+      }
+      const mapped = weekToPayload(week);
+      if (!mapped.ok) {
+        showCard(week, false);
+        refuse(mapped.message);
+        return;
+      }
+      const alias = aliasBox.value.trim();
+      if (!ALIAS_PATTERN.test(alias)) {
+        aliasBox.setAttribute("aria-invalid", "true");
+        aliasError.textContent = alias === "" ? `Enter a nickname to submit. ${ALIAS_MESSAGE}` : ALIAS_MESSAGE;
+        aliasError.hidden = false;
+        aliasBox.focus();
+        return;
+      }
+      showCard(week, false);
+      const draft = JSON.stringify([alias, mapped.payload]);
+      if (draft !== attempt.draft)
+        attempt = { draft, key: newRequestKey((bytes) => win.crypto.getRandomValues(bytes)) };
+      const key = attempt.key;
+      sending = true;
+      submitBtn.disabled = true;
+      submitStatus.textContent = "Submitting...";
+      submitStatus.hidden = false;
+      win.fetch("/api/maps", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(submitBody(mapped.payload, alias, key)) }).then((res) => res.json().then((data) => ({ ok: res.ok, status: res.status, data }), () => ({ ok: res.ok, status: res.status, data: null }))).then((res) => {
+        const mapId = res.ok ? idOf(res.data) : null;
+        submitStatus.hidden = true;
+        submitStatus.textContent = "";
+        if (mapId) {
+          showSubmitted(mapId, key, alias, replayOf(res.data));
+          return;
+        }
+        if (res.status === 409)
+          attempt = { draft: "", key: "" };
+        refuse(res.ok ? "The server's answer could not be read, so it is not known whether your entry was added. Press Submit again: it will not add a second row." : rejectionMessage(res.status, res.data));
+      }, () => {
+        submitStatus.hidden = true;
+        submitStatus.textContent = "";
+        refuse("Not submitted: the request did not complete. Check your connection and press Submit again; pressing it again never adds a second row.");
+      }).then(() => {
+        sending = false;
+        submitBtn.disabled = false;
+      });
+    }
+    submitBtn.addEventListener("click", submitWeek);
     pickBtns.forEach((b) => b.addEventListener("click", () => {
       const m = b.dataset.mode;
       if (m === "burn" || m === "under") {

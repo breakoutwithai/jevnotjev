@@ -1,5 +1,5 @@
 {
-  "minFiles": 159,
+  "minFiles": 160,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -35,7 +35,7 @@
     "scripts/landing-reveal.dom.test.ts": 18,
     "scripts/landing.dom.test.ts": 103,
     "scripts/little-shop-seating.test.ts": 14,
-    "scripts/maps.dom.test.ts": 46,
+    "scripts/maps.dom.test.ts": 47,
     "scripts/math-check.test.ts": 28,
     "scripts/page-style.test.ts": 10,
     "scripts/prompt-audit-outputs.test.ts": 63,
@@ -53,7 +53,7 @@
     "scripts/stage-door.test.ts": 6,
     "scripts/stage-sample.test.ts": 11,
     "scripts/ticket-prompt-capture.dom.test.ts": 4,
-    "scripts/tm.dom.test.ts": 43,
+    "scripts/tm.dom.test.ts": 48,
     "scripts/tokenmax/arms.test.ts": 13,
     "scripts/tokenmax/hardening.test.ts": 10,
     "scripts/tokenmax/hardening2.test.ts": 4,
@@ -106,6 +106,7 @@
     "src/backstage/trial.test.ts": 14,
     "src/browser/results-loader.dom.test.ts": 41,
     "src/browser/shop-verdict.test.ts": 8,
+    "src/browser/tm-submit.test.ts": 10,
     "src/core/calc.test.ts": 22,
     "src/core/case-table.test.ts": 5,
     "src/core/metrics.test.ts": 23,

@@ -9,6 +9,7 @@ import {
   cardHeadline, dayLabels, limitDayIndexes, NOT_A_RESULT, NOT_RECORDED, parseWeek, periodLine, SAMPLE_WEEK, situationOf, stageHeadline, stageSubtitle,
   weekLines, type Week,
 } from "./tm-week.ts";
+import { ALIAS_MESSAGE, ALIAS_PATTERN, newRequestKey, rejectionMessage, submitBody, weekToPayload } from "./tm-submit.ts";
 
 export type Mode = "burn" | "under";
 export type View = "without" | "with";
@@ -533,7 +534,7 @@ export function startTheRun(doc: Document): void {
    * fonts.ready or a hashchange must never pull focus out of the paste box (the Cmd+V bug, 2026-10-21). */
   function focusCommand(): void { if (!command.contains(doc.activeElement)) command.focus(); }
 
-  /* ---------- Paste the result back: parsed here, shown as values only, never sent or stored ---------- */
+  /* ---------- Paste the result back: parsed here and shown as values only; nothing is sent until Submit ---------- */
   const pasteBox = id("pasteBox", HTMLTextAreaElement), pasteError = id("pasteError", HTMLElement);
   const yourWeek = id("yourWeek", HTMLElement), yourFields = id("yourFields", HTMLElement), yourLine = id("yourLine", HTMLElement);
   const sampleTag = id("sampleTag", HTMLElement), localTag = id("localTag", HTMLElement);
@@ -577,6 +578,74 @@ export function startTheRun(doc: Document): void {
     showCard(SAMPLE_WEEK, true);
   });
   id("playMine", HTMLButtonElement).addEventListener("click", playMine);
+
+  /* ---------- Submit: the one thing on this page that sends. Pressing it is the visitor's consent (copy beside it). ---------- */
+  const aliasBox = id("aliasBox", HTMLInputElement), aliasError = id("aliasError", HTMLElement);
+  const submitBtn = id("submitWeek", HTMLButtonElement), submitStatus = id("submitStatus", HTMLElement);
+  const submitted = id("submitted", HTMLElement);
+  // One request key per distinct alias + payload: pressing Submit again with the same paste sends the same key, so the
+  // server replays instead of adding a second row (src/backstage/maps.ts MapStore.issue).
+  let attempt = { draft: "", key: "" };
+  let sending = false;
+  function clearSubmitMessages(): void {
+    aliasError.hidden = true; aliasError.textContent = ""; aliasBox.removeAttribute("aria-invalid");
+    pasteError.hidden = true; pasteError.textContent = "";
+    submitStatus.hidden = true; submitStatus.textContent = "";
+  }
+  function refuse(message: string): void { pasteError.textContent = message; pasteError.hidden = false; }
+  function idOf(data: unknown): string | null {
+    return typeof data === "object" && data !== null && "id" in data && typeof data.id === "string" && /^TM-[0-9A-F]{12}$/.test(data.id) ? data.id : null;
+  }
+  function replayOf(data: unknown): boolean { return typeof data === "object" && data !== null && "replay" in data && data.replay === true; }
+  function showSubmitted(mapId: string, key: string, alias: string, replay: boolean): void {
+    id("submittedHead", HTMLElement).textContent = replay ? `Already submitted: your entry is on the board as ${alias}.` : `Submitted. Your entry is on the public board as ${alias}.`;
+    id("submittedId", HTMLElement).textContent = mapId;
+    id("submittedKey", HTMLElement).textContent = key;
+    id("submittedDelete", HTMLAnchorElement).href = `/maps/#delete=${mapId}.${key}`;
+    submitStatus.textContent = "Submitted. Your entry is on the public board.";
+    submitStatus.hidden = false;
+    submitted.hidden = false;
+    submitted.focus();
+    // A convenience only: the key on the page is the copy that counts. Storage may be off or full.
+    try { win.localStorage.setItem("tm-submit/1", JSON.stringify({ id: mapId, key, alias })); } catch { /* storage unavailable */ }
+  }
+  function submitWeek(): void {
+    if (sending) return;
+    clearSubmitMessages();
+    submitted.hidden = true;
+    const week = parseWeek(pasteBox.value);
+    if (!week) { yourWeek.hidden = true; refuse(NOT_A_RESULT); pasteBox.focus(); return; }
+    const mapped = weekToPayload(week);
+    if (!mapped.ok) { showCard(week, false); refuse(mapped.message); return; }
+    const alias = aliasBox.value.trim();
+    if (!ALIAS_PATTERN.test(alias)) {
+      aliasBox.setAttribute("aria-invalid", "true");
+      aliasError.textContent = alias === "" ? `Enter a nickname to submit. ${ALIAS_MESSAGE}` : ALIAS_MESSAGE;
+      aliasError.hidden = false;
+      aliasBox.focus();
+      return;
+    }
+    showCard(week, false);
+    const draft = JSON.stringify([alias, mapped.payload]);
+    if (draft !== attempt.draft) attempt = { draft, key: newRequestKey((bytes) => win.crypto.getRandomValues(bytes)) };
+    const key = attempt.key;
+    sending = true; submitBtn.disabled = true;
+    submitStatus.textContent = "Submitting..."; submitStatus.hidden = false;
+    win.fetch("/api/maps", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(submitBody(mapped.payload, alias, key)) })
+      .then((res) => res.json().then((data: unknown) => ({ ok: res.ok, status: res.status, data }), () => ({ ok: res.ok, status: res.status, data: null })))
+      .then((res) => {
+        const mapId = res.ok ? idOf(res.data) : null;
+        submitStatus.hidden = true; submitStatus.textContent = "";
+        if (mapId) { showSubmitted(mapId, key, alias, replayOf(res.data)); return; }
+        if (res.status === 409) attempt = { draft: "", key: "" };
+        refuse(res.ok ? "The server's answer could not be read, so it is not known whether your entry was added. Press Submit again: it will not add a second row." : rejectionMessage(res.status, res.data));
+      }, () => {
+        submitStatus.hidden = true; submitStatus.textContent = "";
+        refuse("Not submitted: the request did not complete. Check your connection and press Submit again; pressing it again never adds a second row.");
+      })
+      .then(() => { sending = false; submitBtn.disabled = false; });
+  }
+  submitBtn.addEventListener("click", submitWeek);
 
   /* ---------- wiring ---------- */
   pickBtns.forEach((b) => b.addEventListener("click", () => { const m = b.dataset.mode; if (m === "burn" || m === "under") { setMode(m); void runWithout(); } }));

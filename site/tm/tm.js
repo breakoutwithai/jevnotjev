@@ -194,6 +194,9 @@
   var PASTED_SKILL = "0.0.0";
   var MAX_DAYS = 90;
   var ALIAS_PATTERN = /^[a-z0-9-]{3,24}$/;
+  function normaliseAlias(typed) {
+    return typed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  }
   var ALIAS_MESSAGE = "Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.";
   var KEY_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
   var KEY_LENGTH = 32;
@@ -1094,7 +1097,14 @@
       showCard(SAMPLE_WEEK, true);
     });
     id("playMine", HTMLButtonElement).addEventListener("click", playMine);
-    const aliasBox = id("aliasBox", HTMLInputElement), aliasError = id("aliasError", HTMLElement);
+    const aliasBox = id("aliasBox", HTMLInputElement), aliasError = id("aliasError", HTMLElement), aliasPreview = id("aliasPreview", HTMLElement);
+    function showAliasPreview() {
+      const shown = normaliseAlias(aliasBox.value);
+      const changed = aliasBox.value !== "" && shown !== aliasBox.value;
+      aliasPreview.textContent = changed ? `Will appear as: ${shown === "" ? "(nothing usable)" : shown}` : "";
+      aliasPreview.hidden = !changed;
+    }
+    aliasBox.addEventListener("input", showAliasPreview);
     const submitBtn = id("submitWeek", HTMLButtonElement), submitStatus = id("submitStatus", HTMLElement);
     const submitted = id("submitted", HTMLElement), receipts = id("receipts", HTMLOListElement);
     const TIMEOUT_MS = 15000;
@@ -1227,8 +1237,9 @@
         refuse(mapped.message);
         return;
       }
-      const alias = aliasBox.value.trim().toLowerCase();
+      const alias = normaliseAlias(aliasBox.value);
       aliasBox.value = alias;
+      showAliasPreview();
       if (!ALIAS_PATTERN.test(alias)) {
         aliasBox.setAttribute("aria-invalid", "true");
         aliasError.textContent = alias === "" ? `Enter a nickname to submit. ${ALIAS_MESSAGE}` : ALIAS_MESSAGE;

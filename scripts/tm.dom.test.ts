@@ -373,7 +373,7 @@ test("[integration] TM-34 later invalid and rejected attempts leave every receip
       await intact();
     }
     await page.locator("#pasteBox").fill(SAMPLE_RESULT);
-    await page.locator("#aliasBox").fill("invalid alias");
+    await page.locator("#aliasBox").fill("!!");
     await page.locator("#submitWeek").click();
     await intact();
     await page.locator("#aliasBox").fill("draft-b");
@@ -392,19 +392,26 @@ test("[integration] TM-34 later invalid and rejected attempts leave every receip
   } finally { await close(page); }
 }, 30000);
 
-test("[integration] TM-39 a nickname typed with capitals is lowercased in the box and sent lowercase, with no nickname error; a space still refuses", async () => {
+test("[integration] TM-39 a nickname with capitals, spaces or symbols is normalised: shown as 'will appear as' before Submit, then sent normalised; one that normalises to nothing still refuses", async () => {
   const page = await open(390, 844, "reduce");
   try {
     const sent = await stubMaps(page, (item) => stored(keyOf(item)));
     await page.locator("#pasteBox").fill(SAMPLE_RESULT);
-    await page.locator("#aliasBox").fill("Early Ai");
+    const preview = (): Promise<{ hidden: boolean | undefined; text: string }> => page.evaluate(() => ({ hidden: document.getElementById("aliasPreview")?.hidden, text: document.getElementById("aliasPreview")?.textContent ?? "" }));
+    await page.locator("#aliasBox").fill("Early AI!");
+    expect(await preview()).toEqual({ hidden: false, text: "Will appear as: early-ai" });
+    expect(sent.length).toBe(0);
+    await page.locator("#aliasBox").fill("early-ai");
+    expect((await preview()).hidden).toBe(true);
+    await page.locator("#aliasBox").fill("!!");
     await page.locator("#submitWeek").click();
     expect(await page.evaluate(() => ({ error: document.getElementById("aliasError")?.hidden, invalid: document.getElementById("aliasBox")?.getAttribute("aria-invalid") }))).toEqual({ error: false, invalid: "true" });
-    await page.locator("#aliasBox").fill("Early-Ai");
+    expect(sent.length).toBe(0);
+    await page.locator("#aliasBox").fill("Early AI!");
     await page.locator("#submitWeek").click();
     await page.waitForFunction(() => document.getElementById("submitted")?.hidden === false);
     expect(sent.map((s) => (s.body && typeof s.body === "object" && "alias" in s.body ? s.body.alias : null))).toEqual(["early-ai"]);
-    expect(await page.evaluate(() => ({ box: (document.getElementById("aliasBox") as HTMLInputElement).value, error: document.getElementById("aliasError")?.hidden }))).toEqual({ box: "early-ai", error: true });
+    expect(await page.evaluate(() => ({ box: (document.getElementById("aliasBox") as HTMLInputElement).value, error: document.getElementById("aliasError")?.hidden, preview: document.getElementById("aliasPreview")?.hidden }))).toEqual({ box: "early-ai", error: true, preview: true });
   } finally { await close(page); }
 }, 40000);
 
@@ -530,8 +537,8 @@ test("[integration] TM-22 Submit refuses locally (no request) for a missing nick
       // No nickname.
       await page.locator("#submitWeek").click();
       expect(await alerts()).toEqual({ paste: "", pasteShown: false, alias: "Enter a nickname to submit. Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.", aliasShown: true, invalid: "true", focused: "aliasBox" });
-      // A real name or email is not a valid nickname.
-      await page.locator("#aliasBox").fill("Craig Austin");
+      // A nickname that is too short after normalising is refused.
+      await page.locator("#aliasBox").fill("x");
       await page.locator("#submitWeek").click();
       expect((await alerts()).alias).toBe("Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.");
       // Junk, and a block missing a required line, name the problem and send nothing.

@@ -416,6 +416,16 @@ export function usdSignificant(v: number): string {
   return `$${v.toPrecision(3)}`;
 }
 
+/** The verdict reason with its accept-rate bound in points (lower bound -0.04 becomes -4.3 points) so the page states it once. */
+export function reasonInPoints(reason: string, lower: number | null): string {
+  if (lower === null) return reason;
+  const token = lower.toFixed(2);
+  return reason
+    .replace(`lower bound ${token}`, `lower bound ${points(lower)}`)
+    .replace(`lower bound of Jev minus LLM ${token}`, `lower bound of Jev minus LLM ${points(lower)}`)
+    .replace("above -0.10", "above -10.0 points");
+}
+
 /** Percentage points with one decimal and a sign: 0.0123 is "+1.2 points", -0.043 is "-4.3 points". */
 export function points(v: number): string {
   const p = (v * 100).toFixed(1);
@@ -440,8 +450,8 @@ export async function runVerdicts(text: string): Promise<ReplayVerdict[]> {
       questionId: key.questionId,
       question: metrics.question,
       verdict: v.verdict,
-      reason: v.reason,
-      gap: v.numbers.jevVsLlm === null ? null : `Jev minus the LLM, accepted rate: ${points(v.numbers.jevVsLlm.diff)} (95% interval ${points(v.numbers.jevVsLlm.lower)} to ${points(v.numbers.jevVsLlm.upper)}, ${v.numbers.jevVsLlm.n} paired cases)`,
+      reason: reasonInPoints(v.reason, v.numbers.jevVsLlm?.lower ?? null),
+      gap: v.numbers.jevVsLlm === null ? null : `Jev minus the LLM, accepted rate: ${points(v.numbers.jevVsLlm.diff)} on ${v.numbers.jevVsLlm.n} paired cases`,
       costPerAccepted: COMPARED.flatMap((arm) => {
         const totals = metrics.arms.find((t) => t.arm === arm);
         if (totals === undefined) return [];

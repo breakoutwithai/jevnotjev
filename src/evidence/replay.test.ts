@@ -289,6 +289,8 @@ describe("replay verdict (src/evidence/replay.ts runVerdicts)", () => {
   test("[unit] RP-V3 the accept-rate gap is shown in points from the same interval verdict() uses", async () => {
     expect([points(-0.043), points(0.0123), points(0)]).toEqual(["-4.3 points", "+1.2 points", "0.0 points"]);
     const [v] = await runVerdicts(await readFile(join(ROOT, source("uc13-100").file), "utf8"));
-    expect(v?.gap).toContain("-4.3 points");
+    expect(v?.reason).toContain("lower bound -4.3 points");
+    expect(v?.reason).not.toContain("-0.04");
+    expect(v?.gap).toContain("+2.0 points");
   });
 });

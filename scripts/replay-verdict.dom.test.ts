@@ -8,7 +8,7 @@ import { fileSeed } from "../src/core/calc.ts";
 import { armsInFile, groupCohorts, metricsOfCohortRows } from "../src/core/metrics.ts";
 import { verdict } from "../src/core/verdict.ts";
 import { validate } from "../src/format/validate.ts";
-import { RUN_SOURCES } from "../src/evidence/replay.ts";
+import { RUN_SOURCES, reasonInPoints } from "../src/evidence/replay.ts";
 import { buildReplay, replayScript } from "./replay-data.ts";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 
@@ -47,7 +47,7 @@ async function expectedFor(file: string): Promise<Expected[]> {
     const metrics = metricsOfCohortRows(rows, key);
     const v = verdict(metrics, seed, arms);
     const cost = new Map(metrics.arms.map((a) => [a.arm, a.costPerAccepted.kind === "value" ? a.costPerAccepted.usd : null] as const));
-    return { questionId: key.questionId, verdict: v.verdict, reason: v.reason, cost };
+    return { questionId: key.questionId, verdict: v.verdict, reason: reasonInPoints(v.reason, v.numbers.jevVsLlm?.lower ?? null), cost };
   });
 }
 
@@ -85,7 +85,9 @@ describe("replay page verdict (site/replay)", () => {
       const verdictBox = await page.locator("#verdict").boundingBox();
       const deckBox = await page.locator("#deck").boundingBox();
       expect(verdictBox !== null && deckBox !== null && verdictBox.height > 0 && verdictBox.y + verdictBox.height <= deckBox.y).toBe(true);
-      expect(await page.locator("#verdict [data-gap]").first().innerText()).toContain("-4.3 points");
+      const text = await page.locator("#verdict").innerText();
+      expect(text).toContain("lower bound -4.3 points");
+      expect(text).not.toContain("-0.04");
     } finally { await page.close(); }
   }, 30000);
 

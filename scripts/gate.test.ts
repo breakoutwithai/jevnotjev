@@ -162,14 +162,14 @@ describe("gate shell run (#240 guard)", () => {
   function fakeRoot(suites: Record<string, string>): string {
     const dir = mkdtempSync(join(tmpdir(), "gate-shell-"));
     mkdirSync(join(dir, "shell"));
-    for (const [name, body] of Object.entries(suites)) writeFileSync(join(dir, "shell", `${name}.test.sh`), `${body}\necho "[T1] passed=1 failed=0"\n`);
+    for (const [name, body] of Object.entries(suites)) writeFileSync(join(dir, "shell", `${name}.test.sh`), `set -e\n${body}\necho "[T1] passed=1 failed=0"\n`);
     return dir;
   }
 
   test("[integration] #240 a suite that writes through an inherited GIT_DIR fails the gate", () => {
     const dir = fakeRoot({ leaky: 'git commit --allow-empty -qm leaked' });
     try {
-      expect(runShell(dir, "shell").get("shell/leaky.test.sh")?.failed).toBeGreaterThan(0);
+      expect(runShell(dir, "shell", ["leaky", "clean"]).get("shell/leaky.test.sh")?.failed).toBeGreaterThan(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -178,7 +178,7 @@ describe("gate shell run (#240 guard)", () => {
   test("[integration] #240 a suite that never touches the inherited repository passes, with GIT_DIR set for it", () => {
     const dir = fakeRoot({ clean: 'test -n "$GIT_DIR" && test -n "$GIT_WORK_TREE" && test -n "$GIT_INDEX_FILE" && test -n "$GIT_COMMON_DIR"' });
     try {
-      expect(runShell(dir, "shell").get("shell/clean.test.sh")).toEqual({ passed: 1, failed: 0 });
+      expect(runShell(dir, "shell", ["leaky", "clean"]).get("shell/clean.test.sh")).toEqual({ passed: 1, failed: 0 });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

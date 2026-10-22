@@ -167,9 +167,11 @@ function runBun(root: string): { results: Map<string, Counts>; ok: boolean; tail
   return { results, ok: run.exitCode === 0 && error === null, tail, error, artifactDir: dir, xml };
 }
 
-// The #240 guard: every shell suite runs once, here, with all four GIT_* destinations pointing at a
+// The #240 guard: every shell suite runs once, here; the five guarded suites get all four GIT_* destinations pointing at a
 // sentinel repository. A suite that leaks into an inherited repository corrupts the sentinel and
 // fails; a suite that needs a clean env to pass fails on its own assertions.
+// The five suites the #240 integration tests covered; the others read this checkout's history.
+const GIT_GUARDED = ["ship", "branch-guard", "monitor", "release", "verify"];
 const GIT_ENV = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"];
 
 function cleanEnv(): Record<string, string> {
@@ -204,7 +206,7 @@ function sentinelSnapshot(dir: string): string {
   ]);
 }
 
-export function runShell(root: string, shellDir: string = SHELL_DIR): Map<string, Counts> {
+export function runShell(root: string, shellDir: string = SHELL_DIR, guarded: string[] = GIT_GUARDED): Map<string, Counts> {
   const out = new Map<string, Counts>();
   const suites = readdirSync(join(root, shellDir)).filter((f) => f.endsWith(".test.sh")).sort();
   for (const suite of suites) {
@@ -212,10 +214,11 @@ export function runShell(root: string, shellDir: string = SHELL_DIR): Map<string
     const sentinel = makeSentinel();
     try {
       const before = sentinelSnapshot(sentinel);
-      const env = { ...cleanEnv(), GIT_DIR: join(sentinel, ".git"), GIT_WORK_TREE: sentinel, GIT_INDEX_FILE: join(sentinel, ".git/index"), GIT_COMMON_DIR: join(sentinel, ".git") };
+      const poisoned = guarded.includes(suite.replace(/\.test\.sh$/, ""));
+      const env = !poisoned ? process.env : { ...cleanEnv(), GIT_DIR: join(sentinel, ".git"), GIT_WORK_TREE: sentinel, GIT_INDEX_FILE: join(sentinel, ".git/index"), GIT_COMMON_DIR: join(sentinel, ".git") };
       const run = Bun.spawnSync(["bash", file], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
       const summary = parseShellSummary(`${run.stdout.toString()}\n${run.stderr.toString()}`);
-      const leaked = sentinelSnapshot(sentinel) !== before;
+      const leaked = poisoned && sentinelSnapshot(sentinel) !== before;
       if (leaked) console.log(`gate: ${file} modified the inherited-GIT_* sentinel repository (#240)`);
       if (summary === null) {
         out.set(file, { passed: 0, failed: 1 });

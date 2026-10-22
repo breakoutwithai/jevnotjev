@@ -50,7 +50,7 @@ test("[unit] TokenMax guide lists the /tm/ steps with labels the page and script
     expect(tm).toContain(label);
     expect(steps.some((step) => step.includes(label))).toBe(true);
   }
-  expect(tm).toContain("3 to 24 lowercase letters, digits or hyphens");
+  expect(tm).toContain("Spaces and symbols become hyphens; the result must be 3 to 24 letters, digits or hyphens.");
   expect(steps[4]).toContain("3 to 24 letters, digits or hyphens; spaces and other characters are turned into hyphens and capitals into lowercase");
   expect(tm).toContain("TOKENMAX WEEK");
   expect(run).toContain('"Board: /maps/"');

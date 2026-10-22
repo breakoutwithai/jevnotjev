@@ -215,6 +215,7 @@ for (const motion of MOTIONS) test(`[integration] TM-20 a labelled Submit sits b
       expect(form.required).toBe(true);
       expect(form.pattern).toBe("[a-z0-9\\-]{3,24}");
       expect(form.helper).toContain("Choose a nickname, not your real name or email");
+      expect(form.helper).toContain("Spaces and symbols become hyphens; the result must be 3 to 24 letters, digits or hyphens.");
       expect(form.described[0]).toBe(form.helper);
       expect(form.consent).toContain("Pressing Submit sends the numbers from your result");
       expect(form.consent).toContain("and your nickname");
@@ -560,11 +561,11 @@ test("[integration] TM-22 Submit refuses locally (no request) for a missing nick
       await page.locator("#pasteBox").fill(SAMPLE_RESULT);
       // No nickname.
       await page.locator("#submitWeek").click();
-      expect(await alerts()).toEqual({ paste: "", pasteShown: false, alias: "Enter a nickname to submit. Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.", aliasShown: true, invalid: "true", focused: "aliasBox" });
+      expect(await alerts()).toEqual({ paste: "", pasteShown: false, alias: "Enter a nickname to submit. Choose a nickname that is 3 to 24 letters, digits or hyphens once spaces and symbols are turned into hyphens.", aliasShown: true, invalid: "true", focused: "aliasBox" });
       // A nickname that is too short after normalising is refused.
       await page.locator("#aliasBox").fill("x");
       await page.locator("#submitWeek").click();
-      expect((await alerts()).alias).toBe("Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.");
+      expect((await alerts()).alias).toBe("Choose a nickname that is 3 to 24 letters, digits or hyphens once spaces and symbols are turned into hyphens.");
       // Junk, and a block missing a required line, name the problem and send nothing.
       await page.locator("#aliasBox").fill("pasted-one");
       await page.locator("#pasteBox").fill("hello there");

@@ -110,6 +110,8 @@ export function createQuestionRoutes(opts: QuestionRoutesOptions): QuestionRoute
     if (result.status === "deleted") return reject("deleted", 410);
     if (result.status === "capacity") return reject("capacity", 503);
     log({ event: "question.received", rid, id: result.id, replay: result.status === "replay" });
+    // Feedback has no status page: no status code is issued, and publicStatus() reads questions only.
+    if (checked.submission.kind === "feedback") return reply({ id: result.id, state: result.state, replay: result.status === "replay" });
     return reply({ id: result.id, status_code: `${result.id}.${checked.submission.requestKey}`, state: result.state, replay: result.status === "replay" });
   };
 

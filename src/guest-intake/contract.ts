@@ -70,8 +70,18 @@ export const QUESTION_LIMITS: QuestionLimits = {
   maxResponseChars: 8000,
 };
 
-/** One submission after validation. `email` is null for a guest, whose principal is the token. */
+/** A row is a question (/ask/, guest token) or visitor feedback (/feedback/); both share one store and admin view. */
+export type SubmissionKind = "question" | "feedback";
+export function isSubmissionKind(value: unknown): value is SubmissionKind {
+  return value === "question" || value === "feedback";
+}
+
+/** One submission after validation. `email` is null for a guest, whose principal is the token, and optional for feedback. */
 export interface Submission {
+  /** Absent means question: every caller written before feedback existed. */
+  readonly kind?: SubmissionKind;
+  /** The page a feedback form was opened from (`?from=`), or null. Questions carry none. */
+  readonly page?: string | null;
   readonly email: string | null;
   readonly question: string;
   readonly replyConsent: boolean;
@@ -79,13 +89,17 @@ export interface Submission {
   readonly requestKey: string;
 }
 
-export type SubmissionRejectReason = "bad-body" | "unknown-field" | "bad-email" | "bad-question" | "bad-usage" | "no-consent" | "bad-consent" | "bad-request-key";
+export type SubmissionRejectReason = "bad-body" | "unknown-field" | "bad-email" | "bad-question" | "bad-usage" | "no-consent" | "bad-consent" | "bad-request-key" | "bad-kind" | "bad-page";
 export type SubmissionCheck =
   | { readonly ok: true; readonly submission: Submission }
   | { readonly ok: true; readonly trap: true }
   | { readonly ok: false; readonly reason: SubmissionRejectReason };
 
-const PUBLIC_KEYS: readonly string[] = ["email", "question", "reply_consent", "marketing_consent", "request_key", "nickname", "usage"];
+const PUBLIC_KEYS: readonly string[] = ["email", "question", "reply_consent", "marketing_consent", "request_key", "nickname", "usage", "kind"];
+const FEEDBACK_KEYS: readonly string[] = ["kind", "message", "email", "page", "request_key", "nickname"];
+/** Longest `page` value: a short site section name such as home, guide or tm. */
+export const FEEDBACK_PAGE_MAX = 40;
+const PAGE = /^[a-z0-9][a-z0-9-]*$/;
 export const REQUEST_KEY = /^[A-Za-z0-9_-]{43}$/;
 export const QUESTION_ID = /^Q-[0-9A-F]{12}$/;
 // C0 controls other than tab and newline, DEL, and C1 controls.
@@ -131,6 +145,9 @@ export function renderUsage(payload: MapPayload): string {
 /** Validate a decoded `POST /api/questions` body. A filled honeypot (`nickname`) is accepted and never stored. */
 export function checkPublicSubmission(body: unknown, limits: QuestionLimits = QUESTION_LIMITS): SubmissionCheck {
   if (typeof body !== "object" || body === null || Array.isArray(body)) return { ok: false, reason: "bad-body" };
+  const kind = own(body, "kind");
+  if (kind !== undefined && !isSubmissionKind(kind)) return { ok: false, reason: "bad-kind" };
+  if (kind === "feedback") return checkFeedback(body, limits);
   if (Object.keys(body).some((k) => !PUBLIC_KEYS.includes(k))) return { ok: false, reason: "unknown-field" };
   const trap = own(body, "nickname");
   if (typeof trap === "string" && trap.trim() !== "") return { ok: true, trap: true };
@@ -150,6 +167,30 @@ export function checkPublicSubmission(body: unknown, limits: QuestionLimits = QU
   const key = own(body, "request_key");
   if (typeof key !== "string" || !REQUEST_KEY.test(key)) return { ok: false, reason: "bad-request-key" };
   return { ok: true, submission: { email, question: usage === null ? text : `${text}\n\n${renderUsage(usage.payload)}`, replyConsent: true, marketingConsent: marketing === true, requestKey: key } };
+}
+
+/**
+ * A feedback body: `message` (required), optional `email` and `page`, a request key and the honeypot. No consent boxes:
+ * no reply is shown on a page (feedback gets no status code and the public status route reads questions only), and an email given is the visitor's own choice to be contactable (stored as replyConsent).
+ */
+function checkFeedback(body: object, limits: QuestionLimits): SubmissionCheck {
+  if (Object.keys(body).some((k) => !FEEDBACK_KEYS.includes(k))) return { ok: false, reason: "unknown-field" };
+  const trap = own(body, "nickname");
+  if (typeof trap === "string" && trap.trim() !== "") return { ok: true, trap: true };
+  if (trap !== undefined && typeof trap !== "string") return { ok: false, reason: "bad-body" };
+  const text = question(own(body, "message"), limits.maxQuestionChars);
+  if (text === null) return { ok: false, reason: "bad-question" };
+  const rawEmail = own(body, "email");
+  if (rawEmail !== undefined && typeof rawEmail !== "string") return { ok: false, reason: "bad-email" };
+  const trimmed = typeof rawEmail === "string" ? rawEmail.trim().toLowerCase() : "";
+  if (trimmed !== "" && (trimmed.length > 254 || !EMAIL.test(trimmed))) return { ok: false, reason: "bad-email" };
+  const rawPage = own(body, "page");
+  if (rawPage !== undefined && (typeof rawPage !== "string" || rawPage.length > FEEDBACK_PAGE_MAX || (rawPage !== "" && !PAGE.test(rawPage)))) return { ok: false, reason: "bad-page" };
+  const key = own(body, "request_key");
+  if (typeof key !== "string" || !REQUEST_KEY.test(key)) return { ok: false, reason: "bad-request-key" };
+  const email = trimmed === "" ? null : trimmed;
+  const page = typeof rawPage === "string" && rawPage !== "" ? rawPage : null;
+  return { ok: true, submission: { kind: "feedback", page, email, question: text, replyConsent: email !== null, marketingConsent: false, requestKey: key } };
 }
 
 const GUEST_KEYS: readonly string[] = ["question", "reply_consent", "marketing_consent", "request_key"];
@@ -184,9 +225,14 @@ export function parseStatusBody(body: unknown): { readonly id: string; readonly 
 
 const sha256 = (text: string): string => createHash("sha256").update(text, "utf8").digest("hex");
 
-/** Covers the server-set scope and the full normalized payload, so any changed field under one key is a conflict. */
-export function requestHash(scope: string, email: string | null, text: string, reply: boolean, marketing: boolean): string {
-  return sha256(JSON.stringify([scope, email, normalizeQuestion(text), reply, marketing]));
+/**
+ * Covers the server-set scope and the full normalized payload, so any changed field under one key is a conflict. A
+ * question hashes exactly as before feedback existed, so rows stored then still replay; feedback adds its kind and page.
+ */
+export function requestHash(scope: string, email: string | null, text: string, reply: boolean, marketing: boolean, feedbackPage?: string | null): string {
+  const fields: unknown[] = [scope, email, normalizeQuestion(text), reply, marketing];
+  if (feedbackPage !== undefined) fields.push("feedback", feedbackPage);
+  return sha256(JSON.stringify(fields));
 }
 
 /** The status capability's verifier. Removed with the row. */

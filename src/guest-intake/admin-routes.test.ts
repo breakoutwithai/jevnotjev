@@ -169,7 +169,7 @@ describe("admin reads", () => {
     const list = rows((await obj(res)).questions);
     expect(list.map((r) => r.id)).toEqual([third.id, second.id, first.id]);
     for (const r of list) {
-      expect(Object.keys(r).sort()).toEqual(["created_at", "id", "scope", "state", "updated_at", "version"]);
+      expect(Object.keys(r).sort()).toEqual(["created_at", "id", "kind", "scope", "state", "updated_at", "version"]);
       expect(r.state).toBe("pending_review");
     }
   });

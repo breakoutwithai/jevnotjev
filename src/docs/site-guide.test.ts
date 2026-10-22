@@ -939,29 +939,25 @@ function guideNavigation(initialHash: string) {
 
 // #247 supersedes the old request for a plain, image-free guide. Source-truth tests above remain.
 describe("visual site guide (#247)", () => {
-  test("[unit] #247 two entry paths distinguish a public replay from invited own-key runs", async () => {
+  test("[unit] #261 two entry paths: a public replay and the TokenMax journey, no Backstage invite or key", async () => {
     const html = read(GUIDE);
     const entries = await texts(html, ".entry");
     expect(entries).toHaveLength(2);
     expect(entries[0]).toContain("No account. No API key. No calls to pay for.");
-    expect(entries[1]).toContain("invited sign-in");
-    expect(entries[1]).toContain("billed to you");
+    expect(entries[1]).toContain("TokenMax");
+    expect(entries[1]).toContain("No account. No API key.");
+    for (const entry of entries) expect(entry).not.toMatch(/backstage|invited|TypeSafe key|billed/i);
     const links = (await grab(html, [".entry a"])).get(".entry a") ?? [];
-    expect(links.map(link => link.attrs.get("href"))).toEqual(["/replay/?run=uc13-100", "/backstage/", "/#tkForm"]);
+    expect(links.map(link => link.attrs.get("href"))).toEqual(["/replay/?run=uc13-100", "#tokenmax", "/tm/"]);
   });
 
-  test("[unit] #247 three visual acts use the current Backstage tab and action labels", async () => {
+  test("[unit] #261 the primary guide has no Backstage act walkthrough or Backstage description", async () => {
     const html = read(GUIDE);
-    expect(await texts(html, ".acts h3")).toEqual(await texts(read(BACKSTAGE), "#rooms button").then(labels => labels.map(label => label.replace(/^\d+\s*/, ""))));
-    expect(await texts(html, ".miniature figcaption")).toHaveLength(3);
-    const walkthrough = (await texts(html, ".walkthrough"))[0] ?? "";
-    for (const action of ["Try first case", "Run remaining cases", "Unsure", "Download records.csv", "Download run evidence"]) {
-      expect(walkthrough).toContain(action);
-      expect(read(BACKSTAGE) + read("src/backstage/main.ts")).toContain(action);
-    }
-    expect(walkthrough).toContain("Not enough evidence");
-    expect(walkthrough).toContain("this test set only");
-    expect((await texts(html, ".miniature button, .miniature input"))).toEqual([]);
+    expect(await texts(html, ".walkthrough, .acts, .miniature")).toEqual([]);
+    const meta = (await grab(html, ["meta[name='description']"])).get("meta[name='description']")?.[0]?.attrs.get("content") ?? "";
+    expect(meta).not.toMatch(/backstage/i);
+    const primary = html.slice(0, html.indexOf('<details id="reference"'));
+    expect(primary).not.toMatch(/backstage/i);
   });
 
   test("[unit] #247 reference stays collapsed while every existing anchor remains addressable", async () => {

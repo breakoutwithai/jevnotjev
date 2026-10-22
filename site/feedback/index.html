@@ -23,11 +23,12 @@
   <li>Do not include passwords, API keys or private client data.</li>
 </ul>
 
-<form class="ask-form" id="feedbackForm" novalidate>
+<noscript><p class="err">This form needs JavaScript to send. Without it, email <a href="mailto:jev@breakoutwithai.com">jev@breakoutwithai.com</a> instead.</p></noscript>
+<form class="ask-form" id="feedbackForm" method="post" action="/api/questions" novalidate>
   <div class="field">
     <label for="feedbackMessage">Your feedback</label>
     <p class="hint" id="feedbackMessageHint">Up to 4,096 characters.</p>
-    <textarea id="feedbackMessage" name="message" rows="7" maxlength="4096" required aria-describedby="feedbackMessageHint feedbackMessageErr"></textarea>
+    <textarea id="feedbackMessage" name="message" rows="7" required aria-describedby="feedbackMessageHint feedbackMessageErr"></textarea>
     <p class="err" id="feedbackMessageErr" hidden>Write your feedback first (up to 4,096 characters).</p>
   </div>
   <div class="field">
@@ -46,7 +47,7 @@
     <input id="feedbackNickname" name="nickname" type="text" tabindex="-1" autocomplete="off">
   </div>
   <p class="err" id="feedbackFormErr" role="alert" hidden></p>
-  <button id="feedbackSubmit" type="submit">Send feedback</button>
+  <button id="feedbackSubmit" type="submit" disabled>Send feedback</button>
   <p class="hint">Stored in our own database; no retention period has been set yet. <a href="/privacy/#feedback">How we handle data</a>.</p>
 </form>
 

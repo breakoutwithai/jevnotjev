@@ -95,5 +95,7 @@
     }
   }
 
+  // Send starts disabled in the HTML, so without this script the form cannot be submitted at all.
+  $("feedbackSubmit").disabled = false;
   $("feedbackForm").addEventListener("submit", submit);
 })();

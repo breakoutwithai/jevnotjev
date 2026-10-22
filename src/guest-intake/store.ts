@@ -171,10 +171,10 @@ export class QuestionStore {
     return count("SELECT (SELECT count(*) FROM questions) + (SELECT count(*) FROM question_tombstones) n") >= this.#limits.maxRetained;
   }
 
-  /** A public row whose key matches, else null: a guest row, a deleted row and a wrong key all look alike. */
+  /** A public question whose key matches, else null: a guest row, a feedback row, a deleted row and a wrong key all look alike. */
   publicStatus(id: string, key: string): StatusView | null {
     const row = this.#db
-      .query<StatusView & { key_hash: string }, [string]>("SELECT id, state, updated_at, response, response_source, key_hash FROM questions WHERE id = ? AND scope = 'public'")
+      .query<StatusView & { key_hash: string }, [string]>("SELECT id, state, updated_at, response, response_source, key_hash FROM questions WHERE id = ? AND scope = 'public' AND kind = 'question'")
       .get(id);
     const presented = Buffer.from(keyHash(key), "hex");
     const stored = Buffer.from(row?.key_hash ?? "0".repeat(64), "hex");

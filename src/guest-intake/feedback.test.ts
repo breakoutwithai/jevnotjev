@@ -9,7 +9,7 @@ import { createHandler } from "../backstage/server.ts";
 import { createAdminApi, ADMIN_QUESTIONS_PATH } from "./admin-api.ts";
 import { runQuestionAdmin } from "./admin-cli.ts";
 import { renderAdminList } from "./admin-page.ts";
-import { checkPublicSubmission, FEEDBACK_PAGE_MAX, type Submission } from "./contract.ts";
+import { checkPublicSubmission, FEEDBACK_PAGE_MAX, keyHash, keyTag, type Submission } from "./contract.ts";
 import type { AdminPrincipal } from "./tokens.ts";
 import { QuestionStore } from "./store.ts";
 
@@ -95,13 +95,19 @@ describe("feedback store", () => {
     again.close();
   });
 
-  test("[unit] FB-4 a question's stored request hash is unchanged by this change, so its replay still matches", () => {
+  test("[unit] FB-4 a question row stored before this change, with its pre-upgrade request hash, still replays", () => {
     const path = join(mkdtempSync(join(tmpdir(), "feedback-hash-")), "tickets.sqlite");
     const store = new QuestionStore(path);
     closers.push(() => store.close());
     const submission = { email: "a@example.test", question: "Q?", replyConsent: true, marketingConsent: false, requestKey: "b".repeat(43) };
-    const first = store.submit("public", submission, NOW);
-    expect(store.submit("public", submission, NOW + 1)).toEqual(first.status === "issued" ? { status: "replay", id: first.id, state: "pending_review" } : { status: "conflict" });
+    // sha256(JSON.stringify(["public", "a@example.test", "Q?", true, false])): requestHash as origin/main computed it.
+    const PRE_UPGRADE_HASH = "057cf487e84457fcbe34fead762c5316415b1076d40c3392ad4918ef1fb88599";
+    const at = new Date(NOW).toISOString();
+    const seed = new Database(path, { strict: true });
+    seed.query("INSERT INTO questions (id, created_at, updated_at, scope, email, question, reply_consent, marketing_consent, state, version, response, response_source, key_hash, key_tag, request_hash) VALUES ('Q-0000000000AA', ?, ?, 'public', 'a@example.test', 'Q?', 1, 0, 'pending_review', 1, NULL, NULL, ?, ?, ?)")
+      .run(at, at, keyHash(submission.requestKey), keyTag("public", submission.requestKey), PRE_UPGRADE_HASH);
+    seed.close();
+    expect(store.submit("public", submission, NOW + 1)).toEqual({ status: "replay", id: "Q-0000000000AA", state: "pending_review" });
     const fb: Submission = { ...submission, kind: "feedback", page: "home", email: null, replyConsent: false, requestKey: "c".repeat(43) };
     expect(store.submit("public", fb, NOW).status).toBe("issued");
     expect(store.submit("public", { ...fb, page: "guide" }, NOW).status).toBe("conflict");
@@ -140,6 +146,25 @@ describe("feedback over HTTP", () => {
     const store = new QuestionStore(path);
     closers.push(() => store.close());
     expect(store.counts().questions).toBe(0);
+  });
+});
+
+describe("feedback has no public status", () => {
+  test("[integration] FB-11 a feedback submission returns no status_code and its reference plus key cannot read it, even with an operator note", async () => {
+    const { handler, path } = setup();
+    const sent = feedback();
+    const got = await body(await handler(...post(sent)));
+    expect(Object.keys(got).sort()).toEqual(["id", "replay", "state"]);
+    const store = new QuestionStore(path);
+    closers.push(() => store.close());
+    const db = new Database(path, { strict: true });
+    db.query("UPDATE questions SET response = 'operator note', response_source = 'human_reviewed', state = 'answered' WHERE id = ?").run(String(got.id));
+    db.close();
+    expect(store.publicStatus(String(got.id), String(sent.request_key))).toBeNull();
+    const res = await handler(new Request(`${ORIGIN}/api/questions/status`, { method: "POST", headers: { origin: ORIGIN, "content-type": "application/json" }, body: JSON.stringify({ code: `${String(got.id)}.${String(sent.request_key)}` }) }), { remoteAddress: "203.0.113.22" });
+    expect(res.status).toBe(404);
+    const privacy = readFileSync(join(SITE, "privacy", "index.html"), "utf8");
+    expect(privacy).toContain("Feedback has no status page");
   });
 });
 
@@ -189,15 +214,25 @@ describe("feedback links on the site", () => {
     expect(readFileSync(join(SITE, "tm", "index.html"), "utf8")).toContain('href="/feedback/?from=tm"');
   });
 
-  test("[integration] FB-10 /feedback/ is served with the form, honeypot and a 4,096 limit; deletion mailto links stay", async () => {
+  test("[integration] FB-10 /feedback/ is served with the form and honeypot, no UTF-16 maxlength on the message; deletion mailto links stay", async () => {
     const { handler } = setup();
     const res = await handler(new Request(`${ORIGIN}/feedback/`), { remoteAddress: "203.0.113.21" });
     expect(res.status).toBe(200);
     const html = await res.text();
-    for (const part of ['id="feedbackForm"', 'id="feedbackMessage"', 'maxlength="4096"', 'id="feedbackEmail"', 'id="feedbackPage"', 'id="feedbackNickname"', 'href="../page.css"', 'src="feedback.js"']) expect(html).toContain(part);
+    expect(html).not.toMatch(/<textarea[^>]*maxlength/);
+    for (const part of ['id="feedbackForm"', 'id="feedbackMessage"', 'id="feedbackEmail"', 'id="feedbackPage"', 'id="feedbackNickname"', 'href="../page.css"', 'src="feedback.js"']) expect(html).toContain(part);
     expect(readFileSync(join(SITE, "ask", "index.html"), "utf8")).toContain('href="mailto:jev@breakoutwithai.com"');
     const privacy = readFileSync(join(SITE, "privacy", "index.html"), "utf8");
     expect(privacy).toContain('id="feedback"');
     expect(privacy).toContain('href="mailto:jev@breakoutwithai.com"');
+  });
+
+  test("[smoke] FB-12 without JavaScript the form cannot send its content in a URL: POST, Send disabled until the script runs, a noscript notice", () => {
+    const html = readFileSync(join(SITE, "feedback", "index.html"), "utf8");
+    const form = html.match(/<form[^>]*id="feedbackForm"[^>]*>/)?.[0] ?? "";
+    expect(form).toContain('method="post"');
+    expect(html).toMatch(/<button id="feedbackSubmit" type="submit" disabled>/);
+    expect(html).toContain("<noscript>");
+    expect(readFileSync(join(SITE, "feedback", "feedback.js"), "utf8")).toContain('$("feedbackSubmit").disabled = false;\n  $("feedbackForm").addEventListener("submit", submit);');
   });
 });

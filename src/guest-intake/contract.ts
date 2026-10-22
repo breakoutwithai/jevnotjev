@@ -171,7 +171,7 @@ export function checkPublicSubmission(body: unknown, limits: QuestionLimits = QU
 
 /**
  * A feedback body: `message` (required), optional `email` and `page`, a request key and the honeypot. No consent boxes:
- * no reply is shown on a page, and an email given is the visitor's own choice to be contactable (stored as replyConsent).
+ * no reply is shown on a page (feedback gets no status code and the public status route reads questions only), and an email given is the visitor's own choice to be contactable (stored as replyConsent).
  */
 function checkFeedback(body: object, limits: QuestionLimits): SubmissionCheck {
   if (Object.keys(body).some((k) => !FEEDBACK_KEYS.includes(k))) return { ok: false, reason: "unknown-field" };

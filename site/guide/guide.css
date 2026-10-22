@@ -59,3 +59,5 @@ footer { font: 13px/1.7 var(--sans); color: var(--muted); padding-bottom: 40px; 
   .reference-body { padding: 10px 16px 24px; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+.step-shot { margin: 14px 0 26px; }
+.step-shot img { display: block; width: 100%; max-width: 100%; height: auto; border: 1px solid var(--line); background: var(--paper); }

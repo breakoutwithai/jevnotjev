@@ -397,7 +397,7 @@ test("[integration] TM-39 a nickname with capitals, spaces or symbols is normali
   try {
     const sent = await stubMaps(page, (item) => stored(keyOf(item)));
     await page.locator("#pasteBox").fill(SAMPLE_RESULT);
-    const preview = (): Promise<{ hidden: boolean | undefined; text: string }> => page.evaluate(() => ({ hidden: document.getElementById("aliasPreview")?.hidden, text: document.getElementById("aliasPreview")?.textContent ?? "" }));
+    const preview = () => page.evaluate(() => ({ hidden: document.getElementById("aliasPreview")?.hidden, text: document.getElementById("aliasPreview")?.textContent ?? "" }));
     await page.locator("#aliasBox").fill("Early AI!");
     expect(await preview()).toEqual({ hidden: false, text: "Will appear as: early-ai" });
     expect(sent.length).toBe(0);

@@ -724,6 +724,45 @@ for (const motion of MOTIONS) test(`[integration] TM-7b the first viewport has n
   }
 }, 30000);
 
+// #309 / #260: a first-time visitor reads, with no scroll, what the page does for them and what to press. The plain
+// sentence and a labelled "Get my prompt" action sit between the headline and the picker boxes (which TM-7 still keeps
+// wholly in the first viewport). No fixed element may hang off the bottom of a phone screen (the old ticket's clip).
+const PLAIN_VIEWS: readonly (readonly [number, number])[] = [[390, 844], [1280, 800]];
+for (const motion of MOTIONS) test(`[integration] TM-40 the plain sentence and a labelled Get my prompt action are in the first viewport at 390x844 and 1280x800, no scroll; it lands on the prompt (${motion})`, async () => {
+  for (const [width, height] of PLAIN_VIEWS) {
+    const page = await open(width, height, motion);
+    try {
+      const first = await page.evaluate(() => {
+        const at = (sel: string): { top: number; bottom: number; inView: boolean; text: string; visible: boolean; px: number } | null => {
+          const el = document.querySelector(sel);
+          if (!(el instanceof HTMLElement)) return null;
+          const r = el.getBoundingClientRect();
+          return { top: Math.round(r.top), bottom: Math.round(r.bottom), inView: r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth && r.width > 0, text: el.innerText.trim(), visible: el.checkVisibility({ visibilityProperty: true, opacityProperty: true }), px: parseFloat(getComputedStyle(el).fontSize) };
+        };
+        const fixedOff = [...document.querySelectorAll("body *")].filter((el) => getComputedStyle(el).position === "fixed" && el.checkVisibility())
+          .map((el) => { const r = el.getBoundingClientRect(); return { id: el.id || el.className, top: r.top, bottom: r.bottom }; }).filter((r) => r.top < 0 || r.bottom > innerHeight);
+        return { lede: at("#lede"), action: at("#getPrompt"), href: document.getElementById("getPrompt")?.getAttribute("href") ?? null, vh: innerHeight, y: scrollY, fixedOff };
+      });
+      const { lede, action } = first;
+      if (!lede || !action) throw new Error(`#309: missing on the first viewport at ${width}x${height}: ${JSON.stringify(first)}`);
+      expect({ width, visible: lede.visible, inView: lede.inView, px: lede.px >= 15, jargon: jargonHits([lede.text]) }).toEqual({ width, visible: true, inView: true, px: true, jargon: [] });
+      expect(lede.text).toMatch(/Claude Code or Codex/);
+      expect({ width, text: action.text, href: first.href, visible: action.visible, inView: action.inView, y: first.y })
+        .toEqual({ width, text: "Get my prompt", href: "#command", visible: true, inView: true, y: 0 });
+      expect(first.fixedOff).toEqual([]);
+      await page.locator("#getPrompt").click();
+      await page.waitForFunction(() => document.activeElement?.id === "command");
+      const landed = await page.evaluate(() => {
+        const inView = (id: string): boolean => { const r = document.getElementById(id)?.getBoundingClientRect(); return !!r && r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth && r.width > 0; };
+        // The prompt box itself: its top edge and at least its first 60 px are on screen (at 390 the full prompt is taller than the phone).
+        const p = document.getElementById("sharePrompt")?.getBoundingClientRect();
+        return { heading: inView("hCmd"), prompt: !!p && p.top >= 0 && p.top + 60 <= innerHeight && p.left >= 0 && p.right <= innerWidth };
+      });
+      expect({ width, ...landed }).toEqual({ width, heading: true, prompt: true });
+    } finally { await close(page); }
+  }
+}, 30000);
+
 for (const motion of MOTIONS) {
   test(`[integration] no horizontal scroll at 390x844 at 0, 50 and 100% of the scroll, before and after a show (${motion})`, async () => {
     const errors: string[] = [];

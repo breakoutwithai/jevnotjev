@@ -2186,6 +2186,9 @@ test("[integration] L43 keyboard: Shift+Tab to the header link after opening ont
     const page = await pageAt(width, height, "no-preference");
     try {
       await openOntoResults(page);
+      // #390: the programme scroll (Read the programme, Roll it up) sits between the header and the results.
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Shift+Tab");
       await page.keyboard.press("Shift+Tab");
       await page.waitForTimeout(400);
       const link = await page.evaluate(() => ({ state: document.documentElement.dataset.curtain, focus: document.activeElement?.className ?? "" }));
@@ -2551,9 +2554,11 @@ test("[integration] TR6 the seat page's programme leads with a plain verdict lin
 }, 30000);
 
 // #378: a persistent "Program (guide)" link to /guide/ sits top right in the first viewport, on the closed curtain and once it is open.
+// #390 adds the programme scroll's two Read the programme links (open and rolled, one shown at a time); the corner link stays the only Program (guide).
 test("[unit] PG1 the landing HTML carries exactly one Program (guide) link, to /guide/", () => {
   const html = readFileSync(join(SITE, "index.html"), "utf8");
-  expect([...html.matchAll(/<a [^>]*href="\/guide\/"[^>]*>([^<]*)<\/a>/g)].map((m) => m[1])).toEqual(["Program (guide)"]);
+  const text = (inner: string): string => inner.replace(/<[^>]*>/g, "");
+  expect([...html.matchAll(/<a [^>]*href="\/guide\/"[^>]*>(.*?)<\/a>/g)].map((m) => text(m[1] ?? ""))).toEqual(["Program (guide)", "Read the programme", "Read the programme"]);
 });
 
 for (const motion of MOTIONS) for (const [width, height] of VIEWPORTS) test(`[integration] PG2 at ${width}x${height} (${motion}) the first viewport shows a Program (guide) link to /guide/, top right, reachable by pointer, with no scroll`, async () => {

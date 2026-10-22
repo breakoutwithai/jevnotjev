@@ -251,6 +251,23 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 </header>
 <main>
 <div class="marquee-band"><div class="marquee"><p class="kicker">Tonight &middot; Jev!Jev presents</p><h1 class="billing" id="t1">To Jev or not to Jev <em>in four questions</em></h1></div></div>
+<!-- The programme (programme.js, theatre.css): a parchment scroll that unrolls once on a first visit and points at the
+     guide, then rolls up to the Read the programme button. Without the script it stays open and static. -->
+<aside class="programme" id="programme" data-state="open" aria-labelledby="programmeTitle">
+  <div class="programme-scroll">
+    <span class="programme-rod" aria-hidden="true"></span>
+    <div class="programme-sheet" id="programmeSheet">
+      <div class="programme-body">
+        <p class="programme-kicker">The Programme</p>
+        <h2 class="programme-title" id="programmeTitle">How tonight's show works</h2>
+        <p class="programme-text">See whether your Claude plan is going to waste, and when Jev is worth using. The programme walks through every act in plain words.</p>
+        <p class="programme-actions"><a class="programme-read" id="programmeRead" href="/guide/">Read the programme</a> <button class="programme-close" id="programmeClose" type="button" aria-label="Roll up the programme">Roll it up</button></p>
+      </div>
+    </div>
+    <span class="programme-rod end" aria-hidden="true"></span>
+  </div>
+  <a class="programme-rolled" id="programmeRolled" href="/guide/"><span class="programme-seal" aria-hidden="true"></span>Read the programme</a>
+</aside>
 <!-- The curtain opens onto the picture story (#260): the four kinds of question, "One question...", the
      example week and one week, two ways. This is its only home (/explainer now redirects here); pictures.css and
      pictures.js style and run it. -->
@@ -744,6 +761,7 @@ If I bring my own decision instead, ask for its fixed answer list and safe cases
 <script src="results-loader.js"></script>
 <script src="pictures.js"></script>
 <script src="theatre.js"></script>
+<script src="programme.js"></script>
 <script src="shows/office.js"></script>
 </body>
 </html>

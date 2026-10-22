@@ -135,7 +135,7 @@
     "src/docs/stack.test.ts": 18,
     "src/docs/tester-checklist.test.ts": 8,
     "src/docs/tester-handoff.test.ts": 6,
-    "src/evidence/replay.test.ts": 23,
+    "src/evidence/replay.test.ts": 26,
     "src/format/cli.test.ts": 3,
     "src/format/provenance.test.ts": 45,
     "src/format/quote.test.ts": 4,

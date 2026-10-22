@@ -294,3 +294,22 @@ describe("replay verdict (src/evidence/replay.ts runVerdicts)", () => {
     expect(v?.gap).toContain("+2.0 points");
   });
 });
+
+describe("replay verdict reasons state every accept-rate bound in points (src/evidence/replay.ts reasonInPoints)", () => {
+  async function reasonOf(name: string): Promise<string> {
+    const [v] = await runVerdicts(await readFile(join(ROOT, "examples", "d08-verdicts", `${name}.csv`), "utf8"));
+    return v?.reason ?? "";
+  }
+  test("[unit] RP-V4 rule-within-margin names the rule's bound and the threshold in points", async () => {
+    expect(await reasonOf("r2-rule-within-margin")).toBe("don't use Jev: the rule is within 10 points of Jev (lower bound of rule minus Jev -3.1 points, above -10.0 points, on 30 paired cases); a free rule does the job");
+  });
+  test("[unit] RP-V5 jev-clearly-worse and the not-enough-evidence accept-rate branch use points", async () => {
+    expect(await reasonOf("r2-jev-worse")).toBe("don't use Jev: Jev is clearly worse than the LLM (upper bound of Jev minus LLM -29.7 points, below -10.0 points)");
+    expect(await reasonOf("r4-accept-rate")).toBe("not enough evidence: Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM -11.0 points, not above -10.0 points)");
+  });
+  test("[unit] RP-V6 cost-ratio bounds stay ratios and rules 1 and 3 read as before", async () => {
+    expect(await reasonOf("r2-jev-dearer")).toBe("don't use Jev: Jev is clearly dearer (cost ratio 1.800, lower bound 1.600, above 1)");
+    expect(await reasonOf("r1-29-paired")).toBe("not enough evidence: 29 paired Jev and LLM cases, fewer than 30; add 1 more labelled case");
+    expect(await reasonOf("r3-use-jev")).toContain("(lower bound -3.1 points)");
+  });
+});

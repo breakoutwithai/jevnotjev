@@ -7,7 +7,7 @@ import { readDictRows, type CsvRecord } from "../format/csv.ts";
 import { parseCell, truthLabel, validate, type ParsedRow } from "../format/validate.ts";
 import { fileSeed } from "../core/calc.ts";
 import { armsInFile, describeCostPerAccepted, groupCohorts, metricsOfCohortRows, provenanceByMethod } from "../core/metrics.ts";
-import { MIN_PAIRED, verdict, verdictLimitations } from "../core/verdict.ts";
+import { MIN_PAIRED, verdict, verdictLimitations, type Verdict } from "../core/verdict.ts";
 
 /** What the page shows for a label src/core/metrics.ts does not count (format/validate.ts truthLabel). */
 export const NOT_COUNTED = "not counted (AI label, not reviewed)";
@@ -416,14 +416,23 @@ export function usdSignificant(v: number): string {
   return `$${v.toPrecision(3)}`;
 }
 
-/** The verdict reason with its accept-rate bound in points (lower bound -0.04 becomes -4.3 points) so the page states it once. */
-export function reasonInPoints(reason: string, lower: number | null): string {
-  if (lower === null) return reason;
-  const token = lower.toFixed(2);
-  return reason
-    .replace(`lower bound ${token}`, `lower bound ${points(lower)}`)
-    .replace(`lower bound of Jev minus LLM ${token}`, `lower bound of Jev minus LLM ${points(lower)}`)
-    .replace("above -0.10", "above -10.0 points");
+/**
+ * The verdict reason with every accept-rate bound and threshold in points (-0.04 becomes -4.3 points, -0.10 becomes
+ * -10.0 points), so the page states each once and with its unit. The numbers come from the structured verdict;
+ * cost-ratio bounds are ratios, not points, and stay as verdict() wrote them.
+ */
+export function reasonInPoints(v: Verdict): string {
+  const jev = v.numbers.jevVsLlm;
+  const rule = v.ruleComparison.kind === "compared" ? v.ruleComparison : null;
+  const bounds: readonly (readonly [string, number])[] = [
+    ...(jev === null ? [] : [["lower bound of Jev minus LLM", jev.lower], ["upper bound of Jev minus LLM", jev.upper], ["lower bound", jev.lower]] as const),
+    ...(rule === null ? [] : [["lower bound of rule minus Jev", rule.lower]] as const),
+  ];
+  let out = v.reason;
+  for (const [phrase, value] of bounds) {
+    out = out.replace(new RegExp(`${phrase} ${value.toFixed(2).replace("-", "\\-")}(?!\\d)`), `${phrase} ${points(value)}`);
+  }
+  return out.replace(/-0\.10(?!\d)/g, "-10.0 points");
 }
 
 /** Percentage points with one decimal and a sign: 0.0123 is "+1.2 points", -0.043 is "-4.3 points". */
@@ -450,7 +459,7 @@ export async function runVerdicts(text: string): Promise<ReplayVerdict[]> {
       questionId: key.questionId,
       question: metrics.question,
       verdict: v.verdict,
-      reason: reasonInPoints(v.reason, v.numbers.jevVsLlm?.lower ?? null),
+      reason: reasonInPoints(v),
       gap: v.numbers.jevVsLlm === null ? null : `Jev minus the LLM, accepted rate: ${points(v.numbers.jevVsLlm.diff)} on ${v.numbers.jevVsLlm.n} paired cases`,
       costPerAccepted: COMPARED.flatMap((arm) => {
         const totals = metrics.arms.find((t) => t.arm === arm);

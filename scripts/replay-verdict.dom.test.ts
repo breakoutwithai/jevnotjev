@@ -47,7 +47,7 @@ async function expectedFor(file: string): Promise<Expected[]> {
     const metrics = metricsOfCohortRows(rows, key);
     const v = verdict(metrics, seed, arms);
     const cost = new Map(metrics.arms.map((a) => [a.arm, a.costPerAccepted.kind === "value" ? a.costPerAccepted.usd : null] as const));
-    return { questionId: key.questionId, verdict: v.verdict, reason: reasonInPoints(v.reason, v.numbers.jevVsLlm?.lower ?? null), cost };
+    return { questionId: key.questionId, verdict: v.verdict, reason: reasonInPoints(v), cost };
   });
 }
 

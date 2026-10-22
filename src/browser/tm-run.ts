@@ -660,7 +660,8 @@ export function startTheRun(doc: Document): void {
     if (rawProblem) { showCard(week, false); refuse(rawProblem); return; }
     const mapped = weekToPayload(week);
     if (!mapped.ok) { showCard(week, false); refuse(mapped.message); return; }
-    const alias = aliasBox.value.trim();
+    const alias = aliasBox.value.trim().toLowerCase();
+    aliasBox.value = alias;
     if (!ALIAS_PATTERN.test(alias)) {
       aliasBox.setAttribute("aria-invalid", "true");
       aliasError.textContent = alias === "" ? `Enter a nickname to submit. ${ALIAS_MESSAGE}` : ALIAS_MESSAGE;

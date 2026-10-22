@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { checkMap, MAP_BOUNDS } from "../backstage/maps.ts";
 import { createHandler } from "../backstage/server.ts";
-import { ALIAS_PATTERN, MAX_DAYS, newRequestKey, PASTED_SKILL, periodDays, rawNumberProblem, rejectionMessage, submitBody, weekToPayload } from "./tm-submit.ts";
+import { ALIAS_PATTERN, MAX_DAYS, newRequestKey, normaliseAlias, PASTED_SKILL, periodDays, rawNumberProblem, rejectionMessage, submitBody, weekToPayload } from "./tm-submit.ts";
 import { parseWeek, SAMPLE_WEEK, type Week } from "./tm-week.ts";
 
 // /tm/ Submit: the pasted TOKENMAX WEEK block becomes a tm-share/1 body. The mapping is checked against the server's own
@@ -203,6 +203,21 @@ describe("tm-submit key, alias and messages", () => {
   test("[unit] TM-18 the alias pattern is the server's: 3 to 24 of a-z, 0-9 and hyphen", () => {
     for (const ok of ["abc", "a-b", "builder-ab12", "a".repeat(24)]) expect({ ok, server: checkMap({ payload: weekPayload(), alias: ok, request_key: KEY }).ok, page: ALIAS_PATTERN.test(ok) }).toEqual({ ok, server: true, page: true });
     for (const bad of ["ab", "A-b", "a_b", "a b", "a".repeat(25), "", "me@example.com"]) expect({ bad, server: checkMap({ payload: weekPayload(), alias: bad, request_key: KEY }).ok, page: ALIAS_PATTERN.test(bad) }).toEqual({ bad, server: false, page: false });
+  });
+
+  test("[unit] TM-40 a nickname is normalised: lowercase, runs of other characters become one hyphen, edge hyphens trimmed", () => {
+    const cases: ReadonlyArray<readonly [string, string]> = [
+      ["Early AI", "early-ai"], ["Pam!!", "pam"], ["  a  b  ", "a-b"], ["a_b", "a-b"], ["--x--y--", "x-y"],
+      ["me@example.com", "me-example-com"], ["Zoë", "zo"], ["x", "x"], ["", ""], ["!!!", ""], ["ok-name", "ok-name"],
+    ];
+    for (const [typed, want] of cases) expect({ typed, got: normaliseAlias(typed) }).toEqual({ typed, got: want });
+  });
+
+  test("[unit] TM-40 after normalising, the 3 to 24 check still applies: too short and too long are refused, never truncated", () => {
+    for (const typed of ["x", "!x!", "", "!!!"]) expect({ typed, ok: ALIAS_PATTERN.test(normaliseAlias(typed)) }).toEqual({ typed, ok: false });
+    expect(normaliseAlias("a".repeat(30))).toBe("a".repeat(30));
+    expect(ALIAS_PATTERN.test(normaliseAlias("a".repeat(30)))).toBe(false);
+    for (const typed of ["Early AI", "Pam!!", "  a  b  ", "a".repeat(24)]) expect({ typed, ok: ALIAS_PATTERN.test(normaliseAlias(typed)) }).toEqual({ typed, ok: true });
   });
 
   test("[unit] TM-18 a rejection shows the server's field and reason, else a plain sentence for its code", () => {

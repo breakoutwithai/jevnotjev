@@ -144,7 +144,7 @@
     "src/guest-intake/admin-mcp.test.ts": 10,
     "src/guest-intake/admin-routes.test.ts": 12,
     "src/guest-intake/admin-tokens.test.ts": 7,
-    "src/guest-intake/contract.test.ts": 14,
+    "src/guest-intake/contract.test.ts": 15,
     "src/guest-intake/guest-mcp-http.test.ts": 13,
     "src/guest-intake/guest-routes.test.ts": 16,
     "src/guest-intake/imports.test.ts": 2,

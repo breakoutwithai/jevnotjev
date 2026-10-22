@@ -427,7 +427,10 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
         const mid = await endState(page);
         add("natural burn: the curtain drops at the limit", mid.drop && mid.cancelled === 3 ? null : JSON.stringify(mid));
         await page.locator("#dropBtn").click();
-        await sleep(17000);
+        // The With week holds for Jev's task checks on Tuesday and Friday, so it runs longer than the bare week: wait
+        // for the settled curtain call (up to 45 s) instead of a fixed sleep, then a beat for Skip to hide.
+        await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true, null, { timeout: 45000 }).catch(() => undefined);
+        await sleep(300);
         const end = await endState(page);
         add("natural burn: curtain call, Skip hidden at the end", end.settled && end.skipHidden && end.badge === "Lasted to Sunday" ? null : JSON.stringify(end));
         errorsOf("natural burn", seen);

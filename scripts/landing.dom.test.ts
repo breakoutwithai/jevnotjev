@@ -2186,9 +2186,8 @@ test("[integration] L43 keyboard: Shift+Tab to the header link after opening ont
     const page = await pageAt(width, height, "no-preference");
     try {
       await openOntoResults(page);
-      // #390: the programme scroll (Read the programme, Roll it up) sits between the header and the results.
-      await page.keyboard.press("Shift+Tab");
-      await page.keyboard.press("Shift+Tab");
+      // #390: the programme scroll sits between the header and the results, but opening onto the results scrolls past it
+      // before it unrolls, so it still waits hidden and its links are not in the tab order yet.
       await page.keyboard.press("Shift+Tab");
       await page.waitForTimeout(400);
       const link = await page.evaluate(() => ({ state: document.documentElement.dataset.curtain, focus: document.activeElement?.className ?? "" }));

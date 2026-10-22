@@ -49,6 +49,36 @@ async function state(page: Page): Promise<string | null> {
   return page.locator("#programme").getAttribute("data-state");
 }
 
+/** The sheet ran the unroll animation (at least one, by name) and it finished: an empty list does not pass. */
+async function unrolled(page: Page): Promise<boolean> {
+  return page.locator("#programmeSheet").evaluate(async (el) => {
+    const names = el.getAnimations().map((a) => a instanceof CSSAnimation ? a.animationName : "");
+    if (!names.includes("programme-unroll")) return false;
+    await Promise.all(el.getAnimations().map((a) => a.finished));
+    return true;
+  });
+}
+
+/** Clicks Roll it up and reports whether a roll-up animation is running a frame later and how long rolled took. */
+async function rollUp(page: Page): Promise<{ running: boolean; ms: number }> {
+  return page.evaluate(() => new Promise<{ running: boolean; ms: number }>((resolve) => {
+    const box = document.getElementById("programme");
+    const sheet = document.getElementById("programmeSheet");
+    const close = document.getElementById("programmeClose");
+    if (!box || !sheet || !close) { resolve({ running: false, ms: -1 }); return; }
+    const t0 = performance.now();
+    let running = false;
+    new MutationObserver((_, mo) => {
+      if (box.dataset.state !== "rolled") return;
+      mo.disconnect();
+      resolve({ running, ms: performance.now() - t0 });
+    }).observe(box, { attributes: true, attributeFilter: ["data-state"] });
+    close.focus();
+    close.click();
+    requestAnimationFrame(() => { running = sheet.getAnimations().some((a) => a.playState === "running"); });
+  }));
+}
+
 test("[smoke] PG-1 the served landing page carries the programme scroll and its rolled button, both linking to /guide/", async () => {
   const html = await (await fetch(`http://127.0.0.1:${server.port}/`)).text();
   expect(html).toContain('id="programme"');
@@ -74,7 +104,7 @@ for (const [width, height] of VIEWPORTS) {
       await page.locator("#programme").scrollIntoViewIfNeeded();
       await page.waitForFunction(() => document.getElementById("programme")?.dataset.state === "open");
       expect(await page.locator("#programme").evaluate((el) => el.classList.contains("unroll"))).toBe(true);
-      await page.locator("#programmeSheet").evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+      expect(await unrolled(page)).toBe(true);
       expect(await page.locator("#programmeRead").isVisible()).toBe(true);
       expect(await page.locator("#programmeRolled").isVisible()).toBe(false);
       const fit = await page.evaluate(() => {
@@ -107,8 +137,11 @@ test("[integration] PG-4 dismissing rolls it up to a visible Read the programme 
   try {
     await page.locator("#programme").scrollIntoViewIfNeeded();
     await page.waitForFunction(() => document.getElementById("programme")?.dataset.state === "open");
-    await page.locator("#programmeClose").click();
-    await page.waitForFunction(() => document.getElementById("programme")?.dataset.state === "rolled");
+    expect(await unrolled(page)).toBe(true);
+    // Roll-up animates and ends on its own animationend, well before the 1200 ms fallback.
+    const roll = await rollUp(page);
+    expect(roll.running).toBe(true);
+    expect(roll.ms).toBeLessThan(1000);
     expect(await page.locator("#programmeRolled").isVisible()).toBe(true);
     expect(await page.locator("#programmeRead").isVisible()).toBe(false);
     expect(await page.evaluate(() => document.activeElement?.id)).toBe("programmeRolled");
@@ -176,5 +209,52 @@ test("[integration] PG-8 on the first page of a session the scroll waits for the
     await page.locator("#programmeSheet").evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
     // Unrolling moves nothing under it: the results keep their place in the page.
     expect(await typesTop()).toBe(before);
+  } finally { await page.close(); }
+}, 30000);
+
+test("[integration] PG-9 the scroll does not unroll behind the curtain: Raise the curtain onto the results leaves it waiting and unremembered", async () => {
+  const page = await landing(1440, 900, { motion: "no-preference", curtain: true });
+  try {
+    expect(await state(page)).toBe("waiting");
+    await page.locator("#raise").click();
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "open");
+    await page.waitForTimeout(300);
+    expect(await page.locator("#programme").evaluate((el) => el.getBoundingClientRect().bottom < 1)).toBe(true);
+    expect(await state(page)).toBe("waiting");
+    expect(await page.evaluate(() => localStorage.getItem("jnj-programme"))).toBe(null);
+    // Back up to it (not to the very top, which swings the curtain shut again).
+    await page.evaluate(() => window.scrollTo({ top: 100, behavior: "instant" }));
+    await page.waitForFunction(() => document.getElementById("programme")?.dataset.state === "open");
+    expect(await unrolled(page)).toBe(true);
+  } finally { await page.close(); }
+}, 30000);
+
+test("[integration] PG-10 rolling up does not pull focus back from a control the visitor moved to", async () => {
+  const page = await landing(1440, 900, { motion: "no-preference" });
+  try {
+    await page.locator("#programme").scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => document.getElementById("programme")?.dataset.state === "open");
+    expect(await unrolled(page)).toBe(true);
+    await page.locator("#programmeClose").click();
+    await page.locator("#programLink").focus();
+    await page.waitForFunction(() => document.getElementById("programme")?.dataset.state === "rolled");
+    await page.waitForTimeout(1300);
+    expect(await page.evaluate(() => document.activeElement?.id)).toBe("programLink");
+  } finally { await page.close(); }
+}, 30000);
+
+test("[integration] PG-11 reduced motion switched on while the scroll waits off screen: it shows open and static once on screen", async () => {
+  const page = await landing(1440, 900, { motion: "no-preference", curtain: true });
+  try {
+    await page.locator("#raise").click();
+    await page.waitForFunction(() => document.documentElement.dataset.curtain === "open");
+    await page.waitForTimeout(300);
+    expect(await state(page)).toBe("waiting");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.evaluate(() => window.scrollTo({ top: 100, behavior: "instant" }));
+    await page.waitForFunction(() => document.getElementById("programme")?.dataset.state === "open");
+    const sheet = await page.locator("#programmeSheet").evaluate((el) => ({ visibility: getComputedStyle(el).visibility, running: el.getAnimations().length }));
+    expect(sheet).toEqual({ visibility: "visible", running: 0 });
+    expect(await page.locator("#programmeRead").isVisible()).toBe(true);
   } finally { await page.close(); }
 }, 30000);

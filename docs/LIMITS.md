@@ -42,6 +42,7 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - No consented outside user's own run from start to verdict is documented yet; the next step is to invite one and document it. [Source](RELEASE-v0.1.0.md) <!-- claim: no-outside-run -->
 - A remote admin MCP request can run past its 30-second deadline by a database lock wait; a call whose client disconnects still runs until it completes or reaches the deadline, and a reply answered 504 may still have been stored. [Source](guest-access.md) <!-- claim: admin-deadline -->
 - The admin token header must spell the scheme `Bearer`; `bearer` or `BEARER` is refused. [Source](guest-access.md) <!-- claim: bearer-scheme -->
+- Responses under /api/v1/guest/ carry two X-Content-Type-Options: nosniff headers and two Referrer-Policy headers, no-referrer from the app and strict-origin-when-cross-origin from nginx; this is low severity because the API is JSON and has no browser callers, and it is disclosed here, not fixed (issue #369). [Source](../src/guest-intake/guest-routes.ts) <!-- claim: duplicate-headers -->
 - The TokenMax week map shows only the block you paste back from your own Claude Code or Codex after running its prompt; every number on the page comes from that block. [Source](../src/browser/tm-week.ts) <!-- claim: tm-pasted -->
 - On the TokenMax week map, a line your assistant could not fill, or one the page cannot read, is shown as not recorded; nothing is invented in its place. [Source](../src/browser/tm-week.ts) <!-- claim: tm-not-recorded -->
 

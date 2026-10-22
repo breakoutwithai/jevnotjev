@@ -232,8 +232,14 @@
   min-height: 24px; padding: 0 0 0 10px; border: 0; border-left: 1px solid var(--line); background: none;
   letter-spacing: .1em; text-transform: uppercase;
 }
+/* The Program (guide) link rides the closed curtain under the chip, top right, so the guide is in the first viewport. */
+.motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) .program-link {
+  position: fixed; top: calc(var(--tm-first-h, 0px) + 54px); right: 16px; z-index: 60; padding: 3px 10px;
+  background: var(--bg); border: 1px solid var(--brass); letter-spacing: .14em; text-transform: uppercase;
+}
 @media (max-width: 720px) {
   .motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) #sampleBadge { top: max(34px, calc(var(--tm-first-h, 0px) + 10px)); font-size: 10px; }
+  .motion.overture-play:not([data-curtain="open"]):not([data-curtain="rising"]) .program-link { top: max(74px, calc(var(--tm-first-h, 0px) + 50px)); font-size: 10px; }
 }
 
 /* ---------- House furniture: valance across the top, drapes in the side margins on wide screens ---------- */

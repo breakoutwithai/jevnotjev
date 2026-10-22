@@ -25,6 +25,7 @@ body {
 button { font: inherit; cursor: pointer; }
 :focus-visible { outline: 3px solid var(--gold-l); outline-offset: 3px; }
 .page { max-width: 1240px; margin: 0 auto; padding: 14px 20px 28px; }
+.program-link { display: flex; width: fit-content; margin: 0 0 8px auto; align-items: center; min-height: 28px; padding: 2px 10px; border: 1px solid var(--brass); background: var(--stage); color: var(--gold-l); font: 700 13px/1.2 var(--tm-sans); letter-spacing: .06em; text-decoration: none; }
 [hidden] { display: none !important; }
 
 /* Skip to the command: off screen until focused (operator decision: no visible top button), then on top of the page */

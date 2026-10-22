@@ -69,7 +69,8 @@ a { color: var(--ink); } p a { line-height: 24px; padding-block: 5px; } button,i
 .brand { font: 800 22px/24px var(--serif); color: var(--ink); text-decoration: none; }
 .sample { display: flex; align-items: center; gap: 8px; color: var(--brass); font: 700 11px var(--sans); text-transform: uppercase; }
 .house-lights { min-height: 30px; padding: 4px 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink-soft); cursor: pointer; font: 600 11px var(--sans); }
-.house-link { display: inline-flex; align-items: center; min-height: 24px; margin-left: auto; }
+.house-link { display: inline-flex; align-items: center; min-height: 24px; }
+.program-link { display: inline-flex; align-items: center; min-height: 24px; margin-left: auto; color: var(--ink); text-decoration-color: var(--brass); font: 700 12px var(--sans); letter-spacing: .06em; }
 main { max-width: 1120px; margin: auto; padding: 0 16px; }
 .act, .samples, .office, .door-area { padding: 30px 0; border-bottom: 1px solid var(--line); }
 .office { min-height: calc(100vh - 100px); }
@@ -245,6 +246,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
   <a class="brand" href="/" aria-label="Jev!Jev home">Jev!Jev</a>
   <div class="sample" id="sampleBadge"><button class="house-lights" id="lights" type="button">House lights</button></div>
   <div class="ticket" role="img" aria-label="Entrance ticket: admit one, row J, seat J-EV"><div class="main"><p class="admit">ADMIT ONE</p><span>Row J</span><span>Seat J-EV</span></div><span class="stub">No. 0042</span></div>
+  <a class="program-link" id="programLink" href="/guide/">Program (guide)</a>
   <a class="house-link" href="#tickets">Go to the ticket office</a>
 </header>
 <main>

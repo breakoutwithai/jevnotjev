@@ -917,8 +917,8 @@ test("[integration] V3 there is no Skip the overture (#248); from the keyboard t
     try {
       const note = await noteShown(tabs);
       expect({ width, note }).toEqual({ width, note: NOTE_RENDERED });
-      const stops = await tabStops(tabs, note ? 6 : 5);
-      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "openCurtain:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed", "lights:closed", "A.house-link:open"] });
+      const stops = await tabStops(tabs, note ? 7 : 6);
+      expect({ width, stops: stops.map((s) => `${s.stop}:${s.state}`) }).toEqual({ width, stops: ["madmax poster:closed", "openCurtain:closed", ...(note ? ["testimonial:closed"] : []), "raise:closed", "lights:closed", "programLink:closed", "A.house-link:open"] });
       expect(await shownCurtains(tabs)).toBe(0);
     } finally { await tabs.close(); }
   }
@@ -1660,9 +1660,12 @@ test("[integration] L26 the Mad TokenMax poster is the first tab stop on the cur
     await page.keyboard.press("Tab");
     if (raise) await page.keyboard.press("Tab");
     expect(await where()).toEqual({ id: "lights", state: "closed" });
+    // The Program (guide) link rides the closed curtain beside the chip (#378): focus on it keeps the curtain closed.
+    await page.keyboard.press("Tab");
+    expect(await where()).toEqual({ id: "programLink", state: "closed" });
     await page.keyboard.press("Tab");
     expect(await page.evaluate(() => ({
-      onCurtain: Boolean(document.getElementById("overture")?.contains(document.activeElement) || document.getElementById("sampleBadge")?.contains(document.activeElement)),
+      onCurtain: Boolean(document.getElementById("overture")?.contains(document.activeElement) || document.getElementById("sampleBadge")?.contains(document.activeElement) || document.getElementById("programLink")?.contains(document.activeElement)),
       state: document.documentElement.dataset.curtain,
     }))).toEqual({ onCurtain: false, state: "open" });
     expect(await shownCurtains(page)).toBe(0);
@@ -2500,4 +2503,27 @@ test("[integration] TR6 the seat page's programme leads with a plain verdict lin
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     } finally { await page.close(); }
   }
+}, 30000);
+
+// #378: a persistent "Program (guide)" link to /guide/ sits top right in the first viewport, on the closed curtain and once it is open.
+test("[unit] PG1 the landing HTML carries exactly one Program (guide) link, to /guide/", () => {
+  const html = readFileSync(join(SITE, "index.html"), "utf8");
+  expect([...html.matchAll(/<a [^>]*href="\/guide\/"[^>]*>([^<]*)<\/a>/g)].map((m) => m[1])).toEqual(["Program (guide)"]);
+});
+
+for (const motion of MOTIONS) for (const [width, height] of VIEWPORTS) test(`[integration] PG2 at ${width}x${height} (${motion}) the first viewport shows a Program (guide) link to /guide/, top right, reachable by pointer, with no scroll`, async () => {
+  const page = await pageAt(width, height, motion);
+  try {
+    const link = page.getByRole("link", { name: "Program (guide)" });
+    expect(await link.count()).toBe(1);
+    expect(await link.getAttribute("href")).toBe("/guide/");
+    const view = await link.evaluate((node) => {
+      const r = node.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { inView: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, topFifth: r.top < innerHeight / 5, hit: hit === node || node.contains(hit), y: scrollY, shown: getComputedStyle(node).visibility === "visible" };
+    });
+    expect({ width, motion, ...view }).toEqual({ width, motion, inView: true, topFifth: true, hit: true, y: 0, shown: true });
+    // Top right: its right edge is past 55% of the width on the closed curtain (beside the House lights chip) and in the house bar (next to Go to the ticket office).
+    expect(await link.evaluate((node) => node.getBoundingClientRect().right > innerWidth * 0.55)).toBe(true);
+  } finally { await page.close(); }
 }, 30000);

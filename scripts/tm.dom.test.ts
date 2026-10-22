@@ -1318,3 +1318,27 @@ test("[integration] Tab from the top reaches Skip to the command, Copy, this wee
     } finally { await close(page); }
   }
 }, 30000);
+
+// #378: a persistent "Program (guide)" link to /guide/ sits top right in the first viewport.
+test("[unit] PG3 /tm/ carries a Program (guide) link to /guide/ after the skip link and before the playbill, besides the TokenMax guide link", () => {
+  const page = html();
+  expect(page).toContain('<a class="program-link" href="/guide/">Program (guide)</a>');
+  expect(page.indexOf('id="jumpCommand"')).toBeLessThan(page.indexOf('class="program-link"'));
+  expect(page.indexOf('class="program-link"')).toBeLessThan(page.indexOf('class="playbill"'));
+  expect(page).toContain('id="tokenmaxGuide"');
+});
+
+for (const motion of MOTIONS) for (const [width, height] of VIEWS) test(`[integration] PG4 /tm/ at ${width}x${height} (${motion}) shows the Program (guide) link top right in the first viewport, with no scroll`, async () => {
+  const page = await open(width, height, motion);
+  try {
+    const link = page.getByRole("link", { name: "Program (guide)" });
+    expect(await link.count()).toBe(1);
+    expect(await link.getAttribute("href")).toBe("/guide/");
+    const view = await link.evaluate((node) => {
+      const r = node.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { inView: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, topFifth: r.top < innerHeight / 5, right: (r.left + r.right) / 2 > innerWidth / 2, hit: hit === node || node.contains(hit), y: scrollY };
+    });
+    expect({ width, motion, ...view }).toEqual({ width, motion, inView: true, topFifth: true, right: true, hit: true, y: 0 });
+  } finally { await close(page); }
+}, 30000);

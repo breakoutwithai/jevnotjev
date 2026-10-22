@@ -61,7 +61,9 @@ test("[unit] TokenMax guide lists the /tm/ steps with labels the page and script
   expect(steps[5]).toContain("newest first");
   expect(read("site/maps/index.html")).toContain("Newest first, self-reported, not verified");
   expect(await texts(read(GUIDE), "#tokenmax a[href='/replay/?run=uc13-100']")).toHaveLength(1);
-  expect((await texts(read(GUIDE), "#tokenmax p")).some((text) => text.includes("you review the fields before pressing Share"))).toBe(true);
+  expect((await texts(read(GUIDE), "#tokenmax p")).some((text) => text.includes("you review the fields before pressing Submit"))).toBe(true);
+  expect(read("site/tm/index.html")).toContain(">Submit</button>");
+  expect((await texts(read(GUIDE), "#tokenmax p")).some((text) => /pressing Share/i.test(text))).toBe(false);
 });
 
 function read(path: string): string {
@@ -386,6 +388,7 @@ async function marked(html: string, values: Known): Promise<Marked[]> {
  */
 const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
   ["the last 7 days", "TokenMax prompt window, quoted from site/tm/index.html sharePrompt"],
+  ["deferred beyond v0", "release label in the reference summary (#261)"],
   ["sections 1 to 4", "reading order"],
   ["with section 5 open", "reading order"],
   ["1. Prepare test cases", "section heading"],
@@ -959,6 +962,13 @@ describe("visual site guide (#247)", () => {
     expect(meta).not.toMatch(/backstage/i);
     const primary = html.slice(0, html.indexOf('<details id="reference"'));
     expect(primary).not.toMatch(/backstage/i);
+  });
+
+  test("[unit] #261 the reference summary says the Backstage field guide is deferred beyond v0", async () => {
+    const summary = (await texts(read(GUIDE), "details#reference > summary"))[0] ?? "";
+    expect(summary).toMatch(/^Open field guide:/);
+    expect(summary).toMatch(/backstage/i);
+    expect(summary).toMatch(/deferred beyond v0/i);
   });
 
   test("[unit] #247 reference stays collapsed while every existing anchor remains addressable", async () => {

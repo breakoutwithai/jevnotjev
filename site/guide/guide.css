@@ -49,6 +49,8 @@ p { margin: 12px 0; }
 .reference dd { margin-left: 18px; }
 .reference table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 15px; }
 .reference th, .reference td { text-align: left; border: 1px solid var(--line); padding: 8px; }
+/* tap targets: inline links keep their text size but are at least 24x24 CSS px (WCAG 2.5.8) */
+main a:not(.button), footer a { display: inline-block; min-width: 24px; min-height: 24px; text-align: center; }
 code { font: .85em/1.5 ui-monospace, monospace; background: var(--paper); padding: 1px 3px; }
 footer { font: 13px/1.7 var(--sans); color: var(--muted); padding-bottom: 40px; }
 @media (max-width: 640px) {

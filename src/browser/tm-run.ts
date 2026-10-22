@@ -9,7 +9,7 @@ import {
   cardHeadline, dayLabels, limitDayIndexes, NOT_A_RESULT, NOT_RECORDED, parseWeek, periodLine, SAMPLE_WEEK, situationOf, stageHeadline, stageSubtitle,
   weekLines, type Week,
 } from "./tm-week.ts";
-import { ALIAS_MESSAGE, ALIAS_PATTERN, newRequestKey, rawNumberProblem, rejectionMessage, submitBody, weekToPayload } from "./tm-submit.ts";
+import { ALIAS_MESSAGE, ALIAS_PATTERN, newRequestKey, normaliseAlias, rawNumberProblem, rejectionMessage, submitBody, weekToPayload } from "./tm-submit.ts";
 
 export type Mode = "burn" | "under";
 export type View = "without" | "with";
@@ -580,7 +580,15 @@ export function startTheRun(doc: Document): void {
   id("playMine", HTMLButtonElement).addEventListener("click", playMine);
 
   /* ---------- Submit: the one thing on this page that sends. Pressing it is the visitor's consent (copy beside it). ---------- */
-  const aliasBox = id("aliasBox", HTMLInputElement), aliasError = id("aliasError", HTMLElement);
+  const aliasBox = id("aliasBox", HTMLInputElement), aliasError = id("aliasError", HTMLElement), aliasPreview = id("aliasPreview", HTMLElement);
+  // Shows what the nickname will be saved and published as, whenever that differs from what is typed.
+  function showAliasPreview(): void {
+    const shown = normaliseAlias(aliasBox.value);
+    const changed = aliasBox.value !== "" && shown !== aliasBox.value;
+    aliasPreview.textContent = changed ? `Will appear as: ${shown === "" ? "(nothing usable)" : shown}` : "";
+    aliasPreview.hidden = !changed;
+  }
+  aliasBox.addEventListener("input", showAliasPreview);
   const submitBtn = id("submitWeek", HTMLButtonElement), submitStatus = id("submitStatus", HTMLElement);
   const submitted = id("submitted", HTMLElement), receipts = id("receipts", HTMLOListElement);
   const TIMEOUT_MS = 15_000;
@@ -660,8 +668,9 @@ export function startTheRun(doc: Document): void {
     if (rawProblem) { showCard(week, false); refuse(rawProblem); return; }
     const mapped = weekToPayload(week);
     if (!mapped.ok) { showCard(week, false); refuse(mapped.message); return; }
-    const alias = aliasBox.value.trim().toLowerCase();
+    const alias = normaliseAlias(aliasBox.value);
     aliasBox.value = alias;
+    showAliasPreview();
     if (!ALIAS_PATTERN.test(alias)) {
       aliasBox.setAttribute("aria-invalid", "true");
       aliasError.textContent = alias === "" ? `Enter a nickname to submit. ${ALIAS_MESSAGE}` : ALIAS_MESSAGE;

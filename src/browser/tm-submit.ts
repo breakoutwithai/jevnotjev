@@ -12,6 +12,14 @@ export const PASTED_SKILL = "0.0.0";
 export const MAX_DAYS = 90;
 /** Same pattern as the server's ALIAS in src/backstage/maps.ts. */
 export const ALIAS_PATTERN = /^[a-z0-9-]{3,24}$/;
+/**
+ * What a visitor typed, made to fit ALIAS_PATTERN where it can: lowercase, each run of characters outside a-z and 0-9
+ * (spaces, symbols, accents, existing hyphens) becomes one hyphen, then leading and trailing hyphens are dropped.
+ * Length is not touched: a result shorter than 3 or longer than 24 still fails ALIAS_PATTERN and is refused, never truncated.
+ */
+export function normaliseAlias(typed: string): string {
+  return typed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
 export const ALIAS_MESSAGE = "Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.";
 const KEY_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
 const KEY_LENGTH = 32;

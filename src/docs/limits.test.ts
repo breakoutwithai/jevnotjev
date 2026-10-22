@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { isAbsolute, join, posix } from "node:path";
+import { readPerDay } from "../browser/tm-week.ts";
 import { CHEAPER, MARGIN, MIN_PAIRED, TEST_SET_ONLY } from "../core/verdict.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -45,6 +46,7 @@ const CLAIMS: readonly Claim[] = [
   { id: "agent-labels", section: 1, text: "An agent label that nobody reviewed is never counted as truth.", quotes: [{ source: FMT, text: "An `agent` label was never reviewed by a person, so it is never counted as truth" }] },
   { id: "labels-as-recorded", section: 1, text: "The results page shows labels and costs as recorded in the file and does not check how they were produced.", quotes: [{ source: "scripts/result-view.ts", text: "Labels and costs are shown as recorded in the file; this page does not check how they were produced." }] },
   { id: "decisions-arm", section: 1, text: "Decisions API answers are recorded, but the verdict reads Jev, the LLM and the rule only.", quotes: [{ source: FMT, text: "The verdict and metrics (`src/core/`) read llm, rule and jev only." }] },
+  { id: "tm-jev-rehearsal", section: 1, text: "On the TokenMax page, Jev is shown as an example in rehearsal and has not been run on your usage.", quotes: [{ source: TM_PAGE, text: "in rehearsal, 47 jobs (example), not run yet" }] },
 
   { id: "labelled-record", section: 2, text: "A labelled test file in the jnj-record format.", quotes: [{ source: VR, text: "labelled test file (`jnj-record/1`" }] },
   { id: "min-paired", section: 2, text: `At least ${MIN_PAIRED} paired labelled Jev and LLM cases; fewer gives not enough evidence.`, quotes: [{ source: VR, text: `fewer than ${MIN_PAIRED} paired labelled cases between Jev and the LLM` }] },
@@ -58,6 +60,8 @@ const CLAIMS: readonly Claim[] = [
   { id: "release-no-http", section: 3, text: "The release check does not exercise the HTTP surface. With `--url` it compares only the static site's `/DEPLOYED_SHA` to the candidate commit and does not check the backend or any other module.", quotes: [{ source: REL, text: "The check does not exercise the HTTP surface" }, { source: "docs/RELEASE-CHECKLIST.md", text: "`served sha` checks the static site's `/DEPLOYED_SHA` only." }, { source: "docs/RELEASE-CHECKLIST.md", text: "It does not check the backend or any other module of the stack." }] },
   { id: "backstage-deferred", section: 3, text: "Google sign-in for Backstage and paid comparisons are deferred beyond v0 (issue #77).", quotes: [{ source: REL, text: "Google sign-in for Backstage and paid comparisons are deferred beyond v0." }] },
   { id: "admin-exercised", section: 3, text: "The admin page, API and MCP connector have been exercised only by the operator and by scripted tests, not by an outside user.", quotes: [{ source: REL, text: "The admin page, the admin API and the admin MCP connector have been exercised only by the operator and by scripted tests, not by an outside user." }] },
+  { id: "tm-claude-codex", section: 3, text: "The TokenMax prompt asks your assistant about Claude Code and Codex history only; other assistants are not asked about.", quotes: [{ source: TM_PAGE, text: "Look at my Claude Code and Codex history on this computer for the last 7 days." }] },
+  { id: "tm-one-week", section: 3, text: "The TokenMax page reads one week at a time: a Sessions per day line that is not exactly seven numbers shows as not recorded.", quotes: [{ source: TM, text: "exactly seven numbers, else null" }, { source: TM_PAGE, text: "Sessions per day: seven numbers, one per day of the period" }, { source: "site/tm/tm.js", text: "perDay ? \"\" : NOT_RECORDED" }] },
   { id: "connector-bearer", section: 3, text: "The remote admin MCP connector uses a bearer token today; OAuth sign-in is planned and not built yet.", quotes: [{ source: GUEST, text: "Authorization: Bearer jna_..." }, { source: GUEST, text: "There is no OAuth" }, { source: GUEST, text: "### Not built (phase 2)" }] },
   { id: "connector-origin", section: 3, text: "Whether a Claude app sends an Origin header to the remote admin MCP connector is not verified; if it sends its own web origin, every call is refused with 403 until that origin is allowed.", quotes: [{ source: GUEST, text: "Whether Claude's hosted apps send an `Origin` is not verified: if they send their own web origin, every call is 403 (it fails closed) until that origin is allowed." }, { source: "src/guest-intake/admin-mcp-http.ts", text: "if (origin !== null && origin !== opts.origin) return refuse(\"origin-refused\", 403, null);" }] },
   { id: "reply-escapes", section: 3, text: "A reply sent with emoji as JSON surrogate-pair escapes takes twelve bytes a character, so an all-emoji reply within the 8,000-character limit can still be refused with 413 by the 64 KiB request cap; how Claude's client encodes a reply over the remote connector is not verified.", quotes: [{ source: GUEST, text: "A client that sends an all-emoji reply as JSON surrogate-pair escapes (twelve bytes a character) goes over 64 KiB and gets 413 `too-large` from the server, Bun or nginx." }, { source: GUEST, text: "A reply is at most 8,000 characters after trimming" }, { source: GUEST, text: "Over the remote connector the request bytes come from Claude's client, whose encoding is not verified." }, { source: "src/guest-intake/admin-api.ts", text: "sent as surrogate-pair escapes (twelve bytes a character) does not (#285)." }] },
@@ -174,6 +178,10 @@ describe("known limits (v0)", () => {
     expect(visible.includes(String.fromCharCode(0x2013))).toBe(false);
   });
 
+  test("[unit] tm-one-week: seven numbers are read, thirty numbers are not recorded", () => {
+    expect(readPerDay("1, 2, 3, 4, 5, 6, 7")).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(readPerDay(Array.from({ length: 30 }, (_, i) => String(i + 1)).join(", "))).toBeNull();
+  });
   test("[unit] control: a removed claim comment is reported", () => {
     const mutated = edit(doc, " <!-- claim: min-paired -->", "");
     expect(check(mutated, realRead)).toContain(`line ${lineNo(doc, "claim: min-paired")} differs`);

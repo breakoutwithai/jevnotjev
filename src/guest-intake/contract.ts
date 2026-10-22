@@ -90,6 +90,7 @@ export const REQUEST_KEY = /^[A-Za-z0-9_-]{43}$/;
 export const QUESTION_ID = /^Q-[0-9A-F]{12}$/;
 // C0 controls other than tab and newline, DEL, and C1 controls.
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+const TOKENMAX_USAGE_HEADER = /TokenMax usage \(tm-share\/1/i;
 
 function own(body: object, name: string): unknown {
   return Object.prototype.hasOwnProperty.call(body, name) ? Reflect.get(body, name) : undefined;
@@ -139,7 +140,7 @@ export function checkPublicSubmission(body: unknown, limits: QuestionLimits = QU
   if (email === "" || email.length > 254 || !EMAIL.test(email)) return { ok: false, reason: "bad-email" };
   const text = question(own(body, "question"), limits.maxQuestionChars);
   if (text === null) return { ok: false, reason: "bad-question" };
-  if (/TokenMax usage \(tm-share\/1/i.test(text)) return { ok: false, reason: "bad-question" };
+  if (TOKENMAX_USAGE_HEADER.test(text)) return { ok: false, reason: "bad-question" };
   const rawUsage = own(body, "usage");
   const usage = Object.prototype.hasOwnProperty.call(body, "usage") ? checkSharePayload(rawUsage) : null;
   if (usage !== null && !usage.ok) return { ok: false, reason: "bad-usage" };
@@ -159,6 +160,7 @@ export function checkGuestSubmission(body: unknown, limits: QuestionLimits = QUE
   if (Object.keys(body).some((k) => !GUEST_KEYS.includes(k))) return { ok: false, reason: "unknown-field" };
   const text = question(own(body, "question"), limits.maxQuestionChars);
   if (text === null) return { ok: false, reason: "bad-question" };
+  if (TOKENMAX_USAGE_HEADER.test(text)) return { ok: false, reason: "bad-question" };
   if (own(body, "reply_consent") !== true) return { ok: false, reason: "no-consent" };
   const marketing = own(body, "marketing_consent");
   if (marketing !== undefined && typeof marketing !== "boolean") return { ok: false, reason: "bad-consent" };

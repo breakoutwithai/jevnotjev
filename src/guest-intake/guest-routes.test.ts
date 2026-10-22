@@ -156,6 +156,7 @@ describe("guest submit, list and read", () => {
       [submitBody({ marketing_consent: "yes" }), 400, "bad-consent"],
       [submitBody({ request_key: "short" }), 400, "bad-request-key"],
       [submitBody({ question: "" }), 400, "bad-question"],
+      [submitBody({ question: "TokenMax usage (tm-share/1, self-reported, not verified)\nv: tm-share/1" }), 400, "bad-question"],
       [submitBody({ question: "x".repeat(4097) }), 400, "bad-question"],
       ["[1]", 400, "bad-body"],
       ["{", 400, "bad-json"],

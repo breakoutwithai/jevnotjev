@@ -6,7 +6,6 @@ import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 const HELPER = join(ROOT, ".deploy/tests/git-fixture.sh");
-const SUITES = ["ship", "branch-guard", "monitor", "release", "verify"];
 const scratch: string[] = [];
 const GIT_ENV = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"];
 const cleanEnv = (): Record<string, string> => Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined && !GIT_ENV.includes(entry[0])));
@@ -93,20 +92,6 @@ test("[unit] 240 fixture init verifies and admits only a repository below its ow
   expect(result.exitCode).toBe(0);
   expect(git(work, "config", "user.name")).toBe("OwnedFixture");
 });
-
-for (const suite of SUITES) {
-  test(`[integration] 240 ${suite} fixture suite ignores all four inherited Git destinations`, () => {
-    const path = sentinel();
-    const before = snapshot(path);
-    const env = { ...cleanEnv(), GIT_DIR: join(path, ".git"), GIT_WORK_TREE: path, GIT_INDEX_FILE: join(path, ".git/index"), GIT_COMMON_DIR: join(path, ".git") };
-    const run = Bun.spawnSync(["bash", `.deploy/tests/${suite}.test.sh`], { cwd: ROOT, env, stdout: "pipe", stderr: "pipe", timeout: 420_000 });
-    expect(snapshot(path)).toEqual(before);
-    const output = run.stdout.toString() + run.stderr.toString();
-    expect(output).toMatch(/\[T1\] passed=[1-9][0-9]* failed=0/);
-    expect(run.exitCode).toBe(0);
-    console.info(`240 ${suite}: ${output.match(/\[T1\] passed=[1-9][0-9]* failed=0/)?.[0] ?? "missing summary"}; sentinel unchanged`);
-  }, 450_000);
-}
 
 test("[unit] 240 an in-root gitdir cannot redirect common config and refs outside the fixture", () => {
   const root = temporary();

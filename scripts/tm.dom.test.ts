@@ -430,6 +430,12 @@ test("[integration] TM-41 the box does not cut typed text before normalising: le
     await page.locator("#submitWeek").click();
     expect(await page.evaluate(() => ({ error: document.getElementById("aliasError")?.hidden, invalid: document.getElementById("aliasBox")?.getAttribute("aria-invalid") }))).toEqual({ error: false, invalid: "true" });
     expect(sent.length).toBe(1);
+    // 24 letters, 40 symbols, then one more letter normalises to 26 characters: refused, not cut to 24 and accepted.
+    await page.locator("#aliasBox").fill("");
+    await page.locator("#aliasBox").pressSequentially("a".repeat(24) + "!".repeat(40) + "b");
+    await page.locator("#submitWeek").click();
+    expect(await page.evaluate(() => ({ error: document.getElementById("aliasError")?.hidden, box: (document.getElementById("aliasBox") as HTMLInputElement).value }))).toEqual({ error: false, box: "a".repeat(24) + "-b" });
+    expect(sent.length).toBe(1);
   } finally { await close(page); }
 }, 40000);
 

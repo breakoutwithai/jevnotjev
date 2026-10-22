@@ -1015,7 +1015,7 @@ describe("visual site guide (#247)", () => {
     expect(words.length).toBeLessThanOrEqual(730);
     expect(primary).toContain('href="https://docs.typesafe.ai/introduction"');
     expect(primary).not.toContain('id="jev-intro"');
-    expect(await texts(html, ".welcome .lede")).toEqual(["Your guide to using this site: watch a recorded test, or bring a decision of your own."]);
+    expect(await texts(html, ".welcome .lede")).toEqual(["Your guide to using this site: watch a recorded test, or map your own Claude Code and Codex usage."]);
     for (const path of ["/little-shop/", "/replay/", "/tm/", "/maps/"]) expect(primary).toContain(`href="${path}"`);
     expect(primary).toContain("if unavailable, return later");
     expect(html).toContain("optional collapsed disclosure");

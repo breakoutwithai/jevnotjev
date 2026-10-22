@@ -45,7 +45,7 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - Responses under /api/v1/guest/ that nginx forwards from the app carry two X-Content-Type-Options: nosniff headers and two Referrer-Policy headers, no-referrer from the app and strict-origin-when-cross-origin from nginx; issue #369 rates this low severity for a JSON API called with bearer tokens, and it is disclosed here, not fixed. [Source](../src/guest-intake/guest-routes.ts) <!-- claim: duplicate-headers -->
 - The TokenMax week map shows only the block you paste back from your own Claude Code or Codex after running its prompt; every number on the page comes from that block. [Source](../src/browser/tm-week.ts) <!-- claim: tm-pasted -->
 - On the TokenMax week map, a line your assistant could not fill, or one the page cannot read, is shown as not recorded; nothing is invented in its place. [Source](../src/browser/tm-week.ts) <!-- claim: tm-not-recorded -->
-- The /guide/ page is a text reference with no screenshots, and its collapsed field guide still describes the deferred Backstage workspace (issue #261). [Source](../site/guide/index.html) <!-- claim: guide-text-only -->
+- The /guide/ page's collapsed field guide is headed "Backstage workspace, deferred beyond v0" and still describes the Backstage workspace (issue #261). [Source](../site/guide/index.html) <!-- claim: guide-text-only -->
 
 ## 4. Data and trust
 

@@ -162,7 +162,8 @@
   .playbill { --stage-h: calc(100vh - var(--tm-first-h, 0px)); gap: clamp(10px, 2.4vh, 26px); padding: 56px 32px 24px; }
   .playbill > .showbills { --mm-h: clamp(220px, calc(var(--stage-h) * .44), 420px); gap: clamp(40px, 4.4vw, 80px); }
   .overture .marquee {
-    max-width: min(1180px, 94vw); padding: clamp(14px, 2.4vh, 24px) clamp(30px, 3.4vw, 52px) clamp(12px, 2.2vh, 22px); border-width: 4px;
+    /* min-width holds the #248 marquee width (MM1: at least 1.5 x 640) now that the billing is two lines and the box no longer shrinks to a one-line title. */
+    min-width: 960px; max-width: min(1180px, 94vw); padding: clamp(14px, 2.4vh, 24px) clamp(30px, 3.4vw, 52px) clamp(12px, 2.2vh, 22px); border-width: 4px;
     box-shadow: 0 14px 50px rgba(0, 0, 0, .55), inset 0 0 0 8px #1a0508, inset 0 0 0 11px #6e4f14;
   }
   .overture .marquee .kicker { font-size: clamp(12px, 1.05vw, 16px); letter-spacing: .34em; }
@@ -309,8 +310,8 @@
 /* In the page the billing is the page's h1 (#t1); on the curtain it is a decorative copy. */
 .marquee .billing { display: block; max-width: none; margin: 3px 0 0; font: 800 clamp(22px, 2.2vw, 28px)/1.05 var(--serif); letter-spacing: -.01em; }
 .marquee .billing em { font-weight: 500; color: #e0b04e; }
-/* The page h1 breaks before "in four questions"; the curtain copy keeps its single-line width (#248 MM1). */
-h1.billing em { display: block; }
+/* The billing breaks before "in four questions", on the page h1 and on the curtain copy alike. */
+.marquee .billing em { display: block; }
 
 /* ---------- Little Shop of Horrors preview poster on the curtain: shared look (div.poster, so the picture story's article.poster
    posters in pictures.css are never touched) ---------- */

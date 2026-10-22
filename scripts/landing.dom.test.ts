@@ -191,6 +191,28 @@ test("[integration] L1b the billing breaks as two lines, before \"in four questi
   }
 }, 30000);
 
+test("[integration] L1c the closed curtain's billing copy breaks as two lines, before \"in four questions\", at 390 and 1440", async () => {
+  for (const [width, height] of CLOSED_VIEWPORTS) {
+    const page = await pageAt(width, height, "no-preference");
+    try {
+      expect((await curtain(page)).state).toBe("closed");
+      const box = await page.locator("#overture .marquee .billing").evaluate((node) => {
+        const em = node.querySelector("em");
+        if (!em) throw new Error("curtain billing has no em");
+        const lead = document.createRange();
+        lead.selectNodeContents(node.firstChild ?? node);
+        const first = lead.getBoundingClientRect();
+        const second = em.getBoundingClientRect();
+        return { firstTop: first.top, emTop: second.top, leadLines: lead.getClientRects().length, emHeight: second.height, lineHeight: parseFloat(getComputedStyle(em).lineHeight), emFits: second.right <= (node.closest(".marquee")?.getBoundingClientRect().right ?? 0) };
+      });
+      expect(box.leadLines).toBe(1);
+      expect(box.emTop - box.firstTop).toBeGreaterThanOrEqual(box.lineHeight * 0.8);
+      expect(Math.round(box.emHeight / box.lineHeight)).toBe(1);
+      expect(box.emFits).toBe(true);
+    } finally { await page.close(); }
+  }
+}, 30000);
+
 for (const motion of MOTIONS) {
   test(`[integration] L1-L5 the title comes first, then the four pictures and the cards; no result bars or sample hero (${motion})`, async () => {
     for (const [width, height] of ACTION_VIEWPORTS) {
@@ -846,7 +868,7 @@ test("[integration] V1 the closed curtain carries the composition: marquee, the 
     const page = await pageAt(width, height, "no-preference");
     try {
       expect((await curtain(page)).state).toBe("closed");
-      expect(await page.locator("#overture .marquee").innerText()).toMatch(/Jev!Jev presents[\s\S]*To Jev or not to Jev in four questions/i);
+      expect(await page.locator("#overture .marquee").innerText()).toMatch(/Jev!Jev presents[\s\S]*To Jev or not to Jev\s+in four questions/i);
       expect(await page.locator("#overture .marquee").getAttribute("aria-hidden")).toBe("true");
       const ticket = await page.locator("#overture .ticket").textContent() ?? "";
       for (const word of ["ADMIT ONE", "J-EV", "No. 0042"]) expect(ticket).toContain(word);

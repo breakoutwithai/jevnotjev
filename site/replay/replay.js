@@ -117,10 +117,29 @@
     ].filter(function (t) { return t !== ""; }).map(function (t) { return "<li>" + t + "</li>"; }).join("");
   }
 
+  /* The verdict and cost per accepted answer of each question, computed by src/core at build time (runVerdicts). */
+  function renderVerdict() {
+    var r = run(), vs = r.verdicts || [], many = vs.length > 1;
+    var ids = vs.map(function (v) { return v.questionId; });
+    var unique = ids.every(function (id, i) { return ids.indexOf(id) === i; });
+    $("verdict").hidden = vs.length === 0;
+    $("verdict").innerHTML = '<h2 class="tag" id="verdictTag">The outcome: verdict and cost per accepted answer</h2>' + vs.map(function (v) {
+      var cells = v.costPerAccepted.map(function (c) {
+        return "<tr><td>" + esc(c.name) + '</td><td class="n">' + c.accepted + '</td><td class="n" data-cpa="' + esc(c.method) + '">' + esc(c.text) + "</td></tr>";
+      }).join("");
+      return '<div class="vq">' + (many ? '<p class="vq-name">Question ' + esc(unique ? v.questionId : v.runId + " " + v.promptVersion + " " + v.questionId) + ": " + esc(v.question) + "</p>" : "") +
+        '<p class="vq-verdict">Verdict: <b data-verdict>' + esc(v.verdict) + "</b></p>" +
+        '<p class="vq-reason" data-reason>' + esc(v.reason) + "</p>" +
+        (v.gap ? '<p class="vq-gap" data-gap>' + esc(v.gap) + "</p>" : "") +
+        '<table><thead><tr><th scope="col">Method</th><th scope="col">Accepted</th><th scope="col">Cost per accepted answer</th></tr></thead><tbody>' + cells + "</tbody></table></div>";
+    }).join("");
+  }
+
   function renderStatic() {
     var r = run();
     $("runs").innerHTML = D.runs.map(runButton).join("");
     document.querySelectorAll("[data-run]").forEach(function (b) { b.addEventListener("click", function () { switchTo(b.getAttribute("data-run")); }); });
+    renderVerdict();
     renderFlags();
     $("headline").innerHTML = headline(r);
     /* One square per case in a short run. A paged run shows its head cases as squares and then one chip per page, so

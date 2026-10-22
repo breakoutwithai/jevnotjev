@@ -4,9 +4,10 @@
 // scripts/replay-data.ts writes their output for site/replay/.
 
 import { readDictRows, type CsvRecord } from "../format/csv.ts";
-import { parseCell, truthLabel, type ParsedRow } from "../format/validate.ts";
-import { armsInFile, groupCohorts, metricsOfCohortRows, provenanceByMethod } from "../core/metrics.ts";
-import { MIN_PAIRED, verdictLimitations } from "../core/verdict.ts";
+import { parseCell, truthLabel, validate, type ParsedRow } from "../format/validate.ts";
+import { fileSeed } from "../core/calc.ts";
+import { armsInFile, describeCostPerAccepted, groupCohorts, metricsOfCohortRows, provenanceByMethod } from "../core/metrics.ts";
+import { MIN_PAIRED, verdict, verdictLimitations, type Verdict } from "../core/verdict.ts";
 
 /** What the page shows for a label src/core/metrics.ts does not count (format/validate.ts truthLabel). */
 export const NOT_COUNTED = "not counted (AI label, not reviewed)";
@@ -381,4 +382,97 @@ export function parseRun(text: string, source: RunSource): ReplayRun {
     ...(source.pageBy === undefined ? {} : { pageBy: source.pageBy }),
     ...(source.spotlight === undefined ? {} : { spotlight: source.spotlight }),
   };
+}
+
+/** One method's cost per accepted answer on one question, as src/core/metrics.ts computes it. */
+export interface ReplayCostPerAccepted {
+  readonly method: string;
+  readonly name: string;
+  readonly accepted: number;
+  /** "$0.0000373", "undefined (0 accepted)" or "incomplete (cost missing)". */
+  readonly text: string;
+  /** The exact dollars when there is a number. */
+  readonly usd: number | null;
+}
+
+/** The verdict on one question (cohort) of a run, from src/core/verdict.ts, with each method's cost per accepted answer. */
+export interface ReplayVerdict {
+  readonly runId: string;
+  readonly promptVersion: string;
+  readonly questionId: string;
+  readonly question: string;
+  readonly verdict: string;
+  readonly reason: string;
+  /** Jev minus the LLM accept rate in points, with its 95% interval (verdict().numbers.jevVsLlm); null when not paired. */
+  readonly gap: string | null;
+  readonly costPerAccepted: readonly ReplayCostPerAccepted[];
+}
+
+/** Dollars with three significant figures, so $0.0000373 and $0.000189 keep what usd() (6 decimals) would round away. */
+export function usdSignificant(v: number): string {
+  if (v === 0) return "$0";
+  if (v >= 1000) return `$${v.toFixed(0)}`;
+  // toPrecision never throws and keeps three significant figures; below 1e-6 it switches to exponent form.
+  return `$${v.toPrecision(3)}`;
+}
+
+/**
+ * The verdict reason with every accept-rate bound and threshold in points (-0.04 becomes -4.3 points, -0.10 becomes
+ * -10.0 points), so the page states each once and with its unit. The numbers come from the structured verdict;
+ * cost-ratio bounds are ratios, not points, and stay as verdict() wrote them.
+ */
+export function reasonInPoints(v: Verdict): string {
+  const jev = v.numbers.jevVsLlm;
+  const rule = v.ruleComparison.kind === "compared" ? v.ruleComparison : null;
+  const bounds: readonly (readonly [string, number])[] = [
+    ...(jev === null ? [] : [["lower bound of Jev minus LLM", jev.lower], ["upper bound of Jev minus LLM", jev.upper], ["lower bound", jev.lower]] as const),
+    ...(rule === null ? [] : [["lower bound of rule minus Jev", rule.lower]] as const),
+  ];
+  let out = v.reason;
+  for (const [phrase, value] of bounds) {
+    out = out.replace(new RegExp(`${phrase} ${value.toFixed(2).replace("-", "\\-")}(?!\\d)`), `${phrase} ${points(value)}`);
+  }
+  return out.replace(/-0\.10(?!\d)/g, "-10.0 points");
+}
+
+/** Percentage points with one decimal and a sign: 0.0123 is "+1.2 points", -0.043 is "-4.3 points". */
+export function points(v: number): string {
+  const p = (v * 100).toFixed(1);
+  return `${p.startsWith("-") || Number(p) === 0 ? "" : "+"}${p} points`;
+}
+
+/**
+ * The verdict per question of one records file, by the same path the CSV loader takes (src/browser/results-loader.ts):
+ * validate, group into cohorts, metrics, verdict() with the file-text seed. A file that does not validate has none.
+ */
+export async function runVerdicts(text: string): Promise<ReplayVerdict[]> {
+  const result = validate(text);
+  if (result.errors.length > 0) return [];
+  const seed = await fileSeed(text);
+  const fileArms = armsInFile(result.rows);
+  return groupCohorts(result.rows).map(({ key, rows }) => {
+    const metrics = metricsOfCohortRows(rows, key);
+    const v = verdict(metrics, seed, fileArms);
+    return {
+      runId: key.runId,
+      promptVersion: key.promptVersion,
+      questionId: key.questionId,
+      question: metrics.question,
+      verdict: v.verdict,
+      reason: reasonInPoints(v),
+      gap: v.numbers.jevVsLlm === null ? null : `Jev minus the LLM, accepted rate: ${points(v.numbers.jevVsLlm.diff)} on ${v.numbers.jevVsLlm.n} paired cases`,
+      costPerAccepted: COMPARED.flatMap((arm) => {
+        const totals = metrics.arms.find((t) => t.arm === arm);
+        if (totals === undefined) return [];
+        const c = totals.costPerAccepted;
+        return [{
+          method: arm,
+          name: methodName(arm),
+          accepted: totals.accepted,
+          text: c.kind === "value" ? usdSignificant(c.usd) : describeCostPerAccepted(c),
+          usd: c.kind === "value" ? c.usd : null,
+        }];
+      }),
+    };
+  });
 }

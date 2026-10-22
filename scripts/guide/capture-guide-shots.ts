@@ -6,8 +6,8 @@
 //
 // With no --base it serves this checkout's site/ on 127.0.0.1 and captures that. --base captures another origin, such as
 // the live site. Read-only: every request other than GET or HEAD is aborted, and so is any request under /ask/ or
-// /feedback/. It never presses Submit and never types a nickname; step 5 photographs the Submit area untouched. The only
-// text it pastes is SYNTHETIC_BLOCK. Step 6 is cropped to the /maps/ header so no builder's row is in the picture. Each
+// /feedback/. It never presses Submit. The only text it enters is SYNTHETIC_BLOCK and, in step 5, SAMPLE_NICKNAME, so
+// the nickname preview line shows. Step 6 is cropped to the /maps/ header so no builder's row is in the picture. Each
 // image is re-encoded at falling quality until it is under MAX_IMAGE_BYTES. Prints one line per image and its size.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -38,6 +38,9 @@ Limit hit days: 2026-10-16, 2026-10-17, 2026-10-18, 2026-10-19, 2026-10-20
 Codex weekly window used: 88%
 Pattern: running out`;
 
+/** Typed into the nickname box in step 5 so the "Will appear as" preview shows. Never submitted. */
+export const SAMPLE_NICKNAME = "Sample Visitor";
+
 export type GuideShot = { readonly step: number; readonly file: string; readonly alt: string };
 
 /** One image per guide step. Step 0 is the way in from the home page; steps 1 to 6 match the guide's numbered list. */
@@ -47,7 +50,7 @@ export const GUIDE_SHOTS: readonly GuideShot[] = [
   { step: 2, file: "step-2-copy.webp", alt: "The Map your real week section: the prompt shown in full, the Copy for Claude Code or Codex button and the message saying it was copied." },
   { step: 3, file: "step-3-paste.webp", alt: "A synthetic TOKENMAX WEEK block pasted into Paste the result here, and the Your week card showing those numbers on the page only." },
   { step: 4, file: "step-4-play.webp", alt: "After Play my week: the stage shows the pasted synthetic week, headed Your week, from your numbers, with five days marked limit hit." },
-  { step: 5, file: "step-5-submit.webp", alt: "The empty Nickname for the public board box and the Submit button, with the list of what Submit sends. Nothing has been sent." },
+  { step: 5, file: "step-5-submit.webp", alt: "The sample nickname Sample Visitor typed into Nickname for the public board, the line under it showing how it will appear, and the Submit button with the list of what Submit sends. Nothing has been sent." },
   { step: 6, file: "step-6-maps.webp", alt: "The top of the TokenMax map board at /maps/: its title and the note that every number is self-reported and not verified." },
 ];
 
@@ -182,8 +185,10 @@ async function captureSteps(browser: Browser, origin: string): Promise<Buffer[]>
   await sleep(400);
   await shoot();
 
-  // Step 5: the nickname box and Submit, untouched.
-  if ((await page.locator("#aliasBox").inputValue()) !== "") throw new Error("step 5: the nickname box is not empty");
+  // Step 5: a sample nickname and its preview line; Submit is never pressed.
+  await page.locator("#aliasBox").fill(SAMPLE_NICKNAME);
+  await sleep(300);
+  if (!(await page.locator("#aliasPreview").isVisible())) throw new Error("step 5: the nickname preview line did not appear");
   await centre(page, "#submitWeek");
   await shoot();
 

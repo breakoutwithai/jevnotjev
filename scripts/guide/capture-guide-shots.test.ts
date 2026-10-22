@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { chromium, type Browser } from "playwright-core";
 import { resolveChromium } from "../uat/happy-path-lib.ts";
 import { parseWeek } from "../../src/browser/tm-week.ts";
-import { allowRequest, GUIDE_SHOTS, IMG_DIR, MAX_IMAGE_BYTES, parseOptions, setImageSize, SITE_DIR, SYNTHETIC_BLOCK, TOTAL_IMAGE_BUDGET } from "./capture-guide-shots.ts";
+import { allowRequest, GUIDE_SHOTS, IMG_DIR, MAX_IMAGE_BYTES, parseOptions, SAMPLE_NICKNAME, setImageSize, SITE_DIR, SYNTHETIC_BLOCK, TOTAL_IMAGE_BUDGET } from "./capture-guide-shots.ts";
 
 const GUIDE = join(SITE_DIR, "guide", "index.html");
 const SCRIPT = join(import.meta.dir, "capture-guide-shots.ts");
@@ -81,15 +81,16 @@ test("[unit] #261 the capture script is read-only: only GET and HEAD, never /ask
   for (const method of ["POST", "PUT", "PATCH", "DELETE"]) expect(allowRequest(method, "https://example.test/api/maps")).toBe(false);
   for (const path of ["/ask/", "/ask", "/feedback/", "/api/ask", "/api/feedback/x"]) expect(allowRequest("GET", `https://example.test${path}`)).toBe(false);
   const source = readFileSync(SCRIPT, "utf8");
-  expect(source).not.toMatch(/#submitWeek"\)\.click|#aliasBox"\)\.(fill|type|press)/);
+  expect(source).not.toMatch(/#submitWeek"\)\.(click|press|dispatchEvent)|\.press\("Enter"\)/);
+  expect(SAMPLE_NICKNAME).toBe("Sample Visitor");
 });
 
-test("[unit] #261 the only pasted text is the synthetic TOKENMAX WEEK block, and it parses as a week", () => {
+test("[unit] #261 the only typed text is the synthetic TOKENMAX WEEK block, which parses as a week, and the sample nickname", () => {
   const week = parseWeek(SYNTHETIC_BLOCK);
   expect(week).not.toBeNull();
   expect(SYNTHETIC_BLOCK.split("\n")[0]).toBe("TOKENMAX WEEK");
   const source = readFileSync(SCRIPT, "utf8");
-  expect([...source.matchAll(/\.fill\(([^)]*)\)/g)].map((match) => match[1])).toEqual(["SYNTHETIC_BLOCK"]);
+  expect([...source.matchAll(/\.fill\(([^)]*)\)/g)].map((match) => match[1])).toEqual(["SYNTHETIC_BLOCK", "SAMPLE_NICKNAME"]);
 });
 
 test("[unit] #261 the capture script takes --base, --out and --chromium and rejects anything else", () => {

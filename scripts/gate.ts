@@ -167,18 +167,67 @@ function runBun(root: string): { results: Map<string, Counts>; ok: boolean; tail
   return { results, ok: run.exitCode === 0 && error === null, tail, error, artifactDir: dir, xml };
 }
 
-function runShell(root: string): Map<string, Counts> {
+// The #240 guard: every shell suite runs once, here; the five guarded suites get all four GIT_* destinations pointing at a
+// sentinel repository. A suite that leaks into an inherited repository corrupts the sentinel and
+// fails; a suite that needs a clean env to pass fails on its own assertions.
+// The five suites the #240 integration tests covered; the others read this checkout's history.
+const GIT_GUARDED = ["ship", "branch-guard", "monitor", "release", "verify"];
+const GIT_ENV = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"];
+
+function cleanEnv(): Record<string, string> {
+  return Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined && !GIT_ENV.includes(entry[0])));
+}
+
+function sentinelGit(dir: string, ...args: string[]): string {
+  const run = Bun.spawnSync(["git", "-C", dir, ...args], { env: cleanEnv(), stdout: "pipe", stderr: "pipe" });
+  if (run.exitCode !== 0) throw new Error(`sentinel git ${args.join(" ")} failed: ${run.stderr.toString()}`);
+  return run.stdout.toString().trim();
+}
+
+function makeSentinel(): string {
+  const dir = mkdtempSync(join(tmpdir(), "jnj-gate-sentinel-"));
+  sentinelGit(dir, "init", "-q", "--initial-branch=main", "--template=");
+  sentinelGit(dir, "config", "user.name", "Sentinel Actor");
+  sentinelGit(dir, "config", "user.email", "sentinel@example.test");
+  sentinelGit(dir, "config", "commit.gpgsign", "false");
+  writeFileSync(join(dir, "sentinel.txt"), "unchanged sentinel worktree\n");
+  sentinelGit(dir, "add", "sentinel.txt");
+  sentinelGit(dir, "commit", "-qm", "sentinel base");
+  return dir;
+}
+
+function sentinelSnapshot(dir: string): string {
+  return JSON.stringify([
+    readFileSync(join(dir, ".git/config"), "utf8"),
+    readFileSync(join(dir, ".git/HEAD"), "utf8"),
+    sentinelGit(dir, "for-each-ref", "--format=%(refname) %(objectname)"),
+    readFileSync(join(dir, ".git/index")).toString("hex"),
+    readFileSync(join(dir, "sentinel.txt"), "utf8"),
+  ]);
+}
+
+export function runShell(root: string, shellDir: string = SHELL_DIR, guarded: string[] = GIT_GUARDED): Map<string, Counts> {
   const out = new Map<string, Counts>();
-  const suites = readdirSync(join(root, SHELL_DIR)).filter((f) => f.endsWith(".test.sh")).sort();
+  const suites = readdirSync(join(root, shellDir)).filter((f) => f.endsWith(".test.sh")).sort();
   for (const suite of suites) {
-    const file = `${SHELL_DIR}/${suite}`;
-    const run = Bun.spawnSync(["bash", file], { cwd: root, stdout: "pipe", stderr: "pipe" });
-    const summary = parseShellSummary(`${run.stdout.toString()}\n${run.stderr.toString()}`);
-    if (summary === null) {
-      out.set(file, { passed: 0, failed: 1 });
-    } else {
-      // A non-zero exit is a failure even when the summary line claims none.
-      out.set(file, { passed: summary.passed, failed: run.exitCode === 0 ? summary.failed : Math.max(1, summary.failed) });
+    const file = `${shellDir}/${suite}`;
+    const sentinel = makeSentinel();
+    try {
+      const before = sentinelSnapshot(sentinel);
+      const poisoned = guarded.includes(suite.replace(/\.test\.sh$/, ""));
+      const env = !poisoned ? process.env : { ...cleanEnv(), GIT_DIR: join(sentinel, ".git"), GIT_WORK_TREE: sentinel, GIT_INDEX_FILE: join(sentinel, ".git/index"), GIT_COMMON_DIR: join(sentinel, ".git") };
+      const run = Bun.spawnSync(["bash", file], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+      const summary = parseShellSummary(`${run.stdout.toString()}\n${run.stderr.toString()}`);
+      const leaked = poisoned && sentinelSnapshot(sentinel) !== before;
+      if (leaked) console.log(`gate: ${file} modified the inherited-GIT_* sentinel repository (#240)`);
+      if (summary === null) {
+        out.set(file, { passed: 0, failed: 1 });
+      } else {
+        // A non-zero exit is a failure even when the summary line claims none.
+        out.set(file, { passed: summary.passed, failed: run.exitCode === 0 && !leaked ? summary.failed : Math.max(1, summary.failed) });
+      }
+    } finally {
+      rmSync(sentinel, { recursive: true, force: true });
     }
   }
   return out;

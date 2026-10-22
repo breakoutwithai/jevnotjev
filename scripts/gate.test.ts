@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildSeed, checkCounts, finalizeBunReport, parseJunit, parseJunitIncidents, parseManifest, parseShellSummary, type Counts } from "./gate.ts";
+import { buildSeed, checkCounts, finalizeBunReport, parseJunit, parseJunitIncidents, parseManifest, parseShellSummary, runShell, type Counts } from "./gate.ts";
 
 // #87: a per-file test-count floor. Expected values come from recorded tool output (a bun junit
 // report and a shell suite summary line captured on 2026-10-04) and from the issue's literal
@@ -155,5 +155,32 @@ describe("committed floors", () => {
 
   test("[unit] #87 minFiles equals the number of floored files", () => {
     expect(manifest.minFiles).toBe(Object.keys(manifest.files).length);
+  });
+});
+
+describe("gate shell run (#240 guard)", () => {
+  function fakeRoot(suites: Record<string, string>): string {
+    const dir = mkdtempSync(join(tmpdir(), "gate-shell-"));
+    mkdirSync(join(dir, "shell"));
+    for (const [name, body] of Object.entries(suites)) writeFileSync(join(dir, "shell", `${name}.test.sh`), `set -e\n${body}\necho "[T1] passed=1 failed=0"\n`);
+    return dir;
+  }
+
+  test("[integration] #240 a suite that writes through an inherited GIT_DIR fails the gate", () => {
+    const dir = fakeRoot({ leaky: 'git commit --allow-empty -qm leaked' });
+    try {
+      expect(runShell(dir, "shell", ["leaky", "clean"]).get("shell/leaky.test.sh")?.failed).toBeGreaterThan(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("[integration] #240 a suite that never touches the inherited repository passes, with GIT_DIR set for it", () => {
+    const dir = fakeRoot({ clean: 'test -n "$GIT_DIR" && test -n "$GIT_WORK_TREE" && test -n "$GIT_INDEX_FILE" && test -n "$GIT_COMMON_DIR"' });
+    try {
+      expect(runShell(dir, "shell", ["leaky", "clean"]).get("shell/clean.test.sh")).toEqual({ passed: 1, failed: 0 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

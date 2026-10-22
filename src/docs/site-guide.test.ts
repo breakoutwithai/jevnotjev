@@ -39,6 +39,30 @@ test("[unit] TokenMax guide states the default and selectable map window", async
   expect(RANGES.find(([name]) => name === "days")).toEqual(["days", 1, 90]);
 });
 
+test("[unit] TokenMax guide lists the /tm/ steps with labels the page and script really show", async () => {
+  const steps = await texts(read(GUIDE), "#tokenmax ol.tokenmax-steps > li");
+  expect(steps).toHaveLength(6);
+  const tm = clean(read("site/tm/index.html"));
+  const run = read("src/browser/tm-run.ts");
+  const labels = ["Show Sample", "Play my week", "Copy for Claude Code or Codex", "Paste the result here", "Show my week", "Nickname for the public board", "Submit", "See the shared maps", "Replay", "Skip to the end"];
+  for (const label of labels) {
+    expect(tm).toContain(label);
+    expect(steps.some((step) => step.includes(label))).toBe(true);
+  }
+  expect(tm).toContain("3 to 24 lowercase letters, digits or hyphens");
+  expect(steps[4]).toContain("3 to 24 lowercase letters, digits or hyphens");
+  expect(tm).toContain("TOKENMAX WEEK");
+  expect(run).toContain('"Board: /maps/"');
+  expect(run).toContain("Your map id:");
+  expect(run).toContain("Your key:");
+  expect(run).toContain('"remove my entry"');
+  expect(steps[4]).toContain("remove my entry");
+  expect(steps[5]).toContain("newest first");
+  expect(read("site/maps/index.html")).toContain("Newest first, self-reported, not verified");
+  expect(await texts(read(GUIDE), "#tokenmax a[href='/replay/?run=uc13-100']")).toHaveLength(1);
+  expect((await texts(read(GUIDE), "#tokenmax p")).some((text) => text.includes("you review the fields before pressing Share"))).toBe(true);
+});
+
 function read(path: string): string {
   if (path === GUIDE && process.env.SITE_GUIDE_TEST_GUIDE) return readFileSync(process.env.SITE_GUIDE_TEST_GUIDE, "utf8");
   if (path.startsWith("site/") && process.env.LANDING_TEST_SITE) return readFileSync(join(process.env.LANDING_TEST_SITE, path.slice(5)), "utf8");
@@ -399,6 +423,7 @@ const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
   ["Rule 3:", "verdict rule number, from src/core/verdict.ts"],
   ["Rule 4:", "verdict rule number, from src/core/verdict.ts"],
   ["UC1 to UC10", "use-case ids, from site/data.js"],
+  ["3 to 24 lowercase letters, digits or hyphens", "nickname limits, quoted from site/tm/index.html"],
 ];
 
 /** Digits left in the guide's main text after removing validated marks, the allowed phrases and case ids (m33). */
@@ -990,7 +1015,8 @@ describe("visual site guide (#247)", () => {
     const html = read(GUIDE);
     const primary = html.slice(html.indexOf("<main>"), html.indexOf('<details id="reference"'));
     const words = ((await texts(primary + "</main>", "main"))[0] ?? "").split(/\s+/);
-    expect(words.length).toBeLessThanOrEqual(500);
+    // 500 words before the TokenMax step-by-step list (about 230 words) was added to the primary reading.
+    expect(words.length).toBeLessThanOrEqual(730);
     expect(primary).toContain('href="https://docs.typesafe.ai/introduction"');
     expect(primary).not.toContain('id="jev-intro"');
     expect(await texts(html, ".welcome .lede")).toEqual(["Your guide to using this site: watch a recorded test, or bring a decision of your own."]);

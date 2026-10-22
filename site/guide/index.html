@@ -25,6 +25,15 @@
 <h2 id="tokenmax-title">Understand your TokenMax map</h2>
 <p>TokenMax reads Claude Code and Codex usage metadata on your machine to make a private report. It reads 7 days by default; use <code>--days N</code> for a longer window (up to 90 days for a shared map). Sharing a map is optional: you review the fields before pressing Share. You can read this guide and watch the sample without installing anything, uploading logs, signing in or supplying a key.</p>
 <p>The board shows self-reported sessions, output tokens and cap hits. A provider marked <strong>not collected</strong> was not read; <strong>not in the logs</strong> was read but had no value; a numeric <strong>zero</strong> is a collected zero. These counts describe usage. A measured comparison of methods on your own decision requires your own cases and labelled evidence.</p>
+<h3>Step by step</h3>
+<ol class="tokenmax-steps">
+<li>Open <a href="/tm/">/tm/</a> and press <strong>Show Sample</strong> to see a sample week. Press <strong>Play my week</strong> to watch it; <strong>Replay</strong> runs it again, and <strong>Skip to the end</strong> appears while a week plays and jumps to the end.</li>
+<li>Press <strong>Copy for Claude Code or Codex</strong>, paste the prompt into Claude Code or Codex and run it. A plain chat app that cannot open local files often cannot read the history.</li>
+<li>Copy the <code>TOKENMAX WEEK</code> block it prints and paste it into <strong>Paste the result here</strong>. Press <strong>Show my week</strong> if it does not appear by itself. Your week shows on the page only; pasting and Show my week send nothing.</li>
+<li>Press <strong>Play my week</strong> to watch your numbers play out.</li>
+<li>Optional: type a nickname in <strong>Nickname for the public board</strong> (3 to 24 lowercase letters, digits or hyphens; not your real name or email) and press <strong>Submit</strong>. What Submit sends is listed under the buttons, and nothing is sent until you press it. You get a receipt with a Board link, a map id and a key. Keep the key: <strong>remove my entry</strong> deletes the entry.</li>
+<li>Find the board at <code>/maps/</code>, through <strong>See the shared maps</strong> on /tm/ or the Board link in your receipt. It lists maps newest first, self-reported and not verified.</li>
+</ol>
 <p>Next, watch how an LLM, a simple rule and Jev answered the same cases in a recorded sample. Follow its labels, costs and verdict without making a new provider call.</p>
 <p><a href="/replay/?run=uc13-100">Watch the recorded comparison</a></p>
 <p><a href="/maps/">Return to the shared maps</a></p>

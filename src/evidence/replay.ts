@@ -403,14 +403,23 @@ export interface ReplayVerdict {
   readonly question: string;
   readonly verdict: string;
   readonly reason: string;
+  /** Jev minus the LLM accept rate in points, with its 95% interval (verdict().numbers.jevVsLlm); null when not paired. */
+  readonly gap: string | null;
   readonly costPerAccepted: readonly ReplayCostPerAccepted[];
 }
 
 /** Dollars with three significant figures, so $0.0000373 and $0.000189 keep what usd() (6 decimals) would round away. */
 export function usdSignificant(v: number): string {
   if (v === 0) return "$0";
-  const decimals = Math.max(2, 2 - Math.floor(Math.log10(v)));
-  return `$${v.toFixed(decimals)}`;
+  if (v >= 1000) return `$${v.toFixed(0)}`;
+  // toPrecision never throws and keeps three significant figures; below 1e-6 it switches to exponent form.
+  return `$${v.toPrecision(3)}`;
+}
+
+/** Percentage points with one decimal and a sign: 0.0123 is "+1.2 points", -0.043 is "-4.3 points". */
+export function points(v: number): string {
+  const p = (v * 100).toFixed(1);
+  return `${p.startsWith("-") || Number(p) === 0 ? "" : "+"}${p} points`;
 }
 
 /**
@@ -432,6 +441,7 @@ export async function runVerdicts(text: string): Promise<ReplayVerdict[]> {
       question: metrics.question,
       verdict: v.verdict,
       reason: v.reason,
+      gap: v.numbers.jevVsLlm === null ? null : `Jev minus the LLM, accepted rate: ${points(v.numbers.jevVsLlm.diff)} (95% interval ${points(v.numbers.jevVsLlm.lower)} to ${points(v.numbers.jevVsLlm.upper)}, ${v.numbers.jevVsLlm.n} paired cases)`,
       costPerAccepted: COMPARED.flatMap((arm) => {
         const totals = metrics.arms.find((t) => t.arm === arm);
         if (totals === undefined) return [];

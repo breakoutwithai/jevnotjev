@@ -6,7 +6,7 @@ import { MIN_PAIRED, verdict } from "../core/verdict.ts";
 import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
 import { validate } from "../format/validate.ts";
 import { evaluateText } from "../browser/results-loader.ts";
-import { RUN_SOURCES, parseRun, runVerdicts, tallyThrough, usd, usdSignificant, type ReplayRun, type RunSource } from "./replay.ts";
+import { RUN_SOURCES, parseRun, runVerdicts, tallyThrough, usd, usdSignificant, points, type ReplayRun, type RunSource } from "./replay.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const HEADER = "format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output,confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms";
@@ -283,5 +283,12 @@ describe("replay verdict (src/evidence/replay.ts runVerdicts)", () => {
   });
   test("[unit] RP-V2 usdSignificant keeps three significant figures below a millionth of a dollar", () => {
     expect([usdSignificant(0.0000373229), usdSignificant(0.000189016), usdSignificant(0.0027149), usdSignificant(0)]).toEqual(["$0.0000373", "$0.000189", "$0.00271", "$0"]);
+    expect(usdSignificant(1e-100)).toBe("$1.00e-100");
+    expect([usdSignificant(12.3456), usdSignificant(1.005e-7), usdSignificant(2500.4)]).toEqual(["$12.3", "$1.01e-7", "$2500"]);
+  });
+  test("[unit] RP-V3 the accept-rate gap is shown in points from the same interval verdict() uses", async () => {
+    expect([points(-0.043), points(0.0123), points(0)]).toEqual(["-4.3 points", "+1.2 points", "0.0 points"]);
+    const [v] = await runVerdicts(await readFile(join(ROOT, source("uc13-100").file), "utf8"));
+    expect(v?.gap).toContain("-4.3 points");
   });
 });

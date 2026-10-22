@@ -9,6 +9,7 @@ import { armsInFile, groupCohorts, metricsOfCohortRows } from "../src/core/metri
 import { verdict } from "../src/core/verdict.ts";
 import { validate } from "../src/format/validate.ts";
 import { RUN_SOURCES } from "../src/evidence/replay.ts";
+import { buildReplay, replayScript } from "./replay-data.ts";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 
 const ROOT = join(import.meta.dir, "..");
@@ -80,12 +81,30 @@ describe("replay page verdict (site/replay)", () => {
     try {
       await page.goto(`http://127.0.0.1:${server.port}/replay/?run=uc13-100`, { waitUntil: "load" });
       expect(await page.locator("#verdict [data-verdict]").first().innerText()).toBe("use Jev");
-      const above = await page.evaluate(() => {
-        const v = document.getElementById("verdict");
-        const d = document.getElementById("deck");
-        return v !== null && d !== null && (v.compareDocumentPosition(d) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-      });
-      expect(above).toBe(true);
+      expect(await page.locator("#verdict").isVisible()).toBe(true);
+      const verdictBox = await page.locator("#verdict").boundingBox();
+      const deckBox = await page.locator("#deck").boundingBox();
+      expect(verdictBox !== null && deckBox !== null && verdictBox.height > 0 && verdictBox.y + verdictBox.height <= deckBox.y).toBe(true);
+      expect(await page.locator("#verdict [data-gap]").first().innerText()).toContain("-4.3 points");
+    } finally { await page.close(); }
+  }, 30000);
+
+  test("[integration] RV-3 questions sharing an id but differing in run or prompt version are told apart", async () => {
+    const data = await buildReplay();
+    const first = data.runs.find((r) => r.key === "uc13-100")?.verdicts[0];
+    if (first === undefined) throw new Error("no uc13-100 verdict");
+    const second = { ...first, runId: "run-other", promptVersion: "v9", verdict: "not enough evidence" };
+    const altered = { ...data, runs: data.runs.map((r) => (r.key === "uc13-100" ? { ...r, verdicts: [first, second] } : r)) };
+    const script = replayScript(altered);
+    const page = await browser.newPage();
+    try {
+      await page.route("**/replay/replay-data.js", (route) => route.fulfill({ contentType: "text/javascript", body: script }));
+      await page.goto(`http://127.0.0.1:${server.port}/replay/?run=uc13-100`, { waitUntil: "load" });
+      const names = await page.locator("#verdict .vq-name").allInnerTexts();
+      expect(names.length).toBe(2);
+      expect(names[0]).toContain(`${first.runId} ${first.promptVersion} ${first.questionId}`);
+      expect(names[1]).toContain(`run-other v9 ${first.questionId}`);
+      expect(new Set(names).size).toBe(2);
     } finally { await page.close(); }
   }, 30000);
 });

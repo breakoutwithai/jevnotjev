@@ -6,7 +6,7 @@ import { MIN_PAIRED, verdict } from "../core/verdict.ts";
 import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
 import { validate } from "../format/validate.ts";
 import { evaluateText } from "../browser/results-loader.ts";
-import { RUN_SOURCES, parseRun, tallyThrough, usd, type ReplayRun, type RunSource } from "./replay.ts";
+import { RUN_SOURCES, parseRun, runVerdicts, tallyThrough, usd, usdSignificant, type ReplayRun, type RunSource } from "./replay.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const HEADER = "format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output,confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms";
@@ -271,5 +271,17 @@ describe("replay evidence (src/evidence/replay.ts)", () => {
       expect(want.length).toBeGreaterThan(0);
       expect(run.pairs.map((p) => [p.runId, p.promptVersion, p.questionId, p.other, p.n])).toEqual(want);
     }
+  });
+});
+
+describe("replay verdict (src/evidence/replay.ts runVerdicts)", () => {
+  test("[unit] RP-V1 the 100-case run's verdict is use Jev with the recorded cost per accepted answer", async () => {
+    const s = source("uc13-100");
+    const [v] = await runVerdicts(await readFile(join(ROOT, s.file), "utf8"));
+    expect(v?.verdict).toBe("use Jev");
+    expect(v?.costPerAccepted.map((c) => [c.method, c.accepted, c.text])).toEqual([["llm", 86, "$0.000189"], ["rule", 49, "$0"], ["jev", 88, "$0.0000373"]]);
+  });
+  test("[unit] RP-V2 usdSignificant keeps three significant figures below a millionth of a dollar", () => {
+    expect([usdSignificant(0.0000373229), usdSignificant(0.000189016), usdSignificant(0.0027149), usdSignificant(0)]).toEqual(["$0.0000373", "$0.000189", "$0.00271", "$0"]);
   });
 });

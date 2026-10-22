@@ -233,3 +233,15 @@ td.n { white-space: nowrap; }
   .cv { padding: 12px; }
   .cv-sheet { padding: 16px; }
 }
+
+/* The outcome block: verdict and cost per accepted answer, above the evidence check. */
+.verdict { margin: 0 0 20px; padding: 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-2); }
+.verdict .vq + .vq { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.vq-name { margin: 0 0 6px; font-weight: 600; }
+.vq-verdict { margin: 0; font-family: var(--serif); font-size: 26px; line-height: 1.2; }
+.vq-verdict b { color: var(--brass); }
+.vq-reason { margin: 6px 0 12px; color: var(--ink-soft); overflow-wrap: anywhere; }
+.verdict table { width: 100%; border-collapse: collapse; }
+.verdict th, .verdict td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+.verdict th { font-size: 13px; color: var(--muted); font-weight: 500; }
+.verdict td.n, .verdict th:nth-child(n+2) { text-align: right; font-variant-numeric: tabular-nums; }

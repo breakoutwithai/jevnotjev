@@ -6,7 +6,7 @@
 //   bun scripts/replay-data.ts --check   exit 1 if the committed file differs from a fresh build
 
 import { join } from "node:path";
-import { RUN_SOURCES, parseRun, type ReplayRun, type RunSource } from "../src/evidence/replay.ts";
+import { RUN_SOURCES, parseRun, runVerdicts, type ReplayRun, type ReplayVerdict, type RunSource } from "../src/evidence/replay.ts";
 import { MIN_PAIRED } from "../src/core/verdict.ts";
 
 const ROOT = join(import.meta.dir, "..");
@@ -16,14 +16,14 @@ export const REPO_URL = "https://github.com/breakoutwithai/jevnotjev";
 export interface ReplayData {
   readonly schema: "jnj-replay/1";
   readonly min_paired: number;
-  readonly runs: readonly (ReplayRun & { readonly sourceUrl: string })[];
+  readonly runs: readonly (ReplayRun & { readonly sourceUrl: string; readonly verdicts: readonly ReplayVerdict[] })[];
 }
 
 export async function buildReplay(root = ROOT): Promise<ReplayData> {
-  const runs = await Promise.all(RUN_SOURCES.map(async (s) => ({
-    ...parseRun(await Bun.file(join(root, s.file)).text(), s),
-    sourceUrl: `${REPO_URL}/blob/main/${s.file}`,
-  })));
+  const runs = await Promise.all(RUN_SOURCES.map(async (s) => {
+    const text = await Bun.file(join(root, s.file)).text();
+    return { ...parseRun(text, s), sourceUrl: `${REPO_URL}/blob/main/${s.file}`, verdicts: await runVerdicts(text) };
+  }));
   return { schema: "jnj-replay/1", min_paired: MIN_PAIRED, runs };
 }
 
@@ -93,8 +93,13 @@ export function parseCustomArgs(args: readonly string[]): CustomArgs {
   return { records, out, sourceUrl: flags.get("--source-url") ?? "", source };
 }
 
+async function customRun(a: CustomArgs): Promise<ReplayData["runs"][number]> {
+  const text = await Bun.file(a.records).text();
+  return { ...parseRun(text, a.source), sourceUrl: a.sourceUrl, verdicts: await runVerdicts(text) };
+}
+
 export async function buildCustom(a: CustomArgs): Promise<ReplayData> {
-  return { schema: "jnj-replay/1", min_paired: MIN_PAIRED, runs: [{ ...parseRun(await Bun.file(a.records).text(), a.source), sourceUrl: a.sourceUrl }] };
+  return { schema: "jnj-replay/1", min_paired: MIN_PAIRED, runs: [await customRun(a)] };
 }
 
 if (import.meta.main && process.argv[2] === "--records") {

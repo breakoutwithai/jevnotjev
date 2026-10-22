@@ -1,5 +1,5 @@
 {
-  "minFiles": 164,
+  "minFiles": 165,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -44,6 +44,7 @@
     "scripts/release-check.test.ts": 39,
     "scripts/replay-data.test.ts": 9,
     "scripts/replay-paging.test.ts": 7,
+    "scripts/replay-verdict.dom.test.ts": 5,
     "scripts/result-view.test.ts": 46,
     "scripts/shows.dom.test.ts": 8,
     "scripts/shows/build-posters.test.ts": 20,
@@ -133,7 +134,7 @@
     "src/docs/stack.test.ts": 18,
     "src/docs/tester-checklist.test.ts": 8,
     "src/docs/tester-handoff.test.ts": 6,
-    "src/evidence/replay.test.ts": 20,
+    "src/evidence/replay.test.ts": 22,
     "src/format/cli.test.ts": 3,
     "src/format/provenance.test.ts": 45,
     "src/format/quote.test.ts": 4,

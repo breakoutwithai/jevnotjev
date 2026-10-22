@@ -7,7 +7,7 @@
 import { Database } from "bun:sqlite";
 import { chmodSync } from "node:fs";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { canTransition, keyHash, keyTag, QUESTION_LIMITS, requestHash, type QuestionLimits, type QuestionState, type ResponseSource, type Submission } from "./contract.ts";
+import { canTransition, keyHash, keyTag, QUESTION_LIMITS, requestHash, type QuestionLimits, type QuestionState, type ResponseSource, type Submission, type SubmissionKind } from "./contract.ts";
 
 export type SubmitResult =
   | { readonly status: "issued" | "replay"; readonly id: string; readonly state: QuestionState }
@@ -26,6 +26,9 @@ export interface StatusView {
 
 export interface QuestionRow {
   readonly id: string;
+  readonly kind: SubmissionKind;
+  /** The page a feedback form was opened from; null for questions. */
+  readonly page: string | null;
   readonly created_at: string;
   readonly updated_at: string;
   readonly scope: string;
@@ -61,6 +64,7 @@ function guestScope(scope: string): string {
 
 export interface QueueEntry {
   readonly id: string;
+  readonly kind: SubmissionKind;
   readonly created_at: string;
   readonly updated_at: string;
   readonly scope: string;
@@ -79,7 +83,7 @@ export interface OperatorMessage {
 export type DeleteReason = "operator" | "retention";
 
 const STATES_SQL = "'pending_review','needs_info','approved','declined','answered'";
-const ROW_COLUMNS = "id, created_at, updated_at, scope, email, question, reply_consent, marketing_consent, state, version, response, response_source, key_tag";
+const ROW_COLUMNS = "id, kind, page, created_at, updated_at, scope, email, question, reply_consent, marketing_consent, state, version, response, response_source, key_tag";
 
 function utcDayStart(now: number): string {
   const d = new Date(now);
@@ -103,6 +107,19 @@ export class QuestionStore {
       response TEXT, response_source TEXT CHECK(response_source IS NULL OR response_source IN ('human_reviewed','template')),
       key_hash TEXT NOT NULL, key_tag TEXT NOT NULL, request_hash TEXT NOT NULL,
       UNIQUE(scope, key_hash), UNIQUE(scope, key_tag))`);
+    // Feedback (/feedback/) shares this table. Added, never in CREATE, so a file made before it gains the columns once
+    // and every existing row reads as a question.
+    const columns = new Set(this.#db.query<{ name: string }, []>("PRAGMA table_info(questions)").all().map((c) => c.name));
+    const addColumn = (name: string, definition: string): void => {
+      if (columns.has(name)) return;
+      try { this.#db.exec(`ALTER TABLE questions ADD COLUMN ${name} ${definition}`); }
+      catch (error) {
+        // Another connection (the server and the admin CLI open the same file) added it first.
+        if (!(error instanceof Error && /duplicate column name/i.test(error.message))) throw error;
+      }
+    };
+    addColumn("kind", "TEXT NOT NULL DEFAULT 'question' CHECK(kind IN ('question','feedback'))");
+    addColumn("page", "TEXT");
     this.#db.exec("CREATE INDEX IF NOT EXISTS questions_scope_created ON questions (scope, created_at)");
     this.#db.exec(`CREATE TABLE IF NOT EXISTS question_events (
       question_id TEXT NOT NULL, at TEXT NOT NULL, actor TEXT NOT NULL,
@@ -119,7 +136,9 @@ export class QuestionStore {
     if (scope !== "public") guestScope(scope);
     const tag = keyTag(scope, submission.requestKey);
     const hash = keyHash(submission.requestKey);
-    const request = requestHash(scope, submission.email, submission.question, submission.replyConsent, submission.marketingConsent);
+    const feedback = submission.kind === "feedback";
+    const page = feedback ? submission.page ?? null : null;
+    const request = requestHash(scope, submission.email, submission.question, submission.replyConsent, submission.marketingConsent, feedback ? page : undefined);
     const run = this.#db.transaction((): SubmitResult => {
       if (this.#db.query<{ n: number }, [string, string]>("SELECT count(*) n FROM question_tombstones WHERE scope = ? AND key_tag = ?").get(scope, tag)?.n) return { status: "deleted" };
       const prior = this.#db.query<{ id: string; state: QuestionState; request_hash: string }, [string, string]>("SELECT id, state, request_hash FROM questions WHERE scope = ? AND key_hash = ?").get(scope, hash);
@@ -130,8 +149,8 @@ export class QuestionStore {
         const id = `Q-${randomBytes(6).toString("hex").toUpperCase()}`;
         try {
           this.#db
-            .query("INSERT INTO questions (id, created_at, updated_at, scope, email, question, reply_consent, marketing_consent, state, version, response, response_source, key_hash, key_tag, request_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', 1, NULL, NULL, ?, ?, ?)")
-            .run(id, at, at, scope, submission.email, submission.question, submission.replyConsent ? 1 : 0, submission.marketingConsent ? 1 : 0, hash, tag, request);
+            .query("INSERT INTO questions (id, kind, page, created_at, updated_at, scope, email, question, reply_consent, marketing_consent, state, version, response, response_source, key_hash, key_tag, request_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', 1, NULL, NULL, ?, ?, ?)")
+            .run(id, feedback ? "feedback" : "question", page, at, at, scope, submission.email, submission.question, submission.replyConsent ? 1 : 0, submission.marketingConsent ? 1 : 0, hash, tag, request);
           return { status: "issued", id, state: "pending_review" };
         } catch (error) {
           const message = error instanceof Error ? error.message : "";
@@ -152,10 +171,10 @@ export class QuestionStore {
     return count("SELECT (SELECT count(*) FROM questions) + (SELECT count(*) FROM question_tombstones) n") >= this.#limits.maxRetained;
   }
 
-  /** A public row whose key matches, else null: a guest row, a deleted row and a wrong key all look alike. */
+  /** A public question whose key matches, else null: a guest row, a feedback row, a deleted row and a wrong key all look alike. */
   publicStatus(id: string, key: string): StatusView | null {
     const row = this.#db
-      .query<StatusView & { key_hash: string }, [string]>("SELECT id, state, updated_at, response, response_source, key_hash FROM questions WHERE id = ? AND scope = 'public'")
+      .query<StatusView & { key_hash: string }, [string]>("SELECT id, state, updated_at, response, response_source, key_hash FROM questions WHERE id = ? AND scope = 'public' AND kind = 'question'")
       .get(id);
     const presented = Buffer.from(keyHash(key), "hex");
     const stored = Buffer.from(row?.key_hash ?? "0".repeat(64), "hex");
@@ -178,7 +197,7 @@ export class QuestionStore {
   }
 
   list(): QueueEntry[] {
-    return this.#db.query<QueueEntry, []>("SELECT id, created_at, updated_at, scope, state, version FROM questions ORDER BY created_at, id").all();
+    return this.#db.query<QueueEntry, []>("SELECT id, kind, created_at, updated_at, scope, state, version FROM questions ORDER BY created_at, id").all();
   }
 
   show(id: string): QuestionRow | null {

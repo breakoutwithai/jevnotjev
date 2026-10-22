@@ -248,7 +248,7 @@ describe("admin API reads and replies", () => {
     const out: unknown = JSON.parse(text);
     expect(out).toEqual({
       total: 3,
-      questions: [third, second, first].map((id, i) => ({ id, state: "pending_review", created_at: new Date(T0 + (2 - i) * 1000).toISOString(), updated_at: new Date(T0 + (2 - i) * 1000).toISOString(), version: 1 })),
+      questions: [third, second, first].map((id, i) => ({ id, kind: "question", state: "pending_review", created_at: new Date(T0 + (2 - i) * 1000).toISOString(), updated_at: new Date(T0 + (2 - i) * 1000).toISOString(), version: 1 })),
     });
     expect(ADMIN_LIST_MAX).toBe(200);
     const put = await b.handler(new Request(`${ORIGIN}${ADMIN_QUESTIONS_PATH}`, { method: "POST", headers: { authorization: `Bearer ${token}` } }), at());
@@ -262,7 +262,7 @@ describe("admin API reads and replies", () => {
     const res = await b.handler(get(token, `${ADMIN_QUESTIONS_PATH}/${id}`), at());
     expect(res.status).toBe(200);
     expect(await json(res)).toEqual({
-      id, created_at: new Date(T0).toISOString(), updated_at: new Date(T0).toISOString(), email: EMAIL, question: `Fixed choices or open help? ${MARKER}`,
+      id, kind: "question", page: null, created_at: new Date(T0).toISOString(), updated_at: new Date(T0).toISOString(), email: EMAIL, question: `Fixed choices or open help? ${MARKER}`,
       state: "pending_review", version: 1, response: null, response_source: null,
     });
     for (const other of ["Q-FFFFFFFFFFFF", "Q-xyz", "q-0A1B2C3D4E5F", `${id}/extra`, `${id}/delete`]) {

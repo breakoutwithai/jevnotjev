@@ -142,7 +142,7 @@ export function createAdminRoutes(opts: AdminRoutesOptions): AdminRoutes {
       if (row === null) return reject("not-found", 404, known ? id : undefined);
       log({ event: "question.admin.read", rid, id });
       return reply({
-        id: row.id, created_at: row.created_at, updated_at: row.updated_at, scope: row.scope, email: row.email, question: row.question,
+        id: row.id, kind: row.kind, page: row.page, created_at: row.created_at, updated_at: row.updated_at, scope: row.scope, email: row.email, question: row.question,
         reply_consent: row.reply_consent === 1, marketing_consent: row.marketing_consent === 1, state: row.state, version: row.version,
         response: row.response, response_source: row.response_source,
       });

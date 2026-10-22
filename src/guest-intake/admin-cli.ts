@@ -236,7 +236,7 @@ export function runQuestionAdmin(args: readonly string[], env: Readonly<Record<s
   try {
     if (command === "list") {
       const rows = store.list();
-      for (const r of rows) io.out(`${r.id}  ${r.state}  v${r.version}  ${r.scope}  ${r.created_at}`);
+      for (const r of rows) io.out(`${r.id}  ${r.kind}  ${r.state}  v${r.version}  ${r.scope}  ${r.created_at}`);
       io.out(`${rows.length} row${rows.length === 1 ? "" : "s"}`);
       return 0;
     }

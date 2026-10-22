@@ -98,7 +98,7 @@ test("[integration] VP8 feedback is visible in the home footer", async () => {
   try {
     const feedback = page.locator("footer").getByRole("link", { name: "Send feedback" });
     expect(await feedback.isVisible()).toBe(true);
-    expect(await feedback.getAttribute("href")).toBe("mailto:jev@breakoutwithai.com?subject=Jev!Jev%20feedback");
+    expect(await feedback.getAttribute("href")).toBe("/feedback/?from=home");
   } finally { await page.close(); }
 });
 
@@ -129,11 +129,11 @@ test("[integration] VP8 the guide footer offers feedback and the glossary descri
   try {
     const feedback = page.locator("footer").getByRole("link", { name: "Send feedback" });
     expect(await feedback.isVisible()).toBe(true);
-    expect(await feedback.getAttribute("href")).toBe("mailto:jev@breakoutwithai.com?subject=Jev!Jev%20feedback");
+    expect(await feedback.getAttribute("href")).toBe("/feedback/?from=guide");
     await page.locator("#reference > summary").click();
     const meaning = await page.locator("#reference dd").filter({ hasText: "A footer link for feedback or a problem" }).innerText();
     expect(meaning).toContain("in Backstage it opens a new issue on the project's GitHub");
-    expect(meaning).toContain("on the home page and this guide it opens an email to the Jev!Jev team");
+    expect(meaning).toContain("on the home page, this guide and the TokenMax page it opens a short feedback form");
   } finally { await page.close(); }
 });
 

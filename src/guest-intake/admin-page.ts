@@ -68,11 +68,11 @@ const BACK_LINK = `<p><a href="/backstage/questions/">All questions</a></p>`;
 
 export function renderAdminList(entries: readonly QueueEntry[]): Response {
   const rows = entries.map((e) =>
-    `<tr><td><a href="/backstage/questions/?id=${escapeHtml(e.id)}">${escapeHtml(e.id)}</a></td><td>${escapeHtml(e.state)}</td><td>v${e.version}</td><td>${escapeHtml(e.scope)}</td><td>${escapeHtml(e.created_at)}</td><td>${escapeHtml(e.updated_at)}</td></tr>`);
+    `<tr><td><a href="/backstage/questions/?id=${escapeHtml(e.id)}">${escapeHtml(e.id)}</a></td><td>${escapeHtml(e.kind)}</td><td>${escapeHtml(e.state)}</td><td>v${e.version}</td><td>${escapeHtml(e.scope)}</td><td>${escapeHtml(e.created_at)}</td><td>${escapeHtml(e.updated_at)}</td></tr>`);
   const summary = `<p>${entries.length} question${entries.length === 1 ? "" : "s"}, newest first</p>`;
   const table = entries.length === 0
     ? "<p>No questions yet</p>"
-    : ["<table><thead><tr><th>Id</th><th>State</th><th>Version</th><th>Scope</th><th>Created</th><th>Updated</th></tr></thead><tbody>", ...rows, "</tbody></table>"].join("\n");
+    : ["<table><thead><tr><th>Id</th><th>Kind</th><th>State</th><th>Version</th><th>Scope</th><th>Created</th><th>Updated</th></tr></thead><tbody>", ...rows, "</tbody></table>"].join("\n");
   return page("Questions", [heading(1, "Questions"), summary, table]);
 }
 
@@ -84,6 +84,7 @@ export function renderAdminDetail(row: QuestionRow): Response {
   const field = (label: string, value: string): string => `<dt>${label}</dt><dd>${escapeHtml(value)}</dd>`;
   const next = nextStates(row.state);
   const facts = [
+    field("Kind", row.kind), ...(row.page === null ? [] : [field("From page", row.page)]),
     field("State", row.state), field("Version", String(row.version)), field("Scope", row.scope),
     field("Created", row.created_at), field("Updated", row.updated_at), field("Email", row.email ?? "none (guest token)"),
     field("Reply consent", row.reply_consent === 1 ? "yes" : "no"), field("Marketing consent", row.marketing_consent === 1 ? "yes" : "no"),

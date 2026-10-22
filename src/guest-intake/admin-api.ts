@@ -176,7 +176,7 @@ export function createAdminApi(opts: AdminApiOptions): AdminApi {
     if (target.kind === "list") {
       try {
         const rows = questions.list();
-        const newest = rows.slice(-ADMIN_LIST_MAX).reverse().map((r) => ({ id: r.id, state: r.state, created_at: r.created_at, updated_at: r.updated_at, version: r.version }));
+        const newest = rows.slice(-ADMIN_LIST_MAX).reverse().map((r) => ({ id: r.id, kind: r.kind, state: r.state, created_at: r.created_at, updated_at: r.updated_at, version: r.version }));
         log({ event: "question.api.list", rid, token });
         return { status: 200, body: { total: rows.length, questions: newest } };
       } catch {
@@ -193,7 +193,7 @@ export function createAdminApi(opts: AdminApiOptions): AdminApi {
       return {
         status: 200,
         body: {
-          id: row.id, created_at: row.created_at, updated_at: row.updated_at, email: row.email, question: row.question,
+          id: row.id, kind: row.kind, page: row.page, created_at: row.created_at, updated_at: row.updated_at, email: row.email, question: row.question,
           state: row.state, version: row.version, response: row.response, response_source: row.response_source,
         },
       };

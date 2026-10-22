@@ -33,32 +33,45 @@ afterAll(async () => {
   server?.stop(true);
 });
 
-test("[unit] guide: the pictures link does not point at the landing page", () => {
-  const html = readFileSync(join(SITE, "guide", "index.html"), "utf8");
-  const match = /<p><a href="([^"]*)">New to Jev\? See it in pictures first\.<\/a><\/p>/.exec(html);
-  if (!match) throw new Error("pictures link not found");
-  const href = match[1] ?? "";
-  expect(href).not.toBe("/");
-  expect(href).not.toBe("../");
-  expect(href).not.toContain("#types");
-  expect(href).toBe("/little-shop/");
-  expect(existsSync(join(SITE, "little-shop", "index.html"))).toBe(true);
+const MIN_MEASURED = 30;
+
+test("[integration] guide: the pictures link resolves to Little Shop, not the landing page", async () => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+  try {
+    const response = await page.goto(`http://127.0.0.1:${server.port}/guide/`, { waitUntil: "load" });
+    expect(response?.ok()).toBe(true);
+    const links = page.getByRole("link", { name: "New to Jev? See it in pictures first." });
+    expect(await links.count()).toBe(1);
+    expect(await links.first().isVisible()).toBe(true);
+    const target = new URL(await links.first().evaluate((el) => (el instanceof HTMLAnchorElement ? el.href : "")));
+    expect(target.pathname).toBe("/little-shop/");
+    expect(target.hash).toBe("");
+    const shop = await page.request.get(target.href);
+    expect(shop.ok()).toBe(true);
+  } finally {
+    await page.close();
+  }
 });
 
 test("[integration] guide at 390x844: every interactive element is at least 24x24 CSS px", async () => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
   try {
-    await page.goto(`http://127.0.0.1:${server.port}/guide/`, { waitUntil: "load" });
-    const small = await page.evaluate((min) => {
-      const found: string[] = [];
+    const response = await page.goto(`http://127.0.0.1:${server.port}/guide/`, { waitUntil: "load" });
+    expect(response?.ok()).toBe(true);
+    expect(await page.getByRole("heading", { level: 1 }).first().isVisible()).toBe(true);
+    const result = await page.evaluate((min) => {
+      const small: string[] = [];
+      let measured = 0;
       for (const el of document.querySelectorAll("a[href], button, input, select, textarea, summary, [role=button]")) {
         const box = el.getBoundingClientRect();
         if (box.width === 0 && box.height === 0) continue;
-        if (box.width < min || box.height < min) found.push(`${el.tagName.toLowerCase()} ${Math.round(box.width)}x${Math.round(box.height)} ${(el.textContent ?? "").trim().slice(0, 30)}`);
+        measured++;
+        if (box.width < min || box.height < min) small.push(`${el.tagName.toLowerCase()} ${Math.round(box.width)}x${Math.round(box.height)} ${(el.textContent ?? "").trim().slice(0, 30)}`);
       }
-      return found;
+      return { small, measured };
     }, MIN);
-    expect(small).toEqual([]);
+    expect(result.measured).toBeGreaterThanOrEqual(MIN_MEASURED);
+    expect(result.small).toEqual([]);
   } finally {
     await page.close();
   }

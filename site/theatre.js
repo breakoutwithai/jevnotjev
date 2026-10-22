@@ -36,6 +36,7 @@
   // The curtain's first control (the Mad TokenMax poster): the curtain needs one to play.
   var first = ov ? ov.querySelector("a[href]") : null;
   var badge = document.getElementById("sampleBadge");
+  var program = document.getElementById("programLink");
   var brand = document.querySelector(".house .brand");
   // The curtain opens onto the four kinds of question (#types, focusable with tabindex=-1).
   var results = document.getElementById("types");
@@ -149,7 +150,7 @@
     setCurtain(next);
   }
   function onCurtain(node) {
-    return ov.contains(node) || (badge !== null && badge.contains(node));
+    return ov.contains(node) || (badge !== null && badge.contains(node)) || (program !== null && program.contains(node));
   }
   if (!playing) {
     root.classList.remove("overture-play");

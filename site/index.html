@@ -69,7 +69,8 @@ a { color: var(--ink); } p a { line-height: 24px; padding-block: 5px; } button,i
 .brand { font: 800 22px/24px var(--serif); color: var(--ink); text-decoration: none; }
 .sample { display: flex; align-items: center; gap: 8px; color: var(--brass); font: 700 11px var(--sans); text-transform: uppercase; }
 .house-lights { min-height: 30px; padding: 4px 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink-soft); cursor: pointer; font: 600 11px var(--sans); }
-.house-link { display: inline-flex; align-items: center; min-height: 24px; margin-left: auto; }
+.house-link { display: inline-flex; align-items: center; min-height: 24px; }
+.program-link { display: inline-flex; align-items: center; min-height: 24px; margin-left: auto; color: var(--ink); text-decoration-color: var(--brass); font: 700 12px var(--sans); letter-spacing: .06em; }
 main { max-width: 1120px; margin: auto; padding: 0 16px; }
 .act, .samples, .office, .door-area { padding: 30px 0; border-bottom: 1px solid var(--line); }
 .office { min-height: calc(100vh - 100px); }
@@ -165,7 +166,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 .dropzone:focus-within { outline: 2px solid var(--brass); outline-offset: 3px; }
 .repertoire { margin-top: 22px; }.repertoire h4 { margin: 0 0 8px; }.repertoire ol { columns: 2; padding-left: 18px; margin: 0; }.repertoire li { break-inside: avoid; margin-bottom: 10px; }.repertoire .uc { font: 700 12px var(--sans); margin-right: 6px; }.repertoire .q { display: block; margin-top: 3px; color: var(--ink-soft); }.fin,.demo-notice { font: 12px var(--sans); color: var(--muted); }
 .site-foot { padding: 0 16px 24px; font: 14px var(--sans); }.site-foot a { display: inline-flex; align-items: center; min-height: 24px; }
-@media(max-width:720px) { .house { gap: 5px 10px; }.house-link { margin-left: 0; }.act { grid-template-columns: 1fr; gap: 6px; padding: 20px 0; }.slate-in { flex-direction: row; gap: 6px; align-items: baseline; }.slate .roman { font-size: 17px; }.slate .scene { display: none; }.cast,.ledger { grid-template-columns: 1fr; }.player,.acct { padding: 8px; }.case { grid-template-columns: 32px minmax(0,1fr) repeat(3,50px); font-size: 12px; }.case .jev-col { display: none; }.case .prompt { font-size: 13px; }.cell { font-size: 11px; }.repertoire ol { columns: 1; } }
+@media(max-width:720px) { .house { gap: 5px 10px; }.house-link { margin-left: 0; }.program-link { margin-left: 0; }.act { grid-template-columns: 1fr; gap: 6px; padding: 20px 0; }.slate-in { flex-direction: row; gap: 6px; align-items: baseline; }.slate .roman { font-size: 17px; }.slate .scene { display: none; }.cast,.ledger { grid-template-columns: 1fr; }.player,.acct { padding: 8px; }.case { grid-template-columns: 32px minmax(0,1fr) repeat(3,50px); font-size: 12px; }.case .jev-col { display: none; }.case .prompt { font-size: 13px; }.cell { font-size: 11px; }.repertoire ol { columns: 1; } }
 @media(max-width:720px) { .dropzone { grid-template-columns: minmax(0,1fr); }.dropzone .btn { justify-self: start; } }
 @media(prefers-reduced-motion:reduce) { html { scroll-behavior: auto; } }
 
@@ -245,6 +246,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
   <a class="brand" href="/" aria-label="Jev!Jev home">Jev!Jev</a>
   <div class="sample" id="sampleBadge"><button class="house-lights" id="lights" type="button">House lights</button></div>
   <div class="ticket" role="img" aria-label="Entrance ticket: admit one, row J, seat J-EV"><div class="main"><p class="admit">ADMIT ONE</p><span>Row J</span><span>Seat J-EV</span></div><span class="stub">No. 0042</span></div>
+  <a class="program-link" id="programLink" href="/guide/">Program (guide)</a>
   <a class="house-link" href="#tickets">Go to the ticket office</a>
 </header>
 <main>

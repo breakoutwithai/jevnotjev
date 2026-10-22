@@ -20,7 +20,7 @@ export const ALIAS_PATTERN = /^[a-z0-9-]{3,24}$/;
 export function normaliseAlias(typed: string): string {
   return typed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
-export const ALIAS_MESSAGE = "Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.";
+export const ALIAS_MESSAGE = "Choose a nickname that is 3 to 24 letters, digits or hyphens once spaces and symbols are turned into hyphens.";
 const KEY_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
 const KEY_LENGTH = 32;
 const DAY_MS = 86_400_000;

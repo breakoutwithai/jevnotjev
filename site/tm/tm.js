@@ -1227,7 +1227,8 @@
         refuse(mapped.message);
         return;
       }
-      const alias = aliasBox.value.trim();
+      const alias = aliasBox.value.trim().toLowerCase();
+      aliasBox.value = alias;
       if (!ALIAS_PATTERN.test(alias)) {
         aliasBox.setAttribute("aria-invalid", "true");
         aliasError.textContent = alias === "" ? `Enter a nickname to submit. ${ALIAS_MESSAGE}` : ALIAS_MESSAGE;

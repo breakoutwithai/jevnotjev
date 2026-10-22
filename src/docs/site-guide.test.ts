@@ -51,7 +51,7 @@ test("[unit] TokenMax guide lists the /tm/ steps with labels the page and script
     expect(steps.some((step) => step.includes(label))).toBe(true);
   }
   expect(tm).toContain("3 to 24 lowercase letters, digits or hyphens");
-  expect(steps[4]).toContain("3 to 24 letters, digits or hyphens; capitals are accepted and saved as lowercase");
+  expect(steps[4]).toContain("3 to 24 letters, digits or hyphens; spaces and other characters are turned into hyphens and capitals into lowercase");
   expect(tm).toContain("TOKENMAX WEEK");
   expect(run).toContain('"Board: /maps/"');
   expect(run).toContain("Your map id:");
@@ -427,7 +427,7 @@ const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
   ["Rule 3:", "verdict rule number, from src/core/verdict.ts"],
   ["Rule 4:", "verdict rule number, from src/core/verdict.ts"],
   ["UC1 to UC10", "use-case ids, from site/data.js"],
-  ["3 to 24 letters, digits or hyphens; capitals are accepted and saved as lowercase", "nickname limits, from the trim().toLowerCase() then ALIAS_PATTERN check in src/browser/tm-run.ts"],
+  ["3 to 24 letters, digits or hyphens; spaces and other characters are turned into hyphens and capitals into lowercase", "nickname limits, from normaliseAlias() then the ALIAS_PATTERN check in src/browser/tm-run.ts"],
 ];
 
 /** Digits left in the guide's main text after removing validated marks, the allowed phrases and case ids (m33). */

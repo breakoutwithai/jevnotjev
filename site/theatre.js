@@ -20,10 +20,7 @@
  * - once open the overture is display:none, and the page is where it was;
  * - the House lights chip is lifted onto the curtain while it is closed and returns to the house bar once it starts to part;
  *   a hidden copy holds its place in the house bar meanwhile, so its return moves nothing;
- * - turning reduced motion on drops it (theatre.css hides it at once; this records the page as open);
- * - the first-screen band (#tmFirst: the promise, Copy, the script link, Watch it run) sits above the curtain, which
- *   starts at its bottom (the root's --tm-first-h, kept in step with the band's height); focus on its controls keeps the
- *   curtain closed, so Tab goes Copy, the script link, Watch it run, the two posters, House lights.
+ * - turning reduced motion on drops it (theatre.css hides it at once; this records the page as open).
  * With no curtain at load (reduced motion, a later page, missing markup, or the head script's watchdog already opened the
  * page) the page is open and --reveal is 1. If this script never runs or stalls, the head
  * script opens the page.
@@ -43,7 +40,6 @@
   // The curtain opens onto the four kinds of question (#types, focusable with tabindex=-1).
   var results = document.getElementById("types");
   var heading = results;
-  var band = document.getElementById("tmFirst");
   var lights = document.getElementById("lights");
   // Raise the curtain (the old scroll cue made a button): opens it onto the four pictures, as a scroll past the fade does.
   var raise = document.getElementById("raise");
@@ -64,13 +60,9 @@
     if (ov) ov.classList.add("gone");
     if (brand) brand.removeAttribute("tabindex");
   }
-  // The first-screen band (#tmFirst) sits above the curtain: the curtain, the lifted House lights chip and the valance start
-  // at its bottom (theatre.css reads --tm-first-h; 0 when there is no band).
-  function bandHeight() {
-    root.style.setProperty("--tm-first-h", (band ? band.offsetHeight : 0) + "px");
-  }
+  // theatre.css reads --tm-first-h for the curtain's, the lifted chip's and the valance's top offset; it stays 0 (no band above the curtain).
+  root.style.setProperty("--tm-first-h", "0px");
   function runway() {
-    bandHeight();
     distance = Math.max(1, Math.round((window.innerHeight || 1) * RUNWAY));
     root.dataset.runway = String(distance);
     root.style.setProperty("--runway", distance + "px");
@@ -156,9 +148,8 @@
     if (next >= 1) { open(); return; }
     setCurtain(next);
   }
-  // The band's controls (Copy, the script link, Watch it run) sit above the curtain, so focus there keeps it closed too.
   function onCurtain(node) {
-    return ov.contains(node) || (badge !== null && badge.contains(node)) || (band !== null && band.contains(node));
+    return ov.contains(node) || (badge !== null && badge.contains(node));
   }
   if (!playing) {
     root.classList.remove("overture-play");
@@ -241,10 +232,6 @@
       else if (reduce.addListener) reduce.addListener(calm);
     }
   }
-  // The band's height changes with the width and the web fonts arriving; the curtain follows it.
-  bandHeight();
-  if (band && window.ResizeObserver) new ResizeObserver(bandHeight).observe(band);
-  else window.addEventListener("resize", bandHeight);
 
   // The light scroll cues. html.cues is what lets theatre.css hide an element until it is seen, so a page without this
   // script (or without IntersectionObserver, or under reduced motion) never has anything hidden; theatre.css also gates

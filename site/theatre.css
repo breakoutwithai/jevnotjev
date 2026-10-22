@@ -18,8 +18,7 @@
   display: block; position: fixed; inset: 0; z-index: 50; overflow: hidden auto; overscroll-behavior: none; scrollbar-width: none;
   /* overscroll-behavior none, not contain (#248): contain keeps the curtain's own overscroll stretch, so a pull down at
      its top (a trackpad or a finger) moved the stage down and the page header showed through the strip it left.
-     The first-screen band (#tmFirst, z-index 55, in the flow above) keeps the top of the screen; the curtain starts at
-     its bottom. theatre.js sets --tm-first-h from the band's height; 0 without a band. */
+     theatre.js sets --tm-first-h to 0: nothing sits above the curtain. */
   top: var(--tm-first-h, 0px);
 }
 .motion.overture-play .overture::-webkit-scrollbar { display: none; }
@@ -152,7 +151,6 @@
 .overture .shop-say a:focus-visible { outline: 3px solid #ffe6a6; outline-offset: 3px; }
 /* The playbill must fit one screen (landing.dom.test.ts): on short screens the note gives way, as the blurb does. */
 @media (max-height: 700px) { .overture .shop-say { display: none; } }
-@container stage (max-height: 700px) { .overture .shop-say { display: none; } }
 .overture .poster .p-who { font: italic 18px/1 var(--serif); }
 .overture .poster .p-title { font: 800 24px/.95 var(--serif); color: #5a0f1c; }
 .overture .poster .p-rule { margin: 2px 0; }
@@ -219,41 +217,6 @@
   .overture .poster .p-who, .overture .poster .p-rule { display: none; }
   .overture .poster .p-title { font-size: 20px; }
 }
-/* Only while the first-screen band shows (index.html drops its `hidden`): with it above, the curtain is shorter than the
-   screen, so the playbill also compresses by the height the curtain's stage actually has (a size container), not only by
-   the screen's. The sample chip sits 10px under the band, so the playbill needs less room above it. Hidden: no container,
-   so these queries never match and the curtain is as it was before #241. */
-#tmFirst:not([hidden]) ~ .overture .overture-stage { container: stage / size; }
-@container stage (max-width: 720px) and (max-height: 760px) {
-  .playbill { gap: 10px; padding: 52px 16px 8px; }
-  .overture .marquee { padding: 10px 16px 9px; }
-  .overture .marquee .kicker { font-size: 10px; letter-spacing: .24em; }
-  .overture .marquee .billing { margin-top: 4px; font-size: 22px; }
-  .cue-scroll::after { display: none; }
-  .overture .showbills { --mm-h: clamp(120px, 32cqh, 190px); }
-  .overture .poster { gap: 4px; padding: 10px 12px; }
-  .overture .poster .p-who, .overture .poster .p-rule { display: none; }
-  .overture .poster .p-title { font-size: 20px; }
-}
-/* A short phone curtain (a phone with its toolbars, under the band): marquee and the posters; the scroll cue steps out. */
-@container stage (max-width: 720px) and (max-height: 520px) {
-  .playbill { gap: 6px; padding-top: 46px; }
-  .cue-scroll { display: none; }
-}
-@container stage (max-width: 720px) and (max-height: 420px) {
-  .overture .marquee .kicker, .overture .poster .p-kicker { display: none; }
-}
-/* A short wide curtain (a phone on its side, under the band): the cue steps out. */
-@container stage (min-width: 721px) and (max-height: 330px) {
-  .playbill { padding-top: 46px; }
-  .cue-scroll { display: none; }
-}
-/* A wide curtain under the band with little height: Little Shop without its blurb, so the row fits under the marquee. */
-@container stage (min-width: 1100px) and (max-height: 700px) {
-  .overture .poster .p-blurb { display: none; }
-  .cue-scroll::after { display: none; }
-}
-
 /* The sample chip and House lights sit top right on the closed curtain, above it, as in the October 6 references; once
    the curtain starts to part they return to the house bar, under the curtain, so they never sit over the page's text.
    While the chip is lifted, a hidden copy (.sample-ghost, added by theatre.js) holds its place in the house bar, so its

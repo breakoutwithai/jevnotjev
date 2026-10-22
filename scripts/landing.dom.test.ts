@@ -1,10 +1,9 @@
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 import posters from "../site/shows/posters.json";
-import { stripIsHidden, withStripShown } from "./tm-strip.ts";
 
 declare global {
   interface Window {
@@ -22,11 +21,6 @@ const MOTIONS: ("no-preference" | "reduce")[] = ["no-preference", "reduce"];
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
 const posted: unknown[] = [];
-// The TokenMax strip ships hidden. A test that is about the strip (or about the curtain under it) serves the page with
-// that one `hidden` removed by calling stripOn() first; every other test sees the page as shipped.
-let stripShown = false;
-const stripOn = (): void => { stripShown = true; };
-afterEach(() => { stripShown = false; });
 
 beforeAll(async () => {
   const found = resolveChromium(null, process.env.UAT_CHROMIUM_PATH, chromium.executablePath(), existsSync);
@@ -44,7 +38,6 @@ beforeAll(async () => {
     if (!path.startsWith(`${SITE}/`)) return new Response("Not found", { status: 404 });
     const file = Bun.file(path);
     if (!await file.exists()) return new Response("Not found", { status: 404 });
-    if (stripShown && path === join(SITE, "index.html")) return new Response(withStripShown(await file.text()), { headers: { "content-type": "text/html; charset=utf-8" } });
     return new Response(file);
   } });
   browser = await chromium.launch({ headless: true, executablePath: found.path });
@@ -854,10 +847,8 @@ test("[integration] V1 the closed curtain carries the composition: marquee, the 
       // The chip carries House lights only: no "Sample run" label (#260).
       expect(await page.locator("#sampleBadge").innerText()).toMatch(/^house lights (up|down)$/i);
       const parts = await curtainParts(page);
-      // #238 pass 2: with the band's notes and trust line, a phone curtain of 520px of stage or less (390x844 now) is
-      // theatre.css's short phone curtain: the scroll cue steps out (display none, never clipped).
-      const edge = (await bandBox(page)).bottom;
-      const roomy = width > 720 || height - edge > 520;
+      // A phone curtain of 520px of stage or less is theatre.css's short phone curtain: the scroll cue steps out (display none, never clipped).
+      const roomy = width > 720 || height > 520;
       const stepsOut = roomy ? [] : ["cue"];
       for (const [name, part] of Object.entries(parts)) {
         if (stepsOut.includes(name)) continue;
@@ -867,8 +858,8 @@ test("[integration] V1 the closed curtain carries the composition: marquee, the 
         .toEqual({ width, out: stepsOut.map(() => "none") });
       const { marquee, ticket: tk, madmax, poster, chip } = parts;
       if (!marquee || !tk || !madmax || !poster || !chip) throw new Error("a part of the curtain is missing");
-      // The chip sits top right of the curtain, as in the references: just under the first-screen band.
-      expect({ width, right: chip.right >= width - 24, top: chip.top >= edge && chip.top <= edge + 40, side: (chip.left + chip.right) / 2 > width / 2 }).toEqual({ width, right: true, top: true, side: true });
+      // The chip sits top right of the curtain, as in the references.
+      expect({ width, right: chip.right >= width - 24, top: chip.top >= 0 && chip.top <= 40, side: (chip.left + chip.right) / 2 > width / 2 }).toEqual({ width, right: true, top: true, side: true });
       // The ticket rides on the Mad TokenMax poster, both under the marquee, left of the Little Shop poster.
       const onPoster = tk.left < madmax.right && tk.right > madmax.left && tk.top < madmax.bottom && tk.bottom > madmax.top;
       expect({ width, onPoster, posterRight: poster.left > tk.right && poster.left > madmax.right, marqueeAbove: marquee.bottom <= madmax.top && marquee.bottom <= poster.top })
@@ -1213,7 +1204,7 @@ test("[integration] V6 once open nothing of the opening is left: back at the top
         }).map((node) => `${node.tagName}#${node.id}.${node.className}`);
         const top = (selector: string): number => document.querySelector(selector)?.getBoundingClientRect().top ?? NaN;
         const ov = document.getElementById("overture");
-        return { blocks, overture: ov ? getComputedStyle(ov).display : "missing", house: top(".house"), band: document.getElementById("tmFirst")?.getBoundingClientRect().bottom ?? NaN, marquee: top("main .marquee"), results: top("#types .kick"), y: scrollY };
+        return { blocks, overture: ov ? getComputedStyle(ov).display : "missing", house: top(".house"), band: document.getElementById("tmFirst")?.getBoundingClientRect().bottom ?? 0, marquee: top("main .marquee"), results: top("#types .kick"), y: scrollY };
       });
       expect({ width, how, blocks: view.blocks, overture: view.overture, y: view.y }).toEqual({ width, how, blocks: [], overture: "none", y: 0 });
       // The house bar follows the first-screen band directly: nothing of the opening is left between them.
@@ -1409,7 +1400,6 @@ async function stepToOpen(page: Page, step: () => Promise<void>, limit: number):
 }
 
 test("[integration] V10 every way of scrolling drives the curtain's runway and the page stays at scrollY 0 until it opens: PageDown, Space and End on the page, ArrowDown from the Mad TokenMax poster, a wheel and a swipe over the sample chip, a real wheel and a real swipe over the curtain", async () => {
-  stripOn();
   for (const [width, height] of CLOSED_VIEWPORTS) {
     // PageDown from the page: one press parts it without moving the page; more presses open it with the heading in view.
     const page = await pageAt(width, height, "no-preference");
@@ -1437,7 +1427,7 @@ test("[integration] V10 every way of scrolling drives the curtain's runway and t
     // ArrowDown with focus on the Mad TokenMax poster scrolls the curtain natively; when the playbill fades it opens onto the results.
     const arrows = await pageAt(width, height, "no-preference");
     try {
-      // Tab passes the first-screen band (Copy, the script note, Watch it run) to reach the first curtain poster.
+      // The first Tab stop is the first curtain poster.
       await tabToCurtain(arrows);
       const run = await stepToOpen(arrows, async () => { await arrows.keyboard.press("ArrowDown"); await arrows.waitForTimeout(40); await frames(arrows); }, 40);
       expect({ width, key: "ArrowDown", yBefore: run.yBefore, moved: run.moved, state: run.open.state, inView: run.open.top >= -1 && run.open.top < height, focus: await arrows.evaluate(() => document.activeElement?.id) })
@@ -1474,11 +1464,10 @@ test("[integration] V10 every way of scrolling drives the curtain's runway and t
 }, 60000);
 
 test("[integration] V11 when the playbill fades with focus on a curtain poster, focus is not dropped: the curtain opens onto the results and the results heading has focus", async () => {
-  stripOn();
   for (const [width, height] of CLOSED_VIEWPORTS) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      // Tab passes the first-screen band (Copy, the script note, Watch it run) to reach the first curtain poster.
+      // The first Tab stop is the first curtain poster.
       await tabToCurtain(page);
       await scrollToRunway(page, 0.5);
       await page.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
@@ -1562,11 +1551,10 @@ test("[integration] V15 once the playbill has faded the page in the gap takes th
 }, 20000);
 
 test("[integration] V17 a scroll that opens the curtain in one go with focus on a curtain poster moves focus to the results heading; the same scroll without focus on the curtain leaves the page at scrollY 0", async () => {
-  stripOn();
   for (const [width, height] of CLOSED_VIEWPORTS) for (const how of ["wheel", "scrollTop"]) {
     const page = await pageAt(width, height, "no-preference");
     try {
-      // Tab passes the first-screen band (Copy, the script note, Watch it run) to reach the first curtain poster.
+      // The first Tab stop is the first curtain poster.
       await tabToCurtain(page);
       const distance = await runway(page);
       if (how === "wheel") {
@@ -1650,12 +1638,9 @@ test("[integration] L24 the curtain follows the scroll both ways: partial progre
   } finally { await page.close(); }
 }, 15000);
 
-test("[integration] L26 the Mad TokenMax poster is the first tab stop on the curtain (after the first-screen band's three) with a visible focus ring; Tab goes Mad TokenMax, Little Shop, Raise the curtain (where shown), House lights with the curtain closed; focus anywhere else opens it", async () => {
-  stripOn();
+test("[integration] L26 the Mad TokenMax poster is the first tab stop on the curtain with a visible focus ring; Tab goes Mad TokenMax, Little Shop, Raise the curtain (where shown), House lights with the curtain closed; focus anywhere else opens it", async () => {
   const page = await pageAt(1280, 900, "no-preference");
   try {
-    // The band above the curtain comes first and keeps it closed: Copy, the script note's link, Watch it run.
-    expect(await tabStops(page, TM_BAND_STOPS.length)).toEqual(TM_BAND_STOPS.map((stop) => ({ stop, state: "closed", ring: true })));
     await page.keyboard.press("Tab");
     const first = await page.evaluate(() => {
       const a = document.activeElement;
@@ -1985,36 +1970,14 @@ test("[integration] L35 each poster shows only its stamp, title, one figure and 
 }, 15000);
 
 /* ---------- TM: the landing first screen above the curtain (issue #238) ---------- */
-const TM_COMMAND = "curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share";
-const TM_PROMISE = "Hitting Claude limits? See your last 7 days in 10 seconds, on your own machine";
-const TM_BUN = "curl -fsSL https://bun.sh/install | bash";
-/** What the polite live region says after Copy: the next step, the trust sentence and the Bun install line, none of it in the band before. */
-const TM_TRUST = "It reads your local Claude Code and Codex logs and sends nothing.";
-const TM_BUN_LINE = `No Bun? Run ${TM_BUN} first.`;
-const TM_COPIED = `Copied. Paste it into a terminal. ${TM_TRUST} ${TM_BUN_LINE}`;
-/** #238 pass 2: the trust line in the band at every width, the same sentence as the /maps/ share card. */
-const TM_TRUST_LINE = "Runs on your machine. Nothing sent until you press Share.";
-/** The command's three underlined parts, each with its note (the first links to the script itself). */
-const TM_NOTES: { part: string; key: string; note: string; href: string | null }[] = [
-  { part: "curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts", key: "curl", note: "the script, readable", href: "/tm/map.ts" },
-  { part: "bun run -", key: "bun run -", note: "runs on your machine", href: null },
-  { part: "--share", key: "--share", note: "a link you choose to press", href: null },
-];
-/** The band's tab stops in order: Copy, the script note's link, Watch it run. */
-const TM_BAND_STOPS = ["tmCopy", "tmScript", "tmWatch"];
-const TM_HINT = `Press Ctrl+C or Cmd+C to copy. ${TM_TRUST} ${TM_BUN_LINE}`;
-
-/** What the curtain, the sample chip and the valance do with no band above them (the page before #241), read off the page. */
+/** What the curtain, the sample chip and the valance do with no band above them, read off the page. */
 async function noBandView(page: Page): Promise<Record<string, string | number | boolean>> {
   return page.evaluate(() => {
     const ov = document.getElementById("overture")?.getBoundingClientRect();
     const chip = document.getElementById("sampleBadge")?.getBoundingClientRect();
     const stage = document.querySelector(".overture-stage");
-    const band = document.getElementById("tmFirst");
     return {
-      bandHidden: band?.hasAttribute("hidden") ?? false,
-      bandDisplay: band ? getComputedStyle(band).display : "missing",
-      bandHeight: band ? band.getBoundingClientRect().height : -1,
+      bandPresent: document.getElementById("tmFirst") !== null,
       bandVar: document.documentElement.style.getPropertyValue("--tm-first-h"),
       ovTop: ov ? Math.round(ov.top) : NaN,
       ovHeight: ov ? Math.round(ov.height) : NaN,
@@ -2025,50 +1988,24 @@ async function noBandView(page: Page): Promise<Record<string, string | number | 
   });
 }
 
-for (const [width, height] of VIEWPORTS) test(`[integration] TM0 the TokenMax strip is off at ${width}x${height}: it takes no room, shows no text, has no tab stop, and the curtain, chip and valance start where they did before #241`, async () => {
+test("[unit] TM0a the served landing HTML carries no TokenMax strip and no curl instruction", () => {
+  const html = readFileSync(join(SITE, "index.html"), "utf8");
+  expect({ tmFirst: html.includes("tmFirst"), tmCommand: html.includes("tmCommand"), curlFsSL: html.split("curl -fsSL").length - 1, curl: /\bcurl\b/i.test(html) }).toEqual({ tmFirst: false, tmCommand: false, curlFsSL: 0, curl: false });
+});
+
+for (const [width, height] of VIEWPORTS) test(`[integration] TM0 the landing has no TokenMax strip at ${width}x${height}: no element, no text, no tab stop, and the curtain, chip and valance start at the top`, async () => {
   const page = await pageAt(width, height, "no-preference");
   try {
     await page.waitForFunction(() => document.documentElement.dataset.curtain !== undefined, undefined, { timeout: 5000 });
     const view: Record<string, unknown> = { width, ...(await noBandView(page)) };
     expect(view)
-      .toEqual({ width, bandHidden: true, bandDisplay: "none", bandHeight: 0, bandVar: "0px", ovTop: 0, ovHeight: height, chipTop: width < 721 ? 34 : 14, container: "normal", shown: false });
-    // Nothing in it takes a tab stop: Tab from the top of the page never lands inside the strip.
-    const stops: string[] = [];
-    for (let i = 0; i < 4; i += 1) { await page.keyboard.press("Tab"); stops.push(await page.evaluate(() => document.activeElement?.closest("#tmFirst") ? "tmFirst" : document.activeElement?.id ?? "")); }
-    expect(stops.includes("tmFirst")).toBe(false);
-    // The first heading is still the billing, and the page was not asked for the strip's text anywhere visible.
+      .toEqual({ width, bandPresent: false, bandVar: "0px", ovTop: 0, ovHeight: height, chipTop: width < 721 ? 34 : 14, container: "normal", shown: false });
+    // The first heading is still the billing.
     expect(await page.locator(":is(h1,h2,h3)").first().getAttribute("id")).toBe("t1");
-    expect(await page.locator("#tmFirst").isVisible()).toBe(false);
+    expect(await page.locator("#tmFirst").count()).toBe(0);
   } finally { await page.close(); }
 }, 30000);
 
-test("[integration] TM0b the strip comes back with one change: removing the one `hidden` word from its tag in index.html shows it, with the curtain, chip and valance under it", async () => {
-  const html = readFileSync(join(SITE, "index.html"), "utf8");
-  expect(stripIsHidden(html)).toBe(true);
-  expect([...html.matchAll(/<section[^>]*id="tmFirst"[^>]*>/g)].map((m) => (m[0].match(/\shidden\b/g) ?? []).length)).toEqual([1]);
-  // The re-enabled page differs from the shipped one by exactly that word.
-  expect(html.length - withStripShown(html).length).toBe(" hidden".length);
-  expect(stripIsHidden(withStripShown(html))).toBe(false);
-  stripOn();
-  const page = await pageAt(1440, 900, "no-preference");
-  try {
-    await page.waitForFunction(() => document.documentElement.dataset.curtain !== undefined, undefined, { timeout: 5000 });
-    const view = await noBandView(page);
-    const band = await bandBox(page);
-    expect({ hidden: view.bandHidden, display: view.bandDisplay, tall: band.height > 100, curtainUnderBand: view.ovTop === Math.round(band.bottom), container: view.container, copyShown: await page.locator("#tmCopy").isVisible(), text: view.shown })
-      .toEqual({ hidden: false, display: "block", tall: true, curtainUnderBand: true, container: "size", copyShown: true, text: true });
-  } finally { await page.close(); }
-}, 30000);
-
-/** The band's box on screen. */
-async function bandBox(page: Page): Promise<{ top: number; bottom: number; height: number }> {
-  return page.evaluate(() => {
-    const r = document.getElementById("tmFirst")?.getBoundingClientRect();
-    return r ? { top: r.top, bottom: r.bottom, height: r.height } : { top: NaN, bottom: NaN, height: NaN };
-  });
-}
-
-/** Presses Tab `count` times and returns each focused stop (its id, or a short name) with the curtain's state and whether it shows a focus ring. */
 /** The testimonial note is in the page only once TESTIMONIAL.approved is true (scripts/site-testimonial.ts); at the closed viewports it must then be shown. */
 const NOTE_RENDERED = readFileSync(join(import.meta.dir, "..", "site", "index.html"), "utf8").includes('class="shop-say"');
 
@@ -2077,6 +2014,7 @@ async function noteShown(page: Page): Promise<boolean> {
   return page.evaluate(() => document.querySelector("#overture .shop-say")?.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) ?? false);
 }
 
+/** Presses Tab `count` times and returns each focused stop (its id, or a short name) with the curtain's state and whether it shows a focus ring. */
 async function tabStops(page: Page, count: number): Promise<{ stop: string; state: string; ring: boolean }[]> {
   const out: { stop: string; state: string; ring: boolean }[] = [];
   for (let i = 0; i < count; i++) {
@@ -2092,394 +2030,12 @@ async function tabStops(page: Page, count: number): Promise<{ stop: string; stat
 }
 
 /** Tabs from the top of the page to the curtain's first control (the Mad TokenMax poster) through the band's controls, checking the order on the way. */
+
+/** Tabs from the top of the page to the curtain's first control (the Mad TokenMax poster), checking the first stop. */
 async function tabToCurtain(page: Page): Promise<void> {
-  const stops = await tabStops(page, TM_BAND_STOPS.length + 1);
-  expect(stops.map((s) => s.stop)).toEqual([...TM_BAND_STOPS, "madmax poster"]);
+  const stops = await tabStops(page, 1);
+  expect(stops.map((s) => s.stop)).toEqual(["madmax poster"]);
 }
-
-for (const motion of MOTIONS) {
-  test(`[integration] TM1 the first screen leads with the band: body's first child, the promise, the exact command, its notes, the trust line and Watch it run; the Bun line waits for Copy; no heading in it, no animation under reduced motion (${motion})`, async () => {
-    stripOn();
-    for (const [width, height] of VIEWPORTS) {
-      const page = await pageAt(width, height, motion);
-      try {
-        const band = await page.evaluate(() => {
-          const node = document.body.firstElementChild;
-          const section = document.getElementById("tmFirst");
-          const copy = document.getElementById("tmCopy"), watch = document.getElementById("tmWatch");
-          const ticket = document.getElementById("tmCommand")?.parentElement;
-          const stub = ticket?.querySelector(".tm-stub");
-          return {
-            first: node?.id || node?.tagName || "none", tag: section?.tagName ?? "", cls: section?.className ?? "", label: section?.getAttribute("aria-label") ?? "",
-            headings: section ? section.querySelectorAll("h1,h2,h3,h4,h5,h6,[role=heading]").length : -1,
-            promiseTag: document.getElementById("tmPromise")?.tagName ?? "",
-            promise: document.getElementById("tmPromise")?.textContent ?? "",
-            command: document.getElementById("tmCommand")?.textContent ?? "",
-            commandTag: document.getElementById("tmCommand")?.tagName ?? "",
-            copy: { tag: copy?.tagName ?? "", type: copy?.getAttribute("type") ?? "", text: copy?.textContent ?? "" },
-            live: document.getElementById("tmCopied")?.getAttribute("aria-live") ?? "",
-            watch: watch?.textContent ?? "", watchTag: watch?.tagName ?? "", href: watch?.getAttribute("href") ?? "",
-            // v3's ticket: Copy sits on the same ticket as the command, after a dashed tear line, with a notch each side.
-            ticket: {
-              holdsCopy: Boolean(ticket && copy && ticket.contains(copy)),
-              tear: stub ? getComputedStyle(stub).borderLeftStyle : "none",
-              notches: ticket ? ["::before", "::after"].map((p) => getComputedStyle(ticket, p).borderRadius).join(",") : "",
-            },
-            sends: section ? [...section.querySelectorAll("p")].filter((p) => (p.textContent ?? "").includes("sends nothing")).map((p) => (p.textContent ?? "").trim()) : [],
-            trust: document.getElementById("tmTrust")?.textContent ?? "",
-          };
-        });
-        expect(new URL(band.href, page.url()).pathname).toBe("/tm/");
-        expect({ width, motion, ...band, href: "" }).toEqual({
-          width, motion, first: "tmFirst", tag: "SECTION", cls: "tm-first", label: "Map your Claude week", headings: 0, promiseTag: "P", promise: TM_PROMISE,
-          command: TM_COMMAND, commandTag: "CODE", copy: { tag: "BUTTON", type: "button", text: "Copy" }, live: "polite", watch: "Watch it run", watchTag: "A", href: "", sends: [],
-          ticket: { holdsCopy: true, tear: "dashed", notches: "50%,50%" }, trust: TM_TRUST_LINE,
-        });
-        // The promise, the command, Copy, its notes, the trust line and Watch it run are on the first screen and nothing covers them.
-        for (const id of ["tmPromise", "tmCommand", "tmCopy", "tmNotes", "tmScript", "tmTrust", "tmWatch"]) {
-          const inView = await page.locator(`#${id}`).evaluate((node) => { const r = node.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth; });
-          const hit = id === "tmTrust" ? await hitsEveryLine(page, "#tmTrust") : await hitsItself(page, `#${id}`);
-          expect({ width, motion, id, inView, hit }).toEqual({ width, motion, id, inView: true, hit: true });
-        }
-        if (motion === "reduce") {
-          expect(await page.evaluate(() => [document.getElementById("tmFirst"), ...document.querySelectorAll("#tmFirst *")].flatMap((node) => {
-            if (!node) return ["missing"];
-            const s = getComputedStyle(node);
-            return s.animationName !== "none" || s.transitionDuration.split(",").some((d) => parseFloat(d) > 0) ? [`${node.tagName}#${node.id}`] : [];
-          }))).toEqual([]);
-        }
-      } finally { await page.close(); }
-    }
-  }, 30000);
-}
-
-test("[integration] TM2 Copy puts exactly the command on the clipboard and says Copied, the next step, the trust sentence and the Bun line in a polite live region", async () => {
-  stripOn();
-  for (const [width, height] of VIEWPORTS) {
-    const context = await browser.newContext({ viewport: { width, height }, reducedMotion: "reduce", permissions: ["clipboard-read", "clipboard-write"] });
-    const page = await context.newPage();
-    try {
-      await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
-      await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "domcontentloaded" });
-      expect(await page.locator("#tmCopied").evaluate((node) => node.textContent ?? "")).toBe("");
-      await page.locator("#tmCopy").click();
-      await page.waitForFunction(() => (document.getElementById("tmCopied")?.textContent ?? "") !== "", undefined, { timeout: 3000 });
-      expect({ width, said: await page.locator("#tmCopied").innerText(), live: await page.locator("#tmCopied").getAttribute("aria-live"), clip: await page.evaluate(() => navigator.clipboard.readText()) })
-        .toEqual({ width, said: TM_COPIED, live: "polite", clip: TM_COMMAND });
-    } finally { await context.close(); }
-  }
-}, 20000);
-
-test("[integration] TM3 a clipboard that refuses or is missing selects the command and gives the keyboard hint with the trust sentence and the Bun line", async () => {
-  stripOn();
-  const stubs: [string, string][] = [
-    ["refused", "Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: function () { return Promise.reject(new Error('denied')); } });"],
-    ["missing", "Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });"],
-  ];
-  for (const [how, stub] of stubs) for (const [width, height] of VIEWPORTS) {
-    const page = await pageAt(width, height, "reduce", "", false, undefined, async (p) => { await p.addInitScript({ content: stub }); });
-    try {
-      await page.locator("#tmCopy").click();
-      await page.waitForFunction(() => (document.getElementById("tmCopied")?.textContent ?? "") !== "", undefined, { timeout: 3000 });
-      expect({ how, width, said: await page.locator("#tmCopied").innerText(), selected: await page.evaluate(() => window.getSelection()?.toString() ?? "") })
-        .toEqual({ how, width, said: TM_HINT, selected: TM_COMMAND });
-    } finally { await page.close(); }
-  }
-}, 30000);
-
-test("[integration] TM4 while the curtain plays the band sits above it: the pointer at its centre reaches the band, the curtain starts at its bottom, and every playbill control is on screen and reachable", async () => {
-  stripOn();
-  for (const [width, height] of VIEWPORTS) {
-    const page = await pageAt(width, height, "no-preference");
-    try {
-      expect((await curtain(page)).state).toBe("closed");
-      const band = await bandBox(page);
-      const view = await page.evaluate(() => {
-        const r = document.getElementById("tmFirst")?.getBoundingClientRect();
-        const hit = r ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
-        const ov = document.getElementById("overture")?.getBoundingClientRect();
-        const drapes = [...document.querySelectorAll(".overture .curtain")].map((node) => node.getBoundingClientRect().top);
-        return { inBand: Boolean(hit && document.getElementById("tmFirst")?.contains(hit)), ovTop: ov ? ov.top : NaN, ovBottom: ov ? ov.bottom : NaN, drapes };
-      });
-      expect({ width, top: band.top, tall: band.height > 0, inBand: view.inBand, ovTop: Math.abs(view.ovTop - band.bottom) < 1, ovBottom: Math.abs(view.ovBottom - height) < 1, drapes: view.drapes.length === 2 && view.drapes.every((t) => Math.abs(t - band.bottom) < 1) })
-        .toEqual({ width, top: 0, tall: true, inBand: true, ovTop: true, ovBottom: true, drapes: true });
-      const parts = await curtainParts(page);
-      // #238 pass 2 made the band taller (the command's notes and the trust line). A phone curtain with 520px of stage
-      // or less is theatre.css's "short phone curtain": the decorative ticket steps out (display none, never clipped)
-      // and every playbill control stays. At 390x844 the band now leaves less than 520px.
-      const roomy = width > 720 || height - band.bottom > 520;
-      for (const name of ["marquee", "ticket", "madmax", "poster", "chip", "lights"]) {
-        const part = parts[name];
-        expect({ width, name, inView: part?.inView, hit: part?.hit, belowBand: part ? part.top >= band.bottom : false }).toEqual({ width, name, inView: true, hit: true, belowBand: true });
-      }
-      if (!roomy) expect({ width, cue: await page.evaluate(() => getComputedStyle(document.querySelector("#overture .cue-scroll") ?? document.body).display) }).toEqual({ width, cue: "none" });
-      expect(await page.evaluate(() => {
-        const t = document.querySelector("#overture .poster .p-cta")?.getBoundingClientRect();
-        return Boolean(t && t.top >= 0 && t.bottom <= innerHeight);
-      })).toBe(true);
-    } finally { await page.close(); }
-  }
-}, 30000);
-
-test("[integration] TM5 with the curtain closed the band's controls keep it closed: focus or a click on Copy; Tab goes Copy, the script note, Watch it run, the two posters, House lights, each with a visible focus ring", async () => {
-  stripOn();
-  for (const [width, height] of VIEWPORTS) {
-    const page = await pageAt(width, height, "no-preference", "", false, undefined, async (p) => {
-      await p.addInitScript({ content: "Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: function () { return Promise.resolve(); } } });" });
-    });
-    try {
-      await page.locator("#tmCopy").focus();
-      expect((await curtain(page)).state).toBe("closed");
-      await page.locator("#tmCopy").click();
-      await page.waitForFunction(() => (document.getElementById("tmCopied")?.textContent ?? "") !== "", undefined, { timeout: 3000 });
-      expect({ width, state: (await curtain(page)).state, y: await page.evaluate(() => scrollY) }).toEqual({ width, state: "closed", y: 0 });
-      await page.locator("#tmWatch").focus();
-      expect((await curtain(page)).state).toBe("closed");
-    } finally { await page.close(); }
-    const keys = await pageAt(width, height, "no-preference");
-    try {
-      // Raise the curtain is a stop where the curtain has room for it (a short phone curtain sets it aside, V1).
-      const raise = await keys.evaluate(() => getComputedStyle(document.getElementById("raise") ?? document.body).display !== "none") ? ["raise"] : [];
-      expect({ width, stops: await tabStops(keys, TM_BAND_STOPS.length + 3 + raise.length) })
-        .toEqual({ width, stops: [...TM_BAND_STOPS, "madmax poster", "openCurtain", ...raise, "lights"].map((stop) => ({ stop, state: "closed", ring: true })) });
-    } finally { await keys.close(); }
-  }
-}, 30000);
-
-test("[integration] TM6 the curtain still opens every way with the band above it: a scroll, the keys from a curtain poster (focus to the results heading) and a #hash", async () => {
-  stripOn();
-  for (const [width, height] of VIEWPORTS) {
-    const scrolled = await pageAt(width, height, "no-preference");
-    try {
-      await scrollToRunway(scrolled, 1.2);
-      await scrolled.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
-      expect(await shownCurtains(scrolled)).toBe(0);
-    } finally { await scrolled.close(); }
-    const skipped = await pageAt(width, height, "no-preference");
-    try {
-      await openOntoResults(skipped);
-      const after = await skipped.evaluate(() => ({ state: document.documentElement.dataset.curtain, active: document.activeElement?.id, top: document.getElementById("types")?.getBoundingClientRect().top ?? NaN }));
-      expect({ width, state: after.state, active: after.active, top: Math.abs(after.top) < 2 }).toEqual({ width, state: "open", active: "types", top: true });
-    } finally { await skipped.close(); }
-    const hashed = await pageAt(width, height, "no-preference", "#tickets");
-    try {
-      await hashed.waitForFunction(() => document.documentElement.dataset.curtain === "open", undefined, { timeout: 3000 });
-      expect(await shownCurtains(hashed)).toBe(0);
-    } finally { await hashed.close(); }
-  }
-}, 30000);
-
-for (const [width, height] of VIEWPORTS) test(`[integration] TM7 at ${width}x${height} the command wraps inside its box, never inside "--share": no horizontal scroll with the curtain closed or open`, async () => {
-  stripOn();
-  const page = await pageAt(width, height, "no-preference");
-  try {
-    const measure = () => page.evaluate(() => {
-      const code = document.getElementById("tmCommand"), band = document.getElementById("tmFirst");
-      const r = code?.getBoundingClientRect(), b = band?.getBoundingClientRect();
-      // "--share" never breaks across lines: a range over it has one line box.
-      let share = -1;
-      const walk = code ? document.createTreeWalker(code, NodeFilter.SHOW_TEXT) : null;
-      for (let t = walk ? walk.nextNode() : null; t; t = walk ? walk.nextNode() : null) {
-        const at = (t.textContent ?? "").indexOf("--share");
-        if (at < 0) continue;
-        const range = document.createRange();
-        range.setStart(t, at);
-        range.setEnd(t, at + 7);
-        share = new Set([...range.getClientRects()].map((q) => Math.round(q.top))).size;
-      }
-      return {
-        page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-        code: code ? code.scrollWidth - code.clientWidth : -1,
-        inside: Boolean(r && b && r.width > 0 && r.left >= b.left && r.right <= b.right && r.right <= innerWidth),
-        share,
-      };
-    });
-    expect(await measure()).toEqual({ page: 0, code: 0, inside: true, share: 1 });
-    await openOntoResults(page);
-    expect((await curtain(page)).state).toBe("open");
-    await page.evaluate(() => { window.scrollTo({ top: 0, behavior: "instant" }); });
-    await frames(page);
-    expect(await measure()).toEqual({ page: 0, code: 0, inside: true, share: 1 });
-  } finally { await page.close(); }
-}, 15000);
-
-test("[integration] TM8 the after-copy message carries the trust sentence and the exact Bun install line; the curtain follows the taller band and every playbill control stays on screen", async () => {
-  stripOn();
-  for (const motion of MOTIONS) for (const [width, height] of VIEWPORTS) {
-    const page = await pageAt(width, height, motion, "", false, undefined, async (p) => {
-      await p.addInitScript({ content: "Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: function () { return Promise.resolve(); } } });" });
-    });
-    try {
-      expect(await page.locator("#tmFirst").evaluate((node) => (node.textContent ?? "").includes("sends nothing") || (node.textContent ?? "").includes("bun.sh"))).toBe(false);
-      await page.locator("#tmCopy").click();
-      await page.waitForFunction(() => (document.getElementById("tmCopied")?.textContent ?? "") !== "", undefined, { timeout: 3000 });
-      const said = await page.locator("#tmCopied").evaluate((node) => ({ text: node.textContent ?? "", codes: [...node.querySelectorAll("code")].map((c) => c.textContent ?? ""), live: node.getAttribute("aria-live") }));
-      expect({ motion, width, ...said }).toEqual({ motion, width, text: TM_COPIED, codes: [TM_BUN], live: "polite" });
-      expect({ motion, width, inView: await page.locator("#tmCopied").evaluate((node) => { const r = node.getBoundingClientRect(); return r.height > 0 && r.top >= 0 && r.bottom <= innerHeight && r.right <= innerWidth; }) })
-        .toEqual({ motion, width, inView: true });
-      if (motion === "no-preference") {
-        expect((await curtain(page)).state).toBe("closed");
-        // The curtain moves down with the taller band and still starts at its bottom; the playbill still fits.
-        await page.waitForTimeout(100);
-        await frames(page);
-        const band = await bandBox(page);
-        expect(Math.abs(await page.evaluate(() => document.getElementById("overture")?.getBoundingClientRect().top ?? NaN) - band.bottom)).toBeLessThan(1);
-        const parts = await curtainParts(page);
-        for (const name of ["marquee", "madmax", "poster", "chip", "lights"]) {
-          const part = parts[name];
-          expect({ width, name, inView: part?.inView, hit: part?.hit, belowBand: part ? part.top >= band.bottom : false }).toEqual({ width, name, inView: true, hit: true, belowBand: true });
-        }
-      }
-    } finally { await page.close(); }
-  }
-}, 30000);
-
-test("[integration] TM9 L1 holds with the band: the first heading on the page is still #t1, in both motions and viewports", async () => {
-  stripOn();
-  for (const motion of MOTIONS) for (const [width, height] of VIEWPORTS) {
-    const page = await pageAt(width, height, motion);
-    try {
-      expect({ motion, width, first: await page.locator(":is(h1,h2,h3,h4,h5,h6)").first().getAttribute("id") }).toEqual({ motion, width, first: "t1" });
-    } finally { await page.close(); }
-  }
-}, 30000);
-
-test("[integration] TM10 the band holds exactly four parts (the promise, the command with Copy, the command's notes, the trust line with Watch it run) and no other visible text, in one accent colour with the promise as the focal point", async () => {
-  stripOn();
-  for (const [width, height] of VIEWPORTS) {
-    const page = await pageAt(width, height, "reduce");
-    try {
-      const band = await page.evaluate(() => {
-        const section = document.getElementById("tmFirst");
-        if (!section) return null;
-        const shown = (node: Element) => { const r = node.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(node).visibility !== "hidden"; };
-        const named = ["tmPromise", "tmCommand", "tmCopy", "tmNotes", "tmScript", "tmTrust", "tmWatch"];
-        const parts = [...section.children].filter(shown).map((node) => [node, ...node.querySelectorAll("[id]")].map((c) => c.id).filter((id) => named.includes(id)).sort().join("+"));
-        const owners = new Set<string>();
-        let stray = 0;
-        const walk = document.createTreeWalker(section, NodeFilter.SHOW_TEXT);
-        for (let t = walk.nextNode(); t; t = walk.nextNode()) {
-          const parent = t.parentElement;
-          if (!parent || !(t.textContent ?? "").trim() || !shown(parent)) continue;
-          const owner = parent.closest("#tmPromise, #tmCommand, #tmCopy, #tmNotes, #tmTrust, #tmWatch");
-          if (owner) owners.add(owner.id); else stray++;
-        }
-        const focusable = [...section.querySelectorAll("a[href], button, summary, input, select, textarea, details, [tabindex]")].map((node) => node.id || node.tagName);
-        const copy = document.getElementById("tmCopy"), promise = document.getElementById("tmPromise");
-        const probe = document.createElement("i");
-        probe.style.color = "var(--curtain)";
-        section.appendChild(probe);
-        const accent = getComputedStyle(probe).color;
-        probe.remove();
-        const everything = [section, ...section.querySelectorAll("*")];
-        const ps = promise ? getComputedStyle(promise) : null;
-        return {
-          parts, owners: [...owners].sort(), stray, focusable,
-          copyFill: copy ? getComputedStyle(copy).backgroundColor === accent : false,
-          otherAccentFills: everything.filter((node) => node !== copy && getComputedStyle(node).backgroundColor === accent).length,
-          gradients: everything.filter((node) => getComputedStyle(node).backgroundImage !== "none").length,
-          promiseSize: ps ? parseFloat(ps.fontSize) : NaN, promiseFont: ps ? ps.fontFamily : "", promiseWeight: ps ? Number(ps.fontWeight) : NaN,
-        };
-      });
-      if (!band) throw new Error("no #tmFirst");
-      const [lo, hi] = width >= 1024 ? [40, 48] : [28, 32];
-      expect({ width, parts: band.parts, owners: band.owners, stray: band.stray, focusable: band.focusable, copyFill: band.copyFill, otherAccentFills: band.otherAccentFills, gradients: band.gradients, size: band.promiseSize >= lo && band.promiseSize <= hi, serif: band.promiseFont.includes("Alegreya"), bold: band.promiseWeight >= 700 })
-        .toEqual({ width, parts: ["tmPromise", "tmCommand+tmCopy", "tmNotes+tmScript", "tmTrust+tmWatch"], owners: ["tmCommand", "tmCopy", "tmNotes", "tmPromise", "tmTrust", "tmWatch"], stray: 0, focusable: TM_BAND_STOPS, copyFill: true, otherAccentFills: 0, gradients: 0, size: true, serif: true, bold: true });
-    } finally { await page.close(); }
-  }
-}, 20000);
-
-for (const motion of MOTIONS) test(`[integration] TM11 the trust line shows in the band at 390 and 1440, never hidden on phones, uncovered, with the curtain closed and open (${motion})`, async () => {
-  stripOn();
-  for (const [width, height] of VIEWPORTS) {
-    const page = await pageAt(width, height, motion);
-    try {
-      const look = () => page.locator("#tmTrust").evaluate((node) => {
-        const r = node.getBoundingClientRect(), s = getComputedStyle(node), band = document.getElementById("tmFirst");
-        return { text: node.textContent ?? "", inBand: Boolean(band?.contains(node)), shown: s.display !== "none" && s.visibility === "visible" && Number(s.opacity) > 0.9 && r.width > 0 && r.height > 0,
-          inView: r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth, size: parseFloat(s.fontSize) >= 13 };
-      });
-      expect({ width, motion, ...(await look()), hit: await hitsEveryLine(page, "#tmTrust") }).toEqual({ width, motion, text: TM_TRUST_LINE, inBand: true, shown: true, inView: true, size: true, hit: true });
-      if (motion === "no-preference") {
-        await openOntoResults(page);
-        await page.evaluate(() => { window.scrollTo({ top: 0, behavior: "instant" }); });
-        await frames(page);
-        expect({ width, open: await look() }).toEqual({ width, open: { text: TM_TRUST_LINE, inBand: true, shown: true, inView: true, size: true } });
-      }
-    } finally { await page.close(); }
-  }
-}, 30000);
-
-test("[integration] TM12 before Copy the command's three parts are underlined, each tied to its note; the script note links to /tm/map.ts; the full command shows at 390 and 1440, wrapped, never clipped", async () => {
-  stripOn();
-  for (const [width, height] of VIEWPORTS) {
-    const page = await pageAt(width, height, "no-preference");
-    try {
-      expect(await page.locator("#tmCopied").evaluate((node) => node.textContent ?? "")).toBe("");
-      const seen = await page.evaluate(() => {
-        const code = document.getElementById("tmCommand");
-        const box = code?.getBoundingClientRect();
-        const toks = [...document.querySelectorAll("#tmCommand .tm-tok")].map((tok) => {
-          const note = document.getElementById(tok.getAttribute("data-note") ?? "");
-          const r = note?.getBoundingClientRect();
-          const link = note?.querySelector("a[href]");
-          const key = note?.querySelector(".tm-key");
-          return {
-            part: tok.textContent ?? "", underlined: getComputedStyle(tok).textDecorationLine.includes("underline"),
-            key: key?.textContent ?? "", keyUnderlined: key ? getComputedStyle(key).textDecorationLine.includes("underline") : false,
-            note: [...(note?.childNodes ?? [])].filter((c) => c !== key).map((c) => c.textContent ?? "").join("").trim(),
-            href: link ? link.getAttribute("href") : null,
-            inNotes: Boolean(note && document.getElementById("tmNotes")?.contains(note)),
-            noteInView: Boolean(r && r.height > 0 && r.top >= 0 && r.bottom <= innerHeight && r.right <= innerWidth),
-            // The part is rendered and seen (at least one line box with area, not hidden or transparent), and every line box
-            // sits inside the command's box and on screen: nothing clipped or cut off. An empty rect list never passes.
-            whole: Boolean(box) && tok.checkVisibility({ visibilityProperty: true, opacityProperty: true })
-              && [...tok.getClientRects()].some((q) => q.width > 0 && q.height > 0)
-              && [...tok.getClientRects()].every((q) => box !== undefined && q.left >= box.left - 0.5 && q.right <= box.right + 0.5 && q.top >= box.top - 0.5 && q.bottom <= box.bottom + 0.5 && q.right <= innerWidth && q.bottom <= innerHeight && q.top >= 0),
-          };
-        });
-        const s = code ? getComputedStyle(code) : null;
-        const copy = document.getElementById("tmCopy"), notes = document.getElementById("tmNotes");
-        return {
-          toks, text: code?.innerText ?? "", lines: code && s ? Math.round((code.getBoundingClientRect().height - parseFloat(s.paddingTop) - parseFloat(s.paddingBottom)) / parseFloat(s.lineHeight)) : 0,
-          clipped: code ? code.scrollWidth > code.clientWidth || code.scrollHeight > code.clientHeight + 1 : true,
-          ellipsis: s ? s.textOverflow === "ellipsis" : true, wraps: s ? s.whiteSpace !== "nowrap" && s.whiteSpace !== "pre" : false,
-          notesFollowTicket: Boolean(copy && notes && copy.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING),
-        };
-      });
-      expect({ width, text: seen.text, clipped: seen.clipped, ellipsis: seen.ellipsis, wraps: seen.wraps, notesFollowTicket: seen.notesFollowTicket })
-        .toEqual({ width, text: TM_COMMAND, clipped: false, ellipsis: false, wraps: true, notesFollowTicket: true });
-      // At 390 the command needs more than one line to show in full; at 1440 it fits on one.
-      expect({ width, wrapped: seen.lines > 1 }).toEqual({ width, wrapped: width < 720 });
-      expect(seen.toks).toEqual(TM_NOTES.map((n) => ({ part: n.part, underlined: true, key: n.key, keyUnderlined: true, note: n.note, href: n.href, inNotes: true, noteInView: true, whole: true })));
-      // The parts are the command: the notes annotate the copied text, they never change it.
-      expect(`${TM_NOTES[0]?.part} | ${TM_NOTES[1]?.part} ${TM_NOTES[2]?.part}`).toBe(TM_COMMAND);
-      const script = await page.request.get(new URL("/tm/map.ts", page.url()).toString());
-      expect({ status: script.status(), same: (await script.text()) === readFileSync(join(SITE, "tm", "map.ts"), "utf8") }).toEqual({ status: 200, same: true });
-    } finally { await page.close(); }
-  }
-}, 30000);
-
-test("[integration] TM13 every link and button in the band is at least 24x24 px with text at least 13 px, at 390 and 1440, before and after Copy", async () => {
-  stripOn();
-  for (const [width, height] of VIEWPORTS) {
-    const page = await pageAt(width, height, "no-preference", "", false, undefined, async (p) => {
-      await p.addInitScript({ content: "Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: function () { return Promise.resolve(); } } });" });
-    });
-    try {
-      const measure = () => page.evaluate(() => [...document.querySelectorAll("#tmFirst a, #tmFirst button")].map((node) => {
-        const r = node.getBoundingClientRect();
-        return { id: node.id, ok: r.width >= 24 && r.height >= 24 && parseFloat(getComputedStyle(node).fontSize) >= 13 };
-      }));
-      const before = await measure();
-      expect({ width, ids: before.map((c) => c.id), bad: before.filter((c) => !c.ok).map((c) => c.id) }).toEqual({ width, ids: TM_BAND_STOPS, bad: [] });
-      await page.locator("#tmCopy").click();
-      await page.waitForFunction(() => (document.getElementById("tmCopied")?.textContent ?? "") !== "", undefined, { timeout: 3000 });
-      expect({ width, bad: (await measure()).filter((c) => !c.ok).map((c) => c.id) }).toEqual({ width, bad: [] });
-    } finally { await page.close(); }
-  }
-}, 30000);
-
 
 /*
  * The theatre restored on the landing page (fix/landing-restore-theatre): dark first whatever the OS says (L40), the

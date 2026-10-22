@@ -5,13 +5,11 @@ import { join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 import { SHARE_BASE, shareLink, type SharePayload } from "../skills/tokenmax-map/scripts/map.ts";
-import { withStripShown } from "./tm-strip.ts";
 
 // The /maps/ share page and board (#238). A fake Backstage answers /api/maps and /api/maps/delete per the contract
 // and records every request, so the tests can count what the page sends and when.
 
 const SITE = join(import.meta.dir, "..", "site");
-const COMMAND = "curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share";
 const LABEL = /self-reported by tokenmax-map \d+\.\d+\.\d+, not verified/;
 
 type Rec = Record<string, unknown>;
@@ -65,8 +63,6 @@ let rows: Row[] = [];
 let postReply: { status: number; body: Rec } | null = null;
 let deleteReply: { status: number; body: Rec } | null = null;
 let privateReply: { status: number; body: Rec } | null = null;
-// The landing strip ships hidden; the one test that starts from it serves the landing page with that one `hidden` removed.
-let landingStripShown = false;
 
 beforeAll(async () => {
   const found = resolveChromium(null, process.env.UAT_CHROMIUM_PATH, chromium.executablePath(), existsSync);
@@ -103,14 +99,13 @@ beforeAll(async () => {
     if (!path.startsWith(`${SITE}/`)) return new Response("Not found", { status: 404 });
     const file = Bun.file(path);
     if (!await file.exists()) return new Response("Not found", { status: 404 });
-    if (landingStripShown && path === join(SITE, "index.html")) return new Response(withStripShown(await file.text()), { headers: { "content-type": "text/html; charset=utf-8" } });
     return new Response(file);
   } });
   origin = `http://127.0.0.1:${server.port}`;
   browser = await chromium.launch({ headless: true, executablePath: found.path });
 });
 afterAll(async () => { await browser?.close(); server?.stop(); });
-beforeEach(() => { seen.length = 0; rows = [OTHER]; postReply = null; deleteReply = null; privateReply = null; landingStripShown = false; });
+beforeEach(() => { seen.length = 0; rows = [OTHER]; postReply = null; deleteReply = null; privateReply = null; });
 
 const apiSeen = () => seen.filter((s) => s.path === "/api/maps" || s.path === "/api/maps/delete");
 const posts = (path = "/api/maps") => seen.filter((s) => s.method === "POST" && s.path === path);
@@ -783,29 +778,23 @@ async function runServedMapper(): Promise<string> {
   return `${origin}/maps/${printed.slice(SHARE_BASE.length)}`;
 }
 
-test("[integration] 12 M1 landing to own row on the board in four actions or fewer, with the real served mapper as the terminal step", async () => {
+test("[integration] 12 M1 the served mapper's printed link to own row on the board in three actions or fewer, with the real served mapper as the first step", async () => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
-  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
-  landingStripShown = true;
   const page = await context.newPage();
   await page.route("**/*", (route) => route.request().url().startsWith(`${origin}/`) ? route.continue() : route.abort());
   let actions = 0;
   try {
-    await page.goto(`${origin}/`, { waitUntil: "domcontentloaded" });
-    await page.locator("#tmCopy").click(); actions += 1;
-    expect(await page.locator("#tmCommand").innerText()).toBe(COMMAND);
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(COMMAND);
-    // Action 2: paste into a terminal. The copied command's script is fetched from the served site and run for real.
+    // Action 1: run the served script in a terminal. It is fetched from the served site and run for real.
     actions += 1;
     const printed = await runServedMapper();
-    await page.goto(printed, { waitUntil: "load" }); actions += 1;
+    await page.goto(printed, { waitUntil: "load" }); actions += 1; // action 2: open the printed link
     expect(await page.locator("#mapAlias").inputValue()).toMatch(/^builder-[a-z0-9]{4}$/);
     expect(await page.locator('#mapFields [data-field="sessions"]').getAttribute("data-value")).toBe("1");
     expect(await page.locator('#mapFields [data-field="caps.short"]').getAttribute("data-value")).toBe("1");
-    await page.locator("#mapShare").click(); actions += 1;
+    await page.locator("#mapShare").click(); actions += 1; // action 3: Share
     await page.locator("#mapBoard .map-row.mine").waitFor();
     console.log(`M1 actions=${actions}`);
-    expect(actions).toBeLessThanOrEqual(4);
+    expect(actions).toBeLessThanOrEqual(3);
   } finally { await context.close(); }
 }, 60000);
 

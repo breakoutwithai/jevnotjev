@@ -2523,7 +2523,7 @@ for (const motion of MOTIONS) for (const [width, height] of VIEWPORTS) test(`[in
       return { inView: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, topFifth: r.top < innerHeight / 5, hit: hit === node || node.contains(hit), y: scrollY, shown: getComputedStyle(node).visibility === "visible" };
     });
     expect({ width, motion, ...view }).toEqual({ width, motion, inView: true, topFifth: true, hit: true, y: 0, shown: true });
-    // On the closed curtain it sits in the right half, beside the House lights chip.
-    if (motion === "no-preference") expect(await link.evaluate((node) => { const r = node.getBoundingClientRect(); return (r.left + r.right) / 2 > innerWidth / 2; })).toBe(true);
+    // Top right: its right edge is past 55% of the width on the closed curtain (beside the House lights chip) and in the house bar (next to Go to the ticket office).
+    expect(await link.evaluate((node) => node.getBoundingClientRect().right > innerWidth * 0.55)).toBe(true);
   } finally { await page.close(); }
 }, 30000);

@@ -38,8 +38,12 @@ button { font: inherit; cursor: pointer; }
 }
 .jump a:focus { left: 8px; }
 
-/* header: the headline only (operator decision: no intro paragraph, no tags) */
+/* header: the headline, one plain sentence and the one labelled next step (#309: what the page does and what to press,
+   with no scroll); still no tags */
 .playbill { margin-bottom: 18px; }
+.lede { margin: 10px 0 0; max-width: 62ch; font: 500 17px/1.4 var(--tm-sans); color: var(--parch); }
+.lede-act { margin: 12px 0 0; }
+.get-prompt { display: inline-flex; align-items: center; min-height: 44px; }
 .eyebrow { margin: 0; font: 700 12px/1 var(--tm-sans); letter-spacing: .24em; text-transform: uppercase; color: var(--brass); }
 h1 { margin: 4px 0 0; font: 800 clamp(26px, 3.6vw, 44px)/1.08 var(--serif); color: var(--parch); }
 h1 em { color: var(--brass); font-style: italic; }

@@ -36,22 +36,6 @@ p { margin: 12px 0; }
 .button { display: block; background: var(--curtain); color: #fff8e9; padding: 14px 16px; font: 700 15px/1.5 var(--sans); text-decoration: none; }
 .button span { float: right; }
 .condition { color: var(--muted); font: 13px/1.6 var(--sans); margin: 14px 0 0; }
-.section-heading { margin: 54px 0 24px; text-align: center; }
-.section-heading > p:last-child { color: var(--muted); font: 14px/1.5 var(--sans); }
-.acts { list-style: none; margin: 0; padding: 0; }
-.acts > li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; padding: 32px 0; border-bottom: 1px solid var(--line); }
-.act-copy { max-width: 44ch; }
-.miniature { margin: 0; padding: 18px; background: #fffaf0; border: 1px solid var(--line); box-shadow: 6px 6px 0 var(--paper); font: 13px/1.5 var(--sans); }
-.miniature figcaption { font-size: 11px; color: var(--muted); margin-bottom: 14px; }
-.mini-tabs { color: var(--curtain); font-weight: 700; border-bottom: 3px solid var(--curtain); padding-bottom: 10px; margin-bottom: 14px; }
-.mini-field, .answer-pair > span { padding: 10px; border: 1px solid var(--line); margin-bottom: 10px; }
-.answer-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-.mini-action { display: inline-block; padding: 8px 12px; background: var(--curtain); color: #fff8e9; margin-top: 4px; font-weight: 700; }
-.secondary { background: var(--paper); color: var(--ink); }
-.mini-download { display: block; margin-top: 10px; color: var(--curtain); }
-.case-lines { margin: 20px 0; }
-.case-lines i { display: block; background: var(--paper); height: 7px; margin: 9px 0; }
-.case-lines i:last-child { width: 70%; }
 .destinations { padding: 22px 0; font: 15px/1.7 var(--sans); }
 .destinations h2 { font: 700 22px/1.4 var(--serif); }
 .docs-note { font: 14px/1.7 var(--sans); border-left: 3px solid var(--brass); padding-left: 18px; margin: 10px 0 32px; }
@@ -70,8 +54,7 @@ footer { font: 13px/1.7 var(--sans); color: var(--muted); padding-bottom: 40px; 
 @media (max-width: 640px) {
   .site-header, main, footer { padding: 18px; }
   .welcome { margin-top: 14px; }
-  .entry-paths, .acts > li { grid-template-columns: minmax(0, 1fr); }
-  .acts > li { gap: 16px; padding: 26px 0; }
+  .entry-paths { grid-template-columns: minmax(0, 1fr); }
   .entry { padding: 20px; }
   .reference-body { padding: 10px 16px 24px; }
 }

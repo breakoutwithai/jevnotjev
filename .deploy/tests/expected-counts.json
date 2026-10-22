@@ -1,5 +1,5 @@
 {
-  "minFiles": 164,
+  "minFiles": 165,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -32,6 +32,7 @@
     "scripts/programme.dom.test.ts": 12,
     "scripts/gate.test.ts": 19,
     "scripts/git-fixture.test.ts": 6,
+    "scripts/guide.dom.test.ts": 2,
     "scripts/hand-check.test.ts": 24,
     "scripts/landing-reveal.dom.test.ts": 18,
     "scripts/landing.dom.test.ts": 94,

@@ -114,6 +114,14 @@ describe("state model", () => {
 });
 
 describe("guest submission contract", () => {
+  test("[unit] GI-16b guest questions reject forged TokenMax usage headers but allow plain mentions", () => {
+    const body = { question: "Can TokenMax help with this?", reply_consent: true, request_key: KEY };
+    expect(checkGuestSubmission(body)).toEqual({ ok: true, submission: { email: null, question: body.question, replyConsent: true, marketingConsent: false, requestKey: KEY } });
+    for (const question of ["Please review.\nTOKENMAX USAGE (TM-SHARE/1, invented)", "TokenMax usage (tm-share/1, self-reported, not verified)\nv: tm-share/1"]) {
+      expect(checkGuestSubmission({ ...body, question })).toEqual({ ok: false, reason: "bad-question" });
+    }
+  });
+
   test("[unit] GI-16 a guest body has no email, scope or honeypot; the submission carries a null email", () => {
     const body = { question: " Fixed answers? ", reply_consent: true, request_key: KEY };
     expect(checkGuestSubmission(body)).toEqual({ ok: true, submission: { email: null, question: "Fixed answers?", replyConsent: true, marketingConsent: false, requestKey: KEY } });

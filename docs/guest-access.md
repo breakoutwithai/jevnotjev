@@ -99,6 +99,34 @@ A failed call returns `{ "error": { "code": ..., "status": ... } }`; `status` is
 | `network-error` | The origin could not be reached |
 | `http-error` | Any other non-2xx reply without a known code |
 
+## Remote connector (guest)
+
+Claude's hosted apps (Cowork, desktop, web) cannot run the stdio adapter, so the same three tools are also served over MCP Streamable HTTP at `https://jevnotjev.breakoutwithai.com/api/v1/guest/mcp` (`src/guest-intake/guest-mcp-http.ts`, #362). Tool names, schemas and annotations are the stdio adapter's, from one definition (`createGuestServer` in `mcp.ts`). Each tool calls the guest routes inside the server with the guest already verified, so the token is never forwarded anywhere. Status: built and tested locally; not deployed, and no real hosted-app connection has been made yet.
+
+- **Auth:** `Authorization: Bearer jng_...`, your guest token, checked by the same code as `/api/v1/guest/questions` on every request (hash lookup, expiry, revoke), again after the body is read and again before a submission is stored. No token, an operator `jna_` or decide `jnj_` token, an expired, revoked or rotated-away token, or a session cookie is 401 `{ "code": "unauthenticated" }` with `WWW-Authenticate: Bearer realm="jevnotjev-guest"`. The remote guest endpoint has no OAuth, so the challenge carries no `resource_metadata` and the connector uses *No sign-in* with a header.
+- **Your rows only:** list and read return only questions sent with your token; another guest's id or an `/ask/` id is 404 `not-found`. Question text and email are never returned.
+- **Origin and Host:** an `Origin` header, when sent, must be `https://jevnotjev.breakoutwithai.com`, else 403 `origin-refused`; no `Origin` passes. Whether Claude's hosted apps send an Origin header to the guest endpoint is not verified: if they send their own web origin, every call is 403 until that origin is allowed. The Host must be the configured origin's host, else 403 `host-refused`.
+- **Transport:** stateless (no `Mcp-Session-Id`), JSON responses, MCP protocol `2025-11-25`. `GET` and `DELETE` are 405 `Allow: POST`.
+- **Limits:** request body 64 KiB (nginx's `/api/v1/` cap), 408 `body-timeout` if it is not complete within 5 seconds, response 256 KiB, 30 seconds per request counted from when it arrives. Submissions share the per-network limit of the HTTP route (`rate-limited`, 429). Tool results have your token replaced with `[redacted]`. Logs carry event, request id, token id, tool name, question id and reason; never a token, question text or a request key.
+- **Deploy:** none beyond the server. nginx already forwards `location ^~ /api/v1/` to the server (`.deploy/backstage-nginx.conf`), so the path needs no nginx change.
+
+### Add it in Claude (Cowork, desktop, web)
+
+1. Customize > Connectors > Add custom connector.
+2. Name: `jevnotjev-guest`. MCP server URL: `https://jevnotjev.breakoutwithai.com/api/v1/guest/mcp`.
+3. Authentication: **No sign-in**.
+4. Request headers: name `authorization`, value `Bearer <jng_ token>` (the scheme is part of the value). Claude stores it and does not show it again.
+5. In a chat, ask it to list your questions. `list_my_questions` and `get_my_question` are marked read-only; `submit_question` is not.
+
+### Add it to Claude Code over HTTP
+
+```sh
+( printf 'Paste the guest token, then Enter: '; read -rs T; echo
+  claude mcp add --transport http jevnotjev-guest --scope user https://jevnotjev.breakoutwithai.com/api/v1/guest/mcp --header "Authorization: Bearer $T" )
+```
+
+This writes the header, token included, into Claude Code's user config file. On a machine with a checkout, the stdio adapter above keeps the token in a 0600 env file instead. After a rotation or revoke, edit the connector's `authorization` header (or re-run `claude mcp add`) with the new token.
+
 ## Operator access (#282)
 
 The operator's own agent can list, read and answer submitted `/ask/` questions through a second stdio MCP server, `src/guest-intake/admin-mcp.ts` (server name `jevnotjev-admin`), using an operator token. It is not for guests. Status: built and tested locally; not deployed, so no operator token exists until the operator deploys and mints one.

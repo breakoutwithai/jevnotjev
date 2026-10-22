@@ -14,6 +14,7 @@
 // exchange at TIMEOUT_MS. A failure is { error: { code, status? } } with a fixed code or the server's own code; no
 // result or error carries the token, and a response that contains it has it replaced with [redacted].
 // This module makes no model call and starts no process. stdout carries MCP only.
+// createGuestServer holds the tool definitions; the remote endpoint (guest-mcp-http.ts, #362) serves the same server.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -259,8 +260,23 @@ export function createGuestMcp(opts: GuestMcpOptions): McpServer {
     requestBytesMax: REQUEST_BYTES_MAX,
     responseBytesMax: RESPONSE_BYTES_MAX,
   });
-  const run = createTokenRunner(opts.env, TOKEN_ENV, TOKEN_PATTERN, "a guest token: expected jng_ and 43 base64url characters");
+  const tokenRun = createTokenRunner(opts.env, TOKEN_ENV, TOKEN_PATTERN, "a guest token: expected jng_ and 43 base64url characters");
+  return createGuestServer((_tool, _id, fn) => tokenRun((token) => fn((method, path, payload) => request(token, method, path, payload))));
+}
 
+/** One guest route request: a path under /api/v1/guest/questions, the parsed 2xx body, or a thrown Refusal(code, status). */
+export type GuestSend = (method: "GET" | "POST", path: string, payload?: Readonly<Record<string, unknown>>) => Promise<unknown>;
+
+export type GuestToolName = "get_my_question" | "list_my_questions" | "submit_question";
+
+/**
+ * Runs one tool body with a sender. The adapter owns the credential, the transport and the error mapping: the stdio
+ * adapter sends over HTTPS with the env token, the remote endpoint (guest-mcp-http.ts) calls the guest routes in process.
+ */
+export type GuestToolRunner = (tool: GuestToolName, id: string | undefined, fn: (send: GuestSend) => Promise<unknown>) => Promise<ToolResult>;
+
+/** The three guest tools, defined once for both adapters: names, schemas, annotations and result shapes. */
+export function createGuestServer(run: GuestToolRunner): McpServer {
   const server = new McpServer({ name: "jevnotjev-guest", version: "1.0.0" });
 
   server.registerTool(
@@ -280,10 +296,10 @@ export function createGuestMcp(opts: GuestMcpOptions): McpServer {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (a): Promise<ToolResult> =>
-      run(async (token) =>
+      run("submit_question", undefined, async (send) =>
         shaped(
           SUBMITTED,
-          await request(token, "POST", QUESTIONS_PATH, {
+          await send("POST", QUESTIONS_PATH, {
             question: a.question,
             reply_consent: true,
             ...(a.marketing_consent !== undefined ? { marketing_consent: a.marketing_consent } : {}),
@@ -301,8 +317,8 @@ export function createGuestMcp(opts: GuestMcpOptions): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (a): Promise<ToolResult> =>
-      run(async (token) => {
-        const read = shaped(READ, await request(token, "GET", `${QUESTIONS_PATH}/${a.id}`));
+      run("get_my_question", a.id, async (send) => {
+        const read = shaped(READ, await send("GET", `${QUESTIONS_PATH}/${a.id}`));
         if (read.id !== a.id) throw new Refusal("invalid-response");
         return read;
       }),
@@ -315,7 +331,7 @@ export function createGuestMcp(opts: GuestMcpOptions): McpServer {
       inputSchema: z.strictObject({}),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async (): Promise<ToolResult> => run(async (token) => shaped(LISTED, await request(token, "GET", QUESTIONS_PATH))),
+    async (): Promise<ToolResult> => run("list_my_questions", undefined, async (send) => shaped(LISTED, await send("GET", QUESTIONS_PATH))),
   );
 
   return server;

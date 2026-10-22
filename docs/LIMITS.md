@@ -14,6 +14,7 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - An agent label that nobody reviewed is never counted as truth. [Source](../format/README.md) <!-- claim: agent-labels -->
 - The results page shows labels and costs as recorded in the file and does not check how they were produced. [Source](../scripts/result-view.ts) <!-- claim: labels-as-recorded -->
 - Decisions API answers are recorded, but the verdict reads Jev, the LLM and the rule only. [Source](../format/README.md) <!-- claim: decisions-arm -->
+- On the TokenMax page, Jev is shown as an example in rehearsal and has not been run on your usage. [Source](../site/tm/index.html) <!-- claim: tm-jev-rehearsal -->
 
 ## 2. Evidence required
 
@@ -31,10 +32,17 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - The release check does not exercise the HTTP surface. With `--url` it compares only the static site's `/DEPLOYED_SHA` to the candidate commit and does not check the backend or any other module. [Source](RELEASE-v0.1.0.md) <!-- claim: release-no-http -->
 - Google sign-in for Backstage and paid comparisons are deferred beyond v0 (issue #77). [Source](RELEASE-v0.1.0.md) <!-- claim: backstage-deferred -->
 - The admin page, API and MCP connector have been exercised only by the operator and by scripted tests, not by an outside user. [Source](RELEASE-v0.1.0.md) <!-- claim: admin-exercised -->
+- The TokenMax prompt asks your assistant about Claude Code and Codex history only; other assistants are not asked about. [Source](../site/tm/index.html) <!-- claim: tm-claude-codex -->
+- The TokenMax page reads one week at a time: a Sessions per day line that is not exactly seven numbers shows as not recorded. [Source](../src/browser/tm-week.ts) <!-- claim: tm-one-week -->
 - The remote admin MCP connector uses a bearer token today; OAuth sign-in is planned and not built yet. [Source](guest-access.md) <!-- claim: connector-bearer -->
+- Whether a Claude app sends an Origin header to the remote admin MCP connector is not verified; if it sends its own web origin, every call is refused with 403 until that origin is allowed. [Source](guest-access.md) <!-- claim: connector-origin -->
+- A reply sent with emoji as JSON surrogate-pair escapes takes twelve bytes a character, so an all-emoji reply within the 8,000-character limit can still be refused with 413 by the 64 KiB request cap; how Claude's client encodes a reply over the remote connector is not verified. [Source](guest-access.md) <!-- claim: reply-escapes -->
+- The remote guest MCP endpoint uses a guest bearer token and has no OAuth; whether Claude's hosted apps send an Origin header to it is not verified. [Source](guest-access.md) <!-- claim: guest-connector -->
 - No consented outside user's own run from start to verdict is documented yet; the next step is to invite one and document it. [Source](RELEASE-v0.1.0.md) <!-- claim: no-outside-run -->
 - A remote admin MCP request can run past its 30-second deadline by a database lock wait; a call whose client disconnects still runs until it completes or reaches the deadline, and a reply answered 504 may still have been stored. [Source](guest-access.md) <!-- claim: admin-deadline -->
 - The admin token header must spell the scheme `Bearer`; `bearer` or `BEARER` is refused. [Source](guest-access.md) <!-- claim: bearer-scheme -->
+- The TokenMax week map shows only the block you paste back from your own Claude Code or Codex after running its prompt; every number on the page comes from that block. [Source](../src/browser/tm-week.ts) <!-- claim: tm-pasted -->
+- On the TokenMax week map, a line your assistant could not fill, or one the page cannot read, is shown as not recorded; nothing is invented in its place. [Source](../src/browser/tm-week.ts) <!-- claim: tm-not-recorded -->
 
 ## 4. Data and trust
 
@@ -54,3 +62,10 @@ What a Jev!Jev verdict covers, what it needs, and what is not supported or teste
 - An operator token is not bound to one endpoint: the same token works on the admin API and the remote admin MCP connector. [Source](guest-access.md) <!-- claim: token-audience -->
 - Admin routes run before the server's concurrency slot and have no per-IP rate limit. [Source](guest-access.md) <!-- claim: admin-rate-limit -->
 - A question's text is untrusted: it can instruct the operator's agent to copy other visitors' emails or questions into a reply its sender reads, so the operator reads each reply before approving it. [Source](guest-access.md) <!-- claim: visitor-text -->
+- On the TokenMax page, reading a pasted week and Show my week happen in your browser; nothing is sent until you press Submit. [Source](../site/tm/index.html) <!-- claim: tm-browser -->
+- Submit sends the numbers mapped from your pasted block, a nickname you choose and a generated request key to the public board at /maps/, and the nickname is public. [Source](../site/tm/index.html) <!-- claim: tm-submit-sends -->
+- The board shows a submitted TokenMax week as self-reported and not verified; the numbers come from your own assistant's pasted block. [Source](../site/tm/index.html) <!-- claim: tm-self-reported -->
+- Submit is refused when a required line is not recorded or a number cannot be held, with a message naming the line. [Source](../src/browser/tm-submit.ts) <!-- claim: tm-submit-refused -->
+- The TokenMax page keeps the delete key and retry key only in its own memory, not in browser storage, and removes an older key an earlier version stored there; the server keeps the submitted row with no automatic deletion date until its delete link is used. [Source](../site/tm/index.html) <!-- claim: tm-storage -->
+- If you reload or close the TokenMax page, it no longer has the key that removes your entry, and pressing Submit again sends a new key and can add a second row. [Source](../site/tm/index.html) <!-- claim: tm-key-lost -->
+- A TokenMax Submit on a stalled or failed connection may or may not have reached the board; pressing Submit again on the same page for the same result and nickname does not add a second row. [Source](../src/browser/tm-run.ts) <!-- claim: tm-stalled -->

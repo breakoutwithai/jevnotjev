@@ -415,6 +415,24 @@ test("[integration] TM-39 a nickname with capitals, spaces or symbols is normali
   } finally { await close(page); }
 }, 40000);
 
+test("[integration] TM-41 the box does not cut typed text before normalising: leading symbols do not eat the name, and over-long names are refused, not truncated", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    const sent = await stubMaps(page, (item) => stored(keyOf(item)));
+    await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+    await page.locator("#aliasBox").pressSequentially("!".repeat(24) + "Pam");
+    await page.locator("#submitWeek").click();
+    await page.waitForFunction(() => document.getElementById("submitted")?.hidden === false);
+    expect(sent.map((s) => (s.body && typeof s.body === "object" && "alias" in s.body ? s.body.alias : null))).toEqual(["pam"]);
+    await page.locator("#aliasBox").fill("");
+    await page.locator("#aliasBox").pressSequentially("a".repeat(30));
+    expect(await page.evaluate(() => (document.getElementById("aliasBox") as HTMLInputElement).value.length)).toBe(30);
+    await page.locator("#submitWeek").click();
+    expect(await page.evaluate(() => ({ error: document.getElementById("aliasError")?.hidden, invalid: document.getElementById("aliasBox")?.getAttribute("aria-invalid") }))).toEqual({ error: false, invalid: "true" });
+    expect(sent.length).toBe(1);
+  } finally { await close(page); }
+}, 40000);
+
 test("[integration] TM-38 a delete key left in localStorage by the earlier build is removed when the page starts", async () => {
   const page = await open(390, 844, "reduce");
   try {

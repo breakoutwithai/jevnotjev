@@ -687,17 +687,6 @@ async function closedScreenHits(page: Page): Promise<string[]> {
 }
 
 /** Whether the topmost element at the centre of the selector's box is that element (or inside it). */
-/** For inline text that wraps (the band's trust line): the pointer at the middle of each of its line boxes reaches it. */
-async function hitsEveryLine(page: Page, selector: string): Promise<boolean> {
-  return page.locator(selector).evaluate((node) => {
-    const rects = [...node.getClientRects()].filter((q) => q.width > 0 && q.height > 0);
-    return rects.length > 0 && rects.every((q) => {
-      const hit = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2);
-      return hit === node || node.contains(hit);
-    });
-  });
-}
-
 async function hitsItself(page: Page, selector: string): Promise<boolean> {
   return page.locator(selector).evaluate((node) => {
     const box = node.getBoundingClientRect();

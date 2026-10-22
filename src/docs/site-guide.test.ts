@@ -552,7 +552,7 @@ describe("in-product first-use guide (D18)", () => {
       expect(entries).toContain(label);
     }
     expect(glossaryEntries.get("Send feedback")).toContain("in Backstage it opens a new issue on the project's GitHub");
-    expect(glossaryEntries.get("Send feedback")).toContain("on the home page and this guide it opens an email to the Jev!Jev team");
+    expect(glossaryEntries.get("Send feedback")).toContain("on the home page, this guide and the TokenMax page it opens a short feedback form");
   });
 
   // l02 (persona swarm 2026-10-12): Backstage controls and captions a tester met with no glossary entry.

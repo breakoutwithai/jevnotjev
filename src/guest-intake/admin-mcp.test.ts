@@ -132,7 +132,7 @@ describe("admin MCP tools against the real admin API", () => {
     const client = await inProcess({ [ADMIN_TOKEN_ENV]: b.admins.mint("Operator").token }, b.send);
     const list = await call(client, "list_questions");
     expect(list.isError).toBe(false);
-    expect(list.body).toEqual({ total: 1, questions: [{ id, state: "pending_review", created_at: expect.any(String), updated_at: expect.any(String), version: 1 }] });
+    expect(list.body).toEqual({ total: 1, questions: [{ id, kind: "question", state: "pending_review", created_at: expect.any(String), updated_at: expect.any(String), version: 1 }] });
     expect(list.text).not.toContain(MARKER);
     const got = await call(client, "get_question", { id });
     expect(got.body).toMatchObject({ id, question: `Which fixed answers fit? ${MARKER}`, email: EMAIL, state: "pending_review", version: 1, response: null });

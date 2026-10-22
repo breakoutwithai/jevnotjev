@@ -25,6 +25,8 @@ body {
 button { font: inherit; cursor: pointer; }
 :focus-visible { outline: 3px solid var(--gold-l); outline-offset: 3px; }
 .page { max-width: 1240px; margin: 0 auto; padding: 14px 20px 28px; }
+.tm-feedback { margin-top: 18px; text-align: center; font: 600 14px var(--tm-sans); }
+.tm-feedback a { display: inline-flex; align-items: center; min-height: 28px; padding: 0 6px; color: var(--gold-l); }
 .program-link { display: flex; width: fit-content; margin: 0 0 8px auto; align-items: center; min-height: 28px; padding: 2px 10px; border: 1px solid var(--brass); background: var(--stage); color: var(--gold-l); font: 700 13px/1.2 var(--tm-sans); letter-spacing: .06em; text-decoration: none; }
 [hidden] { display: none !important; }
 

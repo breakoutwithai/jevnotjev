@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Send Jev!Jev feedback</title>
+<meta name="description" content="Tell us what worked, what broke or what was confusing. A person reads every message. No account needed.">
+<link rel="stylesheet" href="../page.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya:ital,wght@0,400;0,500;0,700;0,800;1,400;1,500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../ask/ask.css">
+<script src="feedback.js" defer></script>
+</head>
+<body>
+<main>
+<p><a href="/" id="feedbackBack">Back to Jev!Jev</a></p>
+<h1>Send feedback</h1>
+<p class="lede">Tell us what worked, what broke or what was confusing. A person reads every message.</p>
+<ul class="facts">
+  <li>No account needed. Your email is optional.</li>
+  <li>Nothing is sent to a model provider and no Jev run happens.</li>
+  <li>Do not include passwords, API keys or private client data.</li>
+</ul>
+
+<form class="ask-form" id="feedbackForm" novalidate>
+  <div class="field">
+    <label for="feedbackMessage">Your feedback</label>
+    <p class="hint" id="feedbackMessageHint">Up to 4,096 characters.</p>
+    <textarea id="feedbackMessage" name="message" rows="7" maxlength="4096" required aria-describedby="feedbackMessageHint feedbackMessageErr"></textarea>
+    <p class="err" id="feedbackMessageErr" hidden>Write your feedback first (up to 4,096 characters).</p>
+  </div>
+  <div class="field">
+    <label for="feedbackEmail">Your email (optional)</label>
+    <p class="hint" id="feedbackEmailHint">Only if you would like a person to reply. Kept private on our own server and not checked.</p>
+    <input id="feedbackEmail" name="email" type="email" autocomplete="email" maxlength="254" aria-describedby="feedbackEmailHint feedbackEmailErr">
+    <p class="err" id="feedbackEmailErr" hidden>Enter an email address like name@example.com, or leave it empty.</p>
+  </div>
+  <div class="field">
+    <label for="feedbackPage">Which page were you on? (optional)</label>
+    <input id="feedbackPage" name="page" type="text" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="feedbackPageErr">
+    <p class="err" id="feedbackPageErr" hidden>Use a short page name such as home, guide or tm.</p>
+  </div>
+  <div class="trap" inert aria-hidden="true">
+    <label for="feedbackNickname">Leave this empty</label>
+    <input id="feedbackNickname" name="nickname" type="text" tabindex="-1" autocomplete="off">
+  </div>
+  <p class="err" id="feedbackFormErr" role="alert" hidden></p>
+  <button id="feedbackSubmit" type="submit">Send feedback</button>
+  <p class="hint">Stored in our own database; no retention period has been set yet. <a href="/privacy/#feedback">How we handle data</a>.</p>
+</form>
+
+<section class="receipt" id="feedbackReceipt" aria-labelledby="feedbackReceiptTitle" tabindex="-1" hidden>
+  <h2 id="feedbackReceiptTitle">Thank you: saved</h2>
+  <p>Reference <strong id="feedbackRef"></strong>. A person reads it; no reply time is promised.</p>
+  <p>To have it deleted, email <a href="mailto:jev@breakoutwithai.com">jev@breakoutwithai.com</a> quoting only the reference above; a person deletes it by hand.</p>
+</section>
+</main>
+</body>
+</html>

@@ -279,7 +279,7 @@ describe("remote admin MCP tools over Streamable HTTP", () => {
     const minted = b.admins.mint("Operator");
     const client = await sdkClient(b, minted.token);
     const list = await call(client, "list_questions");
-    expect(list.body).toEqual({ total: 1, questions: [{ id, state: "pending_review", created_at: expect.any(String), updated_at: expect.any(String), version: 1 }] });
+    expect(list.body).toEqual({ total: 1, questions: [{ id, kind: "question", state: "pending_review", created_at: expect.any(String), updated_at: expect.any(String), version: 1 }] });
     expect(list.text).not.toContain(MARKER);
     const got = await call(client, "get_question", { id });
     expect(got.body).toMatchObject({ id, question: `Fixed choices or open help? ${MARKER}`, email: EMAIL, state: "pending_review", version: 1, response: null });

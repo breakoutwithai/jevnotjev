@@ -6,7 +6,7 @@ import { MIN_PAIRED, verdict } from "../core/verdict.ts";
 import { groupCohorts, metricsOfCohortRows } from "../core/metrics.ts";
 import { validate } from "../format/validate.ts";
 import { evaluateText } from "../browser/results-loader.ts";
-import { RUN_SOURCES, parseRun, tallyThrough, usd, type ReplayRun, type RunSource } from "./replay.ts";
+import { RUN_SOURCES, parseRun, runVerdicts, tallyThrough, usd, usdSignificant, points, type ReplayRun, type RunSource } from "./replay.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const HEADER = "format_version,run_id,prompt_version,case_id,case_input,question_id,question,answer_set,answerer,answerer_model,output,confidence,label,label_source,tokens_in,tokens_out,cost_usd,latency_ms";
@@ -271,5 +271,45 @@ describe("replay evidence (src/evidence/replay.ts)", () => {
       expect(want.length).toBeGreaterThan(0);
       expect(run.pairs.map((p) => [p.runId, p.promptVersion, p.questionId, p.other, p.n])).toEqual(want);
     }
+  });
+});
+
+describe("replay verdict (src/evidence/replay.ts runVerdicts)", () => {
+  test("[unit] RP-V1 the 100-case run's verdict is use Jev with the recorded cost per accepted answer", async () => {
+    const s = source("uc13-100");
+    const [v] = await runVerdicts(await readFile(join(ROOT, s.file), "utf8"));
+    expect(v?.verdict).toBe("use Jev");
+    expect(v?.costPerAccepted.map((c) => [c.method, c.accepted, c.text])).toEqual([["llm", 86, "$0.000189"], ["rule", 49, "$0"], ["jev", 88, "$0.0000373"]]);
+  });
+  test("[unit] RP-V2 usdSignificant keeps three significant figures below a millionth of a dollar", () => {
+    expect([usdSignificant(0.0000373229), usdSignificant(0.000189016), usdSignificant(0.0027149), usdSignificant(0)]).toEqual(["$0.0000373", "$0.000189", "$0.00271", "$0"]);
+    expect(usdSignificant(1e-100)).toBe("$1.00e-100");
+    expect([usdSignificant(12.3456), usdSignificant(1.005e-7), usdSignificant(2500.4)]).toEqual(["$12.3", "$1.01e-7", "$2500"]);
+  });
+  test("[unit] RP-V3 the accept-rate gap is shown in points from the same interval verdict() uses", async () => {
+    expect([points(-0.043), points(0.0123), points(0)]).toEqual(["-4.3 points", "+1.2 points", "0.0 points"]);
+    const [v] = await runVerdicts(await readFile(join(ROOT, source("uc13-100").file), "utf8"));
+    expect(v?.reason).toContain("lower bound -4.3 points");
+    expect(v?.reason).not.toContain("-0.04");
+    expect(v?.gap).toContain("+2.0 points");
+  });
+});
+
+describe("replay verdict reasons state every accept-rate bound in points (src/evidence/replay.ts reasonInPoints)", () => {
+  async function reasonOf(name: string): Promise<string> {
+    const [v] = await runVerdicts(await readFile(join(ROOT, "examples", "d08-verdicts", `${name}.csv`), "utf8"));
+    return v?.reason ?? "";
+  }
+  test("[unit] RP-V4 rule-within-margin names the rule's bound and the threshold in points", async () => {
+    expect(await reasonOf("r2-rule-within-margin")).toBe("don't use Jev: the rule is within 10 points of Jev (lower bound of rule minus Jev -3.1 points, above -10.0 points, on 30 paired cases); a free rule does the job");
+  });
+  test("[unit] RP-V5 jev-clearly-worse and the not-enough-evidence accept-rate branch use points", async () => {
+    expect(await reasonOf("r2-jev-worse")).toBe("don't use Jev: Jev is clearly worse than the LLM (upper bound of Jev minus LLM -29.7 points, below -10.0 points)");
+    expect(await reasonOf("r4-accept-rate")).toBe("not enough evidence: Jev is not shown within 10 points of the LLM (lower bound of Jev minus LLM -11.0 points, not above -10.0 points)");
+  });
+  test("[unit] RP-V6 cost-ratio bounds stay ratios and rules 1 and 3 read as before", async () => {
+    expect(await reasonOf("r2-jev-dearer")).toBe("don't use Jev: Jev is clearly dearer (cost ratio 1.800, lower bound 1.600, above 1)");
+    expect(await reasonOf("r1-29-paired")).toBe("not enough evidence: 29 paired Jev and LLM cases, fewer than 30; add 1 more labelled case");
+    expect(await reasonOf("r3-use-jev")).toContain("(lower bound -3.1 points)");
   });
 });

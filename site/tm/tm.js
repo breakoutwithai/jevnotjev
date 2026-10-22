@@ -197,7 +197,7 @@
   function normaliseAlias(typed) {
     return typed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   }
-  var ALIAS_MESSAGE = "Choose a nickname of 3 to 24 lowercase letters, digits or hyphens.";
+  var ALIAS_MESSAGE = "Choose a nickname that is 3 to 24 letters, digits or hyphens once spaces and symbols are turned into hyphens.";
   var KEY_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
   var KEY_LENGTH = 32;
   var DAY_MS = 86400000;

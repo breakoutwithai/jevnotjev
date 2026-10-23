@@ -111,7 +111,3 @@
   .sk-out { gap: 8px; }
   .sk-sheet { gap: 7px; }
 }
-/* Four figures in one row only where each cell holds its longest number (1,240,500 at 17 px). */
-@media (min-width: 1200px) {
-  .sk-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}

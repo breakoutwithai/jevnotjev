@@ -4,11 +4,10 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 import { bannedHits } from "./uat/tm-the-run-check.ts";
-import { perWeekLine } from "../skills/tokenmax-map/scripts/map.ts";
 
 // The tokenmax-map skill surfaced on the home page and on /tm/ (operator request 2026-10-23): a two-half block, the
-// skill on the left (what it does, Copy the install prompt, the folder on GitHub) and an animated EXAMPLE of the
-// private report on the right. On /tm/ the long Submit consent paragraph becomes a "What does Submit send?" disclosure
+// skill on the left (what it does, Copy the install prompt, the folder on GitHub) and, on the right, one real
+// self-reported week from the public board (shared with permission) printing row by row. On /tm/ the long Submit consent paragraph becomes a "What does Submit send?" disclosure
 // with the same words, and the skill block sits where that paragraph sat, above "Rules first, Jev for the rest".
 
 const SITE = join(import.meta.dir, "..", "site");
@@ -20,7 +19,10 @@ const SKILL_URL = "https://github.com/breakoutwithai/jevnotjev/tree/main/skills/
 const INSTALL = `Install the tokenmax-map skill from ${SKILL_URL}: copy the folder to ~/.agents/skills/tokenmax-map, then link it into ~/.claude/skills/tokenmax-map for Claude Code and ~/.codex/skills/tokenmax-map for Codex (create a link only where that tool's folder exists). Then run a TokenMax audit of my last 8 weeks for both Claude Code and Codex and show me the private report.`;
 // The paragraph that sat under Show my week / Show Sample / Submit before this change, word for word.
 const CONSENT = "Pressing Submit sends the numbers from your result and your nickname to this site: days covered; sources (Claude, Codex or both, taken from which of your session counts are above 0); total sessions; subagent sessions (always 0); short cap hits (0), weekly cap hits (0), and unknown cap hits (your usage limit hits); Claude output tokens and Codex output tokens; Opus share of Claude output; Codex weekly window used; the format name tm-share/1; mapper version 0.0.0, which marks a pasted block; and a random request key that lets a repeat press be recognised. They appear on the public board at /maps/, shown as self-reported and not verified. Nothing is sent until you press Submit. Pressing Submit again on this page never adds a second row for the same result and nickname; after reloading or closing the page, pressing Submit sends a new key and can add a second row. This page keeps the delete key and retry key only in its own memory, not in browser storage. They are gone when the page is closed or reloaded.";
-// Section headings renderPrivate in skills/tokenmax-map/scripts/map.ts writes; the example shows a subset of them.
+// The private report the skill writes (renderPrivate), for what the sample panel says it leaves out.
+// The real week shown in the sample panel: one public board row, kept with its source URL and capture time (AGENTS.md:13).
+type SampleRow = { id: string; alias: string; day: string; days: number; sources: string; sessions: number; caps: { short: number; weekly: number; unknown: number }; output_tokens: { claude: number; codex: number }; opus_share_pct: number; codex_weekly_pct: number };
+const SAMPLE: { source: string; captured_at: string; row: SampleRow } = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "skill-sample-kingkong.json"), "utf8"));
 const MAP_TS = readFileSync(join(import.meta.dir, "..", "skills", "tokenmax-map", "scripts", "map.ts"), "utf8");
 
 const read = (rel: string): string => readFileSync(join(SITE, rel), "utf8");
@@ -80,31 +82,39 @@ test("[unit] SK-2 no curl one-liner, no bun run and no terminal wording on eithe
   for (const planted of ["Open your terminal and run bun run map", "curl -fsSL x", "npx tokenmax"]) expect(RUN_WORDS.test(planted)).toBe(true);
 });
 
-test("[unit] SK-3 the example report uses the headings and wording renderPrivate writes", () => {
-  for (const heading of ["TokenMax map: private report", "## Per week on average", "## Limits", "## Proposals (not measured savings)"]) expect(MAP_TS).toContain(heading);
+test("[unit] SK-3 the sample is the recorded board row: every shown figure comes from the fixture, labelled as a real self-reported week", () => {
+  const { source, captured_at: captured, row } = SAMPLE;
+  expect(source).toBe("https://jevnotjev.breakoutwithai.com/api/maps");
+  expect(captured).toMatch(/^2026-10-23T/);
+  const n = (v: number): string => v.toLocaleString("en-US");
+  const limitHits = row.caps.short + row.caps.weekly + row.caps.unknown;
+  const shown = [
+    `public board row ${row.id}`, `${row.alias}'s week`, `${row.days} days, shared ${row.day}. Sources: Claude Code and Codex.`,
+    `<dt>Sessions</dt><dd>${n(row.sessions)}</dd>`, `<dt>Claude output tokens</dt><dd>${n(row.output_tokens.claude)}</dd>`,
+    `<dt>Codex output tokens</dt><dd>${n(row.output_tokens.codex)}</dd>`, `<dt>Usage limit hits</dt><dd>${n(limitHits)}</dd>`,
+    `<th scope="row">Claude Code and Codex</th><td>${row.caps.short}</td><td>${row.caps.weekly}</td><td>${row.caps.unknown}</td>`,
+    `<span>Codex weekly window used</span><b>${row.codex_weekly_pct}%</b><i style="--v:${row.codex_weekly_pct}">`,
+    `<span>Opus share of Claude output</span><b>${row.opus_share_pct}%</b><i style="--v:${row.opus_share_pct}">`,
+    "A real week from an outside user (kingkong), self-reported, shared with permission",
+    "Not in this map: subagent sessions, the split by model and the proposals.",
+  ];
+  expect(row.sources).toBe("claude+codex");
   for (const rel of ["index.html", "tm/index.html"]) {
-    const html = read(rel);
-    expect({ rel, example: html.includes("EXAMPLE, invented numbers") }).toEqual({ rel, example: true });
-    for (const shown of ["TokenMax map: private report", "Per week on average", "Limits", "Proposals (not measured savings)", "Last Codex window reading", "of Claude output tokens"]) {
-      expect({ rel, shown, has: html.includes(shown) }).toEqual({ rel, shown, has: true });
-    }
-    expect({ rel, link: html.includes(`href="${SKILL_URL}"`) }).toEqual({ rel, link: true });
+    const block = skillBlock(read(rel));
+    for (const text of shown) expect({ rel, text, has: block.includes(text) }).toEqual({ rel, text, has: true });
+    // Every figure in the sheet is one the row carries: no invented or averaged value is left.
+    const figures = [...block.matchAll(/<(?:dd|td|b)>([^<]+)<\/(?:dd|td|b)>/g)].map((m) => m[1] ?? "");
+    const allowed = new Set([n(row.sessions), n(row.output_tokens.claude), n(row.output_tokens.codex), n(limitHits), String(row.caps.short), String(row.caps.weekly), String(row.caps.unknown), `${row.codex_weekly_pct}%`, `${row.opus_share_pct}%`]);
+    expect({ rel, stray: figures.filter((v) => !allowed.has(v)) }).toEqual({ rel, stray: [] });
+    expect({ rel, invented: /invented|EXAMPLE/.test(block), private: block.includes("private-report.md") }).toEqual({ rel, invented: false, private: false });
+    expect({ rel, link: block.includes(`href="${SKILL_URL}"`) }).toEqual({ rel, link: true });
     // Claude Code and Codex both, never one tool alone.
-    expect({ rel, codexOnly: /run by Claude Code on|into Claude Code:|Claude Code skills folder/.test(html) }).toEqual({ rel, codexOnly: false });
+    expect({ rel, oneTool: /run by Claude Code on|into Claude Code:|Claude Code skills folder/.test(block) }).toEqual({ rel, oneTool: false });
   }
 });
 
-test("[unit] SK-3b the example's per-week numbers are what perWeekLine prints for its 8-week totals, and the period is 56 days", () => {
-  // 11 cap episodes (the Limits table: Claude Code 11, Codex 0) over 56 days; totals are the shown weekly figures x 8.
-  expect(perWeekLine({ days: 56, sessions: 768, claudeOutput: 9_924_000, codexOutput: 3_346_400, capHits: 11 })).toBe(
-    "Per week on average over 8 weeks (56 days): 96 sessions, 1,240,500 Claude output tokens, 418,300 Codex output tokens, 1.4 cap hits. Totals divided evenly by days / 7; not a measured week.");
-  expect((Date.UTC(2026, 9, 22) - Date.UTC(2026, 7, 28)) / 86_400_000 + 1).toBe(56);
-  for (const rel of ["index.html", "tm/index.html"]) {
-    const html = read(rel);
-    for (const shown of ["Period 2026-08-28 to 2026-10-22 (UTC)", "<dd>96</dd>", "<dd>1,240,500</dd>", "<dd>418,300</dd>", "<dd>1.4</dd>", '<th scope="row">Claude Code</th><td>11</td>', '<th scope="row">Codex</th><td>0</td>']) {
-      expect({ rel, shown, has: html.includes(shown) }).toEqual({ rel, shown, has: true });
-    }
-  }
+test("[unit] SK-3b the private report the skill writes does carry what the sample leaves out (split by model, proposals)", () => {
+  for (const heading of ["## Claude Code usage", "| Model | Messages | Input | Output |", "## Proposals (not measured savings)"]) expect(MAP_TS).toContain(heading);
 });
 
 test("[integration] SK-9 /tm/ without tm.js the consent text shows in place and the control stays hidden", async () => {
@@ -232,14 +242,16 @@ test("[integration] SK-8 /tm/ What does Submit send? opens on focus, on click an
   }
 }, 40000);
 
-for (const [width, height] of [[900, 900], [1024, 768], [1200, 900], [1440, 900]] as const) test(`[integration] SK-10 every report figure stays inside its cell at ${width}`, async () => {
+for (const [width, height] of [[900, 900], [1024, 768], [1200, 900], [1440, 900]] as const) test(`[integration] SK-10 every sample figure stays inside its cell at ${width}`, async () => {
   for (const path of PAGES) {
     const page = await open(path, width, height, "reduce");
     try {
       const spill = await page.evaluate(() => [...document.querySelectorAll("#skillOut .sk-stats dd, #skillOut .sk-stats dt")].flatMap((el) => {
         const range = document.createRange(); range.selectNodeContents(el);
-        const text = range.getBoundingClientRect(), cell = (el.parentElement ?? el).getBoundingClientRect();
-        return text.right > cell.right + 0.5 || text.left < cell.left - 0.5 ? [el.textContent ?? ""] : [];
+        // Inside the cell's padding, not just its border.
+        const host = el.parentElement ?? el, text = range.getBoundingClientRect(), cell = host.getBoundingClientRect(), pad = getComputedStyle(host);
+        const right = cell.right - parseFloat(pad.paddingRight) - parseFloat(pad.borderRightWidth), left = cell.left + parseFloat(pad.paddingLeft) + parseFloat(pad.borderLeftWidth);
+        return text.right > right + 0.5 || text.left < left - 0.5 ? [el.textContent ?? ""] : [];
       }));
       expect({ path, spill }).toEqual({ path, spill: [] });
     } finally { await close(page); }

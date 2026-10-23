@@ -1,0 +1,19 @@
+{
+  "note": "The real week shown in the tokenmax-map skill block (site/index.html, site/tm/index.html). One row of the public board, self-reported from a pasted /tm/ block, shown with the user's permission (operator decision 2026-10-23). scripts/skill-panel.dom.test.ts reads the shown values from this file.",
+  "source": "https://jevnotjev.breakoutwithai.com/api/maps",
+  "captured_at": "2026-10-23T08:52:23Z",
+  "row": {
+    "id": "TM-827AD26950DC",
+    "alias": "kingkong",
+    "day": "2026-10-23",
+    "skill": "0.0.0",
+    "days": 7,
+    "sources": "claude+codex",
+    "sessions": 588,
+    "subagent_sessions": 0,
+    "caps": { "short": 0, "weekly": 0, "unknown": 0 },
+    "output_tokens": { "claude": 19550000, "codex": 2280000 },
+    "opus_share_pct": 45,
+    "codex_weekly_pct": 27
+  }
+}

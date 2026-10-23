@@ -34,6 +34,7 @@
     var finish = function () {
       var hadFocus = box.contains(document.activeElement);
       box.classList.remove("rolling", "unroll", "peek");
+      if (scrollEl) scrollEl.inert = false;
       setState("rolled");
       if (hadFocus) { quiet = true; rolledLink.focus(); quiet = false; }
     };
@@ -53,28 +54,47 @@
   // Rolled scroll: it drops as an overlay under the button (theatre.css .peek), so nothing moves. Touch plays on touchstart
   // and never prevents the default, so the tap still follows the link. Reduced motion: no peek at all.
   var peekTimer = 0;
+  var holds = {}; // hover, focus and touch are tracked apart: the peek closes only when none of them is left
+  var scrollEl = box.querySelector(".programme-scroll");
   var quiet = false; // roll() moves focus to the button itself; that is not a visitor asking to peek
+  function held() { for (var k in holds) { if (holds[k]) return true; } return false; }
   function peekOn(fromLink) {
     if (still() || quiet) return;
     window.clearTimeout(peekTimer);
     var open = box.dataset.state === "open";
+    var rolled = box.dataset.state === "rolled";
+    // Remove, flush styles, then add: a peek that is already showing restarts instead of keeping its finished animation.
     box.classList.remove("peek");
     if (open && fromLink) box.classList.remove("unroll");
-    box.classList.add("peek");
-    if (box.dataset.state === "rolled") measure();
-    else if (open && fromLink) measure();
     void box.offsetWidth;
+    box.classList.add("peek");
+    // The rolled preview is a picture of the scroll: its links and button stay out of the tab order and the pointer's way.
+    if (scrollEl) scrollEl.inert = rolled;
+    if (rolled || (open && fromLink)) { void box.offsetWidth; measure(); }
     if (open && fromLink) box.classList.add("unroll");
   }
-  function peekOff() { window.clearTimeout(peekTimer); box.classList.remove("peek"); }
+  function peekOff() {
+    window.clearTimeout(peekTimer);
+    holds = {};
+    box.classList.remove("peek");
+    if (scrollEl) scrollEl.inert = false;
+  }
+  function release(key) { delete holds[key]; if (!held()) peekOff(); }
   function wire(el, fromLink) {
     if (!el) return;
-    el.addEventListener("pointerenter", function (e) { if (e.pointerType !== "touch") peekOn(fromLink); });
-    el.addEventListener("pointerleave", function (e) { if (e.pointerType !== "touch") peekOff(); });
-    el.addEventListener("focus", function () { peekOn(fromLink); });
-    el.addEventListener("blur", peekOff);
-    el.addEventListener("touchstart", function () { peekOn(fromLink); peekTimer = window.setTimeout(peekOff, 2600); }, { passive: true });
+    var id = el.id;
+    el.addEventListener("pointerenter", function (e) { if (e.pointerType !== "touch") { holds[id + ":hover"] = true; peekOn(fromLink); } });
+    el.addEventListener("pointerleave", function (e) { if (e.pointerType !== "touch") release(id + ":hover"); });
+    el.addEventListener("focus", function () { if (still() || quiet) return; holds[id + ":focus"] = true; peekOn(fromLink); });
+    el.addEventListener("blur", function () { release(id + ":focus"); });
+    el.addEventListener("touchstart", function () {
+      holds[id + ":touch"] = true;
+      peekOn(fromLink);
+      peekTimer = window.setTimeout(function () { release(id + ":touch"); }, 2600);
+    }, { passive: true });
   }
+  // Reduced motion switched on mid-peek: put the preview away.
+  if (reduce && reduce.addEventListener) reduce.addEventListener("change", function () { if (still()) peekOff(); });
   wire(document.getElementById("programLink"), true);
   wire(document.getElementById("programmeRead"), false);
   wire(rolledLink, false);

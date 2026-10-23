@@ -90,23 +90,26 @@ for (const [width, height] of SIZES) for (const mode of ["closed", "open"] as co
     try {
       const arrowEl = page.locator("#programArrow");
       const visible = await arrowEl.isVisible();
-      const { arrow, others } = await crowd(page);
-      const link = await box(page, "#programLink");
-      const fill = await arrowEl.evaluate((el) => getComputedStyle(el).fill);
-      expect(fill).toBe("rgb(42, 160, 255)");
-      expect(await page.locator("#programArrow path").count()).toBe(1);
-      const nudged = await page.evaluate(() => document.getElementById("programArrow")?.getAnimations().map((a) => a instanceof CSSAnimation ? a.animationName : "") ?? []);
-      expect(nudged).toEqual(["program-arrow-nudge"]);
       // Phones with no clear room may hide the arrow; wherever it shows it must point at the link and cover nothing.
       if (width >= 768) expect(visible).toBe(true);
       if (!visible) return;
-      expect(arrow.x + arrow.width).toBeLessThanOrEqual(link.x + 1);
-      expect(arrow.x + arrow.width).toBeGreaterThanOrEqual(link.x - 90);
-      expect(arrow.y + arrow.height).toBeGreaterThan(link.y);
-      expect(arrow.y).toBeLessThan(link.y + link.height);
-      expect(overlaps(arrow, link)).toBe(false);
-      expect(others.filter((o) => overlaps(arrow, o.box)).map((o) => o.name)).toEqual([]);
-      expect(arrow.x).toBeGreaterThanOrEqual(0);
+      expect(await arrowEl.evaluate((el) => getComputedStyle(el).fill)).toBe("rgb(42, 160, 255)");
+      expect(await page.locator("#programArrow path").count()).toBe(1);
+      const nudged = await page.evaluate(() => document.getElementById("programArrow")?.getAnimations().map((a) => a instanceof CSSAnimation ? a.animationName : "") ?? []);
+      expect(nudged).toEqual(["program-arrow-nudge"]);
+      const link = await box(page, "#programLink");
+      // Check the nudge's two extremes (rest and full travel) instead of whatever phase the clock happens to be at.
+      for (const at of [0, 600]) {
+        await arrowEl.evaluate((el, t) => { for (const a of el.getAnimations()) { a.pause(); a.currentTime = t; } }, at);
+        const { arrow, others } = await crowd(page);
+        expect(arrow.x + arrow.width).toBeLessThanOrEqual(link.x + 1);
+        expect(arrow.x + arrow.width).toBeGreaterThanOrEqual(link.x - 90);
+        expect(arrow.y + arrow.height).toBeGreaterThan(link.y);
+        expect(arrow.y).toBeLessThan(link.y + link.height);
+        expect(overlaps(arrow, link)).toBe(false);
+        expect(others.filter((o) => overlaps(arrow, o.box)).map((o) => o.name)).toEqual([]);
+        expect(arrow.x).toBeGreaterThanOrEqual(0);
+      }
     } finally { await page.context().close(); }
   }, 30000);
 }
@@ -197,5 +200,57 @@ for (const t of TRIGGERS) test(`[integration] PA-8 reduced motion: no nudge and 
     const after = await page.evaluate(() => ({ peek: document.getElementById("programme")?.classList.contains("peek"), running: document.getElementById("programmeSheet")?.getAnimations().length ?? -1 }));
     expect(after).toEqual({ peek: false, running: 0 });
     if (t.mode === "rolled") expect(await page.locator("#programmeSheet").isVisible()).toBe(false);
+  } finally { await page.context().close(); }
+}, 30000);
+
+test("[integration] PA-9 hover and focus are tracked apart: the peek closes only when neither is left", async () => {
+  const page = await landing(1440, 900, "rolled");
+  try {
+    const peeking = (): Promise<boolean> => page.locator("#programme").evaluate((el) => el.classList.contains("peek"));
+    await page.locator("#programLink").focus();
+    await page.locator("#programLink").hover();
+    await page.mouse.move(5, 500);
+    expect(await peeking()).toBe(true);
+    await page.locator("#programLink").hover();
+    await page.locator("#programLink").blur();
+    expect(await peeking()).toBe(true);
+    await page.mouse.move(5, 500);
+    expect(await peeking()).toBe(false);
+  } finally { await page.context().close(); }
+}, 30000);
+
+test("[integration] PA-10 a peek that already finished plays again on the next trigger", async () => {
+  const page = await landing(1440, 900, "rolled");
+  try {
+    await page.locator("#programmeRolled").hover();
+    await page.locator("#programmeSheet").evaluate(async (el) => { await Promise.all(el.getAnimations().map((a) => a.finished)); });
+    await page.locator("#programmeRolled").focus();
+    const state = await page.locator("#programmeSheet").evaluate((el) => el.getAnimations().map((a) => a.playState));
+    expect(state).toEqual(["running"]);
+  } finally { await page.context().close(); }
+}, 30000);
+
+test("[integration] PA-11 the rolled preview is inert: its close button and link cannot take focus while it shows, and it is live again after", async () => {
+  const page = await landing(1440, 900, "rolled");
+  try {
+    await page.locator("#programmeRolled").focus();
+    await page.waitForFunction(() => document.getElementById("programme")?.classList.contains("peek"));
+    expect(await page.locator(".programme-scroll").evaluate((el) => el instanceof HTMLElement && el.inert)).toBe(true);
+    await page.keyboard.press("Shift+Tab");
+    expect(await page.evaluate(() => document.activeElement?.id)).not.toBe("programmeClose");
+    expect(await page.evaluate(() => document.activeElement?.id)).not.toBe("programmeRead");
+    await page.locator("#programmeRolled").blur();
+    expect(await page.locator(".programme-scroll").evaluate((el) => el instanceof HTMLElement && el.inert)).toBe(false);
+  } finally { await page.context().close(); }
+}, 30000);
+
+test("[integration] PA-12 reduced motion switched on mid-peek puts the preview away", async () => {
+  const page = await landing(1440, 900, "rolled");
+  try {
+    await page.locator("#programmeRolled").hover();
+    await page.waitForFunction(() => document.getElementById("programme")?.classList.contains("peek"));
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.waitForFunction(() => !document.getElementById("programme")?.classList.contains("peek"));
+    expect(await page.locator("#programmeSheet").isVisible()).toBe(false);
   } finally { await page.context().close(); }
 }, 30000);

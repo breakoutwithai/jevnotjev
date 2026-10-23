@@ -22,7 +22,7 @@ const CONSENT = "Pressing Submit sends the numbers from your result and your nic
 // The private report the skill writes (renderPrivate), for what the sample panel says it leaves out.
 // The real week shown in the sample panel: one public board row, kept with its source URL and capture time (AGENTS.md:13).
 type SampleRow = { id: string; alias: string; day: string; days: number; sources: string; sessions: number; caps: { short: number; weekly: number; unknown: number }; output_tokens: { claude: number; codex: number }; opus_share_pct: number; codex_weekly_pct: number };
-const SAMPLE: { source: string; captured_at: string; row: SampleRow } = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "skill-sample-kingkong.json"), "utf8"));
+const SAMPLE: { source: string; captured_at: string; row: SampleRow } = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "skill-sample-kingkong-23.json"), "utf8"));
 const MAP_TS = readFileSync(join(import.meta.dir, "..", "skills", "tokenmax-map", "scripts", "map.ts"), "utf8");
 
 const read = (rel: string): string => readFileSync(join(SITE, rel), "utf8");
@@ -92,13 +92,15 @@ test("[unit] SK-3 the sample is the recorded board row: every shown figure comes
     `public board row ${row.id}`, `${row.alias}'s week`, `${row.days} days, shared ${row.day}. Sources: Claude Code and Codex.`,
     `<dt>Sessions</dt><dd>${n(row.sessions)}</dd>`, `<dt>Claude output tokens</dt><dd>${n(row.output_tokens.claude)}</dd>`,
     `<dt>Codex output tokens</dt><dd>${n(row.output_tokens.codex)}</dd>`, `<dt>Usage limit hits</dt><dd>${n(limitHits)}</dd>`,
-    `<th scope="row">Claude Code and Codex</th><td>${row.caps.short}</td><td>${row.caps.weekly}</td><td>${row.caps.unknown}</td>`,
+    `<th scope="row">Claude Code and Codex</th><td>${row.caps.short}</td><td>${row.caps.weekly}</td><td>${row.caps.unknown}</td>`, "<th scope=\"col\">Unknown window</th>",
     `<span>Codex weekly window used</span><b>${row.codex_weekly_pct}%</b><i style="--v:${row.codex_weekly_pct}">`,
     `<span>Opus share of Claude output</span><b>${row.opus_share_pct}%</b><i style="--v:${row.opus_share_pct}">`,
-    "A real week from an outside user (kingkong), self-reported, shared with permission",
+    "A real week from an outside user (kingkong-23), self-reported, shared with permission",
     "Not in this map: subagent sessions, the split by model and the proposals.",
   ];
   expect(row.sources).toBe("claude+codex");
+  // The consented row (kingkong-23), not its duplicate TM-0BDC6129175D and not kingkong, who gave no permission.
+  expect([row.id, row.alias]).toEqual(["TM-7460C713BC39", "kingkong-23"]);
   for (const rel of ["index.html", "tm/index.html"]) {
     const block = skillBlock(read(rel));
     for (const text of shown) expect({ rel, text, has: block.includes(text) }).toEqual({ rel, text, has: true });

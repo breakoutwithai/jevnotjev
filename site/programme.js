@@ -33,9 +33,9 @@
     remember();
     var finish = function () {
       var hadFocus = box.contains(document.activeElement);
-      box.classList.remove("rolling", "unroll");
+      box.classList.remove("rolling", "unroll", "peek");
       setState("rolled");
-      if (hadFocus) rolledLink.focus();
+      if (hadFocus) { quiet = true; rolledLink.focus(); quiet = false; }
     };
     if (still() || box.dataset.state !== "open") { finish(); return; }
     var finished = false;
@@ -47,6 +47,37 @@
     window.setTimeout(once, 1200);
   }
   closeBtn.addEventListener("click", roll);
+
+  // Peek: hovering, focusing or touching the Program (guide) link or a Read the programme button plays the unroll again.
+  // Open scroll: replayed in place, from the link only (a button inside the scroll must not vanish under the pointer).
+  // Rolled scroll: it drops as an overlay under the button (theatre.css .peek), so nothing moves. Touch plays on touchstart
+  // and never prevents the default, so the tap still follows the link. Reduced motion: no peek at all.
+  var peekTimer = 0;
+  var quiet = false; // roll() moves focus to the button itself; that is not a visitor asking to peek
+  function peekOn(fromLink) {
+    if (still() || quiet) return;
+    window.clearTimeout(peekTimer);
+    var open = box.dataset.state === "open";
+    box.classList.remove("peek");
+    if (open && fromLink) box.classList.remove("unroll");
+    box.classList.add("peek");
+    if (box.dataset.state === "rolled") measure();
+    else if (open && fromLink) measure();
+    void box.offsetWidth;
+    if (open && fromLink) box.classList.add("unroll");
+  }
+  function peekOff() { window.clearTimeout(peekTimer); box.classList.remove("peek"); }
+  function wire(el, fromLink) {
+    if (!el) return;
+    el.addEventListener("pointerenter", function (e) { if (e.pointerType !== "touch") peekOn(fromLink); });
+    el.addEventListener("pointerleave", function (e) { if (e.pointerType !== "touch") peekOff(); });
+    el.addEventListener("focus", function () { peekOn(fromLink); });
+    el.addEventListener("blur", peekOff);
+    el.addEventListener("touchstart", function () { peekOn(fromLink); peekTimer = window.setTimeout(peekOff, 2600); }, { passive: true });
+  }
+  wire(document.getElementById("programLink"), true);
+  wire(document.getElementById("programmeRead"), false);
+  wire(rolledLink, false);
 
   if (read() === "rolled") { setState("rolled"); return; }
   if (still() || !("IntersectionObserver" in window)) { setState("open"); remember(); return; }

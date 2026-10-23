@@ -147,18 +147,25 @@ export function startTheRun(doc: Document): void {
 
   /* ---------- timing helpers ---------- */
   const live = (tok: number): void => { if (tok !== st.token) throw new Cancel(); };
+  // Timers and tweens run on the pooling show's pause-aware clock, so Pause holds the whole week, not only Jev's beats.
   const wait = (ms: number, tok: number): Promise<void> => new Promise((res, rej) => {
     const d = ms * st.speed;
     if (d <= 0) { if (tok !== st.token) rej(new Cancel()); else res(); return; }
-    win.setTimeout(() => { if (tok !== st.token) rej(new Cancel()); else res(); }, d);
+    const due = pooling.clock() + d;
+    const tick = (): void => {
+      if (tok !== st.token) { rej(new Cancel()); return; }
+      const left = due - pooling.clock();
+      if (left <= 0) res(); else win.setTimeout(tick, Math.max(16, left));
+    };
+    win.setTimeout(tick, d);
   });
   const tween = (a: number, b: number, ms: number, fn: (v: number, p: number) => void, tok: number): Promise<void> => new Promise((res, rej) => {
     const d = ms * st.speed;
     if (d <= 0) { fn(b, 1); res(); return; }
-    const t0 = win.performance.now();
-    const step = (now: number): void => {
+    const t0 = pooling.clock();
+    const step = (): void => {
       if (tok !== st.token) { rej(new Cancel()); return; }
-      const p = Math.min(1, (now - t0) / d);
+      const p = Math.min(1, (pooling.clock() - t0) / d);
       fn(a + (b - a) * p, p);
       if (p < 1) win.requestAnimationFrame(step); else res();
     };

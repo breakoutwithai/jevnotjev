@@ -467,6 +467,7 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 .jb-tag { margin: 8px 0 0; font: 600 12px/1.3 var(--tm-sans); color: #a08a6a; }
 .pool { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: repeating-linear-gradient(135deg, rgba(122, 20, 32, .35) 0 10px, rgba(74, 11, 19, .35) 10px 20px); border: 1.5px dashed var(--brass); }
 .pool-head { margin: 0; font: 800 13px/1 var(--tm-sans); letter-spacing: .2em; text-transform: uppercase; color: var(--gold-l); }
+.pool-focus { margin: 0; font: 600 12px/1.25 var(--tm-sans); color: #d9c79e; }
 .pool-slips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 44px; align-content: flex-start; }
 .pool-count { margin: auto 0 0; font: 600 13px/1.2 var(--tm-sans); color: #d9c79e; font-variant-numeric: tabular-nums; }
 /* the task slip: the same paper as the existing +1 JOB slip */

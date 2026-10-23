@@ -160,7 +160,8 @@ export function simulate(rows: readonly MapRow[], scale: number): Result {
       if (yes) { runs.push({ task, instance: s.instance, start: cursor, end: cursor + spec.size * UNIT_MINUTES, pickedUp: false }); cursor += spec.size * UNIT_MINUTES; left -= spec.size; }
       else pooled.push({ t: cursor, task, instance: s.instance });
     });
-    if (s.kind === "lite") idles.push({ t: cursor, seq: seq++, session: s, room: left });
+    // every session, heavy or lite, is idle once its own tasks are done: Jev asks the second question then
+    idles.push({ t: cursor, seq: seq++, session: s, room: left });
   }
   pooled.sort((a, b) => a.t - b.t);
   // Idle moments, latest first, so the earliest is popped from the end; a new one is inserted in place.
@@ -244,9 +245,10 @@ export function timeline(r: Result): (t: number) => Counts {
   };
 }
 
-/** The story clock as a reader sees it: "Tue 8:30 PM". */
+/** The story clock as a reader sees it: "Tue 8:30 PM"; past Sunday midnight, "next Mon 12:28 AM". */
 export function storyClock(t: number): string {
-  const day = Math.min(6, Math.floor(t / DAY_MINUTES)), m = Math.round(t - day * DAY_MINUTES) % DAY_MINUTES;
+  const total = Math.max(0, Math.round(t)), day = Math.floor(total / DAY_MINUTES), m = total % DAY_MINUTES;
   const h = Math.floor(m / 60), mm = m % 60, h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day] ?? ""} ${h12}:${String(mm).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+  const name = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day % 7] ?? "";
+  return `${day >= 7 ? "next " : ""}${name} ${h12}:${String(mm).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }

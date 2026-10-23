@@ -416,8 +416,7 @@
         } else
           pooled.push({ t: cursor, task, instance: s.instance });
       });
-      if (s.kind === "lite")
-        idles.push({ t: cursor, seq: seq++, session: s, room: left });
+      idles.push({ t: cursor, seq: seq++, session: s, room: left });
     }
     pooled.sort((a, b) => a.t - b.t);
     const queue = [];
@@ -520,9 +519,10 @@
     };
   }
   function storyClock(t) {
-    const day = Math.min(6, Math.floor(t / DAY_MINUTES)), m = Math.round(t - day * DAY_MINUTES) % DAY_MINUTES;
+    const total = Math.max(0, Math.round(t)), day = Math.floor(total / DAY_MINUTES), m = total % DAY_MINUTES;
     const h = Math.floor(m / 60), mm = m % 60, h12 = h % 12 === 0 ? 12 : h % 12;
-    return `${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day] ?? ""} ${h12}:${String(mm).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+    const name = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day % 7] ?? "";
+    return `${day >= 7 ? "next " : ""}${name} ${h12}:${String(mm).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
   }
 
   // src/browser/tm-pool-show.ts
@@ -557,20 +557,20 @@
       results.set(n, r);
       return r;
     };
-    let wallStart = 0, wallEnd = null, pausedAt = null, pausedTotal = 0, clockMode = null;
+    let wallStart = 0, wallEnd = null, pausedAt = null, pausedTotal = 0, pauseAccum = 0, clockMode = null;
     const now = () => win.performance.now();
+    const playNow = () => now() - pauseAccum - (pausedAt === null ? 0 : now() - pausedAt);
     const elapsedMs = () => Math.max(0, (wallEnd ?? (pausedAt ?? now())) - wallStart - pausedTotal);
     const startClock = () => {
+      setPaused(false);
       wallStart = now();
       wallEnd = null;
-      pausedAt = null;
       pausedTotal = 0;
-      setPaused(false);
     };
     const stopClock = () => {
-      if (wallEnd === null)
-        wallEnd = pausedAt ?? now();
       setPaused(false);
+      if (wallEnd === null)
+        wallEnd = now();
     };
     const row = el("div", "jev-row");
     row.id = "jevRow";
@@ -592,11 +592,17 @@
     const pool = el("div", "pool");
     pool.id = "pool";
     const poolHead = el("p", "pool-head", "Shared pool");
+    poolHead.id = "poolHead";
+    const poolFocus = el("p", "pool-focus");
+    poolFocus.id = "poolFocus";
     const poolSlips = el("div", "pool-slips");
     poolSlips.id = "poolSlips";
     const poolCount = el("p", "pool-count");
     poolCount.id = "poolCount";
-    pool.append(poolHead, poolSlips, poolCount);
+    pool.append(poolHead, poolFocus, poolSlips, poolCount);
+    const syncPool = () => {
+      poolFocus.textContent = poolSlips.querySelector(".tslip") ? "Slips: tasks from the two sessions on stage" : "No slips from the two sessions on stage right now";
+    };
     row.append(beat, pool);
     deps.floor.insertBefore(row, deps.status);
     const wide = el("div", "scale-view");
@@ -677,7 +683,7 @@
     }
     panel.append(ph, metrics, ribbonHead, ribbon, logHead, log, source, cast);
     deps.compare.after(panel);
-    let paused = false;
+    let paused = false, held = [];
     function setPaused(p) {
       if (p === paused)
         return;
@@ -685,12 +691,26 @@
       if (p)
         pausedAt = now();
       else if (pausedAt !== null) {
-        pausedTotal += now() - pausedAt;
+        const d = now() - pausedAt;
+        pausedTotal += d;
+        pauseAccum += d;
         pausedAt = null;
+      }
+      if (p) {
+        held = deps.stage.getAnimations({ subtree: true }).filter((a) => a.playState === "running");
+        held.forEach((a) => a.pause());
+      } else {
+        held.forEach((a) => {
+          if (a.playState === "paused")
+            a.play();
+        });
+        held = [];
       }
       pauseBtn.textContent = p ? "Resume" : "Pause";
       pauseBtn.setAttribute("aria-pressed", String(p));
       deps.stage.classList.toggle("paused", p);
+      if (!panel.hidden)
+        paint();
     }
     pauseBtn.addEventListener("click", () => setPaused(!paused));
     const showPause = (on) => {
@@ -707,17 +727,13 @@
         res();
         return;
       }
-      let left = ms * deps.speed(), last = now();
+      const due = playNow() + ms * deps.speed();
       const tick = () => {
         if (tok !== deps.token()) {
           rej(new Cancel);
           return;
         }
-        const t = now();
-        if (!paused)
-          left -= t - last;
-        last = t;
-        if (left <= 0)
+        if (playNow() >= due)
           res();
         else
           win.setTimeout(tick, 30);
@@ -751,29 +767,34 @@
       mStory.textContent = `${storyClock(Math.min(storyT, result.end))} · playback ${perHour > 0 ? `${perHour.toFixed(2)} s of wall time per story hour` : "not timed"}`;
       mParallel.textContent = `${fmt2(c.parallelNow)} · ${fmt2(c.parallelPeak)} task runs`;
       mPool.textContent = `${fmt2(c.poolWaiting)} · ${fmt2(c.pickedUp)} · ${fmt2(c.completed)}`;
-      poolCount.textContent = `Waiting in the pool: ${fmt2(c.poolWaiting)} task${c.poolWaiting === 1 ? "" : "s"}`;
+      poolCount.textContent = `All ${result.sources} maps: ${fmt2(c.poolWaiting)} task${c.poolWaiting === 1 ? "" : "s"} waiting`;
+      syncPool();
       taskBranch.textContent = `Task checks: YES ${fmt2(c.taskYes)} keep local · NO ${fmt2(c.taskNo)} to the pool`;
       idleBranch.textContent = `Idle checks: YES ${fmt2(c.idleYes)} pick up · NO ${fmt2(c.idleNo)} chill out`;
       drawRibbon();
     }
     let ribbonCols = [], ribbonMax = 1;
+    const cssWidth = (cv) => Math.max(10, Math.floor(cv.clientWidth || cv.parentElement?.clientWidth || 300));
     function sizeCanvas(cv, height) {
-      const w = Math.max(10, Math.floor(cv.clientWidth || cv.parentElement?.clientWidth || 300));
+      const w = cssWidth(cv);
       const dpr = win.devicePixelRatio || 1;
-      if (cv.width !== Math.round(w * dpr)) {
-        cv.width = Math.round(w * dpr);
-        cv.height = Math.round(height * dpr);
-      }
+      const bw = Math.round(w * dpr), bh = Math.round(height * dpr);
+      if (cv.width !== bw)
+        cv.width = bw;
+      if (cv.height !== bh)
+        cv.height = bh;
       const ctx = cv.getContext("2d");
       ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
       return ctx;
     }
     function prepRibbon() {
-      const w = Math.max(10, Math.floor(ribbon.clientWidth || 300));
+      const w = cssWidth(ribbon);
       ribbonCols = Array.from({ length: w }, (_, i) => at(result.end * (i + 0.5) / w).parallelNow);
       ribbonMax = Math.max(1, ...ribbonCols);
     }
     function drawRibbon() {
+      if (cssWidth(ribbon) !== ribbonCols.length)
+        prepRibbon();
       const H = 56, ctx = sizeCanvas(ribbon, H);
       if (!ctx)
         return;
@@ -795,6 +816,21 @@
       }
       ctx.fillStyle = "#f6dc8e";
       ctx.fillRect(Math.min(w - 1, upto), 0, 1, H);
+    }
+    win.addEventListener("resize", () => {
+      if (panel.hidden)
+        return;
+      if (deps.stage.classList.contains("scaled"))
+        drawMosaic();
+      paint();
+    });
+    function clearSlips() {
+      const all = [...row.querySelectorAll(".tslip"), ...deps.posters.flatMap((p) => [...p.querySelectorAll(".tslip")])];
+      for (const s of all) {
+        s.getAnimations().forEach((a) => a.cancel());
+        s.remove();
+      }
+      syncPool();
     }
     const slipFor = (d) => {
       const s = el("div", "tslip");
@@ -850,11 +886,14 @@
       await hold(700, tok);
       if (d.yes && p) {
         s.classList.add("docked");
-        await travel(s, p, tok);
-        room.textContent = `Session allowance left: ${d.room - (d.task?.size ?? 0)} of ${d.allowance} units`;
-        deps.status.textContent = `${DAYS[i] ?? ""}: kept local, it runs in this session`;
-        await hold(500, tok);
-        s.remove();
+        try {
+          await travel(s, p, tok);
+          room.textContent = `Session allowance left: ${d.room - (d.task?.size ?? 0)} of ${d.allowance} units`;
+          deps.status.textContent = `${DAYS[i] ?? ""}: kept local, it runs in this session`;
+          await hold(500, tok);
+        } finally {
+          s.remove();
+        }
       } else {
         await travel(s, poolSlips, tok);
         storyT = d.t;
@@ -877,6 +916,7 @@
       deps.status.textContent = `${storyClock(taken.t)}: an idle lite session picks it up from the pool`;
       await hold(900, tok);
       s.remove();
+      syncPool();
     }
     async function idleBeat(d, i, tok) {
       const p = deps.posters[i];
@@ -888,6 +928,7 @@
           const s = slipFor(d);
           s.classList.add("arriving");
           poolSlips.append(s);
+          syncPool();
           deps.status.textContent = `${storyClock(sent.t)}: a heavy session sends “${d.task.title}” to the pool`;
           await hold(900, tok);
           s.classList.remove("arriving");
@@ -916,8 +957,11 @@
       if (d.yes && p) {
         const s = [...poolSlips.querySelectorAll(".tslip")].find((x) => x.dataset.task === d.task?.id) ?? slipFor(d);
         s.classList.add("docked");
-        await travel(s, p, tok);
-        s.remove();
+        try {
+          await travel(s, p, tok);
+        } finally {
+          s.remove();
+        }
         const ex = p.querySelector(".ex-job");
         if (ex)
           ex.textContent = d.task?.title ?? "";
@@ -1009,6 +1053,8 @@
       scale = n;
       result = runAt(n);
       at = timeline(result);
+      clearSlips();
+      idleCard();
       deps.clearStage();
       deps.stage.classList.add("scaled");
       row.hidden = true;
@@ -1090,11 +1136,8 @@
         panel.hidden = true;
         upBtn.hidden = true;
         showPause(false);
-        poolSlips.textContent = "";
+        clearSlips();
         log.textContent = "";
-        deps.posters.forEach((p) => {
-          p.querySelectorAll(".tslip").forEach((s) => s.remove());
-        });
       },
       begin(m, keepClock) {
         const resume = keepClock && clockMode === m && wallStart > 0 && wallEnd === null;
@@ -1146,6 +1189,7 @@
         showPause(false);
       },
       scaled: () => deps.stage.classList.contains("scaled"),
+      clock: playNow,
       replayScale: () => {
         deps.takeToken();
         prepMosaic();
@@ -1298,12 +1342,19 @@
           res();
         return;
       }
-      win.setTimeout(() => {
-        if (tok !== st.token)
+      const due = pooling.clock() + d;
+      const tick = () => {
+        if (tok !== st.token) {
           rej(new Cancel);
-        else
+          return;
+        }
+        const left = due - pooling.clock();
+        if (left <= 0)
           res();
-      }, d);
+        else
+          win.setTimeout(tick, Math.max(16, left));
+      };
+      win.setTimeout(tick, d);
     });
     const tween = (a, b, ms, fn, tok) => new Promise((res, rej) => {
       const d = ms * st.speed;
@@ -1312,13 +1363,13 @@
         res();
         return;
       }
-      const t0 = win.performance.now();
-      const step = (now) => {
+      const t0 = pooling.clock();
+      const step = () => {
         if (tok !== st.token) {
           rej(new Cancel);
           return;
         }
-        const p = Math.min(1, (now - t0) / d);
+        const p = Math.min(1, (pooling.clock() - t0) / d);
         fn(a + (b - a) * p, p);
         if (p < 1)
           win.requestAnimationFrame(step);

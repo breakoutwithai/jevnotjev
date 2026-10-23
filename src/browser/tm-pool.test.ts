@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import snapshot from "./tm-maps-20261022.json";
 import { SCENARIOS } from "./tm-run.ts";
 import {
-  activeDays, CAPTURED_ON, DAY_MINUTES, DAY_TASKS, focusPair, kindOf, LITE_SESSION, HEAVY_SESSION, planSessions, readSnapshot, simulate, timeline, UNIT_MINUTES,
+  activeDays, CAPTURED_ON, DAY_MINUTES, DAY_TASKS, focusPair, kindOf, LITE_SESSION, HEAVY_SESSION, planSessions, readSnapshot, simulate, storyClock, timeline, UNIT_MINUTES,
   WEEK_MINUTES, type Decision, type MapRow, type Result,
 } from "./tm-pool.ts";
 
@@ -142,5 +142,32 @@ describe("tm-pool scale", () => {
     expect(ONE.end).toBeGreaterThanOrEqual(WEEK_MINUTES);
     expect(simulate(ROWS, 100).decisions.length).toBe(HUNDRED.decisions.length);
     expect(DAY_TASKS.length).toBe(7);
+  });
+});
+
+describe("tm-pool sweep #407", () => {
+  test("[unit] TP-12 every session gets an idle check once its own tasks are done, heavy and lite alike, under the same room and time rules", () => {
+    for (const r of [ONE, HUNDRED]) {
+      const sessions = planSessions(ROWS, r.scale);
+      const idled = new Set(r.decisions.filter((d) => d.check === "idle").map((d) => d.session));
+      expect(sessions.filter((s) => !idled.has(s.id)).map((s) => s.id)).toEqual([]);
+    }
+    const heavyIdle = ONE.decisions.filter((d) => d.check === "idle" && d.instance === FOCUS.heavy);
+    expect(heavyIdle.length).toBeGreaterThanOrEqual(7);
+    for (const d of heavyIdle) {
+      // the first idle check of a session has what its kept tasks left; a re-check after a pickup has less
+      const kept = ONE.decisions.filter((x) => x.session === d.session && x.check === "task" && x.yes).reduce((n, x) => n + (x.task?.size ?? 0), 0);
+      const picked = ONE.decisions.filter((x) => x.session === d.session && x.check === "idle" && x.yes && x.t < d.t).reduce((n, x) => n + (x.task?.size ?? 0), 0);
+      expect(d.room).toBe(d.allowance - kept - picked);
+      if (d.yes) expect((d.task?.size ?? 99) <= d.room && (d.task?.size ?? 99) * UNIT_MINUTES <= d.minutesLeft).toBe(true);
+    }
+  });
+  test("[unit] TP-13 the story clock names the real day: after Sunday night it reads the next Monday, never Sun", () => {
+    expect(storyClock(DAY_MINUTES + 20 * 60 + 30)).toBe("Tue 8:30 PM");
+    expect(storyClock(6 * DAY_MINUTES + 23 * 60 + 59)).toBe("Sun 11:59 PM");
+    expect(storyClock(WEEK_MINUTES)).toBe("next Mon 12:00 AM");
+    expect(storyClock(WEEK_MINUTES + 28)).toBe("next Mon 12:28 AM");
+    expect(storyClock(WEEK_MINUTES - 0.4)).toBe("next Mon 12:00 AM");
+    expect(storyClock(ONE.end).startsWith("next Mon")).toBe(ONE.end >= WEEK_MINUTES - 0.5);
   });
 });

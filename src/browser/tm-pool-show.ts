@@ -39,6 +39,9 @@ export type Pooling = {
   dayDone(i: number): void;
   finish(): void;
   scaled(): boolean;
+  /** The pause-aware playback clock in ms: it stands still while Pause is pressed. Every timer, tween and travel of the
+   * show reads it, so Pause holds the ordinary day playback as well as Jev's beats. */
+  clock(): number;
   replayScale(): void;
   skipScale(): void;
 };
@@ -68,12 +71,14 @@ export function createPooling(deps: PoolingDeps): Pooling {
   let scale = 1, result: Result = simulate(ROWS, 1), at = timeline(result), storyT = 0, mode: Mode = "burn", active = false;
   const results = new Map<number, Result>([[1, result]]);
   const runAt = (n: number): Result => { const hit = results.get(n); if (hit) return hit; const r = simulate(ROWS, n); results.set(n, r); return r; };
-  // wall clock of the current run, pauses excluded
-  let wallStart = 0, wallEnd: number | null = null, pausedAt: number | null = null, pausedTotal = 0, clockMode: Mode | null = null;
+  // wall clock of the current run, pauses excluded; pauseAccum is every pause ever, for the playback clock
+  let wallStart = 0, wallEnd: number | null = null, pausedAt: number | null = null, pausedTotal = 0, pauseAccum = 0, clockMode: Mode | null = null;
   const now = (): number => win.performance.now();
+  const playNow = (): number => now() - pauseAccum - (pausedAt === null ? 0 : now() - pausedAt);
   const elapsedMs = (): number => Math.max(0, (wallEnd ?? (pausedAt ?? now())) - wallStart - pausedTotal);
-  const startClock = (): void => { wallStart = now(); wallEnd = null; pausedAt = null; pausedTotal = 0; setPaused(false); };
-  const stopClock = (): void => { if (wallEnd === null) wallEnd = pausedAt ?? now(); setPaused(false); };
+  const startClock = (): void => { setPaused(false); wallStart = now(); wallEnd = null; pausedTotal = 0; };
+  // end the pause first, so the stretch already paused is subtracted once, then freeze the clock
+  const stopClock = (): void => { setPaused(false); if (wallEnd === null) wallEnd = now(); };
 
   /* ---------- stage pieces: the beat card and the shared pool, under the day cards ---------- */
   const row = el("div", "jev-row"); row.id = "jevRow"; row.hidden = true;
@@ -86,10 +91,15 @@ export function createPooling(deps: PoolingDeps): Pooling {
   const tag = el("p", "jb-tag"); tag.id = "jevTag";
   beat.append(who, q, slot, room, ans, tag);
   const pool = el("div", "pool"); pool.id = "pool";
-  const poolHead = el("p", "pool-head", "Shared pool");
+  const poolHead = el("p", "pool-head", "Shared pool"); poolHead.id = "poolHead";
+  // the slips are the two sessions the stage follows; the count under them is every map's pool
+  const poolFocus = el("p", "pool-focus"); poolFocus.id = "poolFocus";
   const poolSlips = el("div", "pool-slips"); poolSlips.id = "poolSlips";
   const poolCount = el("p", "pool-count"); poolCount.id = "poolCount";
-  pool.append(poolHead, poolSlips, poolCount);
+  pool.append(poolHead, poolFocus, poolSlips, poolCount);
+  const syncPool = (): void => {
+    poolFocus.textContent = poolSlips.querySelector(".tslip") ? "Slips: tasks from the two sessions on stage" : "No slips from the two sessions on stage right now";
+  };
   row.append(beat, pool);
   deps.floor.insertBefore(row, deps.status);
 
@@ -153,15 +163,18 @@ export function createPooling(deps: PoolingDeps): Pooling {
   panel.append(ph, metrics, ribbonHead, ribbon, logHead, log, source, cast);
   deps.compare.after(panel);
 
-  /* ---------- pause: holds Jev's beats and the 100x run; elapsed time excludes it ---------- */
-  let paused = false;
+  /* ---------- pause: holds the whole playback (day tweens, Jev's beats, slips in flight, the 100x run); elapsed time excludes it ---------- */
+  let paused = false, held: Animation[] = [];
   function setPaused(p: boolean): void {
     if (p === paused) return;
     paused = p;
-    if (p) pausedAt = now(); else if (pausedAt !== null) { pausedTotal += now() - pausedAt; pausedAt = null; }
+    if (p) pausedAt = now(); else if (pausedAt !== null) { const d = now() - pausedAt; pausedTotal += d; pauseAccum += d; pausedAt = null; }
+    if (p) { held = deps.stage.getAnimations({ subtree: true }).filter((a) => a.playState === "running"); held.forEach((a) => a.pause()); }
+    else { held.forEach((a) => { if (a.playState === "paused") a.play(); }); held = []; }
     pauseBtn.textContent = p ? "Resume" : "Pause";
     pauseBtn.setAttribute("aria-pressed", String(p));
     deps.stage.classList.toggle("paused", p);
+    if (!panel.hidden) paint();
   }
   pauseBtn.addEventListener("click", () => setPaused(!paused));
   const showPause = (on: boolean): void => { pauseBtn.hidden = !on || deps.speed() <= 0; if (pauseBtn.hidden) setPaused(false); };
@@ -169,13 +182,10 @@ export function createPooling(deps: PoolingDeps): Pooling {
   const hold = (ms: number, tok: number): Promise<void> => new Promise((res, rej) => {
     if (tok !== deps.token()) { rej(new Cancel()); return; }
     if (deps.speed() <= 0) { res(); return; }
-    let left = ms * deps.speed(), last = now();
+    const due = playNow() + ms * deps.speed();
     const tick = (): void => {
       if (tok !== deps.token()) { rej(new Cancel()); return; }
-      const t = now();
-      if (!paused) left -= t - last;
-      last = t;
-      if (left <= 0) res(); else win.setTimeout(tick, 30);
+      if (playNow() >= due) res(); else win.setTimeout(tick, 30);
     };
     win.setTimeout(tick, 30);
   });
@@ -205,27 +215,34 @@ export function createPooling(deps: PoolingDeps): Pooling {
     mStory.textContent = `${storyClock(Math.min(storyT, result.end))} · playback ${perHour > 0 ? `${perHour.toFixed(2)} s of wall time per story hour` : "not timed"}`;
     mParallel.textContent = `${fmt(c.parallelNow)} · ${fmt(c.parallelPeak)} task runs`;
     mPool.textContent = `${fmt(c.poolWaiting)} · ${fmt(c.pickedUp)} · ${fmt(c.completed)}`;
-    poolCount.textContent = `Waiting in the pool: ${fmt(c.poolWaiting)} task${c.poolWaiting === 1 ? "" : "s"}`;
+    poolCount.textContent = `All ${result.sources} maps: ${fmt(c.poolWaiting)} task${c.poolWaiting === 1 ? "" : "s"} waiting`;
+    syncPool();
     taskBranch.textContent = `Task checks: YES ${fmt(c.taskYes)} keep local · NO ${fmt(c.taskNo)} to the pool`;
     idleBranch.textContent = `Idle checks: YES ${fmt(c.idleYes)} pick up · NO ${fmt(c.idleNo)} chill out`;
     drawRibbon();
   }
   // Ribbon samples, one per canvas column, from the same timeline.
   let ribbonCols: number[] = [], ribbonMax = 1;
+  const cssWidth = (cv: HTMLCanvasElement): number => Math.max(10, Math.floor(cv.clientWidth || cv.parentElement?.clientWidth || 300));
   function sizeCanvas(cv: HTMLCanvasElement, height: number): CanvasRenderingContext2D | null {
-    const w = Math.max(10, Math.floor(cv.clientWidth || cv.parentElement?.clientWidth || 300));
+    const w = cssWidth(cv);
     const dpr = win.devicePixelRatio || 1;
-    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(height * dpr); }
+    // width and height each follow their own target: a canvas whose default width already matches keeps no default height
+    const bw = Math.round(w * dpr), bh = Math.round(height * dpr);
+    if (cv.width !== bw) cv.width = bw;
+    if (cv.height !== bh) cv.height = bh;
     const ctx = cv.getContext("2d");
     ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
     return ctx;
   }
   function prepRibbon(): void {
-    const w = Math.max(10, Math.floor(ribbon.clientWidth || 300));
+    const w = cssWidth(ribbon);
     ribbonCols = Array.from({ length: w }, (_, i) => at((result.end * (i + 0.5)) / w).parallelNow);
     ribbonMax = Math.max(1, ...ribbonCols);
   }
   function drawRibbon(): void {
+    // a resize changes the CSS width: resample so the week spans the new width exactly
+    if (cssWidth(ribbon) !== ribbonCols.length) prepRibbon();
     const H = 56, ctx = sizeCanvas(ribbon, H);
     if (!ctx) return;
     const w = ribbonCols.length;
@@ -239,7 +256,19 @@ export function createPooling(deps: PoolingDeps): Pooling {
     ctx.fillStyle = "#f6dc8e"; ctx.fillRect(Math.min(w - 1, upto), 0, 1, H);
   }
 
+  win.addEventListener("resize", () => {
+    if (panel.hidden) return;
+    if (deps.stage.classList.contains("scaled")) drawMosaic();
+    paint();
+  });
+
   /* ---------- the 1x stage: slips, beats and the pool ---------- */
+  /** Every 1x slip, wherever it is (beat card, pool, a poster), with its travel cancelled: the run that owned it is over. */
+  function clearSlips(): void {
+    const all = [...row.querySelectorAll(".tslip"), ...deps.posters.flatMap((p) => [...p.querySelectorAll(".tslip")])];
+    for (const s of all) { s.getAnimations().forEach((a) => a.cancel()); s.remove(); }
+    syncPool();
+  }
   const slipFor = (d: Decision): HTMLElement => {
     const s = el("div", "tslip");
     s.dataset.task = d.task?.id ?? "";
@@ -292,11 +321,12 @@ export function createPooling(deps: PoolingDeps): Pooling {
     await hold(700, tok);
     if (d.yes && p) {
       s.classList.add("docked");
-      await travel(s, p, tok);
-      room.textContent = `Session allowance left: ${d.room - (d.task?.size ?? 0)} of ${d.allowance} units`;
-      deps.status.textContent = `${DAYS[i] ?? ""}: kept local, it runs in this session`;
-      await hold(500, tok);
-      s.remove();
+      try {
+        await travel(s, p, tok);
+        room.textContent = `Session allowance left: ${d.room - (d.task?.size ?? 0)} of ${d.allowance} units`;
+        deps.status.textContent = `${DAYS[i] ?? ""}: kept local, it runs in this session`;
+        await hold(500, tok);
+      } finally { s.remove(); }
     } else {
       await travel(s, poolSlips, tok);
       storyT = d.t; paint();
@@ -315,7 +345,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
     s.classList.add("taken");
     deps.status.textContent = `${storyClock(taken.t)}: an idle lite session picks it up from the pool`;
     await hold(900, tok);
-    s.remove();
+    s.remove(); syncPool();
   }
   async function idleBeat(d: Decision, i: number, tok: number): Promise<void> {
     const p = deps.posters[i];
@@ -326,7 +356,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
         storyT = sent.t; paint();
         const s = slipFor(d);
         s.classList.add("arriving");
-        poolSlips.append(s);
+        poolSlips.append(s); syncPool();
         deps.status.textContent = `${storyClock(sent.t)}: a heavy session sends “${d.task.title}” to the pool`;
         await hold(900, tok);
         s.classList.remove("arriving");
@@ -352,8 +382,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
     if (d.yes && p) {
       const s = [...poolSlips.querySelectorAll<HTMLElement>(".tslip")].find((x) => x.dataset.task === d.task?.id) ?? slipFor(d);
       s.classList.add("docked");
-      await travel(s, p, tok);
-      s.remove();
+      try { await travel(s, p, tok); } finally { s.remove(); }
       // the same slip becomes the existing +1 JOB slip of this session
       const ex = p.querySelector(".ex-job");
       if (ex) ex.textContent = d.task?.title ?? "";
@@ -418,6 +447,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
     deps.takeToken();
     win.cancelAnimationFrame(raf);
     scale = n; result = runAt(n); at = timeline(result);
+    clearSlips(); idleCard();
     deps.clearStage();
     deps.stage.classList.add("scaled");
     row.hidden = true; wide.hidden = false; panel.hidden = false;
@@ -468,8 +498,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
       leaveScale();
       active = false; storyT = 0;
       row.hidden = true; panel.hidden = true; upBtn.hidden = true; showPause(false);
-      poolSlips.textContent = ""; log.textContent = "";
-      deps.posters.forEach((p) => { p.querySelectorAll(".tslip").forEach((s) => s.remove()); });
+      clearSlips(); log.textContent = "";
     },
     begin(m: Mode, keepClock: boolean): void {
       const resume = keepClock && clockMode === m && wallStart > 0 && wallEnd === null;
@@ -498,6 +527,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
       // a Skip or a deep link drew the beats at once: the card keeps the last decision on show
     },
     scaled: () => deps.stage.classList.contains("scaled"),
+    clock: playNow,
     replayScale: () => { deps.takeToken(); prepMosaic(); playScale(); },
     skipScale: () => { deps.takeToken(); finishScale(); },
   };

@@ -737,13 +737,14 @@ export function shareRangeError(p: SharePayload): string | null {
   return null;
 }
 
-export type WeekTotals = { sessions: number; claudeOutput: number; codexOutput: number; capHits: number };
+/** Output tokens are null for a source that was not read (`--claude none`), so an average never shows it as 0. */
+export type WeekTotals = { sessions: number; claudeOutput: number | null; codexOutput: number | null; capHits: number };
 /** The period totals the per-week averages divide: sessions and cap hits over both sources, output tokens per source. */
 export function weekTotals(s: Summary): WeekTotals {
   return {
     sessions: (s.claude?.sessions ?? 0) + (s.codex?.sessions ?? 0),
-    claudeOutput: s.claude ? [...s.claude.byModel.values()].reduce((a, t) => a + t.output, 0) : 0,
-    codexOutput: s.codex?.totals.output ?? 0,
+    claudeOutput: s.claude ? [...s.claude.byModel.values()].reduce((a, t) => a + t.output, 0) : null,
+    codexOutput: s.codex ? s.codex.totals.output : null,
     capHits: s.episodes.length,
   };
 }
@@ -754,12 +755,19 @@ export function perWeekLine(t: WeekTotals & { days: number }): string | null {
   const weeks = t.days / 7;
   const one = (v: number): string => (Math.round(v * 10) / 10).toLocaleString("en-US");
   const per = (v: number): string => n(Math.round(v / weeks));
-  return `Per week on average over ${one(weeks)} weeks (${t.days} days): ${per(t.sessions)} sessions, ${per(t.claudeOutput)} Claude output tokens, ${per(t.codexOutput)} Codex output tokens, ${one(t.capHits / weeks)} cap hits. Totals divided evenly by days / 7; not a measured week.`;
+  const parts = [
+    `${per(t.sessions)} sessions`,
+    t.claudeOutput === null ? "" : `${per(t.claudeOutput)} Claude output tokens`,
+    t.codexOutput === null ? "" : `${per(t.codexOutput)} Codex output tokens`,
+    `${one(t.capHits / weeks)} cap hits`,
+  ].filter(Boolean);
+  return `Per week on average over ${one(weeks)} weeks (${t.days} days): ${parts.join(", ")}. Totals divided evenly by days / 7; not a measured week.`;
 }
 
 /** Aggregate share fields from a summary. Sessions, subagent sessions and cap episodes sum both sources. */
 export function buildShare(s: Summary, o: { days: number; sources: ShareSources }): SharePayload {
-  const { sessions, claudeOutput: claudeOut } = weekTotals(s);
+  const totals = weekTotals(s);
+  const sessions = totals.sessions, claudeOut = totals.claudeOutput ?? 0;
   const capsOf = (w: Window): number => (s.claude?.capEpisodes[w] ?? 0) + (s.codex?.capEpisodes[w] ?? 0);
   const opusOut = s.claude ? [...s.claude.byModel].filter(([m]) => /opus/i.test(m)).reduce((a, [, t]) => a + t.output, 0) : 0;
   const weekly = s.codex?.lastWeekly;

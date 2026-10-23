@@ -462,4 +462,11 @@ test("[unit] #409 over 7 days the report states per-week averages, each total di
   expect(renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: false, sources: ["Claude Code", "Codex"], days: 7 })).not.toContain("Per week on average");
   expect(t.sessions).toBe((s.claude?.sessions ?? 0) + (s.codex?.sessions ?? 0));
   expect(t.capHits).toBe(s.episodes.length);
+  // A source that was not read is left out of the average, never shown as 0 (codex-discover on #410).
+  const codexOnly = weekTotals(summarise(null, await scanCodex(codexFixture(), FROM, TO)));
+  expect(codexOnly.claudeOutput).toBeNull();
+  const line = perWeekLine({ days: 56, ...codexOnly }) ?? "missing";
+  expect(line).not.toContain("Claude output");
+  expect(line).toContain("Codex output tokens");
+  expect(perWeekLine({ days: 56, ...weekTotals(summarise(await scanClaude(claudeFixture(), FROM, TO), null)) })).not.toContain("Codex output");
 });

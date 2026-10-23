@@ -319,6 +319,17 @@ describe("[unit] Codex review on #413: rules", () => {
     expect(w ? weekLabel(w, parseLabels(`${w.key},will_hit,no`, "f")) : "missing").toBe(false);
   });
 
+  test("[unit] codex gate on #413: a week label still matches when the reset reading drifts by seconds between runs", () => {
+    const reset = Date.parse("2026-10-16T00:00:00Z") / 1000;
+    const cutoff = Date.parse("2026-10-20T00:00:00Z");
+    const first = weekWindows([{ ts: (reset - 3600) * 1000, used: 40, resetsAt: reset }], [], cutoff)[0];
+    const drifted = weekWindows([{ ts: (reset - 3600) * 1000, used: 40, resetsAt: reset }, { ts: (reset - 1800) * 1000, used: 41, resetsAt: reset - 2 }], [], cutoff)[0];
+    expect(first?.key).toBe("week-20261016T0000");
+    const labels = parseLabels(`${first?.key ?? ""},will_hit,no`, "f");
+    expect(labels.bad).toBe(0);
+    expect(drifted ? weekLabel(drifted, labels) : "missing").toBe(false);
+  });
+
   test("[unit] codex gate on #413: 99% one hour before the end and no later reading is unknown, never an inferred not hit", () => {
     const reset = Date.parse("2026-10-16T00:00:00Z") / 1000;
     const rows = weekWindows([{ ts: (reset - 4 * 86_400) * 1000, used: 60, resetsAt: reset }, { ts: (reset - 3600) * 1000, used: 99, resetsAt: reset }, { ts: (reset + 3600) * 1000, used: 1, resetsAt: reset + 7 * 86_400 }], []);

@@ -533,6 +533,10 @@ export type WeekRow = {
 };
 
 /** cutoff: the end of the report period (epoch ms); a window whose end is at or before it, or before the last reading, is closed. */
+/** A week window label key: its reset time to the minute, week-YYYYMMDDTHHMM (UTC). Labels match within an hour, so reset drift between readings or runs never orphans a label. */
+export const weekKey = (resetsAtMs: number): string => `week-${new Date(resetsAtMs).toISOString().slice(0, 16).replace(/[-:]/g, "")}`;
+const weekKeyMs = (key: string): number => { const m = /^week-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})$/.exec(key); return m ? Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00Z`) : Number.NaN; };
+
 export function weekWindows(readings: WeekReading[], episodes: Episode[], cutoff = -Infinity): WeekRow[] {
   const rows: WeekRow[] = [];
   const sorted = [...readings].sort((a, b) => a.resetsAt - b.resetsAt || a.ts - b.ts);
@@ -567,7 +571,7 @@ export function weekWindows(readings: WeekReading[], episodes: Episode[], cutoff
     const changes: number[] = [];
     for (const r of byTime) { if (pred && r.ts >= pred.ts) break; if (changes[changes.length - 1] !== r.used) changes.push(r.used); }
     rows.push({
-      source: "codex", key: sessionKey("week", String(resetsAt)), resetsAt, reset: new Date(resetsAt).toISOString().slice(0, 16), windowMinutes: 10080,
+      source: "codex", key: weekKey(resetsAt), resetsAt, reset: new Date(resetsAt).toISOString().slice(0, 16), windowMinutes: 10080,
       readings: cl.length, firstTs: first.ts, lastTs: lastR.ts, usedPercent: lastR.used, maxUsed: Math.max(...cl.map((r) => r.used)), hit, closed, outcome,
       predTs: pred?.ts ?? null, predUsed: pred?.used ?? null, elapsedPercent: elapsed, history: pred ? changes.slice(-6) : [], projected: pace?.projected ?? null, paceYes: pace ? pace.yes : null,
     });
@@ -1157,8 +1161,13 @@ export const LABEL_VALUES: Record<string, readonly string[]> = { helper_size: ["
 export function weekLabel(w: WeekRow, labels: Labels | null): boolean | null {
   if (w.outcome === "hit") return true;
   if (w.outcome !== "unknown") return null;
-  const l = labels?.rows.get(`will_hit|${w.key}`);
-  return l === "yes" ? true : l === "no" ? false : null;
+  let best: { gap: number; label: string } | null = null;
+  for (const [k, label] of labels?.rows ?? []) {
+    if (!k.startsWith("will_hit|")) continue;
+    const gap = Math.abs(weekKeyMs(k.slice("will_hit|".length)) - w.resetsAt);
+    if (gap <= 3_600_000 && (!best || gap < best.gap)) best = { gap, label };
+  }
+  return best?.label === "yes" ? true : best?.label === "no" ? false : null;
 }
 export function parseLabels(text: string, file: string): Labels {
   const rows = new Map<string, string>();
@@ -1169,7 +1178,8 @@ export function parseLabels(text: string, file: string): Labels {
     const [key = "", question = "", label = ""] = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
     if (key === "key") continue;
     const allowed = Object.hasOwn(LABEL_VALUES, question) ? LABEL_VALUES[question] : undefined;
-    if (!/^[0-9a-f]{12}$/.test(key) || !allowed || !allowed.includes(label.toLowerCase())) { bad++; continue; }
+    const keyOk = question === "will_hit" ? Number.isFinite(weekKeyMs(key)) : /^[0-9a-f]{12}$/.test(key);
+    if (!keyOk || !allowed || !allowed.includes(label.toLowerCase())) { bad++; continue; }
     rows.set(`${question}|${key}`, label.toLowerCase());
   }
   return { rows, bad, file };

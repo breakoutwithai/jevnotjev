@@ -2109,6 +2109,58 @@
       else
         fallback();
     });
+    const tipBtn = id("consentTip", HTMLButtonElement), tipText = id("submitConsent", HTMLElement);
+    const tip = { hover: false, focused: false, pinned: false, dismissed: false };
+    let tipTimer = 0;
+    tipBtn.parentElement?.classList.add("tip-ready");
+    const tipOpen = () => !tip.dismissed && (tip.pinned || tip.hover || tip.focused);
+    function tipSync() {
+      win.clearTimeout(tipTimer);
+      const open = tipOpen();
+      tipText.classList.toggle("open", open);
+      tipBtn.setAttribute("aria-expanded", String(open));
+    }
+    for (const el of [tipBtn, tipText]) {
+      el.addEventListener("mouseenter", () => {
+        tip.hover = true;
+        tip.dismissed = false;
+        tipSync();
+      });
+      el.addEventListener("mouseleave", () => {
+        win.clearTimeout(tipTimer);
+        tipTimer = win.setTimeout(() => {
+          tip.hover = false;
+          tipSync();
+        }, 150);
+      });
+    }
+    tipBtn.addEventListener("focus", () => {
+      tip.focused = true;
+      tip.dismissed = false;
+      tipSync();
+    });
+    tipBtn.addEventListener("blur", () => {
+      tip.focused = false;
+      tip.pinned = false;
+      tipSync();
+    });
+    tipBtn.addEventListener("click", () => {
+      if (tip.pinned && tipOpen()) {
+        tip.pinned = false;
+        tip.dismissed = true;
+      } else {
+        tip.pinned = true;
+        tip.dismissed = false;
+      }
+      tipSync();
+    });
+    doc.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !tipOpen())
+        return;
+      tip.pinned = false;
+      tip.dismissed = true;
+      tipSync();
+    });
     function focusCommand() {
       if (!command.contains(doc.activeElement))
         command.focus();

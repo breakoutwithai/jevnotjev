@@ -193,9 +193,9 @@
     var head = el("mapTotals");
     head.textContent = "";
     var stats = [
-      ["builders", builders, plural(builders, "builder mapped", "builders mapped")],
+      ["builders", builders, plural(builders, "map shared", "maps shared")],
       ["cap_episodes", episodes, plural(episodes, "cap hit, a time a limit stopped someone", "cap hits, times a limit stopped someone")],
-      ["with_weekly_cap", weekly, plural(weekly, "builder hit a weekly cap", "builders hit a weekly cap")]
+      ["with_weekly_cap", weekly, plural(weekly, "map with a weekly cap", "maps with a weekly cap")]
     ];
     for (var s = 0; s < stats.length; s++) {
       var t = tile(textFill(fmt(stats[s][1])), stats[s][2]);

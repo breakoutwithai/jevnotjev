@@ -1,5 +1,5 @@
 {
-  "minFiles": 171,
+  "minFiles": 172,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -54,6 +54,7 @@
     "scripts/shows/ticket-office.dom.test.ts": 5,
     "scripts/site-content.test.ts": 11,
     "scripts/site-testimonial.test.ts": 6,
+    "scripts/skill-panel.dom.test.ts": 17,
     "scripts/stage-door.test.ts": 6,
     "scripts/stage-sample.test.ts": 11,
     "scripts/ticket-prompt-capture.dom.test.ts": 4,
@@ -97,7 +98,7 @@
     "src/backstage/house-key.test.ts": 7,
     "src/backstage/log.test.ts": 10,
     "src/backstage/main.dom.test.ts": 85,
-    "src/backstage/maps.test.ts": 69,
+    "src/backstage/maps.test.ts": 70,
     "src/backstage/page-catchup.test.ts": 5,
     "src/backstage/page-ux.test.ts": 15,
     "src/backstage/page.test.ts": 7,
@@ -134,7 +135,7 @@
     "src/docs/guide.test.ts": 8,
     "src/docs/labelling-card.test.ts": 4,
     "src/docs/landing-samples.test.ts": 102,
-    "src/docs/limits.test.ts": 15,
+    "src/docs/limits.test.ts": 16,
     "src/docs/run-record-template.test.ts": 19,
     "src/docs/site-guide.test.ts": 42,
     "src/docs/stack.test.ts": 18,

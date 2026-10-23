@@ -521,9 +521,9 @@ test("[integration] 10 with no fragment the page reads the board once and labels
     expect(seen.filter((s) => s.method === "GET" && s.path === "/api/maps").length).toBe(1);
     expect(apiSeen().length).toBe(1);
     const totalsText = (await page.locator("#mapTotals").innerText()).replace(/\s+/g, " ");
-    expect(totalsText).toContain("2 builders mapped");
+    expect(totalsText).toContain("2 maps shared");
     expect(totalsText).toContain("4 cap hits");
-    expect(totalsText).toContain("1 builder hit a weekly cap");
+    expect(totalsText).toContain("1 map with a weekly cap");
     const rowsShown = page.locator("#mapBoard .map-row");
     expect(await rowsShown.count()).toBe(2);
     const first = await rowsShown.nth(0).innerText();

@@ -392,6 +392,16 @@ describe("/api/maps route", () => {
     expect((await board(handler)).totals.builders).toBe(1);
   });
 
+  test("[integration] the same result shared under two request keys and one nickname makes two rows and counts twice", async () => {
+    const { handler } = setup();
+    const shared = { ...body, alias: "kingkong-23" };
+    expect((await handler(...post("/api/maps", { ...shared, request_key: `${KEY.slice(0, 40)}a` }))).status).toBe(200);
+    expect((await handler(...post("/api/maps", { ...shared, request_key: `${KEY.slice(0, 40)}b` }))).status).toBe(200);
+    const result = await board(handler);
+    expect(result.rows.length).toBe(2);
+    expect(result.totals).toEqual({ builders: 2, cap_episodes: 6, with_weekly_cap: 2 });
+  });
+
   test("[integration] 31 the store file is mode 0600 and logs carry no key, alias or payload", async () => {
     const { handler, path, logs } = setup();
     await handler(...post("/api/maps", body));

@@ -2094,20 +2094,30 @@
       playMine();
     });
     const LINK_COPIED = "Link copied. Open it on the computer where you use Claude Code or Codex.";
+    const phoneMsg = id("phoneMsg", HTMLElement);
     id("phoneLink", HTMLButtonElement).addEventListener("click", () => {
       const url = `${win.location.origin}${win.location.pathname}`;
       const nav = win.navigator;
-      if (typeof nav.share === "function") {
-        nav.share({ title: doc.title, url }).catch(() => {
-          return;
+      const manual = () => {
+        phoneMsg.textContent = `Open ${url} on your computer.`;
+      };
+      const copyLink = () => {
+        const clip = nav.clipboard;
+        if (clip && typeof clip.writeText === "function")
+          clip.writeText(url).then(() => {
+            phoneMsg.textContent = LINK_COPIED;
+          }, manual);
+        else
+          manual();
+      };
+      phoneMsg.textContent = "";
+      if (typeof nav.share === "function")
+        nav.share({ title: doc.title, url }).catch((e) => {
+          if (!(e instanceof DOMException && e.name === "AbortError"))
+            copyLink();
         });
-        return;
-      }
-      const clip = nav.clipboard;
-      if (clip && typeof clip.writeText === "function")
-        clip.writeText(url).then(() => say(LINK_COPIED), () => say(`Open ${url} on your computer.`));
       else
-        say(`Open ${url} on your computer.`);
+        copyLink();
     });
     const aliasBox = id("aliasBox", HTMLInputElement), aliasError = id("aliasError", HTMLElement), aliasPreview = id("aliasPreview", HTMLElement);
     function showAliasPreview() {

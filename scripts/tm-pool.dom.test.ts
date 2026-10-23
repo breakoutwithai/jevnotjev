@@ -81,7 +81,7 @@ async function record(page: Page): Promise<void> {
         docked: [...document.querySelectorAll("#run .poster .tslip b")].map((b) => b.textContent ?? ""),
         extras: [...document.querySelectorAll("#run .poster.has-extra .ex-job")].map((b) => b.textContent ?? ""),
         focus: document.getElementById("poolFocus")?.textContent ?? "", count: document.getElementById("poolCount")?.textContent ?? "",
-        takenBy: [...document.querySelectorAll("#poolSlips .tslip .taken-by")].map((b) => b.textContent ?? ""), others: document.querySelectorAll("#poolOthers .oslip").length,
+        takenBy: [...document.querySelectorAll("#poolSlips .tslip .taken-by")].map((b) => `${b.parentElement?.querySelector("b")?.textContent ?? ""}|${b.textContent ?? ""}`), others: document.querySelectorAll("#poolOthers .oslip").length,
         live: document.querySelectorAll("#poolSlips .tslip:not(.taken)").length,
       });
     }).observe(opening, { attributes: true, attributeFilter: ["data-phase"], childList: true, subtree: true });
@@ -413,10 +413,11 @@ for (const [hash, start, ready, mode] of [["#burn-before", "#dropBtn", "drop", "
         const landed = seen.findIndex((s) => s.pool.includes(title) && s.takenBy.length === 0);
         expect({ title, landed: landed >= 0 }).toEqual({ title, landed: true });
         const after = seen.slice(landed);
-        const named = after.find((s) => s.takenBy.length > 0 || (mode === "lite" && s.status.includes(`picks up “${title}”`)));
-        expect({ title, named: named ? [...named.takenBy, named.status].some((t) => t.includes(LITE_ALIAS)) : false }).toEqual({ title, named: true });
+        // this slip leaves the box only after it carries its own "Picked up by" label naming the lite session
         const gone = after.findIndex((s) => !s.pool.includes(title));
-        expect({ title, leaves: gone > 0 }).toEqual({ title, leaves: true });
+        const label = `${title}|Picked up by ${LITE_ALIAS}`;
+        const named = after.findIndex((s) => s.pool.includes(title) && s.takenBy.includes(label));
+        expect({ title, leaves: gone > 0, namedBeforeLeaving: named >= 0 && named < gone }).toEqual({ title, leaves: true, namedBeforeLeaving: true });
       }
       // the lite view names the heavy session that sent the slip
       if (mode === "lite") expect(seen.some((s) => s.status.includes(`${HEAVY_ALIAS}’s heavy session answers NO and sends`))).toBe(true);
@@ -431,11 +432,12 @@ for (const [width, height] of [[390, 844], [1440, 900]] satisfies [number, numbe
     try {
       await page.waitForFunction(() => document.getElementById("ghost")?.classList.contains("on") === true, null, { timeout: 30000 });
       const boxes = await page.evaluate(() => {
-        const box = (e: Element | null): [number, number, number, number] | null => { const r = e?.getBoundingClientRect(); return r && r.width > 0 ? [r.left, r.top, r.right, r.bottom] : null; };
+        // a box only for an element that is drawn: missing, display:none or visibility:hidden all fail the test below
+        const box = (e: Element | null): [number, number, number, number] | null => { const r = e?.getBoundingClientRect(); return e && r && r.width > 0 && e.checkVisibility({ visibilityProperty: true, opacityProperty: true }) ? [r.left, r.top, r.right, r.bottom] : null; };
         return { copy: box(document.querySelector(".ghost-copy")), read: box(document.getElementById("leftPct")), name: box(document.getElementById("gaugeName")), doc: document.documentElement.scrollWidth };
       });
       const hit = (a: readonly number[] | null, b: readonly number[] | null): boolean => !!a && !!b && (a[0] ?? 0) < (b[2] ?? 0) && (b[0] ?? 0) < (a[2] ?? 0) && (a[1] ?? 0) < (b[3] ?? 0) && (b[1] ?? 0) < (a[3] ?? 0);
-      expect({ copy: !!boxes.copy, read: !!boxes.read, overRead: hit(boxes.copy, boxes.read), overName: hit(boxes.copy, boxes.name), doc: boxes.doc }).toEqual({ copy: true, read: true, overRead: false, overName: false, doc: width });
+      expect({ copy: !!boxes.copy, read: !!boxes.read, name: !!boxes.name, overRead: hit(boxes.copy, boxes.read), overName: hit(boxes.copy, boxes.name), doc: boxes.doc }).toEqual({ copy: true, read: true, name: true, overRead: false, overName: false, doc: width });
       expect(await page.locator("#ghostBtn").isVisible()).toBe(true);
     } finally { await close(page); }
   }, 60000);

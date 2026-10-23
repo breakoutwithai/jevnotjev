@@ -1458,12 +1458,33 @@ test("[integration] TM-42 at 390x844 Watch the sample week plays the sample on s
     await page.waitForFunction(() => Math.abs(document.getElementById("stage")?.getBoundingClientRect().top ?? 999) < 40);
     await page.locator("#phoneLink").scrollIntoViewIfNeeded();
     await page.locator("#phoneLink").click();
-    await page.waitForFunction(() => (document.getElementById("copyMsg")?.textContent ?? "").length > 0);
-    expect(await page.locator("#copyMsg").textContent()).toBe("Link copied. Open it on the computer where you use Claude Code or Codex.");
+    // the answer shows beside the button, on screen, and stays
+    await page.waitForFunction(() => (document.getElementById("phoneMsg")?.textContent ?? "").length > 0);
+    const LINK_COPIED = "Link copied. Open it on the computer where you use Claude Code or Codex.";
+    expect(await page.locator("#phoneMsg").textContent()).toBe(LINK_COPIED);
+    expect(await page.locator("#phoneMsg").evaluate((e) => { const r = e.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; })).toBe(true);
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`http://127.0.0.1:${server.port}/tm/`);
+    await page.waitForTimeout(4500);
+    expect(await page.locator("#phoneMsg").textContent()).toBe(LINK_COPIED);
+    // a share sheet that fails (not a visitor's cancel) falls back to the clipboard
+    await page.evaluate(() => {
+      Object.defineProperty(Navigator.prototype, "share", { value: () => Promise.reject(new DOMException("blocked", "NotAllowedError")), configurable: true });
+      void navigator.clipboard.writeText("");
+    });
+    await page.locator("#phoneLink").click();
+    await page.waitForFunction(() => (document.getElementById("phoneMsg")?.textContent ?? "").length > 0);
+    expect(await page.locator("#phoneMsg").textContent()).toBe(LINK_COPIED);
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`http://127.0.0.1:${server.port}/tm/`);
+    // a cancelled share sheet leaves the clipboard alone and says nothing
+    await page.evaluate(() => {
+      Object.defineProperty(Navigator.prototype, "share", { value: () => Promise.reject(new DOMException("cancelled", "AbortError")), configurable: true });
+      void navigator.clipboard.writeText("");
+    });
+    await page.locator("#phoneLink").click();
+    await page.waitForTimeout(300);
+    expect({ msg: await page.locator("#phoneMsg").textContent(), clip: await page.evaluate(() => navigator.clipboard.readText()) }).toEqual({ msg: "", clip: "" });
   } finally { await close(page); }
 }, 30000);
-
 // ux-swarm 2026-10-23 c05 (and Olly, 2026-10-22): no visible way to ask or send feedback. A plain link sits in the first
 // viewport, and once a week has played a block under the stage offers the feedback form and the guide.
 for (const [width, height] of VIEWS) test(`[integration] TM-43 at ${width}x${height}, when the show ends, a feedback link is on screen with no scroll and the ask block offers feedback and the guide`, async () => {

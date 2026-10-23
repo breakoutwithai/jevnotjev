@@ -282,6 +282,8 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 .phone-way { display: none; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 12px; }
 .phone-way p { margin: 0; flex-basis: 100%; font: 600 14px/1.3 var(--tm-sans); color: var(--gold-l); }
 .phone-way .btn-ghost { min-height: 44px; }
+.phone-msg { margin: 0; flex-basis: 100%; font: 600 14px/1.35 var(--tm-sans); color: var(--parch); overflow-wrap: anywhere; user-select: text; }
+.phone-msg:empty { display: none; }
 /* Paste the result back: read in the browser only, shown as parsed values, never as pasted text */
 .paste { display: grid; gap: 8px; margin-top: 18px; }
 .paste-label { font: 700 16px/1.3 var(--tm-sans); color: var(--parch); }

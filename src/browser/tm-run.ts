@@ -610,13 +610,21 @@ export function startTheRun(doc: Document): void {
     playMine();
   });
   const LINK_COPIED = "Link copied. Open it on the computer where you use Claude Code or Codex.";
+  // The answer sits beside the button (the copy message is a whole prompt further down) and stays until the next press.
+  const phoneMsg = id("phoneMsg", HTMLElement);
   id("phoneLink", HTMLButtonElement).addEventListener("click", () => {
     const url = `${win.location.origin}${win.location.pathname}`;
     const nav = win.navigator;
-    if (typeof nav.share === "function") { nav.share({ title: doc.title, url }).catch(() => undefined); return; }
-    const clip = nav.clipboard;
-    if (clip && typeof clip.writeText === "function") clip.writeText(url).then(() => say(LINK_COPIED), () => say(`Open ${url} on your computer.`));
-    else say(`Open ${url} on your computer.`);
+    const manual = (): void => { phoneMsg.textContent = `Open ${url} on your computer.`; };
+    const copyLink = (): void => {
+      const clip = nav.clipboard;
+      if (clip && typeof clip.writeText === "function") clip.writeText(url).then(() => { phoneMsg.textContent = LINK_COPIED; }, manual);
+      else manual();
+    };
+    phoneMsg.textContent = "";
+    // a closed share sheet is the visitor's choice; any other share failure falls back to the clipboard
+    if (typeof nav.share === "function") nav.share({ title: doc.title, url }).catch((e: unknown) => { if (!(e instanceof DOMException && e.name === "AbortError")) copyLink(); });
+    else copyLink();
   });
 
   /* ---------- Submit: the one thing on this page that sends. Pressing it is the visitor's consent (copy beside it). ---------- */

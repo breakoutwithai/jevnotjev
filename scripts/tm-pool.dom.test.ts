@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { resolveChromium } from "./uat/happy-path-lib.ts";
 import snapshot from "../src/browser/tm-maps-20261022.json";
-import { IDLE_QUESTION, readSnapshot, simulate, TASK_QUESTION, timeline } from "../src/browser/tm-pool.ts";
+import { focusPair, IDLE_QUESTION, readSnapshot, simulate, TASK_QUESTION, timeline } from "../src/browser/tm-pool.ts";
 
 // /tm/ Jev task pooling (TASK d28 task-pooling) in a real browser: the With week asks Jev's two questions at the moment
 // they are asked, moves the same slip between the session and the shared pool, and the panel and 100x view count from
@@ -15,6 +15,9 @@ const ROWS = readSnapshot(snapshot);
 const END1 = (() => { const r = simulate(ROWS, 1); return timeline(r)(r.end); })();
 const END100 = (() => { const r = simulate(ROWS, 100); return timeline(r)(r.end); })();
 const fmt = (n: number): string => n.toLocaleString("en-US");
+const FOCUS = focusPair(ROWS);
+const aliasOf = (instance: string): string => ROWS.find((r) => instance.startsWith(`${r.id}-r`))?.alias ?? "";
+const HEAVY_ALIAS = aliasOf(FOCUS.heavy), LITE_ALIAS = aliasOf(FOCUS.lite);
 
 let browser: Browser;
 let server: ReturnType<typeof Bun.serve>;
@@ -59,7 +62,7 @@ async function close(page: Page): Promise<void> {
   expect(sent).toEqual([]);
 }
 
-type Snap = { ev: string; phase: string; check: string; answer: string; q: string; slot: string; status: string; pool: string[]; docked: string[]; extras: string[] };
+type Snap = { ev: string; phase: string; check: string; answer: string; q: string; slot: string; status: string; pool: string[]; docked: string[]; extras: string[]; focus: string; count: string; takenBy: string[]; others: number; live: number };
 /** Records the beat card, the pool and the posters every time Jev's beat changes phase or a slip moves. */
 async function record(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -77,6 +80,9 @@ async function record(page: Page): Promise<void> {
         pool: [...document.querySelectorAll("#poolSlips .tslip b")].map((b) => b.textContent ?? ""),
         docked: [...document.querySelectorAll("#run .poster .tslip b")].map((b) => b.textContent ?? ""),
         extras: [...document.querySelectorAll("#run .poster.has-extra .ex-job")].map((b) => b.textContent ?? ""),
+        focus: document.getElementById("poolFocus")?.textContent ?? "", count: document.getElementById("poolCount")?.textContent ?? "",
+        takenBy: [...document.querySelectorAll("#poolSlips .tslip .taken-by")].map((b) => b.textContent ?? ""), others: document.querySelectorAll("#poolOthers .oslip").length,
+        live: document.querySelectorAll("#poolSlips .tslip:not(.taken)").length,
       });
     }).observe(opening, { attributes: true, attributeFilter: ["data-phase"], childList: true, subtree: true });
   });
@@ -316,7 +322,10 @@ test("[integration] TP-D5d the pool says what its slips are: the sessions on sta
   try {
     await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true);
     expect(await page.locator("#poolHead").innerText()).toMatch(/^SHARED POOL/);
-    expect(await page.locator("#poolFocus").innerText()).toBe(await page.locator("#poolSlips .tslip").count() === 0 ? "No slips from the two sessions on stage right now" : "Slips: tasks from the two sessions on stage");
+    // the box never reads empty beside a count above 0: the other maps' waiting tasks show as blank slips
+    expect(await page.locator("#poolSlips .tslip").count()).toBe(0);
+    expect(await page.locator("#poolOthers .oslip").count()).toBe(Math.min(12, END1.poolWaiting));
+    expect(await page.locator("#poolFocus").innerText()).toBe(END1.poolWaiting === 0 ? "Empty: no task waiting" : `${END1.poolWaiting} task${END1.poolWaiting === 1 ? "" : "s"} from other maps' sessions`);
     expect(await page.locator("#poolCount").innerText()).toBe(`All 21 maps: ${fmt(END1.poolWaiting)} task${END1.poolWaiting === 1 ? "" : "s"} waiting`);
   } finally { await close(page); }
 }, 60000);
@@ -372,6 +381,62 @@ for (const [width, height] of [[390, 844], [1440, 900]] satisfies [number, numbe
         return { doc: document.documentElement.scrollWidth, mosaic: !!m && !!stage && m.width > 100 && m.height > 40 && m.right <= stage.right + 0.5 };
       });
       expect(scaled).toEqual({ doc: width, mosaic: true });
+    } finally { await close(page); }
+  }, 60000);
+}
+
+/** Waiting tasks across all 21 maps, read from "All 21 maps: N tasks waiting". */
+const waitingOf = (count: string): number => Number(/: (\d+) task/.exec(count)?.[1] ?? NaN);
+
+// ux-swarm 2026-10-23 c02: 4 of 5 could not see what a NO did. The slip lands in the pool box and stays readable; a
+// pickup labels it with the session that took it before it leaves; the box never reads empty beside a waiting count.
+for (const [hash, start, ready, mode] of [["#burn-before", "#dropBtn", "drop", "heavy"], ["#under-before", "#ghostBtn", "ghost", "lite"]] satisfies [string, string, string, string][]) {
+  test(`[integration] TP-D8 ${mode} With week: a NO lands its slip in the pool box, a pickup names the session and takes it out, and the box always matches its count`, async () => {
+    const page = await open(1440, 900, "no-preference", hash);
+    try {
+      await page.waitForFunction((r) => { const e = document.getElementById(r); return e?.classList.contains("show-copy") === true || e?.classList.contains("on") === true; }, ready, { timeout: 30000 });
+      await record(page);
+      await page.locator(start).click();
+      await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true, null, { timeout: 60000 });
+      const seen = await beats(page);
+      expect(seen.length).toBeGreaterThan(20);
+      // the box and the count agree in every recorded frame: live slips plus blank slips = tasks waiting
+      for (const s of seen) {
+        const n = waitingOf(s.count), live = s.live;
+        // named slips for the two sessions on stage, blank ones (at most 12) for the rest
+        expect({ count: s.count, focus: /^No slips/.test(s.focus), others: s.others }).toEqual({ count: s.count, focus: false, others: Math.min(12, Math.max(0, n - live)) });
+        expect(live).toBeLessThanOrEqual(n);
+      }
+      // both views follow the same two pooled tasks: sent by the heavy session, picked up by the lite one
+      const pooled = ["Review last week’s PRs", "Write tests for the login page"];
+      for (const title of pooled) {
+        const landed = seen.findIndex((s) => s.pool.includes(title) && s.takenBy.length === 0);
+        expect({ title, landed: landed >= 0 }).toEqual({ title, landed: true });
+        const after = seen.slice(landed);
+        const named = after.find((s) => s.takenBy.length > 0 || (mode === "lite" && s.status.includes(`picks up “${title}”`)));
+        expect({ title, named: named ? [...named.takenBy, named.status].some((t) => t.includes(LITE_ALIAS)) : false }).toEqual({ title, named: true });
+        const gone = after.findIndex((s) => !s.pool.includes(title));
+        expect({ title, leaves: gone > 0 }).toEqual({ title, leaves: true });
+      }
+      // the lite view names the heavy session that sent the slip
+      if (mode === "lite") expect(seen.some((s) => s.status.includes(`${HEAVY_ALIAS}’s heavy session answers NO and sends`))).toBe(true);
+    } finally { await close(page); }
+  }, 90000);
+}
+
+// ux-swarm 2026-10-23 c10: on the Lite Without end at 390 px "Lights on. Nobody home." was drawn over "53% HOUSE LIGHTS".
+for (const [width, height] of [[390, 844], [1440, 900]] satisfies [number, number][]) {
+  test(`[integration] TP-D9 at ${width}x${height} the Lite Without end copy does not overlap the gauge reading`, async () => {
+    const page = await open(width, height, "reduce", "#under-before");
+    try {
+      await page.waitForFunction(() => document.getElementById("ghost")?.classList.contains("on") === true, null, { timeout: 30000 });
+      const boxes = await page.evaluate(() => {
+        const box = (e: Element | null): [number, number, number, number] | null => { const r = e?.getBoundingClientRect(); return r && r.width > 0 ? [r.left, r.top, r.right, r.bottom] : null; };
+        return { copy: box(document.querySelector(".ghost-copy")), read: box(document.getElementById("leftPct")), name: box(document.getElementById("gaugeName")), doc: document.documentElement.scrollWidth };
+      });
+      const hit = (a: readonly number[] | null, b: readonly number[] | null): boolean => !!a && !!b && (a[0] ?? 0) < (b[2] ?? 0) && (b[0] ?? 0) < (a[2] ?? 0) && (a[1] ?? 0) < (b[3] ?? 0) && (b[1] ?? 0) < (a[3] ?? 0);
+      expect({ copy: !!boxes.copy, read: !!boxes.read, overRead: hit(boxes.copy, boxes.read), overName: hit(boxes.copy, boxes.name), doc: boxes.doc }).toEqual({ copy: true, read: true, overRead: false, overName: false, doc: width });
+      expect(await page.locator("#ghostBtn").isVisible()).toBe(true);
     } finally { await close(page); }
   }, 60000);
 }

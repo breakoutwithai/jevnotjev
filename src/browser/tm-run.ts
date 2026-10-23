@@ -524,7 +524,7 @@ export function startTheRun(doc: Document): void {
   /* ---------- Map your real week: Copy the prompt, then execCommand, then select the text with a keyboard hint ---------- */
   const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement);
   const PROMPT = promptEl.textContent ?? "";
-  const COPIED = "Copied. Paste it into Claude Code or Codex.";
+  const COPIED = "Copied. Paste it into Claude Code or Codex on your computer.";
   let copyTimer = 0;
   function say(text: string): void {
     copyMsg.textContent = text;
@@ -602,6 +602,22 @@ export function startTheRun(doc: Document): void {
     showCard(SAMPLE_WEEK, true);
   });
   id("playMine", HTMLButtonElement).addEventListener("click", playMine);
+  // A phone cannot run the prompt: watch the sample week here, or hand this page to the computer (share sheet, else the
+  // clipboard). Only the page address moves; nothing is sent.
+  id("phoneSample", HTMLButtonElement).addEventListener("click", () => {
+    pasteError.hidden = true; pasteError.textContent = "";
+    showCard(SAMPLE_WEEK, true);
+    playMine();
+  });
+  const LINK_COPIED = "Link copied. Open it on the computer where you use Claude Code or Codex.";
+  id("phoneLink", HTMLButtonElement).addEventListener("click", () => {
+    const url = `${win.location.origin}${win.location.pathname}`;
+    const nav = win.navigator;
+    if (typeof nav.share === "function") { nav.share({ title: doc.title, url }).catch(() => undefined); return; }
+    const clip = nav.clipboard;
+    if (clip && typeof clip.writeText === "function") clip.writeText(url).then(() => say(LINK_COPIED), () => say(`Open ${url} on your computer.`));
+    else say(`Open ${url} on your computer.`);
+  });
 
   /* ---------- Submit: the one thing on this page that sends. Pressing it is the visitor's consent (copy beside it). ---------- */
   const aliasBox = id("aliasBox", HTMLInputElement), aliasError = id("aliasError", HTMLElement), aliasPreview = id("aliasPreview", HTMLElement);

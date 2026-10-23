@@ -532,11 +532,13 @@
   var FOCUS = focusPair(ROWS);
   var DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   var BEAT_DAYS = [1, 4];
-  var LABEL_1X = "Illustrative tasks and limits · scripted Jev decisions · cast from 21 public maps";
+  var LABEL_1X = "Illustrative tasks and limits · scripted Jev decisions · based on 21 public maps";
   var LABEL_100X = "100× simulation · scripted Jev decisions · based on 21 public maps";
   var BUSY_MINUTES_PER_MS = 60 / 600;
   var QUIET_SPEEDUP = 30;
   var fmt2 = (n) => n.toLocaleString("en-US");
+  var OTHERS_SHOWN = 12;
+  var aliasOf = (instance) => ROWS.find((r) => instance.startsWith(`${r.id}-r`))?.alias ?? "another map";
   function createPooling(deps) {
     const { doc, win } = deps;
     const el = (tag, cls, text) => {
@@ -597,11 +599,21 @@
     poolFocus.id = "poolFocus";
     const poolSlips = el("div", "pool-slips");
     poolSlips.id = "poolSlips";
+    const poolOthers = el("div", "pool-others");
+    poolOthers.id = "poolOthers";
+    poolOthers.setAttribute("aria-hidden", "true");
     const poolCount = el("p", "pool-count");
     poolCount.id = "poolCount";
-    pool.append(poolHead, poolFocus, poolSlips, poolCount);
+    pool.append(poolHead, poolFocus, poolSlips, poolOthers, poolCount);
     const syncPool = () => {
-      poolFocus.textContent = poolSlips.querySelector(".tslip") ? "Slips: tasks from the two sessions on stage" : "No slips from the two sessions on stage right now";
+      const waiting = at(storyT).poolWaiting;
+      const live = poolSlips.querySelectorAll(".tslip:not(.taken)").length, others = Math.max(0, waiting - live);
+      poolFocus.textContent = live > 0 ? "Slips: tasks from the two sessions on stage" : others > 0 ? `${fmt2(others)} task${others === 1 ? "" : "s"} from other maps' sessions` : poolSlips.querySelector(".tslip.taken") ? "Leaving the pool: picked up" : "Empty: no task waiting";
+      const shown = Math.min(OTHERS_SHOWN, others);
+      while (poolOthers.children.length > shown)
+        poolOthers.lastElementChild?.remove();
+      while (poolOthers.children.length < shown)
+        poolOthers.append(el("span", "oslip"));
     };
     row.append(beat, pool);
     deps.floor.insertBefore(row, deps.status);
@@ -862,7 +874,7 @@
     }
     async function taskBeat(d, i, tok) {
       const p = deps.posters[i];
-      storyT = d.t;
+      storyT = Math.max(storyT, d.t - 1);
       paint();
       setBeat("arrive", d);
       who.textContent = `${DAYS[i] ?? ""} session · ${storyClock(d.t)}`;
@@ -883,6 +895,10 @@
       ans.textContent = d.yes ? "YES · Keep it local" : "NO · Pool it";
       ans.className = `jb-ans ${d.yes ? "yes" : "no"}`;
       logLine(d);
+      if (d.yes) {
+        storyT = d.t;
+        paint();
+      }
       await hold(700, tok);
       if (d.yes && p) {
         s.classList.add("docked");
@@ -895,11 +911,12 @@
           s.remove();
         }
       } else {
-        await travel(s, poolSlips, tok);
+        const landing = travel(s, poolSlips, tok);
         storyT = d.t;
         paint();
-        deps.status.textContent = `${DAYS[i] ?? ""}: sent to the shared pool, where an idle session can pick it up`;
-        await hold(900, tok);
+        await landing;
+        deps.status.textContent = `${DAYS[i] ?? ""}: “${d.task?.title ?? ""}” waits in the shared pool for an idle session`;
+        await hold(1400, tok);
       }
     }
     async function leavePool(d, tok) {
@@ -909,12 +926,24 @@
         return;
       const s = [...poolSlips.querySelectorAll(".tslip")].find((x) => x.dataset.task === id);
       storyT = Math.max(storyT, taken.t + 1);
-      paint();
-      if (!s)
+      if (!s) {
+        paint();
         return;
+      }
+      const by = aliasOf(taken.instance);
       s.classList.add("taken");
-      deps.status.textContent = `${storyClock(taken.t)}: an idle lite session picks it up from the pool`;
-      await hold(900, tok);
+      s.append(el("i", "taken-by", `Picked up by ${by}`));
+      paint();
+      deps.status.textContent = `${storyClock(taken.t)}: ${by}’s idle lite session picks up “${taken.task.title}” from the pool`;
+      await hold(1600, tok);
+      if (deps.speed() > 0) {
+        const out = s.animate([{ opacity: 0.45 }, { opacity: 0, transform: "translateX(28px) rotate(6deg)" }], { duration: 500 * deps.speed(), fill: "forwards" });
+        await out.finished.catch(() => {
+          return;
+        });
+        if (tok !== deps.token())
+          throw new Cancel;
+      }
       s.remove();
       syncPool();
     }
@@ -929,12 +958,12 @@
           s.classList.add("arriving");
           poolSlips.append(s);
           syncPool();
-          deps.status.textContent = `${storyClock(sent.t)}: a heavy session sends “${d.task.title}” to the pool`;
-          await hold(900, tok);
+          deps.status.textContent = `${storyClock(sent.t)}: ${aliasOf(sent.instance)}’s heavy session answers NO and sends “${d.task.title}” to the pool`;
+          await hold(1400, tok);
           s.classList.remove("arriving");
         }
       }
-      storyT = d.t;
+      storyT = Math.max(storyT, d.t - 1);
       paint();
       setBeat("arrive", d);
       who.textContent = `${DAYS[i] ?? ""} session, idle · ${storyClock(d.t)}`;
@@ -953,12 +982,22 @@
       ans.textContent = d.yes ? "YES · Pick up a task" : "NO · Chill out";
       ans.className = `jb-ans ${d.yes ? "yes" : "no"}`;
       logLine(d);
-      await hold(700, tok);
+      const pick = d.yes ? [...poolSlips.querySelectorAll(".tslip")].find((x) => x.dataset.task === d.task?.id) ?? null : null;
+      if (pick) {
+        const by = aliasOf(d.instance);
+        pick.append(el("i", "taken-by", `Picked up by ${by}`));
+        deps.status.textContent = `${DAYS[i] ?? ""}: ${by}’s session picks up “${d.task?.title ?? ""}” from the pool`;
+      }
+      await hold(pick ? 1200 : 700, tok);
       if (d.yes && p) {
-        const s = [...poolSlips.querySelectorAll(".tslip")].find((x) => x.dataset.task === d.task?.id) ?? slipFor(d);
+        const s = pick ?? slipFor(d);
+        s.querySelector(".taken-by")?.remove();
         s.classList.add("docked");
+        const leaving = travel(s, p, tok);
+        storyT = d.t;
+        paint();
         try {
-          await travel(s, p, tok);
+          await leaving;
         } finally {
           s.remove();
         }
@@ -970,6 +1009,7 @@
         deps.status.textContent = `${DAYS[i] ?? ""}: “${d.task?.title ?? ""}” moves in as +1 job`;
         await hold(800, tok);
       } else {
+        storyT = d.t;
         paint();
         deps.status.textContent = `${DAYS[i] ?? ""}: no pooled task fits ${d.room} units in ${d.minutesLeft} min, so the session stays idle and the pool keeps its work`;
         await hold(1100, tok);
@@ -1943,7 +1983,7 @@
     }
     const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement);
     const PROMPT = promptEl.textContent ?? "";
-    const COPIED = "Copied. Paste it into Claude Code or Codex.";
+    const COPIED = "Copied. Paste it into Claude Code or Codex on your computer.";
     let copyTimer = 0;
     function say(text) {
       copyMsg.textContent = text;
@@ -2047,6 +2087,28 @@
       showCard(SAMPLE_WEEK, true);
     });
     id("playMine", HTMLButtonElement).addEventListener("click", playMine);
+    id("phoneSample", HTMLButtonElement).addEventListener("click", () => {
+      pasteError.hidden = true;
+      pasteError.textContent = "";
+      showCard(SAMPLE_WEEK, true);
+      playMine();
+    });
+    const LINK_COPIED = "Link copied. Open it on the computer where you use Claude Code or Codex.";
+    id("phoneLink", HTMLButtonElement).addEventListener("click", () => {
+      const url = `${win.location.origin}${win.location.pathname}`;
+      const nav = win.navigator;
+      if (typeof nav.share === "function") {
+        nav.share({ title: doc.title, url }).catch(() => {
+          return;
+        });
+        return;
+      }
+      const clip = nav.clipboard;
+      if (clip && typeof clip.writeText === "function")
+        clip.writeText(url).then(() => say(LINK_COPIED), () => say(`Open ${url} on your computer.`));
+      else
+        say(`Open ${url} on your computer.`);
+    });
     const aliasBox = id("aliasBox", HTMLInputElement), aliasError = id("aliasError", HTMLElement), aliasPreview = id("aliasPreview", HTMLElement);
     function showAliasPreview() {
       const shown = normaliseAlias(aliasBox.value);

@@ -51,12 +51,16 @@ export const FOCUS = focusPair(ROWS);
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** The weekdays the stage stops for Jev: Tuesday and Friday, so each question is asked twice. */
 export const BEAT_DAYS: readonly number[] = [1, 4];
-export const LABEL_1X = "Illustrative tasks and limits · scripted Jev decisions · cast from 21 public maps";
+export const LABEL_1X = "Illustrative tasks and limits · scripted Jev decisions · based on 21 public maps";
 export const LABEL_100X = "100× simulation · scripted Jev decisions · based on 21 public maps";
 /** Story playback at 100x: one story hour per 0.6 s of wall time while work runs, 30 times faster through the quiet night. */
 const BUSY_MINUTES_PER_MS = 60 / 600;
 const QUIET_SPEEDUP = 30;
 const fmt = (n: number): string => n.toLocaleString("en-US");
+/** Blank slips drawn for other maps' waiting tasks; the count line carries the exact number. */
+const OTHERS_SHOWN = 12;
+/** The map alias behind an instance id ("<map id>-r000"), to name the session that sends or picks up a slip. */
+const aliasOf = (instance: string): string => ROWS.find((r) => instance.startsWith(`${r.id}-r`))?.alias ?? "another map";
 
 export function createPooling(deps: PoolingDeps): Pooling {
   const { doc, win } = deps;
@@ -92,13 +96,22 @@ export function createPooling(deps: PoolingDeps): Pooling {
   beat.append(who, q, slot, room, ans, tag);
   const pool = el("div", "pool"); pool.id = "pool";
   const poolHead = el("p", "pool-head", "Shared pool"); poolHead.id = "poolHead";
-  // the slips are the two sessions the stage follows; the count under them is every map's pool
+  // the named slips are the two sessions the stage follows; blank slips stand for the other maps' waiting tasks, so the
+  // box always holds as many slips as the count under it (up to OTHERS_SHOWN blank ones)
   const poolFocus = el("p", "pool-focus"); poolFocus.id = "poolFocus";
   const poolSlips = el("div", "pool-slips"); poolSlips.id = "poolSlips";
+  const poolOthers = el("div", "pool-others"); poolOthers.id = "poolOthers"; poolOthers.setAttribute("aria-hidden", "true");
   const poolCount = el("p", "pool-count"); poolCount.id = "poolCount";
-  pool.append(poolHead, poolFocus, poolSlips, poolCount);
+  pool.append(poolHead, poolFocus, poolSlips, poolOthers, poolCount);
   const syncPool = (): void => {
-    poolFocus.textContent = poolSlips.querySelector(".tslip") ? "Slips: tasks from the two sessions on stage" : "No slips from the two sessions on stage right now";
+    const waiting = at(storyT).poolWaiting;
+    const live = poolSlips.querySelectorAll(".tslip:not(.taken)").length, others = Math.max(0, waiting - live);
+    poolFocus.textContent = live > 0 ? "Slips: tasks from the two sessions on stage"
+      : others > 0 ? `${fmt(others)} task${others === 1 ? "" : "s"} from other maps' sessions`
+      : poolSlips.querySelector(".tslip.taken") ? "Leaving the pool: picked up" : "Empty: no task waiting";
+    const shown = Math.min(OTHERS_SHOWN, others);
+    while (poolOthers.children.length > shown) poolOthers.lastElementChild?.remove();
+    while (poolOthers.children.length < shown) poolOthers.append(el("span", "oslip"));
   };
   row.append(beat, pool);
   deps.floor.insertBefore(row, deps.status);
@@ -300,7 +313,8 @@ export function createPooling(deps: PoolingDeps): Pooling {
 
   async function taskBeat(d: Decision, i: number, tok: number): Promise<void> {
     const p = deps.posters[i];
-    storyT = d.t; paint();
+    // counts stand just before this check until its slip moves, so the pool count never runs ahead of the box
+    storyT = Math.max(storyT, d.t - 1); paint();
     setBeat("arrive", d);
     who.textContent = `${DAYS[i] ?? ""} session · ${storyClock(d.t)}`;
     q.textContent = "A task is ready to start";
@@ -318,6 +332,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
     ans.textContent = d.yes ? "YES · Keep it local" : "NO · Pool it";
     ans.className = `jb-ans ${d.yes ? "yes" : "no"}`;
     logLine(d);
+    if (d.yes) { storyT = d.t; paint(); }
     await hold(700, tok);
     if (d.yes && p) {
       s.classList.add("docked");
@@ -328,10 +343,12 @@ export function createPooling(deps: PoolingDeps): Pooling {
         await hold(500, tok);
       } finally { s.remove(); }
     } else {
-      await travel(s, poolSlips, tok);
+      // the slip is in the pool box from the moment it starts to travel there, and the count goes up with it
+      const landing = travel(s, poolSlips, tok);
       storyT = d.t; paint();
-      deps.status.textContent = `${DAYS[i] ?? ""}: sent to the shared pool, where an idle session can pick it up`;
-      await hold(900, tok);
+      await landing;
+      deps.status.textContent = `${DAYS[i] ?? ""}: “${d.task?.title ?? ""}” waits in the shared pool for an idle session`;
+      await hold(1400, tok);
     }
   }
   /** Heavy view: the pooled slip is picked up by an idle lite session the same evening (switch to Lite to watch it). */
@@ -340,11 +357,20 @@ export function createPooling(deps: PoolingDeps): Pooling {
     const taken = result.pickups.find((m) => m.task.id === id);
     if (!taken) return;
     const s = [...poolSlips.querySelectorAll<HTMLElement>(".tslip")].find((x) => x.dataset.task === id);
-    storyT = Math.max(storyT, taken.t + 1); paint();
-    if (!s) return;
+    storyT = Math.max(storyT, taken.t + 1);
+    if (!s) { paint(); return; }
+    // the slip says who took it, then leaves the box
+    const by = aliasOf(taken.instance);
     s.classList.add("taken");
-    deps.status.textContent = `${storyClock(taken.t)}: an idle lite session picks it up from the pool`;
-    await hold(900, tok);
+    s.append(el("i", "taken-by", `Picked up by ${by}`));
+    paint();
+    deps.status.textContent = `${storyClock(taken.t)}: ${by}’s idle lite session picks up “${taken.task.title}” from the pool`;
+    await hold(1600, tok);
+    if (deps.speed() > 0) {
+      const out = s.animate([{ opacity: 0.45 }, { opacity: 0, transform: "translateX(28px) rotate(6deg)" }], { duration: 500 * deps.speed(), fill: "forwards" });
+      await out.finished.catch(() => undefined);
+      if (tok !== deps.token()) throw new Cancel();
+    }
     s.remove(); syncPool();
   }
   async function idleBeat(d: Decision, i: number, tok: number): Promise<void> {
@@ -357,12 +383,12 @@ export function createPooling(deps: PoolingDeps): Pooling {
         const s = slipFor(d);
         s.classList.add("arriving");
         poolSlips.append(s); syncPool();
-        deps.status.textContent = `${storyClock(sent.t)}: a heavy session sends “${d.task.title}” to the pool`;
-        await hold(900, tok);
+        deps.status.textContent = `${storyClock(sent.t)}: ${aliasOf(sent.instance)}’s heavy session answers NO and sends “${d.task.title}” to the pool`;
+        await hold(1400, tok);
         s.classList.remove("arriving");
       }
     }
-    storyT = d.t; paint();
+    storyT = Math.max(storyT, d.t - 1); paint();
     setBeat("arrive", d);
     who.textContent = `${DAYS[i] ?? ""} session, idle · ${storyClock(d.t)}`;
     q.textContent = "This session has nothing to run";
@@ -378,11 +404,22 @@ export function createPooling(deps: PoolingDeps): Pooling {
     ans.textContent = d.yes ? "YES · Pick up a task" : "NO · Chill out";
     ans.className = `jb-ans ${d.yes ? "yes" : "no"}`;
     logLine(d);
-    await hold(700, tok);
+    const pick = d.yes ? [...poolSlips.querySelectorAll<HTMLElement>(".tslip")].find((x) => x.dataset.task === d.task?.id) ?? null : null;
+    if (pick) {
+      // the slip says who takes it before it leaves the box
+      const by = aliasOf(d.instance);
+      pick.append(el("i", "taken-by", `Picked up by ${by}`));
+      deps.status.textContent = `${DAYS[i] ?? ""}: ${by}’s session picks up “${d.task?.title ?? ""}” from the pool`;
+    }
+    await hold(pick ? 1200 : 700, tok);
     if (d.yes && p) {
-      const s = [...poolSlips.querySelectorAll<HTMLElement>(".tslip")].find((x) => x.dataset.task === d.task?.id) ?? slipFor(d);
+      const s = pick ?? slipFor(d);
+      s.querySelector(".taken-by")?.remove();
       s.classList.add("docked");
-      try { await travel(s, p, tok); } finally { s.remove(); }
+      // the count drops as the slip leaves the box
+      const leaving = travel(s, p, tok);
+      storyT = d.t; paint();
+      try { await leaving; } finally { s.remove(); }
       // the same slip becomes the existing +1 JOB slip of this session
       const ex = p.querySelector(".ex-job");
       if (ex) ex.textContent = d.task?.title ?? "";
@@ -391,7 +428,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
       deps.status.textContent = `${DAYS[i] ?? ""}: “${d.task?.title ?? ""}” moves in as +1 job`;
       await hold(800, tok);
     } else {
-      paint();
+      storyT = d.t; paint();
       deps.status.textContent = `${DAYS[i] ?? ""}: no pooled task fits ${d.room} units in ${d.minutesLeft} min, so the session stays idle and the pool keeps its work`;
       await hold(1100, tok);
     }

@@ -829,7 +829,7 @@ for (const motion of MOTIONS) {
         expect(await page.locator("#copyMsg").getAttribute("aria-live")).toBe("polite");
         await copy.click();
         await page.waitForFunction(() => (document.getElementById("copyMsg")?.textContent ?? "").length > 0);
-        expect(await page.locator("#copyMsg").textContent()).toBe("Copied. Paste it into Claude Code or Codex.");
+        expect(await page.locator("#copyMsg").textContent()).toBe("Copied. Paste it into Claude Code or Codex on your computer.");
         const copied = await page.evaluate(() => navigator.clipboard.readText());
         expect(copied).toBe(PROMPT);
         expect(bannedHits(copied)).toEqual([]);
@@ -1371,8 +1371,9 @@ test("[integration] if tm.js does not load, the front panel, the full prompt wit
         for (let node = walk.nextNode(); node; node = walk.nextNode()) {
           const text = (node.textContent ?? "").trim();
           const el = node.parentElement;
-          // The status line, the paste error, the submit receipt and the Your week card stay hidden until used, by design.
-          if (!text || !el || el.id === "copyMsg" || el.closest("#pasteError, #yourWeek, #submitted")) continue;
+          // The status line, the paste error, the submit receipt and the Your week card stay hidden until used, by design;
+          // the phone way forward shows on a narrow screen only (TM-41).
+          if (!text || !el || el.id === "copyMsg" || el.closest("#pasteError, #yourWeek, #submitted, #phoneWay")) continue;
           if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) out.push(text);
         }
       }
@@ -1427,5 +1428,61 @@ for (const motion of MOTIONS) for (const [width, height] of VIEWS) test(`[integr
       return { inView: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight, topFifth: r.top < innerHeight / 5, right: (r.left + r.right) / 2 > innerWidth / 2, hit: hit === node || node.contains(hit), y: scrollY };
     });
     expect({ width, motion, ...view }).toEqual({ width, motion, inView: true, topFifth: true, right: true, hit: true, y: 0 });
+  } finally { await close(page); }
+}, 30000);
+
+// ux-swarm 2026-10-23 c04: the prompt step assumed a computer; a phone visitor dead-ended. The step says where it runs,
+// and a phone gets two ways forward: watch the sample week, or send this page to the computer.
+const DEVICE = "This step runs in Claude Code or Codex, on the computer where you use them.";
+for (const [width, height] of VIEWS) test(`[integration] TM-41 at ${width}x${height} the prompt step says it runs on your computer; only a narrow screen gets the phone way forward`, async () => {
+  const page = await open(width, height, "reduce");
+  try {
+    const note = page.locator("#deviceNote");
+    expect(await note.innerText()).toBe(DEVICE);
+    expect(await note.isVisible()).toBe(true);
+    expect(await page.evaluate(() => {
+      const n = document.getElementById("deviceNote"), c = document.getElementById("copy");
+      return !!n && !!c && (n.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    })).toBe(true);
+    expect(await page.locator("#phoneWay").isVisible()).toBe(width < 760);
+  } finally { await close(page); }
+}, 30000);
+
+test("[integration] TM-42 at 390x844 Watch the sample week plays the sample on stage; the link button hands this page to the computer", async () => {
+  const page = await open(390, 844, "reduce");
+  try {
+    await page.evaluate(() => { Object.defineProperty(Navigator.prototype, "share", { value: undefined, configurable: true }); });
+    await page.locator("#phoneSample").click();
+    expect(await page.locator("#yourWeek").isVisible()).toBe(true);
+    expect(await page.locator("#sampleTag").isVisible()).toBe(true);
+    await page.waitForFunction(() => Math.abs(document.getElementById("stage")?.getBoundingClientRect().top ?? 999) < 40);
+    await page.locator("#phoneLink").scrollIntoViewIfNeeded();
+    await page.locator("#phoneLink").click();
+    await page.waitForFunction(() => (document.getElementById("copyMsg")?.textContent ?? "").length > 0);
+    expect(await page.locator("#copyMsg").textContent()).toBe("Link copied. Open it on the computer where you use Claude Code or Codex.");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`http://127.0.0.1:${server.port}/tm/`);
+  } finally { await close(page); }
+}, 30000);
+
+// ux-swarm 2026-10-23 c05 (and Olly, 2026-10-22): no visible way to ask or send feedback. A plain link sits in the first
+// viewport, and once a week has played a block under the stage offers the feedback form and the guide.
+for (const [width, height] of VIEWS) test(`[integration] TM-43 at ${width}x${height}, when the show ends, a feedback link is on screen with no scroll and the ask block offers feedback and the guide`, async () => {
+  const fresh = await open(width, height, "reduce");
+  try {
+    expect(await fresh.locator("#askAfter").isVisible()).toBe(false);
+  } finally { await close(fresh); }
+  const page = await open(width, height, "reduce", undefined, "#burn-after");
+  try {
+    await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true);
+    const onScreen = await page.evaluate(() => [...document.querySelectorAll('a[href="/feedback/?from=tm"]')].filter((a) => {
+      const r = a.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return r.width > 0 && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth && (hit === a || a.contains(hit));
+    }).map((a) => a.textContent));
+    expect({ width, y: await page.evaluate(() => scrollY), onScreen }).toEqual({ width, y: 0, onScreen: ["Ask a question or send feedback"] });
+    const block = page.locator("#askAfter");
+    expect(await block.isVisible()).toBe(true);
+    const links = await block.locator("a").evaluateAll((as) => as.map((a) => [a.textContent, a.getAttribute("href")]));
+    expect(links).toEqual([["Ask a question or tell us what you think", "/feedback/?from=tm"], ["Read the guide", "/guide/"]]);
   } finally { await close(page); }
 }, 30000);

@@ -36,7 +36,7 @@ beforeAll(async () => {
 afterAll(async () => { await browser?.close(); server?.stop(); });
 
 /** The only requests the page may make: GET of its own same-origin assets, by exact path. */
-const ALLOWED = new Set(["/tm/", "/page.css", "/tm/tm.css", "/tm/tm.js", "/tm/fonts/Alegreya.ttf", "/tm/fonts/Alegreya-Italic.ttf", "/tm/fonts/Archivo.ttf"]);
+const ALLOWED = new Set(["/tm/", "/page.css", "/tm/tm.css", "/tm/tm.js", "/skill-panel.css", "/skill-panel.js", "/tm/fonts/Alegreya.ttf", "/tm/fonts/Alegreya-Italic.ttf", "/tm/fonts/Archivo.ttf"]);
 /** Every request outside the allowlist, recorded before it is blocked; close() fails the test when any was attempted. */
 const blocked = new WeakMap<Page, string[]>();
 

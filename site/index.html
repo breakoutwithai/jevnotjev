@@ -173,6 +173,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 </style>
 <link rel="stylesheet" href="theatre.css">
 <link rel="stylesheet" href="pictures.css">
+<link rel="stylesheet" href="skill-panel.css">
 <script>
 /* Decide motion before first paint so the curtain is closed on load, never flashed open, and absent under reduced
    motion. The curtain plays once per tab session: the first page marks sessionStorage, later pages load open. Storage
@@ -645,6 +646,55 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
   </div>
 </section>
 
+<section class="skillbill" id="skill" aria-labelledby="skillTitle">
+  <div class="sk-skill">
+    <p class="sk-kick">Get the skill</p>
+    <h2 class="sk-title" id="skillTitle">tokenmax-map <small>skill v0.3.0</small></h2>
+    <p class="sk-lede">Your own TokenMax audit, run by Claude Code or Codex on your computer.</p>
+    <ul class="sk-facts">
+      <li>Reads the usage records Claude Code and Codex keep on your computer: sessions, models, output tokens and limit notices. Never the words of your messages or the contents of your files.</li>
+      <li>Writes two files into a new folder: a private report and a share draft.</li>
+      <li>Sends nothing unless you choose to share.</li>
+      <li>No MCP server needed.</li>
+    </ul>
+    <div class="sk-ticket" role="group" aria-label="The install prompt">
+      <p class="sk-paste">Paste this into Claude Code or Codex:</p>
+      <pre id="skillPrompt">Install the tokenmax-map skill from https://github.com/breakoutwithai/jevnotjev/tree/main/skills/tokenmax-map: copy the folder to ~/.agents/skills/tokenmax-map, then link it into ~/.claude/skills/tokenmax-map for Claude Code and ~/.codex/skills/tokenmax-map for Codex (create a link only where that tool's folder exists). Then run a TokenMax audit of my last 8 weeks for both Claude Code and Codex and show me the private report.</pre>
+      <button type="button" class="sk-copy" id="skillCopy">Copy the install prompt</button>
+    </div>
+    <p class="sk-msg" id="skillCopyMsg" role="status" aria-live="polite"></p>
+    <a class="sk-repo" href="https://github.com/breakoutwithai/jevnotjev/tree/main/skills/tokenmax-map">See the skill folder on GitHub</a>
+  </div>
+  <figure class="sk-out" id="skillOut" data-state="done" aria-labelledby="skillOutCap">
+    <figcaption id="skillOutCap"><span class="sk-stamp">EXAMPLE, invented numbers</span><span class="sk-cap">What the private report shows</span></figcaption>
+    <div class="sk-sheet">
+      <p class="sk-row sk-file">private-report.md</p>
+      <p class="sk-row sk-h1">TokenMax map: private report</p>
+      <p class="sk-row sk-meta">Period 2026-08-28 to 2026-10-22 (UTC). Sources: Claude Code, Codex. Jev analysis: NOT RUN.</p>
+      <p class="sk-row sk-h2">Per week on average</p>
+      <dl class="sk-row sk-stats">
+        <div><dt>Sessions</dt><dd>96</dd></div>
+        <div><dt>Claude output tokens</dt><dd>1,240,500</dd></div>
+        <div><dt>Codex output tokens</dt><dd>418,300</dd></div>
+        <div><dt>Cap hits</dt><dd>1.4</dd></div>
+      </dl>
+      <p class="sk-row sk-note">Over 8 weeks (56 days). Totals divided evenly by days / 7; not a measured week.</p>
+      <p class="sk-row sk-h2">Limits</p>
+      <table class="sk-row sk-table">
+        <thead><tr><th scope="col">Source</th><th scope="col">Episodes</th><th scope="col">Short</th><th scope="col">Weekly</th><th scope="col">Unknown</th></tr></thead>
+        <tbody><tr><th scope="row">Claude Code</th><td>11</td><td>8</td><td>2</td><td>1</td></tr><tr><th scope="row">Codex</th><td>0</td><td>0</td><td>0</td><td>0</td></tr></tbody>
+      </table>
+      <p class="sk-row sk-note"><span class="sk-said">The report's own line (10080 minutes is one week):</span> Last Codex window reading: secondary 38% used, window_minutes 10080.</p>
+      <div class="sk-row sk-bars">
+        <p><span>Codex weekly window used</span><b>38%</b><i style="--v:38"></i></p>
+        <p><span>Opus share of Claude output</span><b>64%</b><i style="--v:64"></i></p>
+      </div>
+      <p class="sk-row sk-h2">Proposals (not measured savings)</p>
+      <p class="sk-row sk-prop">Opus-class models produced 64% of Claude output tokens: test whether routine subagent work holds quality on a smaller model before moving it.</p>
+    </div>
+  </figure>
+</section>
+
 <section class="payoff" id="payoff" tabindex="-1" aria-label="One week, two ways">
 <div class="wrap">
   <p class="kick big">Example week, invented numbers</p>
@@ -762,6 +812,7 @@ If I bring my own decision instead, ask for its fixed answer list and safe cases
 <script src="pictures.js"></script>
 <script src="theatre.js"></script>
 <script src="programme.js"></script>
+<script src="skill-panel.js"></script>
 <script src="shows/office.js"></script>
 </body>
 </html>

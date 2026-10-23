@@ -1,5 +1,5 @@
 {
-  "minFiles": 169,
+  "minFiles": 170,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -54,6 +54,7 @@
     "scripts/shows/ticket-office.dom.test.ts": 5,
     "scripts/site-content.test.ts": 11,
     "scripts/site-testimonial.test.ts": 6,
+    "scripts/skill-panel.dom.test.ts": 13,
     "scripts/stage-door.test.ts": 6,
     "scripts/stage-sample.test.ts": 11,
     "scripts/ticket-prompt-capture.dom.test.ts": 4,

@@ -12,6 +12,7 @@
 <meta property="og:image" content="https://jevnotjev.breakoutwithai.com/og.png">
 <link rel="stylesheet" href="../page.css">
 <link rel="stylesheet" href="tm.css">
+<link rel="stylesheet" href="../skill-panel.css">
 </head>
 <body>
 <div class="page">
@@ -221,8 +222,9 @@ Print only the block above. No notes, caveats, warnings, checks, counts of dupli
         <button type="button" class="btn-gold" id="showWeek">Show my week</button>
         <button type="button" class="btn-ghost" id="showSample">Show Sample</button>
         <button type="button" class="btn-gold" id="submitWeek" aria-describedby="submitConsent">Submit</button>
+        <button type="button" class="tip-btn" id="consentTip" aria-expanded="false" aria-controls="submitConsent">What does Submit send?</button>
+        <p class="hint" id="submitConsent">Pressing Submit sends the numbers from your result and your nickname to this site: days covered; sources (Claude, Codex or both, taken from which of your session counts are above 0); total sessions; subagent sessions (always 0); short cap hits (0), weekly cap hits (0), and unknown cap hits (your usage limit hits); Claude output tokens and Codex output tokens; Opus share of Claude output; Codex weekly window used; the format name tm-share/1; mapper version 0.0.0, which marks a pasted block; and a random request key that lets a repeat press be recognised. They appear on the public board at /maps/, shown as self-reported and not verified. Nothing is sent until you press Submit. Pressing Submit again on this page never adds a second row for the same result and nickname; after reloading or closing the page, pressing Submit sends a new key and can add a second row. This page keeps the delete key and retry key only in its own memory, not in browser storage. They are gone when the page is closed or reloaded.</p>
       </div>
-      <p class="hint" id="submitConsent">Pressing Submit sends the numbers from your result and your nickname to this site: days covered; sources (Claude, Codex or both, taken from which of your session counts are above 0); total sessions; subagent sessions (always 0); short cap hits (0), weekly cap hits (0), and unknown cap hits (your usage limit hits); Claude output tokens and Codex output tokens; Opus share of Claude output; Codex weekly window used; the format name tm-share/1; mapper version 0.0.0, which marks a pasted block; and a random request key that lets a repeat press be recognised. They appear on the public board at /maps/, shown as self-reported and not verified. Nothing is sent until you press Submit. Pressing Submit again on this page never adds a second row for the same result and nickname; after reloading or closing the page, pressing Submit sends a new key and can add a second row. This page keeps the delete key and retry key only in its own memory, not in browser storage. They are gone when the page is closed or reloaded.</p>
       <p class="paste-error" id="pasteError" role="alert" hidden></p>
       <p class="submit-status" id="submitStatus" role="status" aria-live="polite" hidden></p>
       <div class="submitted" id="submitted" hidden><ol id="receipts"></ol></div>
@@ -235,6 +237,55 @@ Print only the block above. No notes, caveats, warnings, checks, counts of dupli
       <dl class="yourweek-fields" id="yourFields"></dl>
       <button type="button" class="btn-gold" id="playMine">Play my week</button>
     </article>
+  </section>
+
+  <section class="skillbill" id="skill" aria-labelledby="skillTitle">
+    <div class="sk-skill">
+      <p class="sk-kick">Get the skill</p>
+      <h2 class="sk-title" id="skillTitle">tokenmax-map <small>skill v0.3.0</small></h2>
+      <p class="sk-lede">Your own TokenMax audit, run by Claude Code or Codex on your computer.</p>
+      <ul class="sk-facts">
+        <li>Reads the usage records Claude Code and Codex keep on your computer: sessions, models, output tokens and limit notices. Never the words of your messages or the contents of your files.</li>
+        <li>Writes two files into a new folder: a private report and a share draft.</li>
+        <li>Sends nothing unless you choose to share.</li>
+        <li>No MCP server needed.</li>
+      </ul>
+      <div class="sk-ticket" role="group" aria-label="The install prompt">
+        <p class="sk-paste">Paste this into Claude Code or Codex:</p>
+        <pre id="skillPrompt">Install the tokenmax-map skill from https://github.com/breakoutwithai/jevnotjev/tree/main/skills/tokenmax-map: copy the folder to ~/.agents/skills/tokenmax-map, then link it into ~/.claude/skills/tokenmax-map for Claude Code and ~/.codex/skills/tokenmax-map for Codex (create a link only where that tool's folder exists). Then run a TokenMax audit of my last 8 weeks for both Claude Code and Codex and show me the private report.</pre>
+        <button type="button" class="sk-copy" id="skillCopy">Copy the install prompt</button>
+      </div>
+      <p class="sk-msg" id="skillCopyMsg" role="status" aria-live="polite"></p>
+      <a class="sk-repo" href="https://github.com/breakoutwithai/jevnotjev/tree/main/skills/tokenmax-map">See the skill folder on GitHub</a>
+    </div>
+    <figure class="sk-out" id="skillOut" data-state="done" aria-labelledby="skillOutCap">
+      <figcaption id="skillOutCap"><span class="sk-stamp">EXAMPLE, invented numbers</span><span class="sk-cap">What the private report shows</span></figcaption>
+      <div class="sk-sheet">
+        <p class="sk-row sk-file">private-report.md</p>
+        <p class="sk-row sk-h1">TokenMax map: private report</p>
+        <p class="sk-row sk-meta">Period 2026-08-28 to 2026-10-22 (UTC). Sources: Claude Code, Codex. Jev analysis: NOT RUN.</p>
+        <p class="sk-row sk-h2">Per week on average</p>
+        <dl class="sk-row sk-stats">
+          <div><dt>Sessions</dt><dd>96</dd></div>
+          <div><dt>Claude output tokens</dt><dd>1,240,500</dd></div>
+          <div><dt>Codex output tokens</dt><dd>418,300</dd></div>
+          <div><dt>Cap hits</dt><dd>1.4</dd></div>
+        </dl>
+        <p class="sk-row sk-note">Over 8 weeks (56 days). Totals divided evenly by days / 7; not a measured week.</p>
+        <p class="sk-row sk-h2">Limits</p>
+        <table class="sk-row sk-table">
+          <thead><tr><th scope="col">Source</th><th scope="col">Episodes</th><th scope="col">Short</th><th scope="col">Weekly</th><th scope="col">Unknown</th></tr></thead>
+          <tbody><tr><th scope="row">Claude Code</th><td>11</td><td>8</td><td>2</td><td>1</td></tr><tr><th scope="row">Codex</th><td>0</td><td>0</td><td>0</td><td>0</td></tr></tbody>
+        </table>
+        <p class="sk-row sk-note"><span class="sk-said">The report's own line (10080 minutes is one week):</span> Last Codex window reading: secondary 38% used, window_minutes 10080.</p>
+        <div class="sk-row sk-bars">
+          <p><span>Codex weekly window used</span><b>38%</b><i style="--v:38"></i></p>
+          <p><span>Opus share of Claude output</span><b>64%</b><i style="--v:64"></i></p>
+        </div>
+        <p class="sk-row sk-h2">Proposals (not measured savings)</p>
+        <p class="sk-row sk-prop">Opus-class models produced 64% of Claude output tokens: test whether routine subagent work holds quality on a smaller model before moving it.</p>
+      </div>
+    </figure>
   </section>
 
   <section class="scene" id="sceneD" aria-labelledby="hD">
@@ -273,5 +324,6 @@ Print only the block above. No notes, caveats, warnings, checks, counts of dupli
   <footer class="tm-feedback"><a href="/feedback/?from=tm">Send feedback</a></footer>
 </div>
 <script src="tm.js"></script>
+<script src="../skill-panel.js"></script>
 </body>
 </html>

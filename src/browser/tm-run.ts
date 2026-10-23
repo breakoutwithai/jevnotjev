@@ -566,6 +566,28 @@ export function startTheRun(doc: Document): void {
     if (clip && typeof clip.writeText === "function") clip.writeText(PROMPT).then(() => say(COPIED), fallback);
     else fallback();
   });
+  /* ---------- What does Submit send?: the consent text as a disclosure. Hover, keyboard focus or a tap (a click) opens
+     it; a second click, Escape, the pointer leaving or focus moving away closes it. Submit stays aria-describedby it. ---------- */
+  const tipBtn = id("consentTip", HTMLButtonElement), tipText = id("submitConsent", HTMLElement);
+  let tipPinned = false, tipTimer = 0;
+  // Without this script the text stays shown in place and the control stays hidden (tm.css keys both on .tip-ready).
+  tipBtn.parentElement?.classList.add("tip-ready");
+  function tipShow(open: boolean): void {
+    win.clearTimeout(tipTimer);
+    tipText.classList.toggle("open", open);
+    tipBtn.setAttribute("aria-expanded", String(open));
+  }
+  for (const el of [tipBtn, tipText]) {
+    el.addEventListener("mouseenter", () => tipShow(true));
+    el.addEventListener("mouseleave", () => { win.clearTimeout(tipTimer); tipTimer = win.setTimeout(() => tipShow(tipPinned), 150); });
+  }
+  tipBtn.addEventListener("focus", () => tipShow(true));
+  tipBtn.addEventListener("blur", () => { tipPinned = false; tipShow(false); });
+  tipBtn.addEventListener("click", () => { tipPinned = !tipPinned; tipShow(tipPinned); });
+  doc.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !tipText.classList.contains("open")) return;
+    tipPinned = false; tipShow(false);
+  });
   /** Skip to the command and #command move focus to the prompt section, unless focus is already inside it: a late
    * fonts.ready or a hashchange must never pull focus out of the paste box (the Cmd+V bug, 2026-10-21). */
   function focusCommand(): void { if (!command.contains(doc.activeElement)) command.focus(); }

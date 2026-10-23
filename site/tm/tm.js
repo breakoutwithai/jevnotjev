@@ -2109,6 +2109,36 @@
       else
         fallback();
     });
+    const tipBtn = id("consentTip", HTMLButtonElement), tipText = id("submitConsent", HTMLElement);
+    let tipPinned = false, tipTimer = 0;
+    tipBtn.parentElement?.classList.add("tip-ready");
+    function tipShow(open) {
+      win.clearTimeout(tipTimer);
+      tipText.classList.toggle("open", open);
+      tipBtn.setAttribute("aria-expanded", String(open));
+    }
+    for (const el of [tipBtn, tipText]) {
+      el.addEventListener("mouseenter", () => tipShow(true));
+      el.addEventListener("mouseleave", () => {
+        win.clearTimeout(tipTimer);
+        tipTimer = win.setTimeout(() => tipShow(tipPinned), 150);
+      });
+    }
+    tipBtn.addEventListener("focus", () => tipShow(true));
+    tipBtn.addEventListener("blur", () => {
+      tipPinned = false;
+      tipShow(false);
+    });
+    tipBtn.addEventListener("click", () => {
+      tipPinned = !tipPinned;
+      tipShow(tipPinned);
+    });
+    doc.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !tipText.classList.contains("open"))
+        return;
+      tipPinned = false;
+      tipShow(false);
+    });
     function focusCommand() {
       if (!command.contains(doc.activeElement))
         command.focus();

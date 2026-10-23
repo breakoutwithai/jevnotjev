@@ -1,0 +1,212 @@
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { chromium, type Browser, type Page } from "playwright-core";
+import { resolveChromium } from "./uat/happy-path-lib.ts";
+import { bannedHits } from "./uat/tm-the-run-check.ts";
+import { perWeekLine } from "../skills/tokenmax-map/scripts/map.ts";
+
+// The tokenmax-map skill surfaced on the home page and on /tm/ (operator request 2026-10-23): a two-half block, the
+// skill on the left (what it does, Copy the install prompt, the folder on GitHub) and an animated EXAMPLE of the
+// private report on the right. On /tm/ the long Submit consent paragraph becomes a "What does Submit send?" disclosure
+// with the same words, and the skill block sits where that paragraph sat, above "Rules first, Jev for the rest".
+
+const SITE = join(import.meta.dir, "..", "site");
+const VIEWS: readonly (readonly [number, number])[] = [[390, 844], [1440, 900]];
+const MOTIONS: ("no-preference" | "reduce")[] = ["no-preference", "reduce"];
+const PAGES = ["/", "/tm/"] as const;
+const SKILL_URL = "https://github.com/breakoutwithai/jevnotjev/tree/main/skills/tokenmax-map";
+// Operator correction 2026-10-23: the skill serves Claude Code and Codex from one canonical folder with a link per tool.
+const INSTALL = `Install the tokenmax-map skill from ${SKILL_URL}: copy the folder to ~/.agents/skills/tokenmax-map, then link it into ~/.claude/skills/tokenmax-map for Claude Code and ~/.codex/skills/tokenmax-map for Codex (create a link only where that tool's folder exists). Then run a TokenMax audit of my last 8 weeks for both Claude Code and Codex and show me the private report.`;
+// The paragraph that sat under Show my week / Show Sample / Submit before this change, word for word.
+const CONSENT = "Pressing Submit sends the numbers from your result and your nickname to this site: days covered; sources (Claude, Codex or both, taken from which of your session counts are above 0); total sessions; subagent sessions (always 0); short cap hits (0), weekly cap hits (0), and unknown cap hits (your usage limit hits); Claude output tokens and Codex output tokens; Opus share of Claude output; Codex weekly window used; the format name tm-share/1; mapper version 0.0.0, which marks a pasted block; and a random request key that lets a repeat press be recognised. They appear on the public board at /maps/, shown as self-reported and not verified. Nothing is sent until you press Submit. Pressing Submit again on this page never adds a second row for the same result and nickname; after reloading or closing the page, pressing Submit sends a new key and can add a second row. This page keeps the delete key and retry key only in its own memory, not in browser storage. They are gone when the page is closed or reloaded.";
+// Section headings renderPrivate in skills/tokenmax-map/scripts/map.ts writes; the example shows a subset of them.
+const MAP_TS = readFileSync(join(import.meta.dir, "..", "skills", "tokenmax-map", "scripts", "map.ts"), "utf8");
+
+const read = (rel: string): string => readFileSync(join(SITE, rel), "utf8");
+
+let browser: Browser;
+let server: ReturnType<typeof Bun.serve>;
+
+beforeAll(async () => {
+  const found = resolveChromium(null, process.env.UAT_CHROMIUM_PATH, chromium.executablePath(), existsSync);
+  if ("error" in found) throw new Error(found.error);
+  server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    const pathname = decodeURIComponent(new URL(request.url).pathname);
+    if (pathname === "/api/tickets/ranking") return Response.json({ ids: [], counts: {} });
+    const path = join(SITE, pathname.endsWith("/") ? `${pathname}index.html` : pathname);
+    if (!path.startsWith(`${SITE}/`)) return new Response("Not found", { status: 404 });
+    const file = Bun.file(path);
+    return await file.exists() ? new Response(file) : new Response("Not found", { status: 404 });
+  } });
+  browser = await chromium.launch({ headless: true, executablePath: found.path });
+});
+afterAll(async () => { await browser?.close(); server?.stop(); });
+
+async function open(path: string, width: number, height: number, motion: "no-preference" | "reduce"): Promise<Page> {
+  const context = await browser.newContext({ viewport: { width, height }, reducedMotion: motion, permissions: ["clipboard-read", "clipboard-write"] });
+  const page = await context.newPage();
+  await page.route("**/*", (route) => route.request().url().startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort());
+  await page.goto(`http://127.0.0.1:${server.port}${path}`, { waitUntil: "load" });
+  return page;
+}
+async function close(page: Page): Promise<void> { await page.context().close(); }
+
+test("[unit] SK-1 the home page carries the skill block directly after the week hero and before the example week", () => {
+  const html = read("index.html");
+  const week = html.indexOf('<section class="entry" id="week"');
+  const skill = html.indexOf('<section class="skillbill" id="skill"');
+  const payoff = html.indexOf('<section class="payoff" id="payoff"');
+  expect({ week: week > 0, order: week < skill && skill < payoff }).toEqual({ week: true, order: true });
+  // Nothing else sits between the hero's end and the skill block, or between the skill block and the payoff.
+  expect(html.slice(html.lastIndexOf("</section>", skill), skill).trim()).toBe("</section>");
+  expect(html.slice(html.lastIndexOf("</section>", payoff), payoff).trim()).toBe("</section>");
+});
+
+test("[unit] SK-2 no curl one-liner, no bun run and no terminal wording on either page or in the block's own files", () => {
+  for (const rel of ["index.html", "tm/index.html", "skill-panel.js", "skill-panel.css"]) {
+    expect({ rel, curl: /\bcurl\b/i.test(read(rel)), pipe: /\|\s*bun\b/.test(read(rel)) }).toEqual({ rel, curl: false, pipe: false });
+  }
+});
+
+test("[unit] SK-3 the example report uses the headings and wording renderPrivate writes", () => {
+  for (const heading of ["TokenMax map: private report", "## Per week on average", "## Limits", "## Proposals (not measured savings)"]) expect(MAP_TS).toContain(heading);
+  for (const rel of ["index.html", "tm/index.html"]) {
+    const html = read(rel);
+    expect({ rel, example: html.includes("EXAMPLE, invented numbers") }).toEqual({ rel, example: true });
+    for (const shown of ["TokenMax map: private report", "Per week on average", "Limits", "Proposals (not measured savings)", "Last Codex window reading", "of Claude output tokens"]) {
+      expect({ rel, shown, has: html.includes(shown) }).toEqual({ rel, shown, has: true });
+    }
+    expect({ rel, link: html.includes(`href="${SKILL_URL}"`) }).toEqual({ rel, link: true });
+    // Claude Code and Codex both, never one tool alone.
+    expect({ rel, codexOnly: /run by Claude Code on|into Claude Code:|Claude Code skills folder/.test(html) }).toEqual({ rel, codexOnly: false });
+  }
+});
+
+test("[unit] SK-3b the example's per-week numbers are what perWeekLine prints for its 8-week totals, and the period is 56 days", () => {
+  // 11 cap episodes (the Limits table: Claude Code 11, Codex 0) over 56 days; totals are the shown weekly figures x 8.
+  expect(perWeekLine({ days: 56, sessions: 768, claudeOutput: 9_924_000, codexOutput: 3_346_400, capHits: 11 })).toBe(
+    "Per week on average over 8 weeks (56 days): 96 sessions, 1,240,500 Claude output tokens, 418,300 Codex output tokens, 1.4 cap hits. Totals divided evenly by days / 7; not a measured week.");
+  expect((Date.UTC(2026, 9, 22) - Date.UTC(2026, 7, 28)) / 86_400_000 + 1).toBe(56);
+  for (const rel of ["index.html", "tm/index.html"]) {
+    const html = read(rel);
+    for (const shown of ["Period 2026-08-28 to 2026-10-22 (UTC)", "<dd>96</dd>", "<dd>1,240,500</dd>", "<dd>418,300</dd>", "<dd>1.4</dd>", '<th scope="row">Claude Code</th><td>11</td>', '<th scope="row">Codex</th><td>0</td>']) {
+      expect({ rel, shown, has: html.includes(shown) }).toEqual({ rel, shown, has: true });
+    }
+  }
+});
+
+test("[integration] SK-9 /tm/ without tm.js the consent text shows in place and the control stays hidden", async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  try {
+    await page.route("**/*", (route) => {
+      const url = route.request().url();
+      if (url.endsWith("/tm/tm.js")) return route.abort();
+      return url.startsWith(`http://127.0.0.1:${server.port}/`) ? route.continue() : route.abort();
+    });
+    await page.goto(`http://127.0.0.1:${server.port}/tm/`, { waitUntil: "load" });
+    expect(await page.locator("#submitConsent").isVisible()).toBe(true);
+    expect(await page.locator("#consentTip").isVisible()).toBe(false);
+  } finally { await context.close(); }
+});
+
+test("[unit] SK-4 /tm/: the Submit disclosure holds the old paragraph word for word, and the skill block sits after the form and before Rules first", () => {
+  const html = read("tm/index.html");
+  const consent = /<p class="hint" id="submitConsent">([^<]+)<\/p>/.exec(html)?.[1] ?? "";
+  expect(consent).toBe(CONSENT);
+  const submit = html.indexOf('id="submitWeek"'), skill = html.indexOf('id="skill"'), scene = html.indexOf('id="sceneD"');
+  expect(submit > 0 && submit < skill && skill < scene).toBe(true);
+});
+
+for (const path of PAGES) test(`[integration] SK-5 ${path} Copy the install prompt copies the exact prompt and says Copied`, async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open(path, width, height, "reduce");
+    try {
+      const btn = page.locator("#skillCopy");
+      expect(await btn.innerText()).toBe("Copy the install prompt");
+      await btn.scrollIntoViewIfNeeded();
+      await btn.click();
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(INSTALL);
+      await page.waitForFunction(() => (document.getElementById("skillCopy")?.textContent ?? "") === "Copied");
+      expect(await page.locator("#skillCopyMsg").innerText()).toContain("Copied");
+      expect(await page.locator("#skillPrompt").innerText()).toBe(INSTALL);
+      expect(bannedHits(INSTALL)).toEqual([]);
+    } finally { await close(page); }
+  }
+}, 40000);
+
+for (const path of PAGES) test(`[integration] SK-6 ${path} reduced motion shows the finished report; motion builds it line by line`, async () => {
+  for (const motion of MOTIONS) for (const [width, height] of VIEWS) {
+    const page = await open(path, width, height, motion);
+    try {
+      const rows = page.locator("#skillOut .sk-row");
+      const count = await rows.count();
+      expect(count).toBeGreaterThanOrEqual(6);
+      if (motion === "reduce") {
+        expect(await page.locator("#skillOut").getAttribute("data-state")).toBe("done");
+      } else {
+        // Before it is in view, the report waits at its first frame.
+        expect(await page.locator("#skillOut").getAttribute("data-state")).toBe("ready");
+        await page.locator("#skillOut").scrollIntoViewIfNeeded();
+        await page.waitForFunction(() => document.getElementById("skillOut")?.getAttribute("data-state") === "done", undefined, { timeout: 15000 });
+      }
+      const shown = await rows.evaluateAll((els) => els.map((e) => Number(getComputedStyle(e).opacity)));
+      expect({ motion, width, shown: shown.every((o) => o === 1) }).toEqual({ motion, width, shown: true });
+      const widths = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
+      expect({ width, widths }).toEqual({ width, widths: Math.min(widths, width) });
+    } finally { await close(page); }
+  }
+}, 90000);
+
+for (const [width, height] of VIEWS) test(`[integration] SK-7 the skill half comes first and the halves sit side by side only on a wide screen (${width})`, async () => {
+  for (const path of PAGES) {
+    const page = await open(path, width, height, "reduce");
+    try {
+      const box = await page.evaluate(() => {
+        const a = document.querySelector("#skill .sk-skill")?.getBoundingClientRect(), b = document.getElementById("skillOut")?.getBoundingClientRect();
+        return a && b ? { aTop: a.top, aLeft: a.left, bTop: b.top, bLeft: b.left, aBottom: a.bottom } : null;
+      });
+      if (!box) throw new Error("block missing");
+      if (width >= 900) expect({ path, sideBySide: box.aLeft < box.bLeft && Math.abs(box.aTop - box.bTop) < 80 }).toEqual({ path, sideBySide: true });
+      else expect({ path, stacked: box.bTop >= box.aBottom - 1 }).toEqual({ path, stacked: true });
+    } finally { await close(page); }
+  }
+}, 40000);
+
+test("[integration] SK-8 /tm/ What does Submit send? opens on focus, on click and on hover, Escape closes it, and Submit stays described by it", async () => {
+  for (const [width, height] of VIEWS) {
+    const page = await open("/tm/", width, height, "reduce");
+    try {
+      const tip = page.locator("#consentTip"), text = page.locator("#submitConsent");
+      expect(await tip.innerText()).toBe("What does Submit send?");
+      expect(await tip.getAttribute("aria-controls")).toBe("submitConsent");
+      expect(await page.locator("#submitWeek").getAttribute("aria-describedby")).toBe("submitConsent");
+      expect(await text.isVisible()).toBe(false);
+      expect(await tip.getAttribute("aria-expanded")).toBe("false");
+      expect(await text.textContent()).toBe(CONSENT);
+      // Keyboard focus
+      await tip.focus();
+      expect(await text.isVisible()).toBe(true);
+      expect(await tip.getAttribute("aria-expanded")).toBe("true");
+      await page.keyboard.press("Escape");
+      expect(await text.isVisible()).toBe(false);
+      expect(await tip.getAttribute("aria-expanded")).toBe("false");
+      // Click (a tap on a phone): opens and stays open, a second click closes
+      await page.locator("#showSample").focus();
+      await tip.click();
+      expect(await text.isVisible()).toBe(true);
+      await tip.click();
+      expect(await text.isVisible()).toBe(false);
+      // Hover: the pointer leaves the control first, so entering it is a fresh hover
+      await page.locator("#showSample").focus();
+      await page.locator("#hCmd").hover();
+      await tip.hover();
+      expect(await text.isVisible()).toBe(true);
+      await page.locator("#hCmd").hover();
+      await page.waitForFunction(() => getComputedStyle(document.getElementById("submitConsent") ?? document.body).display === "none");
+      const widths = await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth));
+      expect({ width, widths }).toEqual({ width, widths: Math.min(widths, width) });
+    } finally { await close(page); }
+  }
+}, 40000);

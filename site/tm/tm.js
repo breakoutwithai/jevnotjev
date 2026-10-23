@@ -1620,6 +1620,7 @@
       resetWeek();
       exampleTag.hidden = !(st.example && view === "with");
       gauge.classList.toggle("calm", view === "with");
+      gauge.classList.remove("unset");
       const underWith = mode === "under" && view === "with";
       actEl.textContent = view === "without" ? "Without TokenMax · every step in the royal box" : underWith ? "With TokenMax · cheaper seats, then more jobs" : "With TokenMax · each step in its seat";
       if (underWith)
@@ -1864,6 +1865,7 @@
       gaugeName.textContent = avg ? "Not shown for an average week" : codex === null ? "No weekly figure recorded" : "Codex week left";
       if (codex === null)
         leftPct.textContent = "";
+      gauge.classList.toggle("unset", codex === null);
       actEl.textContent = avg && weeks !== null ? `Average week over ${Math.round(weeks * 10) / 10} weeks · not a real week` : week === SAMPLE_WEEK ? "Sample week · per-day split illustrative, not your numbers" : "Your week · from your numbers";
       statusEl.textContent = "";
       await wait(250, tok);

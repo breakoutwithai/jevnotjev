@@ -111,6 +111,7 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 .target-mark text { font: 700 13px var(--tm-sans); letter-spacing: .06em; fill: var(--parch); }
 .gauge.calm #gaugeArc { stroke: url(#arcCalm); }
 .gauge.calm #needle path { fill: var(--gold-l); }
+.gauge.unset #needle { visibility: hidden; }
 .gauge.hit .target-mark line { filter: drop-shadow(0 0 5px #f6dc8e); }
 .gauge.hit .target-mark text { fill: var(--gold-l); }
 .gauge-badge { display: inline-block; margin-top: 8px; font: 800 12px/1 var(--tm-sans); letter-spacing: .08em; text-transform: uppercase; color: var(--parch-ink); background: linear-gradient(#f6dc8e, var(--brass)); padding: 6px 10px; border-radius: 999px; box-shadow: 0 0 18px rgba(246, 220, 142, .45); }

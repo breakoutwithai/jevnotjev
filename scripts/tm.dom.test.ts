@@ -1057,6 +1057,8 @@ for (const [width, height] of VIEWS) test(`[integration] TM-52 at ${width}x${hei
     await page.waitForFunction(() => document.getElementById("dataEnd")?.hidden === false, null, { timeout: 8000 });
     expect(await page.locator("#act").textContent()).toBe("Average week over 8 weeks · not a real week");
     expect(await page.locator("#gaugeName").textContent()).toBe("Not shown for an average week");
+    // No gauge figure: the needle is hidden, never left resting at FULL beside "Not shown".
+    expect(await page.evaluate(() => getComputedStyle(document.getElementById("needle") as Element).visibility)).toBe("hidden");
     expect(await page.locator("#dataBig").innerText()).toBe("On average 0.4 usage limit hits a week (3 in 8 weeks)");
     expect(await page.locator("#run .poster.cut").count()).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);

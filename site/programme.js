@@ -53,14 +53,13 @@
   // Open scroll: replayed in place, from the link only (a button inside the scroll must not vanish under the pointer).
   // Rolled scroll: it drops as an overlay under the button (theatre.css .peek), so nothing moves. Touch plays on touchstart
   // and never prevents the default, so the tap still follows the link. Reduced motion: no peek at all.
-  var peekTimer = 0;
+  var touchTimer = 0; // the touch hold expires on its own, whatever hover or focus does meanwhile
   var holds = {}; // hover, focus and touch are tracked apart: the peek closes only when none of them is left
   var scrollEl = box.querySelector(".programme-scroll");
   var quiet = false; // roll() moves focus to the button itself; that is not a visitor asking to peek
   function held() { for (var k in holds) { if (holds[k]) return true; } return false; }
   function peekOn(fromLink) {
     if (still() || quiet) return;
-    window.clearTimeout(peekTimer);
     var open = box.dataset.state === "open";
     var rolled = box.dataset.state === "rolled";
     // Remove, flush styles, then add: a peek that is already showing restarts instead of keeping its finished animation.
@@ -74,7 +73,7 @@
     if (open && fromLink) box.classList.add("unroll");
   }
   function peekOff() {
-    window.clearTimeout(peekTimer);
+    window.clearTimeout(touchTimer);
     holds = {};
     box.classList.remove("peek");
     if (scrollEl) scrollEl.inert = false;
@@ -90,7 +89,8 @@
     el.addEventListener("touchstart", function () {
       holds[id + ":touch"] = true;
       peekOn(fromLink);
-      peekTimer = window.setTimeout(function () { release(id + ":touch"); }, 2600);
+      window.clearTimeout(touchTimer);
+      touchTimer = window.setTimeout(function () { release(id + ":touch"); }, 2600);
     }, { passive: true });
   }
   // Reduced motion switched on mid-peek: put the preview away.

@@ -254,3 +254,13 @@ test("[integration] PA-12 reduced motion switched on mid-peek puts the preview a
     expect(await page.locator("#programmeSheet").isVisible()).toBe(false);
   } finally { await page.context().close(); }
 }, 30000);
+
+test("[integration] PA-13 a touch peek still expires after a focus and blur in between", async () => {
+  const page = await landing(390, 844, "rolled", "no-preference", true);
+  try {
+    await page.evaluate(() => document.getElementById("programLink")?.dispatchEvent(new Event("touchstart", { bubbles: true, cancelable: true })));
+    await page.locator("#programLink").focus();
+    await page.locator("#programLink").blur();
+    await page.waitForFunction(() => !document.getElementById("programme")?.classList.contains("peek"), undefined, { timeout: 5000 });
+  } finally { await page.context().close(); }
+}, 30000);

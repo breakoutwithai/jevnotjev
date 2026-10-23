@@ -245,4 +245,5 @@ td.n { white-space: nowrap; }
 .verdict th, .verdict td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); }
 .verdict th { font-size: 13px; color: var(--muted); font-weight: 500; }
 .verdict td.n, .verdict th:nth-child(n+2) { text-align: right; font-variant-numeric: tabular-nums; }
+.vq-plain { margin: -6px 0 12px; color: var(--ink); }
 .vq-gap { margin: -6px 0 12px; color: var(--ink-soft); }

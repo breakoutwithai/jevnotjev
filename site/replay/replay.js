@@ -130,6 +130,7 @@
       return '<div class="vq">' + (many ? '<p class="vq-name">Question ' + esc(unique ? v.questionId : v.runId + " " + v.promptVersion + " " + v.questionId) + ": " + esc(v.question) + "</p>" : "") +
         '<p class="vq-verdict">Verdict: <b data-verdict>' + esc(v.verdict) + "</b></p>" +
         '<p class="vq-reason" data-reason>' + esc(v.reason) + "</p>" +
+        (v.plain ? '<p class="vq-plain" data-plain>' + esc(v.plain) + "</p>" : "") +
         (v.gap ? '<p class="vq-gap" data-gap>' + esc(v.gap) + "</p>" : "") +
         '<table><thead><tr><th scope="col">Method</th><th scope="col">Accepted</th><th scope="col">Cost per accepted answer</th></tr></thead><tbody>' + cells + "</tbody></table></div>";
     }).join("");

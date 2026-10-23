@@ -39,7 +39,8 @@
   </div>
   <div class="field">
     <label for="feedbackPage">Which page were you on? (optional)</label>
-    <input id="feedbackPage" name="page" type="text" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="feedbackPageErr">
+    <p class="hint" id="feedbackPageHint">A short page name, such as tm or guide, without slashes.</p>
+    <input id="feedbackPage" name="page" type="text" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="feedbackPageHint feedbackPageErr">
     <p class="err" id="feedbackPageErr" hidden>Use a short page name such as home, guide or tm.</p>
   </div>
   <div class="trap" inert aria-hidden="true">

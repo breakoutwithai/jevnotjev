@@ -1258,14 +1258,16 @@ for (const motion of MOTIONS) test(`[integration] TM-14 Show Sample: nothing of 
   }
 }, 40000);
 
-test("[integration] the router card says not run yet and shows no result: no percentage, no counts beyond 47 jobs and #236", async () => {
+test("[integration] the router card says not run yet and shows no result: no percentage, no counts beyond 47 jobs, no issue number", async () => {
   const page = await open(390, 844, "reduce");
   try {
     const text = await page.locator("#sceneD").evaluate((node) => [node.textContent ?? "", ...[...node.querySelectorAll("[aria-label], [title]")].map((el) => `${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""}`)].join(" "));
     expect(text.replace(/\s+/g, " ")).toContain("47 jobs in rehearsal, not run yet");
     expect(text).toContain("no result yet");
     expect(text).not.toContain("%");
-    expect([...new Set([...text.matchAll(/\d+/g)].map((m) => m[0]))].sort()).toEqual(["236", "47"]);
+    expect([...new Set([...text.matchAll(/\d+/g)].map((m) => m[0]))].sort()).toEqual(["47"]);
+    expect(text).not.toMatch(/#\d+|Next:/);
+    expect(html()).not.toMatch(/Next: #|class="soon"/);
   } finally { await close(page); }
 }, 30000);
 
@@ -1406,7 +1408,7 @@ test("[integration] the router card walks one example ruled job and one unmatche
     expect(card.openDoor).toBe("Door Jev in rehearsal, 47 jobs (example), not run yet");
     expect(card.jev).toBe("Jev picks from a fixed list of answers, fast and cheap");
     expect(card.all).not.toMatch(/route most|most jobs|%/i);
-    expect([...new Set([...card.all.matchAll(/\d+/g)].map((m) => m[0]))].sort()).toEqual(["236", "47"]);
+    expect([...new Set([...card.all.matchAll(/\d+/g)].map((m) => m[0]))].sort()).toEqual(["47"]);
   } finally { await close(page); }
 }, 30000);
 

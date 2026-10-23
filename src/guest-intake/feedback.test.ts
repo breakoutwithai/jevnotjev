@@ -227,6 +227,18 @@ describe("feedback links on the site", () => {
     expect(privacy).toContain('href="mailto:jev@breakoutwithai.com"');
   });
 
+  test("[unit] FB-13 /feedback/ hints the page-name format under 'Which page were you on?' before sending, and the hint's examples pass the validation", () => {
+    const html = readFileSync(join(SITE, "feedback", "index.html"), "utf8");
+    expect(html).toContain('<p class="hint" id="feedbackPageHint">A short page name, such as tm or guide, without slashes.</p>');
+    expect(html).toMatch(/<input id="feedbackPage"[^>]*aria-describedby="feedbackPageHint feedbackPageErr"/);
+    expect(html.indexOf("Which page were you on?")).toBeLessThan(html.indexOf('id="feedbackPageHint"'));
+    const pattern = readFileSync(join(SITE, "feedback", "feedback.js"), "utf8").match(/var PAGE = (\/.*\/);/)?.[1];
+    expect(pattern).toBe("/^[a-z0-9][a-z0-9-]{0,39}$/");
+    const page = /^[a-z0-9][a-z0-9-]{0,39}$/;
+    expect(page.test("tm") && page.test("guide")).toBe(true);
+    expect(page.test("/tm/")).toBe(false);
+  });
+
   test("[smoke] FB-12 without JavaScript the form cannot send its content in a URL: POST, Send disabled until the script runs, a noscript notice", () => {
     const html = readFileSync(join(SITE, "feedback", "index.html"), "utf8");
     const form = html.match(/<form[^>]*id="feedbackForm"[^>]*>/)?.[0] ?? "";

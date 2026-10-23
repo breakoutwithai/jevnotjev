@@ -29,7 +29,7 @@
     "scripts/deploy-checklist.test.ts": 16,
     "scripts/pictures.dom.test.ts": 38,
     "scripts/programme.dom.test.ts": 12,
-    "scripts/gate.test.ts": 19,
+    "scripts/gate.test.ts": 18,
     "scripts/git-fixture.test.ts": 6,
     "scripts/guide/capture-guide-shots.test.ts": 8,
     "scripts/guide.dom.test.ts": 2,

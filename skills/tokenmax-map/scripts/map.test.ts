@@ -3,7 +3,7 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type CapOccurrence, CODEX_META_TYPE, classifyClaudeNotice, groupEpisodes, main, parseArgs, parseClaudeLine, projectOf, renderPrivate, scanClaude, scanCodex, scanShare, summarise } from "./map.ts";
+import { type CapOccurrence, CODEX_META_TYPE, classifyClaudeNotice, groupEpisodes, main, parseArgs, parseClaudeLine, perWeekLine, projectOf, renderPrivate, scanClaude, scanCodex, scanShare, summarise, weekTotals } from "./map.ts";
 
 const FROM = Date.parse("2026-10-09T00:00:00Z");
 const TO = Date.parse("2026-10-16T23:59:59Z");
@@ -447,4 +447,19 @@ describe("[integration] review #241 round 2", () => {
     expect(readFileSync(join(out, "private-report.md"), "utf8")).toContain("could not be read: the totals below are understated");
     expect(readFileSync(join(out, "share-draft.md"), "utf8")).toContain("1 folders or files unreadable");
   });
+});
+
+test("[unit] #409 over 7 days the report states per-week averages, each total divided evenly by days / 7; 7 days or fewer has none", async () => {
+  const totals = { sessions: 3296, claudeOutput: 10_000_000, codexOutput: 7_200_000, capHits: 3 };
+  expect(perWeekLine({ days: 56, ...totals })).toBe("Per week on average over 8 weeks (56 days): 412 sessions, 1,250,000 Claude output tokens, 900,000 Codex output tokens, 0.4 cap hits. Totals divided evenly by days / 7; not a measured week.");
+  expect(perWeekLine({ days: 30, ...totals })).toBe("Per week on average over 4.3 weeks (30 days): 769 sessions, 2,333,333 Claude output tokens, 1,680,000 Codex output tokens, 0.7 cap hits. Totals divided evenly by days / 7; not a measured week.");
+  expect(perWeekLine({ days: 7, ...totals })).toBeNull();
+  expect(perWeekLine({ days: 1, ...totals })).toBeNull();
+  const s = summarise(await scanClaude(claudeFixture(), FROM, TO), await scanCodex(codexFixture(), FROM, TO));
+  const t = weekTotals(s);
+  const long = renderPrivate(s, { from: "2026-08-22", to: "2026-10-16", byProject: false, sources: ["Claude Code", "Codex"], days: 56 });
+  expect(long).toContain(`## Per week on average\n\n${perWeekLine({ days: 56, ...t }) ?? "missing"}\n`);
+  expect(renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: false, sources: ["Claude Code", "Codex"], days: 7 })).not.toContain("Per week on average");
+  expect(t.sessions).toBe((s.claude?.sessions ?? 0) + (s.codex?.sessions ?? 0));
+  expect(t.capHits).toBe(s.episodes.length);
 });

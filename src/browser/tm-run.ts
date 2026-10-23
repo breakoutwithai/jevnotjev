@@ -6,8 +6,8 @@
 // number here is illustrative.
 
 import {
-  cardHeadline, dayLabels, limitDayIndexes, NOT_A_RESULT, NOT_RECORDED, parseWeek, periodLine, SAMPLE_WEEK, situationOf, stageHeadline, stageSubtitle,
-  weekLines, type Week,
+  averageHeadline, averageLine, averageSubtitle, averageWeek, cardHeadline, dayLabels, limitDayIndexes, NOT_A_RESULT, NOT_RECORDED, parseWeek, periodLine,
+  promptFor, SAMPLE_WEEK, situationOf, stageHeadline, stageSubtitle, weekLines, weeksOf, type Week,
 } from "./tm-week.ts";
 import { ALIAS_MESSAGE, ALIAS_PATTERN, newRequestKey, normaliseAlias, rawNumberProblem, rejectionMessage, submitBody, weekToPayload } from "./tm-submit.ts";
 import { Cancel, createPooling } from "./tm-pool-show.ts";
@@ -413,14 +413,17 @@ export function startTheRun(doc: Document): void {
     setBusy(true);
     clearDrop(); resetWeek();
     gauge.classList.add("calm");
-    const labels = dayLabels(week), hits = new Set(limitDayIndexes(week));
-    const perDay = week.perDay, max = perDay ? Math.max(1, ...perDay) : 1;
+    // Over 7 days the stage plays the average week (#409): weekday means, no limit stamps, no gauge, labelled as an average.
+    const avg = averageWeek(week), shown = avg ?? week, weeks = weeksOf(week);
+    const labels = dayLabels(shown), hits = new Set(limitDayIndexes(shown));
+    const perDay = shown.perDay, max = perDay ? Math.max(1, ...perDay) : 1;
     posters.forEach((p, i) => { p.day.textContent = labels[i] ?? ""; p.lab.textContent = perDay ? "" : NOT_RECORDED; });
-    const codex = week.codexWindow;
-    gaugeName.textContent = codex === null ? "No weekly figure recorded" : "Codex week left";
+    const codex = shown.codexWindow;
+    gaugeName.textContent = avg ? "Not shown for an average week" : codex === null ? "No weekly figure recorded" : "Codex week left";
     if (codex === null) leftPct.textContent = "";
     // The sample's per-day split is constructed, so the stage never presents it as the visitor's own numbers.
-    actEl.textContent = week === SAMPLE_WEEK ? "Sample week · per-day split illustrative, not your numbers" : "Your week · from your numbers";
+    actEl.textContent = avg && weeks !== null ? `Average week over ${Math.round(weeks * 10) / 10} weeks · not a real week`
+      : week === SAMPLE_WEEK ? "Sample week · per-day split illustrative, not your numbers" : "Your week · from your numbers";
     statusEl.textContent = "";
     await wait(250, tok);
     for (let i = 0; i < 7; i++) {
@@ -436,8 +439,8 @@ export function startTheRun(doc: Document): void {
       if (n !== undefined) { p.li.classList.add("played"); p.lab.textContent = n.toLocaleString("en-US"); }
       if (hits.has(i)) { p.li.classList.add("cut"); p.stamp.textContent = "LIMIT HIT"; }
     }
-    dataBig.textContent = stageHeadline(week);
-    dataSub.textContent = stageSubtitle(week);
+    dataBig.textContent = avg ? averageHeadline(week) : stageHeadline(week);
+    dataSub.textContent = avg ? averageSubtitle(week) : stageSubtitle(week);
     dataEnd.hidden = false;
     if (tok === st.token) {
       setBusy(false);
@@ -523,7 +526,14 @@ export function startTheRun(doc: Document): void {
 
   /* ---------- Map your real week: Copy the prompt, then execCommand, then select the text with a keyboard hint ---------- */
   const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement);
-  const PROMPT = promptEl.textContent ?? "";
+  const BASE_PROMPT = promptEl.textContent ?? "";
+  let PROMPT = BASE_PROMPT;
+  // Last 7 days or Last 8 weeks (#409): the shown and copied prompt follow the choice; the page's 7-day text is the base.
+  for (const radio of every(doc, 'input[name="period"]', HTMLInputElement)) radio.addEventListener("change", () => {
+    if (!radio.checked) return;
+    PROMPT = promptFor(BASE_PROMPT, radio.value === "56" ? 56 : 7);
+    promptEl.textContent = PROMPT;
+  });
   const COPIED = "Copied. Paste it into Claude Code or Codex on your computer.";
   let copyTimer = 0;
   function say(text: string): void {
@@ -562,14 +572,19 @@ export function startTheRun(doc: Document): void {
   const pasteBox = id("pasteBox", HTMLTextAreaElement), pasteError = id("pasteError", HTMLElement);
   const yourWeek = id("yourWeek", HTMLElement), yourFields = id("yourFields", HTMLElement), yourLine = id("yourLine", HTMLElement);
   const sampleTag = id("sampleTag", HTMLElement), localTag = id("localTag", HTMLElement);
-  const yourTitle = id("hYour", HTMLElement), yourPeriod = id("yourPeriod", HTMLElement);
+  const yourTitle = id("hYour", HTMLElement), yourPeriod = id("yourPeriod", HTMLElement), yourAverage = id("yourAverage", HTMLElement);
+  const playMineBtn = id("playMine", HTMLButtonElement);
   let mine: Week | null = null;
   /** Fill the card in place from values only (textContent): no pasted text is ever shown. It does not move focus or
    * the page; it only scrolls the card into view if it would be off screen. */
   function showCard(week: Week, sample: boolean): void {
-    yourTitle.textContent = sample ? "Sample week" : "Your week";
+    const weeks = weeksOf(week), average = averageLine(week);
+    yourTitle.textContent = sample ? "Sample week" : weeks === null ? "Your week" : `Your ${Math.round(weeks * 10) / 10} weeks`;
     yourPeriod.textContent = periodLine(week);
     yourLine.textContent = cardHeadline(week);
+    yourAverage.textContent = average ?? "";
+    yourAverage.hidden = average === null;
+    playMineBtn.textContent = average === null ? "Play my week" : "Play my average week";
     yourFields.textContent = "";
     for (const { label, value } of weekLines(week)) {
       const dt = doc.createElement("dt"); dt.textContent = label;

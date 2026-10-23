@@ -25,6 +25,14 @@ describe("tm-submit mapping", () => {
     expect(periodDays(SAMPLE_WEEK)).toBe(7);
     expect([MAP_BOUNDS.days[0], MAX_DAYS]).toEqual([1, MAP_BOUNDS.days[1]]);
   });
+  test("[unit] TM-53 an 8-week block (56 days, 56 per-day numbers) submits as days 56, totals unchanged, and the server accepts it (#409)", () => {
+    const long = change("2026-10-14 to 2026-10-20", "2026-08-25 to 2026-10-19") + `\nSessions per day: ${Array.from({ length: 56 }, () => "1").join(", ")}`;
+    expect(periodDays(week(long))).toBe(56);
+    const mapped = weekToPayload(week(long));
+    if (!mapped.ok) throw new Error(mapped.message);
+    expect(mapped.payload).toMatchObject({ days: 56, sessions: 3213, caps: { short: 0, weekly: 0, unknown: 2 } });
+    expect(checkMap(submitBody(mapped.payload, "builder-ab12", KEY)).ok).toBe(true);
+  });
   test("[unit] TM-40 maps board uses the pasted skill literal from Submit", () => {
     const script = readFileSync(join(import.meta.dir, "..", "..", "site", "maps", "maps.js"), "utf8");
     expect(/var PASTED_SKILL = "([^"]+)";/.exec(script)?.[1]).toBe(PASTED_SKILL);

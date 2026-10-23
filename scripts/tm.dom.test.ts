@@ -7,8 +7,8 @@ import { bundleTm, TM_OUT } from "./build-tm.ts";
 import { weekToPayload } from "../src/browser/tm-submit.ts";
 import { WITH_ACT, WITHOUT_ACT, BANNED_ANYWHERE, bannedHits, jargonHits, PROMPT, SAMPLE_CARD, SAMPLE_RESULT } from "./uat/tm-the-run-check.ts";
 import {
-  cardHeadline, dayLabels, limitDayIndexes, NOT_A_RESULT, parseWeek, periodLine, readDate, readLimitDays, readPerDay, SAMPLE_WEEK, situationOf, stageHeadline, stageSubtitle,
-  weekLines, type Week,
+  averageHeadline, averageLine, averageSubtitle, averageWeek, cardHeadline, dayLabels, limitDayIndexes, NOT_A_RESULT, parseWeek, periodLine, promptFor, PROMPT_SWAPS,
+  readDate, readLimitDays, readPerDay, SAMPLE_WEEK, situationOf, stageHeadline, stageSubtitle, weekLines, weeksOf, type Week,
 } from "../src/browser/tm-week.ts";
 
 // /tm/ "The Run": a plain front panel, the click-through TokenMax show, then Map your real week (#command: one plain
@@ -985,6 +985,89 @@ test("[unit] TM-17 block v2: seven per-day numbers or not recorded; limit-hit da
   expect(limitDayIndexes({ ...heavy, limitHits: null })).toEqual([]);
   expect(stageHeadline({ ...heavy, limitHits: 0 })).toBe("You never hit your limit");
 });
+
+// ---------- #409: 8 weeks and per-week averages ----------
+const WEEK_SHAPE = [50, 60, 70, 80, 60, 52, 40];
+const LONG = [
+  "TOKENMAX WEEK", "Period: 2026-08-21 to 2026-10-15", "Claude sessions: 2,296", "Codex sessions: 1,000", "Claude output tokens: 10,000,000",
+  "Codex output tokens: 7,200,000", "Opus share of Claude output: 40%", "Usage limit hits: 3",
+  `Sessions per day: ${Array.from({ length: 8 }, () => WEEK_SHAPE).flat().join(", ")}`, "Limit hit days: 2026-08-22, 2026-09-30, 2026-10-14",
+  "Codex weekly window used: 20%", "Pattern: running out",
+].join("\n");
+
+test("[unit] TM-50 the 8-week prompt asks for 56 days in every place the 7-day prompt says 7; the 7-day prompt is unchanged", () => {
+  expect(promptFor(PROMPT, 7)).toBe(PROMPT);
+  const eight = promptFor(PROMPT, 56);
+  for (const [from, to] of PROMPT_SWAPS) {
+    expect({ from, inBase: PROMPT.split(from).length - 1 }).toEqual({ from, inBase: 1 });
+    expect({ to, inEight: eight.split(to).length - 1 }).toEqual({ to, inEight: 1 });
+  }
+  expect(eight).toContain("for the last 8 weeks (56 days).");
+  expect(eight).toContain("both included, 56 days in total.");
+  expect(eight).not.toMatch(/\b7 days\b|seven numbers|<7 numbers/);
+  expect(eight.split("\n").length).toBe(PROMPT.split("\n").length);
+});
+
+test("[unit] TM-51 a 56-day block reads its 56 per-day numbers and shows per-week averages; a 7-day week has none", () => {
+  const long = parseWeek(LONG);
+  if (!long) throw new Error("LONG did not parse");
+  expect(long.perDay?.length).toBe(56);
+  expect(weeksOf(long)).toBe(8);
+  expect(averageLine(long)).toBe("8 weeks, 21 Aug to 15 Oct 2026: per week on average 412 sessions, 1,250,000 Claude output tokens, 900,000 Codex output tokens, 0.4 usage limit hits. Totals divided evenly by 8 weeks; not a measured week.");
+  const avg = averageWeek(long);
+  expect(avg?.perDay).toEqual(WEEK_SHAPE);
+  expect({ days: avg?.limitDays, window: avg?.codexWindow }).toEqual({ days: null, window: null });
+  expect(dayLabels(avg ?? long)).toEqual(["Fri", "Sat", "Sun", "Mon", "Tue", "Wed", "Thu"]);
+  expect(averageHeadline(long)).toBe("On average 0.4 usage limit hits a week (3 in 8 weeks)");
+  expect(averageHeadline({ ...long, limitHits: 0 })).toBe("No usage limit hit in 8 weeks");
+  expect(averageHeadline({ ...long, limitHits: null })).toBe("Usage limit hits not recorded");
+  expect(averageSubtitle(long)).toBe("Average week over 8 weeks, not a real week: 412 sessions a week");
+  // A per-day count that does not match the period is not recorded, never guessed.
+  expect(parseWeek(LONG.replace(/Sessions per day: .*/, "Sessions per day: 1, 2, 3, 4, 5, 6, 7"))?.perDay).toBeNull();
+  expect(averageWeek({ ...long, perDay: null })?.perDay).toBeNull();
+  // A month (30 days) is read too: 30 numbers, 4.3 weeks.
+  const month = parseWeek(LONG.replace("2026-08-21", "2026-09-16").replace(/Sessions per day: .*/, `Sessions per day: ${Array.from({ length: 30 }, () => "10").join(", ")}`));
+  if (!month) throw new Error("month did not parse");
+  expect(month.perDay?.length).toBe(30);
+  expect(averageLine(month)).toBe("4.3 weeks, 16 Sep to 15 Oct 2026: per week on average 769 sessions, 2,333,333 Claude output tokens, 1,680,000 Codex output tokens, 0.7 usage limit hits. Totals divided evenly by 4.3 weeks; not a measured week.");
+  // Seven days: no averages, the 7-number line still reads.
+  const heavy = parseWeek(HEAVY);
+  if (!heavy) throw new Error("HEAVY did not parse");
+  expect({ weeks: weeksOf(heavy), line: averageLine(heavy), avg: averageWeek(heavy), perDay: heavy.perDay?.length }).toEqual({ weeks: null, line: null, avg: null, perDay: 7 });
+  expect(averageLine(SAMPLE_WEEK)).toBeNull();
+  // A part not recorded is left out, never counted as 0.
+  expect(averageLine({ ...long, codexOutput: null, limitHits: null })).toBe("8 weeks, 21 Aug to 15 Oct 2026: per week on average 412 sessions, 1,250,000 Claude output tokens. Totals divided evenly by 8 weeks; not a measured week.");
+});
+
+for (const [width, height] of VIEWS) test(`[integration] TM-52 at ${width}x${height} Last 8 weeks switches the shown and copied prompt; a 56-day paste shows the averages and plays the average week, labelled as one`, async () => {
+  const page = await open(width, height, "reduce");
+  try {
+    const choice = page.getByRole("radiogroup", { name: "Period to collect" });
+    expect(await choice.getByRole("radio", { name: "Last 7 days" }).isChecked()).toBe(true);
+    await choice.getByRole("radio", { name: "Last 8 weeks" }).check();
+    expect(await page.locator("#sharePrompt").textContent()).toBe(promptFor(PROMPT, 56));
+    await page.locator("#copy").click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(promptFor(PROMPT, 56));
+    await page.locator("#pasteBox").fill(LONG);
+    await page.locator("#showWeek").click();
+    expect(await page.locator("#hYour").innerText()).toBe("Your 8 weeks");
+    expect(await page.locator("#yourAverage").innerText()).toBe(averageLine(parseWeek(LONG) ?? SAMPLE_WEEK) ?? "missing");
+    expect(await page.locator("#playMine").innerText()).toBe("Play my average week");
+    await page.locator("#playMine").click();
+    await page.waitForFunction(() => document.getElementById("dataEnd")?.hidden === false, null, { timeout: 8000 });
+    expect(await page.locator("#act").textContent()).toBe("Average week over 8 weeks · not a real week");
+    expect(await page.locator("#gaugeName").textContent()).toBe("Not shown for an average week");
+    expect(await page.locator("#dataBig").innerText()).toBe("On average 0.4 usage limit hits a week (3 in 8 weeks)");
+    expect(await page.locator("#run .poster.cut").count()).toBe(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    // Back to 7 days: the original prompt, and a 7-day paste has no average line.
+    await choice.getByRole("radio", { name: "Last 7 days" }).check();
+    expect(await page.locator("#sharePrompt").textContent()).toBe(PROMPT);
+    await page.locator("#pasteBox").fill(SAMPLE_RESULT);
+    await page.locator("#showWeek").click();
+    expect({ title: await page.locator("#hYour").innerText(), avg: await page.locator("#yourAverage").isVisible(), play: await page.locator("#playMine").innerText() }).toEqual({ title: "Your week", avg: false, play: "Play my week" });
+  } finally { await close(page); }
+}, 40000);
 
 test("[integration] TM-15 focus in the paste box survives a hashchange and a late fonts.ready on #command; Skip to the command still moves focus when it is elsewhere", async () => {
   for (const [width, height] of VIEWS) {

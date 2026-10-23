@@ -532,7 +532,7 @@ const top = (m: Map<string, number>, k: number): Array<[string, number]> => [...
 const EVIDENCE_ROWS = 200;
 const share = (v: number, total: number): string => (total > 0 ? `${Math.round((v / total) * 100)}%` : "0%");
 
-export function renderPrivate(s: Summary, o: { from: string; to: string; byProject: boolean; sources: string[] }): string {
+export function renderPrivate(s: Summary, o: { from: string; to: string; byProject: boolean; sources: string[]; days?: number }): string {
   const L: string[] = [];
   L.push(`# TokenMax map: private report`, "");
   L.push(`Skill tokenmax-map ${VERSION}, metadata mode, \`scripts/map.ts\`. Period ${o.from} to ${o.to} (UTC). Sources: ${o.sources.join(", ") || "none"}. Jev analysis: NOT RUN.`, "");
@@ -548,6 +548,8 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
   const unread = (s.claude?.cov.unreadable ?? 0) + (s.codex?.cov.unreadable ?? 0);
   if (unread) L.push(`- ${n(unread)} folder(s) or file(s) could not be read: the totals below are understated and the share is refused.`);
   L.push("");
+  const week = o.days === undefined ? null : perWeekLine({ days: o.days, ...weekTotals(s) });
+  if (week) L.push(`## Per week on average`, "", week, "");
 
   if (s.claude) {
     const c = s.claude;
@@ -735,11 +737,30 @@ export function shareRangeError(p: SharePayload): string | null {
   return null;
 }
 
+export type WeekTotals = { sessions: number; claudeOutput: number; codexOutput: number; capHits: number };
+/** The period totals the per-week averages divide: sessions and cap hits over both sources, output tokens per source. */
+export function weekTotals(s: Summary): WeekTotals {
+  return {
+    sessions: (s.claude?.sessions ?? 0) + (s.codex?.sessions ?? 0),
+    claudeOutput: s.claude ? [...s.claude.byModel.values()].reduce((a, t) => a + t.output, 0) : 0,
+    codexOutput: s.codex?.totals.output ?? 0,
+    capHits: s.episodes.length,
+  };
+}
+
+/** Over 7 days, the per-week averages: each total divided evenly by days / 7 (#409). Null for 7 days or fewer. */
+export function perWeekLine(t: WeekTotals & { days: number }): string | null {
+  if (t.days <= 7) return null;
+  const weeks = t.days / 7;
+  const one = (v: number): string => (Math.round(v * 10) / 10).toLocaleString("en-US");
+  const per = (v: number): string => n(Math.round(v / weeks));
+  return `Per week on average over ${one(weeks)} weeks (${t.days} days): ${per(t.sessions)} sessions, ${per(t.claudeOutput)} Claude output tokens, ${per(t.codexOutput)} Codex output tokens, ${one(t.capHits / weeks)} cap hits. Totals divided evenly by days / 7; not a measured week.`;
+}
+
 /** Aggregate share fields from a summary. Sessions, subagent sessions and cap episodes sum both sources. */
 export function buildShare(s: Summary, o: { days: number; sources: ShareSources }): SharePayload {
-  const sessions = (s.claude?.sessions ?? 0) + (s.codex?.sessions ?? 0);
+  const { sessions, claudeOutput: claudeOut } = weekTotals(s);
   const capsOf = (w: Window): number => (s.claude?.capEpisodes[w] ?? 0) + (s.codex?.capEpisodes[w] ?? 0);
-  const claudeOut = s.claude ? [...s.claude.byModel.values()].reduce((a, t) => a + t.output, 0) : 0;
   const opusOut = s.claude ? [...s.claude.byModel].filter(([m]) => /opus/i.test(m)).reduce((a, [, t]) => a + t.output, 0) : 0;
   const weekly = s.codex?.lastWeekly;
   return {
@@ -894,11 +915,13 @@ export async function main(argv: string[]): Promise<number> {
   const sources = [args.claude ? "Claude Code" : "", args.codex ? "Codex" : ""].filter(Boolean);
   const share = renderShare(s, { alias: args.alias, days: args.days, sources });
   const leaks = scanShare(share);
-  writeFileSync(join(args.out, "private-report.md"), renderPrivate(s, { from: dayOf(args.from), to: dayOf(args.to), byProject: args.byProject, sources }), { flag: "wx" });
+  writeFileSync(join(args.out, "private-report.md"), renderPrivate(s, { from: dayOf(args.from), to: dayOf(args.to), byProject: args.byProject, sources, days: args.days }), { flag: "wx" });
   writeFileSync(join(args.out, "share-draft.md"), share, { flag: "wx" });
   console.log(`wrote ${join(args.out, "private-report.md")}`);
   console.log(`wrote ${join(args.out, "share-draft.md")} (scan: ${leaks.length ? `FOUND ${leaks.join(", ")}` : "clean"})`);
   console.log(`claude sessions ${s.claude?.sessions ?? 0}, codex sessions ${s.codex?.sessions ?? 0}, cap hits ${s.episodes.length}`);
+  const perWeek = perWeekLine({ days: args.days, ...weekTotals(s) });
+  if (perWeek) console.log(perWeek);
   if (args.share) {
     const sources: ShareSources = args.claude && args.codex ? "claude+codex" : args.claude ? "claude" : "codex";
     const payload = buildShare(s, { days: args.days, sources });

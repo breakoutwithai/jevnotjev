@@ -35,6 +35,9 @@ test("[unit] #261 TokenMax guide states the prompt flow's 7-day window, not the 
   const paragraphs = await texts(read(GUIDE), "#tokenmax p");
   expect(paragraphs.some((text) => text.includes("It reads the last 7 days.") && !text.includes("--days"))).toBe(true);
   expect(read("site/tm/index.html")).toContain("for the last 7 days");
+  // #409: the 8-week choice and how its averages are computed, said once in the guide.
+  expect(paragraphs.filter((text) => text.includes("Choose Last 8 weeks on /tm/ to collect 56 days; the page then shows your average week, each total divided evenly by the number of weeks, self-reported and not verified.")).length).toBe(1);
+  expect(read("site/tm/index.html")).toContain("> Last 8 weeks</label>");
   expect(parseArgs(["--claude", "none", "--codex", "none"], { home: "/missing", now: Date.parse("2026-10-20T12:00:00Z"), cwd: "/tmp" }).days).toBe(7);
   expect(parseArgs(["--claude", "none", "--codex", "none", "--days", "91"], { home: "/missing", now: Date.parse("2026-10-20T12:00:00Z"), cwd: "/tmp" }).days).toBe(91);
   expect(RANGES.find(([name]) => name === "days")).toEqual(["days", 1, 90]);
@@ -388,6 +391,7 @@ async function marked(html: string, values: Known): Promise<Marked[]> {
  */
 const UNRELATED_NUMBERS: readonly (readonly [string, string])[] = [
   ["the last 7 days", "TokenMax prompt window, quoted from site/tm/index.html sharePrompt"],
+  ["Last 8 weeks on /tm/ to collect 56 days", "TokenMax 8-week choice, from PROMPT_SWAPS in src/browser/tm-week.ts (#409)"],
   ["deferred beyond v0", "release label in the reference summary (#261)"],
   ["sections 1 to 4", "reading order"],
   ["with section 5 open", "reading order"],

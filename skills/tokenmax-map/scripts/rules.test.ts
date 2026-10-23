@@ -309,6 +309,16 @@ describe("[unit] Codex review on #413: rules", () => {
     expect(c?.outcome).toBe("open");
   });
 
+  test("[unit] codex gate on #413: a window whose reset passed by the end of the report period is closed with no later reading, and takes a user label", () => {
+    const reset = Date.parse("2026-10-16T00:00:00Z") / 1000;
+    const one = [{ ts: (reset - 3600) * 1000, used: 40, resetsAt: reset }];
+    expect(weekWindows(one, []).map((w) => w.outcome)).toEqual(["open"]);
+    const rows = weekWindows(one, [], Date.parse("2026-10-20T00:00:00Z"));
+    expect(rows.map((w) => w.outcome)).toEqual(["unknown"]);
+    const w = rows[0];
+    expect(w ? weekLabel(w, parseLabels(`${w.key},will_hit,no`, "f")) : "missing").toBe(false);
+  });
+
   test("[unit] codex gate on #413: 99% one hour before the end and no later reading is unknown, never an inferred not hit", () => {
     const reset = Date.parse("2026-10-16T00:00:00Z") / 1000;
     const rows = weekWindows([{ ts: (reset - 4 * 86_400) * 1000, used: 60, resetsAt: reset }, { ts: (reset - 3600) * 1000, used: 99, resetsAt: reset }, { ts: (reset + 3600) * 1000, used: 1, resetsAt: reset + 7 * 86_400 }], []);

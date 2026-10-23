@@ -532,7 +532,8 @@ export type WeekRow = {
   predTs: number | null; predUsed: number | null; elapsedPercent: number | null; history: number[]; projected: number | null; paceYes: boolean | null;
 };
 
-export function weekWindows(readings: WeekReading[], episodes: Episode[]): WeekRow[] {
+/** cutoff: the end of the report period (epoch ms); a window whose end is at or before it, or before the last reading, is closed. */
+export function weekWindows(readings: WeekReading[], episodes: Episode[], cutoff = -Infinity): WeekRow[] {
   const rows: WeekRow[] = [];
   const sorted = [...readings].sort((a, b) => a.resetsAt - b.resetsAt || a.ts - b.ts);
   const clusters: WeekReading[][] = [];
@@ -541,7 +542,7 @@ export function weekWindows(readings: WeekReading[], episodes: Episode[]): WeekR
     if (last && r.resetsAt - (last[0]?.resetsAt ?? 0) <= 3600) last.push(r);
     else clusters.push([r]);
   }
-  const seen = readings.reduce((m, r) => Math.max(m, r.ts), -Infinity);
+  const seen = Math.max(cutoff, readings.reduce((m, r) => Math.max(m, r.ts), -Infinity));
   const span = 10080 * 60_000;
   clusters.forEach((cl, i) => {
     const byTime = [...cl].sort((a, b) => a.ts - b.ts);
@@ -647,7 +648,7 @@ export function fileRef(rel: string, source: "claude" | "codex", byProject: bool
 
 export type ClaudeDay = { output: number; uncachedInput: number; cacheWrite: number };
 
-export function summarise(c: ClaudeState | null, x: CodexState | null) {
+export function summarise(c: ClaudeState | null, x: CodexState | null, o: { to?: number } = {}) {
   const byModel = new Map<string, ClaudeTokens & { messages: number }>();
   const byDay = new Map<string, ClaudeDay>();
   const byProject = new Map<string, number>();
@@ -709,7 +710,7 @@ export function summarise(c: ClaudeState | null, x: CodexState | null) {
   const subagents = [...sessions.values()].filter(Boolean).length;
   return {
     evidence,
-    weeks: weekWindows(x?.weekReadings ?? [], episodes),
+    weeks: weekWindows(x?.weekReadings ?? [], episodes, o.to ?? -Infinity),
     claude: c && {
       cov: c.cov,
       sessions: sessions.size,
@@ -1728,7 +1729,7 @@ export async function main(argv: string[], io: MainIO = {}): Promise<number> {
   }
   const c = args.claude ? await scanClaude(args.claude, args.from, args.to) : null;
   const x = args.codex ? await scanCodex(args.codex, args.from, args.to) : null;
-  const s = summarise(c, x);
+  const s = summarise(c, x, { to: args.to });
   const sources = [args.claude ? "Claude Code" : "", args.codex ? "Codex" : ""].filter(Boolean);
   const from = dayOf(args.from), to = dayOf(args.to);
   const report = join(args.out, "private-report.md");

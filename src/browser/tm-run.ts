@@ -22,6 +22,8 @@ export type Scenario = {
 };
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+/** What the gauge measures, in plain words: the share of the week's usage limit still left. */
+const GAUGE_NAME = "Weekly limit left";
 const LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 /** A full house is roughly one seventh of the week. */
 export const NIGHT = 14;
@@ -125,7 +127,7 @@ export function startTheRun(doc: Document): void {
   const posters: Poster[] = DAYS.map((d, i) => {
     const li = doc.createElement("li");
     li.className = "poster";
-    li.innerHTML = `<span class="day">${d}</span><span class="time">8 PM</span>${MASK}<span class="seats">${"<i></i>".repeat(12)}</span><span class="lab">Tonight</span><span class="stamp">CANCELLED</span><span class="extra"><b>+1 job</b><span class="ex-job">${SCENARIOS.under.jobs[i] ?? ""}</span></span>`;
+    li.innerHTML = `<span class="day">${d}</span><span class="time">8 PM</span>${MASK}<span class="seats">${"<i></i>".repeat(12)}</span><span class="lab">Today</span><span class="stamp">BLOCKED</span><span class="extra"><b>+1 job</b><span class="ex-job">${SCENARIOS.under.jobs[i] ?? ""}</span></span>`;
     li.setAttribute("aria-label", LONG[i] ?? d);
     runEl.appendChild(li);
     return { li, day: inside(li, ".day", HTMLElement), seats: every(li, ".seats i", HTMLElement), lab: inside(li, ".lab", HTMLElement), stamp: inside(li, ".stamp", HTMLElement), filled: null, label: null };
@@ -216,8 +218,8 @@ export function startTheRun(doc: Document): void {
   }
   function fillSeats(p: Poster, n: number): void { p.seats.forEach((s, i) => s.classList.toggle("f", i < n)); }
   function resetWeek(): void {
-    posters.forEach((p, i) => { p.li.className = "poster"; p.day.textContent = DAYS[i] ?? ""; p.stamp.textContent = "CANCELLED"; fillSeats(p, 0); p.lab.textContent = "Tonight"; p.filled = null; p.label = null; });
-    dataEnd.hidden = true; exampleTag.hidden = true; gaugeName.textContent = "House lights";
+    posters.forEach((p, i) => { p.li.className = "poster"; p.day.textContent = DAYS[i] ?? ""; p.stamp.textContent = "BLOCKED"; fillSeats(p, 0); p.lab.textContent = "Today"; p.filled = null; p.label = null; });
+    dataEnd.hidden = true; exampleTag.hidden = true; gaugeName.textContent = GAUGE_NAME;
     stubs.forEach((s) => { s.className = ""; s.style.removeProperty("--d"); });
     stage.classList.remove("call", "anim", "settled");
     pooling.reset();
@@ -237,13 +239,13 @@ export function startTheRun(doc: Document): void {
     foundEl.hidden = false;
     const main = id("foundMain", HTMLElement), sub = id("foundSub", HTMLElement), ex = id("foundEx", HTMLElement);
     if (!n) {
-      main.textContent = `Cheaper seats alone would leave ${alone}% unused`;
+      main.textContent = `Right-size models alone would leave ${alone}% unused`;
       sub.textContent = "So TokenMax looks for more jobs to fill the room.";
       ex.textContent = "";
       return;
     }
     main.textContent = `TokenMax found ${n} more job${n > 1 ? "s" : ""} worth running`;
-    sub.textContent = `Cheaper seats alone would leave ${alone}% unused.`;
+    sub.textContent = `Right-size models alone would leave ${alone}% unused.`;
     ex.textContent = "Like “Review last week’s PRs”";
   }
   async function playWeek(view: View, tok: number): Promise<void> {
@@ -254,15 +256,14 @@ export function startTheRun(doc: Document): void {
     setBusy(true);
     segBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === view)));
     clearDrop(); resetWeek();
-    exampleTag.hidden = !(st.example && view === "with");
     gauge.classList.toggle("calm", view === "with");
     gauge.classList.remove("unset");
     const underWith = mode === "under" && view === "with";
-    actEl.textContent = view === "without" ? "Without TokenMax · every step in the royal box"
-      : underWith ? "With TokenMax · cheaper seats, then more jobs" : "With TokenMax · each step in its seat";
+    actEl.textContent = view === "without" ? "1 week, without Jev"
+      : "1 week, with Jev";
     if (underWith) showFound(0);
     if (view === "with") { pooling.begin(mode, keepClock); keepClock = false; }
-    statusEl.textContent = underWith ? "Cheaper seats leave even more room spare…" : "Curtain up. Monday night…";
+    statusEl.textContent = underWith ? "Right-size models leave even more of the limit unused…" : "Week starts. Monday…";
     await wait(underWith ? 1100 : 350, tok);
     let left = 100, found = 0;
     const DAY = 640;
@@ -275,7 +276,7 @@ export function startTheRun(doc: Document): void {
       p.li.classList.add("playing");
       if (mode === "burn" && view === "without" && left - base <= 0) {
         const frac = left / base;
-        statusEl.textContent = `${LONG[i] ?? ""}. The lights are failing…`; statusEl.classList.add("warn");
+        statusEl.textContent = `${LONG[i] ?? ""}. The limit is running out…`; statusEl.classList.add("warn");
         await tween(left, 0, DAY * 1.6 * frac, (g, pr) => { setGauge(g); fillSeats(p, Math.round(pr * 12 * frac)); }, tok);
         await dropCurtain(i, tok);
         if (tok === st.token) { setBusy(false); keepLights.classList.add("shown"); }
@@ -301,11 +302,11 @@ export function startTheRun(doc: Document): void {
       p.li.classList.remove("playing");
       if (view === "with") pooling.dayDone(i);
       p.filled = seats;
-      if (mode === "under" && view === "without") { p.li.classList.add("half"); p.lab.textContent = `${12 - seats} empty`; }
-      else if (underWith && !ex) { p.li.classList.add("played", "spare"); p.lab.textContent = "Room spare"; p.label = "Room spare"; }
-      else { p.li.classList.add("played"); p.lab.textContent = "Full house"; p.label = underWith ? "Full house" : "Sold out"; }
-      if (mode === "burn" && view === "without" && left < 30) { statusEl.textContent = "Lights running low…"; statusEl.classList.add("warn"); }
-      else if (i < 6 && !ex) statusEl.textContent = underWith ? `${LONG[i] ?? ""}: cheaper seats leave ${12 - seats} empty` : `${LONG[i] ?? ""}: ${mode === "under" && view === "without" ? "half the seats empty" : "full house"}`;
+      if (mode === "under" && view === "without") { p.li.classList.add("half"); p.lab.textContent = `${12 - seats} unused`; }
+      else if (underWith && !ex) { p.li.classList.add("played", "spare"); p.lab.textContent = "Room left"; p.label = "Room left"; }
+      else { p.li.classList.add("played"); p.lab.textContent = "Fully used"; p.label = "Fully used"; }
+      if (mode === "burn" && view === "without" && left < 30) { statusEl.textContent = "Limit running low…"; statusEl.classList.add("warn"); }
+      else if (i < 6 && !ex) statusEl.textContent = underWith ? `${LONG[i] ?? ""}: right-size models leave ${12 - seats} of 12 unused` : `${LONG[i] ?? ""}: ${mode === "under" && view === "without" ? "half the limit unused" : "fully used"}`;
     }
     if (view === "with") { pooling.finish(); await curtainCall(tok); }
     else await ghostLight(left, tok);
@@ -331,8 +332,8 @@ export function startTheRun(doc: Document): void {
     if (!p) return;
     p.li.classList.remove("playing"); p.li.classList.add("cut");
     p.stamp.textContent = "LIMIT HIT";
-    p.lab.textContent = "Stopped";
-    for (let j = i + 1; j < 7; j++) { const q = posters[j]; if (!q) continue; q.li.classList.add("cancel"); q.stamp.textContent = "CANCELLED"; q.lab.textContent = "Dark"; }
+    p.lab.textContent = "Limit hit";
+    for (let j = i + 1; j < 7; j++) { const q = posters[j]; if (!q) continue; q.li.classList.add("cancel"); q.stamp.textContent = "BLOCKED"; q.lab.textContent = "Blocked"; }
     // blackout
     bulbs.forEach((b) => { b.classList.remove("on"); b.classList.add("flick"); });
     await wait(380, tok);
@@ -354,30 +355,30 @@ export function startTheRun(doc: Document): void {
     dust();
     await slam; live(tok);
     dim.style.opacity = "0.6";
-    id("dropBig", HTMLElement).textContent = "Curtain down";
+    id("dropBig", HTMLElement).textContent = "Limit hit";
     id("dropSub", HTMLElement).textContent = `Your limit hit ${LONG[i] ?? ""} night`;
     stubs.forEach((s, j) => { if (j === i) s.className = "h"; else if (j > i) { s.className = "x"; s.style.setProperty("--d", `${(0.35 + 0.28 * (j - i)) * st.speed}s`); } });
     drop.classList.add("show-copy");
-    statusEl.textContent = `Curtain down ${LONG[i] ?? ""}. ${7 - i - 1} shows cancelled.`;
+    statusEl.textContent = `Limit hit ${LONG[i] ?? ""}. ${7 - i - 1} days blocked.`;
   }
 
   async function ghostLight(left: number, tok: number): Promise<void> {
-    statusEl.textContent = "Sunday. The run ends with seats to spare.";
+    statusEl.textContent = "Sunday. The week ends with limit to spare.";
     await wait(400, tok);
-    id("ghostSub", HTMLElement).textContent = `${Math.round(left)}% of your week paid for, never played`;
+    id("ghostSub", HTMLElement).textContent = `${Math.round(left)}% of your weekly limit paid for, never used`;
     ghost.classList.add("on");
     statusEl.textContent = `${Math.round(left)}% of your week left unused.`;
   }
 
   async function curtainCall(tok: number): Promise<void> {
-    statusEl.textContent = "Sunday. Final show…";
+    statusEl.textContent = "Sunday. Last day…";
     await wait(250, tok);
     await anim(drop, [{ transform: "translateY(-103%)" }, { transform: "translateY(0%)" }], 750, "cubic-bezier(.5,0,.75,0)"); live(tok);
     await wait(420, tok);
-    posters.forEach((p) => { p.li.classList.remove("playing", "played"); p.li.classList.add("gold"); fillSeats(p, p.filled ?? 12); p.lab.textContent = p.label ?? "Sold out"; });
-    gaugeBadge.textContent = st.mode === "burn" ? "Lasted to Sunday" : "Target passed";
+    posters.forEach((p) => { p.li.classList.remove("playing", "played"); p.li.classList.add("gold"); fillSeats(p, p.filled ?? 12); p.lab.textContent = p.label ?? "Fully used"; });
+    gaugeBadge.textContent = st.mode === "burn" ? "Limit lasted all week" : "Target passed";
     dim.style.opacity = "0";
-    id("cc", HTMLElement).textContent = st.mode === "burn" ? "Curtain call · lights to Sunday" : "Curtain call · target hit";
+    id("cc", HTMLElement).textContent = st.mode === "burn" ? "Week done · limit lasted all week" : "Week done · target hit";
     statusEl.textContent = "";
     const rise = anim(drop, [{ transform: "translateY(0%)" }, { transform: "translateY(-103%)" }], 900, "cubic-bezier(.2,.7,.2,1)");
     await wait(200, tok);
@@ -389,7 +390,7 @@ export function startTheRun(doc: Document): void {
     await wait(2300, tok);
     stage.classList.add("settled");
     bulbsEl.classList.remove("chase");
-    statusEl.textContent = st.mode === "burn" ? "Seven shows. Lights lasted to Sunday." : "6 more jobs run. Weekly target hit.";
+    statusEl.textContent = st.mode === "burn" ? "Finished the week inside the limit: it lasted all seven days." : "Finished the week inside the limit: 6 more jobs run, weekly target hit.";
   }
 
   /* ---------- flows ---------- */

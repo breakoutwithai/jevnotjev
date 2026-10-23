@@ -37,6 +37,22 @@ afterAll(async () => { await browser?.close(); server?.stop(); });
 
 /** The only requests the page may make: GET of its own same-origin assets, by exact path. */
 const ALLOWED = new Set(["/tm/", "/page.css", "/tm/tm.css", "/tm/tm.js", "/skill-panel.css", "/skill-panel.js", "/tm/fonts/Alegreya.ttf", "/tm/fonts/Alegreya-Italic.ttf", "/tm/fonts/Archivo.ttf"]);
+/** One count from the panel, by its data-metric name, read as text (some sit behind a closed details toggle). The
+ * composite names are the counts the panel used to print on one line, built from the separate tiles. */
+async function metric(page: Page, k: string): Promise<string> {
+  const one = (key: string): Promise<string> => page.locator(`[data-metric=${key}]`).evaluate((e) => e.textContent ?? "");
+  switch (k) {
+    case "scale": return `${await one("scale")} · ${await one("instances")}`;
+    case "decisions": return `${await one("decisions")} (task checks ${await one("taskChecks")} · idle checks ${await one("idleChecks")})`;
+    case "task": return `YES ${await one("taskYes")} · NO ${await one("taskNo")}`;
+    case "idle": return `YES ${await one("idleYes")} · NO ${await one("idleNo")}`;
+    case "pool": return `${await one("poolWaiting")} · ${await one("pickedUp")} · ${await one("completed")}`;
+    case "parallel": return `${await one("parallelNow")} · ${await one("parallelPeak")} task runs`;
+    default: return one(k);
+  }
+}
+/** Jev's log as "YES, kept local" style rows: the chip, then what it did. */
+const logOf = (page: Page): Promise<string[]> => page.locator("#jevLog li").evaluateAll((ls) => ls.map((l) => `${l.querySelector(".chip")?.textContent ?? ""}, ${l.querySelector(".lg-act")?.textContent ?? ""}`));
 /** Every request outside the allowlist, recorded before it is blocked; close() fails the test when any was attempted. */
 const blocked = new WeakMap<Page, string[]>();
 
@@ -62,7 +78,7 @@ async function close(page: Page): Promise<void> {
   expect(sent).toEqual([]);
 }
 
-type Snap = { ev: string; phase: string; check: string; answer: string; q: string; slot: string; status: string; pool: string[]; docked: string[]; extras: string[]; focus: string; count: string; takenBy: string[]; others: number; live: number };
+type Snap = { ev: string; phase: string; check: string; answer: string; q: string; slot: string; status: string; pool: string[]; docked: string[]; extras: string[]; count: string; takenBy: string[]; others: number; live: number };
 /** Records the beat card, the pool and the posters every time Jev's beat changes phase or a slip moves. */
 async function record(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -80,7 +96,7 @@ async function record(page: Page): Promise<void> {
         pool: [...document.querySelectorAll("#poolSlips .tslip b")].map((b) => b.textContent ?? ""),
         docked: [...document.querySelectorAll("#run .poster .tslip b")].map((b) => b.textContent ?? ""),
         extras: [...document.querySelectorAll("#run .poster.has-extra .ex-job")].map((b) => b.textContent ?? ""),
-        focus: document.getElementById("poolFocus")?.textContent ?? "", count: document.getElementById("poolCount")?.textContent ?? "",
+        count: document.getElementById("poolCount")?.textContent ?? "",
         takenBy: [...document.querySelectorAll("#poolSlips .tslip .taken-by")].map((b) => `${b.parentElement?.querySelector("b")?.textContent ?? ""}|${b.textContent ?? ""}`), others: document.querySelectorAll("#poolOthers .oslip").length,
         live: document.querySelectorAll("#poolSlips .tslip:not(.taken)").length,
       });
@@ -108,9 +124,10 @@ test("[integration] TP-D1 heavy With week: the task question shows when asked; Y
       const moved = later.find((s) => s.slot !== a.slot);
       expect({ slip: a.slot, docked: !!moved?.docked.includes(a.slot), pooled: !!moved?.pool.includes(a.slot) }).toEqual({ slip: a.slot, docked: a.answer === "yes", pooled: a.answer === "no" });
     }
-    const log = await page.locator("#jevLog li").allTextContents();
-    expect(log.map((l) => /YES, kept local|NO, sent to the pool/.exec(l)?.[0])).toEqual(["YES, kept local", "NO, sent to the pool", "YES, kept local", "NO, sent to the pool"]);
-    expect(await page.locator("#jevTag").innerText()).toContain("scripted Jev decisions");
+    expect(await logOf(page)).toEqual(["YES, kept local", "NO, to pool", "YES, kept local", "NO, to pool"]);
+    // the only scripted disclosure is the explainer above the show
+    expect(await page.locator("#explain").innerText()).toContain("This show is scripted");
+    expect(await page.locator("#jevTag").count()).toBe(0);
   } finally { await close(page); }
 }, 90000);
 
@@ -140,7 +157,7 @@ test("[integration] TP-D2 lite With week: the idle question shows when asked; YE
       expect(during.some((x) => x.status.includes("no pooled task fits"))).toBe(true);
       for (const x of during) expect({ pool: x.pool, docked: x.docked, extras: x.extras }).toEqual({ pool: no.pool, docked: no.docked, extras: no.extras });
     }
-    expect(await page.locator("#jevA").innerText()).toBe("NO · Chill out");
+    expect([await page.locator("#jevA .jb-word").innerText(), await page.locator("#jevA .jb-act").textContent()]).toEqual(["NO", "Nothing fits: wait"]);
     expect(await page.locator("#run .poster.has-extra").count()).toBe(6);
   } finally { await close(page); }
 }, 90000);
@@ -194,19 +211,19 @@ test("[integration] TP-D3b Pause holds the ordinary day playback too: gauge, sea
 }, 90000);
 
 test("[integration] TP-D4 reduced motion: the same decisions and resulting task locations, nothing travelling; Replay resets rather than adds", async () => {
-  for (const [hash, answers, extras] of [["#burn-after", ["YES, kept local", "NO, sent to the pool", "YES, kept local", "NO, sent to the pool"], 0], ["#under-after", ["YES, picked up", "NO, chill out", "YES, picked up", "NO, chill out"], 6]] satisfies [string, string[], number][]) {
+  for (const [hash, answers, extras] of [["#burn-after", ["YES, kept local", "NO, to pool", "YES, kept local", "NO, to pool"], 0], ["#under-after", ["YES, picked up", "NO, nothing fits", "YES, picked up", "NO, nothing fits"], 6]] satisfies [string, string[], number][]) {
     const page = await open(1440, 900, "reduce", hash);
     try {
       await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true);
-      const state = async (): Promise<{ log: (string | undefined)[]; pool: number; extras: number; running: number; decisions: string; label: string }> => ({
-        log: (await page.locator("#jevLog li").allTextContents()).map((l) => /YES, kept local|NO, sent to the pool|YES, picked up|NO, chill out/.exec(l)?.[0]),
+      const state = async (): Promise<{ log: string[]; pool: number; extras: number; running: number; decisions: string; label: string }> => ({
+        log: await logOf(page),
         pool: await page.locator("#poolSlips .tslip").count(), extras: await page.locator("#run .poster.has-extra").count(),
         running: await page.evaluate(() => document.getAnimations().filter((a) => a.playState === "running").length),
-        decisions: await page.locator("[data-metric=decisions]").innerText(), label: await page.locator("#poolLabel").innerText(),
+        decisions: await metric(page, "decisions"), label: await page.locator("#act").innerText(),
       });
       const first = await state();
       expect(first).toEqual({ log: answers, pool: 0, extras, running: 0, decisions: `${fmt(END1.decisions)} (task checks ${fmt(END1.taskChecks)} · idle checks ${fmt(END1.idleChecks)})`, label: first.label });
-      expect(first.label).toMatch(/^Illustrative tasks and limits/);
+      expect(first.label).toBe("1 week, with Jev");
       await page.locator("#replay").click();
       await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true);
       expect(await state()).toEqual(first);
@@ -215,22 +232,22 @@ test("[integration] TP-D4 reduced motion: the same decisions and resulting task 
 }, 60000);
 
 for (const [hash, start, ready, answers, extras] of [
-  ["#burn-before", "#dropBtn", "drop", ["YES, kept local", "NO, sent to the pool", "YES, kept local", "NO, sent to the pool"], 0],
-  ["#under-before", "#ghostBtn", "ghost", ["YES, picked up", "NO, chill out", "YES, picked up", "NO, chill out"], 6],
+  ["#burn-before", "#dropBtn", "drop", ["YES, kept local", "NO, to pool", "YES, kept local", "NO, to pool"], 0],
+  ["#under-before", "#ghostBtn", "ghost", ["YES, picked up", "NO, nothing fits", "YES, picked up", "NO, nothing fits"], 6],
 ] satisfies [string, string, string, string[], number][]) {
   test(`[integration] TP-D4b Skip during playback, and Skip while paused, end on the same decisions and task locations; elapsed counts playback only (${hash})`, async () => {
     const page = await open(1440, 900, "no-preference", hash);
     try {
       await page.waitForFunction((r) => { const e = document.getElementById(r); return e?.classList.contains("show-copy") === true || e?.classList.contains("on") === true; }, ready, { timeout: 30000 });
       await page.locator(start).click();
-      const end = async (): Promise<{ log: (string | undefined)[]; pool: number; slips: number; extras: number; decisions: string; pause: boolean }> => ({
-        log: (await page.locator("#jevLog li").allTextContents()).map((l) => /YES, kept local|NO, sent to the pool|YES, picked up|NO, chill out/.exec(l)?.[0]),
+      const end = async (): Promise<{ log: string[]; pool: number; slips: number; extras: number; decisions: string; pause: boolean }> => ({
+        log: await logOf(page),
         pool: await page.locator("#poolSlips .tslip").count(), slips: await page.locator("#run .tslip, #jevBeat .tslip").count(),
-        extras: await page.locator("#run .poster.has-extra").count(), decisions: await page.locator("[data-metric=decisions]").innerText(),
+        extras: await page.locator("#run .poster.has-extra").count(), decisions: await metric(page, "decisions"),
         pause: await page.locator("#poolPause").isVisible(),
       });
       const want = { log: answers, pool: 0, slips: 0, extras, decisions: `${fmt(END1.decisions)} (task checks ${fmt(END1.taskChecks)} · idle checks ${fmt(END1.idleChecks)})`, pause: false };
-      const secs = async (): Promise<number> => parseFloat(await page.locator("[data-metric=elapsed]").innerText());
+      const secs = async (): Promise<number> => parseFloat(await metric(page, "elapsed"));
       // 1: Skip during active playback
       await page.waitForFunction(() => document.getElementById("jevBeat")?.dataset.phase === "ask", null, { timeout: 30000 });
       await page.locator("#skip").click();
@@ -257,7 +274,7 @@ test("[integration] TP-D5 Scale this to the stars: 21 maps to 2,100 simulated in
   const page = await open(1440, 900, "reduce", "#burn-after");
   try {
     await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true);
-    const m = (k: string): Promise<string> => page.locator(`[data-metric=${k}]`).innerText();
+    const m = (k: string): Promise<string> => metric(page, k);
     expect(await page.locator("#scaleUp").innerText()).toBe("Scale this to the stars");
     expect(await m("scale")).toBe("1× · 21 source maps · 21 simulated instances");
     await page.locator("#scaleUp").click();
@@ -267,9 +284,12 @@ test("[integration] TP-D5 Scale this to the stars: 21 maps to 2,100 simulated in
     expect(await m("idle")).toBe(`YES ${fmt(END100.idleYes)} · NO ${fmt(END100.idleNo)}`);
     expect(await m("pool")).toBe(`${fmt(END100.poolWaiting)} · ${fmt(END100.pickedUp)} · ${fmt(END100.completed)}`);
     expect(await m("parallel")).toBe(`0 · ${fmt(END100.parallelPeak)} task runs`);
-    expect(await m("latency")).toBe("Scripted decisions: no model call, so no latency to measure");
-    expect(await page.locator("#act").innerText()).toBe("100× SIMULATION · SCRIPTED JEV DECISIONS · BASED ON 21 PUBLIC MAPS");
-    expect(await page.locator("#poolSource").innerText()).toContain("captured 2026-10-22");
+    expect(await m("latency")).toBe("Scripted run, no model calls");
+    expect(await page.locator("#act").innerText()).toBe("100x sessions");
+    expect(await page.locator("#exampleTag").isVisible()).toBe(false);
+    expect(await page.locator(".mosaic-key").innerText()).toMatch(/^Own task\s+Picked up\s+Waiting$/);
+    expect(await page.locator(".branches .chip").allTextContents()).toEqual([`YES ${fmt(END100.taskYes)}`, `NO ${fmt(END100.taskNo)}`, `YES ${fmt(END100.idleYes)}`, `NO ${fmt(END100.idleNo)}`]);
+    expect(await page.locator("#poolSource").textContent()).toContain("captured 2026-10-22");
     expect(await page.locator("#mosaic").isVisible()).toBe(true);
     // Replay at 100x restarts the same run: the same totals, not doubled
     await page.locator("#replay").click();
@@ -293,13 +313,12 @@ test("[integration] TP-D5b Skip while paused at 100x keeps the playback already 
     await page.locator("#scaleUp").click();
     await page.waitForTimeout(1500);
     await page.locator("#poolPause").click();
-    const before = parseFloat(await page.locator("[data-metric=elapsed]").innerText());
+    const before = parseFloat(await metric(page, "elapsed"));
     await page.waitForTimeout(2500);
     await page.locator("#skip").click();
-    const after = parseFloat(await page.locator("[data-metric=elapsed]").innerText());
+    const after = parseFloat(await metric(page, "elapsed"));
     expect(before).toBeGreaterThan(1);
     expect(Math.abs(after - before)).toBeLessThan(0.3);
-    expect(await page.locator("[data-metric=story]").innerText()).toMatch(/^next Mon /);
   } finally { await close(page); }
 }, 60000);
 
@@ -325,8 +344,7 @@ test("[integration] TP-D5d the pool says what its slips are: the sessions on sta
     // the box never reads empty beside a count above 0: the other maps' waiting tasks show as blank slips
     expect(await page.locator("#poolSlips .tslip").count()).toBe(0);
     expect(await page.locator("#poolOthers .oslip").count()).toBe(Math.min(12, END1.poolWaiting));
-    expect(await page.locator("#poolFocus").innerText()).toBe(END1.poolWaiting === 0 ? "Empty: no task waiting" : `${END1.poolWaiting} task${END1.poolWaiting === 1 ? "" : "s"} from other maps' sessions`);
-    expect(await page.locator("#poolCount").innerText()).toBe(`All 21 maps: ${fmt(END1.poolWaiting)} task${END1.poolWaiting === 1 ? "" : "s"} waiting`);
+    expect(await page.locator("#poolCount").textContent()).toBe(`${fmt(END1.poolWaiting)} waiting across all 21 maps`);
   } finally { await close(page); }
 }, 60000);
 
@@ -336,12 +354,15 @@ test("[integration] TP-D7 the ribbon and the mosaic follow their CSS size: every
     await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true);
     // a 300 px mosaic at DPR 1 matches the canvas default width: its height must still be set for 2,100 squares
     await page.addStyleTag({ content: "#mosaic { width: 300px !important; }" });
+    await page.locator("#poolRun > summary").click();
     await page.locator("#scaleUp").click();
     const fits = (): Promise<{ ribbon: boolean; ribbonCursor: boolean; mosaicW: boolean; mosaicRows: boolean }> => page.evaluate(() => {
       const dpr = window.devicePixelRatio || 1;
       const rb = document.getElementById("ribbon"), mo = document.getElementById("mosaic");
       if (!(rb instanceof HTMLCanvasElement) || !(mo instanceof HTMLCanvasElement)) throw new Error("no canvases");
-      const px = rb.getContext("2d")?.getImageData(rb.width - 1, 0, 1, 1).data ?? [];
+      // the chart is two rows of days (Mon to Thu, Fri to Sun): at the end the cursor stands at the end of Sunday
+      const dw = Math.floor(Math.floor(rb.clientWidth) / 4);
+      const px = rb.getContext("2d")?.getImageData(Math.round((3 * dw - 1) * dpr), rb.height - 1, 1, 1).data ?? [];
       const w = Math.floor(mo.clientWidth), cols = Math.max(10, Math.floor(w / (w < 500 ? 7 : 9))), rows = Math.ceil(2100 / cols);
       return {
         ribbon: rb.width === Math.round(Math.floor(rb.clientWidth) * dpr), ribbonCursor: px[0] === 246 && px[1] === 220 && px[2] === 142,
@@ -373,7 +394,7 @@ for (const [width, height] of [[390, 844], [1440, 900]] satisfies [number, numbe
         return { doc: document.documentElement.scrollWidth, inside: els.map((e) => { const r = e?.getBoundingClientRect(); return !!r && !!stage && r.width > 0 && r.left >= stage.left - 0.5 && r.right <= stage.right + 0.5; }) };
       });
       expect(await fit()).toEqual({ doc: width, inside: [true, true, true, true] });
-      expect(await page.locator("#jevA").evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(24);
+      expect(await page.locator("#jevA .jb-word").evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(24);
       await page.locator("#scaleUp").click();
       await page.waitForTimeout(800);
       const scaled = await page.evaluate(() => {
@@ -386,7 +407,7 @@ for (const [width, height] of [[390, 844], [1440, 900]] satisfies [number, numbe
 }
 
 /** Waiting tasks across all 21 maps, read from "All 21 maps: N tasks waiting". */
-const waitingOf = (count: string): number => Number(/: (\d+) task/.exec(count)?.[1] ?? NaN);
+const waitingOf = (count: string): number => Number(/^([\d,]+) waiting/.exec(count)?.[1]?.replace(/,/g, "") ?? NaN);
 
 // ux-swarm 2026-10-23 c02: 4 of 5 could not see what a NO did. The slip lands in the pool box and stays readable; a
 // pickup labels it with the session that took it before it leaves; the box never reads empty beside a waiting count.
@@ -404,7 +425,7 @@ for (const [hash, start, ready, mode] of [["#burn-before", "#dropBtn", "drop", "
       for (const s of seen) {
         const n = waitingOf(s.count), live = s.live;
         // named slips for the two sessions on stage, blank ones (at most 12) for the rest
-        expect({ count: s.count, focus: /^No slips/.test(s.focus), others: s.others }).toEqual({ count: s.count, focus: false, others: Math.min(12, Math.max(0, n - live)) });
+        expect({ count: s.count, others: s.others }).toEqual({ count: s.count, others: Math.min(12, Math.max(0, n - live)) });
         expect(live).toBeLessThanOrEqual(n);
       }
       // both views follow the same two pooled tasks: sent by the heavy session, picked up by the lite one
@@ -439,6 +460,95 @@ for (const [width, height] of [[390, 844], [1440, 900]] satisfies [number, numbe
       const hit = (a: readonly number[] | null, b: readonly number[] | null): boolean => !!a && !!b && (a[0] ?? 0) < (b[2] ?? 0) && (b[0] ?? 0) < (a[2] ?? 0) && (a[1] ?? 0) < (b[3] ?? 0) && (b[1] ?? 0) < (a[3] ?? 0);
       expect({ copy: !!boxes.copy, read: !!boxes.read, name: !!boxes.name, overRead: hit(boxes.copy, boxes.read), overName: hit(boxes.copy, boxes.name), doc: boxes.doc }).toEqual({ copy: true, read: true, name: true, overRead: false, overName: false, doc: width });
       expect(await page.locator("#ghostBtn").isVisible()).toBe(true);
+    } finally { await close(page); }
+  }, 60000);
+}
+
+/** "rgb(r, g, b)" from getComputedStyle as [r, g, b]. */
+const rgb = (c: string): number[] => (c.match(/\d+(\.\d+)?/g) ?? []).slice(0, 3).map(Number);
+
+// operator 2026-10-23 and ux-swarm c01: the answer is the hero. NO is a big bright red word, YES a bright green one, and
+// the action under it glows neon green; the pool box carries the same green.
+test("[integration] TP-D10 the answer reads as a colour: NO bright red, YES bright green, the action and the pool box glow green", async () => {
+  const page = await open(1440, 900, "no-preference", "#burn-before");
+  try {
+    await page.waitForFunction(() => document.getElementById("drop")?.classList.contains("show-copy") === true);
+    await page.locator("#dropBtn").click();
+    const look = async (answer: string): Promise<{ word: string; size: number; red: boolean; green: boolean; wordGlow: boolean; act: string; actGreen: boolean; actGlow: boolean }> => {
+      await page.waitForFunction((a) => document.getElementById("jevBeat")?.dataset.answer === a, answer, { timeout: 30000 });
+      const s = await page.evaluate(() => {
+        const w = document.querySelector("#jevA .jb-word"), a = document.querySelector("#jevA .jb-act");
+        if (!w || !a) throw new Error("no answer parts");
+        const ws = getComputedStyle(w), as = getComputedStyle(a);
+        return { word: w.textContent ?? "", size: parseFloat(ws.fontSize), color: ws.color, shadow: ws.textShadow, act: a.textContent ?? "", actColor: as.color, actShadow: as.textShadow };
+      });
+      const [r = 0, g = 0, b = 0] = rgb(s.color), [ar = 0, ag = 0, ab = 0] = rgb(s.actColor);
+      return { word: s.word, size: s.size, red: r > 200 && g < 110 && b < 110, green: g > 200 && r < 130 && b < 180, wordGlow: s.shadow !== "none", act: s.act, actGreen: ag > 200 && ar < 160 && ab < 200, actGlow: s.actShadow !== "none" };
+    };
+    expect(await look("yes")).toEqual({ word: "YES", size: 46, red: false, green: true, wordGlow: true, act: "Keep local", actGreen: true, actGlow: true });
+    expect(await look("no")).toEqual({ word: "NO", size: 46, red: true, green: false, wordGlow: true, act: "Pool it", actGreen: true, actGlow: true });
+    const pool = await page.locator("#pool").evaluate((e) => { const s = getComputedStyle(e); return { border: s.borderTopColor, glow: s.boxShadow }; });
+    const [pr = 0, pg = 0] = rgb(pool.border);
+    expect({ green: pg > 200 && pr < 130, glow: pool.glow !== "none" }).toEqual({ green: true, glow: true });
+    const chips = await page.locator("#jevLog .chip").evaluateAll((cs) => cs.map((c) => `${c.textContent ?? ""} ${getComputedStyle(c).backgroundColor}`));
+    expect(chips.slice(0, 2).map((c) => { const [r = 0, g = 0] = rgb(c.replace(/^\w+ /, "")); return `${c.split(" ")[0] ?? ""}:${g > r ? "green" : "red"}`; })).toEqual(["YES:green", "NO:red"]);
+  } finally { await close(page); }
+}, 60000);
+
+// operator 2026-10-23 and ux-swarm c02 to c05: the metrics are four icon tiles (the rest behind a toggle), the cast is one
+// closed line, the show label appears once with a SCRIPTED badge, and on a phone the tiles are 2 by 2 and the whole
+// section fits one screen.
+for (const [width, height] of [[390, 844], [1440, 900]] satisfies [number, number][]) {
+  test(`[integration] TP-D11 at ${width}x${height} the metrics are four icon tiles with every count still readable; details and cast stay closed; the label shows once`, async () => {
+    const page = await open(width, height, "reduce", "#burn-after");
+    try {
+      await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true);
+      const view = await page.evaluate(() => {
+        const vis = (e: Element): boolean => e.checkVisibility({ visibilityProperty: true, opacityProperty: true }) && e.getBoundingClientRect().width > 0;
+        const tiles = [...document.querySelectorAll("#poolPanel .pp-m")].filter(vis);
+        const label = [...document.querySelectorAll("body *")].filter((e) => vis(e) && e.children.length === 0 && /scripted/i.test(e.textContent ?? "")).length;
+        const panel = document.getElementById("poolPanel")?.getBoundingClientRect();
+        return {
+          tiles: tiles.length, icons: tiles.filter((t) => t.querySelector("svg.pp-icon") !== null).length,
+          cols: new Set(tiles.map((t) => Math.round(t.getBoundingClientRect().left))).size,
+          runOpen: document.querySelector<HTMLDetailsElement>("#poolRun")?.open ?? null, castOpen: document.querySelector<HTMLDetailsElement>("#poolCastBox")?.open ?? null,
+          cast: document.querySelector("#poolCastBox summary")?.textContent ?? "", badge: document.querySelector("#jevTag") === null,
+          label, panelH: panel ? Math.round(panel.height) : 0, gauge: document.getElementById("gaugeName")?.textContent ?? "",
+        };
+      });
+      expect({ ...view, panelH: view.panelH < 844 }).toEqual({
+        tiles: 4, icons: 4, cols: width < 500 ? 2 : 4, runOpen: false, castOpen: false, cast: "Cast: 21 public maps", badge: true, label: 1, panelH: true, gauge: "Weekly limit left",
+      });
+      // nothing lost: every count is still on the page, from the same run
+      expect(await metric(page, "decisions")).toBe(`${fmt(END1.decisions)} (task checks ${fmt(END1.taskChecks)} · idle checks ${fmt(END1.idleChecks)})`);
+      expect(await metric(page, "yes")).toBe(fmt(END1.taskYes + END1.idleYes));
+      expect(await metric(page, "no")).toBe(fmt(END1.taskNo + END1.idleNo));
+      expect(await metric(page, "pool")).toBe(`${fmt(END1.poolWaiting)} · ${fmt(END1.pickedUp)} · ${fmt(END1.completed)}`);
+      expect(await metric(page, "parallelPeak")).toBe(fmt(END1.parallelPeak));
+      expect(await page.locator("#jevLog li").count()).toBe(4);
+    } finally { await close(page); }
+  }, 60000);
+}
+
+// operator 2026-10-23: Jev's decisions belong near the day cards. On desktop each of the four decision rows sits inside the
+// stage block, and the day it belongs to carries a YES/NO chip naming the task.
+for (const [width, height] of [[1440, 900], [1280, 800]] satisfies [number, number][]) {
+  test(`[integration] TP-D12 at ${width}x${height} each decision row sits in the stage, under the posters, and its day carries a YES/NO chip`, async () => {
+    const page = await open(width, height, "reduce", "#burn-after");
+    try {
+      await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true);
+      const r = await page.evaluate(() => {
+        const st = document.getElementById("opening")?.getBoundingClientRect(), run = document.getElementById("run")?.getBoundingClientRect();
+        const rows = [...document.querySelectorAll("#jevLog li")].map((li) => li.getBoundingClientRect());
+        return {
+          rows: rows.length,
+          inside: rows.every((b) => !!st && b.left >= st.left - 0.5 && b.right <= st.right + 0.5 && b.top >= st.top - 0.5 && b.bottom <= st.bottom + 0.5),
+          underPosters: rows.every((b) => !!run && b.top >= run.bottom - 0.5),
+          chips: [...document.querySelectorAll("#run .poster")].map((p) => [...p.querySelectorAll(".pchip")].map((c) => `${c.textContent ?? ""}:${c instanceof HTMLElement ? c.dataset.task ?? "" : ""}`)),
+        };
+      });
+      expect({ rows: r.rows, inside: r.inside, underPosters: r.underPosters }).toEqual({ rows: 4, inside: true, underPosters: true });
+      expect(r.chips).toEqual([[], ["YES:Rename the env settings", "NO:Review last week’s PRs"], [], [], ["YES:Patch the login copy", "NO:Write tests for the login page"], [], []]);
     } finally { await close(page); }
   }, 60000);
 }

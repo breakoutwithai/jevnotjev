@@ -54,6 +54,15 @@
     </div>
   </section>
 
+  <!-- What the show is, what Jev changes and what it may save, in plain words; stays above the show to its end. -->
+  <aside class="explain" id="explain" aria-labelledby="hExplain">
+    <h2 class="explain-h" id="hExplain">What you are watching</h2>
+    <p>A made-up week. Before each task starts, Jev answers one question: will this task fit in what is left of the limit?</p>
+    <p>If no, the task waits in a shared queue instead of being cut off; an idle session with room picks it up.</p>
+    <p>Fewer tasks stopped by a limit and less unused allowance. This show is scripted; it does not measure your saving.</p>
+    <p class="explain-act"><a class="btn-gold" id="explainCheck" href="#command">Check it on your own usage</a> <a class="explain-skill" id="explainSkill" href="#skill">Run Jev on your own labelled sessions</a></p>
+  </aside>
+
   <section class="stage" id="stage" aria-label="Your week on stage">
     <div class="bulbs" id="bulbs" aria-hidden="true"></div>
     <div class="valance" aria-hidden="true"></div>
@@ -81,7 +90,7 @@
             <g id="targetMark" class="target-mark" opacity="0">
               <line id="targetLine" x1="120" y1="12" x2="120" y2="34" stroke="#efe2c4" stroke-width="3"/>
             </g>
-            <text x="18" y="138" class="g-lbl">DARK</text>
+            <text x="18" y="138" class="g-lbl">EMPTY</text>
             <text x="222" y="138" class="g-lbl" text-anchor="end">FULL</text>
             <g id="needle" transform="rotate(90 120 120)">
               <path d="M117 120 L120 30 L123 120 Z" fill="#efe2c4"/>
@@ -90,9 +99,19 @@
           </svg>
           <div class="gauge-info">
             <div class="gauge-read"><span id="leftPct">100%</span></div>
-            <p class="gauge-name" id="gaugeName">House lights</p>
+            <p class="gauge-name" id="gaugeName">Weekly limit left</p>
             <span class="gauge-badge" id="gaugeBadge"></span>
           </div>
+        </div>
+        <!-- the controls, under the gauge in a fixed-height box -->
+        <div class="compare" id="compare" hidden>
+          <div class="seg" id="seg" role="group" aria-label="Compare the week" hidden>
+            <span class="seg-cap" aria-hidden="true">TokenMax</span>
+            <button type="button" data-v="without" aria-pressed="false" aria-label="Without TokenMax">Without</button>
+            <button type="button" data-v="with" aria-pressed="true" aria-label="With TokenMax">With</button>
+          </div>
+          <button type="button" class="replay" id="replay" aria-label="Replay this week">&#8635; Replay</button>
+          <button type="button" class="skipper" id="skip" hidden>Skip to the end &raquo;</button>
         </div>
       </div>
 
@@ -125,15 +144,15 @@
           <path d="M10 156 L30 132 L50 156" stroke="#3a2a22" stroke-width="5" fill="none"/>
         </svg>
         <div class="ghost-copy">
-          <p class="big">Lights on.<br><em>Nobody home.</em></p>
-          <p class="sub" id="ghostSub">53% of your week paid for, never played</p>
+          <p class="big">Limit left.<br><em>Nothing running.</em></p>
+          <p class="sub" id="ghostSub">53% of your weekly limit paid for, never used</p>
           <button type="button" class="btn-gold try-proxy" id="ghostBtn">See it with TokenMax</button>
         </div>
       </div>
 
       <div class="drop" id="drop">
         <div class="drop-copy">
-          <p class="big" id="dropBig">Curtain down</p>
+          <p class="big" id="dropBig">Limit hit</p>
           <p class="sub" id="dropSub">Your limit hit Thursday night</p>
           <ol class="stubs" id="stubs" aria-hidden="true"></ol>
           <button type="button" class="btn-gold try-proxy" id="dropBtn">See it with TokenMax</button>
@@ -142,23 +161,15 @@
       </div>
 
       <div class="callout" id="callout" aria-hidden="true">
-        <p class="cc" id="cc">Curtain call</p>
-        <p class="ov">Standing ovation</p>
+        <p class="cc" id="cc">Week done</p>
+        <p class="ov">Finished the week inside the limit</p>
       </div>
     </div>
 
-    <div class="compare" id="compare" hidden>
-      <div class="seg" id="seg" role="group" aria-label="Compare the week" hidden>
-        <button type="button" data-v="without" aria-pressed="false">Without TokenMax</button>
-        <button type="button" data-v="with" aria-pressed="true">With TokenMax</button>
-      </div>
-      <button type="button" class="replay" id="replay" aria-label="Replay this week">&#8635; Replay</button>
-      <button type="button" class="skipper" id="skip" hidden>Skip to the end &raquo;</button>
-    </div>
   </section>
 
   <!-- Hidden (space kept) until a week has played to its end; tm-run.ts adds .shown. -->
-  <p class="keep-lights" id="keepLights">TokenMax + Jev can help keep the lights on</p>
+  <p class="keep-lights" id="keepLights">TokenMax + Jev can help your limit last the week</p>
   <!-- Shown with the tagline once a week has ended: the plain way to ask or say what you think. -->
   <nav class="ask-after" id="askAfter" aria-label="Questions and feedback">
     <p>Questions about this show?</p>

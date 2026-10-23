@@ -119,7 +119,7 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 
 .floor { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; gap: 10px; min-width: 0; }
 .act { font: 700 12px/1 var(--tm-sans); letter-spacing: .24em; text-transform: uppercase; color: var(--brass); }
-.status { margin: 0; font: 600 italic 20px/1.25 var(--serif); color: var(--parch); min-height: 1.25em; }
+.status { margin: 0; font: 600 italic 20px/1.25 var(--serif); color: var(--parch); height: 2.5em; overflow: hidden; }
 .status.warn { color: #ff6b6b; }
 .found { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 7px 12px; border-radius: 6px; background: rgba(224, 176, 74, .12); border: 1px dashed rgba(246, 220, 142, .55); }
 .found b { font: 800 18px/1.15 var(--serif); color: var(--gold-l); }
@@ -138,7 +138,7 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 .poster .seats i { aspect-ratio: 1; border-radius: 2px 2px 1px 1px; background: #3b2622; transition: background .25s; }
 .poster .seats i.f { background: var(--brass); }
 .poster .lab { font: 700 12px/1.1 var(--tm-sans); letter-spacing: .06em; text-transform: uppercase; text-align: center; min-height: 2.2em; display: flex; align-items: center; }
-.poster.playing { filter: none; background: linear-gradient(#7a1420, #3f0a12); border-color: var(--gold-l); color: var(--parch); box-shadow: 0 0 0 2px rgba(246, 220, 142, .4), 0 0 30px rgba(246, 220, 142, .45); transform: translateY(-4px); }
+.poster.playing { filter: none; background: linear-gradient(#7a1420, #3f0a12); border-color: var(--gold-l); color: var(--parch); box-shadow: 0 0 0 2px rgba(246, 220, 142, .4), 0 0 30px rgba(246, 220, 142, .45); }
 .poster.playing::before { content: ""; position: absolute; inset: -40% -20% auto; height: 80%; background: radial-gradient(ellipse at 50% 100%, rgba(255, 240, 190, .35), transparent 70%); pointer-events: none; }
 .poster.played { filter: none; background: linear-gradient(#5e1019, #300810); border-color: var(--brass); color: var(--parch); }
 .poster.half { filter: saturate(.7); background: linear-gradient(#3e1a20, #22100f); border-color: #8a6a3a; color: #cdb98f; }
@@ -152,7 +152,8 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 .poster.gold { filter: none; background: linear-gradient(#f6dc8e, #c98f2a); border-color: #fff3c4; color: var(--parch-ink); box-shadow: 0 0 24px rgba(246, 220, 142, .6); }
 .poster.gold .seats i.f { background: var(--velvet); }
 .poster.bow { animation: bow .9s ease-in-out; }
-@keyframes bow { 0%, 100% { transform: none; } 35% { transform: translateY(8px) rotateX(28deg) scale(.96); } 60% { transform: translateY(-6px); } }
+/* the curtain-call bow is a flash of light, not a movement: nothing on the stage changes place while the show plays */
+@keyframes bow { 35% { filter: brightness(1.35); box-shadow: 0 0 36px rgba(255, 243, 196, .9); } }
 .extra {
   position: absolute; top: 30%; left: 50%; width: max-content; max-width: 96%; transform: translate(-50%, -120px) rotate(-30deg); opacity: 0; z-index: 4;
   display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center;
@@ -419,11 +420,11 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
   .gauge { display: grid; grid-template-columns: 170px 1fr; align-items: center; max-width: none; text-align: left; column-gap: 12px; }
   .gauge-read { margin: 0; font-size: 38px; }
   .gauge-name { margin: 6px 0 0; font-size: 11px; }
-  .gauge-badge { margin-top: 6px; }
+  .gauge-badge { margin-top: 6px; white-space: nowrap; letter-spacing: 0; padding: 5px 8px; }
   .g-lbl { font-size: 16px; }
   .target-mark text { font-size: 16px; }
   .act { font-size: 11px; }
-  .status { font-size: 17px; min-height: 2.5em; }
+  .status { font-size: 17px; height: 3.75em; }
   .run { gap: 4px; }
   .poster { padding: 6px 2px; aspect-ratio: auto; height: 128px; border-radius: 4px; }
   .poster .day { font-size: 13px; }
@@ -436,10 +437,11 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
   .extra { font-size: 11px; font-stretch: 72%; padding: 3px; top: 28%; max-width: none; }
   .extra b { letter-spacing: 0; }
   .ex-job { display: none; }
-  .found { padding: 6px 9px; }
-  .found b { font-size: 15px; }
+  .found { padding: 6px 9px; flex-direction: column; align-items: flex-start; }
+  .found b { font-size: 15px; min-height: 2.3em; } /* two lines kept, so the found line never grows mid-show */
   .found span { font-size: 12px; }
   .found .found-ex { display: block; color: var(--gold-l); font-weight: 700; }
+  .found .found-ex:empty::before { content: "\00a0"; }
   .big { font-size: 48px; }
   .stubs li { width: 38px; font-size: 11px; }
   /* phone: the ghost light only covers the top of the stage, so the half-empty posters stay readable */
@@ -497,27 +499,34 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 }
 
 /* ---------- Jev task pooling: Jev's two questions on the With week, the shared pool, the 100x view and the panel ---------- */
-.jev-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 10px; align-items: stretch; }
-.jev-row[hidden], .scale-view[hidden], .pool-panel[hidden] { display: none; }
-.jev-beat { position: relative; padding: 10px 14px; border-radius: 8px; background: rgba(20, 10, 12, .85); border: 1.5px solid #6b5440; min-height: 150px; transition: border-color .3s, box-shadow .3s; }
+/* While the show plays nothing here moves or resizes: the session card and the pool are fixed boxes sized for their
+   fullest state at each breakpoint (scripts/tm-stage-stable.dom.test.ts measures every frame and checks nothing
+   overflows); text, slips and colours change inside them. */
+.jev-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 10px; }
+.jev-row[hidden], .scale-view[hidden], .pool-panel[hidden], .stage-note[hidden] { display: none; }
+.jev-beat { position: relative; display: flex; flex-direction: column; gap: 4px; height: 168px; box-sizing: border-box; padding: 10px 14px; border-radius: 8px; background: rgba(20, 10, 12, .85); border: 1.5px solid #6b5440; overflow: hidden; transition: border-color .3s, box-shadow .3s; }
 .jev-beat[data-phase=ask], .jev-beat[data-phase=answer] { border-color: var(--gold-l); box-shadow: 0 0 0 2px rgba(246, 220, 142, .25), 0 0 28px rgba(246, 220, 142, .3); }
-.jb-who { margin: 0; font: 700 12px/1.2 var(--tm-sans); letter-spacing: .16em; text-transform: uppercase; color: var(--brass); }
-.jb-q { margin: 6px 0 0; font: 700 italic 19px/1.25 var(--serif); color: var(--parch); }
+.jb-who { flex: none; margin: 0; font: 700 12px/1.25 var(--tm-sans); letter-spacing: .16em; text-transform: uppercase; color: var(--brass); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jb-q { flex: none; height: 2.5em; margin: 0; overflow: hidden; font: 700 italic 19px/1.25 var(--serif); color: var(--parch); }
 .jev-beat[data-phase=ask] .jb-q, .jev-beat[data-phase=answer] .jb-q { color: var(--gold-l); }
-.jb-slot { min-height: 0; margin-top: 6px; }
-.jb-room { margin: 6px 0 0; font: 600 13px/1.3 var(--tm-sans); color: #d9c79e; font-variant-numeric: tabular-nums; }
-.jb-room:empty, .jb-ans:empty { display: none; }
-.jb-ans { margin: 6px 0 0; font: 900 30px/1 var(--serif); letter-spacing: .02em; }
-.jb-ans.yes { color: var(--gold-l); text-shadow: 0 0 18px rgba(246, 220, 142, .5); }
-.jb-ans.no { color: #efe2c4; }
-.jb-tag { margin: 8px 0 0; font: 600 12px/1.3 var(--tm-sans); color: #a08a6a; }
-.pool { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: repeating-linear-gradient(135deg, rgba(122, 20, 32, .35) 0 10px, rgba(74, 11, 19, .35) 10px 20px); border: 1.5px dashed var(--brass); }
-.pool-head { margin: 0; font: 800 13px/1 var(--tm-sans); letter-spacing: .2em; text-transform: uppercase; color: var(--gold-l); }
-.pool-focus { margin: 0; font: 600 12px/1.25 var(--tm-sans); color: #d9c79e; }
-.pool-slips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 44px; align-content: flex-start; }
-.pool-count { margin: auto 0 0; font: 600 13px/1.2 var(--tm-sans); color: #d9c79e; font-variant-numeric: tabular-nums; }
-/* the task slip: the same paper as the existing +1 JOB slip */
-.tslip { display: inline-flex; flex-direction: column; gap: 1px; max-width: 100%; padding: 4px 8px; border-radius: 4px; background: var(--parch); color: var(--parch-ink); border: 1.5px solid var(--velvet); box-shadow: 0 3px 8px rgba(0, 0, 0, .5); transform: rotate(-2deg); }
+/* the slip and the answer share the last row; the answer column has a fixed width so the slip never shifts */
+.jb-play { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 150px; align-items: center; gap: 10px; }
+.jb-slot { min-width: 0; }
+.jb-ans { margin: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; text-align: right; }
+.jb-word { font: 900 46px/.95 var(--serif); letter-spacing: .02em; }
+.jb-act { font: 800 15px/1.1 var(--tm-sans); letter-spacing: .02em; white-space: nowrap; color: #6dffa6; text-shadow: 0 0 6px rgba(57, 255, 136, .85), 0 0 16px rgba(57, 255, 136, .5); }
+.jb-ans.no .jb-word { color: #ff4848; text-shadow: 0 0 14px rgba(255, 60, 60, .45); }
+.jb-ans.yes .jb-word { color: #52ff8f; text-shadow: 0 0 14px rgba(57, 255, 136, .45); }
+.jev-beat[data-phase=answer] .jb-act { animation: neon .7s ease-in-out 3 alternate; }
+@keyframes neon { to { text-shadow: 0 0 10px rgba(57, 255, 136, 1), 0 0 26px rgba(57, 255, 136, .8); } }
+.pool { display: flex; flex-direction: column; gap: 6px; height: 168px; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; overflow: hidden; background: repeating-linear-gradient(135deg, rgba(122, 20, 32, .35) 0 10px, rgba(74, 11, 19, .35) 10px 20px); border: 1.5px dashed var(--brass); }
+.pool-head { flex: none; margin: 0; font: 800 13px/1.2 var(--tm-sans); letter-spacing: .2em; text-transform: uppercase; color: var(--gold-l); }
+.pool-count { flex: none; margin: 0; font: 700 14px/1.25 var(--tm-sans); color: var(--parch); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pool-slips { flex: none; display: flex; flex-wrap: wrap; gap: 6px; height: 64px; align-content: flex-start; overflow: hidden; }
+/* in the pool a slip shows its title only; the units are on the card the slip came from */
+.pool-slips .tslip > span { display: none; }
+
+.tslip { display: inline-flex; flex-direction: column; gap: 1px; max-width: 100%; box-sizing: border-box; padding: 4px 8px; border-radius: 4px; background: var(--parch); color: var(--parch-ink); border: 1.5px solid var(--velvet); box-shadow: 0 3px 8px rgba(0, 0, 0, .5); transform: rotate(-2deg); }
 .tslip b { font: 800 13px/1.15 var(--tm-sans); color: var(--velvet); }
 .tslip span { font: 600 12px/1.15 var(--tm-sans); }
 .tslip.arriving { animation: slipIn .6s cubic-bezier(.2, 1.4, .4, 1); }
@@ -526,12 +535,13 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 /* who took a pooled slip, written on it before it leaves the box */
 .tslip .taken-by { font: italic 700 12px/1.15 var(--tm-sans); color: #7a1420; }
 /* other maps' waiting tasks: blank paper slips, so the box holds what the count says */
-.pool-others { display: flex; flex-wrap: wrap; gap: 4px; }
-.pool-others:empty { display: none; }
+.pool-others { flex: none; display: flex; flex-wrap: wrap; gap: 4px; height: 16px; overflow: hidden; }
 .oslip { width: 22px; height: 14px; border-radius: 2px; background: var(--parch); border: 1px solid var(--velvet); opacity: .7; transform: rotate(-4deg); }
 .oslip:nth-child(2n) { transform: rotate(3deg); }
 .tslip.docked { position: absolute; left: 50%; top: 34%; z-index: 5; width: max-content; max-width: 150%; translate: -50% 0; }
 .stage.paused .jev-beat { border-style: dashed; }
+/* the one label for the show, under the stage */
+.stage-note { margin: 8px 0 0; text-align: center; font: 600 12px/1.3 var(--tm-sans); letter-spacing: .04em; color: #b8a27e; }
 /* buttons added to the compare bar */
 .stars { font-weight: 800; }
 .pool-pause[aria-pressed=true] { background: rgba(224, 176, 74, .2); }
@@ -552,33 +562,296 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 .scale-focus .tslip { transform: none; }
 .scale-focus .tslip.no { background: #d9c79e; }
 
-/* the panel under the stage: every count read from the run's event stream */
+/* the panel under the stage: a dashboard of tiles, every number read from the run's event stream */
 .pool-panel { margin: 14px 0 0; padding: 14px 16px; border-radius: 8px; background: #1c0d10; border: 2px solid #4a3020; }
 .pp-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
 .pp-title { margin: 0; font: 800 22px/1.1 var(--serif); color: var(--parch); }
-.pp-label { margin: 0; font: 700 13px/1.3 var(--tm-sans); color: var(--gold-l); }
-.pp-metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 16px; margin: 12px 0 0; }
-.pp-m { min-width: 0; }
-.pp-m dt { font: 700 12px/1.25 var(--tm-sans); letter-spacing: .04em; color: #a08a6a; }
-.pp-m dd { margin: 2px 0 0; font: 700 15px/1.3 var(--tm-sans); color: var(--parch); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.pp-sub { margin: 12px 0 4px; font: 700 13px/1.3 var(--tm-sans); color: var(--brass); }
+.pp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0 0; }
+.pp-tile { --tone: var(--gold-l); display: grid; grid-template-columns: 26px 1fr; grid-template-rows: auto auto auto; column-gap: 10px; align-items: center; padding: 10px 12px; border-radius: 8px; background: #2a1416; border: 1px solid #4a3020; border-top: 3px solid var(--tone); }
+.pp-tile.yes { --tone: #52ff8f; }
+.pp-tile.no { --tone: #ff5c5c; }
+.pp-tile.calm { --tone: #c9c2ea; }
+.pp-icon { grid-row: 1 / 3; width: 26px; height: 26px; fill: none; stroke: var(--tone); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pp-n { font: 800 32px/1 var(--serif); color: var(--parch); font-variant-numeric: tabular-nums; }
+.pp-tl { font: 700 12px/1.25 var(--tm-sans); letter-spacing: .08em; text-transform: uppercase; color: var(--tone); }
+.pp-tsub { grid-column: 1 / -1; min-height: 1.3em; margin-top: 4px; font: 600 12px/1.3 var(--tm-sans); color: #cdb98f; font-variant-numeric: tabular-nums; }
+.pp-sn { color: var(--parch); font-weight: 800; }
+.pp-fine { margin: 10px 0 0; font: 600 12px/1.4 var(--tm-sans); color: #b8a27e; }
+.pp-fine .pp-sn { font-weight: 700; color: #d9c79e; }
+.pp-sub { margin: 14px 0 4px; font: 700 13px/1.3 var(--tm-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--brass); }
 .ribbon { display: block; width: 100%; height: 56px; border-radius: 4px; }
-.jev-log { margin: 0; padding-left: 20px; display: grid; gap: 3px; font: 500 13px/1.35 var(--tm-sans); color: #d9c79e; }
-.jev-log li.yes::marker { color: var(--gold-l); }
-.pp-source { margin: 12px 0 6px; font: 500 13px/1.4 var(--tm-sans); color: #cdb98f; }
+.jev-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.jev-log li { display: grid; grid-template-columns: 44px 9.5em 7.5em minmax(0, 1fr); align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; background: #2a1416; font: 500 13px/1.3 var(--tm-sans); color: #d9c79e; }
+.chip { display: inline-grid; place-items: center; height: 22px; border-radius: 999px; font: 900 12px/1 var(--tm-sans); letter-spacing: .08em; color: #140a0c; }
+.chip.yes { background: #52ff8f; }
+.chip.no { background: #ff5c5c; }
+.lg-act { color: var(--parch); }
+.lg-when { font-variant-numeric: tabular-nums; }
+.lg-what { min-width: 0; overflow-wrap: anywhere; }
+.pp-castbox { margin: 14px 0 0; }
+.pp-castbox summary { cursor: pointer; display: inline-flex; align-items: center; min-height: 32px; font: 700 13px/1.3 var(--tm-sans); color: var(--gold-l); }
+.pp-castbox summary:focus-visible { outline: 2px solid var(--gold-l); outline-offset: 2px; }
+.pp-source { margin: 8px 0 6px; font: 500 13px/1.4 var(--tm-sans); color: #cdb98f; }
 .pp-cast { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .pp-cast li { font: 600 12px/1.2 var(--tm-sans); padding: 3px 7px; border-radius: 999px; border: 1px solid #6b5440; color: #d9c79e; }
 .pp-cast li.heavy { border-color: var(--brass); color: var(--gold-l); }
 
 @media (max-width: 760px) {
   .jev-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .jev-beat { min-height: 0; padding: 8px 10px; }
+  .jev-beat { height: 150px; padding: 8px 10px; }
   .jb-q { font-size: 17px; }
-  .jb-ans { font-size: 26px; }
+  .jb-play { grid-template-columns: minmax(0, 1fr) 118px; gap: 8px; }
+  .jb-word { font-size: 38px; }
+  .jb-act { font-size: 13px; }
+  .pool { height: 150px; padding: 8px 10px; }
+  .pool-slips { height: 50px; }
   .tslip.docked { top: 20%; max-width: 200%; }
   .tslip.docked span { display: none; }
   .stage.scaled .run .poster { height: auto; min-height: 44px; }
   .pool-panel { padding: 12px 10px; }
-  .pp-metrics { grid-template-columns: minmax(0, 1fr); }
+  .pp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .pp-n { font-size: 28px; }
   .pp-title { font-size: 19px; }
+  .jev-log li { grid-template-columns: 40px minmax(0, 1fr) auto; row-gap: 2px; }
+  .lg-what { grid-column: 2 / -1; }
+}
+
+/* ux-swarm 2026-10-23: status as visuals. The allowance is a bar under the slip; the pool is one big labelled number. */
+.jb-left { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.jb-meter { display: flex; align-items: center; gap: 8px; height: 16px; }
+.jb-meter.off { visibility: hidden; }
+.jb-bar { flex: none; width: 72px; height: 8px; border-radius: 4px; background: #3b2622; overflow: hidden; }
+.jb-bar i { display: block; height: 100%; width: calc(var(--w, 0) * 100%); background: var(--gold-l); transition: width .4s; }
+.jb-mlab { min-width: 0; font: 600 12px/1.3 var(--tm-sans); color: #d9c79e; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pool { border-color: #52ff8f; box-shadow: 0 0 0 1px rgba(57, 255, 136, .25), 0 0 18px rgba(57, 255, 136, .18); }
+.pool-head { color: #6dffa6; }
+.pool-count { display: flex; align-items: baseline; gap: 6px; }
+.pool-n { font: 900 30px/1 var(--serif); color: var(--parch); }
+.pool-word { font: 700 13px/1.2 var(--tm-sans); color: #d9c79e; overflow: hidden; text-overflow: ellipsis; }
+.pool-count.bump .pool-n { animation: countFlash .9s ease-out; }
+@keyframes countFlash { from { color: #6dffa6; text-shadow: 0 0 14px rgba(57, 255, 136, .9); } }
+.stage-note .badge { display: inline-block; margin-right: 8px; padding: 2px 8px; border-radius: 999px; background: var(--gold-l); color: var(--parch-ink); font: 900 12px/1.4 var(--tm-sans); letter-spacing: .12em; text-transform: uppercase; }
+/* the answers tile: one YES/NO split bar over the four counts it is drawn from */
+.pp-split { grid-column: 1 / -1; display: flex; height: 10px; margin-top: 8px; border-radius: 5px; overflow: hidden; background: #3b2622; }
+.pp-split i { flex: var(--w, 0) 0 0; }
+.pp-split .kept { background: #52ff8f; }
+.pp-split .picked { background: #a8ffc9; }
+.pp-split .pooled { background: #ff5c5c; }
+.pp-split .chill { background: #ffb0b0; }
+.pp-legend { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 4px; font: 600 12px/1.3 var(--tm-sans); color: #cdb98f; }
+.pp-axis { display: flex; justify-content: space-around; margin: 2px 0 0; font: 600 12px/1.2 var(--tm-sans); color: #a08a6a; }
+details.pp-fine { margin: 12px 0 0; }
+.pp-fine summary, .pp-castbox summary { cursor: pointer; display: inline-flex; align-items: center; min-height: 32px; font: 700 13px/1.3 var(--tm-sans); color: var(--gold-l); }
+.pp-fine summary:focus-visible { outline: 2px solid var(--gold-l); outline-offset: 2px; }
+.pp-runlist { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 6px 0 0; font: 600 12px/1.35 var(--tm-sans); }
+.pp-runlist dt { color: #a08a6a; }
+.pp-runlist dd { margin: 0; color: var(--parch); font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) {
+  .jb-bar { width: 48px; }
+  .pool-n { font-size: 26px; }
+}
+/* the gauge badge keeps its line when empty, so its arrival at the curtain call moves nothing */
+.gauge-badge:empty { display: inline-block; visibility: hidden; }
+.gauge-badge:empty::before { content: "\00a0"; }
+
+/* the plain-English block above the show: what it is, what Jev changes, what it may save */
+.explain { margin: 14px 0; padding: 12px 16px; border-radius: 8px; background: #1c0d10; border: 1px solid #4a3020; }
+.explain-h { margin: 0 0 6px; font: 800 13px/1.3 var(--tm-sans); letter-spacing: .14em; text-transform: uppercase; color: var(--gold-l); }
+.explain p { margin: 0 0 4px; max-width: 72ch; font: 500 15px/1.4 var(--tm-sans); color: var(--parch); }
+.explain .explain-act { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 10px 0 0; }
+.explain-skill { display: inline-flex; align-items: center; min-height: 32px; font: 700 14px/1.3 var(--tm-sans); color: var(--gold-l); }
+
+/* one screen on desktop (operator 2026-10-23): shorter posters without masks, the result as a strip in the caption's
+   own fixed box (no rotated banner over the stage), a compact explainer and four tiles straight under the stage */
+.callout { display: none; }
+.status { box-sizing: border-box; padding: 2px 10px; border-radius: 6px; transition: background .4s, color .4s; }
+.stage.call.settled .status { visibility: visible; background: linear-gradient(#f6dc8e, var(--brass)); color: var(--parch-ink); font-style: normal; }
+.explain { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 20px; padding: 10px 16px; margin: 10px 0; }
+.explain-h, .explain p:not(.explain-act) { grid-column: 1; }
+.explain p { font-size: 14px; margin: 0 0 2px; }
+.explain .explain-act { grid-column: 2; grid-row: 1 / span 4; flex-direction: column; align-items: stretch; margin: 0; gap: 6px; }
+.pool-panel { margin: 0; padding: 8px 14px 12px; border-radius: 0; border-width: 2px 0 0; }
+.pp-title { font-size: 15px; letter-spacing: .04em; }
+.pp-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 6px 0 0; }
+.pp-tile { padding: 6px 10px; grid-template-columns: 22px auto 1fr; grid-template-rows: auto auto; column-gap: 8px; }
+.pp-icon { grid-row: 1; width: 22px; height: 22px; }
+.pp-n { font-size: 26px; }
+.pp-tl { align-self: center; }
+.pp-split { margin-top: 4px; height: 6px; }
+.pp-tsub { margin-top: 2px; min-height: 1.3em; }
+.pp-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 6px 0 0; font: 600 12px/1.3 var(--tm-sans); color: #cdb98f; }
+.compare { padding: 6px 10px; }
+@media (min-width: 761px) {
+  .opening { padding: 30px 18px 22px; min-height: 0; }
+  .floor { gap: 8px; }
+  .poster { aspect-ratio: auto; height: 92px; padding: 6px 4px; }
+  .poster .art, .poster .time { display: none; }
+  .poster .seats { max-width: 48px; }
+  .jb-q { font-size: 17px; }
+  .jev-beat, .pool { height: 140px; }
+  .pool-slips { height: 52px; }
+  .status { font-size: 17px; height: calc(2.5em + 4px); }
+  .big { font-size: clamp(36px, 5vw, 64px); }
+}
+@media (max-width: 760px) {
+  .explain { grid-template-columns: minmax(0, 1fr); }
+  .explain .explain-act { grid-column: 1; grid-row: auto; flex-direction: row; flex-wrap: wrap; margin-top: 8px; }
+  .pp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .status { height: calc(3.75em + 4px); }
+}
+@media (min-width: 761px) {
+  .pool { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto auto; align-content: start; column-gap: 10px; row-gap: 6px; }
+  .pool-head { align-self: center; }
+  .pool-count { justify-content: flex-end; }
+  .pool-slips, .pool-others { grid-column: 1 / -1; }
+}
+
+/* 100x: no wrapping, no growth. The latest three slips sit in one fixed row and replace each other in place; the legend
+   is three swatches in one fixed row. */
+.scale-focus { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; height: 46px; overflow: hidden; flex-wrap: nowrap; }
+.scale-focus .tslip { min-width: 0; max-width: none; height: 46px; box-sizing: border-box; overflow: hidden; }
+.scale-focus .tslip b, .scale-focus .tslip span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mosaic-key { display: flex; flex-wrap: nowrap; gap: 14px; height: 18px; overflow: hidden; align-items: center; font: 700 12px/1.2 var(--tm-sans); color: #d9c79e; }
+.mosaic-key span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; }
+.sw.own { background: #c98f2a; }
+.sw.picked { background: #fff1bf; }
+.sw.wait { background: #6f6a7e; }
+.branches { flex-wrap: nowrap; height: 42px; overflow: hidden; }
+.branch { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.branch .chip { padding: 0 8px; font-variant-numeric: tabular-nums; }
+/* chips: green YES, red NO, wherever they appear */
+.chip { display: inline-grid; place-items: center; min-width: 36px; height: 22px; border-radius: 999px; font: 900 12px/1 var(--tm-sans); letter-spacing: .06em; color: #140a0c; }
+.chip.yes { background: #52ff8f; }
+.chip.no { background: #ff5c5c; }
+
+/* the big header over the posters */
+.act { font: 800 clamp(22px, 2.4vw, 30px)/1.1 var(--serif); letter-spacing: .01em; text-transform: none; color: var(--gold-l); height: 1.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.example-tag { display: none !important; }
+
+/* Jev's decisions this week: a strip of four cells straight under the posters, reserved from the first frame */
+.jev-log { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; height: 30px; }
+.jev-log[hidden] { display: none; }
+.jev-log li { display: flex; align-items: center; gap: 6px; min-width: 0; height: 30px; box-sizing: border-box; padding: 0 8px; border-radius: 6px; background: #2a1416; border: 1px solid #4a3020; font: 600 12px/1.2 var(--tm-sans); color: #d9c79e; overflow: hidden; white-space: nowrap; transition: border-color .3s, box-shadow .3s; }
+.jev-log li .chip { flex: none; min-width: 34px; height: 18px; }
+.jev-log li.empty .chip { background: #3b2622; }
+.jev-log li .lg-act { flex: none; color: var(--parch); }
+.jev-log li .lg-when { flex: none; color: #a08a6a; }
+.jev-log li .lg-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.jev-log li.now { border-color: var(--gold-l); box-shadow: 0 0 0 1px rgba(246, 220, 142, .5); }
+/* the day's chips on its poster; the task shows on hover, focus or tap */
+.pchip { position: absolute; top: 4px; right: calc(4px + var(--k, 0) * 34px); z-index: 4; min-width: 30px; height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 999px; font: 900 12px/18px var(--tm-sans); text-align: center; color: #140a0c; cursor: default; }
+.pchip.yes { background: #52ff8f; }
+.pchip.no { background: #ff5c5c; }
+.pchip:hover::after, .pchip:focus::after { content: attr(data-task); position: absolute; top: 20px; right: 0; z-index: 6; width: max-content; max-width: 180px; padding: 4px 6px; border-radius: 4px; background: var(--parch); color: var(--parch-ink); font: 700 12px/1.2 var(--tm-sans); white-space: normal; text-align: left; }
+.pchip:focus-visible { outline: 2px solid var(--gold-l); outline-offset: 1px; }
+
+/* Run details: the counts on the left, the chart in two rows of days on the right */
+.pp-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; margin: 8px 0 0; }
+.pp-col { min-width: 0; }
+.pp-col .ribbon { height: 88px; }
+.pp-scripted { margin: 8px 0 0; font: 600 12px/1.3 var(--tm-sans); color: #b8a27e; }
+.pp-sub { margin: 0 0 6px; text-transform: none; letter-spacing: 0; font: 700 14px/1.3 var(--tm-sans); color: var(--gold-l); }
+
+/* the controls sit in the left column under the gauge, in a box of fixed height, so a button appearing or going never
+   moves anything */
+.wing { flex-direction: column; justify-content: center; gap: 12px; }
+.wing .compare { flex-direction: column; align-items: stretch; justify-content: flex-start; flex-wrap: nowrap; gap: 6px; height: 196px; box-sizing: border-box; padding: 0; background: none; border: 0; width: 100%; max-width: 250px; }
+.wing .compare[hidden] { display: flex; visibility: hidden; }
+.wing .compare .seg { display: flex; }
+.wing .compare .seg[hidden] { display: flex; visibility: hidden; }
+.wing .compare .seg button { flex: 1; padding: 7px 8px; font-size: 13px; }
+.wing .compare > button { padding: 7px 12px; font-size: 13px; }
+
+@media (max-width: 760px) {
+  .opening { grid-template-columns: minmax(0, 1fr); }
+  .jev-beat > *, .pool > * { min-width: 0; }
+  .wing .compare { max-width: none; height: 84px; flex-direction: row; flex-wrap: wrap; align-content: flex-start; }
+  .wing .compare .seg { flex-basis: 100%; }
+  .jev-log { grid-template-columns: repeat(2, minmax(0, 1fr)); height: 66px; }
+  .jev-log li .lg-when { display: none; }
+  .pp-cols { grid-template-columns: minmax(0, 1fr); }
+  .act { font-size: 22px; }
+  .scale-focus { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scale-focus .tslip:nth-child(n+3) { display: none; }
+  .branches { height: auto; flex-wrap: wrap; }
+}
+/* the hidden +1 job slip waits above its poster: it never takes a click meant for the controls */
+.extra { pointer-events: none; }
+.wing { z-index: 3; }
+/* controls: a fixed grid, the toggle and the long buttons on full rows */
+.wing .compare { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 32px; align-content: start; height: 146px; }
+.wing .compare[hidden] { display: grid; }
+.wing .compare .seg, .wing .compare .skipper { grid-column: 1 / -1; }
+.wing .compare > button { padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pp-tile { height: 72px; box-sizing: border-box; overflow: hidden; }
+.pp-tsub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.explain { margin: 6px 0; }
+.explain p { line-height: 1.35; }
+@media (min-width: 761px) {
+  .poster { height: 86px; }
+}
+@media (max-width: 760px) {
+  .wing .compare { grid-template-columns: repeat(3, minmax(0, 1fr)); height: 106px; }
+  .wing .compare .skipper { grid-column: auto; }
+  .wing .compare .stars { grid-column: span 2; }
+  .jev-beat { height: 156px; }
+  .pp-tile { height: 76px; }
+}
+/* the toggle reads TokenMax | Without | With on one line: short labels that never wrap out of their pill */
+.wing .compare { grid-auto-flow: row dense; }
+.seg-cap { display: flex; align-items: center; padding: 0 10px; font: 800 12px/1 var(--tm-sans); letter-spacing: .06em; text-transform: uppercase; color: var(--brass); white-space: nowrap; }
+.seg button { white-space: nowrap; }
+@media (max-width: 760px) {
+  .wing .compare { height: 108px; }
+}
+@media (max-width: 760px) {
+  .wing .compare .skipper { grid-column: span 2; }
+}
+/* the result strip: dark text on gold from its first frame, centred in the caption's fixed box */
+.status { display: flex; align-items: center; transition: none; }
+.stage.call.settled .status { font-weight: 800; }
+/* the day's YES/NO chips stand in a column at the poster's right edge, clear of the day name */
+.pchip { top: calc(22px + var(--k, 0) * 21px); right: 3px; }
+.stage.scaled .pchip { display: none; }
+/* the pool label and its count share one line */
+.pool-head { font-size: 12px; letter-spacing: .12em; }
+.pool-word { font-size: 12px; }
+@media (max-width: 760px) {
+  /* phone posters are too narrow for chips: the strip under them carries each decision */
+  .pchip { display: none; }
+}
+
+/* decision cells truncate the time and task, never the verdict; the whole row shows on hover, focus or tap */
+.jev-log li { position: relative; overflow: visible; }
+.jev-log li .lg-when { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.jev-log li .lg-what { flex: 1 1 0; }
+.jev-log li[data-full]:hover::after, .jev-log li[data-full]:focus::after { content: attr(data-full); position: absolute; left: 0; top: calc(100% + 4px); z-index: 12; width: max-content; max-width: min(320px, 90vw); padding: 6px 8px; border-radius: 4px; background: var(--parch); color: var(--parch-ink); font: 700 12px/1.3 var(--tm-sans); white-space: normal; box-shadow: 0 4px 12px rgba(0, 0, 0, .5); }
+.jev-log li:focus-visible { outline: 2px solid var(--gold-l); outline-offset: 1px; }
+
+/* tablet widths: the session card and the pool stack, the decision strip and the tiles go 2 by 2 */
+@media (min-width: 761px) and (max-width: 1099px) {
+  .opening { grid-template-columns: 210px minmax(0, 1fr); gap: 14px; }
+  .jev-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .jev-beat { height: 150px; }
+  .pool { height: 120px; }
+  .pool-slips { height: 40px; }
+  .jev-log { grid-template-columns: repeat(2, minmax(0, 1fr)); height: 66px; }
+  .pp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wing .compare { max-width: 210px; }
+}
+/* narrow tiles stack: icon and number, then the label, then the sub-line on up to two lines */
+@media (max-width: 1099px) {
+  .pp-tile { grid-template-columns: 22px minmax(0, 1fr); grid-template-rows: auto auto auto; height: 100px; }
+  .pp-tl { grid-column: 1 / -1; margin-top: 2px; }
+  .pp-tsub { white-space: normal; height: 2.6em; overflow: hidden; }
+  .pp-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}
+/* the pool box keeps its fixed size without clipping, so a slip flying in from the session card stays visible */
+.pool, .pool-slips { overflow: visible; }
+@media (max-width: 1099px) {
+  .pp-n { line-height: 1.2; }
+}
+@media (max-width: 1099px) {
+  .pp-n { overflow: visible; text-overflow: clip; }
 }

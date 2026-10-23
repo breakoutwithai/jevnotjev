@@ -599,8 +599,7 @@
   var FOCUS = focusPair(ROWS);
   var DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   var BEAT_DAYS = [1, 4];
-  var LABEL_1X = "Illustrative tasks and limits · scripted Jev decisions · based on 21 public maps";
-  var LABEL_100X = "100× simulation · scripted Jev decisions · based on 21 public maps";
+  var HEAD_100X = "100x sessions";
   var BUSY_MINUTES_PER_MS = 60 / 600;
   var QUIET_SPEEDUP = 30;
   var fmt2 = (n) => n.toLocaleString("en-US");
@@ -650,20 +649,43 @@
     who.id = "jevWho";
     const q = el("p", "jb-q");
     q.id = "jevQ";
+    const play = el("div", "jb-play");
     const slot = el("div", "jb-slot");
-    const room = el("p", "jb-room");
-    room.id = "jevRoom";
     const ans = el("p", "jb-ans");
     ans.id = "jevA";
-    const tag = el("p", "jb-tag");
-    tag.id = "jevTag";
-    beat.append(who, q, slot, room, ans, tag);
+    const meter = el("div", "jb-meter");
+    meter.id = "jevMeter";
+    const bar = el("span", "jb-bar");
+    const fill = el("i", "");
+    bar.append(fill);
+    const mlab = el("span", "jb-mlab");
+    meter.append(bar, mlab);
+    const left = el("div", "jb-left");
+    left.append(slot, meter);
+    play.append(left, ans);
+    const setMeter = (room, allowance = 1, extra = "") => {
+      meter.classList.toggle("off", room === null);
+      if (room === null) {
+        mlab.textContent = "";
+        return;
+      }
+      fill.style.setProperty("--w", String(Math.max(0, Math.min(1, room / Math.max(1, allowance)))));
+      mlab.textContent = `${room} of ${allowance} units left${extra}`;
+    };
+    beat.append(who, q, play);
+    const showAnswer = (yes, action) => {
+      ans.className = `jb-ans ${yes ? "yes" : "no"}`;
+      ans.textContent = "";
+      ans.append(el("b", "jb-word", yes ? "YES" : "NO"), el("span", "jb-act", action));
+    };
+    const clearAnswer = () => {
+      ans.className = "jb-ans";
+      ans.textContent = "";
+    };
     const pool = el("div", "pool");
     pool.id = "pool";
     const poolHead = el("p", "pool-head", "Shared pool");
     poolHead.id = "poolHead";
-    const poolFocus = el("p", "pool-focus");
-    poolFocus.id = "poolFocus";
     const poolSlips = el("div", "pool-slips");
     poolSlips.id = "poolSlips";
     const poolOthers = el("div", "pool-others");
@@ -671,11 +693,24 @@
     poolOthers.setAttribute("aria-hidden", "true");
     const poolCount = el("p", "pool-count");
     poolCount.id = "poolCount";
-    pool.append(poolHead, poolFocus, poolSlips, poolOthers, poolCount);
+    const poolN = el("b", "pool-n");
+    poolN.id = "poolN";
+    const poolWord = el("span", "pool-word");
+    poolCount.append(poolN, poolWord);
+    const setPoolCount = (n, sources) => {
+      const was = poolN.textContent;
+      poolN.textContent = fmt2(n);
+      poolWord.textContent = ` waiting across all ${sources} maps`;
+      if (was !== "" && was !== poolN.textContent && deps.speed() > 0) {
+        poolCount.classList.remove("bump");
+        poolCount.offsetWidth;
+        poolCount.classList.add("bump");
+      }
+    };
+    pool.append(poolHead, poolCount, poolSlips, poolOthers);
     const syncPool = () => {
       const waiting = at(storyT).poolWaiting;
       const live = poolSlips.querySelectorAll(".tslip:not(.taken)").length, others = Math.max(0, waiting - live);
-      poolFocus.textContent = live > 0 ? "Slips: tasks from the two sessions on stage" : others > 0 ? `${fmt2(others)} task${others === 1 ? "" : "s"} from other maps' sessions` : poolSlips.querySelector(".tslip.taken") ? "Leaving the pool: picked up" : "Empty: no task waiting";
       const shown = Math.min(OTHERS_SHOWN, others);
       while (poolOthers.children.length > shown)
         poolOthers.lastElementChild?.remove();
@@ -689,13 +724,25 @@
     wide.hidden = true;
     const branches = el("div", "branches");
     const pulse = el("span", "jev-pulse", "Jev");
-    const taskBranch = el("p", "branch"), idleBranch = el("p", "branch");
-    branches.append(pulse, taskBranch, idleBranch);
+    const branch = (label) => {
+      const p = el("p", "branch");
+      const yes = el("span", "chip yes"), no = el("span", "chip no");
+      p.append(el("b", "", label), yes, no);
+      branches.append(p);
+      return { yes, no };
+    };
+    branches.append(pulse);
+    const taskBranch = branch("Task checks"), idleBranch = branch("Idle checks");
     const mosaic = el("canvas", "mosaic");
     mosaic.id = "mosaic";
     mosaic.setAttribute("role", "img");
     mosaic.setAttribute("aria-label", "Each square is one simulated instance: gold runs its own task, bright gold runs a pooled task, pale is chilling out, dark has no session now");
-    const legend = el("p", "mosaic-key", "Each square is one simulated instance · gold: own task · bright: picked-up task · pale: chill out");
+    const legend = el("p", "mosaic-key");
+    for (const [cls, label] of [["own", "Own task"], ["picked", "Picked up"], ["wait", "Waiting"]]) {
+      const k = el("span", "");
+      k.append(el("i", `sw ${cls ?? ""}`), label ?? "");
+      legend.append(k);
+    }
     const focusLine = el("ol", "scale-focus");
     focusLine.id = "scaleFocus";
     wide.append(branches, mosaic, legend, focusLine);
@@ -718,37 +765,96 @@
     panel.setAttribute("aria-label", "Jev task pooling, counted from the run");
     const ph = el("div", "pp-head");
     const ptitle = el("h3", "pp-title", "Jev task pooling");
-    const plabel = el("p", "pp-label");
-    plabel.id = "poolLabel";
-    ph.append(ptitle, plabel);
-    const metrics = el("dl", "pp-metrics");
-    const metric = (key, label) => {
-      const wrap = el("div", "pp-m");
-      const dt = el("dt", "", label);
-      const dd = el("dd", "");
-      dd.dataset.metric = key;
-      wrap.append(dt, dd);
-      metrics.append(wrap);
-      return dd;
+    ph.append(ptitle);
+    const tiles = el("div", "pp-tiles");
+    const SVG = "http://www.w3.org/2000/svg";
+    const icon = (d) => {
+      const s = doc.createElementNS(SVG, "svg");
+      s.setAttribute("viewBox", "0 0 24 24");
+      s.setAttribute("class", "pp-icon");
+      s.setAttribute("aria-hidden", "true");
+      const p = doc.createElementNS(SVG, "path");
+      p.setAttribute("d", d);
+      s.append(p);
+      return s;
     };
-    const mScale = metric("scale", "Scale · source maps · simulated instances");
-    const mDecisions = metric("decisions", "Jev decisions");
-    const mTask = metric("task", "Task checks: YES keep local · NO send to pool");
-    const mIdle = metric("idle", "Idle checks: YES pick up · NO chill out");
-    const mRate = metric("rate", "Decisions per second");
-    const mLatency = metric("latency", "Jev decision time");
-    const mElapsed = metric("elapsed", "Elapsed run time");
-    const mStory = metric("story", "Story time");
-    const mParallel = metric("parallel", "Parallel work now · peak");
-    const mPool = metric("pool", "Pool waiting · picked up · completed");
-    const ribbonHead = el("p", "pp-sub", "Parallel work over story time: task runs at once, Monday to Sunday");
+    const num = (key, cls = "pp-n") => {
+      const n = el("span", cls);
+      n.dataset.metric = key;
+      return n;
+    };
+    const tile = (key, label, tone, path) => {
+      const t = el("div", `pp-tile pp-m ${tone}`);
+      const n = num(key);
+      const sub = el("span", "pp-tsub");
+      t.append(icon(path), n, el("span", "pp-tl", label), sub);
+      tiles.append(t);
+      return { n, sub };
+    };
+    const sub = (box, key, label) => {
+      if (box.childNodes.length > 0)
+        box.append(" · ");
+      const n = num(key, "pp-sn");
+      box.append(n, ` ${label}`);
+      return n;
+    };
+    const tDecisions = tile("decisions", "Jev decisions", "gold", "M12 2.5 21.5 12 12 21.5 2.5 12z M9 12h6");
+    const mTaskChecks = sub(tDecisions.sub, "taskChecks", "task"), mIdleChecks = sub(tDecisions.sub, "idleChecks", "idle");
+    const tAnswers = tile("yes", "YES answers", "yes", "M5 12.5l4.5 4.5L19 7");
+    const split = el("span", "pp-split");
+    split.setAttribute("aria-hidden", "true");
+    const segs = ["kept", "pooled", "picked", "chill"].map((k) => {
+      const i = el("i", k);
+      split.append(i);
+      return i;
+    });
+    tAnswers.sub.before(split);
+    const mNo = sub(tAnswers.sub, "no", "NO");
+    const runList = el("dl", "pp-runlist");
+    const runRow = (key, label) => {
+      const n = el("dd", "");
+      n.dataset.metric = key;
+      runList.append(el("dt", "", label), n);
+      return n;
+    };
+    const leg = (key, label) => runRow(key, label);
+    const mTaskYes = leg("taskYes", "Kept local"), mTaskNo = leg("taskNo", "Sent to pool"), mIdleYes = leg("idleYes", "Picked up"), mIdleNo = leg("idleNo", "Nothing fits: wait");
+    const tPool = tile("poolWaiting", "Waiting in pool", "no", "M3 7h18 M3 12h18 M3 17h18");
+    const mPicked = sub(tPool.sub, "pickedUp", "picked up"), mCompleted = sub(tPool.sub, "completed", "done");
+    const tPeak = tile("parallelPeak", "Peak parallel", "gold", "M5 20v-7 M10 20V5 M15 20v-9 M20 20V8");
+    const mParallelNow = sub(tPeak.sub, "parallelNow", "now");
+    const fine = el("details", "pp-fine");
+    fine.id = "poolRun";
+    const mScale = runRow("scale", "Scale"), mInstances = runRow("instances", "Instances"), mElapsed = runRow("elapsed", "Run time");
+    const mLatency = el("p", "pp-scripted");
+    mLatency.dataset.metric = "latency";
+    fine.append(el("summary", "", "Run details"));
+    const ribbonHead = el("p", "pp-sub");
+    ribbonHead.id = "ribbonTake";
     const ribbon = el("canvas", "ribbon");
     ribbon.id = "ribbon";
     ribbon.setAttribute("role", "img");
     ribbon.setAttribute("aria-label", "Bars: task runs overlapping at each moment of the story week");
-    const logHead = el("p", "pp-sub", "Jev on stage this week");
     const log = el("ol", "jev-log");
     log.id = "jevLog";
+    log.hidden = true;
+    log.setAttribute("aria-label", "Jev decisions this week");
+    const LOG_CELLS = 4;
+    const resetLog = () => {
+      log.textContent = "";
+      for (let k = 0;k < LOG_CELLS; k++) {
+        const li = el("li", "empty");
+        li.append(el("span", "chip"), el("b", "lg-act"), el("span", "lg-when"), el("span", "lg-what"));
+        log.append(li);
+      }
+      for (const p of deps.posters)
+        p.querySelectorAll(".pchip").forEach((c) => c.remove());
+    };
+    resetLog();
+    deps.run.after(log);
+    const castBox = el("details", "pp-castbox");
+    castBox.id = "poolCastBox";
+    const castSum = el("summary", "", `Cast: ${ROWS.length} public maps`);
     const source = el("p", "pp-source");
     source.id = "poolSource";
     const heavyN = ROWS.filter((r) => kindOf(r) === "heavy").length;
@@ -760,8 +866,18 @@
       li.textContent = `${r.alias} · ${kindOf(r)} · ${r.days} days to ${r.day.slice(5)} · Codex week ${r.codexWeeklyPct === null ? "unknown" : `${r.codexWeeklyPct}%`}`;
       cast.append(li);
     }
-    panel.append(ph, metrics, ribbonHead, ribbon, logHead, log, source, cast);
-    deps.compare.after(panel);
+    castBox.append(castSum, source, cast);
+    const cols = el("div", "pp-cols"), leftCol = el("div", "pp-col"), rightCol = el("div", "pp-col");
+    leftCol.append(runList, mLatency);
+    rightCol.append(ribbonHead, ribbon);
+    cols.append(leftCol, rightCol);
+    fine.append(cols, castBox);
+    fine.addEventListener("toggle", () => {
+      if (fine.open)
+        paint();
+    });
+    panel.append(ph, tiles, fine);
+    (deps.floor.parentElement ?? deps.compare).after(panel);
     let paused = false, held = [];
     function setPaused(p) {
       if (p === paused)
@@ -835,21 +951,34 @@
     function paint() {
       const c = at(storyT);
       const secs = elapsedMs() / 1000;
-      mScale.textContent = `${scale}× · ${result.sources} source maps · ${fmt2(result.instances)} simulated instances`;
-      mDecisions.textContent = `${fmt2(c.decisions)} (task checks ${fmt2(c.taskChecks)} · idle checks ${fmt2(c.idleChecks)})`;
-      mTask.textContent = `YES ${fmt2(c.taskYes)} · NO ${fmt2(c.taskNo)}`;
-      mIdle.textContent = `YES ${fmt2(c.idleYes)} · NO ${fmt2(c.idleNo)}`;
-      mRate.textContent = secs >= 0.05 ? `${(c.decisions / secs).toFixed(1)} simulated decision events per second (scripted mode)` : "drawn at once (Skip, a link or reduced motion): no playback to time";
-      mLatency.textContent = "Scripted decisions: no model call, so no latency to measure";
-      mElapsed.textContent = `${secs.toFixed(1)} s wall clock, pauses excluded`;
-      const perHour = storyT > 0 && secs >= 0.05 ? secs / (storyT / 60) : 0;
-      mStory.textContent = `${storyClock(Math.min(storyT, result.end))} · playback ${perHour > 0 ? `${perHour.toFixed(2)} s of wall time per story hour` : "not timed"}`;
-      mParallel.textContent = `${fmt2(c.parallelNow)} · ${fmt2(c.parallelPeak)} task runs`;
-      mPool.textContent = `${fmt2(c.poolWaiting)} · ${fmt2(c.pickedUp)} · ${fmt2(c.completed)}`;
-      poolCount.textContent = `All ${result.sources} maps: ${fmt2(c.poolWaiting)} task${c.poolWaiting === 1 ? "" : "s"} waiting`;
+      mScale.textContent = `${scale}× · ${result.sources} source maps`;
+      mInstances.textContent = `${fmt2(result.instances)} simulated instances`;
+      tDecisions.n.textContent = fmt2(c.decisions);
+      mTaskChecks.textContent = fmt2(c.taskChecks);
+      mIdleChecks.textContent = fmt2(c.idleChecks);
+      tAnswers.n.textContent = fmt2(c.taskYes + c.idleYes);
+      mNo.textContent = fmt2(c.taskNo + c.idleNo);
+      mTaskYes.textContent = fmt2(c.taskYes);
+      mTaskNo.textContent = fmt2(c.taskNo);
+      mIdleYes.textContent = fmt2(c.idleYes);
+      mIdleNo.textContent = fmt2(c.idleNo);
+      const all = Math.max(1, c.decisions);
+      [c.taskYes, c.taskNo, c.idleYes, c.idleNo].forEach((v, i) => {
+        segs[i]?.style.setProperty("--w", String(v / all));
+      });
+      tPool.n.textContent = fmt2(c.poolWaiting);
+      mPicked.textContent = fmt2(c.pickedUp);
+      mCompleted.textContent = fmt2(c.completed);
+      tPeak.n.textContent = fmt2(c.parallelPeak);
+      mParallelNow.textContent = fmt2(c.parallelNow);
+      mLatency.textContent = "Scripted run, no model calls";
+      mElapsed.textContent = `${secs.toFixed(1)} s run, pauses excluded`;
+      setPoolCount(c.poolWaiting, result.sources);
       syncPool();
-      taskBranch.textContent = `Task checks: YES ${fmt2(c.taskYes)} keep local · NO ${fmt2(c.taskNo)} to the pool`;
-      idleBranch.textContent = `Idle checks: YES ${fmt2(c.idleYes)} pick up · NO ${fmt2(c.idleNo)} chill out`;
+      taskBranch.yes.textContent = `YES ${fmt2(c.taskYes)}`;
+      taskBranch.no.textContent = `NO ${fmt2(c.taskNo)}`;
+      idleBranch.yes.textContent = `YES ${fmt2(c.idleYes)}`;
+      idleBranch.no.textContent = `NO ${fmt2(c.idleNo)}`;
       drawRibbon();
     }
     let ribbonCols = [], ribbonMax = 1;
@@ -866,35 +995,54 @@
       ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
       return ctx;
     }
+    let ribbonW = 0;
+    const ROW_H = 40, ROW_GAP = 8;
     function prepRibbon() {
-      const w = cssWidth(ribbon);
-      ribbonCols = Array.from({ length: w }, (_, i) => at(result.end * (i + 0.5) / w).parallelNow);
+      ribbonW = cssWidth(ribbon);
+      const dw = Math.max(1, Math.floor(ribbonW / 4)), n = dw * 7;
+      ribbonCols = Array.from({ length: n }, (_, i) => at((i + 0.5) * DAY_MINUTES / dw).parallelNow);
       ribbonMax = Math.max(1, ...ribbonCols);
+      const peak = at(result.end).parallelPeak;
+      const first = [...new Set(result.runs.map((x) => x.start))].sort((a, b) => a - b).find((t) => at(t).parallelNow === peak);
+      ribbonHead.textContent = peak > 0 && first !== undefined ? `Busiest: ${fmt2(peak)} task${peak === 1 ? "" : "s"} at once, ${storyClock(first)}` : "No tasks ran at once";
     }
     function drawRibbon() {
-      if (cssWidth(ribbon) !== ribbonCols.length)
+      if (cssWidth(ribbon) !== ribbonW)
         prepRibbon();
-      const H = 56, ctx = sizeCanvas(ribbon, H);
+      const H = ROW_H * 2 + ROW_GAP, ctx = sizeCanvas(ribbon, H);
       if (!ctx)
         return;
-      const w = ribbonCols.length;
+      const w = ribbonW, dw = Math.max(1, Math.floor(w / 4)), n = ribbonCols.length;
+      const place = (i) => {
+        const row = i < dw * 4 ? 0 : 1;
+        return { x: i - row * dw * 4, y: row * (ROW_H + ROW_GAP) };
+      };
       ctx.clearRect(0, 0, w, H);
       ctx.fillStyle = "#2a1416";
-      ctx.fillRect(0, 0, w, H);
-      ctx.fillStyle = "#4a3020";
-      for (let d = 1;d < 7; d++)
-        ctx.fillRect(Math.round(w * d * DAY_MINUTES / result.end), 0, 1, H);
+      ctx.fillRect(0, 0, dw * 4, ROW_H);
+      ctx.fillRect(0, ROW_H + ROW_GAP, dw * 3, ROW_H);
+      ctx.font = "600 12px sans-serif";
+      DAYS.forEach((d, k) => {
+        const p = place(k * dw);
+        ctx.fillStyle = "#4a3020";
+        if (p.x > 0)
+          ctx.fillRect(p.x, p.y, 1, ROW_H);
+        ctx.fillStyle = "#a08a6a";
+        ctx.fillText(d, p.x + 4, p.y + 13);
+      });
       ctx.fillStyle = "#e0b04e";
-      const upto = Math.floor(w * storyT / result.end);
-      for (let i = 0;i < Math.min(w, upto); i++) {
+      const upto = Math.min(n, Math.floor(storyT * dw / DAY_MINUTES));
+      for (let i = 0;i < upto; i++) {
         const v = ribbonCols[i] ?? 0;
         if (v > 0) {
-          const h = Math.max(1, v / ribbonMax * (H - 6));
-          ctx.fillRect(i, H - h, 1, h);
+          const h = Math.max(1, v / ribbonMax * (ROW_H - 18));
+          const p = place(i);
+          ctx.fillRect(p.x, p.y + ROW_H - h, 1, h);
         }
       }
+      const cur = place(Math.min(n - 1, upto));
       ctx.fillStyle = "#f6dc8e";
-      ctx.fillRect(Math.min(w - 1, upto), 0, 1, H);
+      ctx.fillRect(cur.x, cur.y, 1, ROW_H);
     }
     win.addEventListener("resize", () => {
       if (panel.hidden)
@@ -928,16 +1076,49 @@
       setBeat("rest", null);
       who.textContent = "Jev";
       q.textContent = mode === "burn" ? "Checks every task before the session starts it" : "Checks every idle session for pooled work";
-      room.textContent = "";
-      ans.textContent = "";
-      ans.className = "jb-ans";
+      clearAnswer();
       slot.textContent = "";
+      setMeter(null);
     }
     function logLine(d) {
-      const li = el("li", d.yes ? "yes" : "no");
-      const title = d.task ? `“${d.task.title}” (${d.task.size} units)` : "";
-      li.textContent = d.check === "task" ? `${storyClock(d.t)} · ${title}, ${d.room} of ${d.allowance} units left: ${d.yes ? "YES, kept local" : "NO, sent to the pool"}` : `${storyClock(d.t)} · idle, ${d.room} units and ${d.minutesLeft} min left: ${d.yes ? `YES, picked up ${title}` : "NO, chill out"}`;
-      log.append(li);
+      const act = d.check === "task" ? d.yes ? "kept local" : "to pool" : d.yes ? "picked up" : "nothing fits";
+      const what = d.task ? `“${d.task.title}” (${d.task.size} units)` : "idle";
+      const room = d.check === "task" ? `${d.room} of ${d.allowance} units left` : `${d.room} units, ${d.minutesLeft} min left`;
+      let li = log.querySelector("li.empty");
+      if (!li) {
+        li = el("li", "");
+        li.append(el("span", "chip"), el("b", "lg-act"), el("span", "lg-when"), el("span", "lg-what"));
+        log.append(li);
+      }
+      li.className = d.yes ? "yes" : "no";
+      const [chip, actEl, whenEl, whatEl] = [li.querySelector(".chip"), li.querySelector(".lg-act"), li.querySelector(".lg-when"), li.querySelector(".lg-what")];
+      if (chip) {
+        chip.className = `chip ${d.yes ? "yes" : "no"}`;
+        chip.textContent = d.yes ? "YES" : "NO";
+      }
+      if (actEl)
+        actEl.textContent = act;
+      if (whenEl)
+        whenEl.textContent = storyClock(d.t);
+      if (whatEl)
+        whatEl.textContent = `${what} · ${room}`;
+      const full = `${d.yes ? "YES" : "NO"}, ${act} · ${storyClock(d.t)} · ${what} · ${room}`;
+      li.title = full;
+      li.dataset.full = full;
+      li.tabIndex = 0;
+      li.setAttribute("aria-label", full);
+      log.querySelectorAll("li.now").forEach((x) => x.classList.remove("now"));
+      if (deps.speed() > 0)
+        li.classList.add("now");
+      const day = Math.min(6, Math.floor(d.t / DAY_MINUTES)), p = deps.posters[day];
+      if (p) {
+        const pc = el("span", `pchip ${d.yes ? "yes" : "no"}`, d.yes ? "YES" : "NO");
+        pc.tabIndex = 0;
+        pc.dataset.task = d.task ? d.task.title : "idle session";
+        pc.setAttribute("aria-label", `${DAYS[day] ?? ""}: ${d.yes ? "YES" : "NO"}, ${act}, ${pc.dataset.task}`);
+        pc.style.setProperty("--k", String(p.querySelectorAll(".pchip").length));
+        p.append(pc);
+      }
     }
     async function taskBeat(d, i, tok) {
       const p = deps.posters[i];
@@ -946,21 +1127,19 @@
       setBeat("arrive", d);
       who.textContent = `${DAYS[i] ?? ""} session · ${storyClock(d.t)}`;
       q.textContent = "A task is ready to start";
-      room.textContent = `Session allowance left: ${d.room} of ${d.allowance} units`;
-      ans.textContent = "";
-      ans.className = "jb-ans";
+      clearAnswer();
+      setMeter(d.room, d.allowance);
       const s = slipFor(d);
       slot.textContent = "";
       slot.append(s);
       p?.classList.add("playing");
-      deps.status.textContent = `${DAYS[i] ?? ""}: “${d.task?.title ?? ""}” arrives in the session`;
+      deps.status.textContent = "";
       await hold(500, tok);
       setBeat("ask", d);
       q.textContent = `“${TASK_QUESTION}”`;
       await hold(1100, tok);
       setBeat("answer", d);
-      ans.textContent = d.yes ? "YES · Keep it local" : "NO · Pool it";
-      ans.className = `jb-ans ${d.yes ? "yes" : "no"}`;
+      showAnswer(d.yes, d.yes ? "Keep local" : "Pool it");
       logLine(d);
       if (d.yes) {
         storyT = d.t;
@@ -971,7 +1150,7 @@
         s.classList.add("docked");
         try {
           await travel(s, p, tok);
-          room.textContent = `Session allowance left: ${d.room - (d.task?.size ?? 0)} of ${d.allowance} units`;
+          setMeter(d.room - (d.task?.size ?? 0), d.allowance);
           deps.status.textContent = `${DAYS[i] ?? ""}: kept local, it runs in this session`;
           await hold(500, tok);
         } finally {
@@ -1035,19 +1214,17 @@
       setBeat("arrive", d);
       who.textContent = `${DAYS[i] ?? ""} session, idle · ${storyClock(d.t)}`;
       q.textContent = "This session has nothing to run";
-      room.textContent = `Room left: ${d.room} of ${d.allowance} units · ${d.minutesLeft} min to session end`;
-      ans.textContent = "";
-      ans.className = "jb-ans";
+      clearAnswer();
       slot.textContent = "";
+      setMeter(d.room, d.allowance, ` · ${d.minutesLeft} min`);
       p?.classList.add("playing");
-      deps.status.textContent = `${DAYS[i] ?? ""}: the session is idle`;
+      deps.status.textContent = "";
       await hold(500, tok);
       setBeat("ask", d);
       q.textContent = `“${IDLE_QUESTION}”`;
       await hold(1100, tok);
       setBeat("answer", d);
-      ans.textContent = d.yes ? "YES · Pick up a task" : "NO · Chill out";
-      ans.className = `jb-ans ${d.yes ? "yes" : "no"}`;
+      showAnswer(d.yes, d.yes ? "Pick up" : "Nothing fits: wait");
       logLine(d);
       const pick = d.yes ? [...poolSlips.querySelectorAll(".tslip")].find((x) => x.dataset.task === d.task?.id) ?? null : null;
       if (pick) {
@@ -1078,7 +1255,7 @@
       } else {
         storyT = d.t;
         paint();
-        deps.status.textContent = `${DAYS[i] ?? ""}: no pooled task fits ${d.room} units in ${d.minutesLeft} min, so the session stays idle and the pool keeps its work`;
+        deps.status.textContent = `${DAYS[i] ?? ""}: no pooled task fits, so the session stays idle`;
         await hold(1100, tok);
       }
     }
@@ -1147,7 +1324,7 @@
         focusLine.textContent = "";
         for (const d of mine) {
           const li = el("li", `tslip ${d.yes ? "yes" : "no"}`);
-          const verdict = d.check === "task" ? d.yes ? "YES, kept local" : "NO, to the pool" : d.yes ? "YES, picked up" : "NO, chill out";
+          const verdict = d.check === "task" ? d.yes ? "YES, kept local" : "NO, to the pool" : d.yes ? "YES, picked up" : "NO, nothing fits";
           li.append(el("b", "", d.task?.title ?? "Idle session"), el("span", "", `${storyClock(d.t)} · ${d.instance === FOCUS.heavy ? "heavy" : "lite"} replica r000 · ${verdict}`));
           focusLine.append(li);
         }
@@ -1165,12 +1342,12 @@
       deps.clearStage();
       deps.stage.classList.add("scaled");
       row.hidden = true;
+      log.hidden = true;
       wide.hidden = false;
       panel.hidden = false;
       upBtn.hidden = true;
       downBtn.hidden = false;
-      deps.act.textContent = LABEL_100X;
-      plabel.textContent = LABEL_100X;
+      deps.act.textContent = HEAD_100X;
       deps.status.textContent = "";
       deps.posters.forEach((p) => {
         p.classList.remove("gold", "cut", "cancel", "half", "spare", "has-extra");
@@ -1178,7 +1355,9 @@
         if (lab)
           lab.textContent = "";
       });
+      storyT = 0;
       prepMosaic();
+      drawMosaic();
       playScale();
     }
     function playScale() {
@@ -1240,11 +1419,12 @@
         active = false;
         storyT = 0;
         row.hidden = true;
+        log.hidden = true;
         panel.hidden = true;
         upBtn.hidden = true;
         showPause(false);
         clearSlips();
-        log.textContent = "";
+        resetLog();
       },
       begin(m, keepClock) {
         const resume = keepClock && clockMode === m && wallStart > 0 && wallEnd === null;
@@ -1252,10 +1432,9 @@
         active = true;
         storyT = 0;
         row.hidden = false;
+        log.hidden = false;
         panel.hidden = false;
         upBtn.hidden = false;
-        tag.textContent = LABEL_1X;
-        plabel.textContent = LABEL_1X;
         idleCard();
         if (!resume) {
           startClock();
@@ -1311,6 +1490,7 @@
 
   // src/browser/tm-run.ts
   var DAYS2 = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  var GAUGE_NAME = "Weekly limit left";
   var LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   var NIGHT = 14;
   var TARGET_LEFT = 15;
@@ -1413,7 +1593,7 @@
     const posters = DAYS2.map((d, i) => {
       const li = doc.createElement("li");
       li.className = "poster";
-      li.innerHTML = `<span class="day">${d}</span><span class="time">8 PM</span>${MASK}<span class="seats">${"<i></i>".repeat(12)}</span><span class="lab">Tonight</span><span class="stamp">CANCELLED</span><span class="extra"><b>+1 job</b><span class="ex-job">${SCENARIOS.under.jobs[i] ?? ""}</span></span>`;
+      li.innerHTML = `<span class="day">${d}</span><span class="time">8 PM</span>${MASK}<span class="seats">${"<i></i>".repeat(12)}</span><span class="lab">Today</span><span class="stamp">BLOCKED</span><span class="extra"><b>+1 job</b><span class="ex-job">${SCENARIOS.under.jobs[i] ?? ""}</span></span>`;
       li.setAttribute("aria-label", LONG[i] ?? d);
       runEl.appendChild(li);
       return { li, day: inside(li, ".day", HTMLElement), seats: every(li, ".seats i", HTMLElement), lab: inside(li, ".lab", HTMLElement), stamp: inside(li, ".stamp", HTMLElement), filled: null, label: null };
@@ -1567,15 +1747,15 @@
       posters.forEach((p, i) => {
         p.li.className = "poster";
         p.day.textContent = DAYS2[i] ?? "";
-        p.stamp.textContent = "CANCELLED";
+        p.stamp.textContent = "BLOCKED";
         fillSeats(p, 0);
-        p.lab.textContent = "Tonight";
+        p.lab.textContent = "Today";
         p.filled = null;
         p.label = null;
       });
       dataEnd.hidden = true;
       exampleTag.hidden = true;
-      gaugeName.textContent = "House lights";
+      gaugeName.textContent = GAUGE_NAME;
       stubs.forEach((s) => {
         s.className = "";
         s.style.removeProperty("--d");
@@ -1599,13 +1779,13 @@
       foundEl.hidden = false;
       const main = id("foundMain", HTMLElement), sub = id("foundSub", HTMLElement), ex = id("foundEx", HTMLElement);
       if (!n) {
-        main.textContent = `Cheaper seats alone would leave ${alone}% unused`;
+        main.textContent = `Right-size models alone would leave ${alone}% unused`;
         sub.textContent = "So TokenMax looks for more jobs to fill the room.";
         ex.textContent = "";
         return;
       }
       main.textContent = `TokenMax found ${n} more job${n > 1 ? "s" : ""} worth running`;
-      sub.textContent = `Cheaper seats alone would leave ${alone}% unused.`;
+      sub.textContent = `Right-size models alone would leave ${alone}% unused.`;
       ex.textContent = "Like “Review last week’s PRs”";
     }
     async function playWeek(view, tok) {
@@ -1618,18 +1798,17 @@
       segBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === view)));
       clearDrop();
       resetWeek();
-      exampleTag.hidden = !(st.example && view === "with");
       gauge.classList.toggle("calm", view === "with");
       gauge.classList.remove("unset");
       const underWith = mode === "under" && view === "with";
-      actEl.textContent = view === "without" ? "Without TokenMax · every step in the royal box" : underWith ? "With TokenMax · cheaper seats, then more jobs" : "With TokenMax · each step in its seat";
+      actEl.textContent = view === "without" ? "1 week, without Jev" : "1 week, with Jev";
       if (underWith)
         showFound(0);
       if (view === "with") {
         pooling.begin(mode, keepClock);
         keepClock = false;
       }
-      statusEl.textContent = underWith ? "Cheaper seats leave even more room spare…" : "Curtain up. Monday night…";
+      statusEl.textContent = underWith ? "Right-size models leave even more of the limit unused…" : "Week starts. Monday…";
       await wait(underWith ? 1100 : 350, tok);
       let left = 100, found = 0;
       const DAY = 640;
@@ -1644,7 +1823,7 @@
         p.li.classList.add("playing");
         if (mode === "burn" && view === "without" && left - base <= 0) {
           const frac = left / base;
-          statusEl.textContent = `${LONG[i] ?? ""}. The lights are failing…`;
+          statusEl.textContent = `${LONG[i] ?? ""}. The limit is running out…`;
           statusEl.classList.add("warn");
           await tween(left, 0, DAY * 1.6 * frac, (g, pr) => {
             setGauge(g);
@@ -1686,21 +1865,21 @@
         p.filled = seats;
         if (mode === "under" && view === "without") {
           p.li.classList.add("half");
-          p.lab.textContent = `${12 - seats} empty`;
+          p.lab.textContent = `${12 - seats} unused`;
         } else if (underWith && !ex) {
           p.li.classList.add("played", "spare");
-          p.lab.textContent = "Room spare";
-          p.label = "Room spare";
+          p.lab.textContent = "Room left";
+          p.label = "Room left";
         } else {
           p.li.classList.add("played");
-          p.lab.textContent = "Full house";
-          p.label = underWith ? "Full house" : "Sold out";
+          p.lab.textContent = "Fully used";
+          p.label = "Fully used";
         }
         if (mode === "burn" && view === "without" && left < 30) {
-          statusEl.textContent = "Lights running low…";
+          statusEl.textContent = "Limit running low…";
           statusEl.classList.add("warn");
         } else if (i < 6 && !ex)
-          statusEl.textContent = underWith ? `${LONG[i] ?? ""}: cheaper seats leave ${12 - seats} empty` : `${LONG[i] ?? ""}: ${mode === "under" && view === "without" ? "half the seats empty" : "full house"}`;
+          statusEl.textContent = underWith ? `${LONG[i] ?? ""}: right-size models leave ${12 - seats} of 12 unused` : `${LONG[i] ?? ""}: ${mode === "under" && view === "without" ? "half the limit unused" : "fully used"}`;
       }
       if (view === "with") {
         pooling.finish();
@@ -1732,14 +1911,14 @@
       p.li.classList.remove("playing");
       p.li.classList.add("cut");
       p.stamp.textContent = "LIMIT HIT";
-      p.lab.textContent = "Stopped";
+      p.lab.textContent = "Limit hit";
       for (let j = i + 1;j < 7; j++) {
         const q = posters[j];
         if (!q)
           continue;
         q.li.classList.add("cancel");
-        q.stamp.textContent = "CANCELLED";
-        q.lab.textContent = "Dark";
+        q.stamp.textContent = "BLOCKED";
+        q.lab.textContent = "Blocked";
       }
       bulbs.forEach((b) => {
         b.classList.remove("on");
@@ -1768,7 +1947,7 @@
       await slam;
       live(tok);
       dim.style.opacity = "0.6";
-      id("dropBig", HTMLElement).textContent = "Curtain down";
+      id("dropBig", HTMLElement).textContent = "Limit hit";
       id("dropSub", HTMLElement).textContent = `Your limit hit ${LONG[i] ?? ""} night`;
       stubs.forEach((s, j) => {
         if (j === i)
@@ -1779,17 +1958,17 @@
         }
       });
       drop.classList.add("show-copy");
-      statusEl.textContent = `Curtain down ${LONG[i] ?? ""}. ${7 - i - 1} shows cancelled.`;
+      statusEl.textContent = `Limit hit ${LONG[i] ?? ""}. ${7 - i - 1} days blocked.`;
     }
     async function ghostLight(left, tok) {
-      statusEl.textContent = "Sunday. The run ends with seats to spare.";
+      statusEl.textContent = "Sunday. The week ends with limit to spare.";
       await wait(400, tok);
-      id("ghostSub", HTMLElement).textContent = `${Math.round(left)}% of your week paid for, never played`;
+      id("ghostSub", HTMLElement).textContent = `${Math.round(left)}% of your weekly limit paid for, never used`;
       ghost.classList.add("on");
       statusEl.textContent = `${Math.round(left)}% of your week left unused.`;
     }
     async function curtainCall(tok) {
-      statusEl.textContent = "Sunday. Final show…";
+      statusEl.textContent = "Sunday. Last day…";
       await wait(250, tok);
       await anim(drop, [{ transform: "translateY(-103%)" }, { transform: "translateY(0%)" }], 750, "cubic-bezier(.5,0,.75,0)");
       live(tok);
@@ -1798,11 +1977,11 @@
         p.li.classList.remove("playing", "played");
         p.li.classList.add("gold");
         fillSeats(p, p.filled ?? 12);
-        p.lab.textContent = p.label ?? "Sold out";
+        p.lab.textContent = p.label ?? "Fully used";
       });
-      gaugeBadge.textContent = st.mode === "burn" ? "Lasted to Sunday" : "Target passed";
+      gaugeBadge.textContent = st.mode === "burn" ? "Limit lasted all week" : "Target passed";
       dim.style.opacity = "0";
-      id("cc", HTMLElement).textContent = st.mode === "burn" ? "Curtain call · lights to Sunday" : "Curtain call · target hit";
+      id("cc", HTMLElement).textContent = st.mode === "burn" ? "Week done · limit lasted all week" : "Week done · target hit";
       statusEl.textContent = "";
       const rise = anim(drop, [{ transform: "translateY(0%)" }, { transform: "translateY(-103%)" }], 900, "cubic-bezier(.2,.7,.2,1)");
       await wait(200, tok);
@@ -1825,7 +2004,7 @@
       await wait(2300, tok);
       stage.classList.add("settled");
       bulbsEl.classList.remove("chase");
-      statusEl.textContent = st.mode === "burn" ? "Seven shows. Lights lasted to Sunday." : "6 more jobs run. Weekly target hit.";
+      statusEl.textContent = st.mode === "burn" ? "Finished the week inside the limit: it lasted all seven days." : "Finished the week inside the limit: 6 more jobs run, weekly target hit.";
     }
     function setMode(m) {
       st.mode = m;

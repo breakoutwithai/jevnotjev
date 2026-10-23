@@ -98,7 +98,7 @@ describe("tm-submit mapping", () => {
 
   test("[unit] TM-18 a tool with sessions above 0 and its output or share not recorded is still refused (#359)", () => {
     const refused = (lines: string, verb: string, tool?: string): string => `Not submitted: ${lines} ${verb} not recorded in your result.${tool
-      ? ` Submit needs a number on every one of these lines. If you did not use ${tool}, change its lines to 0 in the box. Otherwise run the prompt again and paste the whole result.`
+      ? ` Submit needs a number on every one of these lines. If you did not use ${tool}, change its lines to 0 in the box. Otherwise run the prompt again and paste the whole result. If your assistant still cannot recover a tool you used, this week cannot be posted.`
       : " Run the prompt again and paste the whole result."}`;
     expect(weekToPayload(week(change("Claude output tokens: 7,940,728", "Claude output tokens: not recorded"))))
       .toEqual({ ok: false, message: refused("Claude output tokens", "is", "Claude") });

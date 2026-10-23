@@ -94,7 +94,7 @@ export function weekToPayload(week: Week): Mapped {
   if (missing.length > 0) {
     const tools = ["Claude", "Codex"].filter((tool) => missing.some((label) => label === `${tool} sessions` || label === `${tool} output tokens`));
     const hint = tools.length > 0
-      ? ` Submit needs a number on every one of these lines. ${tools.map((tool) => `If you did not use ${tool}, change its lines to 0 in the box.`).join(" ")} Otherwise run the prompt again and paste the whole result.`
+      ? ` Submit needs a number on every one of these lines. ${tools.map((tool) => `If you did not use ${tool}, change its lines to 0 in the box.`).join(" ")} Otherwise run the prompt again and paste the whole result. If your assistant still cannot recover a tool you used, this week cannot be posted.`
       : " Run the prompt again and paste the whole result.";
     return { ok: false, message: `Not submitted: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not recorded in your result.${hint}` };
   }

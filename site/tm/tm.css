@@ -28,6 +28,10 @@ button { font: inherit; cursor: pointer; }
 .tm-feedback { margin-top: 18px; text-align: center; font: 600 14px var(--tm-sans); }
 .tm-feedback a { display: inline-flex; align-items: center; min-height: 28px; padding: 0 6px; color: var(--gold-l); }
 .program-link { display: flex; width: fit-content; margin: 0 0 8px auto; align-items: center; min-height: 28px; padding: 2px 10px; border: 1px solid var(--brass); background: var(--stage); color: var(--gold-l); font: 700 13px/1.2 var(--tm-sans); letter-spacing: .06em; text-decoration: none; }
+/* Top right, first viewport: the way to ask or send feedback sits beside the programme. */
+.top-links { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 10px; margin: 0 0 8px; }
+.top-links .program-link { margin: 0; }
+.ask-link { display: inline-flex; align-items: center; min-height: 28px; padding: 2px 4px; color: var(--gold-l); font: 700 13px/1.2 var(--tm-sans); letter-spacing: .04em; text-underline-offset: 3px; }
 [hidden] { display: none !important; }
 
 /* Skip to the command: off screen until focused (operator decision: no visible top button), then on top of the page */
@@ -246,6 +250,11 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 /* The tagline under the stage: its space is always kept, so it fades in with no layout jump once a week has ended. */
 .keep-lights { margin: 18px auto 0; text-align: center; font: 700 italic clamp(20px, 2.4vw, 26px)/1.25 var(--serif); color: var(--gold-l); visibility: hidden; opacity: 0; transition: opacity .6s; }
 .keep-lights.shown { visibility: visible; opacity: 1; }
+/* After a week ends, under the tagline: ask or say what you think, or read the guide. Its space is kept, like the tagline's. */
+.ask-after { display: flex; visibility: hidden; opacity: 0; transition: opacity .6s; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px 16px; margin: 12px auto 0; font: 600 15px/1.3 var(--tm-sans); color: var(--parch); }
+.ask-after p { margin: 0; flex-basis: 100%; text-align: center; }
+.keep-lights.shown + .ask-after { visibility: visible; opacity: 1; }
+.ask-after .guide-link { display: inline-flex; align-items: center; min-height: 28px; color: var(--gold-l); font: 700 15px/1.4 var(--tm-sans); }
 
 /* ---------- Map your real week: one plain prompt, shown in full, to paste into Claude Code or Codex ---------- */
 .command { margin: 34px auto 0; max-width: 980px; scroll-margin-top: 12px; }
@@ -268,6 +277,13 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 .copy:hover { background: var(--velvet-l); }
 .copy:active { transform: translateY(2px); box-shadow: 0 1px 0 #3a0610; }
 .copymsg { min-height: 1.4em; margin: 8px 0 0; text-align: center; font: italic 500 16px var(--serif); color: var(--brass); }
+/* Where the prompt step runs, said before Copy; a phone gets a way forward instead of a dead end. */
+.device-note { margin: 0 0 10px; font: 700 15px/1.35 var(--tm-sans); color: var(--parch); }
+.phone-way { display: none; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 12px; }
+.phone-way p { margin: 0; flex-basis: 100%; font: 600 14px/1.3 var(--tm-sans); color: var(--gold-l); }
+.phone-way .btn-ghost { min-height: 44px; }
+.phone-msg { margin: 0; flex-basis: 100%; font: 600 14px/1.35 var(--tm-sans); color: var(--parch); overflow-wrap: anywhere; user-select: text; }
+.phone-msg:empty { display: none; }
 /* Paste the result back: read in the browser only, shown as parsed values, never as pasted text */
 .paste { display: grid; gap: 8px; margin-top: 18px; }
 .paste-label { font: 700 16px/1.3 var(--tm-sans); color: var(--parch); }
@@ -409,6 +425,10 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
   .ghost .sub { font-size: 14px; margin: 6px 0 8px; }
   .ghost .btn-gold { vertical-align: middle; padding: 10px 14px; font-size: 15px; }
   .opening:has(.ghost.on) .act { visibility: hidden; }
+  /* phone: once lit, the ghost light takes its own row between the gauge and the posters, so its copy never covers the reading */
+  .ghost.on { position: relative; inset: auto; order: 1; padding: 14px 12px; }
+  .floor { order: 2; }
+  .phone-way { display: flex; }
   .ov { font-size: 34px; padding: 6px 14px 9px; }
   .stage.call.settled .callout { bottom: 6px; transform: translate(-50%, 0) scale(.55); }
   .seg button { padding: 8px 11px; font-size: 13px; }
@@ -476,7 +496,14 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 .tslip span { font: 600 12px/1.15 var(--tm-sans); }
 .tslip.arriving { animation: slipIn .6s cubic-bezier(.2, 1.4, .4, 1); }
 @keyframes slipIn { from { transform: translateX(-40px) rotate(-12deg); opacity: 0; } }
-.tslip.taken { opacity: .45; transition: opacity .6s; }
+.tslip.taken { opacity: .8; transition: opacity .6s; }
+/* who took a pooled slip, written on it before it leaves the box */
+.tslip .taken-by { font: italic 700 12px/1.15 var(--tm-sans); color: #7a1420; }
+/* other maps' waiting tasks: blank paper slips, so the box holds what the count says */
+.pool-others { display: flex; flex-wrap: wrap; gap: 4px; }
+.pool-others:empty { display: none; }
+.oslip { width: 22px; height: 14px; border-radius: 2px; background: var(--parch); border: 1px solid var(--velvet); opacity: .7; transform: rotate(-4deg); }
+.oslip:nth-child(2n) { transform: rotate(3deg); }
 .tslip.docked { position: absolute; left: 50%; top: 34%; z-index: 5; width: max-content; max-width: 150%; translate: -50% 0; }
 .stage.paused .jev-beat { border-style: dashed; }
 /* buttons added to the compare bar */

@@ -524,7 +524,7 @@ export function startTheRun(doc: Document): void {
   /* ---------- Map your real week: Copy the prompt, then execCommand, then select the text with a keyboard hint ---------- */
   const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement);
   const PROMPT = promptEl.textContent ?? "";
-  const COPIED = "Copied. Paste it into Claude Code or Codex.";
+  const COPIED = "Copied. Paste it into Claude Code or Codex on your computer.";
   let copyTimer = 0;
   function say(text: string): void {
     copyMsg.textContent = text;
@@ -602,6 +602,30 @@ export function startTheRun(doc: Document): void {
     showCard(SAMPLE_WEEK, true);
   });
   id("playMine", HTMLButtonElement).addEventListener("click", playMine);
+  // A phone cannot run the prompt: watch the sample week here, or hand this page to the computer (share sheet, else the
+  // clipboard). Only the page address moves; nothing is sent.
+  id("phoneSample", HTMLButtonElement).addEventListener("click", () => {
+    pasteError.hidden = true; pasteError.textContent = "";
+    showCard(SAMPLE_WEEK, true);
+    playMine();
+  });
+  const LINK_COPIED = "Link copied. Open it on the computer where you use Claude Code or Codex.";
+  // The answer sits beside the button (the copy message is a whole prompt further down) and stays until the next press.
+  const phoneMsg = id("phoneMsg", HTMLElement);
+  id("phoneLink", HTMLButtonElement).addEventListener("click", () => {
+    const url = `${win.location.origin}${win.location.pathname}`;
+    const nav = win.navigator;
+    const manual = (): void => { phoneMsg.textContent = `Open ${url} on your computer.`; };
+    const copyLink = (): void => {
+      const clip = nav.clipboard;
+      if (clip && typeof clip.writeText === "function") clip.writeText(url).then(() => { phoneMsg.textContent = LINK_COPIED; }, manual);
+      else manual();
+    };
+    phoneMsg.textContent = "";
+    // a closed share sheet is the visitor's choice; any other share failure falls back to the clipboard
+    if (typeof nav.share === "function") nav.share({ title: doc.title, url }).catch((e: unknown) => { if (!(e instanceof DOMException && e.name === "AbortError")) copyLink(); });
+    else copyLink();
+  });
 
   /* ---------- Submit: the one thing on this page that sends. Pressing it is the visitor's consent (copy beside it). ---------- */
   const aliasBox = id("aliasBox", HTMLInputElement), aliasError = id("aliasError", HTMLElement), aliasPreview = id("aliasPreview", HTMLElement);

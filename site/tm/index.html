@@ -20,7 +20,10 @@
     <a href="#command" id="jumpCommand">Skip to the command</a>
   </nav>
 
-  <a class="program-link" href="/guide/">Program (guide)</a>
+  <div class="top-links">
+    <a class="ask-link" href="/feedback/?from=tm">Ask a question or send feedback</a>
+    <a class="program-link" href="/guide/">Program (guide)</a>
+  </div>
 
   <header class="playbill">
     <div class="playbill-text">
@@ -155,11 +158,24 @@
 
   <!-- Hidden (space kept) until a week has played to its end; tm-run.ts adds .shown. -->
   <p class="keep-lights" id="keepLights">TokenMax + Jev can help keep the lights on</p>
+  <!-- Shown with the tagline once a week has ended: the plain way to ask or say what you think. -->
+  <nav class="ask-after" id="askAfter" aria-label="Questions and feedback">
+    <p>Questions about this show?</p>
+    <a class="btn-gold" href="/feedback/?from=tm">Ask a question or tell us what you think</a>
+    <a class="guide-link" href="/guide/">Read the guide</a>
+  </nav>
 
   <section class="command" id="command" tabindex="-1" aria-labelledby="hCmd">
     <div class="cmd-head">
       <h2 id="hCmd">Map your real week</h2>
       <p class="trust" id="trust">Pasting and Show my week stay in your browser. Only Submit sends anything.</p>
+    </div>
+    <p class="device-note" id="deviceNote">This step runs in Claude Code or Codex, on the computer where you use them.</p>
+    <div class="phone-way" id="phoneWay">
+      <p>On a phone?</p>
+      <button type="button" class="btn-ghost" id="phoneSample">Watch the sample week</button>
+      <button type="button" class="btn-ghost" id="phoneLink">Send this page to my computer</button>
+      <p class="phone-msg" id="phoneMsg" role="status" aria-live="polite"></p>
     </div>
     <div class="prompt-box" id="promptBox" role="group" aria-label="The prompt">
       <pre id="sharePrompt">Look at my Claude Code and Codex history on this computer for the last 7 days. Read only the usage records, never the words of my messages or the contents of my files. Tell me: how many sessions I ran in each tool; how many times I hit a usage limit, and when; and which models each tool used, as a rough split of big versus smaller models, if the records show it. Say 'not recorded' for anything the records do not show, never guess. Then, in one sentence, say which pattern fits my week: running out before the end of the week, or leaving most of it unused. Do not send, install or download anything. Show me the result here as exactly this plain block and nothing else:

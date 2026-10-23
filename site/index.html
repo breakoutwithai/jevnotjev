@@ -173,6 +173,7 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
 </style>
 <link rel="stylesheet" href="theatre.css">
 <link rel="stylesheet" href="pictures.css">
+<link rel="stylesheet" href="skill-panel.css">
 <script>
 /* Decide motion before first paint so the curtain is closed on load, never flashed open, and absent under reduced
    motion. The curtain plays once per tab session: the first page marks sessionStorage, later pages load open. Storage
@@ -645,6 +646,52 @@ h2 { margin: 0 0 12px; font: 800 30px/1.1 var(--serif); }
   </div>
 </section>
 
+<section class="skillbill" id="skill" aria-labelledby="skillTitle">
+  <div class="sk-skill">
+    <p class="sk-kick">Get the skill</p>
+    <h2 class="sk-title" id="skillTitle">tokenmax-map <small>skill v0.3.0</small></h2>
+    <p class="sk-lede">Your own TokenMax audit, run by Claude Code or Codex on your computer.</p>
+    <ul class="sk-facts">
+      <li>Reads the usage records Claude Code and Codex keep on your computer: sessions, models, output tokens and limit notices. Never the words of your messages or the contents of your files.</li>
+      <li>Writes two files into a new folder: a private report and a share draft.</li>
+      <li>Sends nothing unless you choose to share.</li>
+      <li>No MCP server needed.</li>
+    </ul>
+    <div class="sk-ticket" role="group" aria-label="The install prompt">
+      <p class="sk-paste">Paste this into Claude Code or Codex:</p>
+      <pre id="skillPrompt">Install the tokenmax-map skill from https://github.com/breakoutwithai/jevnotjev/tree/main/skills/tokenmax-map: copy the folder to ~/.agents/skills/tokenmax-map, then link it into ~/.claude/skills/tokenmax-map for Claude Code and ~/.codex/skills/tokenmax-map for Codex (create a link only where that tool's folder exists). Then run a TokenMax audit of my last 8 weeks for both Claude Code and Codex and show me the private report.</pre>
+      <button type="button" class="sk-copy" id="skillCopy">Copy the install prompt</button>
+    </div>
+    <p class="sk-msg" id="skillCopyMsg" role="status" aria-live="polite"></p>
+    <a class="sk-repo" href="https://github.com/breakoutwithai/jevnotjev/tree/main/skills/tokenmax-map">See the skill folder on GitHub</a>
+  </div>
+  <figure class="sk-out" id="skillOut" data-state="done" aria-labelledby="skillOutCap">
+    <figcaption id="skillOutCap"><span class="sk-stamp">A real week from an outside user (kingkong-23), self-reported, shared with permission</span><span class="sk-cap">What one mapped week shows</span></figcaption>
+    <div class="sk-sheet">
+      <p class="sk-row sk-file">public board row TM-7460C713BC39</p>
+      <p class="sk-row sk-h1">kingkong-23's week</p>
+      <p class="sk-row sk-meta">7 days, shared 2026-10-23. Sources: Claude Code and Codex.</p>
+      <p class="sk-row sk-h2">The week's totals</p>
+      <dl class="sk-row sk-stats">
+        <div><dt>Sessions</dt><dd>799</dd></div>
+        <div><dt>Claude output tokens</dt><dd>7,000,000</dd></div>
+        <div><dt>Codex output tokens</dt><dd>3,600,000</dd></div>
+        <div><dt>Usage limit hits</dt><dd>5</dd></div>
+      </dl>
+      <p class="sk-row sk-h2">Limits</p>
+      <table class="sk-row sk-table">
+        <thead><tr><th scope="col">Source</th><th scope="col">Short</th><th scope="col">Weekly</th><th scope="col">Unknown window</th></tr></thead>
+        <tbody><tr><th scope="row">Claude Code and Codex</th><td>0</td><td>0</td><td>5</td></tr></tbody>
+      </table>
+      <div class="sk-row sk-bars">
+        <p><span>Codex weekly window used</span><b>5%</b><i style="--v:5"></i></p>
+        <p><span>Opus share of Claude output</span><b>4%</b><i style="--v:4"></i></p>
+      </div>
+      <p class="sk-row sk-note">Not in this map: subagent sessions, the split by model and the proposals. The skill's private report adds them.</p>
+    </div>
+  </figure>
+</section>
+
 <section class="payoff" id="payoff" tabindex="-1" aria-label="One week, two ways">
 <div class="wrap">
   <p class="kick big">Example week, invented numbers</p>
@@ -762,6 +809,7 @@ If I bring my own decision instead, ask for its fixed answer list and safe cases
 <script src="pictures.js"></script>
 <script src="theatre.js"></script>
 <script src="programme.js"></script>
+<script src="skill-panel.js"></script>
 <script src="shows/office.js"></script>
 </body>
 </html>

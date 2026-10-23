@@ -818,7 +818,7 @@ for (const motion of MOTIONS) {
       const page = await open(width, height, motion);
       try {
         expect(await page.locator("#sharePrompt").textContent()).toBe(PROMPT);
-        const copy = page.getByRole("button", { name: "Copy" });
+        const copy = page.getByRole("button", { name: "Copy for Claude Code or Codex", exact: true });
         await copy.scrollIntoViewIfNeeded();
         const box = await copy.evaluate((node) => {
           const r = node.getBoundingClientRect();
@@ -847,7 +847,7 @@ test("[integration] Copy falls back to selecting the prompt with a keyboard hint
       document.execCommand = () => false;
     });
     await page.goto(`http://127.0.0.1:${server.port}/tm/`, { waitUntil: "load" });
-    await page.getByRole("button", { name: "Copy" }).click();
+    await page.getByRole("button", { name: "Copy for Claude Code or Codex", exact: true }).click();
     await page.waitForFunction(() => (document.getElementById("copyMsg")?.textContent ?? "").length > 0);
     expect(await page.locator("#copyMsg").textContent()).toMatch(/^The prompt is selected\. Press (Cmd|Ctrl)\+C to copy it\.$/);
     expect(await page.evaluate(() => getSelection()?.toString())).toBe(PROMPT);
@@ -932,7 +932,9 @@ test("[integration] the page and its sources carry no em or en dash and no home 
   for (const file of sources) {
     const src = readFileSync(file, "utf8");
     expect(src).not.toMatch(DASHES);
-    expect(src).not.toMatch(/\/Users\/|~\/|\.claude\//);
+    // The skill's install prompt names the generic install folders on purpose (operator, 2026-10-23):
+    // ~/.agents/skills/tokenmax-map, linked into ~/.claude/skills and ~/.codex/skills. No other home path may appear.
+    expect(src.replace(/<pre id="skillPrompt">[^<]*<\/pre>/, "")).not.toMatch(/\/Users\/|~\/|\.claude\//);
   }
 }, 30000);
 
@@ -1457,8 +1459,9 @@ test("[integration] if tm.js does not load, the front panel, the full prompt wit
           const text = (node.textContent ?? "").trim();
           const el = node.parentElement;
           // The status line, the paste error, the submit receipt and the Your week card stay hidden until used, by design;
-          // the phone way forward shows on a narrow screen only (TM-41).
-          if (!text || !el || el.id === "copyMsg" || el.closest("#pasteError, #yourWeek, #submitted, #phoneWay")) continue;
+          // the phone way forward shows on a narrow screen only (TM-41); without tm.js the What does Submit send? control
+          // stays hidden because the consent text it opens is shown in place.
+          if (!text || !el || el.id === "copyMsg" || el.closest("#pasteError, #yourWeek, #submitted, #phoneWay, #consentTip")) continue;
           if (!el.checkVisibility({ visibilityProperty: true, opacityProperty: true })) out.push(text);
         }
       }

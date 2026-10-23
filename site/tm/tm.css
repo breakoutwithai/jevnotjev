@@ -309,6 +309,22 @@ h1 s { color: #c9b490; text-decoration: line-through var(--red) .12em; }
 }
 .btn-ghost:hover { background: rgba(224, 176, 78, .14); }
 .paste-actions .btn-gold { display: inline-flex; align-items: center; }
+/* What does Submit send?: a small control beside Submit; the full consent text opens under the row as a parchment
+   note (tm-run.ts adds .open on hover, focus or a tap). Positioned inside the row, so it never widens the page.
+   Until tm-run.ts marks the row .tip-ready (tm.js did not load), the control is hidden and the text shows in place. */
+.paste-actions { position: relative; align-items: center; }
+.paste-actions > #submitConsent { flex-basis: 100%; }
+.tip-btn { display: none; }
+.tip-ready .tip-btn {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 4px 6px; border: 0; background: transparent;
+  color: var(--gold-l); font: 700 15px/1.2 var(--tm-sans); text-decoration: underline dotted; text-underline-offset: 4px;
+}
+.tip-ready .tip-btn::before { content: "?"; display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 8px; border: 2px solid var(--gold-l); border-radius: 50%; font: 800 13px/1 var(--tm-sans); text-decoration: none; }
+.tip-ready > #submitConsent {
+  display: none; position: absolute; z-index: 6; top: calc(100% + 6px); left: 0; right: 0; max-width: 72ch; padding: 12px 14px;
+  background: var(--parch); color: var(--parch-ink); border: 2px solid var(--brass); border-radius: 8px; box-shadow: 0 12px 28px rgba(0, 0, 0, .55);
+}
+.tip-ready > #submitConsent.open { display: block; }
 .sample-tag { font: 800 12px/1 var(--tm-sans); letter-spacing: .08em; text-transform: uppercase; color: var(--parch); background: var(--velvet); padding: 5px 8px; border-radius: 3px; }
 .paste-error { margin: 0; font: 600 15px/1.35 var(--tm-sans); color: #ffb3a8; }
 /* Submit: the nickname field, the consent copy and the receipt. */

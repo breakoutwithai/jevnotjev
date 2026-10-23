@@ -503,3 +503,21 @@ div.poster:hover .p-cta { background: #5a0f1c; }
 @media (prefers-reduced-motion: reduce) {
   .programme .programme-sheet, .programme .programme-rod { animation: none; transition: none; }
 }
+
+/* ---------- The arrow at Program (guide), and the scroll that drops when the link or the Read the programme button is touched ----------
+   The arrow is an inline SVG inside the link, absolutely placed to its left (no layout, no clicks of its own), pointing at it.
+   It nudges toward the link under no-preference; under reduced motion it stays still. At 480px and below it
+   shrinks to 44x22 so it stays clear of the other links (PA-2 checks 390). The peek: programme.js adds .peek while the link or button is hovered, focused or touched.
+   Open scroll: it unrolls again in place (clip-path and transform). Rolled scroll: it unrolls as an overlay under the button
+   (absolute, no pointer events), so nothing above or below it moves. Reduced motion: no peek at all. */
+.program-arrow { position: absolute; right: calc(100% + 10px); top: 50%; width: 56px; height: 28px; margin-top: -14px; pointer-events: none; overflow: visible; fill: #2aa0ff; stroke: #fff; stroke-width: 1.5; stroke-linejoin: round; filter: drop-shadow(0 0 2px #06264a) drop-shadow(0 1px 3px rgba(0, 0, 0, .5)); }
+@keyframes program-arrow-nudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(7px); } }
+@media (prefers-reduced-motion: no-preference) { .program-arrow { animation: program-arrow-nudge 1.2s ease-in-out infinite; } }
+@media (max-width: 480px) { .program-arrow { width: 44px; height: 22px; margin-top: -11px; } }
+.programme { position: relative; }
+.programme[data-state="rolled"].peek .programme-scroll { display: block; position: absolute; top: 100%; left: 50%; width: min(560px, 100%); margin-left: calc(-1 * min(560px, 100%) / 2); z-index: 40; pointer-events: none; filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .55)); }
+@media (prefers-reduced-motion: no-preference) {
+  .programme[data-state="rolled"].peek .programme-sheet { animation: programme-unroll 1.1s cubic-bezier(.2, .7, .2, 1) both; }
+  .programme[data-state="rolled"].peek .programme-rod.end { animation: programme-rod-down 1.1s cubic-bezier(.2, .7, .2, 1) both; }
+}
+@media (prefers-reduced-motion: reduce) { .program-arrow { animation: none; } .programme[data-state="rolled"].peek .programme-scroll { display: none; } .programme.peek .programme-sheet, .programme.peek .programme-rod { animation: none; } }

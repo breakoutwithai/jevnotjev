@@ -1,6 +1,6 @@
 // [unit] [integration] tokenmax-map optional Jev mode. Every Jev call is stubbed: no test reaches the network.
 import { describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
@@ -15,7 +15,9 @@ import {
   imageSize,
   isRec,
   main,
+  parseLabels,
   resolveJevKey,
+  runJev,
   scanClaude,
   scanCodex,
   summarise,
@@ -262,4 +264,74 @@ describe("[integration] sessions.csv and a labels file", () => {
     expect(report).toContain("Labels file: 32 label(s) read, 2 line(s) rejected.");
     expect(report).toMatch(/\| TokenMax score of this session[^\n]*\| not enough evidence \|/);
   });
+});
+
+describe("[unit] Codex review on #413: Jev", () => {
+  const call = (questions: Record<string, unknown>): JevCall => ({ id: "c1", question: "q2q3", ref: "r", model: JEV_MODEL, images: false, body: { model: JEV_MODEL, state: {}, questions } });
+  const answer = (answers: Record<string, unknown>) => async (): Promise<Response> => new Response(JSON.stringify({ model: JEV_MODEL, answers, usage: { input_tokens: 100 } }), { status: 200 });
+  const choiceQ = { type: "choice", instructions: "x", criteria: { small: "a", large: "b" } };
+  const scoreQ = { type: "score", instructions: "x", criteria: ["a", "b", "c"] };
+  const boxQ = { type: "box", instructions: "x" };
+
+  test("[unit] answers outside their question's options, levels or a valid box fail; an empty question set is not sent", async () => {
+    const bad: Array<[Record<string, unknown>, Record<string, unknown>]> = [
+      [{ q: choiceQ }, { q: { type: "choice", choice: "toString", probabilities: {}, confidence: 0.9 } }],
+      [{ q: scoreQ }, { q: { type: "score", score: 999, confidence: 0.9 } }],
+      [{ q: boxQ }, { q: { type: "box", box: { top: 0.9, bottom: 0.1, left: 0.8, right: 0.2 }, confidence: 0.9 } }],
+      [{ q: boxQ }, { q: { type: "box", box: { top: 0.1, bottom: 0.9, left: 0.2, right: 0.8 } } }],
+    ];
+    for (const [qs, as] of bad) expect((await runJev([call(qs)], KEY, answer(as))).failed).toBe(1);
+    let sent = 0;
+    const empty = await runJev([call({})], KEY, async () => { sent++; return new Response("{}"); });
+    expect(sent).toBe(0);
+    expect(empty.results[0]?.error).toContain("no questions");
+    expect((await runJev([call({ q: scoreQ })], KEY, answer({ q: { type: "score", score: 1.4, confidence: 0.9 } }))).answered).toBe(1);
+  });
+
+  test("[unit] a stalled call fails at its deadline instead of blocking the run", async () => {
+    const stall = (_url: string, init: RequestInit): Promise<Response> => new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(init.signal?.reason)));
+    const run = await runJev([call({ q: scoreQ })], KEY, stall, 50);
+    expect(run.failed).toBe(1);
+    expect(run.results[0]?.error).toContain("no answer within");
+  });
+
+  test("[unit] a label row naming an inherited property is rejected, not a crash", () => {
+    const l = parseLabels("abcdef123456,toString,small\nabcdef123456,helper_size,small", "f");
+    expect(l.bad).toBe(1);
+    expect(l.rows.size).toBe(1);
+  });
+
+  test("[unit] an unreadable .env.local is reported as unreadable, not as a missing key", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "tmx-envdir-"));
+    mkdirSync(join(cwd, ".env.local"));
+    expect(() => resolveJevKey({}, cwd)).toThrow("could not be read");
+  });
+
+  test("[integration] failed calls still count as spend; a failed box call says FAILED; disclosure names TypeSafe and the image", async () => {
+    const { claude } = sources(1);
+    const cwd = mkdtempSync(join(tmpdir(), "tmx-jev-fail-"));
+    const shot = join(cwd, "usage.png");
+    writeFileSync(shot, png(400, 300));
+    const out = join(cwd, "r");
+    const stub = stubFetch("jev-9.9.9");
+    const { out: printed } = await capture(() => main(["--claude", claude, "--codex", "none", "--from", "2026-10-09", "--to", "2026-10-16", "--out", out, "--jev", "--yes", "--screenshot", shot, "--dashboard"], { env: { [JEV_KEY_VAR]: KEY }, cwd, fetch: stub.fetch }));
+    expect(printed).toContain(`plus the whole image ${shot} (400 by 300 px`);
+    const report = readFileSync(join(out, "private-report.md"), "utf8");
+    expect(report).toContain("| box | FAILED (model jev-9.9.9, not jev-1.14.0) |");
+    expect(report).toContain("$0.000017 spent, 0 accepted");
+    expect(readFileSync(join(out, "dashboard.html"), "utf8")).toContain("2 call(s) of metadata numbers and one screenshot were sent to TypeSafe");
+    expect(readFileSync(join(out, "share-draft.md"), "utf8")).toContain("sent to TypeSafe Jev");
+  });
+});
+
+test("[integration] the metadata report is on disk before the first Jev call", async () => {
+  const { claude } = sources(1);
+  const cwd = mkdtempSync(join(tmpdir(), "tmx-jev-first-"));
+  const out = join(cwd, "r");
+  const stub = stubFetch();
+  let before = false;
+  const fetch = async (url: string, init: RequestInit): Promise<Response> => { before = existsSync(join(out, "private-report.md")); return stub.fetch(url, init); };
+  await capture(() => main(["--claude", claude, "--codex", "none", "--from", "2026-10-09", "--to", "2026-10-16", "--out", out, "--jev", "--yes"], { env: { [JEV_KEY_VAR]: KEY }, cwd, fetch }));
+  expect(before).toBe(true);
+  expect(readFileSync(join(out, "private-report.md"), "utf8")).toContain("Jev analysis: RUN, 1 of 1 call(s) answered");
 });

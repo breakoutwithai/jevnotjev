@@ -39,7 +39,7 @@ const cap = (ts: string, text: string, session: string): string =>
   JSON.stringify({ type: "assistant", sessionId: session, uuid: `cap-${ts}-${session}`, timestamp: ts, isApiErrorMessage: true, error: "rate_limit", message: { id: "x", model: "<synthetic>", content: [{ type: "text", text }] } });
 const meta = (ts: string, id: string): string => JSON.stringify({ timestamp: ts, type: CODEX_META_TYPE, payload: { id, cwd: "/home/x/projects/beta" } });
 const turn = (ts: string, model: string): string => JSON.stringify({ timestamp: ts, type: "turn_context", payload: { model } });
-const call = (ts: string, kind = "function_call"): string => JSON.stringify({ timestamp: ts, type: "response_item", payload: { type: kind, name: "shell", arguments: "SECRET ARGS", call_id: "c" } });
+const call = (ts: string, kind = "function_call", id = `c-${ts}`): string => JSON.stringify({ timestamp: ts, type: "response_item", payload: { type: kind, name: "shell", arguments: "SECRET ARGS", call_id: id } });
 const callOut = (ts: string): string => JSON.stringify({ timestamp: ts, type: "response_item", payload: { type: "function_call_output", call_id: "c", output: "SECRET OUT" } });
 const tc = (ts: string, input: number, cached: number, output: number, used = 10, resetsAt = 1760900000, wm = WEEK): string =>
   JSON.stringify({
@@ -157,7 +157,7 @@ describe("[unit] per-session limit and week windows are rule outputs", () => {
     expect(open?.elapsedPercent).toBeCloseTo((57 / 168) * 100, 1);
     const text = renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: false, sources: ["Codex"] });
     expect(text).toContain("## Week windows");
-    expect(text).toContain("| Source | Window resets (UTC) | Readings | Last used | Max used | Elapsed | Pace projection | Pace rule: on course to hit | Weekly limit hit | Closed |");
+    expect(text).toContain("| Source | Window resets (UTC) | Readings | Last used | Max used | Predicted at (elapsed) | Used then | Pace projection | Pace rule: on course to hit | Weekly limit hit | Outcome label |");
   });
 
   test("[unit] pace rule: projected = used / elapsed x 100, yes at 100 or more", () => {
@@ -265,5 +265,44 @@ describe("[integration] sources: both, either or none", () => {
     expect(code).toBe(2);
     expect(lines.join("\n")).toContain(join(home, ".claude", "projects"));
     expect(lines.join("\n")).toContain(join(home, ".codex", "sessions"));
+  });
+});
+
+describe("[unit] Codex review on #413: rules", () => {
+  test("[unit] pace rule compares the unrounded projection: 49.99 used at 50 elapsed is not on course", () => {
+    expect(paceRule({ usedPercent: 49.99, elapsedPercent: 50 })).toEqual({ projected: 100, yes: false });
+  });
+
+  test("[integration] a repeated Codex call_id counts once; a session with tool calls but no counted reading is still a session", async () => {
+    const root = codexDir({
+      "rollout-t.jsonl": [meta("2026-10-14T08:00:00Z", "cx-t"), ...Array.from({ length: 300 }, () => call("2026-10-14T08:00:30Z", "function_call", "same")), call("2026-10-14T08:01:00Z", "local_shell_call", "other")],
+    });
+    const s = summarise(null, await scanCodex(root, FROM, TO));
+    const t = s.evidence.find((e) => e.session === "cx-t");
+    expect(t?.toolCalls).toBe(2);
+    expect(t?.helper).toBe("none");
+    expect(s.codex?.sessions).toBe(1);
+  });
+
+  test("[integration] the prediction point is before the hit and at or before half the window; a closed window with a reading gap has an unknown outcome", async () => {
+    const start = Date.parse("2026-10-09T00:00:00Z");
+    const resetA = (start + 7 * 86_400_000) / 1000;
+    const iso = (h: number): string => new Date(start + h * 3_600_000).toISOString();
+    const root = codexDir({
+      "rollout-w.jsonl": [
+        meta(iso(0), "cx-w"),
+        tc(iso(24), 100, 0, 10, 30, resetA), tc(iso(80), 200, 0, 20, 60, resetA), tc(iso(100), 300, 0, 30, 100, resetA),
+        // next window: last reading 3 days before its end, then a newer window replaces it
+        tc(iso(170), 400, 0, 40, 5, resetA + 7 * 86_400), tc(iso(200), 500, 0, 50, 10, resetA + 7 * 86_400),
+        tc(iso(300), 600, 0, 60, 1, resetA + 14 * 86_400),
+      ],
+    });
+    const s = summarise(null, await scanCodex(root, Date.parse("2026-10-09T00:00:00Z"), Date.parse("2026-10-30T00:00:00Z")));
+    const [a, b, c] = s.weeks;
+    expect(a?.outcome).toBe("hit");
+    expect(a?.predUsed).toBe(60);
+    expect(a?.elapsedPercent).toBeCloseTo((80 / 168) * 100, 1);
+    expect(b?.outcome).toBe("unknown");
+    expect(c?.outcome).toBe("open");
   });
 });

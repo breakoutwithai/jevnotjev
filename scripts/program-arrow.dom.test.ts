@@ -264,3 +264,16 @@ test("[integration] PA-13 a touch peek still expires after a focus and blur in b
     await page.waitForFunction(() => !document.getElementById("programme")?.classList.contains("peek"), undefined, { timeout: 5000 });
   } finally { await page.context().close(); }
 }, 30000);
+
+test("[integration] PA-14 touching a second trigger inside the hold still lets the first touch expire", async () => {
+  const page = await landing(390, 844, "rolled", "no-preference", true);
+  try {
+    await page.evaluate(() => {
+      const touch = () => new Event("touchstart", { bubbles: true, cancelable: true });
+      document.getElementById("programLink")?.dispatchEvent(touch());
+      document.getElementById("programmeRolled")?.dispatchEvent(touch());
+    });
+    expect(await page.locator("#programme").evaluate((el) => el.classList.contains("peek"))).toBe(true);
+    await page.waitForFunction(() => !document.getElementById("programme")?.classList.contains("peek"), undefined, { timeout: 5000 });
+  } finally { await page.context().close(); }
+}, 30000);

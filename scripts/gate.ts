@@ -2,7 +2,8 @@
 // committed floor in .deploy/tests/expected-counts.json. A total and an exit code are proxies: a
 // file bun stops discovering, or a shell suite that loses a case, still exits 0 with a healthy
 // total. The gate fails when any file passes fewer tests than its floor, when a floored file did
-// not run, when a test fails, when fewer files ran than the floor, or when a test file has no floor.
+// not run, when a test fails, or when a test file has no floor. The file count is the number of floored
+// files, never a separate number: two PRs that each add a file both edit one count and leave it wrong.
 //
 //   bun scripts/gate.ts          run everything, print one row per file and a verdict; exit 0 or 1
 //   bun scripts/gate.ts --seed   run everything and print the manifest JSON of what passed
@@ -13,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 export type Counts = { passed: number; failed: number };
-export type Manifest = { minFiles: number; files: Record<string, number> };
+export type Manifest = { files: Record<string, number> };
 
 const MANIFEST_PATH = ".deploy/tests/expected-counts.json";
 const SHELL_DIR = ".deploy/tests";
@@ -104,7 +105,7 @@ export function buildSeed(bun: { ok: boolean; results: Map<string, Counts> }, sh
   for (const [file, got] of all) if (got.failed > 0) return { error: `${file}: ${got.failed} failed; no seed` };
   const files: Record<string, number> = {};
   for (const file of [...all.keys()].sort()) files[file] = all.get(file)?.passed ?? 0;
-  return { manifest: { minFiles: all.size, files } };
+  return { manifest: { files } };
 }
 
 export function parseShellSummary(output: string): Counts | null {
@@ -117,16 +118,16 @@ export function parseShellSummary(output: string): Counts | null {
 export function parseManifest(text: string): Manifest {
   const raw: unknown = JSON.parse(text);
   if (typeof raw !== "object" || raw === null) throw new Error(`${MANIFEST_PATH}: not an object`);
-  const minFiles: unknown = Reflect.get(raw, "minFiles");
   const files: unknown = Reflect.get(raw, "files");
-  if (typeof minFiles !== "number" || !Number.isInteger(minFiles)) throw new Error(`${MANIFEST_PATH}: minFiles must be an integer`);
+  if (Reflect.has(raw, "minFiles")) throw new Error(`${MANIFEST_PATH}: remove minFiles; the file count is the number of floored files`);
   if (typeof files !== "object" || files === null) throw new Error(`${MANIFEST_PATH}: files must be an object`);
   const floors: Record<string, number> = {};
   for (const [file, floor] of Object.entries(files)) {
     if (typeof floor !== "number" || !Number.isInteger(floor) || floor < 0) throw new Error(`${MANIFEST_PATH}: floor for ${file} must be a whole number`);
     floors[file] = floor;
   }
-  return { minFiles, files: floors };
+  if (Object.keys(floors).length === 0) throw new Error(`${MANIFEST_PATH}: files has no floors`);
+  return { files: floors };
 }
 
 export function checkCounts(manifest: Manifest, results: Map<string, Counts>): string[] {
@@ -140,7 +141,6 @@ export function checkCounts(manifest: Manifest, results: Map<string, Counts>): s
     if (got.failed > 0) problems.push(`${file}: ${got.failed} failed`);
     if (!(file in manifest.files)) problems.push(`${file}: no floor in ${MANIFEST_PATH} (${got.passed} passed)`);
   }
-  if (results.size < manifest.minFiles) problems.push(`files: ${results.size} ran, floor ${manifest.minFiles}`);
   return problems;
 }
 

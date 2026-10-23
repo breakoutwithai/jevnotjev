@@ -1,7 +1,8 @@
-// tokenmax-map metadata mapper (skill 0.3.0). Deterministic, local, Node built-ins only.
+// tokenmax-map metadata mapper (skill 0.4.0). Deterministic, local, Node built-ins only.
 //
 //   bun map.ts [--claude DIR|none] [--codex DIR|none] [--days N | --from YYYY-MM-DD --to YYYY-MM-DD]
-//              [--out DIR] [--by-project] [--alias NAME] [--now ISO] [--share] [-h|--help]
+//              [--out DIR] [--by-project] [--alias NAME] [--now ISO] [--share] [--dashboard]
+//              [--jev [--yes] [--jev-max N] [--labels FILE] [--screenshot FILE]] [-h|--help]
 //   curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share
 //
 // Defaults: the Claude Code projects folder and the Codex sessions folder in your home folder when present, the last 7 days, and a new
@@ -9,17 +10,19 @@
 //
 // Privacy: message bodies, tool arguments and outputs are never read into a report. The one exception is the
 // Claude Code cap notice: an assistant record with isApiErrorMessage true and error "rate_limit", whose only text
-// is the notice Claude Code itself writes (SKILL.md, "Known Claude Code shape"). Project basenames appear only in
-// private-report.md and only with --by-project. share-draft.md carries aggregate counts only.
-// --share prints the tm-share/1 aggregate fields and a review link to stdout; nothing is sent.
+// is the notice Claude Code itself writes (SKILL.md, "Known Claude Code shape"). Tool calls are counted from record
+// types and ids only. Project basenames appear only in private-report.md and only with --by-project. share-draft.md
+// carries aggregate counts only. --share prints the tm-share/1 aggregate fields and a review link to stdout; nothing is sent.
+// --jev is optional: it reads the TypeSafe key from the environment or ./.env.local, never prints or writes it, writes the
+// exact bodies to jev-payload.json and sends nothing until you answer yes (or pass --yes).
 
 import { createHash } from "node:crypto";
-import { createReadStream, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { createInterface } from "node:readline";
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.4.0";
 const DAY = 86_400_000;
 
 // ---------- helpers ----------
@@ -78,7 +81,8 @@ export function groupEpisodes(occ: CapOccurrence[]): Episode[] {
 // ---------- Claude Code ----------
 
 export type ClaudeTokens = { input: number; output: number; cacheRead: number; cacheWrite: number };
-export type ClaudeUsage = { messageId: string; ts: number; order: number; session: string; subagent: boolean; model: string; project: string; tokens: ClaudeTokens; file: string };
+/** toolIds: ids of tool_use content blocks in this record (structure only; names, arguments and output are never read). */
+export type ClaudeUsage = { messageId: string; ts: number; order: number; session: string; subagent: boolean; model: string; project: string; tokens: ClaudeTokens; file: string; toolIds: string[] };
 export type ClaudeParsed =
   | { kind: "usage"; usage: ClaudeUsage }
   | { kind: "cap"; cap: CapOccurrence }
@@ -124,6 +128,8 @@ export function parseClaudeLine(line: string, ctx: { subagent: boolean; order: n
   const input = counter(u.input_tokens);
   const output = counter(u.output_tokens);
   if (!id || !model || input === undefined || output === undefined) return { kind: "unsupported" };
+  const toolIds: string[] = [];
+  if (Array.isArray(msg.content)) for (const c of msg.content) if (isRec(c) && c.type === "tool_use" && str(c.id)) toolIds.push(str(c.id));
   return {
     kind: "usage",
     usage: {
@@ -135,6 +141,7 @@ export function parseClaudeLine(line: string, ctx: { subagent: boolean; order: n
       model,
       project: projectOf(str(raw.cwd)),
       file: ctx.file ?? "",
+      toolIds,
       tokens: { input, output, cacheRead: counter(u.cache_read_input_tokens) ?? 0, cacheWrite: counter(u.cache_creation_input_tokens) ?? 0 },
     },
   };
@@ -147,8 +154,10 @@ export type ClaudeState = {
   caps: CapOccurrence[];
   errors: Map<string, number>;
   order: number;
+  /** Distinct in-period tool_use ids per session: a message rewritten with more content blocks counts each tool once. */
+  tools: Map<string, Set<string>>;
 };
-export const newClaudeState = (): ClaudeState => ({ cov: newCoverage(), snaps: new Map(), usageRecords: 0, caps: [], errors: new Map(), order: 0 });
+export const newClaudeState = (): ClaudeState => ({ cov: newCoverage(), snaps: new Map(), usageRecords: 0, caps: [], errors: new Map(), order: 0, tools: new Map() });
 
 /** Fold one parsed line into the state. Keeps the latest snapshot per message.id (timestamp, then file order). */
 export function addClaude(s: ClaudeState, p: ClaudeParsed, from: number, to: number): void {
@@ -163,6 +172,11 @@ export function addClaude(s: ClaudeState, p: ClaudeParsed, from: number, to: num
   if (p.kind === "cap") { s.caps.push(p.cap); return; }
   s.usageRecords++;
   const u = p.usage;
+  if (u.toolIds.length) {
+    const set = s.tools.get(u.session) ?? new Set<string>();
+    for (const t of u.toolIds) set.add(t);
+    s.tools.set(u.session, set);
+  }
   const prev = s.snaps.get(u.messageId);
   if (!prev || u.ts > prev.ts || (u.ts === prev.ts && u.order > prev.order)) s.snaps.set(u.messageId, u);
 }
@@ -194,25 +208,40 @@ export type CodexSession = {
   readings: number;
   firstTs: number;
   lastTs: number;
-  /** Timestamp of the latest counter record in the file, in or out of period: which of two copies of a session is the newer history. */
+  /** Timestamp of the latest counter or tool call record in the file, in or out of period: which of two copies of a session is the newer history. */
   lastSeenTs: number;
+  /** First and last in-period tool call record (epoch ms), so a session with tool calls but no counted reading still has evidence. */
+  toolFirst: number;
+  toolLast: number;
+  /** Distinct call_id values of in-period tool calls; records without a call_id count in toolNoId. */
+  toolIds: Set<string>;
+  toolNoId: number;
   model: string;
   project: string;
   prev: CodexTokens | undefined;
   established: CodexTokens;
   baselines: number;
-  days: Map<string, number>;
-  /** input + output per model, credited to the model of the latest turn_context before each reading. */
-  byModel: Map<string, number>;
+  /** Output and uncached input (input minus cached_input) per UTC day (#411). */
+  days: Map<string, DayTokens>;
+  /** Output, uncached and cached input per model, credited to the model of the latest turn_context before each reading. */
+  byModel: Map<string, ModelTokens>;
 };
+export type DayTokens = { output: number; uncachedInput: number };
+export type ModelTokens = { output: number; uncachedInput: number; cachedInput: number };
+/** The Codex response_item payload types that are one tool call each. Their arguments and output are never read. */
+const CODEX_CALL_TYPES = ["function_call", "custom_tool_call", "local_shell_call"];
+/** Distinct tool calls in a Codex session: distinct call_id values plus records that carry none. */
+export const codexToolCalls = (s: CodexSession): number => s.toolIds.size + s.toolNoId;
+/** One in-period weekly (10080-minute) window reading: used share and the window's reset time in epoch seconds. */
+export type WeekReading = { ts: number; used: number; resetsAt: number };
 export type WindowReading = { ts: number; slot: string; usedPercent: number; windowMinutes: number; resetsAt: number };
 /**
  * lastReading is the latest in-period window reading of any window; lastWeekly the latest weekly (10080-minute) one.
  * badReadings counts window slots whose used_percent is not a finite non-negative number, or whose resets_at is not
  * a representable date: they are never readings.
  */
-export type CodexState = { cov: Coverage; sessions: CodexSession[]; duplicateFiles: number; caps: CapOccurrence[]; reachedWithoutWindow: number; badReadings: number; lastReading: WindowReading | undefined; lastWeekly: WindowReading | undefined };
-export const newCodexState = (): CodexState => ({ cov: newCoverage(), sessions: [], duplicateFiles: 0, caps: [], reachedWithoutWindow: 0, badReadings: 0, lastReading: undefined, lastWeekly: undefined });
+export type CodexState = { cov: Coverage; sessions: CodexSession[]; duplicateFiles: number; caps: CapOccurrence[]; reachedWithoutWindow: number; badReadings: number; lastReading: WindowReading | undefined; lastWeekly: WindowReading | undefined; weekReadings: WeekReading[] };
+export const newCodexState = (): CodexState => ({ cov: newCoverage(), sessions: [], duplicateFiles: 0, caps: [], reachedWithoutWindow: 0, badReadings: 0, lastReading: undefined, lastWeekly: undefined, weekReadings: [] });
 /** Epoch seconds that make a valid Date, else undefined. */
 const epochSeconds = (v: unknown): number | undefined => {
   const s = counter(v);
@@ -236,7 +265,7 @@ const readTotals = (v: unknown): CodexTokens | undefined => {
  * otherwise it is an uncounted baseline. A decrease is a new uncounted baseline.
  */
 export function addCodexLine(st: CodexState, sess: CodexSession, line: string, from: number, to: number): void {
-  if (!line.includes('"token_count"') && !line.includes(`"${CODEX_META_TYPE}"`) && !line.includes('"turn_context"')) return;
+  if (!line.includes('"token_count"') && !line.includes(`"${CODEX_META_TYPE}"`) && !line.includes('"turn_context"') && !CODEX_CALL_TYPES.some((t) => line.includes(`"${t}"`))) return;
   st.cov.parsed++;
   let raw: unknown;
   try {
@@ -258,6 +287,19 @@ export function addCodexLine(st: CodexState, sess: CodexSession, line: string, f
   }
   if (raw.type === "turn_context") {
     if (str(p.model)) sess.model = str(p.model);
+    return;
+  }
+  if (raw.type === "response_item") {
+    if (!CODEX_CALL_TYPES.includes(str(p.type))) return;
+    if (!Number.isFinite(ts)) { st.cov.unsupported++; return; }
+    sess.lastSeenTs = Math.max(sess.lastSeenTs, ts);
+    if (ts < from || ts > to) { st.cov.outOfPeriod++; return; }
+    st.cov.accepted++;
+    const callId = str(p.call_id);
+    if (callId) sess.toolIds.add(callId);
+    else sess.toolNoId++;
+    sess.toolFirst = Math.min(sess.toolFirst, ts);
+    sess.toolLast = Math.max(sess.toolLast, ts);
     return;
   }
   if (raw.type !== "event_msg" || p.type !== "token_count") return;
@@ -295,6 +337,7 @@ export function addCodexLine(st: CodexState, sess: CodexSession, line: string, f
     const reading: WindowReading = { ts, slot, usedPercent: used, windowMinutes: counter(w.window_minutes) ?? 0, resetsAt: resetsAt ?? 0 };
     if (!st.lastReading || ts >= st.lastReading.ts) st.lastReading = reading;
     if (reading.windowMinutes === 10080 && (!st.lastWeekly || ts >= st.lastWeekly.ts)) st.lastWeekly = reading;
+    if (reading.windowMinutes === 10080 && resetsAt !== undefined && resetsAt > 0) st.weekReadings.push({ ts, used, resetsAt });
     if (used < 100) continue;
     found = true;
     const wm = counter(w.window_minutes);
@@ -313,8 +356,16 @@ function addDelta(sess: CodexSession, d: CodexTokens, ts: number): void {
   sess.firstTs = Math.min(sess.firstTs, ts);
   sess.lastTs = Math.max(sess.lastTs, ts);
   const day = dayOf(ts);
-  sess.days.set(day, (sess.days.get(day) ?? 0) + d.input + d.output);
-  sess.byModel.set(sess.model, (sess.byModel.get(sess.model) ?? 0) + d.input + d.output);
+  const uncached = Math.max(0, d.input - d.cachedInput);
+  const dd = sess.days.get(day) ?? { output: 0, uncachedInput: 0 };
+  dd.output += d.output;
+  dd.uncachedInput += uncached;
+  sess.days.set(day, dd);
+  const mm = sess.byModel.get(sess.model) ?? { output: 0, uncachedInput: 0, cachedInput: 0 };
+  mm.output += d.output;
+  mm.uncachedInput += uncached;
+  mm.cachedInput += d.cachedInput;
+  sess.byModel.set(sess.model, mm);
 }
 
 // ---------- file walking ----------
@@ -386,7 +437,7 @@ export async function scanCodex(dir: string, from: number, to: number): Promise<
   for (const f of listJsonl(dir, from, st.cov)) {
     const fst = newCodexState();
     const file = relative(dir, f);
-    const sess: CodexSession = { id: file, subagent: false, forked: false, startTs: undefined, file, readings: 0, firstTs: Infinity, lastTs: -Infinity, lastSeenTs: -Infinity, model: "unknown", project: "unknown", prev: undefined, established: zeroCodex(), baselines: 0, days: new Map(), byModel: new Map() };
+    const sess: CodexSession = { id: file, subagent: false, forked: false, startTs: undefined, file, readings: 0, firstTs: Infinity, lastTs: -Infinity, lastSeenTs: -Infinity, model: "unknown", project: "unknown", prev: undefined, established: zeroCodex(), baselines: 0, days: new Map(), byModel: new Map(), toolFirst: Infinity, toolLast: -Infinity, toolIds: new Set(), toolNoId: 0 };
     await eachLine(f, fst.cov, (line) => addCodexLine(fst, sess, line, from, to));
     addCoverage(st.cov, fst.cov);
     const old = kept.get(sess.id);
@@ -401,6 +452,7 @@ export async function scanCodex(dir: string, from: number, to: number): Promise<
     st.caps.push(...fst.caps);
     st.reachedWithoutWindow += fst.reachedWithoutWindow;
     st.badReadings += fst.badReadings;
+    st.weekReadings.push(...fst.weekReadings);
     if (fst.lastReading && (!st.lastReading || fst.lastReading.ts >= st.lastReading.ts)) st.lastReading = fst.lastReading;
     if (fst.lastWeekly && (!st.lastWeekly || fst.lastWeekly.ts >= st.lastWeekly.ts)) st.lastWeekly = fst.lastWeekly;
   }
@@ -410,32 +462,185 @@ export async function scanCodex(dir: string, from: number, to: number): Promise<
 // ---------- summary ----------
 
 export type Summary = ReturnType<typeof summarise>;
-
-/** One row of the private evidence index: where in the source logs a session's findings come from. */
-export type Evidence = { source: "claude" | "codex"; session: string; alias: string; files: string[]; first: number; last: number; records: number; caps: number };
+export type Level = "low" | "ordinary" | "high";
+export type Helper = "small" | "medium" | "large" | "none";
 
 /**
- * Per-session provenance: source-relative files, first and last in-period record, counted records and cap notices.
- * Sessions with a cap come first, then the most records; aliases session-001... follow that order.
+ * One row of the private evidence index and sessions.csv: where a session's findings come from, plus its metadata
+ * facts. key is a 12-hex hash of source and session id, stable across runs, for a labels file. limitHit, score and
+ * helper are rule outputs (SKILL.md "Per-session rules").
  */
-function buildEvidence(c: ClaudeState | null, x: CodexState | null, xActive: CodexSession[]): Evidence[] {
-  const rows = new Map<string, Omit<Evidence, "alias"> & { fileSet: Set<string> }>();
-  const touch = (source: "claude" | "codex", session: string, file: string | undefined, ts: number, records: number, caps: number): void => {
+export type Evidence = {
+  source: "claude" | "codex"; session: string; alias: string; key: string; files: string[]; first: number; last: number; records: number; caps: number;
+  output: number; toolCalls: number; minutes: number; subagent: boolean; modelMix: Record<string, number>; dayShare: number;
+  limitHit: boolean; score: Level; helper: Helper;
+};
+
+/** Facts per session collected before aliases are assigned. */
+type SessionFacts = { output: number; toolCalls: number; subagent: boolean; models: Map<string, number>; dayOut: Map<string, number> };
+
+/** A model class: the model id up to its first version number (claude-opus-5-5 is claude-opus). */
+const modelClass = (m: string): string => m.replace(/-\d.*$/, "") || m;
+
+/** Session key for labels: sha256 of source and session id, first 12 hex characters. */
+export const sessionKey = (source: string, session: string): string => createHash("sha256").update(`${source}|${session}`).digest("hex").slice(0, 12);
+
+/**
+ * TokenMax score thresholds: terciles of output tokens by the nearest-rank method. low is the value at rank ceil(n/3),
+ * high the value at rank ceil(2n/3). A session at or below low scores low, above high scores high, else ordinary.
+ */
+export function scoreThresholds(outputs: number[]): { low: number; high: number } {
+  if (!outputs.length) return { low: 0, high: 0 };
+  const sorted = [...outputs].sort((a, b) => a - b);
+  const at = (q: number): number => sorted[Math.max(0, Math.ceil(sorted.length * q) - 1)] ?? 0;
+  return { low: at(1 / 3), high: at(2 / 3) };
+}
+export const scoreOf = (output: number, t: { low: number; high: number }): Level => (output <= t.low ? "low" : output > t.high ? "high" : "ordinary");
+
+/** Helper size rule (question Q2): zero records none; under 20,000 output and 25 tool calls small; over 200,000 output or 250 tool calls large. */
+export const HELPER_RULE = { smallOutput: 20_000, smallTools: 25, largeOutput: 200_000, largeTools: 250 };
+export function helperOf(f: { output: number; toolCalls: number; records: number }): Helper {
+  if (f.records === 0) return "none";
+  if (f.output < HELPER_RULE.smallOutput && f.toolCalls < HELPER_RULE.smallTools) return "small";
+  if (f.output > HELPER_RULE.largeOutput || f.toolCalls > HELPER_RULE.largeTools) return "large";
+  return "medium";
+}
+
+/** Pace rule (question Q1): projected = used / elapsed x 100; on course to hit at 100 or more. No elapsed share, no projection. */
+export function paceRule(w: { usedPercent: number; elapsedPercent: number }): { projected: number | null; yes: boolean } {
+  if (!(w.elapsedPercent > 0)) return { projected: null, yes: false };
+  const exact = (w.usedPercent / w.elapsedPercent) * 100;
+  return { projected: Math.round(exact * 10) / 10, yes: exact >= 100 };
+}
+
+/**
+ * A weekly window. Codex: readings whose resets_at lie within an hour of the cluster's first are one window (the reset
+ * time drifts by seconds between readings); resetsAt is that first value in ms. It ends at its reset time or at the first
+ * reading of the next window, whichever is earlier; closed when that end is at or before the last reading seen.
+ * hit: a reading at 100% or more. outcome: hit when observed; open while the window runs; unknown when it closed without
+ * an observed hit, because the meter is account-wide and a cap between readings (or on another device) cannot be ruled
+ * out from local logs. Only the user can label such a window not hit (labels file, question will_hit).
+ * The prediction point is the latest reading at or before half the window has elapsed and before any hit, so a label
+ * never leaks into its own input; an open window with no such reading uses its latest reading below 100%.
+ * Claude: one row per weekly cap episode (no meter reading exists).
+ */
+export type WeekOutcome = "hit" | "unknown" | "open";
+export type WeekRow = {
+  source: "claude" | "codex"; key: string; resetsAt: number; reset: string; windowMinutes: number; readings: number; firstTs: number; lastTs: number;
+  usedPercent: number; maxUsed: number; hit: boolean; closed: boolean; outcome: WeekOutcome;
+  /** The prediction point: its time, used share, elapsed share, earlier distinct used values, and the pace rule there. */
+  predTs: number | null; predUsed: number | null; elapsedPercent: number | null; history: number[]; projected: number | null; paceYes: boolean | null;
+};
+
+/** cutoff: the end of the report period (epoch ms); a window whose end is at or before it, or before the last reading, is closed. */
+/** A week window label key: its reset time to the minute, week-YYYYMMDDTHHMM (UTC). Labels match within an hour, so reset drift between readings or runs never orphans a label. */
+export const weekKey = (resetsAtMs: number): string => `week-${new Date(resetsAtMs).toISOString().slice(0, 16).replace(/[-:]/g, "")}`;
+const weekKeyMs = (key: string): number => { const m = /^week-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})$/.exec(key); return m ? Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00Z`) : Number.NaN; };
+
+export function weekWindows(readings: WeekReading[], episodes: Episode[], cutoff = -Infinity): WeekRow[] {
+  const rows: WeekRow[] = [];
+  const sorted = [...readings].sort((a, b) => a.resetsAt - b.resetsAt || a.ts - b.ts);
+  const clusters: WeekReading[][] = [];
+  for (const r of sorted) {
+    const last = clusters[clusters.length - 1];
+    if (last && r.resetsAt - (last[0]?.resetsAt ?? 0) <= 3600) last.push(r);
+    else clusters.push([r]);
+  }
+  const seen = Math.max(cutoff, readings.reduce((m, r) => Math.max(m, r.ts), -Infinity));
+  const span = 10080 * 60_000;
+  clusters.forEach((cl, i) => {
+    const byTime = [...cl].sort((a, b) => a.ts - b.ts);
+    const first = byTime[0];
+    const lastR = byTime[byTime.length - 1];
+    if (!first || !lastR) return;
+    const resetsAt = (cl[0]?.resetsAt ?? 0) * 1000;
+    const start = resetsAt - span;
+    const elapsedAt = (ts: number): number => Math.min(100, Math.max(0, ((ts - start) / span) * 100));
+    const next = clusters[i + 1];
+    const nextFirst = next ? Math.min(...next.map((r) => r.ts)) : Infinity;
+    const end = Math.min(resetsAt, nextFirst);
+    const closed = end <= seen;
+    const hit = cl.some((r) => r.used >= 100);
+    const firstHit = byTime.find((r) => r.used >= 100)?.ts ?? Infinity;
+    const beforeHit = byTime.filter((r) => r.ts < firstHit && r.used < 100);
+    const early = beforeHit.filter((r) => elapsedAt(r.ts) <= 50);
+    const pred = early[early.length - 1] ?? (closed ? undefined : beforeHit[beforeHit.length - 1]);
+    const outcome: WeekOutcome = hit ? "hit" : closed ? "unknown" : "open";
+    const elapsed = pred ? Math.round(elapsedAt(pred.ts) * 10) / 10 : null;
+    const pace = pred && elapsed !== null ? paceRule({ usedPercent: pred.used, elapsedPercent: elapsedAt(pred.ts) }) : null;
+    const changes: number[] = [];
+    for (const r of byTime) { if (pred && r.ts >= pred.ts) break; if (changes[changes.length - 1] !== r.used) changes.push(r.used); }
+    rows.push({
+      source: "codex", key: weekKey(resetsAt), resetsAt, reset: new Date(resetsAt).toISOString().slice(0, 16), windowMinutes: 10080,
+      readings: cl.length, firstTs: first.ts, lastTs: lastR.ts, usedPercent: lastR.used, maxUsed: Math.max(...cl.map((r) => r.used)), hit, closed, outcome,
+      predTs: pred?.ts ?? null, predUsed: pred?.used ?? null, elapsedPercent: elapsed, history: pred ? changes.slice(-6) : [], projected: pace?.projected ?? null, paceYes: pace ? pace.yes : null,
+    });
+  });
+  for (const e of episodes) {
+    if (e.source !== "claude" || e.window !== "weekly") continue;
+    rows.push({ source: "claude", key: sessionKey("week", `claude|${e.reset}|${e.first}`), resetsAt: 0, reset: e.reset || "none", windowMinutes: 10080, readings: 0, firstTs: e.first, lastTs: e.last, usedPercent: 100, maxUsed: 100, hit: true, closed: false, outcome: "hit", predTs: null, predUsed: null, elapsedPercent: null, history: [], projected: null, paceYes: null });
+  }
+  return rows;
+}
+
+/**
+ * Per-session provenance and facts. Sessions with a cap come first, then the most records; aliases session-001...
+ * follow that order. Scores are terciles of output tokens within each source.
+ */
+function buildEvidence(c: ClaudeState | null, x: CodexState | null, xActive: CodexSession[], dayOutput: Map<string, number>): Evidence[] {
+  type Row = { source: "claude" | "codex"; session: string; fileSet: Set<string>; first: number; last: number; records: number; caps: number; facts: SessionFacts };
+  const rows = new Map<string, Row>();
+  const touch = (source: "claude" | "codex", session: string, file: string | undefined, ts: number, records: number, caps: number): Row => {
     const key = `${source}|${session}`;
-    const r = rows.get(key) ?? { source, session, files: [], fileSet: new Set<string>(), first: ts, last: ts, records: 0, caps: 0 };
+    const r = rows.get(key) ?? { source, session, fileSet: new Set<string>(), first: ts, last: ts, records: 0, caps: 0, facts: { output: 0, toolCalls: 0, subagent: false, models: new Map(), dayOut: new Map() } };
     if (file) r.fileSet.add(file);
     r.first = Math.min(r.first, ts);
     r.last = Math.max(r.last, ts);
     r.records += records;
     r.caps += caps;
     rows.set(key, r);
+    return r;
   };
-  for (const u of c?.snaps.values() ?? []) touch("claude", u.session, u.file, u.ts, 1, 0);
+  for (const u of c?.snaps.values() ?? []) {
+    const f = touch("claude", u.session, u.file, u.ts, 1, 0).facts;
+    f.output += u.tokens.output;
+    f.subagent = f.subagent || u.subagent;
+    const mc = modelClass(u.model);
+    f.models.set(mc, (f.models.get(mc) ?? 0) + u.tokens.output);
+    f.dayOut.set(dayOf(u.ts), (f.dayOut.get(dayOf(u.ts)) ?? 0) + u.tokens.output);
+  }
   for (const cap of c?.caps ?? []) touch("claude", cap.session, cap.file, cap.ts, 0, 1);
-  for (const sess of xActive) if (sess.readings > 0) { touch("codex", sess.id, sess.file, sess.firstTs, sess.readings, 0); touch("codex", sess.id, sess.file, sess.lastTs, 0, 0); }
+  for (const [session, ids] of c?.tools ?? []) { const r = rows.get(`claude|${session}`); if (r) r.facts.toolCalls = ids.size; }
+  for (const sess of xActive) {
+    if (sess.readings > 0) { touch("codex", sess.id, sess.file, sess.firstTs, sess.readings, 0); touch("codex", sess.id, sess.file, sess.lastTs, 0, 0); }
+    if (codexToolCalls(sess) > 0) { touch("codex", sess.id, sess.file, sess.toolFirst, 0, 0); touch("codex", sess.id, sess.file, sess.toolLast, 0, 0); }
+  }
   for (const cap of x?.caps ?? []) touch("codex", cap.session, cap.file, cap.ts, 0, 1);
+  for (const sess of xActive) {
+    const r = rows.get(`codex|${sess.id}`);
+    if (!r) continue;
+    r.facts.output = sess.established.output;
+    r.facts.toolCalls = codexToolCalls(sess);
+    r.facts.subagent = sess.subagent;
+    for (const [m, t] of sess.byModel) r.facts.models.set(modelClass(m), (r.facts.models.get(modelClass(m)) ?? 0) + t.output);
+    for (const [d, t] of sess.days) r.facts.dayOut.set(d, t.output);
+  }
   const ordered = [...rows.values()].sort((a, b) => (b.caps > 0 ? 1 : 0) - (a.caps > 0 ? 1 : 0) || b.records - a.records || a.first - b.first || a.session.localeCompare(b.session));
-  return ordered.map((r, i) => ({ source: r.source, session: r.session, alias: `session-${String(i + 1).padStart(3, "0")}`, files: [...r.fileSet].sort(), first: r.first, last: r.last, records: r.records, caps: r.caps }));
+  const thresholds = new Map<string, { low: number; high: number }>();
+  for (const src of ["claude", "codex"]) thresholds.set(src, scoreThresholds(ordered.filter((r) => r.source === src && r.records > 0).map((r) => r.facts.output)));
+  return ordered.map((r, i) => {
+    const f = r.facts;
+    const mix: Record<string, number> = {};
+    for (const [m, v] of [...f.models].sort((a, b) => b[1] - a[1])) mix[m] = f.output > 0 ? Math.round((v / f.output) * 100) : 0;
+    let dayShare = 0;
+    for (const [d, v] of f.dayOut) { const all = dayOutput.get(d) ?? 0; if (all > 0) dayShare = Math.max(dayShare, Math.round((v / all) * 1000) / 10); }
+    return {
+      source: r.source, session: r.session, alias: `session-${String(i + 1).padStart(3, "0")}`, key: sessionKey(r.source, r.session), files: [...r.fileSet].sort(),
+      first: r.first, last: r.last, records: r.records, caps: r.caps, output: f.output, toolCalls: f.toolCalls, minutes: Math.round((r.last - r.first) / 60_000),
+      subagent: f.subagent, modelMix: mix, dayShare, limitHit: r.caps > 0, score: scoreOf(f.output, thresholds.get(r.source) ?? { low: 0, high: 0 }),
+      helper: helperOf({ output: f.output, toolCalls: f.toolCalls, records: r.records }),
+    };
+  });
 }
 
 /** A source-relative path for the private report. Without --by-project the Claude project folder (its first segment) is replaced by a short hash, so the same folder still matches across rows. */
@@ -445,11 +650,14 @@ export function fileRef(rel: string, source: "claude" | "codex", byProject: bool
   return ["dir-" + createHash("sha256").update(parts[0] ?? "").digest("hex").slice(0, 8), ...parts.slice(1)].join("/");
 }
 
-export function summarise(c: ClaudeState | null, x: CodexState | null) {
+export type ClaudeDay = { output: number; uncachedInput: number; cacheWrite: number };
+
+export function summarise(c: ClaudeState | null, x: CodexState | null, o: { to?: number } = {}) {
   const byModel = new Map<string, ClaudeTokens & { messages: number }>();
-  const byDay = new Map<string, number>();
+  const byDay = new Map<string, ClaudeDay>();
   const byProject = new Map<string, number>();
   const sessions = new Map<string, boolean>();
+  const dayOutput = new Map<string, number>();
   for (const u of c?.snaps.values() ?? []) {
     const m = byModel.get(u.model) ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, messages: 0 };
     m.input += u.tokens.input;
@@ -458,27 +666,44 @@ export function summarise(c: ClaudeState | null, x: CodexState | null) {
     m.cacheWrite += u.tokens.cacheWrite;
     m.messages++;
     byModel.set(u.model, m);
-    const t = u.tokens.input + u.tokens.output + u.tokens.cacheWrite;
-    byDay.set(dayOf(u.ts), (byDay.get(dayOf(u.ts)) ?? 0) + t);
-    byProject.set(u.project, (byProject.get(u.project) ?? 0) + t);
+    const day = dayOf(u.ts);
+    const d = byDay.get(day) ?? { output: 0, uncachedInput: 0, cacheWrite: 0 };
+    d.output += u.tokens.output;
+    d.uncachedInput += u.tokens.input;
+    d.cacheWrite += u.tokens.cacheWrite;
+    byDay.set(day, d);
+    dayOutput.set(day, (dayOutput.get(day) ?? 0) + u.tokens.output);
+    byProject.set(u.project, (byProject.get(u.project) ?? 0) + u.tokens.output);
     sessions.set(u.session, (sessions.get(u.session) ?? false) || u.subagent);
   }
   for (const cap of c?.caps ?? []) if (!sessions.has(cap.session)) sessions.set(cap.session, false);
   // A Codex session counts with in-period usage or an in-period cap, the same rule as Claude.
   const xCapSessions = new Set((x?.caps ?? []).map((cap) => cap.session));
-  const xActive = (x?.sessions ?? []).filter((s) => s.days.size > 0 || xCapSessions.has(s.id));
+  // A session with in-period tool calls but no counted reading also counts: its token coverage is the baseline gap reported above.
+  const xActive = (x?.sessions ?? []).filter((s) => s.days.size > 0 || xCapSessions.has(s.id) || codexToolCalls(s) > 0);
   const xTotals = zeroCodex();
-  const xByModel = new Map<string, number>();
-  const xByDay = new Map<string, number>();
+  const xByModel = new Map<string, ModelTokens>();
+  const xByDay = new Map<string, DayTokens>();
   const xByProject = new Map<string, number>();
   for (const s of xActive) {
     for (const [k] of CODEX_KEYS) xTotals[k] += s.established[k];
-    const t = s.established.input + s.established.output;
-    for (const [m, v] of s.byModel) xByModel.set(m, (xByModel.get(m) ?? 0) + v);
-    xByProject.set(s.project, (xByProject.get(s.project) ?? 0) + t);
-    for (const [d, n] of s.days) xByDay.set(d, (xByDay.get(d) ?? 0) + n);
+    for (const [m, v] of s.byModel) {
+      const t = xByModel.get(m) ?? { output: 0, uncachedInput: 0, cachedInput: 0 };
+      t.output += v.output;
+      t.uncachedInput += v.uncachedInput;
+      t.cachedInput += v.cachedInput;
+      xByModel.set(m, t);
+    }
+    xByProject.set(s.project, (xByProject.get(s.project) ?? 0) + s.established.output);
+    for (const [d, v] of s.days) {
+      const t = xByDay.get(d) ?? { output: 0, uncachedInput: 0 };
+      t.output += v.output;
+      t.uncachedInput += v.uncachedInput;
+      xByDay.set(d, t);
+      dayOutput.set(d, (dayOutput.get(d) ?? 0) + v.output);
+    }
   }
-  const evidence = buildEvidence(c, x, xActive);
+  const evidence = buildEvidence(c, x, xActive, dayOutput);
   const capEvents = new Set((c?.caps ?? []).map((cap) => cap.eventId).filter(Boolean)).size;
   const episodes = groupEpisodes([...(c?.caps ?? []), ...(x?.caps ?? [])]);
   const win = (src: "claude" | "codex") => {
@@ -489,6 +714,7 @@ export function summarise(c: ClaudeState | null, x: CodexState | null) {
   const subagents = [...sessions.values()].filter(Boolean).length;
   return {
     evidence,
+    weeks: weekWindows(x?.weekReadings ?? [], episodes, o.to ?? -Infinity),
     claude: c && {
       cov: c.cov,
       sessions: sessions.size,
@@ -531,17 +757,27 @@ const n = (v: number): string => v.toLocaleString("en-GB");
 const top = (m: Map<string, number>, k: number): Array<[string, number]> => [...m].sort((a, b) => b[1] - a[1]).slice(0, k);
 const EVIDENCE_ROWS = 200;
 const share = (v: number, total: number): string => (total > 0 ? `${Math.round((v / total) * 100)}%` : "0%");
+const minute = (ms: number): string => new Date(ms).toISOString().slice(0, 16);
+const yesNo = (b: boolean): string => (b ? "yes" : "no");
 
-export function renderPrivate(s: Summary, o: { from: string; to: string; byProject: boolean; sources: string[]; days?: number }): string {
+export type PrivateOptions = { from: string; to: string; byProject: boolean; sources: string[]; days?: number; jev?: JevRun | null; labels?: Labels | null };
+
+/** The header's Jev status: NOT RUN with its reason, or the answered and failed call counts. */
+export function jevStatus(j: JevRun | null | undefined): string {
+  if (!j || j.status === "not run") return `NOT RUN${j?.reason ? ` (${j.reason})` : ""}`;
+  return `RUN, ${j.answered} of ${j.calls} call(s) answered${j.failed ? `, ${j.failed} failed` : ""}`;
+}
+
+export function renderPrivate(s: Summary, o: PrivateOptions): string {
   const L: string[] = [];
   L.push(`# TokenMax map: private report`, "");
-  L.push(`Skill tokenmax-map ${VERSION}, metadata mode, \`scripts/map.ts\`. Period ${o.from} to ${o.to} (UTC). Sources: ${o.sources.join(", ") || "none"}. Jev analysis: NOT RUN.`, "");
+  L.push(`Skill tokenmax-map ${VERSION}, \`scripts/map.ts\`. Period ${o.from} to ${o.to} (UTC). Sources: ${o.sources.join(", ") || "none"}. Jev analysis: ${jevStatus(o.jev)}.`, "");
   L.push(`## Coverage`, "", `| Source | Files | Unreadable | Lines | Parsed | Accepted | Malformed | Unsupported | Out of period |`, `|---|---|---|---|---|---|---|---|---|`);
   const covRows: Array<[string, Coverage | undefined]> = [["Claude Code", s.claude?.cov], ["Codex", s.codex?.cov]];
   for (const [name, cov] of covRows) {
     if (cov) L.push(`| ${name} | ${n(cov.files)} | ${n(cov.unreadable)} | ${n(cov.lines)} | ${n(cov.parsed)} | ${n(cov.accepted)} | ${n(cov.malformed)} | ${n(cov.unsupported)} | ${n(cov.outOfPeriod)} |`);
   }
-  L.push("", "- Files are selected by modification time inside the period, then records by timestamp. Lines that cannot carry usage, a cap or a counter are skipped unparsed (Lines minus Parsed).");
+  L.push("", "- Files are selected by modification time inside the period, then records by timestamp. Lines that cannot carry usage, a cap, a counter or a tool call are skipped unparsed (Lines minus Parsed).");
   if (s.claude) L.push(`- Claude: ${n(s.claude.sessions)} sessions with in-period evidence, ${n(s.claude.subagentSessions)} of them with subagent work (\`subagents/\` file or sidechain flag; a subagent transcript carries its parent's sessionId, so it counts inside the parent session). ${n(s.claude.usageRecords)} usage records collapse to ${n(s.claude.messages)} messages (latest snapshot per message.id). \`<synthetic>\` records carry no usage.`);
   if (s.codex) L.push(`- Codex: ${n(s.codex.sessions)} sessions with established usage, ${n(s.codex.subagentSessions)} subagent (parent_thread_id). ${n(s.codex.baselines)} uncounted baselines (forked sessions, sessions started before the period, counter decreases).`);
   if (s.codex?.duplicateFiles) L.push(`- ${n(s.codex.duplicateFiles)} Codex file(s) repeated a session id already read: the file with the newer history is kept, so no session is counted twice.`);
@@ -555,13 +791,13 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
     const c = s.claude;
     L.push(`## Claude Code usage`, "", `| Model | Messages | Input | Output | Cache write | Cache read |`, `|---|---|---|---|---|---|`);
     for (const [m, t] of [...c.byModel].sort((a, b) => b[1].output - a[1].output)) L.push(`| ${m} | ${n(t.messages)} | ${n(t.input)} | ${n(t.output)} | ${n(t.cacheWrite)} | ${n(t.cacheRead)} |`);
-    L.push("", "Fields: message.usage input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, summed over the latest snapshot per message.id. Day and project totals below use input + output + cache write; cache read is reported only in the model table.", "");
-    L.push(`| Day (UTC) | Tokens |`, `|---|---|`);
-    for (const [d, v] of [...c.byDay].sort()) L.push(`| ${d} | ${n(v)} |`);
+    L.push("", "Fields: message.usage input_tokens (uncached input), output_tokens, cache_creation_input_tokens, cache_read_input_tokens, summed over the latest snapshot per message.id. Output tokens are the column to compare with Codex (#411).", "");
+    L.push(`| Day (UTC) | Output | Uncached input | Cache write |`, `|---|---|---|---|`);
+    for (const [d, v] of [...c.byDay].sort()) L.push(`| ${d} | ${n(v.output)} | ${n(v.uncachedInput)} | ${n(v.cacheWrite)} |`);
     L.push("");
     if (o.byProject) {
       const total = [...c.byProject.values()].reduce((a, b) => a + b, 0);
-      L.push(`| Project (top 15) | Tokens | Share |`, `|---|---|---|`);
+      L.push(`| Project (top 15) | Output | Share |`, `|---|---|---|`);
       for (const [p, v] of top(c.byProject, 15)) L.push(`| ${p} | ${n(v)} | ${share(v, total)} |`);
       L.push("");
     }
@@ -569,16 +805,16 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
   if (s.codex) {
     const x = s.codex;
     L.push(`## Codex usage`, "", `| Counter | Established |`, `|---|---|`);
-    L.push(`| input_tokens | ${n(x.totals.input)} |`, `| cached_input_tokens (subset of input) | ${n(x.totals.cachedInput)} |`, `| cache_write_input_tokens | ${n(x.totals.cacheWrite)} |`, `| output_tokens | ${n(x.totals.output)} |`, `| reasoning_output_tokens (as reported) | ${n(x.totals.reasoning)} |`);
-    L.push("", "Non-negative deltas of payload.info.total_token_usage within each session file. Day, model and project totals use input + output.", "");
-    L.push(`| Model | Tokens |`, `|---|---|`);
-    for (const [m, v] of top(x.byModel, 10)) L.push(`| ${m} | ${n(v)} |`);
-    L.push("", `| Day (UTC) | Tokens |`, `|---|---|`);
-    for (const [d, v] of [...x.byDay].sort()) L.push(`| ${d} | ${n(v)} |`);
+    L.push(`| input_tokens | ${n(x.totals.input)} |`, `| cached_input_tokens (subset of input) | ${n(x.totals.cachedInput)} |`, `| uncached input (input minus cached) | ${n(Math.max(0, x.totals.input - x.totals.cachedInput))} |`, `| cache_write_input_tokens | ${n(x.totals.cacheWrite)} |`, `| output_tokens | ${n(x.totals.output)} |`, `| reasoning_output_tokens (as reported) | ${n(x.totals.reasoning)} |`);
+    L.push("", "Non-negative deltas of payload.info.total_token_usage within each session file. Codex input_tokens includes cached_input_tokens; Claude input excludes cache reads, so the day and model tables give output tokens and uncached input for both sources (#411).", "");
+    L.push(`| Model | Output | Uncached input | Cached input |`, `|---|---|---|---|`);
+    for (const [m, v] of [...x.byModel].sort((a, b) => b[1].output - a[1].output).slice(0, 10)) L.push(`| ${m} | ${n(v.output)} | ${n(v.uncachedInput)} | ${n(v.cachedInput)} |`);
+    L.push("", `| Day (UTC) | Output | Uncached input |`, `|---|---|---|`);
+    for (const [d, v] of [...x.byDay].sort()) L.push(`| ${d} | ${n(v.output)} | ${n(v.uncachedInput)} |`);
     L.push("");
     if (o.byProject) {
       const total = [...x.byProject.values()].reduce((a, b) => a + b, 0);
-      L.push(`| Project (top 15) | Tokens | Share |`, `|---|---|---|`);
+      L.push(`| Project (top 15) | Output | Share |`, `|---|---|---|`);
       for (const [p, v] of top(x.byProject, 15)) L.push(`| ${p} | ${n(v)} | ${share(v, total)} |`);
       L.push("");
     }
@@ -594,7 +830,7 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
   if (s.codex?.lastReading) {
     const r = s.codex.lastReading;
     const resets = r.resetsAt ? new Date(r.resetsAt * 1000).toISOString().slice(0, 16) : "none";
-    L.push(`- Last Codex window reading: ${r.slot} ${r.usedPercent}% used, window_minutes ${r.windowMinutes}, resets_at ${resets}${r.resetsAt ? " UTC" : ""} (read ${new Date(r.ts).toISOString().slice(0, 16)}).`);
+    L.push(`- Last Codex window reading: ${r.slot} ${r.usedPercent}% used, window_minutes ${r.windowMinutes}, resets_at ${resets}${r.resetsAt ? " UTC" : ""} (read ${minute(r.ts)}).`);
   }
   if (s.codex?.badReadings) L.push(`- ${n(s.codex.badReadings)} Codex window slot(s) had no numeric used_percent or an impossible resets_at: not used as readings.`);
   for (const u of s.episodes.filter((e) => e.window === "unknown")) {
@@ -608,21 +844,49 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
     L.push(`| Episode | Source | Window | Reset reading | First (UTC) | Occurrences | Sessions | Evidence |`, `|---|---|---|---|---|---|---|---|`);
     s.episodes.forEach((e, i) => {
       const names = [...e.sessions].map((id) => alias.get(`${e.source}|${id}`) ?? "").filter(Boolean).sort();
-      L.push(`| ${i + 1} | ${e.source} | ${e.window} | ${e.reset || "none"} | ${new Date(e.first).toISOString().slice(0, 16)} | ${e.occurrences} | ${e.sessions.size} | ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3}` : ""} |`);
+      L.push(`| ${i + 1} | ${e.source} | ${e.window} | ${e.reset || "none"} | ${minute(e.first)} | ${e.occurrences} | ${e.sessions.size} | ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3}` : ""} |`);
     });
     L.push("");
   }
 
-  L.push(`## Evidence index`, "", `Where each finding comes from, with no message text copied. Sessions with a cap notice come first, then the most records. Records: Claude messages (latest snapshot per message.id) or Codex counted counter readings. Files are relative to the source folder${o.byProject ? "" : "; a Claude project folder shows as dir-<hash> (add --by-project for the name)"}.`, "");
+  L.push(`## Week windows`, "", `Rule outputs, no Jev. Weekly limit hit: a reading at used_percent 100 or more (Codex) or a Claude "weekly limit" notice. Pace rule at the prediction point (the latest reading at or before half the window, before any hit; for an open window the latest reading): projected = used share / elapsed share x 100, on course to hit at 100 or more. Outcome: hit when observed; open while the window runs; unknown when it closed (its reset passed or a newer window replaced it) without an observed hit, since the meter is account-wide and local logs cannot rule out a cap between readings. To label an unknown window, add a will_hit row (yes or no) with its label key to your labels file.`, "");
+  const codexWeeks = s.weeks.filter((w) => w.source === "codex");
+  const claudeWeeks = s.weeks.filter((w) => w.source === "claude");
+  if (s.weeks.length) {
+    L.push(`| Source | Window resets (UTC) | Readings | Last used | Max used | Predicted at (elapsed) | Used then | Pace projection | Pace rule: on course to hit | Weekly limit hit | Outcome | Label key |`, `|---|---|---|---|---|---|---|---|---|---|---|---|`);
+    for (const w of [...codexWeeks, ...claudeWeeks]) {
+      L.push(`| ${w.source === "codex" ? "Codex" : "Claude Code"} | ${w.reset} | ${w.readings ? n(w.readings) : "n/a"} | ${w.source === "codex" ? `${w.usedPercent}%` : "n/a"} | ${w.source === "codex" ? `${w.maxUsed}%` : "n/a"} | ${w.predTs === null || w.elapsedPercent === null ? "n/a" : `${minute(w.predTs)} (${w.elapsedPercent}%)`} | ${w.predUsed === null ? "n/a" : `${w.predUsed}%`} | ${w.projected === null ? "n/a" : `${w.projected}%`} | ${w.paceYes === null ? "n/a" : yesNo(w.paceYes)} | ${yesNo(w.hit)} | ${w.outcome} | ${w.source === "codex" ? w.key : "n/a"} |`);
+    }
+    L.push("");
+  }
+  if (s.codex && !codexWeeks.length) L.push("- Codex: no weekly window reading in the period.");
+  if (s.claude && !claudeWeeks.length) L.push("- Claude Code: 0 weekly cap notices; the logs carry no weekly meter reading, so a Claude week counts as not hit only from the absence of a notice.");
+  L.push("");
+
+  L.push(`## TokenMax score per session`, "", "Rule: terciles of output tokens within each source over the sessions with records in this period (nearest rank); a cap-only session with no records scores low. Low: at or below the first tercile; high: above the second; ordinary: between. It ranks a session against your own sessions; it is not a share of your subscription allowance, which the logs do not record per session.", "");
+  L.push(`| Source | Low | Ordinary | High |`, `|---|---|---|---|`);
+  const cutoffs: string[] = [];
+  for (const [src, name] of [["claude", "Claude Code"], ["codex", "Codex"]] as const) {
+    const rows = s.evidence.filter((e) => e.source === src);
+    if (!rows.length) continue;
+    const count = (l: Level): number => rows.filter((e) => e.score === l).length;
+    const t = scoreThresholds(rows.filter((e) => e.records > 0).map((e) => e.output));
+    L.push(`| ${name} | ${count("low")} | ${count("ordinary")} | ${count("high")} |`);
+    cutoffs.push(`${name}: low at or below ${n(t.low)} output tokens, high above ${n(t.high)}`);
+  }
+  if (cutoffs.length) L.push("", `Cutoffs: ${cutoffs.join("; ")}.`);
+  L.push("", `Helper size rule (shown per session): zero records none; under ${n(HELPER_RULE.smallOutput)} output tokens and ${HELPER_RULE.smallTools} tool calls small; over ${n(HELPER_RULE.largeOutput)} output tokens or ${HELPER_RULE.largeTools} tool calls large; else medium. Tool calls: distinct Claude tool_use ids; Codex function_call, custom_tool_call and local_shell_call records.`, "");
+
+  L.push(`## Evidence index`, "", `Where each finding comes from, with no message text copied. Sessions with a cap notice come first, then the most records. Records: Claude messages (latest snapshot per message.id) or Codex counted counter readings. Limit hit: the session has a cap record (rule). Every session, with its label key, is in \`sessions.csv\` next to this report. Files are relative to the source folder${o.byProject ? "" : "; a Claude project folder shows as dir-<hash> (add --by-project for the name)"}.`, "");
   if (s.evidence.length) {
-    L.push(`| Session | Source | Source file | First (UTC) | Last (UTC) | Records | Cap notices |`, `|---|---|---|---|---|---|---|`);
+    L.push(`| Session | Source | Source file | First (UTC) | Last (UTC) | Records | Cap notices | Limit hit | Output | Tool calls | Score | Helper (rule) |`, `|---|---|---|---|---|---|---|---|---|---|---|---|`);
     // Every session with a cap notice is listed, so each episode's aliases resolve; the cutoff applies to the rest.
     const shown = Math.max(EVIDENCE_ROWS, s.evidence.filter((e) => e.caps > 0).length);
     for (const e of s.evidence.slice(0, shown)) {
       const refs = e.files.length ? e.files.map((f) => fileRef(f, e.source, o.byProject)).join("; ") : "none";
-      L.push(`| ${e.alias} | ${e.source} | ${refs} | ${new Date(e.first).toISOString().slice(0, 16)} | ${new Date(e.last).toISOString().slice(0, 16)} | ${n(e.records)} | ${e.caps} |`);
+      L.push(`| ${e.alias} | ${e.source} | ${refs} | ${minute(e.first)} | ${minute(e.last)} | ${n(e.records)} | ${e.caps} | ${yesNo(e.limitHit)} | ${n(e.output)} | ${n(e.toolCalls)} | ${e.score} | ${e.helper} |`);
     }
-    if (s.evidence.length > shown) L.push("", `${n(s.evidence.length - shown)} more session(s) with in-period evidence are not listed.`);
+    if (s.evidence.length > shown) L.push("", `${n(s.evidence.length - shown)} more session(s) with in-period evidence are not listed here; all ${n(s.evidence.length)} are in sessions.csv.`);
   } else L.push("No session had in-period evidence.");
   L.push("");
 
@@ -636,11 +900,12 @@ export function renderPrivate(s: Summary, o: { from: string; to: string; byProje
   if (allOut > 0 && opus / allOut > 0.5) proposals.push(`Opus-class models produced ${share(opus, allOut)} of Claude output tokens: test whether routine subagent work holds quality on a smaller model before moving it.`);
   if (!proposals.length) proposals.push("No cap hits and no dominant model: nothing to propose from metadata alone.");
   for (const p of proposals.slice(0, 3)) L.push(`- ${p}`);
-  L.push("", `## Not covered`, "", "- Jev classification NOT RUN. Message text is not read except Claude Code cap notices. Work categories need your own descriptions.", "- Token counts are not subscription percentages or cost.");
+  L.push("", `## Not covered`, "", `- Jev classification ${o.jev?.status === "run" ? "ran on the questions below only" : "NOT RUN"}. Message text is not read except Claude Code cap notices. Work categories need your own descriptions.`, "- Token counts are not subscription percentages or cost.", "");
+  L.push(...renderJevOrNot(jevOrNot(s, o.jev ?? null, o.labels ?? null), o.jev ?? null, o.labels ?? null));
   return L.join("\n") + "\n";
 }
 
-export function renderShare(s: Summary, o: { alias: string; days: number; sources: string[] }): string {
+export function renderShare(s: Summary, o: { alias: string; days: number; sources: string[]; jevRan?: boolean }): string {
   const ep = (w: Window) => s.episodes.filter((e) => e.window === w).length;
   const sessions = (s.claude?.sessions ?? 0) + (s.codex?.sessions ?? 0);
   const gaps: string[] = [];
@@ -669,7 +934,7 @@ export function renderShare(s: Summary, o: { alias: string; days: number; source
     "Acceptance criteria: unknown",
     `Observed finding: ${s.episodes.length ? `${s.episodes.length} allowance cap episode(s) in the period` : "no allowance cap recorded in the period"}`,
     "Suggested action (not measured savings): unknown",
-    "Jev analysis: NOT RUN",
+    o.jevRan ? "Jev analysis: metadata numbers sent to TypeSafe Jev; results stay in the private report" : "Jev analysis: NOT RUN",
     "Sharing audience and purpose: not approved",
     "Public quotation/publication permission: not granted",
     "",
@@ -815,18 +1080,473 @@ export function renderShareBlock(p: SharePayload): string {
   return L.join("\n");
 }
 
+// ---------- optional Jev mode ----------
+
+/** The key variable named by the TypeSafe docs (introduction/quickstart.md: "store your TypeSafe API key in an environment variable (e.g. `TYPESAFE_API_KEY`)"). */
+export const JEV_KEY_VAR = "TYPESAFE_API_KEY";
+/** api.md "Evaluation endpoint". */
+export const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
+export const JEV_MODEL = "jev-1.13.0";
+/** Box questions need Jev 1.14 and the images header (primitives/box.md). */
+export const JEV_BOX_MODEL = "jev-1.14.0";
+export const JEV_IMAGES_HEADER = "TypeSafe-Danger-Zone-Images";
+/** models.md "Price (per Btok / per Mtok)": $0.042 per million input tokens; output is free. */
+export const JEV_PRICE_PER_MTOK = 0.042;
+export const JEV_MAX_CALLS = 40;
+/** One deadline per call, covering the request and the response body. */
+export const JEV_TIMEOUT_MS = 30_000;
+
+const Q1_TEXT = "Using the numbers in `window`, will this usage window reach 100% used before it resets? High means yes.";
+const Q1_CRITERIA = { true: "Used share is on course to reach 100% before resets_at, given the share of the window already elapsed.", false: "Used share will still be below 100% at resets_at at the current pace." };
+const Q2_TEXT = "Which helper size would have been enough for this session's work, judged only from the numbers in `session`?";
+const Q2_CRITERIA = {
+  small: "Short, light session: few output tokens and few tool calls; a small model would do.",
+  medium: "Moderate output and tool use; a mid-size model is the fit.",
+  large: "Heavy output or many tool calls, or long run with subagents; the large model is justified.",
+  none: "The numbers cannot tell (for example zero records).",
+};
+const Q3_TEXT = "How heavily did this session use the person's token allowance, judged only from the numbers in `session`?";
+const Q3_CRITERIA = ["Light: a few messages, little output, no subagents", "Ordinary: a normal working session, moderate output and tool use", "Heavy: long session or many subagents, large share of the day's tokens"];
+const Q4_TEXT = "the usage meter (the bar or percentage showing how much of the limit is used) in `pic`";
+const LEVELS: Level[] = ["low", "ordinary", "high"];
+
+/** The key from the environment, else from a KEY=value line in .env.local in cwd. Never logged or returned in a message. */
+export function resolveJevKey(env: Record<string, string | undefined>, cwd: string): { key: string; from: "environment" | ".env.local" } | null {
+  const fromEnv = (env[JEV_KEY_VAR] ?? "").trim();
+  if (fromEnv) return { key: fromEnv, from: "environment" };
+  let text = "";
+  try {
+    text = readFileSync(join(cwd, ".env.local"), "utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    throw new Error(`.env.local in ${cwd} exists but could not be read${error instanceof Error && "code" in error ? ` (${String(error.code)})` : ""}`);
+  }
+  const re = new RegExp(`^\\s*(?:export\\s+)?${JEV_KEY_VAR}\\s*=\\s*(.*)$`);
+  for (const line of text.split(/\r?\n/)) {
+    const m = re.exec(line);
+    if (!m) continue;
+    let v = (m[1] ?? "").trim();
+    const q = v[0];
+    if ((q === '"' || q === "'") && v.indexOf(q, 1) > 0) v = v.slice(1, v.indexOf(q, 1));
+    else v = (v.split(/\s+#/)[0] ?? "").trim();
+    if (v) return { key: v, from: ".env.local" };
+  }
+  return null;
+}
+
+/** Width and height from a PNG IHDR or a JPEG start-of-frame marker; null for anything else. */
+export function imageSize(b: Buffer): { format: "png" | "jpg"; width: number; height: number } | null {
+  if (b.length >= 24 && b.readUInt32BE(0) === 0x89504e47 && b.toString("ascii", 12, 16) === "IHDR") return { format: "png", width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+  if (b.length > 4 && b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) { i++; continue; }
+      const m = b[i + 1] ?? 0;
+      if (m === 0xd8 || m === 0x01 || m === 0xff || (m >= 0xd0 && m <= 0xd7)) { i += m === 0xff ? 1 : 2; continue; }
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { format: "jpg", height: b.readUInt16BE(i + 5), width: b.readUInt16BE(i + 7) };
+      i += 2 + b.readUInt16BE(i + 2);
+    }
+  }
+  return null;
+}
+
+/** Labels a user sets on their own sessions: CSV key,question,label with keys from sessions.csv. */
+export type Labels = { rows: Map<string, string>; bad: number; file: string };
+export const LABEL_VALUES: Record<string, readonly string[]> = { helper_size: ["small", "medium", "large", "none"], tokenmax_score: LEVELS, will_hit: ["yes", "no"] };
+
+/**
+ * The pace question's label for a window: true for an observed hit, else the user's will_hit row for a closed window,
+ * else null. An open window has no label yet; a closed window without an observed hit is never labelled not hit by inference.
+ */
+export function weekLabel(w: WeekRow, labels: Labels | null): boolean | null {
+  if (w.outcome === "hit") return true;
+  if (w.outcome !== "unknown") return null;
+  let best: { gap: number; label: string } | null = null;
+  for (const [k, label] of labels?.rows ?? []) {
+    if (!k.startsWith("will_hit|")) continue;
+    const gap = Math.abs(weekKeyMs(k.slice("will_hit|".length)) - w.resetsAt);
+    if (gap <= 3_600_000 && (!best || gap < best.gap)) best = { gap, label };
+  }
+  return best?.label === "yes" ? true : best?.label === "no" ? false : null;
+}
+export function parseLabels(text: string, file: string): Labels {
+  const rows = new Map<string, string>();
+  let bad = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const [key = "", question = "", label = ""] = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+    if (key === "key") continue;
+    const allowed = Object.hasOwn(LABEL_VALUES, question) ? LABEL_VALUES[question] : undefined;
+    const keyOk = question === "will_hit" ? Number.isFinite(weekKeyMs(key)) : /^[0-9a-f]{12}$/.test(key);
+    if (!keyOk || !allowed || !allowed.includes(label.toLowerCase())) { bad++; continue; }
+    rows.set(`${question}|${key}`, label.toLowerCase());
+  }
+  return { rows, bad, file };
+}
+
+export type JevCall = { id: string; question: "q1" | "q2q3" | "q4"; ref: string; model: string; images: boolean; body: Rec };
+
+/**
+ * The calls Jev mode would send, capped at maxCalls: Q1 one body per Codex weekly window (closed windows first, they carry
+ * a label), Q4 one body when a usage-page screenshot is given, then Q2 and Q3 in one body per session (labelled sessions
+ * first, then sessions spread evenly by output tokens). State holds metadata numbers only.
+ */
+export function buildJevPlan(s: Summary, o: { maxCalls: number; now: number; screenshot?: string | null; labels?: Labels | null }): JevCall[] {
+  const plan: JevCall[] = [];
+  const rank = (w: WeekRow): number => (weekLabel(w, o.labels ?? null) !== null ? 0 : w.outcome === "open" ? 1 : 2);
+  const weeks = s.weeks.filter((w) => w.source === "codex" && w.predTs !== null && w.predUsed !== null).sort((a, b) => rank(a) - rank(b) || a.resetsAt - b.resetsAt);
+  for (const w of weeks) {
+    plan.push({
+      id: `q1-${w.key}`, question: "q1", ref: w.key, model: JEV_MODEL, images: false,
+      body: {
+        model: JEV_MODEL,
+        state: { window: { source: "codex", window_minutes: w.windowMinutes, used_percent: w.predUsed ?? 0, elapsed_percent: w.elapsedPercent ?? 0, read_at: minute(w.predTs ?? w.lastTs), resets_at: minute(w.resetsAt), used_percent_history: w.history } },
+        questions: { will_hit: { type: "noul", instructions: Q1_TEXT, criteria: Q1_CRITERIA } },
+      },
+    });
+  }
+  if (o.screenshot) {
+    const bytes = readFileSync(o.screenshot);
+    const size = imageSize(bytes);
+    const ok = size && size.width >= 280 && size.width <= 1568 && size.height >= 280 && size.height <= 1568 && size.width * size.height >= 78_400 && size.width * size.height <= 2_458_624;
+    if (!size || !ok) throw new Error(`--screenshot must be a PNG or JPEG of 280 to 1568 px per side${size ? ` (it is ${size.width} by ${size.height})` : ""}`);
+    plan.push({
+      id: "q4-screenshot", question: "q4", ref: "screenshot", model: JEV_BOX_MODEL, images: true,
+      body: { model: JEV_BOX_MODEL, state: { pic: "usage-shot" }, assets: { "usage-shot": { type: "image", format: size.format, data_base64: bytes.toString("base64") } }, questions: { meter: { type: "box", instructions: Q4_TEXT } } },
+    });
+  }
+  const room = Math.max(0, o.maxCalls - plan.length);
+  const candidates = s.evidence.filter((e) => e.records > 0);
+  const labelled = (e: Evidence): boolean => !!o.labels && (o.labels.rows.has(`helper_size|${e.key}`) || o.labels.rows.has(`tokenmax_score|${e.key}`));
+  const chosen = candidates.filter(labelled).slice(0, room);
+  const rest = candidates.filter((e) => !labelled(e)).sort((a, b) => a.output - b.output || a.alias.localeCompare(b.alias));
+  const k = room - chosen.length;
+  if (k >= rest.length) chosen.push(...rest);
+  else for (let i = 0; i < k; i++) { const e = rest[Math.floor(((i + 0.5) * rest.length) / k)]; if (e) chosen.push(e); }
+  for (const e of chosen) {
+    plan.push({
+      id: `q2q3-${e.key}`, question: "q2q3", ref: e.key, model: JEV_MODEL, images: false,
+      body: {
+        model: JEV_MODEL,
+        state: { session: { source: e.source, output_tokens: e.output, tool_calls: e.toolCalls, minutes: e.minutes, has_subagents: e.subagent, records: e.records, model_mix: e.modelMix, share_of_day_output_percent: e.dayShare } },
+        questions: { helper_size: { type: "choice", instructions: Q2_TEXT, criteria: Q2_CRITERIA }, tokenmax_score: { type: "score", instructions: Q3_TEXT, criteria: Q3_CRITERIA } },
+      },
+    });
+  }
+  return plan.slice(0, o.maxCalls);
+}
+
+export type JevResult = { id: string; question: JevCall["question"]; ref: string; model: string; ok: boolean; error: string; inputTokens: number; answers: Rec };
+export type JevRun = { status: "run" | "not run"; reason: string; calls: number; answered: number; failed: number; inputTokens: number; results: JevResult[]; boxNote: string };
+export const jevNotRun = (reason: string, boxNote = ""): JevRun => ({ status: "not run", reason, calls: 0, answered: 0, failed: 0, inputTokens: 0, results: [], boxNote });
+export type FetchFn = (url: string, init: RequestInit) => Promise<Response>;
+
+const unit = (v: unknown): boolean => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1;
+/** Whether an answer has the shape its question type promises (api.md "Answer types"). */
+function answerFits(q: unknown, a: unknown): boolean {
+  if (!isRec(q) || !isRec(a) || a.type !== q.type) return false;
+  if (q.type === "noul") return unit(a.noul);
+  if (q.type === "choice") return isRec(q.criteria) && typeof a.choice === "string" && Object.hasOwn(q.criteria, a.choice) && unit(a.confidence);
+  if (q.type === "score") return Array.isArray(q.criteria) && typeof a.score === "number" && a.score >= 0 && a.score <= q.criteria.length - 1 && unit(a.confidence);
+  if (q.type === "box") {
+    const b = a.box;
+    return isRec(b) && unit(b.top) && unit(b.bottom) && unit(b.left) && unit(b.right) && Number(b.top) < Number(b.bottom) && Number(b.left) < Number(b.right) && unit(a.confidence);
+  }
+  return false;
+}
+
+/** Sends each call once, in order, with no retries. A non-200, a different model or a misshapen answer is a failure. */
+export async function runJev(plan: JevCall[], key: string, fetchFn: FetchFn, timeoutMs = JEV_TIMEOUT_MS): Promise<JevRun> {
+  const run: JevRun = { status: "run", reason: "", calls: plan.length, answered: 0, failed: 0, inputTokens: 0, results: [], boxNote: "" };
+  for (const c of plan) {
+    const r: JevResult = { id: c.id, question: c.question, ref: c.ref, model: "", ok: false, error: "", inputTokens: 0, answers: {} };
+    try {
+      const headers: Record<string, string> = { authorization: `Bearer ${key}`, "content-type": "application/json" };
+      if (c.images) headers[JEV_IMAGES_HEADER] = "true";
+      const asked = isRec(c.body.questions) ? Object.keys(c.body.questions) : [];
+      if (!asked.length) throw new Error("no questions");
+      const signal = AbortSignal.timeout(timeoutMs);
+      const res = await fetchFn(JEV_ENDPOINT, { method: "POST", headers, body: JSON.stringify(c.body), signal });
+      const body: unknown = await res.json().catch(() => null);
+      if (signal.aborted) throw new Error("timeout");
+      const usage = isRec(body) && isRec(body.usage) ? counter(body.usage.input_tokens) : undefined;
+      r.inputTokens = usage ?? 0;
+      r.model = isRec(body) ? str(body.model) : "";
+      const answers = isRec(body) && isRec(body.answers) ? body.answers : {};
+      const questions = isRec(c.body.questions) ? c.body.questions : {};
+      if (res.status !== 200) r.error = `HTTP ${res.status}`;
+      else if (r.model !== c.model) r.error = `model ${r.model || "missing"}, not ${c.model}`;
+      else if (!Object.entries(questions).every(([id, q]) => answerFits(q, answers[id]))) r.error = "an answer does not match its question type";
+      else { r.ok = true; r.answers = answers; }
+    } catch (error) {
+      r.error = error instanceof Error && error.message === "no questions" ? "the call has no questions; not sent" : `request failed (${error instanceof Error && (error.name === "TimeoutError" || error.message === "timeout") ? `no answer within ${timeoutMs / 1000} s` : error instanceof Error ? error.name : "error"})`;
+    }
+    run.inputTokens += r.inputTokens;
+    if (r.ok) run.answered++; else run.failed++;
+    run.results.push(r);
+  }
+  return run;
+}
+
+export type Verdict = "use Jev" | "don't use Jev" | "not enough evidence";
+/**
+ * Verdict per question. A question a rule answers exactly is don't use Jev. Otherwise at least 30 paired labelled cases
+ * (docs/LIMITS.md); then Jev ahead of the rule by 10 points or more is use Jev, the rule level or ahead is don't use Jev,
+ * and anything between is not enough evidence. The skill runs no LLM arm, so this compares Jev with the rule only.
+ */
+export function jevVerdict(o: { exact: boolean; paired: number; jevAccepted: number; ruleAccepted: number }): Verdict {
+  if (o.exact) return "don't use Jev";
+  if (o.paired < 30) return "not enough evidence";
+  const diff = (o.jevAccepted - o.ruleAccepted) / o.paired;
+  if (diff >= 0.1) return "use Jev";
+  if (diff <= 0) return "don't use Jev";
+  return "not enough evidence";
+}
+
+export type JevRow = { question: string; type: string; jev: string; rule: string; llm: string; cost: string; verdict: Verdict; why: string };
+
+const usd = (v: number): string => `$${v.toFixed(6)}`;
+const costOf = (rs: JevResult[]): number => (rs.reduce((a, r) => a + r.inputTokens, 0) * JEV_PRICE_PER_MTOK) / 1_000_000;
+const costCell = (spent: number, accepted: number, ran: boolean): string => (!ran ? "n/a" : accepted > 0 ? `${usd(spent / accepted)} (${accepted} accepted)` : `${usd(spent)} spent, 0 accepted`);
+const levelOf = (score: unknown): Level => LEVELS[Math.min(2, Math.max(0, Math.round(typeof score === "number" ? score : 0)))] ?? "low";
+const countBy = (xs: string[], keys: readonly string[]): string => keys.map((k) => `${k} ${xs.filter((x) => x === k).length}`).join(", ");
+
+/** One row per question type, then the questions a rule answers exactly. */
+export function jevOrNot(s: Summary, j: JevRun | null, labels: Labels | null = null): JevRow[] {
+  const ran = j?.status === "run";
+  const notRun = `NOT RUN (${j?.reason || "metadata mode; add --jev"})`;
+  const results = (q: JevCall["question"]): JevResult[] => (j?.results ?? []).filter((r) => r.question === q && r.ok);
+  // Spend counts every attempted call, failed ones included: a failed call can still be billed.
+  const spent = (q: JevCall["question"]): number => costOf((j?.results ?? []).filter((r) => r.question === q));
+  const llm = "not run by the skill";
+  const rows: JevRow[] = [];
+
+  const weeks = s.weeks.filter((w) => w.source === "codex");
+  const q1 = new Map(results("q1").map((r) => [r.ref, isRec(r.answers.will_hit) ? Number(r.answers.will_hit.noul) : Number.NaN]));
+  const known = weeks.filter((w) => weekLabel(w, labels) !== null);
+  const paired1 = known.filter((w) => q1.has(w.key));
+  const jev1 = paired1.filter((w) => ((q1.get(w.key) ?? 0) >= 0.5) === weekLabel(w, labels)).length;
+  const rule1 = paired1.filter((w) => w.paceYes === weekLabel(w, labels)).length;
+  const askedWeeks = weeks.filter((w) => q1.has(w.key));
+  rows.push({
+    question: "Will this week hit the weekly limit before reset?", type: "noul",
+    jev: ran ? `${q1.size} answered, ${[...q1.values()].filter((p) => p >= 0.5).length} yes at p >= 0.5` : notRun,
+    rule: `${ran ? `on the ${askedWeeks.length} asked: ${askedWeeks.filter((w) => w.paceYes).length} on course; ` : ""}all ${weeks.length} window(s): ${weeks.filter((w) => w.paceYes).length} on course (pace rule)`, llm,
+    cost: costCell(spent("q1"), jev1, ran), verdict: jevVerdict({ exact: false, paired: paired1.length, jevAccepted: jev1, ruleAccepted: rule1 }),
+    why: `labels: ${known.length} Codex window(s) with a label (an observed hit, or your will_hit row for a closed window); ${weeks.filter((w) => w.outcome === "unknown" && weekLabel(w, labels) === null).length} closed without a label; ${paired1.length} paired, 30 needed`,
+  });
+
+  const q23 = results("q2q3");
+  const helperJ = new Map(q23.map((r) => [r.ref, isRec(r.answers.helper_size) ? str(r.answers.helper_size.choice) : ""]));
+  const scoreJ = new Map<string, string>(q23.map((r) => [r.ref, levelOf(isRec(r.answers.tokenmax_score) ? r.answers.tokenmax_score.score : 0)]));
+  const byKey = new Map(s.evidence.map((e) => [e.key, e]));
+  const asked = [...helperJ.keys()].map((k) => byKey.get(k)).filter((e): e is Evidence => e !== undefined);
+  const labelled = (question: string, jevMap: Map<string, string>, ruleOf: (e: Evidence) => string) => {
+    let paired = 0, jevAcc = 0, ruleAcc = 0;
+    for (const [k, v] of jevMap) {
+      const label = labels?.rows.get(`${question}|${k}`);
+      const e = byKey.get(k);
+      if (!label || !e) continue;
+      paired++;
+      if (v === label) jevAcc++;
+      if (ruleOf(e) === label) ruleAcc++;
+    }
+    return { paired, jevAcc, ruleAcc };
+  };
+  const agree = (jevMap: Map<string, string>, ruleOf: (e: Evidence) => string): number => [...jevMap].filter(([k, v]) => { const e = byKey.get(k); return e !== undefined && ruleOf(e) === v; }).length;
+  const labelWhy = (q: string, paired: number): string => `labels: ${labels ? [...labels.rows.keys()].filter((k) => k.startsWith(`${q}|`)).length : 0} in your labels file; ${paired} paired, 30 needed`;
+
+  const h = labelled("helper_size", helperJ, (e) => e.helper);
+  rows.push({
+    question: "Which helper size fits this session?", type: "choice",
+    jev: ran ? `${helperJ.size} answered: ${countBy([...helperJ.values()], ["small", "medium", "large", "none"])}; agrees with the rule on ${agree(helperJ, (e) => e.helper)}` : notRun,
+    rule: `${ran ? `on the ${helperJ.size} asked: ${countBy(asked.map((e) => e.helper), ["small", "medium", "large", "none"])}; ` : ""}all ${s.evidence.length} sessions: ${countBy(s.evidence.map((e) => e.helper), ["small", "medium", "large", "none"])}`, llm,
+    cost: costCell(spent("q2q3") / 2, h.jevAcc, ran), verdict: jevVerdict({ exact: false, paired: h.paired, jevAccepted: h.jevAcc, ruleAccepted: h.ruleAcc }), why: labelWhy("helper_size", h.paired),
+  });
+  const sc = labelled("tokenmax_score", scoreJ, (e) => e.score);
+  rows.push({
+    question: "TokenMax score of this session: low, ordinary or high use?", type: "score",
+    jev: ran ? `${scoreJ.size} answered: ${countBy([...scoreJ.values()], LEVELS)}; agrees with the rule on ${agree(scoreJ, (e) => e.score)}` : notRun,
+    rule: `${ran ? `on the ${scoreJ.size} asked: ${countBy(asked.map((e) => e.score), LEVELS)}; ` : ""}all ${s.evidence.length} sessions: ${countBy(s.evidence.map((e) => e.score), LEVELS)} (terciles)`, llm,
+    cost: costCell(spent("q2q3") / 2, sc.jevAcc, ran), verdict: jevVerdict({ exact: false, paired: sc.paired, jevAccepted: sc.jevAcc, ruleAccepted: sc.ruleAcc }), why: labelWhy("tokenmax_score", sc.paired),
+  });
+
+  const box = results("q4")[0];
+  const boxFailed = (j?.results ?? []).find((r) => r.question === "q4" && !r.ok);
+  const meter = box && isRec(box.answers.meter) ? box.answers.meter : undefined;
+  const edges = meter && isRec(meter.box) ? meter.box : undefined;
+  rows.push({
+    question: "Where is the usage meter on this usage-page screenshot?", type: "box",
+    jev: meter && edges ? `top ${String(edges.top)}, bottom ${String(edges.bottom)}, left ${String(edges.left)}, right ${String(edges.right)}, confidence ${String(meter.confidence)}` : boxFailed ? `FAILED (${boxFailed.error})` : ran ? `NOT RUN (${j?.boxNote || "no usage-page screenshot; pass --screenshot FILE"})` : notRun,
+    rule: "fixed crop: no known page layout", llm, cost: costCell(spent("q4"), 0, ran && (!!meter || !!boxFailed)), verdict: "not enough evidence",
+    why: "labels: a hand-drawn box per screenshot, accepted at overlap (IoU) 0.5 or more; none supplied",
+  });
+
+  const limitSessions = s.evidence.filter((e) => e.limitHit).length;
+  rows.push({ question: "Did this session hit a usage limit?", type: "rule", jev: "not asked", rule: `${limitSessions} of ${s.evidence.length} sessions yes`, llm: "not needed", cost: "n/a", verdict: "don't use Jev", why: "a cap record exists or not: the rule is exact" });
+  rows.push({ question: "Did this week hit the weekly limit (after the fact)?", type: "rule", jev: "not asked", rule: `${s.weeks.filter((w) => w.hit).length} of ${s.weeks.length} window(s) hit`, llm: "not needed", cost: "n/a", verdict: "don't use Jev", why: "a Claude weekly notice or a Codex reading at 100% is a recorded fact" });
+  const ep = (w: Window): number => s.episodes.filter((e) => e.window === w).length;
+  rows.push({ question: "Short or weekly window for a cap?", type: "rule", jev: "not asked", rule: `short ${ep("short")}, weekly ${ep("weekly")}, unknown ${ep("unknown")}`, llm: "not needed", cost: "n/a", verdict: "don't use Jev", why: "the notice names the window; a bare notice gives Jev no more evidence" });
+  return rows;
+}
+
+export function renderJevOrNot(rows: JevRow[], j: JevRun | null, labels: Labels | null): string[] {
+  const L = [`## Jev or not`, "", "One row per question. Jev result and rule result are on the same cases. Verdict: use Jev only with at least 30 paired labelled cases (docs/LIMITS.md) and Jev ahead of the rule by 10 points; the skill runs no LLM arm. A question a rule answers exactly is don't use Jev.", ""];
+  L.push(`| Question | Type | Jev result | Rule result | LLM result | Cost per accepted answer | Verdict |`, `|---|---|---|---|---|---|---|`);
+  for (const r of rows) L.push(`| ${r.question} | ${r.type} | ${r.jev} | ${r.rule} | ${r.llm} | ${r.cost} | ${r.verdict} |`);
+  L.push("");
+  for (const r of rows) L.push(`- ${r.question} Basis: ${r.why}.`);
+  if (j?.status === "run") {
+    L.push(`- Jev spend: ${n(j.inputTokens)} input tokens, ${usd((j.inputTokens * JEV_PRICE_PER_MTOK) / 1_000_000)} at $${JEV_PRICE_PER_MTOK} per million input tokens (TypeSafe models page). Bodies in jev-payload.json, answers in jev-results.json.`);
+    for (const r of j.results.filter((x) => !x.ok).slice(0, 10)) L.push(`- Jev call ${r.id} failed: ${r.error}.`);
+  }
+  if (labels) L.push(`- Labels file: ${labels.rows.size} label(s) read, ${labels.bad} line(s) rejected.`);
+  else L.push("- No labels file. For a verdict, label at least 30 cases in a CSV with columns key,question,label: helper_size (small, medium, large or none) or tokenmax_score (low, ordinary or high) with session keys from sessions.csv, or will_hit (yes or no) with week label keys from the Week windows table. Rerun with --jev --labels FILE.");
+  return L;
+}
+
+/** sessions.csv: every session's metadata facts, no session ids, paths or text. */
+export function renderSessionsCsv(s: Summary): string {
+  const head = "alias,key,source,first_utc,last_utc,minutes,records,output_tokens,tool_calls,subagent,limit_hit,tokenmax_score,helper_rule,share_of_day_output_percent";
+  return [head, ...s.evidence.map((e) => [e.alias, e.key, e.source, minute(e.first), minute(e.last), e.minutes, e.records, e.output, e.toolCalls, yesNo(e.subagent), yesNo(e.limitHit), e.score, e.helper, e.dayShare].join(","))].join("\n") + "\n";
+}
+
+// ---------- dashboard ----------
+
+export type DashData = {
+  heading: string;
+  tiles: Array<[string, string]>;
+  days: Array<{ day: string; claude: number | null; codex: number | null }>;
+  episodes: Array<{ source: string; window: string; reset: string; first: string; occurrences: number; sessions: number }>;
+  scores: Array<{ source: string; low: number; ordinary: number; high: number }>;
+  jev: JevRow[];
+  /** Jev calls actually sent to TypeSafe, and whether one carried a screenshot; 0 when nothing left the machine. */
+  sent?: number;
+  imageSent?: boolean;
+};
+
+export function dashData(s: Summary, o: { from: string; to: string; jev: JevRun | null; labels: Labels | null }): DashData {
+  const days = new Set<string>([...(s.claude?.byDay.keys() ?? []), ...(s.codex?.byDay.keys() ?? [])]);
+  const out = (src: "claude" | "codex"): string => n(s.evidence.filter((e) => e.source === src).reduce((a, e) => a + e.output, 0));
+  const scores: DashData["scores"] = [];
+  for (const [src, name] of [["claude", "Claude Code"], ["codex", "Codex"]] as const) {
+    const rows = s.evidence.filter((e) => e.source === src);
+    if (rows.length) scores.push({ source: name, low: rows.filter((e) => e.score === "low").length, ordinary: rows.filter((e) => e.score === "ordinary").length, high: rows.filter((e) => e.score === "high").length });
+  }
+  const tiles: Array<[string, string]> = [["Sessions", n(s.evidence.length)]];
+  if (s.claude) tiles.push(["Claude output tokens", out("claude")]);
+  if (s.codex) tiles.push(["Codex output tokens", out("codex")]);
+  tiles.push(["Cap episodes", n(s.episodes.length)], ["Sessions that hit a limit", n(s.evidence.filter((e) => e.limitHit).length)], ["Week windows hit", `${s.weeks.filter((w) => w.hit).length} of ${s.weeks.length}`], ["Jev", jevStatus(o.jev)]);
+  return {
+    heading: `TokenMax map ${o.from} to ${o.to}`,
+    tiles,
+    days: [...days].sort().map((day) => ({ day, claude: s.claude ? (s.claude.byDay.get(day)?.output ?? 0) : null, codex: s.codex ? (s.codex.byDay.get(day)?.output ?? 0) : null })),
+    episodes: s.episodes.map((e) => ({ source: e.source === "claude" ? "Claude Code" : "Codex", window: e.window, reset: e.reset || "none", first: minute(e.first).replace("T", " "), occurrences: e.occurrences, sessions: e.sessions.size })),
+    scores,
+    jev: jevOrNot(s, o.jev, o.labels),
+    sent: o.jev?.status === "run" ? o.jev.calls : 0,
+    imageSent: o.jev?.status === "run" && o.jev.results.some((r) => r.question === "q4"),
+  };
+}
+
+const esc = (v: string): string => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+/** An element with escaped text content. */
+const el = (tag: string, text: string, cls = ""): string => `<${tag}${cls ? ` class="${cls}"` : ""}>${esc(text)}</${tag}>`;
+
+const DASH_CSS = [
+  ":root{--bg:#f6f7f9;--panel:#ffffff;--ink:#1c2430;--muted:#5d6878;--line:#d9dee6;--s1:#2f6f9f;--s2:#b8730c;--lv0:#9fb7cc;--lv1:#4f86b0;--lv2:#1f4f75;--use:#2e7d4f;--no:#a33b2b;--wait:#5f646b}",
+  "@media (prefers-color-scheme: dark){:root{--bg:#12161c;--panel:#1a2029;--ink:#e6e9ee;--muted:#9aa4b2;--line:#2c3440;--s1:#6aa6d6;--s2:#e0a23a;--lv0:#3c5468;--lv1:#5f93bd;--lv2:#a9cdea;--use:#5fbf86;--no:#e07a6a;--wait:#a3a8b0}}",
+  "*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif}",
+  "main{max-width:1080px;margin:0 auto;padding:24px 16px 48px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 10px}",
+  ".muted{color:var(--muted)}.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:16px}",
+  ".tile{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px}.tile b{display:block;font-size:20px;font-variant-numeric:tabular-nums}.tile span{color:var(--muted);font-size:13px}",
+  ".chart,.scroll{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px}svg{width:100%;min-width:300px;height:auto;max-height:320px;display:block}",
+  "svg text{fill:var(--muted);font-size:10px}.axis{stroke:var(--line)}rect.s1{fill:var(--s1)}rect.s2{fill:var(--s2)}",
+  ".legend{font-size:13px}.key{display:inline-block;width:10px;height:10px;margin:0 4px 0 10px;vertical-align:middle}.key.s1{background:var(--s1)}.key.s2{background:var(--s2)}",
+  "table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:600}",
+  ".score{display:flex;align-items:center;gap:10px;margin:6px 0}.score-name{width:110px;font-size:13px}.stack{flex:1;display:flex;height:22px;border-radius:4px;overflow:hidden;border:1px solid var(--line)}",
+  ".stack span{display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff}.lv0{background:var(--lv0)}.lv1{background:var(--lv1)}.lv2{background:var(--lv2)}",
+  ".verdict{font-weight:600}.v-use{color:var(--use)}.v-no{color:var(--no)}.v-wait{color:var(--wait)}",
+  "@media (prefers-color-scheme: dark){.stack .lv2{color:#12161c}}",
+].join("\n");
+
+/** A self-contained page: inline CSS and SVG, no script, no network, light and dark from prefers-color-scheme. */
+export function renderDashboard(d: DashData): string {
+  const max = Math.max(1, ...d.days.map((x) => Math.max(x.claude ?? 0, x.codex ?? 0)));
+  const step = 44;
+  const h = 160;
+  const w = Math.max(320, d.days.length * step + 40);
+  const bar = (v: number | null, x: number, cls: string, label: string): string => {
+    if (v === null) return "";
+    const bh = Math.round((v / max) * h);
+    return `<rect class="${cls}" x="${x}" y="${10 + h - bh}" width="14" height="${bh}" aria-label="${esc(label)}"></rect>`;
+  };
+  const bars = d.days.map((x, i) => {
+    const bx = 30 + i * step;
+    return [
+      bar(x.claude, bx, "s1", `${x.day} Claude Code ${n(x.claude ?? 0)} output tokens`),
+      bar(x.codex, bx + 16, "s2", `${x.day} Codex ${n(x.codex ?? 0)} output tokens`),
+      `<text x="${bx + 15}" y="${h + 26}" text-anchor="middle">${esc(x.day.slice(5))}</text>`,
+    ].join("");
+  }).join("");
+  const legendKey = (cls: string, label: string): string => `<span class="key ${cls}"></span>${esc(label)} `;
+  const chart = d.days.length
+    ? [
+      `<div class="chart"><svg viewBox="0 0 ${w} ${h + 34}" role="img" aria-label="Output tokens per day by source">`,
+      `<line class="axis" x1="24" y1="${h + 10}" x2="${w - 6}" y2="${h + 10}"></line>${bars}</svg></div>`,
+      `<p class="legend">${legendKey("s1", "Claude Code")}${legendKey("s2", "Codex")}${el("span", `Tallest bar ${n(max)} output tokens`, "muted")}</p>`,
+    ].join("\n")
+    : el("p", "No usage in the period", "muted");
+  const table = (head: string[], rows: string[][]): string =>
+    `<div class="scroll"><table><thead><tr>${head.map((x) => el("th", x)).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => el("td", c)).join("")}</tr>`).join("\n")}</tbody></table></div>`;
+  const scoreBars = d.scores.map((x) => {
+    const total = Math.max(1, x.low + x.ordinary + x.high);
+    const seg = (v: number, cls: string, label: string): string => (v ? `<span class="${cls}" style="width:${((v / total) * 100).toFixed(2)}%" aria-label="${esc(`${label} ${v}`)}">${v}</span>` : "");
+    return `<div class="score">${el("div", x.source, "score-name")}<div class="stack">${seg(x.low, "lv0", "low")}${seg(x.ordinary, "lv1", "ordinary")}${seg(x.high, "lv2", "high")}</div></div>`;
+  }).join("\n");
+  const verdictCls = (v: string): string => (v === "use Jev" ? "v-use" : v === "don't use Jev" ? "v-no" : "v-wait");
+  const jevTable = `<div class="scroll"><table><thead><tr>${["Question", "Type", "Jev result", "Rule result", "Cost per accepted answer", "Verdict"].map((x) => el("th", x)).join("")}</tr></thead><tbody>${d.jev.map((r) => `<tr>${[r.question, r.type, r.jev, r.rule, r.cost].map((c) => el("td", c)).join("")}<td>${el("span", r.verdict, `verdict ${verdictCls(r.verdict)}`)}</td></tr>`).join("\n")}</tbody></table></div>`;
+  const episodes = d.episodes.length
+    ? table(["Source", "Window", "Reset reading", "First (UTC)", "Occurrences", "Sessions"], d.episodes.map((e) => [e.source, e.window, e.reset, e.first, String(e.occurrences), String(e.sessions)]))
+    : el("p", "No cap episode in the period", "muted");
+  return [
+    "<!doctype html>",
+    `<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">`,
+    el("title", d.heading),
+    `<style>\n${DASH_CSS}\n</style></head><body><main>`,
+    el("h1", d.heading),
+    el("p", `Built from local logs by tokenmax-map ${VERSION}, metadata only. ${d.sent ? `For the Jev rows, ${d.sent} call(s) of metadata numbers${d.imageSent ? " and one screenshot" : ""} were sent to TypeSafe; nothing else left this machine` : "Nothing on this page was sent anywhere"}`, "muted"),
+    `<section class="tiles">${d.tiles.map(([k, v]) => `<div class="tile">${el("b", v)}${el("span", k)}</div>`).join("")}</section>`,
+    el("h2", "Output tokens per day"), chart,
+    el("h2", "Limit episodes"), episodes,
+    el("h2", "TokenMax score per session"), scoreBars || el("p", "No sessions", "muted"),
+    `<p class="legend">${legendKey("lv0", "low")}${legendKey("lv1", "ordinary")}${legendKey("lv2", "high")}${el("span", "Terciles of output tokens within each source", "muted")}</p>`,
+    el("h2", "Jev or not"), jevTable,
+    "</main></body></html>",
+    "",
+  ].join("\n");
+}
+
 // ---------- CLI ----------
 
-export type Args = { claude: string | null; codex: string | null; from: number; to: number; days: number; out: string; byProject: boolean; alias: string; share: boolean };
+export type Args = {
+  claude: string | null; codex: string | null; from: number; to: number; days: number; out: string; byProject: boolean; alias: string; share: boolean;
+  dashboard: boolean; jev: boolean; yes: boolean; jevMax: number; labels: string | null; screenshot: string | null;
+};
 
-const VALUE_FLAGS = ["--claude", "--codex", "--days", "--from", "--to", "--out", "--alias", "--now"];
-const BOOL_FLAGS = ["--by-project", "--share"];
+const VALUE_FLAGS = ["--claude", "--codex", "--days", "--from", "--to", "--out", "--alias", "--now", "--jev-max", "--labels", "--screenshot"];
+const BOOL_FLAGS = ["--by-project", "--share", "--dashboard", "--jev", "--yes"];
 const USAGE = [
   "Usage: bun map.ts [--claude DIR|none] [--codex DIR|none] [--days N | --from YYYY-MM-DD --to YYYY-MM-DD]",
-  "                  [--out DIR] [--by-project] [--alias NAME] [--now ISO] [--share] [-h|--help]",
+  "                  [--out DIR] [--by-project] [--alias NAME] [--now ISO] [--share] [--dashboard]",
+  "                  [--jev [--yes] [--jev-max N] [--labels FILE] [--screenshot FILE]] [-h|--help]",
   "       curl -fsSL https://jevnotjev.breakoutwithai.com/tm/map.ts | bun run - --share",
   "Reads the last 7 days by default. Use --days N for a longer window; shared maps allow up to 90 days.",
   "Use --from YYYY-MM-DD --to YYYY-MM-DD for a date range.",
+  "--dashboard also writes dashboard.html (self-contained, no network) next to the report.",
+  `--jev asks TypeSafe Jev the questions in references/jev.md on metadata only. Key: ${JEV_KEY_VAR} in the environment or in .env.local here.`,
+  `  It writes the exact bodies to jev-payload.json and sends nothing until you answer yes (--yes for non-interactive runs). At most --jev-max calls (default ${JEV_MAX_CALLS}).`,
 ].join("\n");
 const isDir = (p: string): boolean => {
   try { return statSync(p).isDirectory(); } catch { return false; }
@@ -862,6 +1582,9 @@ export function parseArgs(argv: string[], env: { home: string; now: number; cwd:
   const from = a.has("--from") ? calendarDay(a.get("--from") ?? "") : now - days * DAY;
   const to = a.has("--to") ? calendarDay(a.get("--to") ?? "") + DAY - 1 : now;
   if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) throw new Error(`bad period: ${PERIOD}`);
+  for (const f of ["--yes", "--jev-max", "--labels", "--screenshot"]) if ((flags.has(f) || a.has(f)) && !flags.has("--jev")) throw new Error(`${f} needs --jev`);
+  const maxText = a.get("--jev-max") ?? String(JEV_MAX_CALLS);
+  if (!/^\d+$/.test(maxText) || Number(maxText) < 1 || Number(maxText) > 500) throw new Error("--jev-max must be a whole number from 1 to 500");
   const src = (flag: string, def: string): string | null => {
     const given = a.get(flag);
     if (given === "none") return null;
@@ -882,6 +1605,12 @@ export function parseArgs(argv: string[], env: { home: string; now: number; cwd:
     byProject: flags.has("--by-project"),
     alias: a.get("--alias") ?? "participant-01",
     share: flags.has("--share"),
+    dashboard: flags.has("--dashboard"),
+    jev: flags.has("--jev"),
+    yes: flags.has("--yes"),
+    jevMax: Number(maxText),
+    labels: a.get("--labels") ?? null,
+    screenshot: a.get("--screenshot") ?? null,
   };
 }
 
@@ -897,21 +1626,112 @@ function reserve(out: string): boolean {
   }
 }
 
-export async function main(argv: string[]): Promise<number> {
+/** Seams for tests and embedding: home, working folder, environment, the Jev transport and the yes prompt. */
+export type MainIO = { home?: string; cwd?: string; env?: Record<string, string | undefined>; fetch?: FetchFn; confirm?: (question: string) => Promise<boolean>; interactive?: boolean };
+
+async function askYes(question: string, io: MainIO): Promise<boolean> {
+  if (io.confirm) return io.confirm(question);
+  if (!(io.interactive ?? Boolean(process.stdin.isTTY))) {
+    console.log("Not an interactive terminal: pass --yes to send.");
+    return false;
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await new Promise<string>((resolve) => rl.question(question, resolve));
+    return /^\s*y(es)?\s*$/i.test(answer);
+  } finally {
+    rl.close();
+  }
+}
+
+/** A body for printing: an image's base64 is replaced by its length (the exact bytes are in jev-payload.json). */
+function printable(body: Rec): string {
+  return JSON.stringify(body, (k, v: unknown) => (k === "data_base64" && typeof v === "string" ? `<${v.length} base64 characters, in jev-payload.json>` : v), 2);
+}
+
+/** Jev mode: key check, plan, exact payload file, a yes, then the calls. Returns NOT RUN with its reason at any stop. */
+async function jevMode(s: Summary, args: Args, io: MainIO, labels: Labels | null): Promise<JevRun> {
+  const cwd = io.cwd ?? process.cwd();
+  let found: { key: string; from: string } | null;
+  try {
+    found = resolveJevKey(io.env ?? process.env, cwd);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : ".env.local could not be read";
+    console.log(`Jev NOT RUN: ${why}. Fix its permissions or export ${JEV_KEY_VAR} instead.`);
+    return jevNotRun(why);
+  }
+  if (!found) {
+    console.log(`Jev NOT RUN: no ${JEV_KEY_VAR} in the environment or in .env.local in ${cwd}.`);
+    console.log(`To add one, put the line ${JEV_KEY_VAR}=<your key> in .env.local in this folder (keep that file out of git) or export ${JEV_KEY_VAR}, then rerun with --jev.`);
+    console.log("Keys: https://console.typesafe.ai/ (docs: https://docs.typesafe.ai/introduction/quickstart). The metadata report is complete without it.");
+    return jevNotRun(`no ${JEV_KEY_VAR} in the environment or .env.local`);
+  }
+  let boxNote = "";
+  let plan: JevCall[];
+  try {
+    plan = buildJevPlan(s, { maxCalls: args.jevMax, now: args.to, screenshot: args.screenshot, labels });
+  } catch (error) {
+    boxNote = error instanceof Error ? error.message : "screenshot refused";
+    console.log(`Jev box question NOT RUN: ${boxNote}.`);
+    plan = buildJevPlan(s, { maxCalls: args.jevMax, now: args.to, labels });
+  }
+  if (args.screenshot && !boxNote && !plan.some((c) => c.question === "q4")) boxNote = `screenshot not sent: --jev-max ${args.jevMax} left no room for it`;
+  if (!plan.length) {
+    console.log("Jev NOT RUN: no week window or session with records to ask about.");
+    return jevNotRun("no cases", boxNote);
+  }
+  const payloadPath = join(args.out, "jev-payload.json");
+  const payload = plan.map((c) => ({ id: c.id, question: c.question, model: c.model, url: JEV_ENDPOINT, headers: { "content-type": "application/json", ...(c.images ? { [JEV_IMAGES_HEADER]: "true" } : {}), authorization: `Bearer <${JEV_KEY_VAR}>` }, body: c.body }));
+  const text = JSON.stringify(payload, null, 2) + "\n";
+  writeFileSync(payloadPath, text, { flag: "wx" });
+  const est = plan.reduce((a, c) => a + Math.ceil(JSON.stringify(c.body).length / 4), 0);
+  const models = [...new Set(plan.map((c) => c.model))].join(", ");
+  console.log("");
+  const shot = plan.find((c) => c.question === "q4");
+  const shotSize = shot && args.screenshot ? imageSize(readFileSync(args.screenshot)) : null;
+  console.log(`Jev payload: ${plan.length} call(s) to ${JEV_ENDPOINT} (TypeSafe), model ${models}, key from ${found.from}. Metadata numbers, no message text${shot && args.screenshot ? `, plus the whole image ${args.screenshot} (${shotSize ? `${shotSize.width} by ${shotSize.height} px, ` : ""}${n(statSync(args.screenshot).size)} bytes, base64 in the box call)` : ""}.`);
+  console.log(`About ${n(est)} input tokens, about $${((est * JEV_PRICE_PER_MTOK) / 1_000_000).toFixed(4)} at $${JEV_PRICE_PER_MTOK} per million input tokens. No retries.`);
+  console.log(`Exact request bodies: ${payloadPath} (sha256 ${createHash("sha256").update(text).digest("hex").slice(0, 16)}). First body:`);
+  console.log(printable(plan[0]?.body ?? {}));
+  const approved = args.yes || (await askYes(`Send ${plan.length} call(s) to TypeSafe now? [y/N] `, io));
+  if (!approved) {
+    console.log("Jev NOT RUN: not approved; nothing was sent.");
+    return jevNotRun("not approved", boxNote);
+  }
+  const run = await runJev(plan, found.key, io.fetch ?? fetch);
+  run.boxNote = boxNote;
+  console.log(`Jev: ${run.answered} of ${run.calls} call(s) answered${run.failed ? `, ${run.failed} failed` : ""}, ${n(run.inputTokens)} input tokens.`);
+  writeFileSync(join(args.out, "jev-results.json"), JSON.stringify(run.results, null, 2) + "\n", { flag: "wx" });
+  return run;
+}
+
+export async function main(argv: string[], io: MainIO = {}): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(USAGE);
     return 0;
   }
+  const home = io.home ?? homedir();
   let args: Args;
   try {
-    args = parseArgs(argv, { home: homedir(), now: Date.now(), cwd: process.cwd() });
+    args = parseArgs(argv, { home, now: Date.now(), cwd: io.cwd ?? process.cwd() });
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 2;
   }
   if (!args.claude && !args.codex) {
-    console.error("no source folder found: pass --claude DIR or --codex DIR");
+    console.error(`no source folder found: looked for ${join(home, ".claude", "projects")} and ${join(home, ".codex", "sessions")}; pass --claude DIR or --codex DIR`);
     return 2;
+  }
+  let labels: Labels | null = null;
+  if (args.labels) {
+    let text: string;
+    try {
+      text = readFileSync(args.labels, "utf8");
+    } catch {
+      console.error(`--labels ${args.labels} could not be read`);
+      return 2;
+    }
+    labels = parseLabels(text, args.labels);
   }
   if (existsSync(args.out) || !reserve(args.out)) {
     console.error(`refusing to overwrite ${args.out}: pass a new folder name with --out (it is created for you), or leave --out off for a dated folder`);
@@ -919,20 +1739,31 @@ export async function main(argv: string[]): Promise<number> {
   }
   const c = args.claude ? await scanClaude(args.claude, args.from, args.to) : null;
   const x = args.codex ? await scanCodex(args.codex, args.from, args.to) : null;
-  const s = summarise(c, x);
+  const s = summarise(c, x, { to: args.to });
   const sources = [args.claude ? "Claude Code" : "", args.codex ? "Codex" : ""].filter(Boolean);
-  const share = renderShare(s, { alias: args.alias, days: args.days, sources });
+  const from = dayOf(args.from), to = dayOf(args.to);
+  const report = join(args.out, "private-report.md");
+  // The metadata report is on disk before any network call; Jev mode rewrites it with its results.
+  writeFileSync(report, renderPrivate(s, { from, to, byProject: args.byProject, sources, days: args.days, jev: args.jev ? jevNotRun("Jev did not finish") : null, labels }), { flag: "wx" });
+  const jev = args.jev ? await jevMode(s, args, io, labels) : null;
+  const share = renderShare(s, { alias: args.alias, days: args.days, sources, jevRan: jev?.status === "run" });
   const leaks = scanShare(share);
-  writeFileSync(join(args.out, "private-report.md"), renderPrivate(s, { from: dayOf(args.from), to: dayOf(args.to), byProject: args.byProject, sources, days: args.days }), { flag: "wx" });
+  if (jev) writeFileSync(report, renderPrivate(s, { from, to, byProject: args.byProject, sources, days: args.days, jev, labels }));
   writeFileSync(join(args.out, "share-draft.md"), share, { flag: "wx" });
+  writeFileSync(join(args.out, "sessions.csv"), renderSessionsCsv(s), { flag: "wx" });
   console.log(`wrote ${join(args.out, "private-report.md")}`);
   console.log(`wrote ${join(args.out, "share-draft.md")} (scan: ${leaks.length ? `FOUND ${leaks.join(", ")}` : "clean"})`);
+  console.log(`wrote ${join(args.out, "sessions.csv")} (${s.evidence.length} sessions, metadata only)`);
+  if (args.dashboard) {
+    writeFileSync(join(args.out, "dashboard.html"), renderDashboard(dashData(s, { from, to, jev, labels })), { flag: "wx" });
+    console.log(`wrote ${join(args.out, "dashboard.html")} (self-contained, no network)`);
+  }
   console.log(`claude sessions ${s.claude?.sessions ?? 0}, codex sessions ${s.codex?.sessions ?? 0}, cap hits ${s.episodes.length}`);
   const perWeek = perWeekLine({ days: args.days, ...weekTotals(s) });
   if (perWeek) console.log(perWeek);
   if (args.share) {
-    const sources: ShareSources = args.claude && args.codex ? "claude+codex" : args.claude ? "claude" : "codex";
-    const payload = buildShare(s, { days: args.days, sources });
+    const shareSources: ShareSources = args.claude && args.codex ? "claude+codex" : args.claude ? "claude" : "codex";
+    const payload = buildShare(s, { days: args.days, sources: shareSources });
     const unread = (s.claude?.cov.unreadable ?? 0) + (s.codex?.cov.unreadable ?? 0);
     const refused = unread ? `${unread} folder(s) or file(s) could not be read, so the totals would be understated` : shareRangeError(payload);
     console.log("");

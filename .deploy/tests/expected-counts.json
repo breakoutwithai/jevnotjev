@@ -1,5 +1,5 @@
 {
-  "minFiles": 170,
+  "minFiles": 172,
   "files": {
     ".deploy/tests/backstage-setup.test.sh": 114,
     ".deploy/tests/branch-guard.test.sh": 15,
@@ -78,7 +78,9 @@
     "scripts/uc13/stage-demo.test.ts": 15,
     "scripts/verify-core.test.ts": 40,
     "skills/tokenmax-map/scripts/map.test.ts": 29,
+    "skills/tokenmax-map/scripts/jev.test.ts": 15,
     "skills/tokenmax-map/scripts/parity.test.ts": 1,
+    "skills/tokenmax-map/scripts/rules.test.ts": 19,
     "skills/tokenmax-map/scripts/share.test.ts": 13,
     "src/backstage/api-tokens.test.ts": 3,
     "src/backstage/api-v1.broken-paths.test.ts": 24,

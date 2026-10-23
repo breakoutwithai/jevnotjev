@@ -227,7 +227,7 @@ describe("[integration] payload fields", () => {
     expect(contractFailure(p)).toBe("");
     expect(p.v).toBe("tm-share/1");
     expect(p.skill).toBe(VERSION);
-    expect(VERSION).toBe("0.3.0");
+    expect(VERSION).toBe("0.4.0");
     expect(contractFailure({ ...p, extra: 1 })).toBe("keys");
     // Out of range is refused, never pulled to a bound: a 400-day map must not be shared as 90 days.
     const long = buildShare(summarise(null, null), { days: 400, sources: "claude" });

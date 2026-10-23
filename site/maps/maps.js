@@ -144,6 +144,18 @@
     return t;
   }
   function textFill(text) { return function (fig) { fig.textContent = text; }; }
+  /* #409: a row over 7 days gets one per week line, each total divided evenly by days / 7; null for 7 days or fewer. */
+  function perWeekText(r) {
+    if (typeof r.days !== "number" || r.days <= 7) return null;
+    var weeks = r.days / 7;
+    var one = function (n) { return (Math.round(n * 10) / 10).toLocaleString("en-US"); };
+    var per = function (n) { return Math.round(n / weeks); };
+    var caps = r.caps.short + r.caps.weekly + r.caps.unknown;
+    return "Per week on average over " + one(weeks) + " weeks: " + fmt(per(r.sessions)) + " sessions, " +
+      providerValue(r, "claude", per(r.output_tokens.claude), compact) + " Claude output, " +
+      providerValue(r, "codex", per(r.output_tokens.codex), compact) + " Codex output, " +
+      one(caps / weeks) + " cap hits, totals divided evenly by days / 7, not a measured week";
+  }
   function capsText(caps) { return fmt(caps.short) + " / " + fmt(caps.weekly) + " / " + fmt(caps.unknown); }
   function plural(n, one, many) { return n === 1 ? one : many; }
 
@@ -223,6 +235,8 @@
         dl.appendChild(wrap);
       }
       li.appendChild(dl);
+      var week = perWeekText(r);
+      if (week) li.appendChild(node("p", "map-row-week", week));
       // PASTED_SKILL is the skill /tm/ Submit sends: a pasted block, not a run of the mapper.
       li.appendChild(node("p", "map-row-label", r.skill === PASTED_SKILL ? "self-reported from a pasted TokenMax block, not verified" : "self-reported by tokenmax-map " + String(r.skill) + ", not verified"));
       list.appendChild(li);

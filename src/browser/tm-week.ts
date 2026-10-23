@@ -15,7 +15,8 @@ export type Week = {
   readonly limitHits: number | null;
   readonly codexWindow: number | null;
   readonly pattern: Pattern | null;
-  /** Sessions per day, Claude Code plus Codex, oldest day first: exactly seven numbers, else null. */
+  /** Sessions per day, Claude Code plus Codex, oldest day first: one number per day of the period (seven when the
+   * period is 7 days or unreadable), else null. */
   readonly perDay: readonly number[] | null;
   /** Dates (YYYY-MM-DD) on which a limit was hit; [] for "none"; null when not recorded or unreadable. */
   readonly limitDays: readonly string[] | null;
@@ -70,12 +71,12 @@ export function readNumber(value: string): number | null {
 
 const WEEKDAY = /^(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?\s*/i;
 
-/** "40, 52, 61, 44, 38, 30, 27" (each may carry a weekday word): exactly seven whole numbers, else null. */
-export function readPerDay(value: string): number[] | null {
+/** "40, 52, 61, 44, 38, 30, 27" (each may carry a weekday word): exactly `count` whole numbers (seven by default), else null. */
+export function readPerDay(value: string, count = 7): number[] | null {
   if (/not recorded/i.test(value)) return null;
   // Thousands commas are ambiguous in a comma list, so a day's count is digits only.
   const parts = value.split(/[,;]/).map((p) => p.trim().replace(WEEKDAY, "").trim());
-  if (parts.length !== 7 || parts.some((p) => !/^\d+$/.test(p))) return null;
+  if (parts.length !== count || parts.some((p) => !/^\d+$/.test(p))) return null;
   return parts.map(Number);
 }
 
@@ -100,7 +101,7 @@ export function parseWeek(text: string): Week | null {
   const nums: Record<NumberField, number | null> = { claudeSessions: null, codexSessions: null, claudeOutput: null, codexOutput: null, opusShare: null, limitHits: null, codexWindow: null };
   let period: Week["period"] = null;
   let pattern: Pattern | null = null;
-  let perDay: number[] | null = null;
+  let perDayText: string | null = null;
   let limitDays: string[] | null = null;
   let recognised = 0;
   for (const raw of text.split(/\r?\n/)) {
@@ -116,7 +117,7 @@ export function parseWeek(text: string): Week | null {
     } else if (field === "pattern") {
       pattern = /running out/i.test(value) ? "running out" : /unused/i.test(value) ? "leaving most unused" : null;
     } else if (field === "perDay") {
-      perDay = readPerDay(value);
+      perDayText = value;
     } else if (field === "limitDays") {
       limitDays = readLimitDays(value);
     } else {
@@ -124,7 +125,108 @@ export function parseWeek(text: string): Week | null {
     }
   }
   if (recognised === 0) return null;
+  // One number per day of the period: a 56-day period needs 56, a 7-day (or unreadable) period needs seven.
+  const days = spanDays(period);
+  const perDay = perDayText === null ? null : readPerDay(perDayText, days !== null && days > 7 && days <= MAX_PERIOD_DAYS ? days : 7);
   return { period, pattern, perDay, limitDays, ...nums };
+}
+
+/** The longest period /tm/ reads; the board's own day bound (src/backstage/maps.ts MAP_BOUNDS.days). */
+export const MAX_PERIOD_DAYS = 90;
+const DAY_MS = 86_400_000;
+
+/** Whole days from start to end, both included; null when either is not a real YYYY-MM-DD date or end is before start. */
+function spanDays(period: Week["period"]): number | null {
+  const start = period ? readDate(period.start) : null;
+  const end = period ? readDate(period.end) : null;
+  if (!start || !end) return null;
+  const span = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / DAY_MS;
+  return span >= 0 ? span + 1 : null;
+}
+
+/** Whole days from Period start to Period end, both included; null when either is not a real YYYY-MM-DD date or end is before start. */
+export function periodDays(week: Week): number | null {
+  return spanDays(week.period);
+}
+
+// ---------- 8 weeks (#409): the period choice and per-week averages ----------
+/** The two periods /tm/ offers: the last 7 days, or the last 8 weeks. */
+export type PeriodChoice = 7 | 56;
+/** Each phrase of the 7-day prompt that names its period, and its 8-week wording. Each occurs exactly once (TM-50). */
+export const PROMPT_SWAPS: readonly (readonly [string, string])[] = [
+  ["for the last 7 days.", "for the last 8 weeks (56 days)."],
+  ["say which pattern fits my week:", "say which pattern fits my typical week:"],
+  ["<7 numbers separated by commas,", "<56 numbers separated by commas,"],
+  ["both included, 7 days in total.", "both included, 56 days in total."],
+  ["Sessions per day: seven numbers, one per day of the period", "Sessions per day: 56 numbers, one per day of the period"],
+];
+/** The prompt for a period: the page's own 7-day prompt as written, or the same prompt asking for 56 days. */
+export function promptFor(base: string, days: PeriodChoice): string {
+  return days === 7 ? base : PROMPT_SWAPS.reduce((text, [from, to]) => text.replace(from, to), base);
+}
+
+/** Weeks in the period (days / 7) when it is over 7 days; null for a week or less, or no readable period. */
+export function weeksOf(week: Week): number | null {
+  const days = periodDays(week);
+  return days !== null && days > 7 ? days / 7 : null;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "2026-08-21" as "21 Aug", with the year when asked. */
+function shortDate(iso: string, year: boolean): string {
+  const [y, m, d] = iso.split("-");
+  return `${Number(d)} ${MONTHS[Number(m) - 1] ?? ""}${year ? ` ${y ?? ""}` : ""}`;
+}
+/** 8 -> "8", 4.2857 -> "4.3". */
+const oneDecimal = (n: number): string => (Math.round(n * 10) / 10).toLocaleString("en-US");
+const whole = (n: number): string => Math.round(n).toLocaleString("en-US");
+
+/** "8 weeks, 21 Aug to 15 Oct 2026: per week on average ..." for a period over 7 days; null otherwise. Each recorded total
+ * is divided evenly by days / 7; a total that is not recorded is left out, never counted as 0. */
+export function averageLine(week: Week): string | null {
+  const weeks = weeksOf(week);
+  if (weeks === null || !week.period) return null;
+  const w = oneDecimal(weeks);
+  const sessions = week.claudeSessions !== null && week.codexSessions !== null ? week.claudeSessions + week.codexSessions : null;
+  const parts = [
+    sessions === null ? "" : `${whole(sessions / weeks)} sessions`,
+    week.claudeOutput === null ? "" : `${whole(week.claudeOutput / weeks)} Claude output tokens`,
+    week.codexOutput === null ? "" : `${whole(week.codexOutput / weeks)} Codex output tokens`,
+    week.limitHits === null ? "" : `${oneDecimal(week.limitHits / weeks)} usage limit hits`,
+  ].filter(Boolean);
+  const span = `${shortDate(week.period.start, false)} to ${shortDate(week.period.end, true)}`;
+  return `${w} weeks, ${span}: per week on average ${parts.length ? parts.join(", ") : NOT_RECORDED}. Totals divided evenly by ${w} weeks; not a measured week.`;
+}
+
+/** The average week the stage plays for a period over 7 days: each poster is the mean of that weekday position across the
+ * period (day i, i + 7, ...), so the weekday labels still come from Period start. No limit is stamped on a day and the
+ * Codex gauge is not played, because neither is an average. Null for a week or less. */
+export function averageWeek(week: Week): Week | null {
+  const days = periodDays(week);
+  if (days === null || days <= 7) return null;
+  const perDay = week.perDay && week.perDay.length === days
+    ? [0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const same = week.perDay?.filter((_, j) => j % 7 === i) ?? [];
+      return Math.round(same.reduce((a, b) => a + b, 0) / Math.max(1, same.length));
+    })
+    : null;
+  return { ...week, perDay, limitDays: null, codexWindow: null };
+}
+
+/** The average week's ending headline, from the limit hits only. */
+export function averageHeadline(week: Week): string {
+  const weeks = weeksOf(week), n = week.limitHits;
+  if (n === null || weeks === null) return `Usage limit hits ${NOT_RECORDED}`;
+  if (n === 0) return `No usage limit hit in ${oneDecimal(weeks)} weeks`;
+  return `On average ${oneDecimal(n / weeks)} usage limit hits a week (${n.toLocaleString("en-US")} in ${oneDecimal(weeks)} weeks)`;
+}
+
+/** The average week's line under the headline: says it is not a real week. */
+export function averageSubtitle(week: Week): string {
+  const weeks = weeksOf(week);
+  if (weeks === null) return "";
+  const sessions = week.claudeSessions !== null && week.codexSessions !== null ? `: ${whole((week.claudeSessions + week.codexSessions) / weeks)} sessions a week` : "";
+  return `Average week over ${oneDecimal(weeks)} weeks, not a real week${sessions}`;
 }
 
 /** The situation to play: the Pattern line if given, else running out when a limit was hit, else unused. */

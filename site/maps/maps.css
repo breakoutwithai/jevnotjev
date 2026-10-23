@@ -123,6 +123,7 @@ button:disabled { opacity: .6; cursor: progress; }
 .map-fig { display: flex; gap: 5px; align-items: baseline; min-width: 0; }
 .map-fig dd { order: 1; margin: 0; font: 700 .9375rem var(--sans); color: var(--cream-ink); font-variant-numeric: tabular-nums; }
 .map-fig dt { order: 2; font: 500 .875rem var(--sans); color: var(--cream-soft); }
+.map-row-week { grid-column: 1 / -1; font: 600 .875rem/1.4 var(--sans); color: var(--cream-ink); overflow-wrap: anywhere; }
 .map-row-label { grid-column: 1 / -1; font: italic 500 .8125rem var(--serif); color: #6e4e3c; }
 
 .map-foot { margin-top: 40px; font-size: .9rem; }

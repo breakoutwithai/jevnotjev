@@ -48,11 +48,11 @@
     return Number.isFinite(n) ? n : null;
   }
   var WEEKDAY = /^(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?\s*/i;
-  function readPerDay(value) {
+  function readPerDay(value, count = 7) {
     if (/not recorded/i.test(value))
       return null;
     const parts = value.split(/[,;]/).map((p) => p.trim().replace(WEEKDAY, "").trim());
-    if (parts.length !== 7 || parts.some((p) => !/^\d+$/.test(p)))
+    if (parts.length !== count || parts.some((p) => !/^\d+$/.test(p)))
       return null;
     return parts.map(Number);
   }
@@ -75,7 +75,7 @@
     const nums = { claudeSessions: null, codexSessions: null, claudeOutput: null, codexOutput: null, opusShare: null, limitHits: null, codexWindow: null };
     let period = null;
     let pattern = null;
-    let perDay = null;
+    let perDayText = null;
     let limitDays = null;
     let recognised = 0;
     for (const raw of text.split(/\r?\n/)) {
@@ -93,7 +93,7 @@
       } else if (field === "pattern") {
         pattern = /running out/i.test(value) ? "running out" : /unused/i.test(value) ? "leaving most unused" : null;
       } else if (field === "perDay") {
-        perDay = readPerDay(value);
+        perDayText = value;
       } else if (field === "limitDays") {
         limitDays = readLimitDays(value);
       } else {
@@ -102,7 +102,83 @@
     }
     if (recognised === 0)
       return null;
+    const days = spanDays(period);
+    const perDay = perDayText === null ? null : readPerDay(perDayText, days !== null && days > 7 && days <= MAX_PERIOD_DAYS ? days : 7);
     return { period, pattern, perDay, limitDays, ...nums };
+  }
+  var MAX_PERIOD_DAYS = 90;
+  var DAY_MS = 86400000;
+  function spanDays(period) {
+    const start = period ? readDate(period.start) : null;
+    const end = period ? readDate(period.end) : null;
+    if (!start || !end)
+      return null;
+    const span = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / DAY_MS;
+    return span >= 0 ? span + 1 : null;
+  }
+  function periodDays(week) {
+    return spanDays(week.period);
+  }
+  var PROMPT_SWAPS = [
+    ["for the last 7 days.", "for the last 8 weeks (56 days)."],
+    ["say which pattern fits my week:", "say which pattern fits my typical week:"],
+    ["<7 numbers separated by commas,", "<56 numbers separated by commas,"],
+    ["both included, 7 days in total.", "both included, 56 days in total."],
+    ["Sessions per day: seven numbers, one per day of the period", "Sessions per day: 56 numbers, one per day of the period"]
+  ];
+  function promptFor(base, days) {
+    return days === 7 ? base : PROMPT_SWAPS.reduce((text, [from, to]) => text.replace(from, to), base);
+  }
+  function weeksOf(week) {
+    const days = periodDays(week);
+    return days !== null && days > 7 ? days / 7 : null;
+  }
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function shortDate(iso, year) {
+    const [y, m, d] = iso.split("-");
+    return `${Number(d)} ${MONTHS[Number(m) - 1] ?? ""}${year ? ` ${y ?? ""}` : ""}`;
+  }
+  var oneDecimal = (n) => (Math.round(n * 10) / 10).toLocaleString("en-US");
+  var whole = (n) => Math.round(n).toLocaleString("en-US");
+  function averageLine(week) {
+    const weeks = weeksOf(week);
+    if (weeks === null || !week.period)
+      return null;
+    const w = oneDecimal(weeks);
+    const sessions = week.claudeSessions !== null && week.codexSessions !== null ? week.claudeSessions + week.codexSessions : null;
+    const parts = [
+      sessions === null ? "" : `${whole(sessions / weeks)} sessions`,
+      week.claudeOutput === null ? "" : `${whole(week.claudeOutput / weeks)} Claude output tokens`,
+      week.codexOutput === null ? "" : `${whole(week.codexOutput / weeks)} Codex output tokens`,
+      week.limitHits === null ? "" : `${oneDecimal(week.limitHits / weeks)} usage limit hits`
+    ].filter(Boolean);
+    const span = `${shortDate(week.period.start, false)} to ${shortDate(week.period.end, true)}`;
+    return `${w} weeks, ${span}: per week on average ${parts.length ? parts.join(", ") : NOT_RECORDED}. Totals divided evenly by ${w} weeks; not a measured week.`;
+  }
+  function averageWeek(week) {
+    const days = periodDays(week);
+    if (days === null || days <= 7)
+      return null;
+    const perDay = week.perDay && week.perDay.length === days ? [0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const same = week.perDay?.filter((_, j) => j % 7 === i) ?? [];
+      return Math.round(same.reduce((a, b) => a + b, 0) / Math.max(1, same.length));
+    }) : null;
+    return { ...week, perDay, limitDays: null, codexWindow: null };
+  }
+  function averageHeadline(week) {
+    const weeks = weeksOf(week), n = week.limitHits;
+    if (n === null || weeks === null)
+      return `Usage limit hits ${NOT_RECORDED}`;
+    if (n === 0)
+      return `No usage limit hit in ${oneDecimal(weeks)} weeks`;
+    return `On average ${oneDecimal(n / weeks)} usage limit hits a week (${n.toLocaleString("en-US")} in ${oneDecimal(weeks)} weeks)`;
+  }
+  function averageSubtitle(week) {
+    const weeks = weeksOf(week);
+    if (weeks === null)
+      return "";
+    const sessions = week.claudeSessions !== null && week.codexSessions !== null ? `: ${whole((week.claudeSessions + week.codexSessions) / weeks)} sessions a week` : "";
+    return `Average week over ${oneDecimal(weeks)} weeks, not a real week${sessions}`;
   }
   function situationOf(week) {
     if (week.pattern)
@@ -192,7 +268,7 @@
 
   // src/browser/tm-submit.ts
   var PASTED_SKILL = "0.0.0";
-  var MAX_DAYS = 90;
+  var MAX_DAYS = MAX_PERIOD_DAYS;
   var ALIAS_PATTERN = /^[a-z0-9-]{3,24}$/;
   function normaliseAlias(typed) {
     return typed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -200,7 +276,6 @@
   var ALIAS_MESSAGE = "Choose a nickname that is 3 to 24 letters, digits or hyphens once spaces and symbols are turned into hyphens.";
   var KEY_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
   var KEY_LENGTH = 32;
-  var DAY_MS = 86400000;
   function rawNumberProblem(text) {
     for (const raw of text.split(/\r?\n/)) {
       const pair = labelValue(raw);
@@ -227,14 +302,6 @@
     for (const b of bytes)
       key += KEY_CHARS.charAt(b & 63);
     return key;
-  }
-  function periodDays(week) {
-    const start = week.period ? readDate(week.period.start) : null;
-    const end = week.period ? readDate(week.period.end) : null;
-    if (!start || !end)
-      return null;
-    const span = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / DAY_MS;
-    return span >= 0 ? span + 1 : null;
   }
   function weekToPayload(week) {
     const { claudeSessions, codexSessions, limitHits } = week;
@@ -1553,6 +1620,7 @@
       resetWeek();
       exampleTag.hidden = !(st.example && view === "with");
       gauge.classList.toggle("calm", view === "with");
+      gauge.classList.remove("unset");
       const underWith = mode === "under" && view === "with";
       actEl.textContent = view === "without" ? "Without TokenMax · every step in the royal box" : underWith ? "With TokenMax · cheaper seats, then more jobs" : "With TokenMax · each step in its seat";
       if (underWith)
@@ -1786,17 +1854,19 @@
       clearDrop();
       resetWeek();
       gauge.classList.add("calm");
-      const labels = dayLabels(week), hits = new Set(limitDayIndexes(week));
-      const perDay = week.perDay, max = perDay ? Math.max(1, ...perDay) : 1;
+      const avg = averageWeek(week), shown = avg ?? week, weeks = weeksOf(week);
+      const labels = dayLabels(shown), hits = new Set(limitDayIndexes(shown));
+      const perDay = shown.perDay, max = perDay ? Math.max(1, ...perDay) : 1;
       posters.forEach((p, i) => {
         p.day.textContent = labels[i] ?? "";
         p.lab.textContent = perDay ? "" : NOT_RECORDED;
       });
-      const codex = week.codexWindow;
-      gaugeName.textContent = codex === null ? "No weekly figure recorded" : "Codex week left";
+      const codex = shown.codexWindow;
+      gaugeName.textContent = avg ? "Not shown for an average week" : codex === null ? "No weekly figure recorded" : "Codex week left";
       if (codex === null)
         leftPct.textContent = "";
-      actEl.textContent = week === SAMPLE_WEEK ? "Sample week · per-day split illustrative, not your numbers" : "Your week · from your numbers";
+      gauge.classList.toggle("unset", codex === null);
+      actEl.textContent = avg && weeks !== null ? `Average week over ${Math.round(weeks * 10) / 10} weeks · not a real week` : week === SAMPLE_WEEK ? "Sample week · per-day split illustrative, not your numbers" : "Your week · from your numbers";
       statusEl.textContent = "";
       await wait(250, tok);
       for (let i = 0;i < 7; i++) {
@@ -1824,8 +1894,8 @@
           p.stamp.textContent = "LIMIT HIT";
         }
       }
-      dataBig.textContent = stageHeadline(week);
-      dataSub.textContent = stageSubtitle(week);
+      dataBig.textContent = avg ? averageHeadline(week) : stageHeadline(week);
+      dataSub.textContent = avg ? averageSubtitle(week) : stageSubtitle(week);
       dataEnd.hidden = false;
       if (tok === st.token) {
         setBusy(false);
@@ -1982,7 +2052,15 @@
       raf = win.requestAnimationFrame(loop);
     }
     const promptEl = id("sharePrompt", HTMLElement), copyMsg = id("copyMsg", HTMLElement);
-    const PROMPT = promptEl.textContent ?? "";
+    const BASE_PROMPT = promptEl.textContent ?? "";
+    let PROMPT = BASE_PROMPT;
+    for (const radio of every(doc, 'input[name="period"]', HTMLInputElement))
+      radio.addEventListener("change", () => {
+        if (!radio.checked)
+          return;
+        PROMPT = promptFor(BASE_PROMPT, radio.value === "56" ? 56 : 7);
+        promptEl.textContent = PROMPT;
+      });
     const COPIED = "Copied. Paste it into Claude Code or Codex on your computer.";
     let copyTimer = 0;
     function say(text) {
@@ -2038,12 +2116,17 @@
     const pasteBox = id("pasteBox", HTMLTextAreaElement), pasteError = id("pasteError", HTMLElement);
     const yourWeek = id("yourWeek", HTMLElement), yourFields = id("yourFields", HTMLElement), yourLine = id("yourLine", HTMLElement);
     const sampleTag = id("sampleTag", HTMLElement), localTag = id("localTag", HTMLElement);
-    const yourTitle = id("hYour", HTMLElement), yourPeriod = id("yourPeriod", HTMLElement);
+    const yourTitle = id("hYour", HTMLElement), yourPeriod = id("yourPeriod", HTMLElement), yourAverage = id("yourAverage", HTMLElement);
+    const playMineBtn = id("playMine", HTMLButtonElement);
     let mine = null;
     function showCard(week, sample) {
-      yourTitle.textContent = sample ? "Sample week" : "Your week";
+      const weeks = weeksOf(week), average = averageLine(week);
+      yourTitle.textContent = sample ? "Sample week" : weeks === null ? "Your week" : `Your ${Math.round(weeks * 10) / 10} weeks`;
       yourPeriod.textContent = periodLine(week);
       yourLine.textContent = cardHeadline(week);
+      yourAverage.textContent = average ?? "";
+      yourAverage.hidden = average === null;
+      playMineBtn.textContent = average === null ? "Play my week" : "Play my average week";
       yourFields.textContent = "";
       for (const { label, value } of weekLines(week)) {
         const dt = doc.createElement("dt");

@@ -545,6 +545,26 @@ test("[integration] 10 with no fragment the page reads the board once and labels
   } finally { await context.close(); }
 });
 
+test("[integration] #409 a row over 7 days adds one per week line, each total divided evenly by days / 7; a 7-day row has none", async () => {
+  const eight = boardRow("TM-0000000000C8", "eight-weeks", { ...PAYLOAD, skill: "0.0.0", days: 56, sessions: 3296, caps: { short: 1, weekly: 1, unknown: 1 }, output_tokens: { claude: 10_000_000, codex: 7_200_000 } });
+  const codexMonth = boardRow("TM-0000000000C9", "codex-month", { ...PAYLOAD, days: 30, sources: "codex", sessions: 300, caps: { short: 0, weekly: 0, unknown: 0 }, output_tokens: { claude: 0, codex: 3_000_000 }, opus_share_pct: 0 });
+  rows = [eight, codexMonth, OTHER];
+  for (const [width, height] of [[390, 844], [1440, 900]] as const) {
+    const { page, context } = await open(`${origin}/maps/`, width, height);
+    try {
+      await page.locator("#mapBoard .map-row").nth(2).waitFor();
+      const lines = await page.locator("#mapBoard .map-row").evaluateAll((lis) => lis.map((li) => [...li.querySelectorAll(".map-row-week")].map((p) => p.textContent ?? "")));
+      expect(lines).toEqual([
+        ["Per week on average over 8 weeks: 412 sessions, 1.3M Claude output, 900K Codex output, 0.4 cap hits, totals divided evenly by days / 7, not a measured week"],
+        ["Per week on average over 4.3 weeks: 70 sessions, not collected Claude output, 700K Codex output, 0 cap hits, totals divided evenly by days / 7, not a measured week"],
+        [],
+      ]);
+      expect(await page.locator("#mapBoard .map-row").nth(0).innerText()).toContain("56 days");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    } finally { await context.close(); }
+  }
+});
+
 test("[integration] 10b a row from a pasted /tm/ block (skill 0.0.0) says so, and a mapper row keeps the mapper caption", async () => {
   rows = [boardRow("TM-0000000000B3", "pasted-one", { ...PAYLOAD, skill: "0.0.0" }), OTHER];
   const { page, context } = await open(`${origin}/maps/`);

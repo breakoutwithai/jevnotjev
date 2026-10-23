@@ -5,11 +5,11 @@
 // output (and Opus share) of a tool whose session count is 0.
 
 import type { MapPayload, MapSources } from "../backstage/maps.ts";
-import { labelValue, LABELS, readDate, type Week } from "./tm-week.ts";
+import { labelValue, LABELS, MAX_PERIOD_DAYS, periodDays, type Week } from "./tm-week.ts";
 
 /** The tm-share/1 `skill` field is a version string. "0.0.0" means "a pasted block, not the mapper script". */
 export const PASTED_SKILL = "0.0.0";
-export const MAX_DAYS = 90;
+export const MAX_DAYS = MAX_PERIOD_DAYS;
 /** Same pattern as the server's ALIAS in src/backstage/maps.ts. */
 export const ALIAS_PATTERN = /^[a-z0-9-]{3,24}$/;
 /**
@@ -23,7 +23,6 @@ export function normaliseAlias(typed: string): string {
 export const ALIAS_MESSAGE = "Choose a nickname that is 3 to 24 letters, digits or hyphens once spaces and symbols are turned into hyphens.";
 const KEY_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-";
 const KEY_LENGTH = 32;
-const DAY_MS = 86_400_000;
 
 export type SubmitBody = {
   readonly payload: MapPayload;
@@ -61,14 +60,8 @@ export function newRequestKey(random: (bytes: Uint8Array) => Uint8Array): string
   return key;
 }
 
-/** Whole days from Period start to Period end, both included; null when either is not a real YYYY-MM-DD date or end is before start. */
-export function periodDays(week: Week): number | null {
-  const start = week.period ? readDate(week.period.start) : null;
-  const end = week.period ? readDate(week.period.end) : null;
-  if (!start || !end) return null;
-  const span = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / DAY_MS;
-  return span >= 0 ? span + 1 : null;
-}
+/** Whole days from Period start to Period end, both included (the reader's own count, so Submit and the page agree). */
+export { periodDays };
 
 type Line = { readonly label: string; readonly value: number | null };
 

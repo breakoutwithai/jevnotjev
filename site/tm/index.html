@@ -177,6 +177,11 @@
       <button type="button" class="btn-ghost" id="phoneLink">Send this page to my computer</button>
       <p class="phone-msg" id="phoneMsg" role="status" aria-live="polite"></p>
     </div>
+    <div class="period-pick" id="periodPick" role="radiogroup" aria-label="Period to collect">
+      <label><input type="radio" name="period" value="7" checked> Last 7 days</label>
+      <label><input type="radio" name="period" value="56"> Last 8 weeks</label>
+      <p class="hint" id="periodHint">8 weeks shows your average week: each total divided evenly by 8, self-reported, not a measured week.</p>
+    </div>
     <div class="prompt-box" id="promptBox" role="group" aria-label="The prompt">
       <pre id="sharePrompt">Look at my Claude Code and Codex history on this computer for the last 7 days. Read only the usage records, never the words of my messages or the contents of my files. Tell me: how many sessions I ran in each tool; how many times I hit a usage limit, and when; and which models each tool used, as a rough split of big versus smaller models, if the records show it. Say 'not recorded' for anything the records do not show, never guess. Then, in one sentence, say which pattern fits my week: running out before the end of the week, or leaving most of it unused. Do not send, install or download anything. Show me the result here as exactly this plain block and nothing else:
 
@@ -226,6 +231,7 @@ Print only the block above. No notes, caveats, warnings, checks, counts of dupli
       <div class="yourweek-head"><h3 id="hYour">Your week</h3><span class="sample-tag" id="sampleTag" hidden>Sample</span><span class="local-tag" id="localTag">Your numbers, shown on this page only</span></div>
       <p class="yourweek-period" id="yourPeriod"></p>
       <p class="yourweek-line" id="yourLine"></p>
+      <p class="yourweek-average" id="yourAverage" hidden></p>
       <dl class="yourweek-fields" id="yourFields"></dl>
       <button type="button" class="btn-gold" id="playMine">Play my week</button>
     </article>

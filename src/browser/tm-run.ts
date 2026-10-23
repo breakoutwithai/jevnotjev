@@ -10,6 +10,7 @@ import {
   weekLines, type Week,
 } from "./tm-week.ts";
 import { ALIAS_MESSAGE, ALIAS_PATTERN, newRequestKey, normaliseAlias, rawNumberProblem, rejectionMessage, submitBody, weekToPayload } from "./tm-submit.ts";
+import { Cancel, createPooling } from "./tm-pool-show.ts";
 
 export type Mode = "burn" | "under";
 export type View = "without" | "with";
@@ -72,7 +73,6 @@ function every<T extends Element>(root: ParentNode, selector: string, kind: Ctor
   return [...root.querySelectorAll(selector)].filter((node): node is T => node instanceof kind);
 }
 
-class Cancel extends Error {}
 type Frame = { transform: string; offset?: number; easing?: string };
 type Poster = { li: HTMLLIElement; day: HTMLElement; seats: HTMLElement[]; lab: HTMLElement; stamp: HTMLElement; filled: number | null; label: string | null };
 type Particle = { x: number; y: number; vx: number; vy: number; r: number; vr: number; s: number; c: string; rose: boolean };
@@ -147,18 +147,25 @@ export function startTheRun(doc: Document): void {
 
   /* ---------- timing helpers ---------- */
   const live = (tok: number): void => { if (tok !== st.token) throw new Cancel(); };
+  // Timers and tweens run on the pooling show's pause-aware clock, so Pause holds the whole week, not only Jev's beats.
   const wait = (ms: number, tok: number): Promise<void> => new Promise((res, rej) => {
     const d = ms * st.speed;
     if (d <= 0) { if (tok !== st.token) rej(new Cancel()); else res(); return; }
-    win.setTimeout(() => { if (tok !== st.token) rej(new Cancel()); else res(); }, d);
+    const due = pooling.clock() + d;
+    const tick = (): void => {
+      if (tok !== st.token) { rej(new Cancel()); return; }
+      const left = due - pooling.clock();
+      if (left <= 0) res(); else win.setTimeout(tick, Math.max(16, left));
+    };
+    win.setTimeout(tick, d);
   });
   const tween = (a: number, b: number, ms: number, fn: (v: number, p: number) => void, tok: number): Promise<void> => new Promise((res, rej) => {
     const d = ms * st.speed;
     if (d <= 0) { fn(b, 1); res(); return; }
-    const t0 = win.performance.now();
-    const step = (now: number): void => {
+    const t0 = pooling.clock();
+    const step = (): void => {
       if (tok !== st.token) { rej(new Cancel()); return; }
-      const p = Math.min(1, (now - t0) / d);
+      const p = Math.min(1, (pooling.clock() - t0) / d);
       fn(a + (b - a) * p, p);
       if (p < 1) win.requestAnimationFrame(step); else res();
     };
@@ -175,6 +182,17 @@ export function startTheRun(doc: Document): void {
     return a.finished.then(() => { el.style.transform = end; a.cancel(); }, () => undefined);
   };
   const ignoreCancel = (e: unknown): void => { if (!(e instanceof Cancel)) throw e; };
+
+  /* ---------- Jev task pooling (the With week): beats, the shared pool, the panel and the 100x view ---------- */
+  let keepClock = false;
+  const pooling = createPooling({
+    doc, win, stage, floor: inside(opening, ".floor", HTMLElement), run: runEl, compare, act: actEl, status: statusEl, posters: posters.map((p) => p.li),
+    speed: () => st.speed, token: () => st.token, takeToken: () => ++st.token,
+    setBusy: (b) => setBusy(b),
+    setGauge: (left, name) => { setGauge(left); gaugeName.textContent = name; },
+    clearStage: () => { clearDrop(); stage.classList.remove("call", "anim", "settled"); bulbsEl.classList.remove("chase"); stopConfetti(); ghost.classList.remove("on"); foundEl.hidden = true; gaugeBadge.textContent = ""; keepLights.classList.add("shown"); },
+    replayWith: () => { playWeek("with", ++st.token).catch(ignoreCancel); },
+  });
 
   /* ---------- gauge ---------- */
   function setGauge(value: number): void {
@@ -202,6 +220,7 @@ export function startTheRun(doc: Document): void {
     dataEnd.hidden = true; exampleTag.hidden = true; gaugeName.textContent = "House lights";
     stubs.forEach((s) => { s.className = ""; s.style.removeProperty("--d"); });
     stage.classList.remove("call", "anim", "settled");
+    pooling.reset();
     gaugeBadge.textContent = "";
     foundEl.hidden = true;
     ghost.classList.remove("on");
@@ -241,6 +260,7 @@ export function startTheRun(doc: Document): void {
     actEl.textContent = view === "without" ? "Without TokenMax · every step in the royal box"
       : underWith ? "With TokenMax · cheaper seats, then more jobs" : "With TokenMax · each step in its seat";
     if (underWith) showFound(0);
+    if (view === "with") { pooling.begin(mode, keepClock); keepClock = false; }
     statusEl.textContent = underWith ? "Cheaper seats leave even more room spare…" : "Curtain up. Monday night…";
     await wait(underWith ? 1100 : 350, tok);
     let left = 100, found = 0;
@@ -248,6 +268,7 @@ export function startTheRun(doc: Document): void {
     for (let i = 0; i < 7; i++) {
       const p = posters[i];
       if (!p) continue;
+      if (view === "with") await pooling.day(mode, i, tok);
       const base = (view === "without" ? s.without[i] : s.with[i]) ?? 0;
       const ex = underWith ? s.extra[i] ?? 0 : 0;
       p.li.classList.add("playing");
@@ -277,6 +298,7 @@ export function startTheRun(doc: Document): void {
         left -= ex;
       }
       p.li.classList.remove("playing");
+      if (view === "with") pooling.dayDone(i);
       p.filled = seats;
       if (mode === "under" && view === "without") { p.li.classList.add("half"); p.lab.textContent = `${12 - seats} empty`; }
       else if (underWith && !ex) { p.li.classList.add("played", "spare"); p.lab.textContent = "Room spare"; p.label = "Room spare"; }
@@ -284,7 +306,7 @@ export function startTheRun(doc: Document): void {
       if (mode === "burn" && view === "without" && left < 30) { statusEl.textContent = "Lights running low…"; statusEl.classList.add("warn"); }
       else if (i < 6 && !ex) statusEl.textContent = underWith ? `${LONG[i] ?? ""}: cheaper seats leave ${12 - seats} empty` : `${LONG[i] ?? ""}: ${mode === "under" && view === "without" ? "half the seats empty" : "full house"}`;
     }
-    if (view === "with") await curtainCall(tok);
+    if (view === "with") { pooling.finish(); await curtainCall(tok); }
     else await ghostLight(left, tok);
     // the tagline fades in once a week has played to its end (Skip, a deep link and reduced motion end here too)
     if (tok === st.token) { setBusy(false); keepLights.classList.add("shown"); }
@@ -453,6 +475,8 @@ export function startTheRun(doc: Document): void {
     const hadFocus = doc.activeElement === skipBtn;
     const view = st.view;
     const data = st.data;
+    if (pooling.scaled()) { pooling.skipScale(); if (hadFocus) replayBtn.focus(); return; }
+    keepClock = !data && view === "with";
     try { await instant(() => data ? playData(data, ++st.token, false) : playWeek(view, ++st.token)); } catch (e) { ignoreCancel(e); }
     if (hadFocus) replayBtn.focus();
   }
@@ -696,6 +720,7 @@ export function startTheRun(doc: Document): void {
   }));
   skipBtn.addEventListener("click", () => { void skipToEnd(); });
   replayBtn.addEventListener("click", () => {
+    if (pooling.scaled()) { pooling.replayScale(); return; }
     const tok = ++st.token;
     const data = st.data;
     (data ? playData(data, tok, false) : playWeek(st.view, tok)).catch(ignoreCancel);

@@ -111,9 +111,12 @@ describe("replay page verdict (site/replay)", () => {
       await page.goto(`http://127.0.0.1:${server.port}/replay/?run=uc13-100`, { waitUntil: "load" });
       expect(await page.locator("#verdict [data-plain]").count()).toBe(0);
     } finally { await page.close(); }
-    const data = await buildReplay();
-    const short = data.runs.flatMap((r) => r.verdicts).find((v) => v.reason.includes("fewer than 30"));
-    expect(short?.plain).toMatch(/^Too few cases have both a Jev answer and an LLM answer to compare them yet, so the verdict waits for \d+ more labelled cases\.$/);
+    const shortPage = await browser.newPage();
+    try {
+      await shortPage.goto(`http://127.0.0.1:${server.port}/replay/?run=tokenmax`, { waitUntil: "load" });
+      expect(await shortPage.locator("#verdict [data-reason]").first().innerText()).toContain("5 paired Jev and LLM cases, fewer than 30; add 25 more labelled cases");
+      expect(await shortPage.locator("#verdict [data-plain]").first().innerText()).toBe("Too few cases have both a Jev answer and an LLM answer to compare them yet, so the verdict waits for 25 more labelled cases.");
+    } finally { await shortPage.close(); }
   }, 30000);
 
   test("[integration] RV-3 questions sharing an id but differing in run or prompt version are told apart", async () => {

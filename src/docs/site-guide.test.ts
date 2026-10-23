@@ -69,11 +69,14 @@ test("[unit] TokenMax guide lists the /tm/ steps with labels the page and script
   expect((await texts(read(GUIDE), "#tokenmax p")).some((text) => /pressing Share/i.test(text))).toBe(false);
 });
 
+/** A control's name without decorative glyphs at its ends ("↻ Replay", "Skip to the end »"). */
+const bare = (text: string): string => text.replace(/&#?\w+;/g, "").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+
 /** Bold names in the guide's step list that no button, label or link on /tm/ carries (a receipt phrase the script prints is exempt). */
 async function missingControls(guideHtml: string, tmHtml: string): Promise<string[]> {
   const names = await texts(guideHtml, "#tokenmax ol.tokenmax-steps > li > strong");
   const controls = [...(await texts(tmHtml, "button")), ...(await texts(tmHtml, "label")), ...(await texts(tmHtml, "a"))];
-  return names.filter((name) => name !== "remove my entry" && !controls.some((control) => control.includes(name)));
+  return names.filter((name) => name !== "remove my entry" && !controls.some((control) => bare(control) === name));
 }
 
 test("[unit] every button name the guide's step list quotes is a real control on /tm/", async () => {
@@ -83,6 +86,8 @@ test("[unit] every button name the guide's step list quotes is a real control on
   // Negative: the names testers reported as missing from /tm/ are caught.
   const stale = read(GUIDE).replace("<strong>Copy for Claude Code or Codex</strong>", "<strong>Press Copy</strong>");
   expect(await missingControls(stale, read("site/tm/index.html"))).toEqual(["Press Copy"]);
+  const tmRenamed = read("site/tm/index.html").replace(">Submit</button>", ">Do not Submit</button>");
+  expect(await missingControls(read(GUIDE), tmRenamed)).toEqual(["Submit"]);
   const tmWithoutSample = read("site/tm/index.html").replace(">Show Sample</button>", ">Sample</button>");
   expect(await missingControls(read(GUIDE), tmWithoutSample)).toEqual(["Show Sample"]);
   expect(await missingControls(read(GUIDE).replace("<strong>Show Sample</strong>", "<strong>Load example</strong>"), read("site/tm/index.html"))).toEqual(["Load example"]);

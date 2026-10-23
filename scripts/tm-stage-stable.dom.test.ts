@@ -42,12 +42,18 @@ async function open(width: number, height: number, hash: string): Promise<Page> 
 type Shift = { key: string; edge: string; px: number; at: string };
 type Report = { frames: number; keys: number; worst: Shift[]; clipped: string[] };
 
-/** Starts measuring every frame; the first frame is the reference every later frame is compared with. */
+/** Starts measuring every frame, before the action that starts the view. The reference is the first frame in which the
+ * view is on stage (1x: the session card shown; 100x: the scaled stage with its grid); every later frame is compared
+ * with it, edge by edge. A box that disappears or appears after the reference counts as a change. */
 async function startSampling(page: Page, view: "1x" | "100x"): Promise<void> {
   await page.evaluate((view) => {
+    const shown = (e: Element | null): boolean => !!e && e.getClientRects().length > 0;
+    const ready = (): boolean => view === "1x"
+      ? shown(document.getElementById("jevRow")) && document.getElementById("jevRow")?.hidden === false
+      : document.getElementById("stage")?.classList.contains("scaled") === true && shown(document.getElementById("mosaic"));
     const boxes = (): Map<string, DOMRect> => {
       const m = new Map<string, DOMRect>();
-      const add = (key: string, e: Element | null): void => { if (e) m.set(key, e.getBoundingClientRect()); };
+      const add = (key: string, e: Element | null): void => { if (shown(e) && e) m.set(key, e.getBoundingClientRect()); };
       add("stage", document.getElementById("opening"));
       add("controls", document.getElementById("compare"));
       document.querySelectorAll("#poolPanel .pp-m").forEach((t, i) => add(`tile${i}`, t));
@@ -66,27 +72,51 @@ async function startSampling(page: Page, view: "1x" | "100x"): Promise<void> {
       }
       return m;
     };
-    const ref = boxes();
-    const worst = new Map<string, { edge: string; px: number; at: string }>();
-    // a fixed box is only honest if its fullest state fits: text cut off by the box counts as a failure too
-    const clipped = new Set<string>();
-    const fits: [string, string][] = view === "1x" ? [["session", "#jevBeat"], ["question", "#jevQ"], ["pool", "#pool"], ["poolSlips", "#poolSlips"], ["caption", "#status"], ["controls", "#compare"]] : [["slips", "#scaleFocus"], ["legend", ".mosaic-key"], ["checks", ".branches"], ["controls", "#compare"]];
-    let frames = 0;
-    const tick = (): void => {
-      if (Reflect.get(window, "__stop") === true) return;
-      frames++;
-      const at = `${document.getElementById("jevBeat")?.dataset.phase ?? ""} | ${document.getElementById("status")?.textContent ?? ""}`;
-      for (const [key, r] of boxes()) {
-        const r0 = ref.get(key);
-        if (!r0) { worst.set(key, { edge: "appeared", px: Infinity, at }); continue; }
-        const edges: ("x" | "y" | "width" | "height")[] = ["x", "y", "width", "height"];
-        for (const edge of edges) {
-          const px = Math.abs(r[edge] - r0[edge]);
-          if (px > (worst.get(key)?.px ?? 0)) worst.set(key, { edge, px: Math.round(px * 10) / 10, at });
+    // text cut off counts as a failure too: every text leaf inside the monitored boxes must lie inside the nearest box
+    // that clips it, and must not overflow itself, unless it is an ellipsis line that truncates by design
+    const roots = view === "1x" ? "#jevBeat, #pool, #status, #jevLog, #compare, #poolPanel .pp-m" : "#scaleFocus, .mosaic-key, .branches, #compare, #poolPanel .pp-m";
+    const clipOf = (e: Element): Element | null => {
+      for (let a = e.parentElement; a; a = a.parentElement) { const s = getComputedStyle(a); if (s.overflowX !== "visible" || s.overflowY !== "visible") return a; if (a.matches(roots)) return a; }
+      return null;
+    };
+    const cut = (): string[] => {
+      const out: string[] = [];
+      for (const root of document.querySelectorAll(roots)) {
+        if (!shown(root)) continue;
+        const leaves = [root, ...root.querySelectorAll("*")].filter((e) => e.children.length === 0 && (e.textContent ?? "").trim() !== "" && shown(e) && getComputedStyle(e).visibility !== "hidden");
+        for (const e of leaves) {
+          // a slip in flight is drawn by its animation, not its layout box
+          if (e.closest(".tslip")?.getAnimations().length) continue;
+          const s = getComputedStyle(e), r = e.getBoundingClientRect(), name = `${e.id || e.className || e.tagName} "${(e.textContent ?? "").trim().slice(0, 24)}"`;
+          const ellipsis = s.textOverflow === "ellipsis";
+          if (!ellipsis && s.overflowX !== "visible" && e.scrollWidth > e.clientWidth + 1) out.push(`${name} overflows its width`);
+          if (s.overflowY !== "visible" && e.scrollHeight > e.clientHeight + 1) out.push(`${name} overflows its height`);
+          const c = clipOf(e)?.getBoundingClientRect();
+          if (c && !ellipsis && (r.left < c.left - 1 || r.right > c.right + 1 || r.top < c.top - 1 || r.bottom > c.bottom + 1)) out.push(`${name} outside its box`);
         }
       }
-      for (const [key, sel] of fits) { const e = document.querySelector(sel); if (e && e.scrollHeight > e.clientHeight + 1) clipped.add(`${key} (${e.scrollHeight} > ${e.clientHeight}) at ${at}`); }
-      Reflect.set(window, "__report", { clipped: [...clipped], frames, keys: ref.size, worst: [...worst].map(([key, w]) => ({ key, ...w })).sort((a, b) => b.px - a.px) });
+      return out;
+    };
+    let ref: Map<string, DOMRect> | null = null;
+    const worst = new Map<string, { edge: string; px: number; at: string }>();
+    const clipped = new Set<string>();
+    let frames = 0;
+    const note = (key: string, edge: string, px: number, at: string): void => { if (px > (worst.get(key)?.px ?? 0)) worst.set(key, { edge, px, at }); };
+    const tick = (): void => {
+      if (Reflect.get(window, "__stop") === true) return;
+      if (!ref) { if (ready()) ref = boxes(); requestAnimationFrame(tick); return; }
+      frames++;
+      const at = `${document.getElementById("jevBeat")?.dataset.phase ?? ""} | ${document.getElementById("status")?.textContent ?? ""}`;
+      const now = boxes();
+      for (const [key, r0] of ref) {
+        const r = now.get(key);
+        if (!r) { note(key, "missing", Infinity, at); continue; }
+        const edges: ("left" | "right" | "top" | "bottom")[] = ["left", "right", "top", "bottom"];
+        for (const edge of edges) note(key, edge, Math.abs(r[edge] - r0[edge]), at);
+      }
+      for (const key of now.keys()) if (!ref.has(key)) note(key, "appeared", Infinity, at);
+      for (const c of cut()) clipped.add(`${c} at ${at}`);
+      Reflect.set(window, "__report", { clipped: [...clipped], frames, keys: ref.size, worst: [...worst].map(([key, w]) => ({ key, ...w, px: Number.isFinite(w.px) ? Math.round(w.px * 10) / 10 : w.px })).sort((a, b) => b.px - a.px) });
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -104,15 +134,14 @@ async function stopSampling(page: Page): Promise<Report> {
 }
 
 for (const [hash, start, ready, mode] of [["#burn-before", "#dropBtn", "drop", "heavy"], ["#under-before", "#ghostBtn", "ghost", "lite"]] satisfies [string, string, string, string][]) {
-  for (const [width, height] of [[390, 844], [1440, 900]] satisfies [number, number][]) {
+  for (const [width, height] of [[390, 844], [768, 1024], [1440, 900]] satisfies [number, number][]) {
     test(`[integration] TS-1 ${mode} With week at ${width}x${height}: stage, posters, seat grids, session card, pool box and caption never move or resize while the show plays`, async () => {
       const page = await open(width, height, hash);
       try {
         await page.waitForFunction((r) => { const e = document.getElementById(r); return e?.classList.contains("show-copy") === true || e?.classList.contains("on") === true; }, ready, { timeout: 30000 });
-        await page.locator(start).click();
-        // the With week has begun once the session card is on stage
-        await page.waitForFunction(() => { const r = document.getElementById("jevRow"); return !!r && !r.hidden && r.getBoundingClientRect().height > 0; }, null, { timeout: 30000 });
+        // sampling is armed before the click; its reference is the first frame of the With week
         await startSampling(page, "1x");
+        await page.locator(start).click();
         await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true, null, { timeout: 90000 });
         const report = await stopSampling(page);
         const moved = report.worst.filter((w) => w.px > TOLERANCE);
@@ -163,10 +192,9 @@ for (const [width, height] of [[390, 844], [1440, 900]] satisfies [number, numbe
     const page = await open(width, height, "#burn-after");
     try {
       await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true, null, { timeout: 30000 });
+      await startSampling(page, "100x");
       await page.locator("#scaleUp").click();
       await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("scaled") === true && document.getElementById("poolPause")?.hidden === false);
-      await page.waitForTimeout(100);
-      await startSampling(page, "100x");
       await page.waitForFunction(() => document.getElementById("poolPause")?.hidden === true, null, { timeout: 120000 });
       await page.waitForTimeout(300);
       const report = await stopSampling(page);
@@ -195,6 +223,11 @@ for (const [width, height] of [[1440, 900], [1280, 800], [390, 844]] satisfies [
           const out: string[] = [];
           if (e.scrollWidth > e.clientWidth + 1) out.push(`${name}: width ${e.scrollWidth} > ${e.clientWidth}`);
           if (e.scrollHeight > e.clientHeight + 1) out.push(`${name}: height ${e.scrollHeight} > ${e.clientHeight}`);
+          if (e.matches("button, .seg-cap")) {
+            const range = document.createRange(); range.selectNodeContents(e);
+            const lines = new Set([...range.getClientRects()].filter((q) => q.width > 0).map((q) => Math.round(q.top)));
+            if (lines.size > 1) out.push(`${name}: ${lines.size} lines`);
+          }
           if (!col || r.left < col.left - 0.5 || r.right > col.right + 0.5 || r.top < col.top - 0.5 || r.bottom > col.bottom + 0.5) out.push(`${name}: outside the column`);
           return out;
         });

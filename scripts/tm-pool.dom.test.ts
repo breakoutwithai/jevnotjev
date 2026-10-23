@@ -124,7 +124,7 @@ test("[integration] TP-D1 heavy With week: the task question shows when asked; Y
       const moved = later.find((s) => s.slot !== a.slot);
       expect({ slip: a.slot, docked: !!moved?.docked.includes(a.slot), pooled: !!moved?.pool.includes(a.slot) }).toEqual({ slip: a.slot, docked: a.answer === "yes", pooled: a.answer === "no" });
     }
-    expect(await logOf(page)).toEqual(["YES, kept local", "NO, sent to the pool", "YES, kept local", "NO, sent to the pool"]);
+    expect(await logOf(page)).toEqual(["YES, kept local", "NO, to pool", "YES, kept local", "NO, to pool"]);
     // the only scripted disclosure is the explainer above the show
     expect(await page.locator("#explain").innerText()).toContain("This show is scripted");
     expect(await page.locator("#jevTag").count()).toBe(0);
@@ -157,7 +157,7 @@ test("[integration] TP-D2 lite With week: the idle question shows when asked; YE
       expect(during.some((x) => x.status.includes("no pooled task fits"))).toBe(true);
       for (const x of during) expect({ pool: x.pool, docked: x.docked, extras: x.extras }).toEqual({ pool: no.pool, docked: no.docked, extras: no.extras });
     }
-    expect([await page.locator("#jevA .jb-word").innerText(), await page.locator("#jevA .jb-act").textContent()]).toEqual(["NO", "No capacity: wait"]);
+    expect([await page.locator("#jevA .jb-word").innerText(), await page.locator("#jevA .jb-act").textContent()]).toEqual(["NO", "Nothing fits: wait"]);
     expect(await page.locator("#run .poster.has-extra").count()).toBe(6);
   } finally { await close(page); }
 }, 90000);
@@ -211,7 +211,7 @@ test("[integration] TP-D3b Pause holds the ordinary day playback too: gauge, sea
 }, 90000);
 
 test("[integration] TP-D4 reduced motion: the same decisions and resulting task locations, nothing travelling; Replay resets rather than adds", async () => {
-  for (const [hash, answers, extras] of [["#burn-after", ["YES, kept local", "NO, sent to the pool", "YES, kept local", "NO, sent to the pool"], 0], ["#under-after", ["YES, picked up", "NO, no capacity: wait", "YES, picked up", "NO, no capacity: wait"], 6]] satisfies [string, string[], number][]) {
+  for (const [hash, answers, extras] of [["#burn-after", ["YES, kept local", "NO, to pool", "YES, kept local", "NO, to pool"], 0], ["#under-after", ["YES, picked up", "NO, nothing fits", "YES, picked up", "NO, nothing fits"], 6]] satisfies [string, string[], number][]) {
     const page = await open(1440, 900, "reduce", hash);
     try {
       await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true);
@@ -232,8 +232,8 @@ test("[integration] TP-D4 reduced motion: the same decisions and resulting task 
 }, 60000);
 
 for (const [hash, start, ready, answers, extras] of [
-  ["#burn-before", "#dropBtn", "drop", ["YES, kept local", "NO, sent to the pool", "YES, kept local", "NO, sent to the pool"], 0],
-  ["#under-before", "#ghostBtn", "ghost", ["YES, picked up", "NO, no capacity: wait", "YES, picked up", "NO, no capacity: wait"], 6],
+  ["#burn-before", "#dropBtn", "drop", ["YES, kept local", "NO, to pool", "YES, kept local", "NO, to pool"], 0],
+  ["#under-before", "#ghostBtn", "ghost", ["YES, picked up", "NO, nothing fits", "YES, picked up", "NO, nothing fits"], 6],
 ] satisfies [string, string, string, string[], number][]) {
   test(`[integration] TP-D4b Skip during playback, and Skip while paused, end on the same decisions and task locations; elapsed counts playback only (${hash})`, async () => {
     const page = await open(1440, 900, "no-preference", hash);

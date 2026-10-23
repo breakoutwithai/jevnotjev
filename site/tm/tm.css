@@ -823,3 +823,37 @@ details.pp-fine { margin: 12px 0 0; }
   /* phone posters are too narrow for chips: the strip under them carries each decision */
   .pchip { display: none; }
 }
+
+/* decision cells truncate the time and task, never the verdict; the whole row shows on hover, focus or tap */
+.jev-log li { position: relative; overflow: visible; }
+.jev-log li .lg-when { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.jev-log li .lg-what { flex: 1 1 0; }
+.jev-log li[data-full]:hover::after, .jev-log li[data-full]:focus::after { content: attr(data-full); position: absolute; left: 0; top: calc(100% + 4px); z-index: 12; width: max-content; max-width: min(320px, 90vw); padding: 6px 8px; border-radius: 4px; background: var(--parch); color: var(--parch-ink); font: 700 12px/1.3 var(--tm-sans); white-space: normal; box-shadow: 0 4px 12px rgba(0, 0, 0, .5); }
+.jev-log li:focus-visible { outline: 2px solid var(--gold-l); outline-offset: 1px; }
+
+/* tablet widths: the session card and the pool stack, the decision strip and the tiles go 2 by 2 */
+@media (min-width: 761px) and (max-width: 1099px) {
+  .opening { grid-template-columns: 210px minmax(0, 1fr); gap: 14px; }
+  .jev-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .jev-beat { height: 150px; }
+  .pool { height: 120px; }
+  .pool-slips { height: 40px; }
+  .jev-log { grid-template-columns: repeat(2, minmax(0, 1fr)); height: 66px; }
+  .pp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wing .compare { max-width: 210px; }
+}
+/* narrow tiles stack: icon and number, then the label, then the sub-line on up to two lines */
+@media (max-width: 1099px) {
+  .pp-tile { grid-template-columns: 22px minmax(0, 1fr); grid-template-rows: auto auto auto; height: 100px; }
+  .pp-tl { grid-column: 1 / -1; margin-top: 2px; }
+  .pp-tsub { white-space: normal; height: 2.6em; overflow: hidden; }
+  .pp-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}
+/* the pool box keeps its fixed size without clipping, so a slip flying in from the session card stays visible */
+.pool, .pool-slips { overflow: visible; }
+@media (max-width: 1099px) {
+  .pp-n { line-height: 1.2; }
+}
+@media (max-width: 1099px) {
+  .pp-n { overflow: visible; text-overflow: clip; }
+}

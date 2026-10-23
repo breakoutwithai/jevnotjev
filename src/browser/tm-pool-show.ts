@@ -213,7 +213,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
   const runList = el("dl", "pp-runlist");
   const runRow = (key: string, label: string): HTMLElement => { const n = el("dd", ""); n.dataset.metric = key; runList.append(el("dt", "", label), n); return n; };
   const leg = (key: string, label: string): HTMLElement => runRow(key, label);
-  const mTaskYes = leg("taskYes", "Kept local"), mTaskNo = leg("taskNo", "Sent to pool"), mIdleYes = leg("idleYes", "Picked up"), mIdleNo = leg("idleNo", "No capacity: wait");
+  const mTaskYes = leg("taskYes", "Kept local"), mTaskNo = leg("taskNo", "Sent to pool"), mIdleYes = leg("idleYes", "Picked up"), mIdleNo = leg("idleNo", "Nothing fits: wait");
   const tPool = tile("poolWaiting", "Waiting in pool", "no", "M3 7h18 M3 12h18 M3 17h18");
   const mPicked = sub(tPool.sub, "pickedUp", "picked up"), mCompleted = sub(tPool.sub, "completed", "done");
   const tPeak = tile("parallelPeak", "Peak parallel", "gold", "M5 20v-7 M10 20V5 M15 20v-9 M20 20V8");
@@ -335,12 +335,14 @@ export function createPooling(deps: PoolingDeps): Pooling {
   const ROW_H = 40, ROW_GAP = 8;
   function prepRibbon(): void {
     ribbonW = cssWidth(ribbon);
+    // each day is dw pixels wide and starts at its own midnight; the few minutes after Sunday midnight are not drawn
     const dw = Math.max(1, Math.floor(ribbonW / 4)), n = dw * 7;
-    ribbonCols = Array.from({ length: n }, (_, i) => at(Math.min(result.end, ((i + 0.5) * result.end) / n)).parallelNow);
+    ribbonCols = Array.from({ length: n }, (_, i) => at(((i + 0.5) * DAY_MINUTES) / dw).parallelNow);
     ribbonMax = Math.max(1, ...ribbonCols);
-    // the takeaway is read from the same samples the bars are drawn from
-    const peak = ribbonCols.indexOf(ribbonMax);
-    ribbonHead.textContent = ribbonCols.some((v) => v > 0) ? `Busiest: ${fmt(ribbonMax)} task${ribbonMax === 1 ? "" : "s"} at once, ${storyClock(((peak + 0.5) * result.end) / n)}` : "No tasks ran at once";
+    // the takeaway is the run's own peak and the first minute it is reached, from the event stream, not the pixels
+    const peak = at(result.end).parallelPeak;
+    const first = [...new Set(result.runs.map((x) => x.start))].sort((a, b) => a - b).find((t) => at(t).parallelNow === peak);
+    ribbonHead.textContent = peak > 0 && first !== undefined ? `Busiest: ${fmt(peak)} task${peak === 1 ? "" : "s"} at once, ${storyClock(first)}` : "No tasks ran at once";
   }
   function drawRibbon(): void {
     // a resize changes the CSS width: resample so the week spans the new width exactly
@@ -354,7 +356,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
     ctx.font = "600 12px sans-serif";
     DAYS.forEach((d, k) => { const p = place(k * dw); ctx.fillStyle = "#4a3020"; if (p.x > 0) ctx.fillRect(p.x, p.y, 1, ROW_H); ctx.fillStyle = "#a08a6a"; ctx.fillText(d, p.x + 4, p.y + 13); });
     ctx.fillStyle = "#e0b04e";
-    const upto = Math.min(n, Math.floor((n * storyT) / result.end));
+    const upto = Math.min(n, Math.floor((storyT * dw) / DAY_MINUTES));
     for (let i = 0; i < upto; i++) { const v = ribbonCols[i] ?? 0; if (v > 0) { const h = Math.max(1, (v / ribbonMax) * (ROW_H - 18)); const p = place(i); ctx.fillRect(p.x, p.y + ROW_H - h, 1, h); } }
     const cur = place(Math.min(n - 1, upto));
     ctx.fillStyle = "#f6dc8e"; ctx.fillRect(cur.x, cur.y, 1, ROW_H);
@@ -394,7 +396,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
   }
   function logLine(d: Decision): void {
     // one compact row: a YES/NO chip, what it did, when, and the task with the room the session had
-    const act = d.check === "task" ? (d.yes ? "kept local" : "sent to the pool") : (d.yes ? "picked up" : "no capacity: wait");
+    const act = d.check === "task" ? (d.yes ? "kept local" : "to pool") : (d.yes ? "picked up" : "nothing fits");
     const what = d.task ? `“${d.task.title}” (${d.task.size} units)` : "idle";
     const room = d.check === "task" ? `${d.room} of ${d.allowance} units left` : `${d.room} units, ${d.minutesLeft} min left`;
     let li = log.querySelector<HTMLLIElement>("li.empty");
@@ -405,7 +407,9 @@ export function createPooling(deps: PoolingDeps): Pooling {
     if (actEl) actEl.textContent = act;
     if (whenEl) whenEl.textContent = storyClock(d.t);
     if (whatEl) whatEl.textContent = `${what} · ${room}`;
-    li.title = `${storyClock(d.t)} · ${what} · ${act}`;
+    // the full row on hover, keyboard focus or tap, since the cell truncates the task
+    const full = `${d.yes ? "YES" : "NO"}, ${act} · ${storyClock(d.t)} · ${what} · ${room}`;
+    li.title = full; li.dataset.full = full; li.tabIndex = 0; li.setAttribute("aria-label", full);
     log.querySelectorAll("li.now").forEach((x) => x.classList.remove("now"));
     if (deps.speed() > 0) li.classList.add("now");
     const day = Math.min(6, Math.floor(d.t / DAY_MINUTES)), p = deps.posters[day];
@@ -506,7 +510,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
     q.textContent = `“${IDLE_QUESTION}”`;
     await hold(1100, tok);
     setBeat("answer", d);
-    showAnswer(d.yes, d.yes ? "Pick up" : "No capacity: wait");
+    showAnswer(d.yes, d.yes ? "Pick up" : "Nothing fits: wait");
     logLine(d);
     const pick = d.yes ? [...poolSlips.querySelectorAll<HTMLElement>(".tslip")].find((x) => x.dataset.task === d.task?.id) ?? null : null;
     if (pick) {
@@ -577,7 +581,7 @@ export function createPooling(deps: PoolingDeps): Pooling {
       focusLine.textContent = "";
       for (const d of mine) {
         const li = el("li", `tslip ${d.yes ? "yes" : "no"}`);
-        const verdict = d.check === "task" ? (d.yes ? "YES, kept local" : "NO, to the pool") : (d.yes ? "YES, picked up" : "NO, no capacity: wait");
+        const verdict = d.check === "task" ? (d.yes ? "YES, kept local" : "NO, to the pool") : (d.yes ? "YES, picked up" : "NO, nothing fits");
         li.append(el("b", "", d.task?.title ?? "Idle session"), el("span", "", `${storyClock(d.t)} · ${d.instance === FOCUS.heavy ? "heavy" : "lite"} replica r000 · ${verdict}`));
         focusLine.append(li);
       }
@@ -596,7 +600,8 @@ export function createPooling(deps: PoolingDeps): Pooling {
     deps.act.textContent = HEAD_100X;
     deps.status.textContent = "";
     deps.posters.forEach((p) => { p.classList.remove("gold", "cut", "cancel", "half", "spare", "has-extra"); const lab = p.querySelector(".lab"); if (lab) lab.textContent = ""; });
-    prepMosaic();
+    // size the grid now, in the same frame the view appears, so its first painted frame is already its final size
+    storyT = 0; prepMosaic(); drawMosaic();
     playScale();
   }
   function playScale(): void {

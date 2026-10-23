@@ -91,6 +91,31 @@ describe("replay page verdict (site/replay)", () => {
     } finally { await page.close(); }
   }, 30000);
 
+  test("[integration] RV-4 'not enough evidence' carries one plain sentence whose number is the lower bound the page shows", async () => {
+    const page = await browser.newPage();
+    try {
+      await page.goto(`http://127.0.0.1:${server.port}/replay/?run=uc13`, { waitUntil: "load" });
+      const block = page.locator("#verdict .vq").first();
+      expect(await block.locator("[data-verdict]").innerText()).toBe("not enough evidence");
+      const reason = await block.locator("[data-reason]").innerText();
+      const lower = Number(/lower bound of Jev minus LLM (-[\d.]+) points/.exec(reason)?.[1]);
+      expect(Number.isNaN(lower)).toBe(false);
+      const plain = await block.locator("[data-plain]").innerText();
+      expect(plain).toBe(`Jev and the LLM tied, but with 40 cases we cannot rule out Jev being up to ${Math.abs(lower).toFixed(1)} points worse, so the verdict waits for more cases.`);
+    } finally { await page.close(); }
+  }, 30000);
+
+  test("[integration] RV-5 a verdict that is not 'not enough evidence' has no plain sentence, and a short run says how many cases are missing", async () => {
+    const page = await browser.newPage();
+    try {
+      await page.goto(`http://127.0.0.1:${server.port}/replay/?run=uc13-100`, { waitUntil: "load" });
+      expect(await page.locator("#verdict [data-plain]").count()).toBe(0);
+    } finally { await page.close(); }
+    const data = await buildReplay();
+    const short = data.runs.flatMap((r) => r.verdicts).find((v) => v.reason.includes("fewer than 30"));
+    expect(short?.plain).toMatch(/^Too few cases have both a Jev answer and an LLM answer to compare them yet, so the verdict waits for \d+ more labelled cases\.$/);
+  }, 30000);
+
   test("[integration] RV-3 questions sharing an id but differing in run or prompt version are told apart", async () => {
     const data = await buildReplay();
     const first = data.runs.find((r) => r.key === "uc13-100")?.verdicts[0];

@@ -69,6 +69,31 @@ test("[unit] TokenMax guide lists the /tm/ steps with labels the page and script
   expect((await texts(read(GUIDE), "#tokenmax p")).some((text) => /pressing Share/i.test(text))).toBe(false);
 });
 
+/** Bold names in the guide's step list that no button, label or link on /tm/ carries (a receipt phrase the script prints is exempt). */
+async function missingControls(guideHtml: string, tmHtml: string): Promise<string[]> {
+  const names = await texts(guideHtml, "#tokenmax ol.tokenmax-steps > li > strong");
+  const controls = [...(await texts(tmHtml, "button")), ...(await texts(tmHtml, "label")), ...(await texts(tmHtml, "a"))];
+  return names.filter((name) => name !== "remove my entry" && !controls.some((control) => control.includes(name)));
+}
+
+test("[unit] every button name the guide's step list quotes is a real control on /tm/", async () => {
+  const names = await texts(read(GUIDE), "#tokenmax ol.tokenmax-steps > li > strong");
+  for (const real of ["Show Sample", "Play my week", "Copy for Claude Code or Codex", "Show my week", "Submit"]) expect(names).toContain(real);
+  expect(await missingControls(read(GUIDE), read("site/tm/index.html"))).toEqual([]);
+  // Negative: the names testers reported as missing from /tm/ are caught.
+  const stale = read(GUIDE).replace("<strong>Copy for Claude Code or Codex</strong>", "<strong>Press Copy</strong>");
+  expect(await missingControls(stale, read("site/tm/index.html"))).toEqual(["Press Copy"]);
+  const tmWithoutSample = read("site/tm/index.html").replace(">Show Sample</button>", ">Sample</button>");
+  expect(await missingControls(read(GUIDE), tmWithoutSample)).toEqual(["Show Sample"]);
+  expect(await missingControls(read(GUIDE).replace("<strong>Show Sample</strong>", "<strong>Load example</strong>"), read("site/tm/index.html"))).toEqual(["Load example"]);
+});
+
+test("[unit] the TokenMax guide says TokenMax never reads message words or file contents, as the /tm/ prompt does", async () => {
+  const paragraphs = await texts(read(GUIDE), "#tokenmax p");
+  expect(paragraphs.filter((text) => text.includes("TokenMax never reads the words of your messages or the contents of your files")).length).toBe(1);
+  expect(clean(read("site/tm/index.html"))).toContain("never the words of my messages or the contents of my files");
+});
+
 function read(path: string): string {
   if (path === GUIDE && process.env.SITE_GUIDE_TEST_GUIDE) return readFileSync(process.env.SITE_GUIDE_TEST_GUIDE, "utf8");
   if (path.startsWith("site/") && process.env.LANDING_TEST_SITE) return readFileSync(join(process.env.LANDING_TEST_SITE, path.slice(5)), "utf8");

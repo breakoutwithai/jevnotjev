@@ -403,6 +403,8 @@ export interface ReplayVerdict {
   readonly question: string;
   readonly verdict: string;
   readonly reason: string;
+  /** One plain sentence explaining "not enough evidence" from the run's own numbers; null for any other verdict. */
+  readonly plain: string | null;
   /** Jev minus the LLM accept rate in points, with its 95% interval (verdict().numbers.jevVsLlm); null when not paired. */
   readonly gap: string | null;
   readonly costPerAccepted: readonly ReplayCostPerAccepted[];
@@ -435,6 +437,23 @@ export function reasonInPoints(v: Verdict): string {
   return out.replace(/-0\.10(?!\d)/g, "-10.0 points");
 }
 
+/**
+ * A plain sentence under a "not enough evidence" verdict, from the structured verdict only (never hard-coded): the
+ * paired-case shortfall for rule 1, or the Jev minus LLM lower bound, the same number the reason shows, for rule 4.
+ */
+export function plainWhy(v: Verdict): string | null {
+  if (v.verdict !== "not enough evidence") return null;
+  const jev = v.numbers.jevVsLlm;
+  if (v.condition === "too-few-paired" && v.addN !== null) {
+    return `Too few cases have both a Jev answer and an LLM answer to compare them yet, so the verdict waits for ${v.addN} more labelled ${v.addN === 1 ? "case" : "cases"}.`;
+  }
+  if (jev !== null && v.unmet.includes("accept-rate-not-shown") && jev.lower < 0) {
+    const tied = jev.diff === 0 ? "Jev and the LLM tied" : `Jev scored ${points(Math.abs(jev.diff)).replace("+", "")} ${jev.diff > 0 ? "above" : "below"} the LLM`;
+    return `${tied}, but with ${jev.n} cases we cannot rule out Jev being up to ${points(-jev.lower).replace("+", "")} worse, so the verdict waits for more cases.`;
+  }
+  return "The numbers do not yet settle it, so the verdict waits for more evidence.";
+}
+
 /** Percentage points with one decimal and a sign: 0.0123 is "+1.2 points", -0.043 is "-4.3 points". */
 export function points(v: number): string {
   const p = (v * 100).toFixed(1);
@@ -460,6 +479,7 @@ export async function runVerdicts(text: string): Promise<ReplayVerdict[]> {
       question: metrics.question,
       verdict: v.verdict,
       reason: reasonInPoints(v),
+      plain: plainWhy(v),
       gap: v.numbers.jevVsLlm === null ? null : `Jev minus the LLM, accepted rate: ${points(v.numbers.jevVsLlm.diff)} on ${v.numbers.jevVsLlm.n} paired cases`,
       costPerAccepted: COMPARED.flatMap((arm) => {
         const totals = metrics.arms.find((t) => t.arm === arm);

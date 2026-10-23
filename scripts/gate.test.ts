@@ -78,7 +78,7 @@ describe("gate parsing", () => {
       error: ".deploy/tests/ship.test.sh: 1 failed; no seed",
     });
     expect(buildSeed({ ok: true, results: bun }, shell)).toEqual({
-      manifest: { minFiles: 2, files: { ".deploy/tests/ship.test.sh": 91, "scripts/a.test.ts": 3 } },
+      manifest: { files: { ".deploy/tests/ship.test.sh": 91, "scripts/a.test.ts": 3 } },
     });
   });
 
@@ -89,17 +89,18 @@ describe("gate parsing", () => {
   });
 
   test("[unit] #87 manifest: a malformed manifest is an error, not an empty floor", () => {
-    expect(() => parseManifest('{"files":{"a.test.ts":"3"},"minFiles":1}')).toThrow();
+    expect(() => parseManifest('{"files":{"a.test.ts":"3"}}')).toThrow();
     expect(() => parseManifest('{"files":{}}')).toThrow();
-    expect(parseManifest('{"minFiles":2,"files":{"a.test.ts":3,"b.test.sh":4}}')).toEqual({
-      minFiles: 2,
+    expect(parseManifest('{"files":{"a.test.ts":3,"b.test.sh":4}}')).toEqual({
       files: { "a.test.ts": 3, "b.test.sh": 4 },
     });
+    // The file count is the number of floored files; a separate count drifted when two PRs each added a file (#327, #418).
+    expect(() => parseManifest('{"minFiles":2,"files":{"a.test.ts":3,"b.test.sh":4}}')).toThrow("minFiles");
   });
 });
 
 describe("gate floors", () => {
-  const manifest = { minFiles: 3, files: { "scripts/a.test.ts": 10, "scripts/b.test.ts": 4, ".deploy/tests/ship.test.sh": 81 } };
+  const manifest = { files: { "scripts/a.test.ts": 10, "scripts/b.test.ts": 4, ".deploy/tests/ship.test.sh": 81 } };
   const healthy = results([
     ["scripts/a.test.ts", 10, 0],
     ["scripts/b.test.ts", 5, 0],
@@ -121,7 +122,6 @@ describe("gate floors", () => {
     missing.delete("scripts/b.test.ts");
     expect(checkCounts(manifest, missing)).toEqual([
       "scripts/b.test.ts: not run (floor 4)",
-      "files: 2 ran, floor 3",
     ]);
   });
 
@@ -151,10 +151,6 @@ describe("committed floors", () => {
 
   test("[unit] #87 the 28 tests in .deploy/backstage-package.test.ts are floored through the file bun discovers", () => {
     expect(manifest.files["scripts/backstage-package.test.ts"]).toBeGreaterThanOrEqual(28);
-  });
-
-  test("[unit] #87 minFiles equals the number of floored files", () => {
-    expect(manifest.minFiles).toBe(Object.keys(manifest.files).length);
   });
 });
 

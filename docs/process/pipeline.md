@@ -16,8 +16,8 @@ change():
     bun run typecheck                                                         [run]
     bun run gate                                                              [checked by scripts/gate.ts]
         // every Bun and shell suite runs; each test file must pass at least its
-        // floor in .deploy/tests/expected-counts.json; a file with no floor, a
-        // floored file that did not run, or fewer files than minFiles fails
+        // floor in .deploy/tests/expected-counts.json; a file with no floor or a
+        // floored file that did not run fails
     PR diff holds code, scripts, tests and product docs only                  [run]
         // run output, screenshots, walkthroughs and UAT captures stay outside the repo
     scan(changed files) for private content; no em or en dashes               [run, outside the repo]

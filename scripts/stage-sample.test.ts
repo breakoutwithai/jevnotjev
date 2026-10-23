@@ -18,7 +18,9 @@ const ROUTER = /haiku|sonnet|opus|\brouter\b/i;
 const EXPLAINED_HAIKU = /Claude Haiku 5\.5|Haiku 5\.5|Claude Haiku 4\.5|Haiku 4\.5/g;
 const RUN_MODELS = /claude-haiku-5-5|claude-haiku-4-5-20251001/g;
 function routerPremise(text: string, data: boolean): boolean {
-  if (!data) return ROUTER.test(text);
+  // The tokenmax-map skill block (operator request 2026-10-23) shows the TokenMax report's Opus share, a usage field,
+  // not a router premise; the rest of the page is still checked.
+  if (!data) return ROUTER.test(text.replace(/<section class="skillbill" id="skill"[\s\S]*?<\/section>/, ""));
   const json = text.replace(/^\s*\/\*[\s\S]*?\*\/\s*/, "").replace(/^window\.JNJ\s*=\s*/, "").replace(/;\s*$/, "");
   const sample: StageSample = JSON.parse(json);
   const copy = sample.explained;

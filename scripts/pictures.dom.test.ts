@@ -123,9 +123,11 @@ async function copyOf(page: Page): Promise<Copy> {
     if (block === null) throw new Error("no picture story (.jx) on the page");
     const clone = block.cloneNode(true);
     if (!(clone instanceof HTMLElement)) throw new Error(".jx is not an element");
-    clone.querySelectorAll("script,style").forEach((node) => node.remove());
+    // The tokenmax-map skill block (#skill, operator request 2026-10-23) shows the skill report's own field names
+    // (models, output tokens) on purpose; the plain-words rule covers the picture story around it.
+    clone.querySelectorAll("script,style,#skill").forEach((node) => node.remove());
     const pageTitle = document.title;
-    const labels = Array.from(document.querySelectorAll(".jx [aria-label]")).map((node) => node.getAttribute("aria-label") ?? "");
+    const labels = Array.from(document.querySelectorAll(".jx [aria-label]:not(#skill [aria-label])")).map((node) => node.getAttribute("aria-label") ?? "");
     const meta = Array.from(document.querySelectorAll("meta[content]")).map((node) => node.getAttribute("content") ?? "");
     return { text: clone.textContent ?? "", labels, pageTitle, meta };
   });
@@ -321,7 +323,7 @@ test("[integration] E7 the payoff links to the guide, For developers is a 44 px 
     const dev = await page.locator("a.dev").boundingBox();
     expect(dev?.width ?? 0).toBeGreaterThanOrEqual(44);
     expect(dev?.height ?? 0).toBeGreaterThanOrEqual(44);
-    const hrefs = await page.locator(".jx a[href]").evaluateAll((nodes) => nodes.map((n) => n.getAttribute("href") ?? ""));
+    const hrefs = await page.locator(".jx a[href]:not(#skill a)").evaluateAll((nodes) => nodes.map((n) => n.getAttribute("href") ?? ""));
     expect(hrefs.length).toBe(3);
     for (const href of hrefs) {
       if (href.startsWith("#")) continue;

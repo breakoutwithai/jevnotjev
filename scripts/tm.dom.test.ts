@@ -932,7 +932,9 @@ test("[integration] the page and its sources carry no em or en dash and no home 
   for (const file of sources) {
     const src = readFileSync(file, "utf8");
     expect(src).not.toMatch(DASHES);
-    expect(src).not.toMatch(/\/Users\/|~\/|\.claude\//);
+    // The skill's install prompt names the generic install folders on purpose (operator, 2026-10-23):
+    // ~/.agents/skills/tokenmax-map, linked into ~/.claude/skills and ~/.codex/skills. No other home path may appear.
+    expect(src.replace(/<pre id="skillPrompt">[^<]*<\/pre>/, "")).not.toMatch(/\/Users\/|~\/|\.claude\//);
   }
 }, 30000);
 

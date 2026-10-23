@@ -538,14 +538,16 @@ test("[integration] L12-L14 page dimensions and tap targets", async () => {
   for (const [width, height] of VIEWPORTS) for (const motion of MOTIONS) {
     const page = await pageAt(width, height, motion);
     try {
-      const measure = await page.evaluate(() => ({ height: document.documentElement.scrollHeight, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      const measure = await page.evaluate(() => ({ height: document.documentElement.scrollHeight, skill: document.getElementById("skill")?.getBoundingClientRect().height ?? 0, overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         small: [...document.querySelectorAll("button,a,input,select,summary")].filter((node) => {
           const style = getComputedStyle(node);
           const box = node.getBoundingClientRect();
           return style.visibility !== "hidden" && box.width > 0 && box.height > 0 && (box.width < 24 || box.height < 24);
         }).map((node) => `${node.tagName}#${node.id}.${node.className}`) }));
-      // Issue #203's limits: under 8,000 px at 390 and under 5,000 px at 1440.
-      expect(measure.height).toBeLessThan(width === 390 ? 8000 : 5000);
+      // Issue #203's limits: under 8,000 px at 390 and under 5,000 px at 1440, for the page apart from the tokenmax-map
+      // skill block. The operator asked for that block as a large poster (2026-10-23); it has its own cap here.
+      expect(measure.height - measure.skill).toBeLessThan(width === 390 ? 8000 : 5000);
+      expect(measure.skill).toBeLessThan(width === 390 ? 2200 : 950);
       expect(measure.small).toEqual([]);
       expect(measure.overflow).toBe(0);
     } finally { await page.close(); }

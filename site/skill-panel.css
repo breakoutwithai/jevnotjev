@@ -84,9 +84,16 @@
 .sk-out[data-state="playing"] .sk-row { transition: opacity .35s ease, transform .35s ease; }
 
 @media (min-width: 900px) {
-  .skillbill { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; align-items: start; padding: 40px 0 46px; }
-  .sk-skill { padding: 30px 30px 26px; }
-  .sk-out { padding: 22px 22px 26px; transform: rotate(.4deg); }
+  .skillbill { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 36px; align-items: start; padding: 28px 0 32px; }
+  .sk-skill { gap: 10px; padding: 22px 26px 20px; }
+  .skillbill .sk-title { font-size: 46px; }
+  .sk-facts { gap: 4px; font-size: 15px; }
+  .sk-out { gap: 8px; padding: 16px 18px 18px; transform: rotate(.4deg); }
+  .sk-sheet { gap: 7px; padding: 14px 16px 16px; }
+  .sk-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .sk-stats div { padding: 6px 8px; }
+  .sk-stats dd { font-size: 17px; }
+  .sk-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 }
 @media (max-width: 420px) {
   .sk-skill { padding: 20px 16px 18px; border-width: 6px; }
@@ -98,3 +105,9 @@
   .sk-out .sk-row { opacity: 1 !important; transform: none !important; transition: none !important; }
 }
 .sk-sheet .sk-said { display: block; margin-bottom: 2px; color: #6b5440; font: italic 600 13px/1.3 var(--sk-sans); }
+@media (max-width: 899px) {
+  .sk-skill { gap: 10px; }
+  .sk-facts { gap: 4px; }
+  .sk-out { gap: 8px; }
+  .sk-sheet { gap: 7px; }
+}

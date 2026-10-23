@@ -1,7 +1,7 @@
 # Generalized TokenMax summary
 
 Status: DRAFT - NOT APPROVED FOR SHARING
-Skill version: 0.3.0
+Skill version: 0.4.0
 Participant alias: participant-01
 Coverage: unknown
 Sources: unknown

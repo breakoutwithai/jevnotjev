@@ -206,7 +206,8 @@ describe("[integration] scan and report", () => {
     expect(x?.baselines).toBe(2);
     expect(x?.capOccurrences).toBe(2);
     expect(x?.capEpisodes).toEqual({ short: 0, weekly: 1, unknown: 0 });
-    expect(x?.byModel.get("gpt-x")).toBe(188);
+    // #411: output and uncached input per model, never input + output
+    expect(x?.byModel.get("gpt-x")).toEqual({ output: 18, uncachedInput: 110, cachedInput: 60 });
   });
 
   test("[integration] CLI writes both files, share draft is clean, refuses to overwrite", async () => {
@@ -322,8 +323,8 @@ describe("[integration] review #241: records", () => {
   test("[integration] Codex usage is credited to the model active at each reading", async () => {
     const root = codexFiles({ "rollout-m.jsonl": [meta("2026-10-14T08:00:00Z", "cx-m"), turn("2026-10-14T08:00:01Z", "model-a"), tc("2026-10-14T08:01:00Z", tot(100, 10)), turn("2026-10-14T08:02:00Z", "model-b"), tc("2026-10-14T08:03:00Z", tot(130, 20))] });
     const x = summarise(null, await scanCodex(root, FROM, TO)).codex;
-    expect(x?.byModel.get("model-a")).toBe(110);
-    expect(x?.byModel.get("model-b")).toBe(40);
+    expect(x?.byModel.get("model-a")).toEqual({ output: 10, uncachedInput: 100, cachedInput: 0 });
+    expect(x?.byModel.get("model-b")).toEqual({ output: 10, uncachedInput: 30, cachedInput: 0 });
   });
 
   test("[integration] a session with only a baseline still counts its baseline; a cap-only session is a session", async () => {

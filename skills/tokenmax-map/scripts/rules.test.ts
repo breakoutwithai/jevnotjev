@@ -11,6 +11,7 @@ import {
   jevVerdict,
   main,
   paceRule,
+  parseLabels,
   renderDashboard,
   renderPrivate,
   scanClaude,
@@ -18,6 +19,8 @@ import {
   scoreOf,
   scoreThresholds,
   summarise,
+  weekLabel,
+  weekWindows,
 } from "./map.ts";
 
 const FROM = Date.parse("2026-10-09T00:00:00Z");
@@ -157,7 +160,7 @@ describe("[unit] per-session limit and week windows are rule outputs", () => {
     expect(open?.elapsedPercent).toBeCloseTo((57 / 168) * 100, 1);
     const text = renderPrivate(s, { from: "2026-10-09", to: "2026-10-16", byProject: false, sources: ["Codex"] });
     expect(text).toContain("## Week windows");
-    expect(text).toContain("| Source | Window resets (UTC) | Readings | Last used | Max used | Predicted at (elapsed) | Used then | Pace projection | Pace rule: on course to hit | Weekly limit hit | Outcome label |");
+    expect(text).toContain("| Source | Window resets (UTC) | Readings | Last used | Max used | Predicted at (elapsed) | Used then | Pace projection | Pace rule: on course to hit | Weekly limit hit | Outcome | Label key |");
   });
 
   test("[unit] pace rule: projected = used / elapsed x 100, yes at 100 or more", () => {
@@ -304,5 +307,19 @@ describe("[unit] Codex review on #413: rules", () => {
     expect(a?.elapsedPercent).toBeCloseTo((80 / 168) * 100, 1);
     expect(b?.outcome).toBe("unknown");
     expect(c?.outcome).toBe("open");
+  });
+
+  test("[unit] codex gate on #413: 99% one hour before the end and no later reading is unknown, never an inferred not hit", () => {
+    const reset = Date.parse("2026-10-16T00:00:00Z") / 1000;
+    const rows = weekWindows([{ ts: (reset - 4 * 86_400) * 1000, used: 60, resetsAt: reset }, { ts: (reset - 3600) * 1000, used: 99, resetsAt: reset }, { ts: (reset + 3600) * 1000, used: 1, resetsAt: reset + 7 * 86_400 }], []);
+    expect(rows.map((w) => w.outcome)).toEqual(["unknown", "open"]);
+    const closed = rows[0];
+    expect(closed ? weekLabel(closed, null) : "missing").toBeNull();
+    if (closed) {
+      expect(weekLabel(closed, parseLabels(`${closed.key},will_hit,no`, "f"))).toBe(false);
+      expect(weekLabel(closed, parseLabels(`${closed.key},will_hit,yes`, "f"))).toBe(true);
+    }
+    const open = rows[1];
+    expect(open ? weekLabel(open, parseLabels(`${open.key},will_hit,no`, "f")) : "missing").toBeNull();
   });
 });

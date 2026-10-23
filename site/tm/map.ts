@@ -517,15 +517,14 @@ export function paceRule(w: { usedPercent: number; elapsedPercent: number }): { 
  * A weekly window. Codex: readings whose resets_at lie within an hour of the cluster's first are one window (the reset
  * time drifts by seconds between readings); resetsAt is that first value in ms. It ends at its reset time or at the first
  * reading of the next window, whichever is earlier; closed when that end is at or before the last reading seen.
- * hit: a reading at 100% or more. outcome is the label for the pace question: hit; not hit only when the window closed
- * and the last reading falls within OUTCOME_GAP_HOURS of its end (otherwise a cap in the gap cannot be ruled out, so
- * unknown); open while the window runs.
+ * hit: a reading at 100% or more. outcome: hit when observed; open while the window runs; unknown when it closed without
+ * an observed hit, because the meter is account-wide and a cap between readings (or on another device) cannot be ruled
+ * out from local logs. Only the user can label such a window not hit (labels file, question will_hit).
  * The prediction point is the latest reading at or before half the window has elapsed and before any hit, so a label
  * never leaks into its own input; an open window with no such reading uses its latest reading below 100%.
  * Claude: one row per weekly cap episode (no meter reading exists).
  */
-export const OUTCOME_GAP_HOURS = 24;
-export type WeekOutcome = "hit" | "not hit" | "unknown" | "open";
+export type WeekOutcome = "hit" | "unknown" | "open";
 export type WeekRow = {
   source: "claude" | "codex"; key: string; resetsAt: number; reset: string; windowMinutes: number; readings: number; firstTs: number; lastTs: number;
   usedPercent: number; maxUsed: number; hit: boolean; closed: boolean; outcome: WeekOutcome;
@@ -561,7 +560,7 @@ export function weekWindows(readings: WeekReading[], episodes: Episode[]): WeekR
     const beforeHit = byTime.filter((r) => r.ts < firstHit && r.used < 100);
     const early = beforeHit.filter((r) => elapsedAt(r.ts) <= 50);
     const pred = early[early.length - 1] ?? (closed ? undefined : beforeHit[beforeHit.length - 1]);
-    const outcome: WeekOutcome = hit ? "hit" : !closed ? "open" : end - lastR.ts <= OUTCOME_GAP_HOURS * 3_600_000 ? "not hit" : "unknown";
+    const outcome: WeekOutcome = hit ? "hit" : closed ? "unknown" : "open";
     const elapsed = pred ? Math.round(elapsedAt(pred.ts) * 10) / 10 : null;
     const pace = pred && elapsed !== null ? paceRule({ usedPercent: pred.used, elapsedPercent: elapsedAt(pred.ts) }) : null;
     const changes: number[] = [];
@@ -845,13 +844,13 @@ export function renderPrivate(s: Summary, o: PrivateOptions): string {
     L.push("");
   }
 
-  L.push(`## Week windows`, "", `Rule outputs, no Jev. Weekly limit hit: a reading at used_percent 100 or more (Codex) or a Claude "weekly limit" notice. Pace rule at the prediction point (the latest reading at or before half the window, before any hit; for an open window the latest reading): projected = used share / elapsed share x 100, on course to hit at 100 or more. Outcome label: hit; not hit only when the window closed (its reset passed or a newer window replaced it) with a reading within ${OUTCOME_GAP_HOURS} hours of its end; otherwise unknown; open while it runs.`, "");
+  L.push(`## Week windows`, "", `Rule outputs, no Jev. Weekly limit hit: a reading at used_percent 100 or more (Codex) or a Claude "weekly limit" notice. Pace rule at the prediction point (the latest reading at or before half the window, before any hit; for an open window the latest reading): projected = used share / elapsed share x 100, on course to hit at 100 or more. Outcome: hit when observed; open while the window runs; unknown when it closed (its reset passed or a newer window replaced it) without an observed hit, since the meter is account-wide and local logs cannot rule out a cap between readings. To label an unknown window, add a will_hit row (yes or no) with its label key to your labels file.`, "");
   const codexWeeks = s.weeks.filter((w) => w.source === "codex");
   const claudeWeeks = s.weeks.filter((w) => w.source === "claude");
   if (s.weeks.length) {
-    L.push(`| Source | Window resets (UTC) | Readings | Last used | Max used | Predicted at (elapsed) | Used then | Pace projection | Pace rule: on course to hit | Weekly limit hit | Outcome label |`, `|---|---|---|---|---|---|---|---|---|---|---|`);
+    L.push(`| Source | Window resets (UTC) | Readings | Last used | Max used | Predicted at (elapsed) | Used then | Pace projection | Pace rule: on course to hit | Weekly limit hit | Outcome | Label key |`, `|---|---|---|---|---|---|---|---|---|---|---|---|`);
     for (const w of [...codexWeeks, ...claudeWeeks]) {
-      L.push(`| ${w.source === "codex" ? "Codex" : "Claude Code"} | ${w.reset} | ${w.readings ? n(w.readings) : "n/a"} | ${w.source === "codex" ? `${w.usedPercent}%` : "n/a"} | ${w.source === "codex" ? `${w.maxUsed}%` : "n/a"} | ${w.predTs === null || w.elapsedPercent === null ? "n/a" : `${minute(w.predTs)} (${w.elapsedPercent}%)`} | ${w.predUsed === null ? "n/a" : `${w.predUsed}%`} | ${w.projected === null ? "n/a" : `${w.projected}%`} | ${w.paceYes === null ? "n/a" : yesNo(w.paceYes)} | ${yesNo(w.hit)} | ${w.outcome} |`);
+      L.push(`| ${w.source === "codex" ? "Codex" : "Claude Code"} | ${w.reset} | ${w.readings ? n(w.readings) : "n/a"} | ${w.source === "codex" ? `${w.usedPercent}%` : "n/a"} | ${w.source === "codex" ? `${w.maxUsed}%` : "n/a"} | ${w.predTs === null || w.elapsedPercent === null ? "n/a" : `${minute(w.predTs)} (${w.elapsedPercent}%)`} | ${w.predUsed === null ? "n/a" : `${w.predUsed}%`} | ${w.projected === null ? "n/a" : `${w.projected}%`} | ${w.paceYes === null ? "n/a" : yesNo(w.paceYes)} | ${yesNo(w.hit)} | ${w.outcome} | ${w.source === "codex" ? w.key : "n/a"} |`);
     }
     L.push("");
   }
@@ -1148,7 +1147,18 @@ export function imageSize(b: Buffer): { format: "png" | "jpg"; width: number; he
 
 /** Labels a user sets on their own sessions: CSV key,question,label with keys from sessions.csv. */
 export type Labels = { rows: Map<string, string>; bad: number; file: string };
-export const LABEL_VALUES: Record<string, readonly string[]> = { helper_size: ["small", "medium", "large", "none"], tokenmax_score: LEVELS };
+export const LABEL_VALUES: Record<string, readonly string[]> = { helper_size: ["small", "medium", "large", "none"], tokenmax_score: LEVELS, will_hit: ["yes", "no"] };
+
+/**
+ * The pace question's label for a window: true for an observed hit, else the user's will_hit row for a closed window,
+ * else null. An open window has no label yet; a closed window without an observed hit is never labelled not hit by inference.
+ */
+export function weekLabel(w: WeekRow, labels: Labels | null): boolean | null {
+  if (w.outcome === "hit") return true;
+  if (w.outcome !== "unknown") return null;
+  const l = labels?.rows.get(`will_hit|${w.key}`);
+  return l === "yes" ? true : l === "no" ? false : null;
+}
 export function parseLabels(text: string, file: string): Labels {
   const rows = new Map<string, string>();
   let bad = 0;
@@ -1173,7 +1183,7 @@ export type JevCall = { id: string; question: "q1" | "q2q3" | "q4"; ref: string;
  */
 export function buildJevPlan(s: Summary, o: { maxCalls: number; now: number; screenshot?: string | null; labels?: Labels | null }): JevCall[] {
   const plan: JevCall[] = [];
-  const rank = (w: WeekRow): number => (w.outcome === "hit" || w.outcome === "not hit" ? 0 : w.outcome === "open" ? 1 : 2);
+  const rank = (w: WeekRow): number => (weekLabel(w, o.labels ?? null) !== null ? 0 : w.outcome === "open" ? 1 : 2);
   const weeks = s.weeks.filter((w) => w.source === "codex" && w.predTs !== null && w.predUsed !== null).sort((a, b) => rank(a) - rank(b) || a.resetsAt - b.resetsAt);
   for (const w of weeks) {
     plan.push({
@@ -1303,17 +1313,17 @@ export function jevOrNot(s: Summary, j: JevRun | null, labels: Labels | null = n
 
   const weeks = s.weeks.filter((w) => w.source === "codex");
   const q1 = new Map(results("q1").map((r) => [r.ref, isRec(r.answers.will_hit) ? Number(r.answers.will_hit.noul) : Number.NaN]));
-  const known = weeks.filter((w) => w.outcome === "hit" || w.outcome === "not hit");
+  const known = weeks.filter((w) => weekLabel(w, labels) !== null);
   const paired1 = known.filter((w) => q1.has(w.key));
-  const jev1 = paired1.filter((w) => ((q1.get(w.key) ?? 0) >= 0.5) === (w.outcome === "hit")).length;
-  const rule1 = paired1.filter((w) => w.paceYes === (w.outcome === "hit")).length;
+  const jev1 = paired1.filter((w) => ((q1.get(w.key) ?? 0) >= 0.5) === weekLabel(w, labels)).length;
+  const rule1 = paired1.filter((w) => w.paceYes === weekLabel(w, labels)).length;
   const askedWeeks = weeks.filter((w) => q1.has(w.key));
   rows.push({
     question: "Will this week hit the weekly limit before reset?", type: "noul",
     jev: ran ? `${q1.size} answered, ${[...q1.values()].filter((p) => p >= 0.5).length} yes at p >= 0.5` : notRun,
     rule: `${ran ? `on the ${askedWeeks.length} asked: ${askedWeeks.filter((w) => w.paceYes).length} on course; ` : ""}all ${weeks.length} window(s): ${weeks.filter((w) => w.paceYes).length} on course (pace rule)`, llm,
     cost: costCell(spent("q1"), jev1, ran), verdict: jevVerdict({ exact: false, paired: paired1.length, jevAccepted: jev1, ruleAccepted: rule1 }),
-    why: `labels: ${known.length} closed Codex window(s) with a known outcome (${weeks.filter((w) => w.outcome === "unknown").length} unknown: a reading gap before the end); ${paired1.length} paired, 30 needed`,
+    why: `labels: ${known.length} Codex window(s) with a label (an observed hit, or your will_hit row for a closed window); ${weeks.filter((w) => w.outcome === "unknown" && weekLabel(w, labels) === null).length} closed without a label; ${paired1.length} paired, 30 needed`,
   });
 
   const q23 = results("q2q3");
@@ -1381,7 +1391,7 @@ export function renderJevOrNot(rows: JevRow[], j: JevRun | null, labels: Labels 
     for (const r of j.results.filter((x) => !x.ok).slice(0, 10)) L.push(`- Jev call ${r.id} failed: ${r.error}.`);
   }
   if (labels) L.push(`- Labels file: ${labels.rows.size} label(s) read, ${labels.bad} line(s) rejected.`);
-  else L.push("- No labels file. For a verdict on helper size or score, label at least 30 of your sessions in a CSV with columns key,question,label (keys from sessions.csv; helper_size is small, medium, large or none; tokenmax_score is low, ordinary or high) and rerun with --jev --labels FILE.");
+  else L.push("- No labels file. For a verdict, label at least 30 cases in a CSV with columns key,question,label: helper_size (small, medium, large or none) or tokenmax_score (low, ordinary or high) with session keys from sessions.csv, or will_hit (yes or no) with week label keys from the Week windows table. Rerun with --jev --labels FILE.");
   return L;
 }
 

@@ -566,27 +566,34 @@ export function startTheRun(doc: Document): void {
     if (clip && typeof clip.writeText === "function") clip.writeText(PROMPT).then(() => say(COPIED), fallback);
     else fallback();
   });
-  /* ---------- What does Submit send?: the consent text as a disclosure. Hover, keyboard focus or a tap (a click) opens
-     it; a second click, Escape, the pointer leaving or focus moving away closes it. Submit stays aria-describedby it. ---------- */
+  /* ---------- What does Submit send?: the consent text as a disclosure. It shows while the pointer is over the control
+     or the text, while the control has keyboard focus, or after a tap (a click) pins it. A second click or Escape
+     dismisses it until the pointer or focus comes back. Submit stays aria-describedby it. ---------- */
   const tipBtn = id("consentTip", HTMLButtonElement), tipText = id("submitConsent", HTMLElement);
-  let tipPinned = false, tipTimer = 0;
+  const tip = { hover: false, focused: false, pinned: false, dismissed: false };
+  let tipTimer = 0;
   // Without this script the text stays shown in place and the control stays hidden (tm.css keys both on .tip-ready).
   tipBtn.parentElement?.classList.add("tip-ready");
-  function tipShow(open: boolean): void {
+  const tipOpen = (): boolean => !tip.dismissed && (tip.pinned || tip.hover || tip.focused);
+  function tipSync(): void {
     win.clearTimeout(tipTimer);
+    const open = tipOpen();
     tipText.classList.toggle("open", open);
     tipBtn.setAttribute("aria-expanded", String(open));
   }
   for (const el of [tipBtn, tipText]) {
-    el.addEventListener("mouseenter", () => tipShow(true));
-    el.addEventListener("mouseleave", () => { win.clearTimeout(tipTimer); tipTimer = win.setTimeout(() => tipShow(tipPinned), 150); });
+    el.addEventListener("mouseenter", () => { tip.hover = true; tip.dismissed = false; tipSync(); });
+    el.addEventListener("mouseleave", () => { win.clearTimeout(tipTimer); tipTimer = win.setTimeout(() => { tip.hover = false; tipSync(); }, 150); });
   }
-  tipBtn.addEventListener("focus", () => tipShow(true));
-  tipBtn.addEventListener("blur", () => { tipPinned = false; tipShow(false); });
-  tipBtn.addEventListener("click", () => { tipPinned = !tipPinned; tipShow(tipPinned); });
+  tipBtn.addEventListener("focus", () => { tip.focused = true; tip.dismissed = false; tipSync(); });
+  tipBtn.addEventListener("blur", () => { tip.focused = false; tip.pinned = false; tipSync(); });
+  tipBtn.addEventListener("click", () => {
+    if (tip.pinned && tipOpen()) { tip.pinned = false; tip.dismissed = true; } else { tip.pinned = true; tip.dismissed = false; }
+    tipSync();
+  });
   doc.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || !tipText.classList.contains("open")) return;
-    tipPinned = false; tipShow(false);
+    if (e.key !== "Escape" || !tipOpen()) return;
+    tip.pinned = false; tip.dismissed = true; tipSync();
   });
   /** Skip to the command and #command move focus to the prompt section, unless focus is already inside it: a late
    * fonts.ready or a hashchange must never pull focus out of the paste box (the Cmd+V bug, 2026-10-21). */

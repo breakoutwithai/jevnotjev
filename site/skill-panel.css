@@ -90,7 +90,7 @@
   .sk-facts { gap: 4px; font-size: 15px; }
   .sk-out { gap: 8px; padding: 16px 18px 18px; transform: rotate(.4deg); }
   .sk-sheet { gap: 7px; padding: 14px 16px 16px; }
-  .sk-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .sk-stats { gap: 6px; }
   .sk-stats div { padding: 6px 8px; }
   .sk-stats dd { font-size: 17px; }
   .sk-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -110,4 +110,8 @@
   .sk-facts { gap: 4px; }
   .sk-out { gap: 8px; }
   .sk-sheet { gap: 7px; }
+}
+/* Four figures in one row only where each cell holds its longest number (1,240,500 at 17 px). */
+@media (min-width: 1200px) {
+  .sk-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }

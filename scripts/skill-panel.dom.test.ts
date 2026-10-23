@@ -63,10 +63,21 @@ test("[unit] SK-1 the home page carries the skill block directly after the week 
   expect(html.slice(html.lastIndexOf("</section>", payoff), payoff).trim()).toBe("</section>");
 });
 
+// The site flow never shows a run command (operator rule): no curl, no bun, no terminal, inside the block or its files.
+const RUN_WORDS = /\bcurl\b|\bbun\b|terminal|\bnpx\b|\bnpm\b/i;
+const skillBlock = (html: string): string => /<section class="skillbill" id="skill"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
 test("[unit] SK-2 no curl one-liner, no bun run and no terminal wording on either page or in the block's own files", () => {
-  for (const rel of ["index.html", "tm/index.html", "skill-panel.js", "skill-panel.css"]) {
-    expect({ rel, curl: /\bcurl\b/i.test(read(rel)), pipe: /\|\s*bun\b/.test(read(rel)) }).toEqual({ rel, curl: false, pipe: false });
+  for (const rel of ["index.html", "tm/index.html"]) {
+    const html = read(rel);
+    expect({ rel, curl: /\bcurl\b/i.test(html), pipe: /\|\s*bun\b/.test(html) }).toEqual({ rel, curl: false, pipe: false });
+    const block = skillBlock(html);
+    expect(block.length).toBeGreaterThan(1000);
+    expect({ rel, run: RUN_WORDS.exec(block)?.[0] ?? null }).toEqual({ rel, run: null });
   }
+  for (const rel of ["skill-panel.js", "skill-panel.css"]) expect({ rel, run: RUN_WORDS.exec(read(rel))?.[0] ?? null }).toEqual({ rel, run: null });
+  expect(RUN_WORDS.exec(INSTALL)).toBeNull();
+  // The checker fails planted run wording.
+  for (const planted of ["Open your terminal and run bun run map", "curl -fsSL x", "npx tokenmax"]) expect(RUN_WORDS.test(planted)).toBe(true);
 });
 
 test("[unit] SK-3 the example report uses the headings and wording renderPrivate writes", () => {
@@ -149,6 +160,11 @@ for (const path of PAGES) test(`[integration] SK-6 ${path} reduced motion shows 
         // Before it is in view, the report waits at its first frame.
         expect(await page.locator("#skillOut").getAttribute("data-state")).toBe("ready");
         await page.locator("#skillOut").scrollIntoViewIfNeeded();
+        // Mid-print: some rows shown, some still waiting, while playing.
+        await page.waitForFunction(() => {
+          const out = document.getElementById("skillOut"), all = out?.querySelectorAll(".sk-row").length ?? 0, on = out?.querySelectorAll(".sk-row.on").length ?? 0;
+          return out?.getAttribute("data-state") === "playing" && on > 0 && on < all;
+        }, undefined, { timeout: 10000 });
         await page.waitForFunction(() => document.getElementById("skillOut")?.getAttribute("data-state") === "done", undefined, { timeout: 15000 });
       }
       const shown = await rows.evaluateAll((els) => els.map((e) => Number(getComputedStyle(e).opacity)));
@@ -189,6 +205,11 @@ test("[integration] SK-8 /tm/ What does Submit send? opens on focus, on click an
       await tip.focus();
       expect(await text.isVisible()).toBe(true);
       expect(await tip.getAttribute("aria-expanded")).toBe("true");
+      // The pointer passing over and away does not close it while the control keeps keyboard focus.
+      await tip.hover();
+      await page.locator("#hCmd").hover();
+      await page.waitForTimeout(300);
+      expect(await text.isVisible()).toBe(true);
       await page.keyboard.press("Escape");
       expect(await text.isVisible()).toBe(false);
       expect(await tip.getAttribute("aria-expanded")).toBe("false");
@@ -210,3 +231,17 @@ test("[integration] SK-8 /tm/ What does Submit send? opens on focus, on click an
     } finally { await close(page); }
   }
 }, 40000);
+
+for (const [width, height] of [[900, 900], [1024, 768], [1200, 900], [1440, 900]] as const) test(`[integration] SK-10 every report figure stays inside its cell at ${width}`, async () => {
+  for (const path of PAGES) {
+    const page = await open(path, width, height, "reduce");
+    try {
+      const spill = await page.evaluate(() => [...document.querySelectorAll("#skillOut .sk-stats dd, #skillOut .sk-stats dt")].flatMap((el) => {
+        const range = document.createRange(); range.selectNodeContents(el);
+        const text = range.getBoundingClientRect(), cell = (el.parentElement ?? el).getBoundingClientRect();
+        return text.right > cell.right + 0.5 || text.left < cell.left - 0.5 ? [el.textContent ?? ""] : [];
+      }));
+      expect({ path, spill }).toEqual({ path, spill: [] });
+    } finally { await close(page); }
+  }
+}, 30000);

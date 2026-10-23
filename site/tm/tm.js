@@ -2110,34 +2110,56 @@
         fallback();
     });
     const tipBtn = id("consentTip", HTMLButtonElement), tipText = id("submitConsent", HTMLElement);
-    let tipPinned = false, tipTimer = 0;
+    const tip = { hover: false, focused: false, pinned: false, dismissed: false };
+    let tipTimer = 0;
     tipBtn.parentElement?.classList.add("tip-ready");
-    function tipShow(open) {
+    const tipOpen = () => !tip.dismissed && (tip.pinned || tip.hover || tip.focused);
+    function tipSync() {
       win.clearTimeout(tipTimer);
+      const open = tipOpen();
       tipText.classList.toggle("open", open);
       tipBtn.setAttribute("aria-expanded", String(open));
     }
     for (const el of [tipBtn, tipText]) {
-      el.addEventListener("mouseenter", () => tipShow(true));
+      el.addEventListener("mouseenter", () => {
+        tip.hover = true;
+        tip.dismissed = false;
+        tipSync();
+      });
       el.addEventListener("mouseleave", () => {
         win.clearTimeout(tipTimer);
-        tipTimer = win.setTimeout(() => tipShow(tipPinned), 150);
+        tipTimer = win.setTimeout(() => {
+          tip.hover = false;
+          tipSync();
+        }, 150);
       });
     }
-    tipBtn.addEventListener("focus", () => tipShow(true));
+    tipBtn.addEventListener("focus", () => {
+      tip.focused = true;
+      tip.dismissed = false;
+      tipSync();
+    });
     tipBtn.addEventListener("blur", () => {
-      tipPinned = false;
-      tipShow(false);
+      tip.focused = false;
+      tip.pinned = false;
+      tipSync();
     });
     tipBtn.addEventListener("click", () => {
-      tipPinned = !tipPinned;
-      tipShow(tipPinned);
+      if (tip.pinned && tipOpen()) {
+        tip.pinned = false;
+        tip.dismissed = true;
+      } else {
+        tip.pinned = true;
+        tip.dismissed = false;
+      }
+      tipSync();
     });
     doc.addEventListener("keydown", (e) => {
-      if (e.key !== "Escape" || !tipText.classList.contains("open"))
+      if (e.key !== "Escape" || !tipOpen())
         return;
-      tipPinned = false;
-      tipShow(false);
+      tip.pinned = false;
+      tip.dismissed = true;
+      tipSync();
     });
     function focusCommand() {
       if (!command.contains(doc.activeElement))

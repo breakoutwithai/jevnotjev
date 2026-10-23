@@ -171,13 +171,13 @@ async function endState(page: Page): Promise<EndState> {
 }
 
 /** The stage's act line for each ending (the review card that once named the verdict is gone, operator 2026-10-21). */
-export const WITHOUT_ACT = "Without TokenMax \u00b7 every step in the royal box";
-export const WITH_ACT = { burn: "With TokenMax \u00b7 each step in its seat", under: "With TokenMax \u00b7 cheaper seats, then more jobs" };
+export const WITHOUT_ACT = "1 week, without Jev";
+export const WITH_ACT = { burn: "1 week, with Jev", under: "1 week, with Jev" };
 /** What each end-state deep link must show. */
 export function expectedEnd(hash: string, s: EndState): string | null {
   const ok = (cond: boolean): string | null => cond ? null : JSON.stringify(s);
   if (hash === "#burn-before") return ok(s.drop && s.cancelled === 3 && s.act === WITHOUT_ACT);
-  if (hash === "#burn-after") return ok(s.settled && s.act === WITH_ACT.burn && s.badge === "Lasted to Sunday");
+  if (hash === "#burn-after") return ok(s.settled && s.act === WITH_ACT.burn && s.badge === "Limit lasted all week");
   if (hash === "#under-before") return ok(s.ghost && s.half === 7 && s.act === WITHOUT_ACT);
   if (hash === "#under-after") return ok(s.settled && s.extra === 6 && s.act === WITH_ACT.under && s.badge === "Target passed");
   if (hash === "#command") return ok(s.focus === "command" && s.promptShown);
@@ -273,14 +273,14 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
             return {
               jump: document.getElementById("jumpCommand")?.textContent ?? "", mapGone: document.getElementById("mapWeek") === null && document.querySelector(".foot") === null, illustrative: /illustrative/i.test(document.documentElement.textContent ?? ""), keepShown: document.getElementById("keepLights")?.classList.contains("shown") ?? true,
               keep: document.getElementById("keepLights")?.textContent ?? "", pasteLine: document.getElementById("pasteLine") !== null, heading: document.getElementById("hCmd")?.textContent ?? "",
-              trust: document.getElementById("trust")?.textContent ?? "", copy: document.getElementById("copy")?.textContent ?? "", details: document.querySelectorAll("details").length,
+              trust: document.getElementById("trust")?.textContent ?? "", copy: document.getElementById("copy")?.textContent ?? "", details: document.querySelectorAll("#command details").length,
               cards: ["promptCard", "houseCard", "review", "tryBtn", "seating"].filter((n) => document.getElementById(n) !== null),
               // the trust line shares the heading's line at 1440 (it may wrap under it on a phone)
               sameLine: !!h && !!t && Math.abs(h.bottom - t.bottom) < 12, below: !!h && !!t && t.top >= h.bottom - 2,
             };
           });
           const headOk = vp.mobile ? control.sameLine || control.below : control.sameLine;
-          add("no button or footer under the stage, the tagline hidden until a week ends, no Illustrative text, Map your real week heading with the trust line, Copy names where to paste, no gate, no cards", control.jump === "Skip to the command" && control.mapGone && !control.illustrative && !control.keepShown && control.keep === "TokenMax + Jev can help keep the lights on" && !control.pasteLine && control.heading === "Map your real week" && control.trust === "Pasting and Show my week stay in your browser. Only Submit sends anything." && control.copy === "Copy for Claude Code or Codex" && control.details === 0 && control.cards.length === 0 && headOk ? null : JSON.stringify(control));
+          add("no button or footer under the stage, the tagline hidden until a week ends, no Illustrative text, Map your real week heading with the trust line, Copy names where to paste, no gate, no cards", control.jump === "Skip to the command" && control.mapGone && !control.illustrative && !control.keepShown && control.keep === "TokenMax + Jev can help your limit last the week" && !control.pasteLine && control.heading === "Map your real week" && control.trust === "Pasting and Show my week stay in your browser. Only Submit sends anything." && control.copy === "Copy for Claude Code or Codex" && control.details === 0 && control.cards.length === 0 && headOk ? null : JSON.stringify(control));
         }
         const floor = TEXT_FLOOR[vp.width] ?? 12;
         const small: unknown = await page.evaluate(smallText(floor));
@@ -315,7 +315,7 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
         await press(page, "skip");
         await sleep(1000);
         const second = await endState(page);
-        const withEnd = second.settled && second.act === WITH_ACT[mode] && (mode === "under" ? second.extra === 6 : second.badge === "Lasted to Sunday");
+        const withEnd = second.settled && second.act === WITH_ACT[mode] && (mode === "under" ? second.extra === 6 : second.badge === "Limit lasted all week");
         add(`keyboard ${mode}: Skip reaches the With end`, withEnd ? null : JSON.stringify(second));
         add(`keyboard ${mode}: focus on Replay after the second Skip`, second.focus === "replay" ? null : `focus on ${second.focus || "nothing"}`);
         errorsOf(`keyboard ${mode}`, seen);
@@ -432,7 +432,7 @@ async function checkWidth(browser: Browser, vp: Viewport, url: string): Promise<
         await page.waitForFunction(() => document.getElementById("stage")?.classList.contains("settled") === true, null, { timeout: 45000 }).catch(() => undefined);
         await sleep(300);
         const end = await endState(page);
-        add("natural burn: curtain call, Skip hidden at the end", end.settled && end.skipHidden && end.badge === "Lasted to Sunday" ? null : JSON.stringify(end));
+        add("natural burn: curtain call, Skip hidden at the end", end.settled && end.skipHidden && end.badge === "Limit lasted all week" ? null : JSON.stringify(end));
         errorsOf("natural burn", seen);
       } finally { await page.close(); }
     }

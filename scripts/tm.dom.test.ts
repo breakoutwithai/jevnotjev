@@ -905,7 +905,7 @@ test("[integration] TM-5 reduced motion: picking a week and See it with TokenMax
       expect(without).toEqual({ drop: true, act: WITHOUT_ACT, keep: true, skip: true, running: 0 });
       await page.locator("#dropBtn").click();
       const withTm = await page.evaluate(() => ({ settled: document.getElementById("stage")?.classList.contains("settled"), act: document.getElementById("act")?.textContent, badge: document.getElementById("gaugeBadge")?.textContent, running: document.getAnimations().filter((a) => a.playState === "running").length }));
-      expect(withTm).toEqual({ settled: true, act: WITH_ACT.burn, badge: "Lasted to Sunday", running: 0 });
+      expect(withTm).toEqual({ settled: true, act: WITH_ACT.burn, badge: "Limit lasted all week", running: 0 });
     } finally { await close(page); }
   }
 }, 30000);
@@ -1168,10 +1168,10 @@ for (const motion of MOTIONS) test(`[integration] TM-16 a paste shows the card i
       });
       expect(Math.abs(stage.top)).toBeLessThanOrEqual(2);
       expect(stage.focus).toBe("replay");
-      // See it with TokenMax runs the scripted With week, tagged as an example, not the visitor's numbers.
+      // See it with TokenMax runs the scripted With week under its own header; the explainer above says it is made up.
       await page.locator("#dataWith").click();
-      await page.waitForFunction(() => document.getElementById("exampleTag")?.hidden === false, null, { timeout: 3000 });
-      expect(await page.locator("#exampleTag").textContent()).toBe("Example week, not your numbers");
+      await page.waitForFunction(() => document.getElementById("act")?.textContent === "1 week, with Jev", null, { timeout: 3000 });
+      expect(await page.locator("#exampleTag").isVisible()).toBe(false);
       expect(requests.filter((u) => !u.startsWith(`http://127.0.0.1:${server.port}/`))).toEqual([]);
     } finally { await close(page); }
   }
@@ -1317,7 +1317,7 @@ test("[integration] TM-9 Skip while the curtain rises for See it with TokenMax l
 // Operator decision (2026-10-21): the tagline is hidden until a week has played to its end, then fades in under the
 // stage in space kept for it, so nothing moves.
 test("[integration] TM-13 the tagline is hidden at rest, shows after Skip and on every end-state deep link, centred under the stage, with no layout jump", async () => {
-  const TAG = "TokenMax + Jev can help keep the lights on";
+  const TAG = "TokenMax + Jev can help your limit last the week";
   const read = (page: Page): Promise<{ shown: boolean; text: string; top: number; centre: number; vw: number; stageBottom: number; commandTop: number; inText: boolean }> => page.evaluate(() => {
     const el = document.getElementById("keepLights");
     const r = el?.getBoundingClientRect();
@@ -1326,7 +1326,7 @@ test("[integration] TM-13 the tagline is hidden at rest, shows after Skip and on
       text: el?.textContent ?? "", top: (r?.top ?? 0) + scrollY, centre: r ? (r.left + r.right) / 2 : 0, vw: document.documentElement.clientWidth,
       stageBottom: (document.getElementById("stage")?.getBoundingClientRect().bottom ?? 0) + scrollY,
       commandTop: (document.getElementById("command")?.getBoundingClientRect().top ?? 0) + scrollY,
-      inText: document.body.innerText.includes("TokenMax + Jev can help keep the lights on"),
+      inText: document.body.innerText.includes("TokenMax + Jev can help your limit last the week"),
     };
   });
   for (const [width, height] of VIEWS) {
